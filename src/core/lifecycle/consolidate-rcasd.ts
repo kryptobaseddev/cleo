@@ -12,26 +12,26 @@
  * @epic T4798
  */
 
-import { join, dirname } from 'node:path';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
-  renameSync,
-  readFileSync,
   readdirSync,
-  writeFileSync,
-  copyFileSync,
-  unlinkSync,
+  readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { getCleoDirAbsolute } from '../paths.js';
+import { addFrontmatter, buildFrontmatter } from './frontmatter.js';
 import {
-  getStagePath,
   ensureStagePath,
   getLooseResearchFiles,
+  getStagePath,
   listEpicDirs,
 } from './rcasd-paths.js';
-import { addFrontmatter, buildFrontmatter } from './frontmatter.js';
 
 // ============================================================================
 // Types
@@ -307,9 +307,7 @@ export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRec
     const targetPath = join(targetDir, filename);
 
     const related =
-      stage === 'consensus'
-        ? [{ type: 'research' as const, path: '../research/' }]
-        : undefined;
+      stage === 'consensus' ? [{ type: 'research' as const, path: '../research/' }] : undefined;
     records.push(safeMoveWithFrontmatter(filePath, targetPath, epicId, stage, dryRun, related));
   }
 

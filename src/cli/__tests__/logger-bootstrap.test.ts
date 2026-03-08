@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initCliLogger } from '../logger-bootstrap.js';
 
 const { initLoggerMock, getProjectInfoSyncMock } = vi.hoisted(() => ({
@@ -34,11 +34,7 @@ describe('initCliLogger', () => {
     initCliLogger(cwd, loggingConfig);
 
     expect(getProjectInfoSyncMock).toHaveBeenCalledWith(cwd);
-    expect(initLoggerMock).toHaveBeenCalledWith(
-      join(cwd, '.cleo'),
-      loggingConfig,
-      'hash-abc123',
-    );
+    expect(initLoggerMock).toHaveBeenCalledWith(join(cwd, '.cleo'), loggingConfig, 'hash-abc123');
   });
 
   it('initializes logger without projectHash when project-info is unavailable', () => {
@@ -46,10 +42,6 @@ describe('initCliLogger', () => {
 
     initCliLogger(cwd, loggingConfig);
 
-    expect(initLoggerMock).toHaveBeenCalledWith(
-      join(cwd, '.cleo'),
-      loggingConfig,
-      undefined,
-    );
+    expect(initLoggerMock).toHaveBeenCalledWith(join(cwd, '.cleo'), loggingConfig, undefined);
   });
 });

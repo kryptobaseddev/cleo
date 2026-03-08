@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { computeChecksum } from '../../store/json.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { PhaseStatus, PhaseTransition, TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
 import { logOperation } from '../tasks/add.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for listing phases. */
 export interface ListPhasesResult {
@@ -88,7 +88,10 @@ export interface DeletePhaseResult {
  * List all phases with status summaries.
  * @task T4464
  */
-export async function listPhases(_cwd?: string, accessor?: DataAccessor): Promise<ListPhasesResult> {
+export async function listPhases(
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ListPhasesResult> {
   const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
   const currentPhase = data.project?.currentPhase ?? null;
@@ -110,9 +113,9 @@ export async function listPhases(_cwd?: string, accessor?: DataAccessor): Promis
     phases: entries,
     summary: {
       total: entries.length,
-      pending: entries.filter(p => p.status === 'pending').length,
-      active: entries.filter(p => p.status === 'active').length,
-      completed: entries.filter(p => p.status === 'completed').length,
+      pending: entries.filter((p) => p.status === 'pending').length,
+      active: entries.filter((p) => p.status === 'active').length,
+      completed: entries.filter((p) => p.status === 'completed').length,
     },
   };
 }
@@ -121,7 +124,11 @@ export async function listPhases(_cwd?: string, accessor?: DataAccessor): Promis
  * Show the current phase details.
  * @task T4464
  */
-export async function showPhase(slug?: string, _cwd?: string, accessor?: DataAccessor): Promise<ShowPhaseResult> {
+export async function showPhase(
+  slug?: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ShowPhaseResult> {
   const data = await accessor!.loadTaskFile();
   const targetSlug = slug ?? data.project?.currentPhase ?? null;
 
@@ -134,8 +141,8 @@ export async function showPhase(slug?: string, _cwd?: string, accessor?: DataAcc
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${targetSlug}' not found`);
   }
 
-  const phaseTasks = data.tasks.filter(t => t.phase === targetSlug);
-  const completedTasks = phaseTasks.filter(t => t.status === 'done');
+  const phaseTasks = data.tasks.filter((t) => t.phase === targetSlug);
+  const completedTasks = phaseTasks.filter((t) => t.status === 'done');
 
   return {
     slug: targetSlug,
@@ -153,7 +160,11 @@ export async function showPhase(slug?: string, _cwd?: string, accessor?: DataAcc
  * Set the current project phase.
  * @task T4464
  */
-export async function setPhase(options: SetPhaseOptions, _cwd?: string, accessor?: DataAccessor): Promise<SetPhaseResult> {
+export async function setPhase(
+  options: SetPhaseOptions,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<SetPhaseResult> {
   const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
 
@@ -216,10 +227,15 @@ export async function setPhase(options: SetPhaseOptions, _cwd?: string, accessor
   }
 
   await accessor!.saveTaskFile(data);
-  await logOperation('phase_set', options.slug, {
-    previousPhase: oldPhase,
-    isRollback,
-  }, accessor);
+  await logOperation(
+    'phase_set',
+    options.slug,
+    {
+      previousPhase: oldPhase,
+      isRollback,
+    },
+    accessor,
+  );
 
   return {
     previousPhase: oldPhase,
@@ -237,7 +253,11 @@ export async function setPhase(options: SetPhaseOptions, _cwd?: string, accessor
  * Start a phase (pending -> active).
  * @task T4464
  */
-export async function startPhase(slug: string, _cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; startedAt: string }> {
+export async function startPhase(
+  slug: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{ phase: string; startedAt: string }> {
   const data = await accessor!.loadTaskFile();
   const phase = data.project?.phases?.[slug];
 
@@ -270,7 +290,11 @@ export async function startPhase(slug: string, _cwd?: string, accessor?: DataAcc
  * Complete a phase (active -> completed).
  * @task T4464
  */
-export async function completePhase(slug: string, _cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; completedAt: string }> {
+export async function completePhase(
+  slug: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{ phase: string; completedAt: string }> {
   const data = await accessor!.loadTaskFile();
   const phase = data.project?.phases?.[slug];
 
@@ -286,7 +310,7 @@ export async function completePhase(slug: string, _cwd?: string, accessor?: Data
   }
 
   // Check for incomplete tasks
-  const incompleteTasks = data.tasks.filter(t => t.phase === slug && t.status !== 'done');
+  const incompleteTasks = data.tasks.filter((t) => t.phase === slug && t.status !== 'done');
   if (incompleteTasks.length > 0) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
@@ -312,7 +336,11 @@ export async function completePhase(slug: string, _cwd?: string, accessor?: Data
  * Advance to the next phase.
  * @task T4464
  */
-export async function advancePhase(force: boolean = false, _cwd?: string, accessor?: DataAccessor): Promise<AdvancePhaseResult> {
+export async function advancePhase(
+  force: boolean = false,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<AdvancePhaseResult> {
   const data = await accessor!.loadTaskFile();
   const currentSlug = data.project?.currentPhase ?? null;
 
@@ -327,8 +355,7 @@ export async function advancePhase(force: boolean = false, _cwd?: string, access
   }
 
   // Find next phase by order
-  const sortedEntries = Object.entries(phases)
-    .sort(([, a], [, b]) => a.order - b.order);
+  const sortedEntries = Object.entries(phases).sort(([, a], [, b]) => a.order - b.order);
 
   const currentIndex = sortedEntries.findIndex(([slug]) => slug === currentSlug);
   if (currentIndex === -1 || currentIndex >= sortedEntries.length - 1) {
@@ -338,10 +365,10 @@ export async function advancePhase(force: boolean = false, _cwd?: string, access
   const [nextSlug] = sortedEntries[currentIndex + 1]!;
 
   // Check incomplete tasks
-  const incompleteTasks = data.tasks.filter(t => t.phase === currentSlug && t.status !== 'done');
+  const incompleteTasks = data.tasks.filter((t) => t.phase === currentSlug && t.status !== 'done');
   if (incompleteTasks.length > 0) {
     // Check critical tasks
-    const criticalTasks = incompleteTasks.filter(t => t.priority === 'critical');
+    const criticalTasks = incompleteTasks.filter((t) => t.priority === 'critical');
     if (criticalTasks.length > 0) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
@@ -350,10 +377,9 @@ export async function advancePhase(force: boolean = false, _cwd?: string, access
     }
 
     // Check completion threshold
-    const totalTasks = data.tasks.filter(t => t.phase === currentSlug).length;
-    const completionPercent = totalTasks > 0
-      ? Math.floor((totalTasks - incompleteTasks.length) * 100 / totalTasks)
-      : 0;
+    const totalTasks = data.tasks.filter((t) => t.phase === currentSlug).length;
+    const completionPercent =
+      totalTasks > 0 ? Math.floor(((totalTasks - incompleteTasks.length) * 100) / totalTasks) : 0;
     const threshold = 90;
 
     if (completionPercent < threshold && !force) {
@@ -381,7 +407,13 @@ export async function advancePhase(force: boolean = false, _cwd?: string, access
   data._meta.checksum = computeChecksum(data.tasks);
 
   addPhaseHistoryEntry(data, currentSlug, 'completed', null, 'Phase completed via advance');
-  addPhaseHistoryEntry(data, nextSlug, 'started', currentSlug, `Phase started via advance from ${currentSlug}`);
+  addPhaseHistoryEntry(
+    data,
+    nextSlug,
+    'started',
+    currentSlug,
+    `Phase started via advance from ${currentSlug}`,
+  );
 
   await accessor!.saveTaskFile(data);
 
@@ -396,7 +428,12 @@ export async function advancePhase(force: boolean = false, _cwd?: string, access
  * Rename a phase and update all task references.
  * @task T4464
  */
-export async function renamePhase(oldName: string, newName: string, _cwd?: string, accessor?: DataAccessor): Promise<RenamePhaseResult> {
+export async function renamePhase(
+  oldName: string,
+  newName: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<RenamePhaseResult> {
   const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
 
@@ -467,7 +504,7 @@ export async function deletePhase(
     );
   }
 
-  const phaseTasks = data.tasks.filter(t => t.phase === slug);
+  const phaseTasks = data.tasks.filter((t) => t.phase === slug);
 
   if (phaseTasks.length > 0 && !options.reassignTo) {
     throw new CleoError(
@@ -483,7 +520,10 @@ export async function deletePhase(
   // Validate reassignment target
   if (options.reassignTo) {
     if (!phases[options.reassignTo]) {
-      throw new CleoError(ExitCode.NOT_FOUND, `Reassignment target phase '${options.reassignTo}' does not exist`);
+      throw new CleoError(
+        ExitCode.NOT_FOUND,
+        `Reassignment target phase '${options.reassignTo}' does not exist`,
+      );
     }
   }
 
@@ -527,7 +567,7 @@ function addPhaseHistoryEntry(
     data.project.phaseHistory = [];
   }
 
-  const taskCount = data.tasks.filter(t => t.phase === phase).length;
+  const taskCount = data.tasks.filter((t) => t.phase === phase).length;
 
   data.project.phaseHistory.push({
     phase,

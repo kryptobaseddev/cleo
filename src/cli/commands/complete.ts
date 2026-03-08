@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

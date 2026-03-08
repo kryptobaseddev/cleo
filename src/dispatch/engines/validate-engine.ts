@@ -12,42 +12,41 @@
 
 import { resolveProjectRoot } from '../../core/platform.js';
 import {
-  coreValidateSchema,
-  coreValidateTask,
-  coreValidateProtocol,
-  coreValidateManifest,
-  coreValidateOutput,
+  type CoherenceIssue,
+  coreBatchValidate,
+  coreCoherenceCheck,
+  coreComplianceRecord,
   coreComplianceSummary,
   coreComplianceViolations,
-  coreComplianceRecord,
-  coreTestStatus,
-  coreCoherenceCheck,
-  coreTestRun,
-  coreBatchValidate,
   coreTestCoverage,
-  type CoherenceIssue,
+  coreTestRun,
+  coreTestStatus,
+  coreValidateManifest,
+  coreValidateOutput,
+  coreValidateProtocol,
+  coreValidateSchema,
+  coreValidateTask,
 } from '../../core/validation/validate-ops.js';
-import { engineError, type EngineResult } from './_error.js';
+import { type EngineResult, engineError } from './_error.js';
 
 /**
  * validate.schema - JSON Schema validation
  * @task T4477
  */
-export function validateSchemaOp(
-  type: string,
-  data?: unknown,
-  projectRoot?: string
-): EngineResult {
+export function validateSchemaOp(type: string, data?: unknown, projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreValidateSchema(type, data, root);
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('Unknown schema') ? 'E_INVALID_TYPE'
-      : message.includes('required') ? 'E_INVALID_INPUT'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('Unknown schema')
+        ? 'E_INVALID_TYPE'
+        : message.includes('required')
+          ? 'E_INVALID_INPUT'
+          : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -56,10 +55,7 @@ export function validateSchemaOp(
  * validate.task - Anti-hallucination task validation
  * @task T4477
  */
-export async function validateTask(
-  taskId: string,
-  projectRoot?: string
-): Promise<EngineResult> {
+export async function validateTask(taskId: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = await coreValidateTask(taskId, root);
@@ -78,7 +74,7 @@ export async function validateTask(
 export async function validateProtocol(
   taskId: string,
   protocolType?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -95,9 +91,7 @@ export async function validateProtocol(
  * validate.manifest - Manifest entry validation
  * @task T4477
  */
-export function validateManifest(
-  projectRoot?: string
-): EngineResult {
+export function validateManifest(projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreValidateManifest(root);
@@ -114,7 +108,7 @@ export function validateManifest(
 export function validateOutput(
   filePath: string,
   taskId?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -131,9 +125,7 @@ export function validateOutput(
  * validate.compliance.summary - Aggregated compliance metrics
  * @task T4477
  */
-export function validateComplianceSummary(
-  projectRoot?: string
-): EngineResult {
+export function validateComplianceSummary(projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreComplianceSummary(root);
@@ -147,10 +139,7 @@ export function validateComplianceSummary(
  * validate.compliance.violations - List compliance violations
  * @task T4477
  */
-export function validateComplianceViolations(
-  limit?: number,
-  projectRoot?: string
-): EngineResult {
+export function validateComplianceViolations(limit?: number, projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreComplianceViolations(limit, root);
@@ -169,7 +158,7 @@ export function validateComplianceRecord(
   result: string,
   protocol?: string,
   violations?: Array<{ code: string; message: string; severity: string }>,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -184,9 +173,7 @@ export function validateComplianceRecord(
  * validate.test.status - Test suite status
  * @task T4477
  */
-export function validateTestStatus(
-  projectRoot?: string
-): EngineResult {
+export function validateTestStatus(projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreTestStatus(root);
@@ -201,7 +188,7 @@ export function validateTestStatus(
  * @task T4477
  */
 export async function validateCoherenceCheck(
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult<{ coherent: boolean; issues: CoherenceIssue[] }>> {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -218,7 +205,7 @@ export async function validateCoherenceCheck(
  */
 export function validateTestRun(
   params?: { scope?: string; pattern?: string; parallel?: boolean },
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -233,9 +220,7 @@ export function validateTestRun(
  * validate.batch-validate - Batch validate all tasks against schema and rules
  * @task T4632
  */
-export async function validateBatchValidate(
-  projectRoot?: string
-): Promise<EngineResult> {
+export async function validateBatchValidate(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = await coreBatchValidate(root);
@@ -249,9 +234,7 @@ export async function validateBatchValidate(
  * validate.test.coverage - Coverage metrics
  * @task T4477
  */
-export function validateTestCoverage(
-  projectRoot?: string
-): EngineResult {
+export function validateTestCoverage(projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = coreTestCoverage(root);
@@ -266,24 +249,24 @@ export function validateTestCoverage(
 // ============================================================================
 
 import {
-  validateConsensusTask,
   checkConsensusManifest,
+  validateConsensusTask,
 } from '../../core/validation/protocols/consensus.js';
 import {
-  validateContributionTask,
   checkContributionManifest,
+  validateContributionTask,
 } from '../../core/validation/protocols/contribution.js';
 import {
-  validateDecompositionTask,
   checkDecompositionManifest,
+  validateDecompositionTask,
 } from '../../core/validation/protocols/decomposition.js';
 import {
-  validateImplementationTask,
   checkImplementationManifest,
+  validateImplementationTask,
 } from '../../core/validation/protocols/implementation.js';
 import {
-  validateSpecificationTask,
   checkSpecificationManifest,
+  validateSpecificationTask,
 } from '../../core/validation/protocols/specification.js';
 
 interface ProtocolValidationParams {
@@ -302,7 +285,7 @@ interface ProtocolValidationParams {
  */
 export async function validateProtocolConsensus(
   params: ProtocolValidationParams,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const { mode, strict, votingMatrixFile } = params;
@@ -328,9 +311,11 @@ export async function validateProtocolConsensus(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('violations')
+        ? 'E_PROTOCOL_VIOLATION'
+        : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -341,7 +326,7 @@ export async function validateProtocolConsensus(
  */
 export async function validateProtocolContribution(
   params: ProtocolValidationParams,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const { mode, strict } = params;
@@ -361,9 +346,11 @@ export async function validateProtocolContribution(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('violations')
+        ? 'E_PROTOCOL_VIOLATION'
+        : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -374,7 +361,7 @@ export async function validateProtocolContribution(
  */
 export async function validateProtocolDecomposition(
   params: ProtocolValidationParams,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const { mode, strict, epicId } = params;
@@ -394,9 +381,11 @@ export async function validateProtocolDecomposition(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('violations')
+        ? 'E_PROTOCOL_VIOLATION'
+        : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -407,7 +396,7 @@ export async function validateProtocolDecomposition(
  */
 export async function validateProtocolImplementation(
   params: ProtocolValidationParams,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const { mode, strict } = params;
@@ -427,9 +416,11 @@ export async function validateProtocolImplementation(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('violations')
+        ? 'E_PROTOCOL_VIOLATION'
+        : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -440,7 +431,7 @@ export async function validateProtocolImplementation(
  */
 export async function validateProtocolSpecification(
   params: ProtocolValidationParams,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const { mode, strict, specFile } = params;
@@ -460,9 +451,11 @@ export async function validateProtocolSpecification(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found') ? 'E_NOT_FOUND'
-      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
-      : 'E_VALIDATION_ERROR';
+    const code = message.includes('not found')
+      ? 'E_NOT_FOUND'
+      : message.includes('violations')
+        ? 'E_PROTOCOL_VIOLATION'
+        : 'E_VALIDATION_ERROR';
     return engineError(code, message);
   }
 }
@@ -476,11 +469,20 @@ import { computeChecksum } from '../../store/json.js';
 import type { TaskVerification, VerificationGate } from '../../types/task.js';
 
 const VALID_GATES: VerificationGate[] = [
-  'implemented', 'testsPassed', 'qaPassed', 'cleanupDone', 'securityPassed', 'documented',
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'cleanupDone',
+  'securityPassed',
+  'documented',
 ];
 
 const DEFAULT_REQUIRED_GATES: VerificationGate[] = [
-  'implemented', 'testsPassed', 'qaPassed', 'securityPassed', 'documented',
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'securityPassed',
+  'documented',
 ];
 
 function initVerification(): TaskVerification {
@@ -536,7 +538,7 @@ interface GateVerifyResult {
  */
 export async function validateGateVerify(
   params: GateVerifyParams,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult<GateVerifyResult>> {
   try {
     const root = projectRoot || resolveProjectRoot();
@@ -597,7 +599,10 @@ export async function validateGateVerify(
       action = 'set_all';
     } else if (gate) {
       if (!VALID_GATES.includes(gate as VerificationGate)) {
-        return engineError('E_INVALID_INPUT', `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`);
+        return engineError(
+          'E_INVALID_INPUT',
+          `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`,
+        );
       }
 
       verification.gates[gate as VerificationGate] = value;

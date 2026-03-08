@@ -3,16 +3,12 @@
  * @task T4882
  */
 
-import { mkdtemp,rm,writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Snapshot } from '../snapshot/index.js';
-import {
-  getDefaultSnapshotPath,
-  readSnapshot,
-  writeSnapshot
-} from '../snapshot/index.js';
+import { getDefaultSnapshotPath, readSnapshot, writeSnapshot } from '../snapshot/index.js';
 
 describe('snapshot', () => {
   let tempDir: string;

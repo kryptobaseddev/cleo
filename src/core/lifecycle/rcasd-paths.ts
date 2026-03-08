@@ -8,8 +8,8 @@
  * @epic T4798
  */
 
-import { join } from 'node:path';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getCleoDirAbsolute } from '../paths.js';
 
 // Stage subdirectory names (mapped from canonical stage names in stages.ts)
@@ -164,7 +164,9 @@ export function findManifestPath(epicId: string, cwd?: string): string | null {
  * @param cwd - Optional working directory override
  * @returns Array of file info with extracted epic ID
  */
-export function getLooseResearchFiles(cwd?: string): Array<{ file: string; epicId: string; fullPath: string }> {
+export function getLooseResearchFiles(
+  cwd?: string,
+): Array<{ file: string; epicId: string; fullPath: string }> {
   const baseDir = getRcasdBaseDir(cwd);
   if (!existsSync(baseDir)) return [];
 
@@ -197,7 +199,9 @@ export function getLooseResearchFiles(cwd?: string): Array<{ file: string; epicI
  * @param cwd - Optional working directory override
  * @returns Array of epic info with normalized IDs and original directory names
  */
-export function listEpicDirs(cwd?: string): Array<{ epicId: string; dirName: string; fullPath: string }> {
+export function listEpicDirs(
+  cwd?: string,
+): Array<{ epicId: string; dirName: string; fullPath: string }> {
   const cleoDir = getCleoDirAbsolute(cwd);
   const results: Array<{ epicId: string; dirName: string; fullPath: string }> = [];
   const seen = new Set<string>();

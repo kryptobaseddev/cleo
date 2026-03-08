@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerRoadmapCommand(program: Command): void {
@@ -14,10 +14,16 @@ export function registerRoadmapCommand(program: Command): void {
     .option('--include-history', 'Include release history from CHANGELOG')
     .option('--upcoming-only', 'Only show upcoming/planned releases')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'dash', {
-        type: 'roadmap',
-        includeHistory: opts['includeHistory'],
-        upcomingOnly: opts['upcomingOnly'],
-      }, { command: 'roadmap' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'dash',
+        {
+          type: 'roadmap',
+          includeHistory: opts['includeHistory'],
+          upcomingOnly: opts['upcomingOnly'],
+        },
+        { command: 'roadmap' },
+      );
     });
 }

@@ -36,12 +36,12 @@ export interface JsonValidationResult {
  */
 function parseJsonError(error: unknown): { message: string; line?: number; column?: number } {
   const message = String(error);
-  
+
   // Try to extract line/column from standard JSON parse errors
   // Format: "Unexpected token X in JSON at position Y" or similar
   const lineMatch = message.match(/line\s+(\d+)/i);
   const columnMatch = message.match(/column\s+(\d+)/i);
-  
+
   return {
     message,
     line: lineMatch ? parseInt(lineMatch[1], 10) : undefined,
@@ -51,7 +51,7 @@ function parseJsonError(error: unknown): { message: string; line?: number; colum
 
 /**
  * Validate a single JSON file.
- * 
+ *
  * @param filePath - Full path to the JSON file
  * @param countExtractor - Function to extract count from parsed data
  * @returns Validation result
@@ -104,10 +104,10 @@ function validateJsonFile(
 
 /**
  * Validate all JSON source files before migration.
- * 
+ *
  * This function MUST be called BEFORE any destructive database operations.
  * It checks that all JSON files are parseable and contain expected data.
- * 
+ *
  * @param cleoDir - Path to the .cleo directory
  * @returns Validation result with details for each file
  * @task T4725
@@ -127,7 +127,7 @@ export function validateSourceFiles(cleoDir: string): JsonValidationResult {
   }
 
   if (todoJson.exists && !todoJson.valid) {
-    const location = todoJson.line 
+    const location = todoJson.line
       ? ` at line ${todoJson.line}${todoJson.column ? `, column ${todoJson.column}` : ''}`
       : '';
     todoJson.error = `${todoJson.error}${location} in ${todoPath}`;
@@ -145,7 +145,7 @@ export function validateSourceFiles(cleoDir: string): JsonValidationResult {
   }
 
   if (sessionsJson.exists && !sessionsJson.valid) {
-    const location = sessionsJson.line 
+    const location = sessionsJson.line
       ? ` at line ${sessionsJson.line}${sessionsJson.column ? `, column ${sessionsJson.column}` : ''}`
       : '';
     sessionsJson.error = `${sessionsJson.error}${location} in ${sessionsPath}`;
@@ -166,16 +166,15 @@ export function validateSourceFiles(cleoDir: string): JsonValidationResult {
   }
 
   if (archiveJson.exists && !archiveJson.valid) {
-    const location = archiveJson.line 
+    const location = archiveJson.line
       ? ` at line ${archiveJson.line}${archiveJson.column ? `, column ${archiveJson.column}` : ''}`
       : '';
     archiveJson.error = `${archiveJson.error}${location} in ${archivePath}`;
   }
 
   // Calculate totals
-  const totalTasks = 
-    (todoJson.valid ? todoJson.count : 0) + 
-    (archiveJson.valid ? archiveJson.count : 0);
+  const totalTasks =
+    (todoJson.valid ? todoJson.count : 0) + (archiveJson.valid ? archiveJson.count : 0);
 
   // Determine overall validity
   const valid = todoJson.valid && sessionsJson.valid && archiveJson.valid;
@@ -192,7 +191,7 @@ export function validateSourceFiles(cleoDir: string): JsonValidationResult {
 
 /**
  * Format validation result for human-readable output.
- * 
+ *
  * @param result - Validation result
  * @returns Formatted string
  */
@@ -256,20 +255,17 @@ export function formatValidationResult(result: JsonValidationResult): string {
 
 /**
  * Check for task count mismatch between existing database and JSON.
- * 
+ *
  * This helps detect cases where the database has data but JSON is empty
  * (indicating a potential configuration or path issue).
- * 
+ *
  * @param cleoDir - Path to .cleo directory
  * @param jsonTaskCount - Number of tasks found in JSON
  * @returns Warning message if mismatch detected, null otherwise
  */
-export function checkTaskCountMismatch(
-  cleoDir: string, 
-  jsonTaskCount: number,
-): string | null {
+export function checkTaskCountMismatch(cleoDir: string, jsonTaskCount: number): string | null {
   const dbPath = join(cleoDir, 'tasks.db');
-  
+
   if (!existsSync(dbPath)) {
     return null; // No existing DB, no mismatch possible
   }
@@ -282,9 +278,11 @@ export function checkTaskCountMismatch(
 
     // DB exists and has content, but JSON has 0 tasks
     if (jsonTaskCount === 0) {
-      return `WARNING: Existing database (${stats.size} bytes) found but JSON has 0 tasks. ` +
+      return (
+        `WARNING: Existing database (${stats.size} bytes) found but JSON has 0 tasks. ` +
         `This may indicate wrong directory or missing JSON files. ` +
-        `Migration will result in data loss unless JSON files are in the correct location.`;
+        `Migration will result in data loss unless JSON files are in the correct location.`
+      );
     }
   } catch {
     // Can't stat the DB, ignore

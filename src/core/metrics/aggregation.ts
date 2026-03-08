@@ -8,16 +8,12 @@
  * @epic T4454
  */
 
-import { existsSync, appendFileSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import { join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { appendFileSync, existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { getCleoDir, getCleoHome } from '../paths.js';
-import {
-  getCompliancePath,
-  getSessionsMetricsPath,
-  readJsonlFile,
-} from './common.js';
+import { getCompliancePath, getSessionsMetricsPath, readJsonlFile } from './common.js';
 
 function getProjectMetricsDir(cwd?: string): string {
   return join(getCleoDir(cwd), 'metrics');
@@ -39,7 +35,9 @@ function getProjectName(): string {
     }).trim();
     const match = url.match(/[/:]([^/]+?)(?:\.git)?$/);
     if (match) return match[1]!;
-  } catch { /* not a git repo */ }
+  } catch {
+    /* not a git repo */
+  }
   return basename(process.cwd());
 }
 
@@ -76,10 +74,16 @@ export async function syncMetricsToGlobal(
   for (const entry of projectEntries) {
     const ts = entry.timestamp as string;
     const srcId = entry.source_id as string;
-    if (!ts || !srcId) { skipped++; continue; }
+    if (!ts || !srcId) {
+      skipped++;
+      continue;
+    }
 
     const key = `${ts}_${srcId}`;
-    if (!options.force && existingKeys.has(key)) { skipped++; continue; }
+    if (!options.force && existingKeys.has(key)) {
+      skipped++;
+      continue;
+    }
 
     const enriched = { ...entry, project: projectName };
     appendFileSync(globalPath, JSON.stringify(enriched) + '\n');
@@ -131,9 +135,9 @@ export function getProjectComplianceSummary(
 
   let entries = readJsonlFile(projectPath) as ComplianceEntry[];
 
-  if (options.since) entries = entries.filter(e => (e.timestamp ?? '') >= options.since!);
-  if (options.agent) entries = entries.filter(e => e.source_id === options.agent);
-  if (options.category) entries = entries.filter(e => e.category === options.category);
+  if (options.since) entries = entries.filter((e) => (e.timestamp ?? '') >= options.since!);
+  if (options.agent) entries = entries.filter((e) => e.source_id === options.agent);
+  if (options.category) entries = entries.filter((e) => e.category === options.category);
 
   return {
     success: true,
@@ -162,10 +166,10 @@ export function getGlobalComplianceSummary(
   }
 
   let entries = readJsonlFile(globalPath) as ComplianceEntry[];
-  if (options.since) entries = entries.filter(e => (e.timestamp ?? '') >= options.since!);
-  if (options.project) entries = entries.filter(e => e.project === options.project);
+  if (options.since) entries = entries.filter((e) => (e.timestamp ?? '') >= options.since!);
+  if (options.project) entries = entries.filter((e) => e.project === options.project);
 
-  const projects = new Set(entries.map(e => e.project ?? 'unknown'));
+  const projects = new Set(entries.map((e) => e.project ?? 'unknown'));
   const summary = computeComplianceSummary(entries);
 
   return {
@@ -192,8 +196,10 @@ function computeComplianceSummary(
     };
   }
 
-  const avgPassRate = entries.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / total;
-  const avgAdherence = entries.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / total;
+  const avgPassRate =
+    entries.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / total;
+  const avgAdherence =
+    entries.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / total;
   const totalViolations = entries.reduce((s, e) => s + (e.compliance?.violation_count ?? 0), 0);
 
   // Group by severity
@@ -217,7 +223,10 @@ function computeComplianceSummary(
   }
 
   // Time range
-  const timestamps = entries.map(e => e.timestamp ?? '').filter(Boolean).sort();
+  const timestamps = entries
+    .map((e) => e.timestamp ?? '')
+    .filter(Boolean)
+    .sort();
 
   return {
     ...(projectName && { project: projectName }),
@@ -253,8 +262,8 @@ export function getComplianceTrend(
   const cutoffStr = cutoff.toISOString();
 
   let entries = readJsonlFile(metricsPath) as ComplianceEntry[];
-  entries = entries.filter(e => (e.timestamp ?? '') >= cutoffStr);
-  if (options.project) entries = entries.filter(e => e.project === options.project);
+  entries = entries.filter((e) => (e.timestamp ?? '') >= cutoffStr);
+  if (options.project) entries = entries.filter((e) => e.project === options.project);
 
   // Group by date
   const byDate = new Map<string, ComplianceEntry[]>();
@@ -268,8 +277,10 @@ export function getComplianceTrend(
     .map(([date, group]) => ({
       date,
       entries: group.length,
-      avgPassRate: group.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / group.length,
-      avgAdherence: group.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / group.length,
+      avgPassRate:
+        group.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / group.length,
+      avgAdherence:
+        group.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / group.length,
       violations: group.reduce((s, e) => s + (e.compliance?.violation_count ?? 0), 0),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -294,11 +305,14 @@ export function getSkillReliability(
     : getCompliancePath(join(getCleoDir(cwd), 'metrics'));
 
   if (!existsSync(metricsPath)) {
-    return { success: true, result: { skills: [], summary: { totalSkills: 0, avgReliability: 0 } } };
+    return {
+      success: true,
+      result: { skills: [], summary: { totalSkills: 0, avgReliability: 0 } },
+    };
   }
 
   let entries = readJsonlFile(metricsPath) as ComplianceEntry[];
-  if (options.since) entries = entries.filter(e => (e.timestamp ?? '') >= options.since!);
+  if (options.since) entries = entries.filter((e) => (e.timestamp ?? '') >= options.since!);
 
   // Group by source_id (skill)
   const bySkill = new Map<string, ComplianceEntry[]>();
@@ -308,26 +322,29 @@ export function getSkillReliability(
     bySkill.get(skill)!.push(e);
   }
 
-  const skills = Array.from(bySkill.entries()).map(([skill, group]) => {
-    const avgPassRate = group.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / group.length;
-    const avgAdherence = group.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / group.length;
-    const totalViolations = group.reduce((s, e) => s + (e.compliance?.violation_count ?? 0), 0);
-    const reliability = avgPassRate * 0.6 + avgAdherence * 0.4;
+  const skills = Array.from(bySkill.entries())
+    .map(([skill, group]) => {
+      const avgPassRate =
+        group.reduce((s, e) => s + (e.compliance?.compliance_pass_rate ?? 0), 0) / group.length;
+      const avgAdherence =
+        group.reduce((s, e) => s + (e.compliance?.rule_adherence_score ?? 0), 0) / group.length;
+      const totalViolations = group.reduce((s, e) => s + (e.compliance?.violation_count ?? 0), 0);
+      const reliability = avgPassRate * 0.6 + avgAdherence * 0.4;
 
-    return {
-      skill,
-      invocations: group.length,
-      avgPassRate,
-      avgAdherence,
-      totalViolations,
-      reliability,
-    };
-  }).sort((a, b) => b.reliability - a.reliability);
+      return {
+        skill,
+        invocations: group.length,
+        avgPassRate,
+        avgAdherence,
+        totalViolations,
+        reliability,
+      };
+    })
+    .sort((a, b) => b.reliability - a.reliability);
 
   const totalSkills = skills.length;
-  const avgReliability = totalSkills > 0
-    ? skills.reduce((s, sk) => s + sk.reliability, 0) / totalSkills
-    : 0;
+  const avgReliability =
+    totalSkills > 0 ? skills.reduce((s, sk) => s + sk.reliability, 0) / totalSkills : 0;
 
   return {
     success: true,
@@ -348,7 +365,10 @@ export async function logSessionMetrics(
   try {
     appendFileSync(sessionsPath, JSON.stringify(metricsJson) + '\n');
   } catch {
-    return { success: false, error: { code: 'E_LOCK_FAILED', message: 'Failed to append session metrics' } };
+    return {
+      success: false,
+      error: { code: 'E_LOCK_FAILED', message: 'Failed to append session metrics' },
+    };
   }
 
   const sessionId = (metricsJson.session_id as string) ?? 'unknown';
@@ -391,7 +411,7 @@ export function getSessionMetricsSummary(
 
   let entries = readJsonlFile(sessionsPath) as SessionMetricEntry[];
   if (options.since) {
-    entries = entries.filter(e => (e.start_timestamp ?? '') >= options.since!);
+    entries = entries.filter((e) => (e.start_timestamp ?? '') >= options.since!);
   }
 
   const total = entries.length;
@@ -408,9 +428,12 @@ export function getSessionMetricsSummary(
     };
   }
 
-  const avgEfficiency = entries.reduce((s, e) => s + (e.efficiency?.session_efficiency_score ?? 0), 0) / total;
-  const avgInterventionRate = entries.reduce((s, e) => s + (e.efficiency?.human_intervention_rate ?? 0), 0) / total;
-  const avgContextUtil = entries.reduce((s, e) => s + (e.efficiency?.context_utilization ?? 0), 0) / total;
+  const avgEfficiency =
+    entries.reduce((s, e) => s + (e.efficiency?.session_efficiency_score ?? 0), 0) / total;
+  const avgInterventionRate =
+    entries.reduce((s, e) => s + (e.efficiency?.human_intervention_rate ?? 0), 0) / total;
+  const avgContextUtil =
+    entries.reduce((s, e) => s + (e.efficiency?.context_utilization ?? 0), 0) / total;
   const totalTasksCompleted = entries.reduce((s, e) => s + (e.stats?.tasks_completed ?? 0), 0);
   const totalTokensConsumed = entries.reduce((s, e) => s + (e.tokens?.consumed ?? 0), 0);
 
@@ -425,12 +448,12 @@ export function getSessionMetricsSummary(
       totalTokensConsumed,
       avgTasksPerSession: totalTasksCompleted / total,
       byContextUtilization: {
-        low: entries.filter(e => (e.efficiency?.context_utilization ?? 0) < 0.3).length,
-        medium: entries.filter(e => {
+        low: entries.filter((e) => (e.efficiency?.context_utilization ?? 0) < 0.3).length,
+        medium: entries.filter((e) => {
           const cu = e.efficiency?.context_utilization ?? 0;
           return cu >= 0.3 && cu < 0.7;
         }).length,
-        high: entries.filter(e => (e.efficiency?.context_utilization ?? 0) >= 0.7).length,
+        high: entries.filter((e) => (e.efficiency?.context_utilization ?? 0) >= 0.7).length,
       },
     },
   };

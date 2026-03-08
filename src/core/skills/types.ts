@@ -7,16 +7,16 @@
 
 // Re-export CAAMP types where they overlap with CLEO's domain
 export type {
-  Provider,
-  SkillMetadata as CaampSkillMetadata,
-  McpServerConfig,
-  CtSkillEntry,
   CtDispatchMatrix,
   CtManifest,
   CtManifestSkill,
   CtProfileDefinition,
-  CtValidationResult,
+  CtSkillEntry,
   CtValidationIssue,
+  CtValidationResult,
+  McpServerConfig,
+  Provider,
+  SkillMetadata as CaampSkillMetadata,
 } from '@cleocode/caamp';
 
 // ============================================================================
@@ -124,10 +124,10 @@ export interface AgentRegistry {
 
 /** CAAMP search order for skill discovery. */
 export type SkillSearchScope =
-  | 'cleo-home'       // ~/.cleo/skills/
-  | 'agent-skills'    // ~/.claude/skills/ (Claude Code native)
-  | 'app-embedded'    // <project>/skills/
-  | 'marketplace'     // Remote marketplace cache
+  | 'cleo-home' // ~/.cleo/skills/
+  | 'agent-skills' // ~/.claude/skills/ (Claude Code native)
+  | 'app-embedded' // <project>/skills/
+  | 'marketplace' // Remote marketplace cache
   | 'project-custom'; // <project>/.cleo/skills/
 
 /** Ordered search path entry. */
@@ -374,29 +374,29 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   'TASK-EXECUTOR': 'ct-task-executor',
   'task-executor': 'ct-task-executor',
   'ct-task-executor': 'ct-task-executor',
-  'EXECUTOR': 'ct-task-executor',
-  'executor': 'ct-task-executor',
+  EXECUTOR: 'ct-task-executor',
+  executor: 'ct-task-executor',
 
   // Research
   'RESEARCH-AGENT': 'ct-research-agent',
   'research-agent': 'ct-research-agent',
   'ct-research-agent': 'ct-research-agent',
-  'RESEARCH': 'ct-research-agent',
-  'research': 'ct-research-agent',
+  RESEARCH: 'ct-research-agent',
+  research: 'ct-research-agent',
 
   // Epic architect
   'EPIC-ARCHITECT': 'ct-epic-architect',
   'epic-architect': 'ct-epic-architect',
   'ct-epic-architect': 'ct-epic-architect',
-  'ARCHITECT': 'ct-epic-architect',
-  'architect': 'ct-epic-architect',
+  ARCHITECT: 'ct-epic-architect',
+  architect: 'ct-epic-architect',
 
   // Spec writer
   'SPEC-WRITER': 'ct-spec-writer',
   'spec-writer': 'ct-spec-writer',
   'ct-spec-writer': 'ct-spec-writer',
-  'SPEC': 'ct-spec-writer',
-  'spec': 'ct-spec-writer',
+  SPEC: 'ct-spec-writer',
+  spec: 'ct-spec-writer',
 
   // Test writer
   'TEST-WRITER-BATS': 'ct-test-writer-bats',
@@ -404,8 +404,8 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   'ct-test-writer-bats': 'ct-test-writer-bats',
   'TEST-WRITER': 'ct-test-writer-bats',
   'test-writer': 'ct-test-writer-bats',
-  'BATS': 'ct-test-writer-bats',
-  'bats': 'ct-test-writer-bats',
+  BATS: 'ct-test-writer-bats',
+  bats: 'ct-test-writer-bats',
 
   // Library implementer
   'LIBRARY-IMPLEMENTER-BASH': 'ct-library-implementer-bash',
@@ -417,18 +417,18 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   'bash-lib': 'ct-library-implementer-bash',
 
   // Validator
-  'VALIDATOR': 'ct-validator',
-  'validator': 'ct-validator',
+  VALIDATOR: 'ct-validator',
+  validator: 'ct-validator',
   'ct-validator': 'ct-validator',
-  'VALIDATE': 'ct-validator',
-  'validate': 'ct-validator',
+  VALIDATE: 'ct-validator',
+  validate: 'ct-validator',
 
   // Documentor
-  'DOCUMENTOR': 'ct-documentor',
-  'documentor': 'ct-documentor',
+  DOCUMENTOR: 'ct-documentor',
+  documentor: 'ct-documentor',
   'ct-documentor': 'ct-documentor',
-  'DOCS': 'ct-documentor',
-  'docs': 'ct-documentor',
+  DOCS: 'ct-documentor',
+  docs: 'ct-documentor',
 
   // Docs sub-skills
   'DOCS-LOOKUP': 'ct-docs-lookup',
@@ -450,7 +450,7 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   'ct-skill-lookup': 'ct-skill-lookup',
 
   // Orchestrator
-  'ORCHESTRATOR': 'ct-orchestrator',
-  'orchestrator': 'ct-orchestrator',
+  ORCHESTRATOR: 'ct-orchestrator',
+  orchestrator: 'ct-orchestrator',
   'ct-orchestrator': 'ct-orchestrator',
 };

@@ -4,7 +4,7 @@
  * @task T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerVerifyCommand(program: Command): void {
@@ -17,13 +17,19 @@ export function registerVerifyCommand(program: Command): void {
     .option('--all', 'Mark all required gates as passed')
     .option('--reset', 'Reset verification to initial state')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'gate.verify', {
-        taskId,
-        gate: opts['gate'] as string | undefined,
-        value: opts['value'] === 'false' ? false : (opts['gate'] ? true : undefined),
-        agent: opts['agent'] as string | undefined,
-        all: opts['all'] as boolean | undefined,
-        reset: opts['reset'] as boolean | undefined,
-      }, { command: 'verify' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'gate.verify',
+        {
+          taskId,
+          gate: opts['gate'] as string | undefined,
+          value: opts['value'] === 'false' ? false : opts['gate'] ? true : undefined,
+          agent: opts['agent'] as string | undefined,
+          all: opts['all'] as boolean | undefined,
+          reset: opts['reset'] as boolean | undefined,
+        },
+        { command: 'verify' },
+      );
     });
 }

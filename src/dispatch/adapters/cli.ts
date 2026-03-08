@@ -10,16 +10,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Gateway, DispatchResponse } from '../types.js';
+import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
+import { autoRecordDispatchTokenUsage } from '../../core/metrics/token-service.js';
+import { getProjectRoot } from '../../core/paths.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
-import { createSessionResolver } from '../middleware/session-resolver.js';
-import { createSanitizer } from '../middleware/sanitizer.js';
-import { createFieldFilter } from '../middleware/field-filter.js';
 import { createAudit } from '../middleware/audit.js';
-import { getProjectRoot } from '../../core/paths.js';
-import { cliOutput, cliError, type CliOutputOptions } from '../../cli/renderers/index.js';
-import { autoRecordDispatchTokenUsage } from '../../core/metrics/token-service.js';
+import { createFieldFilter } from '../middleware/field-filter.js';
+import { createSanitizer } from '../middleware/sanitizer.js';
+import { createSessionResolver } from '../middleware/session-resolver.js';
+import type { DispatchResponse, Gateway } from '../types.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
 // Used when dispatch handlers return string error codes without exitCode.
@@ -98,10 +98,10 @@ export function createCliDispatcher(): Dispatcher {
   return new Dispatcher({
     handlers,
     middlewares: [
-      createSessionResolver(lookupCliSession),  // T4959: session identity first
+      createSessionResolver(lookupCliSession), // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
-      createAudit(),                             // T4959: CLI now gets audit trail
+      createAudit(), // T4959: CLI now gets audit trail
     ],
   });
 }
@@ -176,18 +176,12 @@ export async function dispatchFromCli(
   } else {
     // Derive exit code from the string error code when exitCode is not set
     const errorCode = response.error?.code ?? 'E_GENERAL';
-    const exitCode = response.error?.exitCode
-      ?? ERROR_CODE_TO_EXIT[errorCode]
-      ?? 1;
-    cliError(
-      response.error?.message ?? 'Unknown error',
-      exitCode,
-      {
-        name: errorCode,
-        details: response.error?.details,
-        fix: response.error?.fix,
-      },
-    );
+    const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
+    cliError(response.error?.message ?? 'Unknown error', exitCode, {
+      name: errorCode,
+      details: response.error?.details,
+      fix: response.error?.fix,
+    });
     process.exit(exitCode);
   }
 }
@@ -204,18 +198,12 @@ export function handleRawError(
 ): void {
   if (response.success) return;
   const errorCode = response.error?.code ?? 'E_GENERAL';
-  const exitCode = response.error?.exitCode
-    ?? ERROR_CODE_TO_EXIT[errorCode]
-    ?? 1;
-  cliError(
-    response.error?.message ?? 'Unknown error',
-    exitCode,
-    {
-      name: errorCode,
-      details: response.error?.details,
-      fix: response.error?.fix,
-    },
-  );
+  const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
+  cliError(response.error?.message ?? 'Unknown error', exitCode, {
+    name: errorCode,
+    details: response.error?.details,
+    fix: response.error?.fix,
+  });
   process.exit(exitCode);
 }
 

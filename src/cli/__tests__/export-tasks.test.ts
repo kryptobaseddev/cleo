@@ -4,8 +4,8 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
+import { describe, expect, it, vi } from 'vitest';
 import { registerExportTasksCommand } from '../commands/export-tasks.js';
 
 vi.mock('../../store/json.js', () => ({

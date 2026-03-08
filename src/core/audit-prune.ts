@@ -11,14 +11,13 @@
  * @task T5339
  */
 
+import { createWriteStream, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { createGzip } from 'node:zlib';
-import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { getLogger } from './logger.js';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 import type { LoggingConfig } from '../types/config.js';
+import { getLogger } from './logger.js';
 
 const log = getLogger('prune');
 
@@ -43,19 +42,14 @@ export interface PruneResult {
  * @param cleoDir  - Absolute path to .cleo directory
  * @param config   - LoggingConfig with auditRetentionDays and archiveBeforePrune
  */
-export async function pruneAuditLog(
-  cleoDir: string,
-  config: LoggingConfig,
-): Promise<PruneResult> {
+export async function pruneAuditLog(cleoDir: string, config: LoggingConfig): Promise<PruneResult> {
   try {
     if (!config.auditRetentionDays || config.auditRetentionDays <= 0) {
       log.debug('auditRetentionDays is 0 or unset; skipping audit prune');
       return { rowsArchived: 0, rowsDeleted: 0 };
     }
 
-    const cutoff = new Date(
-      Date.now() - config.auditRetentionDays * 86_400_000,
-    ).toISOString();
+    const cutoff = new Date(Date.now() - config.auditRetentionDays * 86_400_000).toISOString();
 
     // Derive projectRoot from cleoDir (cleoDir = /path/to/project/.cleo)
     const projectRoot = join(cleoDir, '..');
@@ -67,10 +61,7 @@ export async function pruneAuditLog(
     const db = await getDb(projectRoot);
 
     // Select rows to prune
-    const oldRows = await db
-      .select()
-      .from(auditLog)
-      .where(lt(auditLog.timestamp, cutoff));
+    const oldRows = await db.select().from(auditLog).where(lt(auditLog.timestamp, cutoff));
 
     if (oldRows.length === 0) {
       log.debug('No audit_log rows older than cutoff; nothing to prune');

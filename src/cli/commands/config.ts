@@ -5,17 +5,15 @@
  * @task T4795
  */
 
-import { Command } from 'commander';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { Command } from 'commander';
 import { loadConfig } from '../../core/config.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
+import { formatError } from '../../core/output.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerConfigCommand(program: Command): void {
-  const config = program
-    .command('config')
-    .description('Configuration management');
+  const config = program.command('config').description('Configuration management');
 
   config
     .command('get <key>')

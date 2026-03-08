@@ -53,8 +53,8 @@ export function getScriptCommands(scriptsDir: string): string[] {
 
   try {
     return readdirSync(scriptsDir)
-      .filter(f => f.endsWith('.sh'))
-      .map(f => f.replace(/\.sh$/, ''))
+      .filter((f) => f.endsWith('.sh'))
+      .map((f) => f.replace(/\.sh$/, ''))
       .sort();
   } catch {
     return [];
@@ -72,9 +72,9 @@ export function getIndexScripts(indexPath: string): string[] {
     const content = readFileSync(indexPath, 'utf-8');
     const index: CommandIndex = JSON.parse(content);
     return index.commands
-      .map(cmd => cmd.script ?? '')
-      .filter(s => s)
-      .map(s => s.replace(/\.sh$/, ''))
+      .map((cmd) => cmd.script ?? '')
+      .filter((s) => s)
+      .map((s) => s.replace(/\.sh$/, ''))
       .sort();
   } catch {
     return [];
@@ -91,7 +91,7 @@ export function getIndexCommands(indexPath: string): string[] {
   try {
     const content = readFileSync(indexPath, 'utf-8');
     const index: CommandIndex = JSON.parse(content);
-    return index.commands.map(cmd => cmd.name).sort();
+    return index.commands.map((cmd) => cmd.name).sort();
   } catch {
     return [];
   }
@@ -105,10 +105,7 @@ export function getIndexCommands(indexPath: string): string[] {
  * Check commands index vs scripts directory for sync.
  * @task T4527
  */
-export function checkCommandsSync(
-  scriptsDir: string,
-  indexPath: string,
-): DriftIssue[] {
+export function checkCommandsSync(scriptsDir: string, indexPath: string): DriftIssue[] {
   const issues: DriftIssue[] = [];
 
   const scriptCmds = new Set(getScriptCommands(scriptsDir));
@@ -145,10 +142,7 @@ export function checkCommandsSync(
  * Check wrapper template sync with COMMANDS-INDEX.
  * @task T4527
  */
-export function checkWrapperSync(
-  wrapperPath: string,
-  indexPath: string,
-): DriftIssue[] {
+export function checkWrapperSync(wrapperPath: string, indexPath: string): DriftIssue[] {
   if (!existsSync(wrapperPath) || !existsSync(indexPath)) return [];
 
   const issues: DriftIssue[] = [];
@@ -160,15 +154,13 @@ export function checkWrapperSync(
 
     // Extract commands from wrapper _get_all_commands() function
     const match = wrapperContent.match(/_get_all_commands\(\)\s*\{[^}]*echo\s+"([^"]+)"/);
-    const wrapperCmds = new Set(
-      match ? match[1].split(/\s+/).filter(Boolean) : [],
-    );
+    const wrapperCmds = new Set(match ? match[1].split(/\s+/).filter(Boolean) : []);
 
     // Get non-alias, non-dev-tool commands from index
     const devToolPattern = /Usually called via|Internal development|dev tool/i;
     const indexCmds = index.commands
-      .filter(cmd => !cmd.aliasFor && (!cmd.note || !devToolPattern.test(cmd.note)))
-      .map(cmd => cmd.name);
+      .filter((cmd) => !cmd.aliasFor && (!cmd.note || !devToolPattern.test(cmd.note)))
+      .map((cmd) => cmd.name);
 
     // Find commands in index but not in wrapper
     for (const cmd of indexCmds) {
@@ -193,7 +185,15 @@ export function checkWrapperSync(
 // ============================================================================
 
 const CRITICAL_COMMANDS = [
-  'list', 'add', 'complete', 'find', 'show', 'analyze', 'session', 'focus', 'dash',
+  'list',
+  'add',
+  'complete',
+  'find',
+  'show',
+  'analyze',
+  'session',
+  'focus',
+  'dash',
 ];
 
 /**
@@ -222,7 +222,7 @@ export function detectDrift(
       try {
         const readme = readFileSync(readmePath, 'utf-8');
         const readmeCmds = new Set(
-          (readme.match(/cleo [a-z-]+/g) ?? []).map(m => m.replace('cleo ', '')),
+          (readme.match(/cleo [a-z-]+/g) ?? []).map((m) => m.replace('cleo ', '')),
         );
 
         for (const cmd of CRITICAL_COMMANDS) {
@@ -242,8 +242,8 @@ export function detectDrift(
   }
 
   // Determine exit code
-  const hasErrors = issues.some(i => i.severity === 'error');
-  const hasWarnings = issues.some(i => i.severity === 'warning');
+  const hasErrors = issues.some((i) => i.severity === 'error');
+  const hasWarnings = issues.some((i) => i.severity === 'warning');
   const exitCode: 0 | 1 | 2 = hasErrors ? 2 : hasWarnings ? 1 : 0;
 
   return { mode, issues, exitCode };

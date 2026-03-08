@@ -11,13 +11,13 @@
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { CleoError } from '../errors.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task } from '../../types/task.js';
-import { getAccessor } from '../../store/data-accessor.js';
-import { readRegistryRequired, type NexusRegistryFile } from './registry.js';
-import { parseQuery, validateSyntax, resolveTask } from './query.js';
+import { CleoError } from '../errors.js';
 import { checkPermission } from './permissions.js';
+import { parseQuery, resolveTask, validateSyntax } from './query.js';
+import { type NexusRegistryFile, readRegistryRequired } from './registry.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -204,10 +204,7 @@ export async function nexusDeps(
   direction: 'forward' | 'reverse' = 'forward',
 ): Promise<DepsResult> {
   if (!validateSyntax(taskQuery)) {
-    throw new CleoError(
-      ExitCode.NEXUS_INVALID_SYNTAX,
-      `Invalid query syntax: ${taskQuery}`,
-    );
+    throw new CleoError(ExitCode.NEXUS_INVALID_SYNTAX, `Invalid query syntax: ${taskQuery}`);
   }
 
   const parsed = parseQuery(taskQuery);
@@ -240,7 +237,7 @@ export async function nexusDeps(
   if (direction === 'reverse') {
     // Find what depends on this task
     const dependents = graph.edges.filter(
-      e => e.to === parsed.taskId && e.toProject === parsed.project,
+      (e) => e.to === parsed.taskId && e.toProject === parsed.project,
     );
 
     for (const edge of dependents) {
@@ -353,9 +350,9 @@ export async function criticalPath(): Promise<CriticalPathResult> {
   const graph = await buildGlobalGraph();
 
   // Find all leaf nodes (no outgoing dependency edges)
-  const nodesWithOutgoing = new Set(graph.edges.map(e => `${e.fromProject}:${e.from}`));
-  const allNodeKeys = graph.nodes.map(n => `${n.project}:${n.id}`);
-  const leaves = allNodeKeys.filter(k => !nodesWithOutgoing.has(k));
+  const nodesWithOutgoing = new Set(graph.edges.map((e) => `${e.fromProject}:${e.from}`));
+  const allNodeKeys = graph.nodes.map((n) => `${n.project}:${n.id}`);
+  const leaves = allNodeKeys.filter((k) => !nodesWithOutgoing.has(k));
 
   let longestPath: Array<{ query: string; title: string }> = [];
   let maxLength = 0;
@@ -368,7 +365,7 @@ export async function criticalPath(): Promise<CriticalPathResult> {
 
     if (path.length > maxLength) {
       maxLength = path.length;
-      longestPath = path.reverse().map(n => ({
+      longestPath = path.reverse().map((n) => ({
         query: `${n.project}:${n.id}`,
         title: n.title,
       }));
@@ -380,7 +377,10 @@ export async function criticalPath(): Promise<CriticalPathResult> {
   for (const item of longestPath) {
     try {
       const resolvedTask = await resolveTask(item.query);
-      if (!Array.isArray(resolvedTask) && (resolvedTask.status === 'pending' || resolvedTask.status === 'blocked')) {
+      if (
+        !Array.isArray(resolvedTask) &&
+        (resolvedTask.status === 'pending' || resolvedTask.status === 'blocked')
+      ) {
         blockedBy = item.query;
         break;
       }
@@ -403,11 +403,11 @@ function traceBack(
   if (visited.has(key)) return [];
   visited.add(key);
 
-  const node = graph.nodes.find(n => n.id === taskId && n.project === project);
+  const node = graph.nodes.find((n) => n.id === taskId && n.project === project);
   if (!node) return [];
 
   // Find dependencies (edges where this task is the source)
-  const deps = graph.edges.filter(e => e.from === taskId && e.fromProject === project);
+  const deps = graph.edges.filter((e) => e.from === taskId && e.fromProject === project);
 
   let longestSubpath: NexusGraphNode[] = [];
   for (const dep of deps) {
@@ -426,10 +426,7 @@ function traceBack(
  */
 export async function blockingAnalysis(taskQuery: string): Promise<BlockingAnalysisResult> {
   if (!validateSyntax(taskQuery)) {
-    throw new CleoError(
-      ExitCode.NEXUS_INVALID_SYNTAX,
-      `Invalid query syntax: ${taskQuery}`,
-    );
+    throw new CleoError(ExitCode.NEXUS_INVALID_SYNTAX, `Invalid query syntax: ${taskQuery}`);
   }
 
   const parsed = parseQuery(taskQuery);
@@ -447,7 +444,7 @@ export async function blockingAnalysis(taskQuery: string): Promise<BlockingAnaly
 
     // Find edges where current task is a dependency target (others depend on it)
     const dependents = graph.edges.filter(
-      e => e.to === current.id && e.toProject === current.project,
+      (e) => e.to === current.id && e.toProject === current.project,
     );
 
     for (const dep of dependents) {
@@ -490,7 +487,7 @@ export async function orphanDetection(): Promise<OrphanEntry[]> {
         const targetTask = match[2];
 
         // Check if target project exists
-        const targetEntry = Object.values(registry.projects).find(p => p.name === targetProject);
+        const targetEntry = Object.values(registry.projects).find((p) => p.name === targetProject);
         if (!targetEntry) {
           orphans.push({
             sourceProject: project.name,
@@ -504,7 +501,7 @@ export async function orphanDetection(): Promise<OrphanEntry[]> {
 
         // Check if target task exists
         const targetTasks = await readProjectTasks(targetEntry.path);
-        if (!targetTasks.find(t => t.id === targetTask)) {
+        if (!targetTasks.find((t) => t.id === targetTask)) {
           orphans.push({
             sourceProject: project.name,
             sourceTask: task.id,

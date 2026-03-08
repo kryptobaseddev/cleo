@@ -1,5 +1,5 @@
-import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
 import { sanitizeParams as legacySanitizeParams } from '../lib/security.js';
+import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**
  * Creates a middleware that sanitizes incoming request parameters.
@@ -33,11 +33,11 @@ export function createSanitizer(getProjectRoot?: () => string): Middleware {
             code: 'E_VALIDATION_FAILED',
             exitCode: 6, // VALIDATION_ERROR
             message: error instanceof Error ? error.message : String(error),
-          }
+          },
         };
       }
     }
-    
+
     return next();
   };
 }

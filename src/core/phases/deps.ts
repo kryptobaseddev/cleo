@@ -6,11 +6,11 @@
  * @epic T4654
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { computeChecksum } from '../../store/json.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { CleoError } from '../errors.js';
 
 /**
  * Cached TaskFile loader to avoid repeated file reads within a single operation.
@@ -82,7 +82,7 @@ export interface CycleResult {
  */
 export function buildGraph(tasks: Task[]): Map<string, DepNode> {
   const graph = new Map<string, DepNode>();
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // Initialize nodes
   for (const task of tasks) {
@@ -90,7 +90,7 @@ export function buildGraph(tasks: Task[]): Map<string, DepNode> {
       id: task.id,
       title: task.title,
       status: task.status,
-      depends: (task.depends ?? []).filter(d => taskMap.has(d)),
+      depends: (task.depends ?? []).filter((d) => taskMap.has(d)),
       dependents: [],
     });
   }
@@ -112,7 +112,10 @@ export function buildGraph(tasks: Task[]): Map<string, DepNode> {
  * Get dependency overview for all tasks.
  * @task T4464
  */
-export async function getDepsOverview(cwd?: string, accessor?: DataAccessor): Promise<DepsOverviewResult> {
+export async function getDepsOverview(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<DepsOverviewResult> {
   const data = await loadTaskData(cwd, accessor);
   const graph = buildGraph(data.tasks);
   const nodes = Array.from(graph.values());
@@ -120,10 +123,10 @@ export async function getDepsOverview(cwd?: string, accessor?: DataAccessor): Pr
   return {
     nodes,
     totalTasks: data.tasks.length,
-    withDependencies: nodes.filter(n => n.depends.length > 0).length,
-    withDependents: nodes.filter(n => n.dependents.length > 0).length,
-    roots: nodes.filter(n => n.depends.length === 0).map(n => n.id),
-    leaves: nodes.filter(n => n.dependents.length === 0).map(n => n.id),
+    withDependencies: nodes.filter((n) => n.depends.length > 0).length,
+    withDependents: nodes.filter((n) => n.dependents.length > 0).length,
+    roots: nodes.filter((n) => n.depends.length === 0).map((n) => n.id),
+    leaves: nodes.filter((n) => n.dependents.length === 0).map((n) => n.id),
   };
 }
 
@@ -131,9 +134,13 @@ export async function getDepsOverview(cwd?: string, accessor?: DataAccessor): Pr
  * Get dependencies for a specific task.
  * @task T4464
  */
-export async function getTaskDeps(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskDepsResult> {
+export async function getTaskDeps(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskDepsResult> {
   const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
@@ -141,16 +148,18 @@ export async function getTaskDeps(taskId: string, cwd?: string, accessor?: DataA
 
   const graph = buildGraph(data.tasks);
   const node = graph.get(taskId)!;
-  const taskMap = new Map(data.tasks.map(t => [t.id, t]));
+  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
   const toSummary = (id: string) => {
     const t = taskMap.get(id);
-    return t ? { id: t.id, title: t.title, status: t.status } : { id, title: 'Unknown', status: 'unknown' };
+    return t
+      ? { id: t.id, title: t.title, status: t.status }
+      : { id, title: 'Unknown', status: 'unknown' };
   };
 
   // Find upstream dependencies that are not done (blocking this task)
   const blockedBy = node.depends
-    .filter(depId => {
+    .filter((depId) => {
       const depTask = taskMap.get(depId);
       return depTask && depTask.status !== 'done';
     })
@@ -171,7 +180,7 @@ export async function getTaskDeps(taskId: string, cwd?: string, accessor?: DataA
  */
 export function topologicalSort(tasks: Task[]): Task[] {
   const graph = buildGraph(tasks);
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const visited = new Set<string>();
   const visiting = new Set<string>();
   const result: string[] = [];
@@ -179,7 +188,10 @@ export function topologicalSort(tasks: Task[]): Task[] {
   function dfs(id: string): void {
     if (visited.has(id)) return;
     if (visiting.has(id)) {
-      throw new CleoError(ExitCode.CIRCULAR_REFERENCE, `Circular dependency detected involving task: ${id}`);
+      throw new CleoError(
+        ExitCode.CIRCULAR_REFERENCE,
+        `Circular dependency detected involving task: ${id}`,
+      );
     }
 
     visiting.add(id);
@@ -198,25 +210,29 @@ export function topologicalSort(tasks: Task[]): Task[] {
     dfs(task.id);
   }
 
-  return result.map(id => taskMap.get(id)!).filter(Boolean);
+  return result.map((id) => taskMap.get(id)!).filter(Boolean);
 }
 
 /**
  * Group tasks into parallelizable execution waves.
  * @task T4464
  */
-export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?: DataAccessor): Promise<ExecutionWave[]> {
+export async function getExecutionWaves(
+  epicId?: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ExecutionWave[]> {
   const data = await loadTaskData(cwd, accessor);
-  let tasks = data.tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
+  let tasks = data.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
 
   // Scope to epic if provided
   if (epicId) {
-    const epicTask = data.tasks.find(t => t.id === epicId);
+    const epicTask = data.tasks.find((t) => t.id === epicId);
     if (!epicTask) {
       throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
     }
-    const childIds = new Set(data.tasks.filter(t => t.parentId === epicId).map(t => t.id));
-    tasks = tasks.filter(t => childIds.has(t.id) || t.id === epicId);
+    const childIds = new Set(data.tasks.filter((t) => t.parentId === epicId).map((t) => t.id));
+    tasks = tasks.filter((t) => childIds.has(t.id) || t.id === epicId);
   }
 
   const graph = buildGraph(tasks);
@@ -224,7 +240,7 @@ export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?
   const completed = new Set<string>();
 
   // Filter to only non-done tasks
-  let remaining = new Set(tasks.map(t => t.id));
+  const remaining = new Set(tasks.map((t) => t.id));
 
   let waveNum = 1;
   while (remaining.size > 0) {
@@ -235,7 +251,9 @@ export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?
       if (!node) continue;
 
       // Check if all dependencies are completed
-      const allDepsComplete = node.depends.every(dep => completed.has(dep) || !remaining.has(dep));
+      const allDepsComplete = node.depends.every(
+        (dep) => completed.has(dep) || !remaining.has(dep),
+      );
       if (allDepsComplete) {
         wave.push(id);
       }
@@ -248,7 +266,7 @@ export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?
 
     waves.push({
       wave: waveNum,
-      tasks: wave.map(id => {
+      tasks: wave.map((id) => {
         const node = graph.get(id)!;
         return {
           id,
@@ -273,16 +291,20 @@ export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?
  * Find the critical path (longest dependency chain) from a task.
  * @task T4464
  */
-export async function getCriticalPath(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<CriticalPathResult> {
+export async function getCriticalPath(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<CriticalPathResult> {
   const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
   const graph = buildGraph(data.tasks);
-  const taskMap = new Map(data.tasks.map(t => [t.id, t]));
+  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
   // DFS to find longest path from this task through dependents
   function findLongestPath(id: string, visited: Set<string>): string[] {
@@ -308,7 +330,7 @@ export async function getCriticalPath(taskId: string, cwd?: string, accessor?: D
   const path = findLongestPath(taskId, new Set<string>());
 
   return {
-    path: path.map(id => {
+    path: path.map((id) => {
       const t = taskMap.get(id);
       return t
         ? { id: t.id, title: t.title, status: t.status }
@@ -322,9 +344,14 @@ export async function getCriticalPath(taskId: string, cwd?: string, accessor?: D
  * Find all tasks affected by changes to a given task.
  * @task T4464
  */
-export async function getImpact(taskId: string, maxDepth: number = 10, cwd?: string, accessor?: DataAccessor): Promise<string[]> {
+export async function getImpact(
+  taskId: string,
+  maxDepth: number = 10,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<string[]> {
   const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
@@ -407,17 +434,21 @@ export async function detectCycles(cwd?: string, accessor?: DataAccessor): Promi
  * Build task hierarchy tree.
  * @task T4464
  */
-export async function getTaskTree(rootId?: string, cwd?: string, accessor?: DataAccessor): Promise<TreeNode[]> {
+export async function getTaskTree(
+  rootId?: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TreeNode[]> {
   const data = await loadTaskData(cwd, accessor);
 
-  const taskMap = new Map(data.tasks.map(t => [t.id, t]));
+  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
   function buildChildren(parentId: string | null): TreeNode[] {
     const children = data.tasks
-      .filter(t => (parentId ? t.parentId === parentId : !t.parentId))
+      .filter((t) => (parentId ? t.parentId === parentId : !t.parentId))
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-    return children.map(t => ({
+    return children.map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
@@ -431,13 +462,15 @@ export async function getTaskTree(rootId?: string, cwd?: string, accessor?: Data
     if (!root) {
       throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${rootId}`);
     }
-    return [{
-      id: root.id,
-      title: root.title,
-      status: root.status,
-      type: root.type,
-      children: buildChildren(root.id),
-    }];
+    return [
+      {
+        id: root.id,
+        title: root.title,
+        status: root.status,
+        type: root.type,
+        children: buildChildren(root.id),
+      },
+    ];
   }
 
   return buildChildren(null);
@@ -464,12 +497,12 @@ export async function addRelation(
 ): Promise<{ taskId: string; relatedId: string }> {
   const data = await accessor!.loadTaskFile();
 
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const related = data.tasks.find(t => t.id === relatedId);
+  const related = data.tasks.find((t) => t.id === relatedId);
   if (!related) {
     throw new CleoError(ExitCode.NOT_FOUND, `Related task not found: ${relatedId}`);
   }
@@ -488,4 +521,3 @@ export async function addRelation(
 
   return { taskId, relatedId };
 }
-

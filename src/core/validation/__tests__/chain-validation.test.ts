@@ -4,14 +4,14 @@
  * @task T5402
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { GateContract, WarpChain, WarpLink, WarpStage } from '../../../types/warp-chain.js';
+import { buildDefaultChain } from '../../lifecycle/default-chain.js';
 import {
   validateChain,
   validateChainShape,
   validateGateSatisfiability,
 } from '../chain-validation.js';
-import { buildDefaultChain } from '../../lifecycle/default-chain.js';
-import type { WarpChain, WarpStage, WarpLink, GateContract } from '../../../types/warp-chain.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,7 +105,9 @@ describe('validateChainShape', () => {
     chain.shape.links.push({ from: 'A', to: 'nonexistent', type: 'linear' });
 
     const errors = validateChainShape(chain.shape);
-    expect(errors.some((e) => e.includes('nonexistent') && e.includes('does not reference'))).toBe(true);
+    expect(errors.some((e) => e.includes('nonexistent') && e.includes('does not reference'))).toBe(
+      true,
+    );
   });
 
   it('empty chain fails validation', () => {
@@ -148,7 +150,9 @@ describe('validateChainShape', () => {
     chain.shape.links.push({ from: 'missing-branch', to: 'join', type: 'linear' });
 
     const errors = validateChainShape(chain.shape);
-    expect(errors.some((e) => e.includes('missing-branch') && e.includes('does not reference'))).toBe(true);
+    expect(
+      errors.some((e) => e.includes('missing-branch') && e.includes('does not reference')),
+    ).toBe(true);
   });
 });
 
@@ -168,7 +172,9 @@ describe('validateGateSatisfiability', () => {
     chain.gates.push(gate);
 
     const errors = validateGateSatisfiability(chain);
-    expect(errors.some((e) => e.includes('nonexistent') && e.includes('non-existent stage'))).toBe(true);
+    expect(errors.some((e) => e.includes('nonexistent') && e.includes('non-existent stage'))).toBe(
+      true,
+    );
   });
 
   it('gate with stage_complete check referencing nonexistent stage detected', () => {

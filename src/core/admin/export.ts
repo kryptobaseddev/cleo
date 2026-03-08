@@ -6,29 +6,29 @@
  * @task T5323, T5328
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
 import { writeFile } from 'node:fs/promises';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
 
 export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite';
 
 function taskToCsvRow(task: Task, delimiter: string): string {
-  const escape = (val: string) => {
+  const escapeField = (val: string) => {
     if (val.includes(delimiter) || val.includes('"') || val.includes('\n')) {
       return '"' + val.replace(/"/g, '""') + '"';
     }
     return val;
   };
   return [
-    escape(task.id),
-    escape(task.title),
-    escape(task.status),
-    escape(task.priority),
-    escape(task.type ?? 'task'),
-    escape(task.parentId ?? ''),
-    escape(task.phase ?? ''),
-    escape((task.depends ?? []).join(',')),
-    escape(task.createdAt ?? ''),
+    escapeField(task.id),
+    escapeField(task.title),
+    escapeField(task.status),
+    escapeField(task.priority),
+    escapeField(task.type ?? 'task'),
+    escapeField(task.parentId ?? ''),
+    escapeField(task.phase ?? ''),
+    escapeField((task.depends ?? []).join(',')),
+    escapeField(task.createdAt ?? ''),
   ].join(delimiter);
 }
 
@@ -42,7 +42,8 @@ function taskToTodoWrite(task: Task): Record<string, unknown> {
   return {
     id: task.id,
     content: task.title,
-    status: task.status === 'done' ? 'completed' : task.status === 'active' ? 'in_progress' : 'pending',
+    status:
+      task.status === 'done' ? 'completed' : task.status === 'active' ? 'in_progress' : 'pending',
     priority: task.priority === 'critical' ? 'high' : task.priority,
   };
 }
@@ -89,12 +90,16 @@ export async function exportTasks(params: ExportParams): Promise<ExportResult> {
 
   switch (format) {
     case 'json': {
-      content = JSON.stringify({
-        exportedAt: new Date().toISOString(),
-        projectName: data.project?.name ?? 'Unknown',
-        taskCount: tasks.length,
-        tasks,
-      }, null, 2);
+      content = JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          projectName: data.project?.name ?? 'Unknown',
+          taskCount: tasks.length,
+          tasks,
+        },
+        null,
+        2,
+      );
       break;
     }
     case 'csv': {

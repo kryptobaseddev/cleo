@@ -8,8 +8,8 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { loadReleaseConfig } from './release-config.js';
 
 /** Supported CI/CD platforms. */
@@ -22,7 +22,7 @@ export const SUPPORTED_PLATFORMS: CIPlatform[] = ['github-actions', 'gitlab-ci',
 const PLATFORM_PATHS: Record<CIPlatform, string> = {
   'github-actions': '.github/workflows/release.yml',
   'gitlab-ci': '.gitlab-ci.yml',
-  'circleci': '.circleci/config.yml',
+  circleci: '.circleci/config.yml',
 };
 
 /** Get the output path for a CI platform. */
@@ -41,10 +41,13 @@ export function detectCIPlatform(projectDir?: string): CIPlatform | null {
 }
 
 /** Generate GitHub Actions workflow YAML. */
-function generateGitHubActions(config: { version?: string; gates: Array<{ name: string; command: string }> }): string {
-  const gateSteps = config.gates.map(g =>
-    `      - name: ${g.name}\n        run: ${g.command}`,
-  ).join('\n');
+function generateGitHubActions(config: {
+  version?: string;
+  gates: Array<{ name: string; command: string }>;
+}): string {
+  const gateSteps = config.gates
+    .map((g) => `      - name: ${g.name}\n        run: ${g.command}`)
+    .join('\n');
 
   return `name: Release
 on:
@@ -73,17 +76,21 @@ ${gateSteps}
 
 /** Generate GitLab CI YAML. */
 function generateGitLabCI(config: { gates: Array<{ name: string; command: string }> }): string {
-  const stages = config.gates.map(g => g.name.toLowerCase().replace(/\s+/g, '-'));
+  const stages = config.gates.map((g) => g.name.toLowerCase().replace(/\s+/g, '-'));
 
   return `stages:
   - test
   - release
-${stages.map(s => `  - ${s}`).join('\n')}
+${stages.map((s) => `  - ${s}`).join('\n')}
 
-${config.gates.map(g => `${g.name.toLowerCase().replace(/\s+/g, '-')}:
+${config.gates
+  .map(
+    (g) => `${g.name.toLowerCase().replace(/\s+/g, '-')}:
   stage: ${g.name.toLowerCase().replace(/\s+/g, '-')}
   script:
-    - ${g.command}`).join('\n\n')}
+    - ${g.command}`,
+  )
+  .join('\n\n')}
 
 release:
   stage: release
@@ -105,7 +112,7 @@ jobs:
     steps:
       - checkout
       - run: npm ci
-${config.gates.map(g => `      - run:\n          name: ${g.name}\n          command: ${g.command}`).join('\n')}
+${config.gates.map((g) => `      - run:\n          name: ${g.name}\n          command: ${g.command}`).join('\n')}
 
   release:
     docker:
@@ -131,12 +138,9 @@ workflows:
 }
 
 /** Generate CI config for a platform. */
-export function generateCIConfig(
-  platform: CIPlatform,
-  cwd?: string,
-): string {
+export function generateCIConfig(platform: CIPlatform, cwd?: string): string {
   const releaseConfig = loadReleaseConfig(cwd);
-  const gates = releaseConfig.gates.map(g => ({ name: g.name, command: g.command }));
+  const gates = releaseConfig.gates.map((g) => ({ name: g.name, command: g.command }));
 
   switch (platform) {
     case 'github-actions':

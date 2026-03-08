@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
-import { readJsonRequired, readJson } from '../../store/json.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson, readJsonRequired } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { Task, TaskFile, TaskStatus } from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getArchivePath, getTaskPath } from '../paths.js';
 
 /** Minimal task info for search results. */
 export interface FindResult {
@@ -62,7 +62,7 @@ export function fuzzyScore(query: string, text: string): number {
   const queryWords = q.split(/\s+/);
   let wordMatchCount = 0;
   for (const qw of queryWords) {
-    if (words.some(w => w.startsWith(qw) || w.includes(qw))) {
+    if (words.some((w) => w.startsWith(qw) || w.includes(qw))) {
       wordMatchCount++;
     }
   }
@@ -91,7 +91,11 @@ export function fuzzyScore(query: string, text: string): number {
  * Returns minimal fields only (context-efficient).
  * @task T4460
  */
-export async function findTasks(options: FindTasksOptions, cwd?: string, accessor?: DataAccessor): Promise<FindTasksResult> {
+export async function findTasks(
+  options: FindTasksOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<FindTasksResult> {
   if (!options.query && !options.id) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
   }
@@ -121,7 +125,7 @@ export async function findTasks(options: FindTasksOptions, cwd?: string, accesso
 
   // Apply status filter
   if (options.status) {
-    allTasks = allTasks.filter(t => t.status === options.status);
+    allTasks = allTasks.filter((t) => t.status === options.status);
   }
 
   let results: FindResult[];
@@ -134,23 +138,24 @@ export async function findTasks(options: FindTasksOptions, cwd?: string, accesso
     queryStr = options.id;
     const idQuery = options.id.toUpperCase();
     results = allTasks
-      .filter(t => t.id.toUpperCase().startsWith(idQuery) || t.id.toUpperCase().includes(idQuery))
-      .map(t => ({
+      .filter((t) => t.id.toUpperCase().startsWith(idQuery) || t.id.toUpperCase().includes(idQuery))
+      .map((t) => ({
         id: t.id,
         title: t.title,
         status: t.status,
         priority: t.priority,
         type: t.type,
         parentId: t.parentId,
-        score: t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
+        score:
+          t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
       }));
   } else if (options.exact) {
     // Exact title match
     searchType = 'exact';
     queryStr = options.query!;
     results = allTasks
-      .filter(t => t.title === options.query)
-      .map(t => ({
+      .filter((t) => t.title === options.query)
+      .map((t) => ({
         id: t.id,
         title: t.title,
         status: t.status,

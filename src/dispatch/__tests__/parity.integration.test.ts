@@ -15,22 +15,13 @@
  * @task T5099
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-} from '../../dispatch/engines/_error.js';
+import { type EngineResult, engineError, engineSuccess } from '../../dispatch/engines/_error.js';
 
-import {
-  OPERATIONS,
-  getActiveDomains,
-  getByDomain,
-  resolve,
-} from '../../dispatch/registry.js';
+import { getActiveDomains, getByDomain, OPERATIONS, resolve } from '../../dispatch/registry.js';
 
-import { type CanonicalDomain } from '../../dispatch/types.js';
+import type { CanonicalDomain } from '../../dispatch/types.js';
 
 // ===========================================================================
 // Test Group 1: EngineResult shape contracts
@@ -183,16 +174,15 @@ describe('Integration: Cross-domain registry consistency', () => {
 
   it('idempotent flag is boolean for all operations', () => {
     for (const op of OPERATIONS) {
-      expect(
-        typeof op.idempotent,
-        `${op.domain}.${op.operation} idempotent is not boolean`,
-      ).toBe('boolean');
+      expect(typeof op.idempotent, `${op.domain}.${op.operation} idempotent is not boolean`).toBe(
+        'boolean',
+      );
     }
   });
 
   it('query operations are typically idempotent', () => {
-    const queryOps = OPERATIONS.filter(o => o.gateway === 'query');
-    const idempotentCount = queryOps.filter(o => o.idempotent).length;
+    const queryOps = OPERATIONS.filter((o) => o.gateway === 'query');
+    const idempotentCount = queryOps.filter((o) => o.idempotent).length;
 
     // Most query operations should be idempotent (>90%)
     expect(idempotentCount / queryOps.length).toBeGreaterThan(0.9);

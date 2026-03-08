@@ -14,14 +14,17 @@
  * @epic T4817
  */
 
+import { createRequire } from 'node:module';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { createRequire } from 'node:module';
+
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
-const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
+const { DatabaseSync } = _require('node:sqlite') as {
+  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
+};
 
 /**
  * Open a node:sqlite DatabaseSync with CLEO standard pragmas.
@@ -31,12 +34,15 @@ const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args
  * 'delete'. This caused data loss (T5173) when concurrent MCP servers opened
  * the same database — writes were silently dropped under lock contention.
  */
-export function openNativeDatabase(path: string, options?: {
-  readonly?: boolean;
-  timeout?: number;
-  enableWal?: boolean;
-  allowExtension?: boolean;
-}): DatabaseSync {
+export function openNativeDatabase(
+  path: string,
+  options?: {
+    readonly?: boolean;
+    timeout?: number;
+    enableWal?: boolean;
+    allowExtension?: boolean;
+  },
+): DatabaseSync {
   const db = new DatabaseSync(path, {
     enableForeignKeyConstraints: true,
     readOnly: options?.readonly ?? false,
@@ -76,16 +82,18 @@ export function openNativeDatabase(path: string, options?: {
 
     if (!walSet) {
       // Verify one final time
-      const finalResult = db.prepare('PRAGMA journal_mode').get() as Record<string, unknown> | undefined;
+      const finalResult = db.prepare('PRAGMA journal_mode').get() as
+        | Record<string, unknown>
+        | undefined;
       const finalMode = (finalResult?.journal_mode as string)?.toLowerCase?.() ?? 'unknown';
 
       if (finalMode !== 'wal') {
         db.close();
         throw new Error(
           `CRITICAL: Failed to set WAL journal mode after ${MAX_WAL_RETRIES} attempts. ` +
-          `Database is in '${finalMode}' mode. Another process likely holds an EXCLUSIVE lock ` +
-          `on ${path}. Refusing to open — concurrent writes in DELETE mode cause data loss. ` +
-          `Kill other cleo/MCP processes and retry. (T5173)`,
+            `Database is in '${finalMode}' mode. Another process likely holds an EXCLUSIVE lock ` +
+            `on ${path}. Refusing to open — concurrent writes in DELETE mode cause data loss. ` +
+            `Kill other cleo/MCP processes and retry. (T5173)`,
         );
       }
     }

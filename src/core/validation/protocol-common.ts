@@ -46,7 +46,7 @@ export function checkOutputFileExists(
   const filePattern = pattern ?? `${taskId}`;
   try {
     const files = readdirSync(expectedDir);
-    return files.some(f => f.includes(filePattern) && f.endsWith('.md'));
+    return files.some((f) => f.includes(filePattern) && f.endsWith('.md'));
   } catch {
     return false;
   }
@@ -56,15 +56,12 @@ export function checkOutputFileExists(
  * Check if file contains required documentation sections.
  * @task T4527
  */
-export function checkDocumentationSections(
-  filePath: string,
-  sections: string[],
-): boolean {
+export function checkDocumentationSections(filePath: string, sections: string[]): boolean {
   if (!existsSync(filePath)) return false;
 
   try {
     const content = readFileSync(filePath, 'utf-8');
-    return sections.every(section => {
+    return sections.every((section) => {
       const regex = new RegExp(`^#+ .*${escapeRegex(section)}`, 'm');
       return regex.test(content);
     });
@@ -78,10 +75,17 @@ export function checkDocumentationSections(
 // ============================================================================
 
 const VALID_TYPES = [
-  'Research', 'Implementation', 'Validation', 'Testing',
-  'Specification', 'Consensus', 'Decomposition', 'Contribution', 'Release',
+  'Research',
+  'Implementation',
+  'Validation',
+  'Testing',
+  'Specification',
+  'Consensus',
+  'Decomposition',
+  'Contribution',
+  'Release',
 ];
-const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter(s => s !== 'archived');
+const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter((s) => s !== 'archived');
 const VALID_DETAILS = ['summary', 'details', 'blocker details'];
 
 /**
@@ -89,10 +93,7 @@ const VALID_DETAILS = ['summary', 'details', 'blocker details'];
  * Expected: "<Type> <status>. See MANIFEST.jsonl for <detail>."
  * @task T4527
  */
-export function checkReturnMessageFormat(
-  message: string,
-  _protocolType?: string,
-): boolean {
+export function checkReturnMessageFormat(message: string, _protocolType?: string): boolean {
   const typePattern = VALID_TYPES.join('|');
   const statusPattern = VALID_STATUSES_MSG.join('|');
   const detailPattern = VALID_DETAILS.join('|');
@@ -171,10 +172,7 @@ export function checkStatusValid(entry: Record<string, unknown>): boolean {
  * Check if agent_type matches expected value.
  * @task T4527
  */
-export function checkAgentType(
-  entry: Record<string, unknown>,
-  expectedType: string,
-): boolean {
+export function checkAgentType(entry: Record<string, unknown>, expectedType: string): boolean {
   return entry['agent_type'] === expectedType;
 }
 
@@ -188,7 +186,7 @@ export function checkLinkedTasksPresent(
 ): boolean {
   const linkedTasks = entry['linked_tasks'];
   if (!Array.isArray(linkedTasks)) return false;
-  return requiredIds.every(id => linkedTasks.includes(id));
+  return requiredIds.every((id) => linkedTasks.includes(id));
 }
 
 // ============================================================================
@@ -199,10 +197,7 @@ export function checkLinkedTasksPresent(
  * Check if file contains @task provenance tag.
  * @task T4527
  */
-export function checkProvenanceTags(
-  filePath: string,
-  taskId?: string,
-): boolean {
+export function checkProvenanceTags(filePath: string, taskId?: string): boolean {
   if (!existsSync(filePath)) return false;
 
   try {

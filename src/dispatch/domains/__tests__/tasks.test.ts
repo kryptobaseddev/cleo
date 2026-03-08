@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
@@ -33,33 +33,33 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-import { TasksHandler } from '../tasks.js';
 import {
-  taskShow,
-  taskList,
-  taskFind,
-  taskExists,
-  taskCreate,
-  taskUpdate,
-  taskComplete,
-  taskDelete,
+  taskAnalyze,
   taskArchive,
-  taskNext,
   taskBlockers,
-  taskTree,
+  taskComplete,
+  taskComplexityEstimate,
+  taskCreate,
+  taskCurrentGet,
+  taskDelete,
+  taskDepends,
+  taskExists,
+  taskFind,
+  taskList,
+  taskNext,
+  taskPromote,
   taskRelates,
   taskRelatesAdd,
-  taskAnalyze,
-  taskRestore,
   taskReorder,
   taskReparent,
-  taskPromote,
-  taskComplexityEstimate,
-  taskDepends,
-  taskCurrentGet,
+  taskRestore,
+  taskShow,
   taskStart,
   taskStop,
+  taskTree,
+  taskUpdate,
 } from '../../lib/engine.js';
+import { TasksHandler } from '../tasks.js';
 
 describe('TasksHandler', () => {
   let handler: TasksHandler;
@@ -77,20 +77,44 @@ describe('TasksHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'plan', 'relates', 'relates.find', 'complexity.estimate',
-        'history', 'current',
-        'label.list', 'label.show',
+        'show',
+        'list',
+        'find',
+        'exists',
+        'tree',
+        'blockers',
+        'depends',
+        'analyze',
+        'next',
+        'plan',
+        'relates',
+        'relates.find',
+        'complexity.estimate',
+        'history',
+        'current',
+        'label.list',
+        'label.show',
       ]);
     });
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'add', 'update', 'complete', 'cancel', 'delete', 'archive', 'restore',
-        'reopen', 'unarchive',
-        'reparent', 'promote', 'reorder', 'relates.add',
-        'start', 'stop',
+        'add',
+        'update',
+        'complete',
+        'cancel',
+        'delete',
+        'archive',
+        'restore',
+        'reopen',
+        'unarchive',
+        'reparent',
+        'promote',
+        'reorder',
+        'relates.add',
+        'start',
+        'stop',
       ]);
     });
   });
@@ -123,7 +147,11 @@ describe('TasksHandler', () => {
         total: 1,
         filtered: 1,
       };
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: mockData, page: { mode: 'none' } });
+      vi.mocked(taskList).mockResolvedValue({
+        success: true,
+        data: mockData,
+        page: { mode: 'none' },
+      });
 
       const result = await handler.query('list', { status: 'pending' });
 
@@ -146,7 +174,11 @@ describe('TasksHandler', () => {
 
     it('list - passes compact param to taskList', async () => {
       const mockData = [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }];
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: { tasks: mockData, total: 1, filtered: 1 }, page: { mode: 'none' } });
+      vi.mocked(taskList).mockResolvedValue({
+        success: true,
+        data: { tasks: mockData, total: 1, filtered: 1 },
+        page: { mode: 'none' },
+      });
 
       const result = await handler.query('list', {
         parent: 'T100',
@@ -216,7 +248,10 @@ describe('TasksHandler', () => {
     });
 
     it('exists - delegates to taskExists', async () => {
-      vi.mocked(taskExists).mockResolvedValue({ success: true, data: { exists: true, taskId: 'T001' } });
+      vi.mocked(taskExists).mockResolvedValue({
+        success: true,
+        data: { exists: true, taskId: 'T001' },
+      });
 
       const result = await handler.query('exists', { taskId: 'T001' });
 
@@ -243,7 +278,10 @@ describe('TasksHandler', () => {
     });
 
     it('depends - delegates to taskDepends', async () => {
-      vi.mocked(taskDepends).mockResolvedValue({ success: true, data: { taskId: 'T001', upstream: [], downstream: [] } });
+      vi.mocked(taskDepends).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', upstream: [], downstream: [] },
+      });
 
       const result = await handler.query('depends', { taskId: 'T001', direction: 'both' });
 
@@ -270,7 +308,10 @@ describe('TasksHandler', () => {
     });
 
     it('relates - delegates to taskRelates', async () => {
-      vi.mocked(taskRelates).mockResolvedValue({ success: true, data: { taskId: 'T001', relations: [], count: 0 } });
+      vi.mocked(taskRelates).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', relations: [], count: 0 },
+      });
 
       const result = await handler.query('relates', { taskId: 'T001' });
 
@@ -279,7 +320,10 @@ describe('TasksHandler', () => {
     });
 
     it('complexity.estimate - delegates to taskComplexityEstimate', async () => {
-      vi.mocked(taskComplexityEstimate).mockResolvedValue({ success: true, data: { size: 'small', score: 3 } });
+      vi.mocked(taskComplexityEstimate).mockResolvedValue({
+        success: true,
+        data: { size: 'small', score: 3 },
+      });
 
       const result = await handler.query('complexity.estimate', { taskId: 'T001' });
 
@@ -326,32 +370,49 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('add', { title: 'New Task', description: 'Desc' });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ title: 'New Task' }));
+      expect(taskCreate).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ title: 'New Task' }),
+      );
     });
 
     it('add - forwards parentId param as parent to engine', async () => {
       const mockTask = { id: 'T002', title: 'Child Task' };
       vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
 
-      const result = await handler.mutate('add', { title: 'Child Task', description: 'Desc', parentId: 'T001' });
+      const result = await handler.mutate('add', {
+        title: 'Child Task',
+        description: 'Desc',
+        parentId: 'T001',
+      });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({
-        title: 'Child Task',
-        parent: 'T001',
-      }));
+      expect(taskCreate).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          title: 'Child Task',
+          parent: 'T001',
+        }),
+      );
     });
 
     it('add - prefers parent over parentId when both provided', async () => {
       const mockTask = { id: 'T002', title: 'Child Task' };
       vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
 
-      const result = await handler.mutate('add', { title: 'Child Task', parent: 'T100', parentId: 'T200' });
+      const result = await handler.mutate('add', {
+        title: 'Child Task',
+        parent: 'T100',
+        parentId: 'T200',
+      });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({
-        parent: 'T100',
-      }));
+      expect(taskCreate).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          parent: 'T100',
+        }),
+      );
     });
 
     it('add - returns error when title missing', async () => {
@@ -366,7 +427,11 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('update', { taskId: 'T001', title: 'Updated' });
 
       expect(result.success).toBe(true);
-      expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({ title: 'Updated' }));
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        expect.objectContaining({ title: 'Updated' }),
+      );
     });
 
     it('update - forwards parentId param as parent to engine', async () => {
@@ -375,9 +440,13 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('update', { taskId: 'T001', parentId: 'T002' });
 
       expect(result.success).toBe(true);
-      expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({
-        parent: 'T002',
-      }));
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        expect.objectContaining({
+          parent: 'T002',
+        }),
+      );
     });
 
     it('complete - delegates to taskComplete', async () => {
@@ -390,7 +459,10 @@ describe('TasksHandler', () => {
     });
 
     it('delete - delegates to taskDelete', async () => {
-      vi.mocked(taskDelete).mockResolvedValue({ success: true, data: { deleted: true, taskId: 'T001' } });
+      vi.mocked(taskDelete).mockResolvedValue({
+        success: true,
+        data: { deleted: true, taskId: 'T001' },
+      });
 
       const result = await handler.mutate('delete', { taskId: 'T001', force: true });
 
@@ -399,7 +471,10 @@ describe('TasksHandler', () => {
     });
 
     it('archive - delegates to taskArchive', async () => {
-      vi.mocked(taskArchive).mockResolvedValue({ success: true, data: { archived: 2, taskIds: ['T001', 'T002'] } });
+      vi.mocked(taskArchive).mockResolvedValue({
+        success: true,
+        data: { archived: 2, taskIds: ['T001', 'T002'] },
+      });
 
       const result = await handler.mutate('archive', {});
 
@@ -408,16 +483,25 @@ describe('TasksHandler', () => {
     });
 
     it('restore - delegates to taskRestore', async () => {
-      vi.mocked(taskRestore).mockResolvedValue({ success: true, data: { task: 'T001', restored: ['T001'], count: 1 } });
+      vi.mocked(taskRestore).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', restored: ['T001'], count: 1 },
+      });
 
       const result = await handler.mutate('restore', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskRestore).toHaveBeenCalledWith('/mock/project', 'T001', { cascade: undefined, notes: undefined });
+      expect(taskRestore).toHaveBeenCalledWith('/mock/project', 'T001', {
+        cascade: undefined,
+        notes: undefined,
+      });
     });
 
     it('reparent - delegates to taskReparent', async () => {
-      vi.mocked(taskReparent).mockResolvedValue({ success: true, data: { task: 'T001', reparented: true } });
+      vi.mocked(taskReparent).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', reparented: true },
+      });
 
       const result = await handler.mutate('reparent', { taskId: 'T001', newParentId: 'T002' });
 
@@ -426,7 +510,10 @@ describe('TasksHandler', () => {
     });
 
     it('promote - delegates to taskPromote', async () => {
-      vi.mocked(taskPromote).mockResolvedValue({ success: true, data: { task: 'T001', promoted: true } });
+      vi.mocked(taskPromote).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', promoted: true },
+      });
 
       const result = await handler.mutate('promote', { taskId: 'T001' });
 
@@ -435,7 +522,10 @@ describe('TasksHandler', () => {
     });
 
     it('reorder - delegates to taskReorder', async () => {
-      vi.mocked(taskReorder).mockResolvedValue({ success: true, data: { task: 'T001', reordered: true } });
+      vi.mocked(taskReorder).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', reordered: true },
+      });
 
       const result = await handler.mutate('reorder', { taskId: 'T001', position: 3 });
 
@@ -444,12 +534,25 @@ describe('TasksHandler', () => {
     });
 
     it('relates.add - delegates to taskRelatesAdd', async () => {
-      vi.mocked(taskRelatesAdd).mockResolvedValue({ success: true, data: { from: 'T001', to: 'T002', type: 'blocks', added: true } });
+      vi.mocked(taskRelatesAdd).mockResolvedValue({
+        success: true,
+        data: { from: 'T001', to: 'T002', type: 'blocks', added: true },
+      });
 
-      const result = await handler.mutate('relates.add', { taskId: 'T001', relatedId: 'T002', type: 'blocks' });
+      const result = await handler.mutate('relates.add', {
+        taskId: 'T001',
+        relatedId: 'T002',
+        type: 'blocks',
+      });
 
       expect(result.success).toBe(true);
-      expect(taskRelatesAdd).toHaveBeenCalledWith('/mock/project', 'T001', 'T002', 'blocks', undefined);
+      expect(taskRelatesAdd).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        'T002',
+        'blocks',
+        undefined,
+      );
     });
 
     it('relates.add - returns error when params missing', async () => {

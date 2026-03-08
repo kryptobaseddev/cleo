@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJsonRequired } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
+import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { getTaskPath } from '../paths.js';
 
 interface LabelInfo {
   label: string;
@@ -47,7 +47,7 @@ export async function showLabelTasks(
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));
-  const tasks = data.tasks.filter(t => (t.labels ?? []).includes(label));
+  const tasks = data.tasks.filter((t) => (t.labels ?? []).includes(label));
 
   if (tasks.length === 0) {
     throw new CleoError(ExitCode.NOT_FOUND, `No tasks found with label '${label}'`);
@@ -55,13 +55,16 @@ export async function showLabelTasks(
 
   return {
     label,
-    tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority })),
+    tasks: tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority })),
     count: tasks.length,
   };
 }
 
 /** Get detailed label statistics. */
-export async function getLabelStats(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function getLabelStats(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const labels = await listLabels(cwd, accessor);
   const totalLabels = labels.length;
   const totalUsages = labels.reduce((sum, l) => sum + l.count, 0);

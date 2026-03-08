@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine imports (all domain handlers need these)
 vi.mock('../../lib/engine.js', () => ({
   // Task engine
   taskShow: vi.fn(() => ({ success: true, data: { id: 'T001', title: 'Test' } })),
-   taskList: vi.fn(() => ({ success: true, data: [], page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 } })),
+  taskList: vi.fn(() => ({
+    success: true,
+    data: [],
+    page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 },
+  })),
   taskFind: vi.fn(() => ({ success: true, data: [] })),
   taskExists: vi.fn(() => ({ success: true, data: { exists: true, taskId: 'T001' } })),
   taskCreate: vi.fn(() => ({ success: true, data: { id: 'T001', title: 'New' } })),
@@ -30,7 +34,11 @@ vi.mock('../../lib/engine.js', () => ({
   taskStop: vi.fn(() => ({ success: true, data: {} })),
   // Session engine
   sessionStatus: vi.fn(() => ({ success: true, data: {} })),
-   sessionList: vi.fn(() => ({ success: true, data: { sessions: [], _meta: { truncated: false, total: 0 } }, page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 } })),
+  sessionList: vi.fn(() => ({
+    success: true,
+    data: { sessions: [], _meta: { truncated: false, total: 0 } },
+    page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 },
+  })),
   sessionShow: vi.fn(() => ({ success: true, data: {} })),
   sessionStart: vi.fn(() => ({ success: true, data: {} })),
   sessionEnd: vi.fn(() => ({ success: true, data: {} })),
@@ -176,8 +184,8 @@ vi.mock('../../../mcp/lib/security.js', () => ({
   sanitizeParams: vi.fn((p: Record<string, unknown>) => p),
 }));
 
+import { cliError, cliOutput } from '../../../cli/renderers/index.js';
 import { createCliDispatcher, dispatchFromCli, dispatchRaw, resetCliDispatcher } from '../cli.js';
-import { cliOutput, cliError } from '../../../cli/renderers/index.js';
 
 describe('CLI Adapter', () => {
   beforeEach(() => {
@@ -234,11 +242,17 @@ describe('CLI Adapter', () => {
     });
 
     it('uses custom outputOpts when provided', async () => {
-      await dispatchFromCli('query', 'tasks', 'show', { taskId: 'T001' }, {
-        command: 'my-cmd',
-        operation: 'custom.op',
-        message: 'OK',
-      });
+      await dispatchFromCli(
+        'query',
+        'tasks',
+        'show',
+        { taskId: 'T001' },
+        {
+          command: 'my-cmd',
+          operation: 'custom.op',
+          message: 'OK',
+        },
+      );
 
       expect(cliOutput).toHaveBeenCalledWith(
         expect.anything(),
@@ -251,7 +265,7 @@ describe('CLI Adapter', () => {
     });
 
     it('passes response.page through to cliOutput when not overridden', async () => {
-      await dispatchFromCli('query', 'session', 'list', {} , { command: 'session' });
+      await dispatchFromCli('query', 'session', 'list', {}, { command: 'session' });
 
       expect(cliOutput).toHaveBeenCalledWith(
         expect.anything(),

@@ -9,11 +9,11 @@
  * @task T4520
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SkillManifest } from '../types.js';
-import { generateManifest } from '../discovery.js';
 import { getCleoHome } from '../../paths.js';
+import { generateManifest } from '../discovery.js';
+import type { SkillManifest } from '../types.js';
 
 // ============================================================================
 // Cache Configuration

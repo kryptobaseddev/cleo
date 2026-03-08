@@ -11,10 +11,10 @@
  * @epic T4867
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('sqlite-backup', () => {
   beforeEach(() => {
@@ -63,7 +63,7 @@ describe('sqlite-backup', () => {
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     await vacuumIntoBackup({ force: true });
 
-    const remaining = readdirSync(backupDir).filter(f => f.endsWith('.db'));
+    const remaining = readdirSync(backupDir).filter((f) => f.endsWith('.db'));
     expect(remaining.length).toBeLessThanOrEqual(10);
   });
 

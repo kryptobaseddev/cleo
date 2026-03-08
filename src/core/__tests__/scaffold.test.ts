@@ -3,10 +3,10 @@
  * Covers ensure*, check*, strip, and utility functions.
  */
 
-import { existsSync,mkdirSync,readFileSync,rmSync,writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   checkCleoStructure,
@@ -24,18 +24,15 @@ import {
   getCleoVersion,
   getGitignoreContent,
   getPackageRoot,
-  removeCleoFromRootGitignore,
   REQUIRED_CLEO_SUBDIRS,
-  stripCLEOBlocks
+  removeCleoFromRootGitignore,
+  stripCLEOBlocks,
 } from '../scaffold.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  return join(
-    tmpdir(),
-    `cleo-scaffold-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  return join(tmpdir(), `cleo-scaffold-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
 // ── Test suites ──────────────────────────────────────────────────────
@@ -283,10 +280,7 @@ describe('ensureProjectContext', () => {
   it('refreshes when stale (staleDays exceeded)', async () => {
     const contextPath = join(tmpDir, '.cleo', 'project-context.json');
     const oldDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000); // 60 days ago
-    writeFileSync(
-      contextPath,
-      JSON.stringify({ type: 'node', detectedAt: oldDate.toISOString() }),
-    );
+    writeFileSync(contextPath, JSON.stringify({ type: 'node', detectedAt: oldDate.toISOString() }));
     const result = await ensureProjectContext(tmpDir, { staleDays: 30 });
     expect(result.action).toBe('repaired');
   });
@@ -500,10 +494,7 @@ describe('removeCleoFromRootGitignore', () => {
   });
 
   it('removes .cleo/ entries from root .gitignore', async () => {
-    writeFileSync(
-      join(tmpDir, '.gitignore'),
-      'node_modules/\n.cleo/\ndist/\n',
-    );
+    writeFileSync(join(tmpDir, '.gitignore'), 'node_modules/\n.cleo/\ndist/\n');
     const result = await removeCleoFromRootGitignore(tmpDir);
     expect(result.removed).toBe(true);
     const content = readFileSync(join(tmpDir, '.gitignore'), 'utf-8');
@@ -558,8 +549,6 @@ describe('stripCLEOBlocks', () => {
   });
 
   it('handles non-existent file gracefully', async () => {
-    await expect(
-      stripCLEOBlocks(join(tmpDir, 'nonexistent.md')),
-    ).resolves.toBeUndefined();
+    await expect(stripCLEOBlocks(join(tmpDir, 'nonexistent.md'))).resolves.toBeUndefined();
   });
 });

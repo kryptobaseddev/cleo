@@ -1,7 +1,7 @@
 /**
  * Progress indicator utilities for CLI commands.
  * Provides human-friendly progress output for long-running operations.
- * 
+ *
  * @task T5243
  */
 

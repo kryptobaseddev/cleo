@@ -20,14 +20,14 @@
  */
 
 import {
+  copyFileSync,
   existsSync,
-  readFileSync,
-  writeFileSync,
   mkdirSync,
   readdirSync,
-  copyFileSync,
-  statSync,
+  readFileSync,
   rmSync,
+  statSync,
+  writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 
@@ -144,8 +144,14 @@ export function migrateAgentOutputs(
 
   // ── Phase 1: Copy files from legacy dirs (oldest first) ──────────
   const legacySources: Array<{ path: string; exists: boolean }> = [
-    { path: join(projectRoot, 'claudedocs', 'research-outputs'), exists: detection.hasResearchOutputs },
-    { path: join(projectRoot, 'claudedocs', 'agent-outputs'), exists: detection.hasLegacyAgentOutputs },
+    {
+      path: join(projectRoot, 'claudedocs', 'research-outputs'),
+      exists: detection.hasResearchOutputs,
+    },
+    {
+      path: join(projectRoot, 'claudedocs', 'agent-outputs'),
+      exists: detection.hasLegacyAgentOutputs,
+    },
   ];
 
   for (const source of legacySources) {
@@ -213,7 +219,9 @@ function copyDirContents(
               copyFileSync(join(srcPath, sf), join(dstPath, sf));
               copiedFiles.add(sf);
               count++;
-            } catch { /* skip individual file errors */ }
+            } catch {
+              /* skip individual file errors */
+            }
           }
         }
       } else if (!copiedFiles.has(entry)) {
@@ -221,7 +229,9 @@ function copyDirContents(
         copiedFiles.add(entry);
         count++;
       }
-    } catch { /* skip individual file errors */ }
+    } catch {
+      /* skip individual file errors */
+    }
   }
 
   return count;
@@ -241,7 +251,9 @@ function collectManifestLines(manifestPath: string, out: string[]): void {
       }
       out.push(rewritten);
     }
-  } catch { /* skip unreadable manifest */ }
+  } catch {
+    /* skip unreadable manifest */
+  }
 }
 
 /**
@@ -250,11 +262,7 @@ function collectManifestLines(manifestPath: string, out: string[]): void {
  *
  * @returns Total number of entries in the merged manifest.
  */
-function mergeManifests(
-  newDir: string,
-  hadCanonical: boolean,
-  legacyLines: string[],
-): number {
+function mergeManifests(newDir: string, hadCanonical: boolean, legacyLines: string[]): number {
   const manifestPath = join(newDir, 'MANIFEST.jsonl');
 
   // Collect existing canonical entries
@@ -265,7 +273,9 @@ function mergeManifests(
       for (const line of existing.split('\n')) {
         if (line.trim()) existingLines.push(line);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Deduplicate: existing IDs take priority
@@ -273,7 +283,12 @@ function mergeManifests(
   const finalLines: string[] = [];
 
   for (const line of existingLines) {
-    try { const p = JSON.parse(line); if (p.id) seenIds.add(p.id); } catch { /* keep */ }
+    try {
+      const p = JSON.parse(line);
+      if (p.id) seenIds.add(p.id);
+    } catch {
+      /* keep */
+    }
     finalLines.push(line);
   }
 
@@ -282,7 +297,9 @@ function mergeManifests(
       const p = JSON.parse(line);
       if (p.id && seenIds.has(p.id)) continue;
       if (p.id) seenIds.add(p.id);
-    } catch { /* keep */ }
+    } catch {
+      /* keep */
+    }
     finalLines.push(line);
   }
 
@@ -302,9 +319,8 @@ function updateConfigPaths(cleoDir: string): void {
 
   try {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    const currentDir = config.agentOutputs?.directory
-      ?? config.agentOutputs
-      ?? config.research?.outputDir;
+    const currentDir =
+      config.agentOutputs?.directory ?? config.agentOutputs ?? config.research?.outputDir;
 
     if (currentDir && currentDir !== CANONICAL_DIR) {
       if (typeof config.agentOutputs === 'object') {
@@ -323,7 +339,9 @@ function updateConfigPaths(cleoDir: string): void {
 
       writeFileSync(configPath, JSON.stringify(config, null, 2));
     }
-  } catch { /* config update is best-effort */ }
+  } catch {
+    /* config update is best-effort */
+  }
 }
 
 /**
@@ -331,24 +349,25 @@ function updateConfigPaths(cleoDir: string): void {
  *
  * @returns List of removed directory paths (relative).
  */
-function removeLegacyDirs(
-  projectRoot: string,
-  detection: LegacyDetectionResult,
-): string[] {
+function removeLegacyDirs(projectRoot: string, detection: LegacyDetectionResult): string[] {
   const removed: string[] = [];
 
   if (detection.hasResearchOutputs) {
     try {
       rmSync(join(projectRoot, 'claudedocs', 'research-outputs'), { recursive: true, force: true });
       removed.push('claudedocs/research-outputs/');
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   if (detection.hasLegacyAgentOutputs) {
     try {
       rmSync(join(projectRoot, 'claudedocs', 'agent-outputs'), { recursive: true, force: true });
       removed.push('claudedocs/agent-outputs/');
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   // Remove empty claudedocs/ parent
@@ -359,7 +378,9 @@ function removeLegacyDirs(
         rmSync(claudedocsDir, { recursive: true, force: true });
         removed.push('claudedocs/ (empty)');
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   return removed;

@@ -9,7 +9,7 @@
  * @epic T5149
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine functions required by SessionHandler
 vi.mock('../../lib/engine.js', () => ({
@@ -47,8 +47,8 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-import { SessionHandler } from '../session.js';
 import { sessionContextInject } from '../../lib/engine.js';
+import { SessionHandler } from '../session.js';
 
 describe('SessionHandler context.inject', () => {
   let handler: SessionHandler;
@@ -155,7 +155,15 @@ describe('SessionHandler context.inject', () => {
     it('should include _meta with session domain for context.inject', async () => {
       vi.mocked(sessionContextInject).mockReturnValue({
         success: true,
-        data: { protocolType: 'test', content: 'content', path: 'p', contentLength: 7, estimatedTokens: 2, taskId: null, variant: null },
+        data: {
+          protocolType: 'test',
+          content: 'content',
+          path: 'p',
+          contentLength: 7,
+          estimatedTokens: 2,
+          taskId: null,
+          variant: null,
+        },
       });
 
       const result = await handler.mutate('context.inject', { protocolType: 'test' });

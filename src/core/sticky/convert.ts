@@ -28,11 +28,20 @@ export async function convertStickyToTask(
   // Get the sticky note
   const sticky = await accessor.getStickyNote(stickyId);
   if (!sticky) {
-    return { success: false, error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` } };
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` },
+    };
   }
 
   if (sticky.status !== 'active') {
-    return { success: false, error: { code: 'E_INVALID_STATE', message: `Cannot convert sticky note with status: ${sticky.status}` } };
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_STATE',
+        message: `Cannot convert sticky note with status: ${sticky.status}`,
+      },
+    };
   }
 
   // Import tasks module dynamically to avoid circular dependency
@@ -42,11 +51,14 @@ export async function convertStickyToTask(
   const description = sticky.content;
 
   try {
-    const result = await addTask({
-      title,
-      description,
-      labels: sticky.tagsJson ? JSON.parse(sticky.tagsJson) : undefined,
-    }, projectRoot);
+    const result = await addTask(
+      {
+        title,
+        description,
+        labels: sticky.tagsJson ? JSON.parse(sticky.tagsJson) : undefined,
+      },
+      projectRoot,
+    );
 
     // Update sticky note status
     const convertedTo: ConvertedTarget = { type: 'task', id: result.task.id };
@@ -79,25 +91,33 @@ export async function convertStickyToMemory(
   // Get the sticky note
   const sticky = await accessor.getStickyNote(stickyId);
   if (!sticky) {
-    return { success: false, error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` } };
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` },
+    };
   }
 
   if (sticky.status !== 'active') {
-    return { success: false, error: { code: 'E_INVALID_STATE', message: `Cannot convert sticky note with status: ${sticky.status}` } };
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_STATE',
+        message: `Cannot convert sticky note with status: ${sticky.status}`,
+      },
+    };
   }
 
   // Import memory module dynamically to avoid circular dependency
   const { observeBrain } = await import('../memory/brain-retrieval.js');
 
   try {
-    const result = await observeBrain(
-      projectRoot,
-      {
-        text: sticky.content,
-        title: sticky.content.slice(0, 50),
-        type: (memoryType as 'discovery' | 'change' | 'feature' | 'bugfix' | 'decision' | 'refactor') ?? 'discovery',
-      },
-    );
+    const result = await observeBrain(projectRoot, {
+      text: sticky.content,
+      title: sticky.content.slice(0, 50),
+      type:
+        (memoryType as 'discovery' | 'change' | 'feature' | 'bugfix' | 'decision' | 'refactor') ??
+        'discovery',
+    });
 
     // Update sticky note status
     const convertedTo: ConvertedTarget = { type: 'memory', id: result.id };
@@ -130,24 +150,39 @@ export async function convertStickyToTaskNote(
   // Get the sticky note
   const sticky = await accessor.getStickyNote(stickyId);
   if (!sticky) {
-    return { success: false, error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` } };
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` },
+    };
   }
 
   if (sticky.status !== 'active') {
-    return { success: false, error: { code: 'E_INVALID_STATE', message: `Cannot convert sticky note with status: ${sticky.status}` } };
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_STATE',
+        message: `Cannot convert sticky note with status: ${sticky.status}`,
+      },
+    };
   }
 
   // Import task module dynamically
   const { updateTask } = await import('../tasks/update.js');
 
   try {
-    const result = await updateTask({
-      taskId,
-      notes: sticky.content,
-    }, projectRoot);
+    const result = await updateTask(
+      {
+        taskId,
+        notes: sticky.content,
+      },
+      projectRoot,
+    );
 
     if (!result.task) {
-      return { success: false, error: { code: 'E_CONVERT_FAILED', message: `Failed to update task ${taskId}` } };
+      return {
+        success: false,
+        error: { code: 'E_CONVERT_FAILED', message: `Failed to update task ${taskId}` },
+      };
     }
 
     // Update sticky note status
@@ -181,11 +216,20 @@ export async function convertStickyToSessionNote(
   // Get the sticky note
   const sticky = await accessor.getStickyNote(stickyId);
   if (!sticky) {
-    return { success: false, error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` } };
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Sticky note ${stickyId} not found` },
+    };
   }
 
   if (sticky.status !== 'active') {
-    return { success: false, error: { code: 'E_INVALID_STATE', message: `Cannot convert sticky note with status: ${sticky.status}` } };
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_STATE',
+        message: `Cannot convert sticky note with status: ${sticky.status}`,
+      },
+    };
   }
 
   const { readSessions, saveSessions, sessionStatus } = await import('../sessions/index.js');
@@ -193,7 +237,7 @@ export async function convertStickyToSessionNote(
   try {
     // We update the session object's notes array directly
     const sessions = await readSessions(projectRoot);
-    
+
     // Find target session
     let targetSessionId = sessionId;
     if (!targetSessionId) {
@@ -204,21 +248,33 @@ export async function convertStickyToSessionNote(
     }
 
     if (!targetSessionId) {
-       return { success: false, error: { code: 'E_NO_ACTIVE_SESSION', message: 'No active session found and no target session provided' } };
+      return {
+        success: false,
+        error: {
+          code: 'E_NO_ACTIVE_SESSION',
+          message: 'No active session found and no target session provided',
+        },
+      };
     }
 
     const session = sessions.find((s: { id: string }) => s.id === targetSessionId);
     if (!session) {
-      return { success: false, error: { code: 'E_NOT_FOUND', message: `Session ${targetSessionId} not found` } };
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session ${targetSessionId} not found` },
+      };
     }
 
     if (!session.notes) {
       session.notes = [];
     }
-    
-    const timestampedNote = `${new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}: ${sticky.content}`;
+
+    const timestampedNote = `${new Date()
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d+Z$/, ' UTC')}: ${sticky.content}`;
     session.notes.push(timestampedNote);
-    
+
     await saveSessions(sessions, projectRoot);
 
     // Update sticky note status

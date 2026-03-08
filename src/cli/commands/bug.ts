@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -42,7 +42,7 @@ export function registerBugCommand(program: Command): void {
       // Validate severity level
       if (!VALID_SEVERITIES.includes(severity)) {
         console.error(
-          `Error: Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`
+          `Error: Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`,
         );
         process.exit(1);
       }
@@ -75,9 +75,17 @@ export function registerBugCommand(program: Command): void {
 
       const data = response.data as Record<string, unknown>;
       if (data?.duplicate) {
-        cliOutput(data, { command: 'add', message: 'Task with identical title was created recently', operation: 'tasks.add' });
+        cliOutput(data, {
+          command: 'add',
+          message: 'Task with identical title was created recently',
+          operation: 'tasks.add',
+        });
       } else if (data?.dryRun) {
-        cliOutput(data, { command: 'add', message: 'Dry run - no changes made', operation: 'tasks.add' });
+        cliOutput(data, {
+          command: 'add',
+          message: 'Dry run - no changes made',
+          operation: 'tasks.add',
+        });
       } else {
         cliOutput(data, { command: 'add', operation: 'tasks.add' });
       }

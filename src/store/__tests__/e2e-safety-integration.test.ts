@@ -10,11 +10,11 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint
 vi.mock('../git-checkpoint.js', () => ({
@@ -159,7 +159,7 @@ describe('E2E Safety Integration', () => {
       // List sessions
       const all = await listSessions();
       expect(all.length).toBeGreaterThanOrEqual(1);
-      expect(all.some(s => s.id === 'sess-e2e-001')).toBe(true);
+      expect(all.some((s) => s.id === 'sess-e2e-001')).toBe(true);
     });
   });
 
@@ -187,12 +187,10 @@ describe('E2E Safety Integration', () => {
       };
 
       await expect(
-        safeCreateTask(
-          () => createTask(taskData),
-          taskData as any,
-          tempDir,
-          { autoCheckpoint: false, validateSequence: false },
-        ),
+        safeCreateTask(() => createTask(taskData), taskData as any, tempDir, {
+          autoCheckpoint: false,
+          validateSequence: false,
+        }),
       ).rejects.toThrow('collision');
 
       // Original task should still exist unchanged
@@ -215,12 +213,10 @@ describe('E2E Safety Integration', () => {
         createdAt: new Date().toISOString(),
       };
 
-      await safeCreateTask(
-        () => createTask(taskData),
-        taskData as any,
-        tempDir,
-        { autoCheckpoint: false, validateSequence: false },
-      );
+      await safeCreateTask(() => createTask(taskData), taskData as any, tempDir, {
+        autoCheckpoint: false,
+        validateSequence: false,
+      });
 
       // Explicit verification
       const verified = await verifyTaskWrite('T001', { title: 'Verified task' }, tempDir);
@@ -285,13 +281,11 @@ describe('E2E Safety Integration', () => {
 
       // Read all 10 concurrently
       const results = await Promise.all(
-        Array.from({ length: 10 }, (_, i) =>
-          getTask(`T${String(i + 1).padStart(3, '0')}`),
-        ),
+        Array.from({ length: 10 }, (_, i) => getTask(`T${String(i + 1).padStart(3, '0')}`)),
       );
 
       // All should succeed
-      expect(results.every(r => r !== null)).toBe(true);
+      expect(results.every((r) => r !== null)).toBe(true);
       expect(results.length).toBe(10);
     });
   });
@@ -325,7 +319,11 @@ describe('E2E Safety Integration', () => {
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
       await writeFile(
         join(cleoDir, 'sessions.json'),
-        JSON.stringify({ version: '1.0.0', sessions: [], _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() } }),
+        JSON.stringify({
+          version: '1.0.0',
+          sessions: [],
+          _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
+        }),
       );
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
@@ -363,12 +361,21 @@ describe('E2E Safety Integration', () => {
       const todoData = {
         version: '2.10.0',
         tasks: [
-          { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Task',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
         ],
       };
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
-      await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify({ version: '1.0.0', sessions: [] }));
+      await writeFile(
+        join(cleoDir, 'sessions.json'),
+        JSON.stringify({ version: '1.0.0', sessions: [] }),
+      );
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
 
@@ -384,13 +391,15 @@ describe('E2E Safety Integration', () => {
       const second = await migrateJsonToSqlite();
       expect(second.success).toBe(true);
       expect(second.tasksImported).toBe(0);
-      expect(second.warnings.some(w => w.includes('already contains'))).toBe(true);
+      expect(second.warnings.some((w) => w.includes('already contains'))).toBe(true);
     });
   });
 
   describe('Checksum Verification E2E', () => {
     it('should detect file tampering via checksums', async () => {
-      const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+      const { computeChecksum, compareChecksums } = await import(
+        '../../core/migration/checksum.js'
+      );
 
       // Create original file
       const filePath = join(cleoDir, 'test-data.json');
@@ -470,7 +479,10 @@ describe('E2E Safety Integration', () => {
       expect(existsSync(logPath)).toBe(true);
 
       const content = await readFile(logPath, 'utf-8');
-      const entries = content.trim().split('\n').map(l => JSON.parse(l));
+      const entries = content
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l));
 
       expect(entries.length).toBeGreaterThanOrEqual(4);
       expect(entries[0].level).toBe('info');

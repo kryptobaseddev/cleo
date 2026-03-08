@@ -10,27 +10,36 @@
  * @task T4721 - Added atomic migration support with custom db path
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { getCleoDirAbsolute } from '../core/paths.js';
-import { getDb, dbExists, resolveMigrationsFolder } from './sqlite.js';
-import * as schema from './tasks-schema.js';
-import type { Task } from '../types/task.js';
-import type { Session } from '../types/session.js';
-import type { SessionStatus } from './status-registry.js';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
+import { getCleoDirAbsolute } from '../core/paths.js';
+import type { Session } from '../types/session.js';
+import type { Task } from '../types/task.js';
+import {
+  createBatchCallback,
+  createDrizzleCallback,
+  openNativeDatabase,
+} from './node-sqlite-adapter.js';
+import { dbExists, getDb, resolveMigrationsFolder } from './sqlite.js';
+import type { SessionStatus } from './status-registry.js';
+import * as schema from './tasks-schema.js';
 
 /**
  * Topological sort for tasks: ensures parents and dependency targets are inserted before
  * the tasks that reference them. Tasks referencing IDs outside the batch are treated as
  * roots (inserted as-is). Handles circular references defensively by breaking cycles.
  */
-function topoSortTasks<T extends { id: string; parentId?: string | null | undefined; depends?: string[] | null | undefined }>(tasks: T[]): T[] {
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+function topoSortTasks<
+  T extends {
+    id: string;
+    parentId?: string | null | undefined;
+    depends?: string[] | null | undefined;
+  },
+>(tasks: T[]): T[] {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const sorted: T[] = [];
   const visited = new Set<string>();
   const inStack = new Set<string>(); // cycle detection
@@ -185,18 +194,22 @@ export async function migrateJsonToSqliteAtomic(
     // Run migrations to create tables
     logger?.info('import', 'create-tables', 'Running drizzle migrations to create tables');
     const migrationsFolder = resolveMigrationsFolder();
-    await migrate(db, async (queries: string[]) => {
-      nativeDb.prepare('BEGIN').run();
-      try {
-        for (const query of queries) {
-          nativeDb.prepare(query).run();
+    await migrate(
+      db,
+      async (queries: string[]) => {
+        nativeDb.prepare('BEGIN').run();
+        try {
+          for (const query of queries) {
+            nativeDb.prepare(query).run();
+          }
+          nativeDb.prepare('COMMIT').run();
+        } catch (err) {
+          nativeDb.prepare('ROLLBACK').run();
+          throw err;
         }
-        nativeDb.prepare('COMMIT').run();
-      } catch (err) {
-        nativeDb.prepare('ROLLBACK').run();
-        throw err;
-      }
-    }, { migrationsFolder });
+      },
+      { migrationsFolder },
+    );
 
     // Run the actual migration
     logger?.info('import', 'data-import', 'Starting data import from JSON files');
@@ -266,40 +279,45 @@ async function runMigrationDataImport(
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
         try {
-          await db.insert(schema.tasks).values({
-            id: task.id,
-            title: task.title,
-            description: task.description || `Task: ${task.title}`,
-            status: task.status,
-            priority: task.priority ?? 'medium',
-            type: task.type,
-            parentId: task.parentId,
-            phase: task.phase,
-            size: task.size,
-            position: task.position,
-            labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
-            notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-            acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
-            filesJson: task.files ? JSON.stringify(task.files) : '[]',
-            origin: task.origin,
-            blockedBy: task.blockedBy,
-            epicLifecycle: task.epicLifecycle,
-            noAutoComplete: task.noAutoComplete,
-            createdAt: task.createdAt,
-            updatedAt: task.updatedAt,
-            completedAt: task.completedAt,
-            cancelledAt: task.cancelledAt,
-            cancellationReason: task.cancellationReason,
-            verificationJson: task.verification ? JSON.stringify(task.verification) : undefined,
-            createdBy: task.provenance?.createdBy,
-            modifiedBy: task.provenance?.modifiedBy,
-            sessionId: task.provenance?.sessionId,
-          }).onConflictDoNothing().run();
+          await db
+            .insert(schema.tasks)
+            .values({
+              id: task.id,
+              title: task.title,
+              description: task.description || `Task: ${task.title}`,
+              status: task.status,
+              priority: task.priority ?? 'medium',
+              type: task.type,
+              parentId: task.parentId,
+              phase: task.phase,
+              size: task.size,
+              position: task.position,
+              labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
+              notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
+              filesJson: task.files ? JSON.stringify(task.files) : '[]',
+              origin: task.origin,
+              blockedBy: task.blockedBy,
+              epicLifecycle: task.epicLifecycle,
+              noAutoComplete: task.noAutoComplete,
+              createdAt: task.createdAt,
+              updatedAt: task.updatedAt,
+              completedAt: task.completedAt,
+              cancelledAt: task.cancelledAt,
+              cancellationReason: task.cancellationReason,
+              verificationJson: task.verification ? JSON.stringify(task.verification) : undefined,
+              createdBy: task.provenance?.createdBy,
+              modifiedBy: task.provenance?.modifiedBy,
+              sessionId: task.provenance?.sessionId,
+            })
+            .onConflictDoNothing()
+            .run();
 
           // Insert dependencies
           if (task.depends) {
             for (const depId of task.depends) {
-              await db.insert(schema.taskDependencies)
+              await db
+                .insert(schema.taskDependencies)
                 .values({ taskId: task.id, dependsOn: depId })
                 .onConflictDoNothing()
                 .run();
@@ -322,10 +340,15 @@ async function runMigrationDataImport(
         }
       }
 
-      logger?.info('import', 'tasks-complete', `Completed importing ${result.tasksImported} tasks`, {
-        imported: result.tasksImported,
-        failed: result.errors.length,
-      });
+      logger?.info(
+        'import',
+        'tasks-complete',
+        `Completed importing ${result.tasksImported} tasks`,
+        {
+          imported: result.tasksImported,
+          failed: result.errors.length,
+        },
+      );
     } catch (err) {
       const errorMsg = `Failed to parse todo.json: ${String(err)}`;
       result.errors.push(errorMsg);
@@ -345,39 +368,51 @@ async function runMigrationDataImport(
       });
 
       const archiveData = JSON.parse(readFileSync(archivePath, 'utf-8'));
-      const archivedTasks: (Task & { archivedAt?: string; archiveReason?: string; cycleTimeDays?: number })[] =
-        topoSortTasks(archiveData.tasks ?? archiveData.archivedTasks ?? []);
+      const archivedTasks: (Task & {
+        archivedAt?: string;
+        archiveReason?: string;
+        cycleTimeDays?: number;
+      })[] = topoSortTasks(archiveData.tasks ?? archiveData.archivedTasks ?? []);
       const totalArchived = archivedTasks.length;
 
-      logger?.info('import', 'archive-start', `Starting import of ${totalArchived} archived tasks`, {
-        totalArchived,
-      });
+      logger?.info(
+        'import',
+        'archive-start',
+        `Starting import of ${totalArchived} archived tasks`,
+        {
+          totalArchived,
+        },
+      );
 
       for (let i = 0; i < archivedTasks.length; i++) {
         const task = archivedTasks[i];
         try {
-          await db.insert(schema.tasks).values({
-            id: task.id,
-            title: task.title,
-            description: task.description || `Task: ${task.title}`,
-            status: 'archived',
-            priority: task.priority ?? 'medium',
-            type: task.type,
-            parentId: task.parentId,
-            phase: task.phase,
-            size: task.size,
-            position: task.position,
-            labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
-            notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-            acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
-            filesJson: task.files ? JSON.stringify(task.files) : '[]',
-            createdAt: task.createdAt,
-            updatedAt: task.updatedAt,
-            completedAt: task.completedAt,
-            archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-            archiveReason: task.archiveReason ?? 'migrated',
-            cycleTimeDays: task.cycleTimeDays,
-          }).onConflictDoNothing().run();
+          await db
+            .insert(schema.tasks)
+            .values({
+              id: task.id,
+              title: task.title,
+              description: task.description || `Task: ${task.title}`,
+              status: 'archived',
+              priority: task.priority ?? 'medium',
+              type: task.type,
+              parentId: task.parentId,
+              phase: task.phase,
+              size: task.size,
+              position: task.position,
+              labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
+              notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
+              filesJson: task.files ? JSON.stringify(task.files) : '[]',
+              createdAt: task.createdAt,
+              updatedAt: task.updatedAt,
+              completedAt: task.completedAt,
+              archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
+              archiveReason: task.archiveReason ?? 'migrated',
+              cycleTimeDays: task.cycleTimeDays,
+            })
+            .onConflictDoNothing()
+            .run();
 
           result.archivedImported++;
 
@@ -395,9 +430,14 @@ async function runMigrationDataImport(
         }
       }
 
-      logger?.info('import', 'archive-complete', `Completed importing ${result.archivedImported} archived tasks`, {
-        imported: result.archivedImported,
-      });
+      logger?.info(
+        'import',
+        'archive-complete',
+        `Completed importing ${result.archivedImported} archived tasks`,
+        {
+          imported: result.archivedImported,
+        },
+      );
     } catch (err) {
       const errorMsg = `Failed to parse todo-archive.json: ${String(err)}`;
       result.errors.push(errorMsg);
@@ -426,26 +466,32 @@ async function runMigrationDataImport(
         try {
           // Normalize status: map legacy 'archived' to 'ended' for SQLite CHECK constraint
           const validStatuses = ['active', 'ended', 'orphaned', 'suspended'];
-          const normalizedStatus = (validStatuses.includes(session.status)
-            ? session.status
-            : 'ended') as SessionStatus;
+          const normalizedStatus = (
+            validStatuses.includes(session.status) ? session.status : 'ended'
+          ) as SessionStatus;
           // Provide default name for sessions with null/undefined names
           const normalizedName = session.name || `session-${session.id}`;
 
-          await db.insert(schema.sessions).values({
-            id: session.id,
-            name: normalizedName,
-            status: normalizedStatus,
-            scopeJson: JSON.stringify(session.scope),
-            currentTask: session.taskWork?.taskId,
-            taskStartedAt: session.taskWork?.setAt,
-            agent: session.agent,
-            notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
-            tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
-            tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
-            startedAt: session.startedAt,
-            endedAt: session.endedAt,
-          }).onConflictDoNothing().run();
+          await db
+            .insert(schema.sessions)
+            .values({
+              id: session.id,
+              name: normalizedName,
+              status: normalizedStatus,
+              scopeJson: JSON.stringify(session.scope),
+              currentTask: session.taskWork?.taskId,
+              taskStartedAt: session.taskWork?.setAt,
+              agent: session.agent,
+              notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
+              tasksCompletedJson: session.tasksCompleted
+                ? JSON.stringify(session.tasksCompleted)
+                : '[]',
+              tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
+              startedAt: session.startedAt,
+              endedAt: session.endedAt,
+            })
+            .onConflictDoNothing()
+            .run();
 
           result.sessionsImported++;
 
@@ -463,9 +509,14 @@ async function runMigrationDataImport(
         }
       }
 
-      logger?.info('import', 'sessions-complete', `Completed importing ${result.sessionsImported} sessions`, {
-        imported: result.sessionsImported,
-      });
+      logger?.info(
+        'import',
+        'sessions-complete',
+        `Completed importing ${result.sessionsImported} sessions`,
+        {
+          imported: result.sessionsImported,
+        },
+      );
     } catch (err) {
       const errorMsg = `Failed to parse sessions.json: ${String(err)}`;
       result.errors.push(errorMsg);
@@ -510,10 +561,7 @@ export async function migrateJsonToSqlite(
       .from(schema.tasks)
       .where(eq(schema.tasks.status, 'archived'))
       .get();
-    const sessionsResult = await db
-      .select({ count: count() })
-      .from(schema.sessions)
-      .get();
+    const sessionsResult = await db.select({ count: count() }).from(schema.sessions).get();
 
     const existingCounts = {
       tasks: tasksResult?.count ?? 0,
@@ -536,19 +584,13 @@ export async function migrateJsonToSqlite(
       } else {
         const diffs: string[] = [];
         if (existingCounts.tasks !== jsonCounts.tasks) {
-          diffs.push(
-            `tasks: DB=${existingCounts.tasks}, JSON=${jsonCounts.tasks}`,
-          );
+          diffs.push(`tasks: DB=${existingCounts.tasks}, JSON=${jsonCounts.tasks}`);
         }
         if (existingCounts.archived !== jsonCounts.archived) {
-          diffs.push(
-            `archived: DB=${existingCounts.archived}, JSON=${jsonCounts.archived}`,
-          );
+          diffs.push(`archived: DB=${existingCounts.archived}, JSON=${jsonCounts.archived}`);
         }
         if (existingCounts.sessions !== jsonCounts.sessions) {
-          diffs.push(
-            `sessions: DB=${existingCounts.sessions}, JSON=${jsonCounts.sessions}`,
-          );
+          diffs.push(`sessions: DB=${existingCounts.sessions}, JSON=${jsonCounts.sessions}`);
         }
         result.warnings.push(
           `Dry-run: Data mismatch detected - ${diffs.join('; ')}. Would import ${jsonCounts.tasks - existingCounts.tasks} tasks, ${jsonCounts.archived - existingCounts.archived} archived, ${jsonCounts.sessions - existingCounts.sessions} sessions.`,
@@ -567,9 +609,7 @@ export async function migrateJsonToSqlite(
         existingCounts.sessions === jsonCounts.sessions;
 
       if (countsMatch) {
-        result.warnings.push(
-          'Database already contains migrated data. Use --force to re-import.',
-        );
+        result.warnings.push('Database already contains migrated data. Use --force to re-import.');
         result.success = true;
         return result;
       }
@@ -583,9 +623,7 @@ export async function migrateJsonToSqlite(
     }
 
     // Force mode: continue with migration
-    result.warnings.push(
-      'Force mode: Re-importing data despite existing database.',
-    );
+    result.warnings.push('Force mode: Re-importing data despite existing database.');
   }
 
   // Handle dry-run mode when DB doesn't exist
@@ -622,9 +660,7 @@ export async function migrateJsonToSqlite(
               position: task.position,
               labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
               notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-              acceptanceJson: task.acceptance
-                ? JSON.stringify(task.acceptance)
-                : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
               filesJson: task.files ? JSON.stringify(task.files) : '[]',
               origin: task.origin,
               blockedBy: task.blockedBy,
@@ -635,9 +671,7 @@ export async function migrateJsonToSqlite(
               completedAt: task.completedAt,
               cancelledAt: task.cancelledAt,
               cancellationReason: task.cancellationReason,
-              verificationJson: task.verification
-                ? JSON.stringify(task.verification)
-                : undefined,
+              verificationJson: task.verification ? JSON.stringify(task.verification) : undefined,
               createdBy: task.provenance?.createdBy,
               modifiedBy: task.provenance?.modifiedBy,
               sessionId: task.provenance?.sessionId,
@@ -694,17 +728,12 @@ export async function migrateJsonToSqlite(
               position: task.position,
               labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
               notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-              acceptanceJson: task.acceptance
-                ? JSON.stringify(task.acceptance)
-                : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
               filesJson: task.files ? JSON.stringify(task.files) : '[]',
               createdAt: task.createdAt,
               updatedAt: task.updatedAt,
               completedAt: task.completedAt,
-              archivedAt:
-                task.archivedAt ??
-                task.completedAt ??
-                new Date().toISOString(),
+              archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
               archiveReason: task.archiveReason ?? 'migrated',
               cycleTimeDays: task.cycleTimeDays,
             })
@@ -713,9 +742,7 @@ export async function migrateJsonToSqlite(
 
           result.archivedImported++;
         } catch (err) {
-          result.errors.push(
-            `Failed to import archived task ${task.id}: ${String(err)}`,
-          );
+          result.errors.push(`Failed to import archived task ${task.id}: ${String(err)}`);
         }
       }
     } catch (err) {
@@ -727,9 +754,7 @@ export async function migrateJsonToSqlite(
   const sessionsPath = join(cleoDir, 'sessions.json');
   if (existsSync(sessionsPath)) {
     try {
-      const sessionsData = JSON.parse(
-        readFileSync(sessionsPath, 'utf-8'),
-      );
+      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
       const sessions: Session[] = sessionsData.sessions ?? [];
 
       for (const session of sessions) {
@@ -737,9 +762,9 @@ export async function migrateJsonToSqlite(
           // Normalize status: map legacy 'archived' to 'ended' for SQLite CHECK constraint
           // @task T4658 @epic T4654
           const validStatuses = ['active', 'ended', 'orphaned', 'suspended'];
-          const normalizedStatus = (validStatuses.includes(session.status)
-            ? session.status
-            : 'ended') as SessionStatus; // 'archived' and any other legacy statuses -> 'ended'
+          const normalizedStatus = (
+            validStatuses.includes(session.status) ? session.status : 'ended'
+          ) as SessionStatus; // 'archived' and any other legacy statuses -> 'ended'
           // Provide default name for sessions with null/undefined names
           const normalizedName = session.name || `session-${session.id}`;
 
@@ -752,15 +777,11 @@ export async function migrateJsonToSqlite(
               currentTask: session.taskWork?.taskId,
               taskStartedAt: session.taskWork?.setAt,
               agent: session.agent,
-              notesJson: session.notes
-                ? JSON.stringify(session.notes)
-                : '[]',
+              notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
               tasksCompletedJson: session.tasksCompleted
                 ? JSON.stringify(session.tasksCompleted)
                 : '[]',
-              tasksCreatedJson: session.tasksCreated
-                ? JSON.stringify(session.tasksCreated)
-                : '[]',
+              tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
               startedAt: session.startedAt,
               endedAt: session.endedAt,
             })
@@ -769,9 +790,7 @@ export async function migrateJsonToSqlite(
 
           result.sessionsImported++;
         } catch (err) {
-          result.errors.push(
-            `Failed to import session ${session.id}: ${String(err)}`,
-          );
+          result.errors.push(`Failed to import session ${session.id}: ${String(err)}`);
         }
       }
     } catch (err) {
@@ -801,12 +820,14 @@ export async function exportToJson(cwd?: string): Promise<{
 
   // Get archived tasks separately
   const db = await getDb(cwd);
-  const archivedRows = await db.select().from(schema.tasks)
+  const archivedRows = await db
+    .select()
+    .from(schema.tasks)
     .where(eq(schema.tasks.status, 'archived'))
     .all();
 
   // Convert rows to Task format
-  const archived: Task[] = archivedRows.map((row: typeof archivedRows[number]) => ({
+  const archived: Task[] = archivedRows.map((row: (typeof archivedRows)[number]) => ({
     id: row.id,
     title: row.title,
     status: 'done' as const,

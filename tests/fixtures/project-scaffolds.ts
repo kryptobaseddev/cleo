@@ -3,7 +3,7 @@
  * Creates minimal on-disk scaffolds that trigger detectProjectType().
  */
 
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function createNodeProject(
@@ -18,7 +18,10 @@ export function createNodeProject(
   mkdirSync(dir, { recursive: true });
 
   // Always create package.json
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'test', version: '1.0.0', scripts: {} }));
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({ name: 'test', version: '1.0.0', scripts: {} }),
+  );
 
   // Package manager lockfiles
   const pm = opts?.packageManager ?? 'npm';
@@ -77,27 +80,18 @@ export function createPythonProject(
   if (tool === 'pip') {
     writeFileSync(join(dir, 'requirements.txt'), '');
   } else if (tool === 'poetry') {
-    writeFileSync(
-      join(dir, 'pyproject.toml'),
-      '[tool.poetry]\nname = "test"\nversion = "0.1.0"\n',
-    );
+    writeFileSync(join(dir, 'pyproject.toml'), '[tool.poetry]\nname = "test"\nversion = "0.1.0"\n');
   } else if (tool === 'pdm') {
     writeFileSync(
       join(dir, 'pyproject.toml'),
       '[tool.pdm]\n[project]\nname = "test"\nversion = "0.1.0"\n',
     );
   } else if (tool === 'uv') {
-    writeFileSync(
-      join(dir, 'pyproject.toml'),
-      '[project]\nname = "test"\nversion = "0.1.0"\n',
-    );
+    writeFileSync(join(dir, 'pyproject.toml'), '[project]\nname = "test"\nversion = "0.1.0"\n');
   }
 }
 
-export function createRustProject(
-  dir: string,
-  opts?: { workspace?: boolean },
-): void {
+export function createRustProject(dir: string, opts?: { workspace?: boolean }): void {
   mkdirSync(dir, { recursive: true });
 
   const base = '[package]\nname = "test"\nversion = "0.1.0"\nedition = "2021"\n';

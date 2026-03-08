@@ -9,8 +9,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import { releaseShip } from '../release-engine.js';
 
 // Hoist mocks so they apply when the module is first imported
@@ -20,7 +20,9 @@ vi.mock('../../../core/release/changelog-writer.js', () => ({
 }));
 
 vi.mock('../../../core/release/guards.js', () => ({
-  checkEpicCompleteness: vi.fn().mockResolvedValue({ hasIncomplete: false, epics: [], orphanTasks: [] }),
+  checkEpicCompleteness: vi
+    .fn()
+    .mockResolvedValue({ hasIncomplete: false, epics: [], orphanTasks: [] }),
   checkDoubleListing: vi.fn().mockReturnValue({ hasDoubleListing: false, duplicates: [] }),
 }));
 
@@ -41,11 +43,7 @@ const CLEO_DIR = join(TEST_ROOT, '.cleo');
 
 function writeConfig(config: Record<string, unknown>): void {
   mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'config.json'),
-    JSON.stringify(config, null, 2),
-    'utf-8',
-  );
+  writeFileSync(join(CLEO_DIR, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
 }
 
 const SAMPLE_TASKS = [
@@ -82,7 +80,10 @@ describe('release.ship', () => {
       passedCount: 0,
       failedCount: 0,
     });
-    vi.mocked(manifest.showManifestRelease).mockResolvedValue({ tasks: ['T001'], version: 'v2026.3.99' } as never);
+    vi.mocked(manifest.showManifestRelease).mockResolvedValue({
+      tasks: ['T001'],
+      version: 'v2026.3.99',
+    } as never);
     vi.mocked(manifest.generateReleaseChangelog).mockResolvedValue({
       changelog: '### Features\n- feat: Add feature A (T001)\n',
       taskCount: 1,
@@ -97,20 +98,14 @@ describe('release.ship', () => {
   });
 
   it('returns error when version is missing', async () => {
-    const result = await releaseShip(
-      { version: '', epicId: 'T5576' },
-      TEST_ROOT,
-    );
+    const result = await releaseShip({ version: '', epicId: 'T5576' }, TEST_ROOT);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_INVALID_INPUT');
     expect(result.error?.message).toMatch(/version is required/i);
   });
 
   it('returns error when epicId is missing', async () => {
-    const result = await releaseShip(
-      { version: '2026.3.99', epicId: '' },
-      TEST_ROOT,
-    );
+    const result = await releaseShip({ version: '2026.3.99', epicId: '' }, TEST_ROOT);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_INVALID_INPUT');
     expect(result.error?.message).toMatch(/epicId is required/i);

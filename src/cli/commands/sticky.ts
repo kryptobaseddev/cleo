@@ -8,12 +8,12 @@
  * @epic T5267
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
+import { CleoError } from '../../core/errors.js';
+import { formatError } from '../../core/output.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
 
 /**
  * Register the sticky command group.
@@ -36,12 +36,18 @@ export function registerStickyCommand(program: Command): void {
     .option('--priority <priority>', 'Priority: low|medium|high', 'medium')
     .action(async (content: string, opts: Record<string, unknown>) => {
       try {
-        await dispatchFromCli('mutate', 'sticky', 'add', {
-          content,
-          tags: opts['tag'] as string[],
-          color: opts['color'] as string,
-          priority: opts['priority'] as string,
-        }, { command: 'sticky', operation: 'sticky.add' });
+        await dispatchFromCli(
+          'mutate',
+          'sticky',
+          'add',
+          {
+            content,
+            tags: opts['tag'] as string[],
+            color: opts['color'] as string,
+            priority: opts['priority'] as string,
+          },
+          { command: 'sticky', operation: 'sticky.add' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -76,11 +82,11 @@ export function registerStickyCommand(program: Command): void {
         }
 
         const data = response.data as { stickies: StickyNote[]; total: number } | null;
-        
+
         if (!data || !data.stickies || data.stickies.length === 0) {
           cliOutput(
             { stickies: [], total: 0 },
-            { command: 'sticky list', message: 'No sticky notes found', operation: 'sticky.list' }
+            { command: 'sticky list', message: 'No sticky notes found', operation: 'sticky.list' },
           );
           process.exit(ExitCode.NO_DATA);
           return;
@@ -113,11 +119,15 @@ export function registerStickyCommand(program: Command): void {
         }
 
         const data = response.data as StickyNote | null;
-        
+
         if (!data) {
           cliOutput(
             { sticky: null },
-            { command: 'sticky show', message: `Sticky note not found: ${id}`, operation: 'sticky.show' }
+            {
+              command: 'sticky show',
+              message: `Sticky note not found: ${id}`,
+              operation: 'sticky.show',
+            },
           );
           process.exit(ExitCode.NO_DATA);
           return;
@@ -143,7 +153,11 @@ export function registerStickyCommand(program: Command): void {
     .option('--to-task', 'Convert to a task')
     .option('--to-memory', 'Convert to a memory observation')
     .option('--title <title>', 'Title for the converted item (tasks only)')
-    .option('--type <type>', 'Memory type: pattern|learning|decision|observation (memory only)', 'observation')
+    .option(
+      '--type <type>',
+      'Memory type: pattern|learning|decision|observation (memory only)',
+      'observation',
+    )
     .option('--epic <epic>', 'Epic ID for the new task (e.g., epic:T###)')
     .action(async (id: string, opts: Record<string, unknown>) => {
       try {
@@ -196,9 +210,15 @@ export function registerStickyCommand(program: Command): void {
     .description('Archive a sticky note')
     .action(async (id: string) => {
       try {
-        await dispatchFromCli('mutate', 'sticky', 'archive', {
-          stickyId: id,
-        }, { command: 'sticky archive', operation: 'sticky.archive' });
+        await dispatchFromCli(
+          'mutate',
+          'sticky',
+          'archive',
+          {
+            stickyId: id,
+          },
+          { command: 'sticky archive', operation: 'sticky.archive' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -215,9 +235,15 @@ export function registerStickyCommand(program: Command): void {
     .description('Permanently delete a sticky note (cannot be undone)')
     .action(async (id: string) => {
       try {
-        await dispatchFromCli('mutate', 'sticky', 'purge', {
-          stickyId: id,
-        }, { command: 'sticky purge', operation: 'sticky.purge' });
+        await dispatchFromCli(
+          'mutate',
+          'sticky',
+          'purge',
+          {
+            stickyId: id,
+          },
+          { command: 'sticky purge', operation: 'sticky.purge' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

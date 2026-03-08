@@ -26,7 +26,10 @@ function uniq(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
-export function resolveProviderFromModelIndex(index: ModelsDevIndex, model?: string): ModelProviderLookup {
+export function resolveProviderFromModelIndex(
+  index: ModelsDevIndex,
+  model?: string,
+): ModelProviderLookup {
   const value = (model ?? '').trim().toLowerCase();
   if (!value) return { source: 'none' };
 
@@ -52,7 +55,11 @@ export function resolveProviderFromModelIndex(index: ModelsDevIndex, model?: str
     return { provider: prefix, source: 'model-prefix', candidates: exactCandidates };
   }
   if (exactCandidates.length === 1) {
-    return { provider: exactCandidates[0], source: 'models.dev-exact', candidates: exactCandidates };
+    return {
+      provider: exactCandidates[0],
+      source: 'models.dev-exact',
+      candidates: exactCandidates,
+    };
   }
   if (exactCandidates.length > 1) {
     return { source: 'models.dev-exact', candidates: exactCandidates };
@@ -60,7 +67,11 @@ export function resolveProviderFromModelIndex(index: ModelsDevIndex, model?: str
 
   const suffixCandidates = uniq(suffixMatches);
   if (suffixCandidates.length === 1) {
-    return { provider: suffixCandidates[0], source: 'models.dev-suffix', candidates: suffixCandidates };
+    return {
+      provider: suffixCandidates[0],
+      source: 'models.dev-suffix',
+      candidates: suffixCandidates,
+    };
   }
   if (suffixCandidates.length > 1) {
     return { source: 'models.dev-suffix', candidates: suffixCandidates };
@@ -85,7 +96,9 @@ async function loadModelsDevIndex(): Promise<ModelsDevIndex | null> {
   return modelsDevCache;
 }
 
-export async function resolveProviderFromModelRegistry(model?: string): Promise<ModelProviderLookup> {
+export async function resolveProviderFromModelRegistry(
+  model?: string,
+): Promise<ModelProviderLookup> {
   const prefix = getModelPrefix(model);
   if (prefix) {
     return { provider: prefix, source: 'model-prefix' };

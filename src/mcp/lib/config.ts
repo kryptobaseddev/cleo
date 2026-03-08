@@ -9,16 +9,16 @@
  * @task T2928
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import {
-  MCPConfig,
+  CONFIG_SCHEMA,
   DEFAULT_CONFIG,
   DEFAULT_LIFECYCLE_ENFORCEMENT,
   DEFAULT_PROTOCOL_VALIDATION,
   DEFAULT_RATE_LIMITING,
   ENV_PREFIX,
-  CONFIG_SCHEMA,
+  type MCPConfig,
 } from './defaults.js';
 
 /**
@@ -28,7 +28,7 @@ export class ConfigValidationError extends Error {
   constructor(
     public field: string,
     public value: unknown,
-    public constraint: string
+    public constraint: string,
   ) {
     super(`Invalid config field '${field}': ${constraint} (got ${value})`);
     this.name = 'ConfigValidationError';
@@ -55,7 +55,7 @@ function parseEnvValue(key: string, value: string): unknown {
 
   if (schema.type === 'number') {
     const num = parseInt(value, 10);
-    if (isNaN(num)) {
+    if (Number.isNaN(num)) {
       throw new ConfigValidationError(key, value, 'must be a number');
     }
     return num;
@@ -88,10 +88,14 @@ function loadFromFile(projectRoot?: string): Partial<MCPConfig> {
       if (config.mcp.logLevel !== undefined) result.logLevel = config.mcp.logLevel;
       if (config.mcp.enableMetrics !== undefined) result.enableMetrics = config.mcp.enableMetrics;
       if (config.mcp.maxRetries !== undefined) result.maxRetries = config.mcp.maxRetries;
-      if (config.mcp.features?.queryCache !== undefined) result.queryCache = config.mcp.features.queryCache;
-      if (config.mcp.features?.queryCacheTtl !== undefined) result.queryCacheTtl = config.mcp.features.queryCacheTtl;
-      if (config.mcp.features?.auditLog !== undefined) result.auditLog = config.mcp.features.auditLog;
-      if (config.mcp.features?.strictValidation !== undefined) result.strictValidation = config.mcp.features.strictValidation;
+      if (config.mcp.features?.queryCache !== undefined)
+        result.queryCache = config.mcp.features.queryCache;
+      if (config.mcp.features?.queryCacheTtl !== undefined)
+        result.queryCacheTtl = config.mcp.features.queryCacheTtl;
+      if (config.mcp.features?.auditLog !== undefined)
+        result.auditLog = config.mcp.features.auditLog;
+      if (config.mcp.features?.strictValidation !== undefined)
+        result.strictValidation = config.mcp.features.strictValidation;
     }
 
     // Extract lifecycle enforcement config (Section 12.2)
@@ -148,38 +152,22 @@ function validateField(key: string, value: unknown): void {
   // Type check
   const actualType = typeof value;
   if (actualType !== schema.type) {
-    throw new ConfigValidationError(
-      key,
-      value,
-      `must be of type ${schema.type}`
-    );
+    throw new ConfigValidationError(key, value, `must be of type ${schema.type}`);
   }
 
   // Enum check
   if ('enum' in schema && schema.enum && !schema.enum.includes(value as never)) {
-    throw new ConfigValidationError(
-      key,
-      value,
-      `must be one of: ${schema.enum.join(', ')}`
-    );
+    throw new ConfigValidationError(key, value, `must be one of: ${schema.enum.join(', ')}`);
   }
 
   // Range check for numbers
   if (schema.type === 'number') {
     const numValue = value as number;
     if ('min' in schema && numValue < schema.min) {
-      throw new ConfigValidationError(
-        key,
-        value,
-        `must be >= ${schema.min}`
-      );
+      throw new ConfigValidationError(key, value, `must be >= ${schema.min}`);
     }
     if ('max' in schema && numValue > schema.max) {
-      throw new ConfigValidationError(
-        key,
-        value,
-        `must be <= ${schema.max}`
-      );
+      throw new ConfigValidationError(key, value, `must be <= ${schema.max}`);
     }
   }
 }

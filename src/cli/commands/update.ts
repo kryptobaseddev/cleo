@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -44,15 +44,23 @@ export function registerUpdateCommand(program: Command): void {
       if (opts['size'] !== undefined) params['size'] = opts['size'];
       if (opts['phase'] !== undefined) params['phase'] = opts['phase'];
       if (opts['description'] !== undefined) params['description'] = opts['description'];
-      if (opts['labels']) params['labels'] = (opts['labels'] as string).split(',').map(s => s.trim());
-      if (opts['addLabels']) params['addLabels'] = (opts['addLabels'] as string).split(',').map(s => s.trim());
-      if (opts['removeLabels']) params['removeLabels'] = (opts['removeLabels'] as string).split(',').map(s => s.trim());
-      if (opts['depends']) params['depends'] = (opts['depends'] as string).split(',').map(s => s.trim());
-      if (opts['addDepends']) params['addDepends'] = (opts['addDepends'] as string).split(',').map(s => s.trim());
-      if (opts['removeDepends']) params['removeDepends'] = (opts['removeDepends'] as string).split(',').map(s => s.trim());
+      if (opts['labels'])
+        params['labels'] = (opts['labels'] as string).split(',').map((s) => s.trim());
+      if (opts['addLabels'])
+        params['addLabels'] = (opts['addLabels'] as string).split(',').map((s) => s.trim());
+      if (opts['removeLabels'])
+        params['removeLabels'] = (opts['removeLabels'] as string).split(',').map((s) => s.trim());
+      if (opts['depends'])
+        params['depends'] = (opts['depends'] as string).split(',').map((s) => s.trim());
+      if (opts['addDepends'])
+        params['addDepends'] = (opts['addDepends'] as string).split(',').map((s) => s.trim());
+      if (opts['removeDepends'])
+        params['removeDepends'] = (opts['removeDepends'] as string).split(',').map((s) => s.trim());
       if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
-      if (opts['acceptance']) params['acceptance'] = (opts['acceptance'] as string).split(',').map(s => s.trim());
-      if (opts['files']) params['files'] = (opts['files'] as string).split(',').map(s => s.trim());
+      if (opts['acceptance'])
+        params['acceptance'] = (opts['acceptance'] as string).split(',').map((s) => s.trim());
+      if (opts['files'])
+        params['files'] = (opts['files'] as string).split(',').map((s) => s.trim());
       if (opts['blockedBy'] !== undefined) params['blockedBy'] = opts['blockedBy'];
       if (opts['parent'] !== undefined) params['parent'] = opts['parent'];
       if (opts['autoComplete'] === false) params['noAutoComplete'] = true;

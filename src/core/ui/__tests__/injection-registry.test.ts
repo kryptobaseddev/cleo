@@ -8,11 +8,11 @@
  * @epic T4663
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  INJECTION_VALIDATION_KEYS,
-  getValidationKey,
   extractMarkerVersion,
+  getValidationKey,
+  INJECTION_VALIDATION_KEYS,
 } from '../injection-legacy.js';
 
 describe('getValidationKey', () => {

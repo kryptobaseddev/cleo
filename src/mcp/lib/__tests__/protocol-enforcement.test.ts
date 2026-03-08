@@ -5,7 +5,7 @@
  * @epic T2908
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
 
 describe('ProtocolEnforcer', () => {
@@ -31,7 +31,7 @@ describe('ProtocolEnforcer', () => {
 
       const result = await enforcer.validateProtocol(ProtocolType.RESEARCH, manifest);
       expect(result.valid).toBe(true);
-      expect(result.violations.filter(v => v.severity === 'error')).toHaveLength(0);
+      expect(result.violations.filter((v) => v.severity === 'error')).toHaveLength(0);
     });
 
     it('should fail with missing key_findings', async () => {
@@ -86,7 +86,7 @@ describe('ProtocolEnforcer', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.SPECIFICATION,
         manifest,
-        additionalData
+        additionalData,
       );
       expect(result.valid).toBe(true);
     });
@@ -107,7 +107,7 @@ describe('ProtocolEnforcer', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.SPECIFICATION,
         manifest,
-        additionalData
+        additionalData,
       );
       expect(result.valid).toBe(false);
       expect(result.violations.some((v) => v.requirement === 'SPEC-001')).toBe(true);
@@ -130,7 +130,7 @@ describe('ProtocolEnforcer', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.IMPLEMENTATION,
         manifest,
-        additionalData
+        additionalData,
       );
       expect(result.valid).toBe(true);
     });
@@ -151,7 +151,7 @@ describe('ProtocolEnforcer', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.IMPLEMENTATION,
         manifest,
-        additionalData
+        additionalData,
       );
       expect(result.valid).toBe(false);
       expect(result.violations.some((v) => v.requirement === 'IMPL-003')).toBe(true);
@@ -172,7 +172,11 @@ describe('ProtocolEnforcer', () => {
         changelogEntry: 'Added new features',
       };
 
-      const result = await enforcer.validateProtocol(ProtocolType.RELEASE, manifest, additionalData);
+      const result = await enforcer.validateProtocol(
+        ProtocolType.RELEASE,
+        manifest,
+        additionalData,
+      );
       expect(result.valid).toBe(true);
     });
 
@@ -189,7 +193,11 @@ describe('ProtocolEnforcer', () => {
         changelogEntry: 'Added new features',
       };
 
-      const result = await enforcer.validateProtocol(ProtocolType.RELEASE, manifest, additionalData);
+      const result = await enforcer.validateProtocol(
+        ProtocolType.RELEASE,
+        manifest,
+        additionalData,
+      );
       expect(result.valid).toBe(false);
       expect(result.violations.some((v) => v.requirement === 'RLSE-001')).toBe(true);
     });
@@ -258,7 +266,7 @@ describe('ProtocolEnforcer', () => {
           },
         ],
         80,
-        'T2918'
+        'T2918',
       );
 
       const violations = enforcer.getViolations();

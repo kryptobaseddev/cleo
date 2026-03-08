@@ -9,8 +9,8 @@
  * @epic T4545
  */
 
-import { readJson, appendJsonl } from './json.js';
 import { getLogPath } from '../core/paths.js';
+import { appendJsonl, readJson } from './json.js';
 
 /** Import package metadata extracted from the export file. */
 export interface ImportPackageMeta {
@@ -71,9 +71,7 @@ function generateLogId(): string {
  * Extract package metadata from an export file.
  * @task T4552
  */
-export async function extractPackageMeta(
-  sourceFilePath: string,
-): Promise<ImportPackageMeta> {
+export async function extractPackageMeta(sourceFilePath: string): Promise<ImportPackageMeta> {
   const data = await readJson<Record<string, unknown>>(sourceFilePath);
   const meta = (data as Record<string, Record<string, unknown>> | null)?._meta;
 

@@ -5,7 +5,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -22,11 +22,17 @@ export function registerImplementationCommand(program: Command): void {
     .description('Validate implementation protocol compliance for task')
     .option('--strict', 'Exit with error code on violations')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.implementation', {
-        mode: 'task',
-        taskId,
-        strict: opts['strict'] as boolean | undefined,
-      }, { command: 'implementation' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.implementation',
+        {
+          mode: 'task',
+          taskId,
+          strict: opts['strict'] as boolean | undefined,
+        },
+        { command: 'implementation' },
+      );
     });
 
   implementation
@@ -34,10 +40,16 @@ export function registerImplementationCommand(program: Command): void {
     .description('Validate manifest entry directly')
     .option('--strict', 'Exit with error code on violations')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.implementation', {
-        mode: 'manifest',
-        manifestFile,
-        strict: opts['strict'] as boolean | undefined,
-      }, { command: 'implementation' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.implementation',
+        {
+          mode: 'manifest',
+          manifestFile,
+          strict: opts['strict'] as boolean | undefined,
+        },
+        { command: 'implementation' },
+      );
     });
 }

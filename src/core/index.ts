@@ -4,32 +4,36 @@
  * @task T4458
  */
 
-export { CleoError } from './errors.js';
-export { formatOutput, formatSuccess, formatError } from './output.js';
-export type { LafsSuccess, LafsError, LafsEnvelope } from './output.js';
 export type {
-  LafsAlternative,
-  LafsErrorDetail,
+  CleoResponse,
+  GatewayEnvelope,
+  GatewayError,
   GatewayMeta,
   GatewaySuccess,
-  GatewayError,
-  GatewayEnvelope,
-  CleoResponse,
+  LafsAlternative,
+  LafsErrorDetail,
 } from '../types/lafs.js';
-export { isLafsSuccess, isLafsError, isGatewayEnvelope } from '../types/lafs.js';
+export { isGatewayEnvelope, isLafsError, isLafsSuccess } from '../types/lafs.js';
+export { getConfigValue, loadConfig } from './config.js';
+export { CleoError } from './errors.js';
 export {
-  getCleoHome,
+  checkSchema,
+  validateAgainstSchema,
+  validateAgainstSchemaFile,
+} from './json-schema-validator.js';
+export type { LafsEnvelope, LafsError, LafsSuccess } from './output.js';
+export { formatError, formatOutput, formatSuccess } from './output.js';
+export {
+  getArchivePath,
+  getBackupDir,
   getCleoDir,
   getCleoDirAbsolute,
-  getProjectRoot,
-  resolveProjectPath,
+  getCleoHome,
   getConfigPath,
-  getSessionsPath,
-  getArchivePath,
-  getLogPath,
-  getBackupDir,
   getGlobalConfigPath,
+  getLogPath,
+  getProjectRoot,
+  getSessionsPath,
   isAbsolutePath,
+  resolveProjectPath,
 } from './paths.js';
-export { loadConfig, getConfigValue } from './config.js';
-export { validateAgainstSchema, validateAgainstSchemaFile, checkSchema } from './json-schema-validator.js';

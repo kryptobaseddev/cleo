@@ -8,9 +8,9 @@
  */
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { generateStickyId } from './id.js';
-import type { StickyNote, CreateStickyParams } from './types.js';
 import type { BrainStickyNoteRow } from '../../store/brain-schema.js';
+import { generateStickyId } from './id.js';
+import type { CreateStickyParams, StickyNote } from './types.js';
 
 /**
  * Convert database row to StickyNote interface.
@@ -24,8 +24,8 @@ function rowToStickyNote(row: BrainStickyNoteRow): StickyNote {
     tags: row.tagsJson ? JSON.parse(row.tagsJson) : [],
     status: row.status as StickyNote['status'],
     convertedTo: row.convertedToJson ? JSON.parse(row.convertedToJson) : undefined,
-    color: row.color as StickyNote['color'] ?? undefined,
-    priority: row.priority as StickyNote['priority'] ?? undefined,
+    color: (row.color as StickyNote['color']) ?? undefined,
+    priority: (row.priority as StickyNote['priority']) ?? undefined,
     sourceType: row.sourceType ?? 'sticky-note',
   };
 }

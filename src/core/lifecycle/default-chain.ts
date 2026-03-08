@@ -7,13 +7,13 @@
  * @task T5399
  */
 
-import type { WarpChain, WarpStage, WarpLink, GateContract } from '../../types/warp-chain.js';
-import { PIPELINE_STAGES, STAGE_DEFINITIONS, STAGE_PREREQUISITES } from './stages.js';
-import { VERIFICATION_GATE_ORDER } from '../validation/verification.js';
-import type { GateName } from '../validation/verification.js';
-import { PROTOCOL_TYPES } from '../orchestration/protocol-validators.js';
+import type { GateContract, WarpChain, WarpLink, WarpStage } from '../../types/warp-chain.js';
 import type { ProtocolType } from '../orchestration/protocol-validators.js';
+import { PROTOCOL_TYPES } from '../orchestration/protocol-validators.js';
+import type { GateName } from '../validation/verification.js';
+import { VERIFICATION_GATE_ORDER } from '../validation/verification.js';
 import type { Stage } from './stages.js';
+import { PIPELINE_STAGES, STAGE_DEFINITIONS, STAGE_PREREQUISITES } from './stages.js';
 
 export const DEFAULT_CHAIN_ID = 'rcasd-ivtrc';
 
@@ -171,7 +171,8 @@ export function buildDefaultChain(): WarpChain {
     id: DEFAULT_CHAIN_ID,
     name: 'RCASD-IVTR+C Default Pipeline',
     version: '1.0.0',
-    description: 'Canonical 9-stage CLEO lifecycle pipeline: Research, Consensus, Architecture, Specification, Decomposition, Implementation, Validation, Testing, Release (+Contribution)',
+    description:
+      'Canonical 9-stage CLEO lifecycle pipeline: Research, Consensus, Architecture, Specification, Decomposition, Implementation, Validation, Testing, Release (+Contribution)',
     shape: {
       stages,
       links,

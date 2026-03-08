@@ -14,19 +14,19 @@
  * @epic T4732
  */
 
-import type { DataAccessor, ArchiveFile } from './data-accessor.js';
-import type { Task, TaskFile } from '../types/task.js';
-import type { Session } from '../types/session.js';
-import type { ArchiveFields } from './db-helpers.js';
-import {
-  safeSaveTaskFile,
-  safeSaveSessions,
-  safeSaveArchive,
-  safeAppendLog,
-  safeSingleTaskWrite,
-  type SafetyOptions,
-} from './data-safety-central.js';
 import { getLogger } from '../core/logger.js';
+import type { Session } from '../types/session.js';
+import type { Task, TaskFile } from '../types/task.js';
+import type { ArchiveFile, DataAccessor } from './data-accessor.js';
+import {
+  type SafetyOptions,
+  safeAppendLog,
+  safeSaveArchive,
+  safeSaveSessions,
+  safeSaveTaskFile,
+  safeSingleTaskWrite,
+} from './data-safety-central.js';
+import type { ArchiveFields } from './db-helpers.js';
 
 const log = getLogger('data-safety');
 
@@ -69,11 +69,7 @@ export class SafetyDataAccessor implements DataAccessor {
    * @param cwd - Working directory for path resolution
    * @param config - Optional safety configuration overrides
    */
-  constructor(
-    inner: DataAccessor,
-    cwd?: string,
-    config?: Partial<WrapperSafetyConfig>,
-  ) {
+  constructor(inner: DataAccessor, cwd?: string, config?: Partial<WrapperSafetyConfig>) {
     this.inner = inner;
     this.cwd = cwd;
     this.config = {
@@ -193,7 +189,12 @@ export class SafetyDataAccessor implements DataAccessor {
 
   // ---- Relations (pass-through to inner, T5168) ----
 
-  async addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void> {
+  async addRelation(
+    taskId: string,
+    relatedTo: string,
+    relationType: string,
+    reason?: string,
+  ): Promise<void> {
     if (!this.inner.addRelation) return;
     await this.inner.addRelation(taskId, relatedTo, relationType, reason);
   }
@@ -230,13 +231,12 @@ export class SafetyDataAccessor implements DataAccessor {
  * @param cwd - Working directory
  * @returns SafetyDataAccessor wrapping the input
  */
-export function wrapWithSafety(
-  accessor: DataAccessor,
-  cwd?: string,
-): DataAccessor {
+export function wrapWithSafety(accessor: DataAccessor, cwd?: string): DataAccessor {
   // Check for emergency disable
   if (isSafetyDisabled()) {
-    log.warn('Safety disabled - emergency mode (CLEO_DISABLE_SAFETY=true). Data integrity checks bypassed.');
+    log.warn(
+      'Safety disabled - emergency mode (CLEO_DISABLE_SAFETY=true). Data integrity checks bypassed.',
+    );
     return accessor;
   }
 

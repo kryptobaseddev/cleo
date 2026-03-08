@@ -7,10 +7,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -196,7 +196,8 @@ describe('Brain Retrieval', () => {
       resetFts5Cache();
 
       const accessor = await getBrainAccessor(tempDir);
-      const longDecision = 'This is a very long decision about truncation testing that exceeds eighty characters and should be properly truncated in compact results';
+      const longDecision =
+        'This is a very long decision about truncation testing that exceeds eighty characters and should be properly truncated in compact results';
       await accessor.addDecision({
         id: 'D001',
         type: 'technical',
@@ -648,13 +649,13 @@ describe('Brain Retrieval', () => {
       const { getBrainDb } = await import('../../../store/brain-sqlite.js');
       await getBrainDb(tempDir);
 
-      await expect(
-        observeBrain(tempDir, { text: '' }),
-      ).rejects.toThrow('Observation text is required');
+      await expect(observeBrain(tempDir, { text: '' })).rejects.toThrow(
+        'Observation text is required',
+      );
 
-      await expect(
-        observeBrain(tempDir, { text: '   ' }),
-      ).rejects.toThrow('Observation text is required');
+      await expect(observeBrain(tempDir, { text: '   ' })).rejects.toThrow(
+        'Observation text is required',
+      );
     });
 
     it('should store observation searchable via searchBrainCompact', async () => {
@@ -709,7 +710,9 @@ describe('Brain Retrieval', () => {
 
   describe('3-layer integration', () => {
     it('should flow: search -> timeline -> fetch', async () => {
-      const { searchBrainCompact, timelineBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { searchBrainCompact, timelineBrain, fetchBrainEntries } = await import(
+        '../brain-retrieval.js'
+      );
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       const { resetFts5Cache } = await import('../brain-search.js');
       const { getBrainAccessor } = await import('../../../store/brain-accessor.js');

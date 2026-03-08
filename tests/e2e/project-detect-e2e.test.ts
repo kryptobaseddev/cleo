@@ -5,20 +5,19 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { detectProjectType } from '../../src/store/project-detect.js';
 import {
+  cleanupScaffold,
+  createGoProject,
   createNodeProject,
   createPythonProject,
   createRustProject,
-  createGoProject,
-  cleanupScaffold,
 } from '../fixtures/project-scaffolds.js';
 
 // Load schema once

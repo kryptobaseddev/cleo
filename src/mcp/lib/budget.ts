@@ -8,11 +8,8 @@
  * @epic T4663
  */
 
-import {
-  applyBudgetEnforcement,
-  checkBudget,
-} from '@cleocode/lafs-protocol';
-import type { LAFSEnvelope, BudgetEnforcementResult } from '@cleocode/lafs-protocol';
+import type { BudgetEnforcementResult, LAFSEnvelope } from '@cleocode/lafs-protocol';
+import { applyBudgetEnforcement, checkBudget } from '@cleocode/lafs-protocol';
 
 /**
  * Default token budget when no explicit budget is provided.
@@ -78,9 +75,10 @@ export function enforceBudget(
       ...response,
       _meta: meta,
       // Replace data with potentially truncated result
-      ...(enforcement.truncated && enforcement.envelope.result !== undefined && {
-        data: enforcement.envelope.result,
-      }),
+      ...(enforcement.truncated &&
+        enforcement.envelope.result !== undefined && {
+          data: enforcement.envelope.result,
+        }),
     },
     enforcement,
   };

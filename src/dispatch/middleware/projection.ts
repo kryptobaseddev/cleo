@@ -7,9 +7,14 @@
  * @task T5096
  */
 
-import type { Middleware, DispatchRequest, DispatchResponse } from '../types.js';
-import { resolveTier, PROJECTIONS, type MviTier, type ProjectionConfig } from '../lib/projections.js';
 import { getBoundSession } from '../context/session-context.js';
+import {
+  type MviTier,
+  PROJECTIONS,
+  type ProjectionConfig,
+  resolveTier,
+} from '../lib/projections.js';
+import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 export interface ProjectionContext {
   tier: MviTier;
@@ -43,7 +48,7 @@ function pruneDepth(data: unknown, maxDepth: number, currentDepth: number = 0): 
 
   // Recurse into arrays
   if (Array.isArray(data)) {
-    return data.map(item => pruneDepth(item, maxDepth, currentDepth + 1));
+    return data.map((item) => pruneDepth(item, maxDepth, currentDepth + 1));
   }
 
   // Recurse into objects
@@ -76,7 +81,7 @@ export function applyProjection<T>(data: T, config: ProjectionConfig): T {
         for (let i = 0; i < parts.length - 1; i++) {
           const val = current?.[parts[i]];
           if (val && typeof val === 'object') {
-            current[parts[i]] = { ...val as Record<string, unknown> };
+            current[parts[i]] = { ...(val as Record<string, unknown>) };
             current = current[parts[i]] as Record<string, unknown>;
           } else {
             current = undefined;
@@ -114,7 +119,10 @@ export function createProjectionContext(params?: Record<string, unknown>): Proje
  * field exclusions to the response.
  */
 export function createProjectionMiddleware(): Middleware {
-  return async (req: DispatchRequest, next: () => Promise<DispatchResponse>): Promise<DispatchResponse> => {
+  return async (
+    req: DispatchRequest,
+    next: () => Promise<DispatchResponse>,
+  ): Promise<DispatchResponse> => {
     const session = getBoundSession();
     const tier = resolveTier(req.params, session?.scope ?? null);
     const config = PROJECTIONS[tier];

@@ -3,10 +3,10 @@
  * @task T4783
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 export interface LabelsResult {
   labels: Array<{ label: string; count: number; tasks: string[] }>;
@@ -16,11 +16,8 @@ export interface LabelsResult {
 }
 
 /** Get all labels with counts and task IDs per label. */
-export async function getLabels(
-  cwd?: string,
-  accessor?: DataAccessor,
-): Promise<LabelsResult> {
-  const dataAccessor = accessor ?? await getAccessor(cwd);
+export async function getLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelsResult> {
+  const dataAccessor = accessor ?? (await getAccessor(cwd));
   const data = await dataAccessor.loadTaskFile();
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No task data found');

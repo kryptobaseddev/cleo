@@ -7,13 +7,13 @@
  * @task T5602
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { cancelRelease, prepareRelease, showManifestRelease } from '../release-manifest.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getDb } from '../../../store/sqlite.js';
 import * as schema from '../../../store/tasks-schema.js';
+import { cancelRelease, prepareRelease, showManifestRelease } from '../release-manifest.js';
 
 let testDir: string;
 
@@ -52,10 +52,7 @@ describe('cancelRelease', () => {
 
     // Verify the row was actually deleted
     const db = await getDb(testDir);
-    const rows = await db
-      .select()
-      .from(schema.releaseManifests)
-      .all();
+    const rows = await db.select().from(schema.releaseManifests).all();
     expect(rows).toHaveLength(0);
   });
 
@@ -79,20 +76,23 @@ describe('cancelRelease', () => {
   it('rejects a committed release with a helpful message', async () => {
     // Insert a committed release directly into the DB
     const db = await getDb(testDir);
-    await db.insert(schema.releaseManifests).values({
-      id: 'rel-v3-0-0',
-      version: 'v3.0.0',
-      status: 'committed',
-      tasksJson: '[]',
-      notes: null,
-      changelog: null,
-      previousVersion: null,
-      createdAt: new Date().toISOString(),
-      preparedAt: new Date().toISOString(),
-      committedAt: new Date().toISOString(),
-      taggedAt: null,
-      pushedAt: null,
-    }).run();
+    await db
+      .insert(schema.releaseManifests)
+      .values({
+        id: 'rel-v3-0-0',
+        version: 'v3.0.0',
+        status: 'committed',
+        tasksJson: '[]',
+        notes: null,
+        changelog: null,
+        previousVersion: null,
+        createdAt: new Date().toISOString(),
+        preparedAt: new Date().toISOString(),
+        committedAt: new Date().toISOString(),
+        taggedAt: null,
+        pushedAt: null,
+      })
+      .run();
 
     const result = await cancelRelease('v3.0.0', testDir);
 
@@ -103,20 +103,23 @@ describe('cancelRelease', () => {
 
   it('rejects a pushed release with a helpful message', async () => {
     const db = await getDb(testDir);
-    await db.insert(schema.releaseManifests).values({
-      id: 'rel-v4-0-0',
-      version: 'v4.0.0',
-      status: 'pushed',
-      tasksJson: '[]',
-      notes: null,
-      changelog: null,
-      previousVersion: null,
-      createdAt: new Date().toISOString(),
-      preparedAt: new Date().toISOString(),
-      committedAt: new Date().toISOString(),
-      taggedAt: new Date().toISOString(),
-      pushedAt: new Date().toISOString(),
-    }).run();
+    await db
+      .insert(schema.releaseManifests)
+      .values({
+        id: 'rel-v4-0-0',
+        version: 'v4.0.0',
+        status: 'pushed',
+        tasksJson: '[]',
+        notes: null,
+        changelog: null,
+        previousVersion: null,
+        createdAt: new Date().toISOString(),
+        preparedAt: new Date().toISOString(),
+        committedAt: new Date().toISOString(),
+        taggedAt: new Date().toISOString(),
+        pushedAt: new Date().toISOString(),
+      })
+      .run();
 
     const result = await cancelRelease('v4.0.0', testDir);
 
@@ -127,20 +130,23 @@ describe('cancelRelease', () => {
 
   it('rejects a tagged release with a helpful message', async () => {
     const db = await getDb(testDir);
-    await db.insert(schema.releaseManifests).values({
-      id: 'rel-v5-0-0',
-      version: 'v5.0.0',
-      status: 'tagged',
-      tasksJson: '[]',
-      notes: null,
-      changelog: null,
-      previousVersion: null,
-      createdAt: new Date().toISOString(),
-      preparedAt: new Date().toISOString(),
-      committedAt: new Date().toISOString(),
-      taggedAt: new Date().toISOString(),
-      pushedAt: null,
-    }).run();
+    await db
+      .insert(schema.releaseManifests)
+      .values({
+        id: 'rel-v5-0-0',
+        version: 'v5.0.0',
+        status: 'tagged',
+        tasksJson: '[]',
+        notes: null,
+        changelog: null,
+        previousVersion: null,
+        createdAt: new Date().toISOString(),
+        preparedAt: new Date().toISOString(),
+        committedAt: new Date().toISOString(),
+        taggedAt: new Date().toISOString(),
+        pushedAt: null,
+      })
+      .run();
 
     const result = await cancelRelease('v5.0.0', testDir);
 

@@ -1,13 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  execMock,
-  spawnMock,
-  providerSupportsByIdMock,
-} = vi.hoisted(() => ({
+const { execMock, spawnMock, providerSupportsByIdMock } = vi.hoisted(() => ({
   execMock: vi.fn(),
   spawnMock: vi.fn(),
   providerSupportsByIdMock: vi.fn(),
@@ -22,10 +18,7 @@ vi.mock('@cleocode/caamp', () => ({
   providerSupportsById: providerSupportsByIdMock,
 }));
 
-import {
-  buildOpenCodeAgentMarkdown,
-  OpenCodeSpawnAdapter,
-} from '../opencode-adapter.js';
+import { buildOpenCodeAgentMarkdown, OpenCodeSpawnAdapter } from '../opencode-adapter.js';
 
 describe('OpenCodeSpawnAdapter', () => {
   let testRoot: string;
@@ -53,9 +46,14 @@ describe('OpenCodeSpawnAdapter', () => {
   });
 
   it('reports spawn availability when binary and provider capability exist', async () => {
-    execMock.mockImplementation((_cmd: string, callback: (err: Error | null, result?: { stdout: string; stderr: string }) => void) => {
-      callback(null, { stdout: '/usr/bin/opencode', stderr: '' });
-    });
+    execMock.mockImplementation(
+      (
+        _cmd: string,
+        callback: (err: Error | null, result?: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '/usr/bin/opencode', stderr: '' });
+      },
+    );
 
     const adapter = new OpenCodeSpawnAdapter();
     await expect(adapter.canSpawn()).resolves.toBe(true);
@@ -154,16 +152,7 @@ Follow the manifest and completion rules.
     expect(result.status).toBe('running');
     expect(spawnMock).toHaveBeenCalledWith(
       'opencode',
-      [
-        'run',
-        '--format',
-        'json',
-        '--agent',
-        'general',
-        '--title',
-        'CLEO T124',
-        'Do the work.',
-      ],
+      ['run', '--format', 'json', '--agent', 'general', '--title', 'CLEO T124', 'Do the work.'],
       expect.objectContaining({
         cwd: testRoot,
       }),

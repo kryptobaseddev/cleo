@@ -103,7 +103,14 @@ export type ResearchManifestReadResult = ManifestEntry[];
 
 // session.context.inject (was research.inject, moved to session domain T5241)
 export interface ResearchInjectParams {
-  protocolType: 'research' | 'consensus' | 'specification' | 'decomposition' | 'implementation' | 'contribution' | 'release';
+  protocolType:
+    | 'research'
+    | 'consensus'
+    | 'specification'
+    | 'decomposition'
+    | 'implementation'
+    | 'contribution'
+    | 'release';
   taskId?: string;
   variant?: string;
 }

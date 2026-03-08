@@ -28,7 +28,10 @@ export class TaskCache {
    */
   private computeChecksum(tasks: Task[]): string {
     return tasks
-      .map((t) => `${t.id}:${t.status}:${t.parentId ?? ''}:${t.phase ?? ''}:${(t.labels ?? []).join(',')}`)
+      .map(
+        (t) =>
+          `${t.id}:${t.status}:${t.parentId ?? ''}:${t.phase ?? ''}:${(t.labels ?? []).join(',')}`,
+      )
       .sort()
       .join('|');
   }
@@ -160,7 +163,9 @@ export class TaskCache {
   /** Get leaf tasks (no children). */
   getLeafTasks(): string[] {
     const parentSet = new Set(this.childrenIndex.keys());
-    return [...this.parentIndex.keys()].filter((id) => !parentSet.has(id) || this.getChildCount(id) === 0);
+    return [...this.parentIndex.keys()].filter(
+      (id) => !parentSet.has(id) || this.getChildCount(id) === 0,
+    );
   }
 
   /** Force invalidation and rebuild. */

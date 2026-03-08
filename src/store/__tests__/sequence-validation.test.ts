@@ -8,10 +8,10 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint
 vi.mock('../git-checkpoint.js', () => ({
@@ -44,10 +44,7 @@ describe('Sequence Validation', () => {
       const { validateAndRepairSequence } = await import('../data-safety.js');
 
       // Write a valid sequence file
-      await writeFile(
-        join(cleoDir, '.sequence.json'),
-        JSON.stringify({ counter: 1 }),
-      );
+      await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 1 }));
 
       const result = await validateAndRepairSequence(tempDir);
       expect(result.valid).toBe(true);
@@ -89,10 +86,7 @@ describe('Sequence Validation', () => {
       });
 
       // Set sequence counter behind the max ID
-      await writeFile(
-        join(cleoDir, '.sequence.json'),
-        JSON.stringify({ counter: 10 }),
-      );
+      await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 10 }));
 
       const result = await validateAndRepairSequence(tempDir);
 

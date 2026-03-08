@@ -13,13 +13,9 @@
  * @task T2937
  */
 
-import { afterAll,beforeAll,describe,expect,it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { IntegrationTestContext } from '../integration-setup.js';
-import {
-  cleanupE2ETest,
-  extractTaskId,
-  setupE2ETest
-} from './setup.js';
+import { cleanupE2ETest, extractTaskId, setupE2ETest } from './setup.js';
 
 describe('E2E: Session Management Workflow', () => {
   let context: IntegrationTestContext;

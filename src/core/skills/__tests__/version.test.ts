@@ -2,7 +2,7 @@
  * Tests for CAAMP-backed skills version tracking.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getTrackedSkills: vi.fn(),
@@ -17,9 +17,9 @@ vi.mock('@cleocode/caamp', () => ({
 }));
 
 import {
-  getInstalledVersionAsync,
-  checkSkillUpdateAsync,
   checkAllSkillUpdatesAsync,
+  checkSkillUpdateAsync,
+  getInstalledVersionAsync,
 } from '../version.js';
 
 describe('skills version tracking (CAAMP)', () => {

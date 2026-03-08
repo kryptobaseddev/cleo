@@ -8,10 +8,10 @@
  * @epic T4638
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -79,12 +79,15 @@ describe('JSON to SQLite migration', () => {
 
     it('migrates archived tasks from todo-archive.json', async () => {
       // Minimal todo.json
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({
-        version: '2.10.0',
-        project: { name: 'test' },
-        _meta: { schemaVersion: '2.10.0' },
-        tasks: [],
-      }));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          version: '2.10.0',
+          project: { name: 'test' },
+          _meta: { schemaVersion: '2.10.0' },
+          tasks: [],
+        }),
+      );
 
       const archiveData = {
         _meta: { schemaVersion: '2.4.0', totalArchived: 1 },
@@ -114,12 +117,15 @@ describe('JSON to SQLite migration', () => {
     });
 
     it('migrates sessions from sessions.json', async () => {
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({
-        version: '2.10.0',
-        project: { name: 'test' },
-        _meta: { schemaVersion: '2.10.0' },
-        tasks: [],
-      }));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          version: '2.10.0',
+          project: { name: 'test' },
+          _meta: { schemaVersion: '2.10.0' },
+          tasks: [],
+        }),
+      );
 
       const sessionsData = {
         version: '1.0.0',
@@ -151,12 +157,15 @@ describe('JSON to SQLite migration', () => {
     });
 
     it('handles empty data migration', async () => {
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({
-        version: '2.10.0',
-        project: { name: 'test' },
-        _meta: { schemaVersion: '2.10.0' },
-        tasks: [],
-      }));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          version: '2.10.0',
+          project: { name: 'test' },
+          _meta: { schemaVersion: '2.10.0' },
+          tasks: [],
+        }),
+      );
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       const result = await migrateJsonToSqlite();
@@ -347,7 +356,7 @@ describe('JSON to SQLite migration', () => {
       const result2 = await migrateJsonToSqlite();
 
       // Second migration should report warning about existing db
-      expect(result2.warnings.some(w => w.includes('already contains migrated data'))).toBe(true);
+      expect(result2.warnings.some((w) => w.includes('already contains migrated data'))).toBe(true);
 
       // Should still have only 1 task
       const { countTasks } = await import('../task-store.js');
@@ -610,9 +619,9 @@ describe('JSON to SQLite migration', () => {
       const exported = await exportToJson();
 
       // Active tasks should not include archived
-      expect(exported.tasks.every(t => t.id !== 'T100')).toBe(true);
+      expect(exported.tasks.every((t) => t.id !== 'T100')).toBe(true);
       // Archived should be separate
-      expect(exported.archived.some(t => t.id === 'T100')).toBe(true);
+      expect(exported.archived.some((t) => t.id === 'T100')).toBe(true);
     });
   });
 });

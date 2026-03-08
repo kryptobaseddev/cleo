@@ -16,23 +16,23 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { basename, join } from 'node:path';
 import {
-  getCanonicalSkillsDir,
-  getProjectAgentsDir,
-  parseSkillFile as caampParseSkillFile,
   discoverSkill as caampDiscoverSkill,
   discoverSkills as caampDiscoverSkills,
+  parseSkillFile as caampParseSkillFile,
+  getCanonicalSkillsDir,
+  getProjectAgentsDir,
 } from '@cleocode/caamp';
+import { getCleoHome, getProjectRoot } from '../paths.js';
 import type {
   Skill,
   SkillFrontmatter,
+  SkillManifest,
   SkillSearchPath,
   SkillSummary,
-  SkillManifest,
 } from './types.js';
 import { SKILL_NAME_MAP } from './types.js';
-import { getCleoHome, getProjectRoot } from '../paths.js';
 
 // ============================================================================
 // CAAMP Search Path Resolution
@@ -54,15 +54,12 @@ export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
   ];
 
   // Include marketplace cache if configured
-  const mpCacheDir = process.env['CLEO_SKILLS_MP_CACHE'] ??
-    join(cleoHome, '.skills-cache');
+  const mpCacheDir = process.env['CLEO_SKILLS_MP_CACHE'] ?? join(cleoHome, '.skills-cache');
   if (existsSync(mpCacheDir)) {
     paths.push({ scope: 'marketplace', path: mpCacheDir, priority: 4 });
   }
 
-  return paths
-    .filter((entry) => existsSync(entry.path))
-    .sort((a, b) => a.priority - b.priority);
+  return paths.filter((entry) => existsSync(entry.path)).sort((a, b) => a.priority - b.priority);
 }
 
 /**
@@ -157,7 +154,12 @@ export function parseFrontmatter(content: string): SkillFrontmatter {
 
     // List item continuation
     if (line.match(/^\s+-\s+/) && inList) {
-      currentList.push(line.replace(/^\s+-\s+/, '').trim().replace(/^["']|["']$/g, ''));
+      currentList.push(
+        line
+          .replace(/^\s+-\s+/, '')
+          .trim()
+          .replace(/^["']|["']$/g, ''),
+      );
       continue;
     }
 
@@ -354,7 +356,7 @@ export function generateManifest(cwd?: string): SkillManifest {
       generatedAt: new Date().toISOString(),
       ttlSeconds: 300,
       skillCount: skills.length,
-      searchPaths: searchPaths.map(p => p.path),
+      searchPaths: searchPaths.map((p) => p.path),
     },
     skills: skills.map(toSkillSummary),
   };

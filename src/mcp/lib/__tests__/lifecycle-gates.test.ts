@@ -8,10 +8,10 @@
  * Covers enforcement modes (strict/advisory/off) and prerequisite checking.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { ProtocolEnforcer } from '../protocol-enforcement.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { lifecycleScenarios } from '../../__tests__/fixtures/lifecycle-scenarios.js';
 import { ExitCode } from '../exit-codes.js';
+import { ProtocolEnforcer } from '../protocol-enforcement.js';
 
 describe('Lifecycle Gate Enforcement', () => {
   let enforcer: ProtocolEnforcer;
@@ -29,7 +29,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.successes.researchToConsensus;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(expectedResult.passed);
         expect(result.missingPrerequisites).toEqual(expectedResult.missingPrerequisites);
@@ -39,7 +43,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.failures.consensusWithoutResearch;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(false);
         expect(result.missingPrerequisites).toContain('research');
@@ -61,7 +69,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.successes.withSkippedStage;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(true); // Skipped counts as passed
       });
@@ -80,7 +92,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.failures.decompositionWithoutSpec;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(false);
         expect(result.missingPrerequisites).toContain('specification');
@@ -92,7 +108,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.successes.completeRCSDToImplementation;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(true);
         expect(result.missingPrerequisites).toEqual([]);
@@ -102,7 +122,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest } =
           lifecycleScenarios.failures.skipToImplementation;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         // When no manifest exists, enforcer warns but allows (for backward compatibility)
         expect(result.passed).toBe(true);
@@ -128,7 +152,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.failures.validationWithoutImplementation;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(false);
         expect(result.missingPrerequisites).toContain('implementation');
@@ -150,7 +178,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.successes.readyForRelease;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(true);
         expect(result.missingPrerequisites).toEqual([]);
@@ -160,7 +192,11 @@ describe('Lifecycle Gate Enforcement', () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
           lifecycleScenarios.failures.releaseWithoutTesting;
 
-        const result = await enforcer.checkLifecycleGate(epicId, targetStage, currentManifest || undefined);
+        const result = await enforcer.checkLifecycleGate(
+          epicId,
+          targetStage,
+          currentManifest || undefined,
+        );
 
         expect(result.passed).toBe(false);
         expect(result.missingPrerequisites).toContain('testing');

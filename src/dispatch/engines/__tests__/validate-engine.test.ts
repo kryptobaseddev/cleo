@@ -6,15 +6,15 @@
  * @task T4477
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  validateManifest as validateManifestOp,
-  validateOutput,
+  validateComplianceRecord,
   validateComplianceSummary,
   validateComplianceViolations,
-  validateComplianceRecord,
+  validateManifest as validateManifestOp,
+  validateOutput,
   validateTestStatus,
 } from '../validate-engine.js';
 
@@ -49,7 +49,16 @@ describe('Validate Engine', () => {
   describe('validateManifest', () => {
     it('should validate well-formed manifest', () => {
       writeManifest([
-        { id: 'T001-test', file: 'out.md', title: 'Test', date: '2026-01-01', status: 'completed', agent_type: 'research', topics: ['test'], actionable: true },
+        {
+          id: 'T001-test',
+          file: 'out.md',
+          title: 'Test',
+          date: '2026-01-01',
+          status: 'completed',
+          agent_type: 'research',
+          topics: ['test'],
+          actionable: true,
+        },
       ]);
 
       const result = validateManifestOp(TEST_ROOT);
@@ -82,7 +91,7 @@ describe('Validate Engine', () => {
       writeFileSync(
         join(TEST_ROOT, 'out', 'test.md'),
         '# Test Output\n\n## Summary\n\nThis is a test output for T001.\n',
-        'utf-8'
+        'utf-8',
       );
 
       const result = validateOutput('out/test.md', 'T001', TEST_ROOT);
@@ -101,8 +110,19 @@ describe('Validate Engine', () => {
     it('should return compliance summary', () => {
       writeCompliance([
         { timestamp: '2026-01-01T00:00:00Z', taskId: 'T001', protocol: 'research', result: 'pass' },
-        { timestamp: '2026-01-02T00:00:00Z', taskId: 'T002', protocol: 'research', result: 'fail', violations: [{ code: 'P_MISSING', message: 'Missing' }] },
-        { timestamp: '2026-01-03T00:00:00Z', taskId: 'T003', protocol: 'implementation', result: 'pass' },
+        {
+          timestamp: '2026-01-02T00:00:00Z',
+          taskId: 'T002',
+          protocol: 'research',
+          result: 'fail',
+          violations: [{ code: 'P_MISSING', message: 'Missing' }],
+        },
+        {
+          timestamp: '2026-01-03T00:00:00Z',
+          taskId: 'T003',
+          protocol: 'implementation',
+          result: 'pass',
+        },
       ]);
 
       const result = validateComplianceSummary(TEST_ROOT);
@@ -143,7 +163,13 @@ describe('Validate Engine', () => {
     it('should list violations', () => {
       writeCompliance([
         { timestamp: '2026-01-01T00:00:00Z', taskId: 'T001', protocol: 'research', result: 'pass' },
-        { timestamp: '2026-01-02T00:00:00Z', taskId: 'T002', protocol: 'research', result: 'fail', violations: [{ code: 'P1', message: 'error' }] },
+        {
+          timestamp: '2026-01-02T00:00:00Z',
+          taskId: 'T002',
+          protocol: 'research',
+          result: 'fail',
+          violations: [{ code: 'P1', message: 'error' }],
+        },
       ]);
 
       const result = validateComplianceViolations(undefined, TEST_ROOT);

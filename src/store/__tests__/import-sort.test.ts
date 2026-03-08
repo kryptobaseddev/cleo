@@ -4,9 +4,9 @@
  * @epic T4545
  */
 
-import { describe, it, expect } from 'vitest';
-import { topologicalSortTasks, detectCycles } from '../import-sort.js';
+import { describe, expect, it } from 'vitest';
 import type { SortableTask } from '../import-sort.js';
+import { detectCycles, topologicalSortTasks } from '../import-sort.js';
 
 describe('topologicalSortTasks', () => {
   it('should return empty array for empty input', () => {
@@ -14,9 +14,7 @@ describe('topologicalSortTasks', () => {
   });
 
   it('should handle single task', () => {
-    const tasks: SortableTask[] = [
-      { id: 'T001', parentId: null, depends: [] },
-    ];
+    const tasks: SortableTask[] = [{ id: 'T001', parentId: null, depends: [] }];
     expect(topologicalSortTasks(tasks)).toEqual(['T001']);
   });
 
@@ -101,10 +99,7 @@ describe('topologicalSortTasks', () => {
   });
 
   it('should handle tasks with undefined parentId and depends', () => {
-    const tasks: SortableTask[] = [
-      { id: 'T001' },
-      { id: 'T002' },
-    ];
+    const tasks: SortableTask[] = [{ id: 'T001' }, { id: 'T002' }];
     const order = topologicalSortTasks(tasks);
     expect(order).toHaveLength(2);
   });

@@ -66,7 +66,10 @@ export class QueryCache {
    */
   buildKey(domain: string, operation: string, params?: Record<string, unknown>): string {
     const paramsHash = params
-      ? createHash('md5').update(JSON.stringify(sortObject(params))).digest('hex').slice(0, 12)
+      ? createHash('md5')
+          .update(JSON.stringify(sortObject(params)))
+          .digest('hex')
+          .slice(0, 12)
       : 'no-params';
     return `${domain}:${operation}:${paramsHash}`;
   }
@@ -74,7 +77,11 @@ export class QueryCache {
   /**
    * Get cached value, or undefined if not found/expired
    */
-  get<T = unknown>(domain: string, operation: string, params?: Record<string, unknown>): T | undefined {
+  get<T = unknown>(
+    domain: string,
+    operation: string,
+    params?: Record<string, unknown>,
+  ): T | undefined {
     if (!this.enabled) {
       this.stats.misses++;
       return undefined;
@@ -103,7 +110,12 @@ export class QueryCache {
   /**
    * Store a value in the cache
    */
-  set<T = unknown>(domain: string, operation: string, params: Record<string, unknown> | undefined, value: T): void {
+  set<T = unknown>(
+    domain: string,
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    value: T,
+  ): void {
     if (!this.enabled || this.ttl <= 0) {
       return;
     }

@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  initializeDefaultAdapters,
-  spawnRegistry,
-} from '../adapter-registry.js';
+import { initializeDefaultAdapters, spawnRegistry } from '../adapter-registry.js';
 
 describe('spawn adapter registry', () => {
   beforeEach(() => {
@@ -13,7 +10,10 @@ describe('spawn adapter registry', () => {
     await initializeDefaultAdapters();
     await initializeDefaultAdapters();
 
-    const adapters = spawnRegistry.list().map(adapter => adapter.id).sort();
+    const adapters = spawnRegistry
+      .list()
+      .map((adapter) => adapter.id)
+      .sort();
     expect(adapters).toEqual(['claude-code', 'opencode']);
     expect(spawnRegistry.getForProvider('claude-code')?.id).toBe('claude-code');
     expect(spawnRegistry.getForProvider('opencode')?.id).toBe('opencode');
@@ -21,7 +21,7 @@ describe('spawn adapter registry', () => {
 
   it('lists registered spawn-capable adapters from CAAMP capabilities', async () => {
     const adapters = await spawnRegistry.listSpawnCapable();
-    const ids = adapters.map(adapter => adapter.id).sort();
+    const ids = adapters.map((adapter) => adapter.id).sort();
 
     expect(ids).toEqual(['claude-code', 'opencode']);
   });

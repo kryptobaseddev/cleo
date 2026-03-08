@@ -4,19 +4,19 @@
  * @task T4884
  */
 
-import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import { formatError } from '../../core/output.js';
 import {
   addRemote,
-  removeRemote,
-  listRemotes,
-  push,
-  pull,
   getSyncStatus,
+  listRemotes,
+  pull,
+  push,
+  removeRemote,
 } from '../../core/remote/index.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the remote command with add/remove/list/push/pull subcommands.
@@ -36,11 +36,14 @@ export function registerRemoteCommand(program: Command): void {
         const name = opts['name'] as string;
         await addRemote(url, name);
 
-        cliOutput({
-          added: true,
-          name,
-          url,
-        }, { command: 'remote', message: `Remote '${name}' added: ${url}` });
+        cliOutput(
+          {
+            added: true,
+            name,
+            url,
+          },
+          { command: 'remote', message: `Remote '${name}' added: ${url}` },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -61,10 +64,13 @@ export function registerRemoteCommand(program: Command): void {
       try {
         await removeRemote(name);
 
-        cliOutput({
-          removed: true,
-          name,
-        }, { command: 'remote', message: `Remote '${name}' removed` });
+        cliOutput(
+          {
+            removed: true,
+            name,
+          },
+          { command: 'remote', message: `Remote '${name}' removed` },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -85,15 +91,19 @@ export function registerRemoteCommand(program: Command): void {
       try {
         const remotes = await listRemotes();
 
-        cliOutput({
-          remotes,
-          count: remotes.length,
-        }, {
-          command: 'remote',
-          message: remotes.length === 0
-            ? 'No remotes configured. Add one with: cleo remote add <url>'
-            : `${remotes.length} remote(s) configured`,
-        });
+        cliOutput(
+          {
+            remotes,
+            count: remotes.length,
+          },
+          {
+            command: 'remote',
+            message:
+              remotes.length === 0
+                ? 'No remotes configured. Add one with: cleo remote add <url>'
+                : `${remotes.length} remote(s) configured`,
+          },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -118,8 +128,8 @@ export function registerRemoteCommand(program: Command): void {
       try {
         const remoteName = opts['remote'] as string;
         const result = await push(remoteName, {
-          force: opts['force'] as boolean ?? false,
-          setUpstream: opts['setUpstream'] as boolean ?? false,
+          force: (opts['force'] as boolean) ?? false,
+          setUpstream: (opts['setUpstream'] as boolean) ?? false,
         });
 
         if (!result.success) {
@@ -127,11 +137,14 @@ export function registerRemoteCommand(program: Command): void {
           process.exit(ExitCode.GENERAL_ERROR);
         }
 
-        cliOutput({
-          pushed: true,
-          branch: result.branch,
-          remote: result.remote,
-        }, { command: 'push', message: result.message });
+        cliOutput(
+          {
+            pushed: true,
+            branch: result.branch,
+            remote: result.remote,
+          },
+          { command: 'push', message: result.message },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -168,11 +181,14 @@ export function registerRemoteCommand(program: Command): void {
           process.exit(ExitCode.GENERAL_ERROR);
         }
 
-        cliOutput({
-          pulled: true,
-          branch: result.branch,
-          remote: result.remote,
-        }, { command: 'pull', message: result.message });
+        cliOutput(
+          {
+            pulled: true,
+            branch: result.branch,
+            remote: result.remote,
+          },
+          { command: 'pull', message: result.message },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -206,9 +222,12 @@ export function registerRemoteCommand(program: Command): void {
           message = `${parts.join(', ')} ${remoteName}/${status.branch}`;
         }
 
-        cliOutput({
-          ...status,
-        }, { command: 'remote', message });
+        cliOutput(
+          {
+            ...status,
+          },
+          { command: 'remote', message },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

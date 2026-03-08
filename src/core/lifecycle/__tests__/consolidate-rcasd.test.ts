@@ -4,25 +4,18 @@
  * @epic T4798
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-  readFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  resolveEpicFromFilename,
-  resolveEpicFromContent,
-  normalizeDirectoryNames,
   consolidateRcasd,
   migrateConsensusFiles,
   migrateContributionFiles,
   migrateLooseFiles,
+  normalizeDirectoryNames,
+  resolveEpicFromContent,
+  resolveEpicFromFilename,
 } from '../consolidate-rcasd.js';
 
 let testDir: string;
@@ -138,10 +131,7 @@ describe('migrateConsensusFiles', () => {
     // Create consensus source directory
     const consensusDir = join(cleoDir, 'consensus');
     mkdirSync(consensusDir, { recursive: true });
-    writeFileSync(
-      join(consensusDir, 'T4869-checkpoint-consensus.json'),
-      '{"task": "T4869"}',
-    );
+    writeFileSync(join(consensusDir, 'T4869-checkpoint-consensus.json'), '{"task": "T4869"}');
 
     const records = migrateConsensusFiles();
 
@@ -174,10 +164,7 @@ describe('migrateContributionFiles', () => {
   it('migrates contribution files to epic subdirectory', () => {
     const contribDir = join(cleoDir, 'contributions');
     mkdirSync(contribDir, { recursive: true });
-    writeFileSync(
-      join(contribDir, 'T5000-session-a.json'),
-      '{"task": "T5000"}',
-    );
+    writeFileSync(join(contribDir, 'T5000-session-a.json'), '{"task": "T5000"}');
 
     const records = migrateContributionFiles();
 
@@ -204,9 +191,7 @@ describe('migrateLooseFiles', () => {
 
     expect(records).toHaveLength(1);
     expect(records[0]!.status).toBe('success');
-    expect(
-      existsSync(join(rcasdDir, 'T4881', 'research', 'T4881_install-research.md')),
-    ).toBe(true);
+    expect(existsSync(join(rcasdDir, 'T4881', 'research', 'T4881_install-research.md'))).toBe(true);
   });
 
   it('returns empty when no loose files exist', () => {
@@ -225,17 +210,11 @@ describe('consolidateRcasd', () => {
 
     const consensusDir = join(cleoDir, 'consensus');
     mkdirSync(consensusDir, { recursive: true });
-    writeFileSync(
-      join(consensusDir, 'T4869-consensus-report.json'),
-      '{"task": "T4869"}',
-    );
+    writeFileSync(join(consensusDir, 'T4869-consensus-report.json'), '{"task": "T4869"}');
 
     const contribDir = join(cleoDir, 'contributions');
     mkdirSync(contribDir, { recursive: true });
-    writeFileSync(
-      join(contribDir, 'T5000-session-a.json'),
-      '{"task": "T5000"}',
-    );
+    writeFileSync(join(contribDir, 'T5000-session-a.json'), '{"task": "T5000"}');
 
     const result = consolidateRcasd();
 
@@ -262,10 +241,7 @@ describe('consolidateRcasd', () => {
   it('normalizes directory names as first step', () => {
     const rcasdDir = join(cleoDir, 'rcasd');
     mkdirSync(join(rcasdDir, 'T4881_install-channels'), { recursive: true });
-    writeFileSync(
-      join(rcasdDir, 'T4881_install-channels', 'some-file.md'),
-      '# Content',
-    );
+    writeFileSync(join(rcasdDir, 'T4881_install-channels', 'some-file.md'), '# Content');
 
     consolidateRcasd();
 

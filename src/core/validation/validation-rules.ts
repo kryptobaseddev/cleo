@@ -40,10 +40,7 @@ interface TaskLike {
  * Validate that title and description are both present and different.
  * This is a critical anti-hallucination check.
  */
-export function validateTitleDescription(
-  title?: string,
-  description?: string
-): RuleViolation[] {
+export function validateTitleDescription(title?: string, description?: string): RuleViolation[] {
   const violations: RuleViolation[] = [];
 
   if (!title || title.trim().length === 0) {
@@ -64,11 +61,7 @@ export function validateTitleDescription(
     });
   }
 
-  if (
-    title &&
-    description &&
-    title.trim().toLowerCase() === description.trim().toLowerCase()
-  ) {
+  if (title && description && title.trim().toLowerCase() === description.trim().toLowerCase()) {
     violations.push({
       rule: 'title-description-different',
       field: 'description',
@@ -99,7 +92,7 @@ export function validateTimestamps(task: TaskLike): RuleViolation[] {
   for (const [field, value] of timestampFields) {
     if (value) {
       const date = new Date(value);
-      if (isNaN(date.getTime())) {
+      if (Number.isNaN(date.getTime())) {
         violations.push({
           rule: 'valid-timestamp',
           field,
@@ -123,17 +116,16 @@ export function validateTimestamps(task: TaskLike): RuleViolation[] {
 /**
  * Validate ID uniqueness across all tasks (todo + archive)
  */
-export function validateIdUniqueness(
-  taskId: string,
-  existingIds: Set<string>
-): RuleViolation[] {
+export function validateIdUniqueness(taskId: string, existingIds: Set<string>): RuleViolation[] {
   if (existingIds.has(taskId)) {
-    return [{
-      rule: 'unique-id',
-      field: 'id',
-      message: `Task ID '${taskId}' already exists`,
-      severity: 'error',
-    }];
+    return [
+      {
+        rule: 'unique-id',
+        field: 'id',
+        message: `Task ID '${taskId}' already exists`,
+        severity: 'error',
+      },
+    ];
   }
   return [];
 }
@@ -144,18 +136,20 @@ export function validateIdUniqueness(
 export function validateNoDuplicateDescription(
   description: string,
   existingDescriptions: string[],
-  _excludeTaskId?: string
+  _excludeTaskId?: string,
 ): RuleViolation[] {
   const normalizedNew = description.trim().toLowerCase();
 
   for (const existing of existingDescriptions) {
     if (existing.trim().toLowerCase() === normalizedNew) {
-      return [{
-        rule: 'no-duplicate-description',
-        field: 'description',
-        message: 'A task with this exact description already exists',
-        severity: 'warning',
-      }];
+      return [
+        {
+          rule: 'no-duplicate-description',
+          field: 'description',
+          message: 'A task with this exact description already exists',
+          severity: 'warning',
+        },
+      ];
     }
   }
 
@@ -170,7 +164,7 @@ export function validateHierarchy(
   parentId: string | null | undefined,
   tasks: Array<{ id: string; parentId?: string | null; type?: string }>,
   _taskType?: string,
-  limits?: { maxDepth?: number; maxSiblings?: number }
+  limits?: { maxDepth?: number; maxSiblings?: number },
 ): RuleViolation[] {
   const violations: RuleViolation[] = [];
 
@@ -231,7 +225,7 @@ export function validateHierarchy(
  */
 export function validateStatusTransition(
   currentStatus: string,
-  newStatus: string
+  newStatus: string,
 ): RuleViolation[] {
   const validTransitions: Record<string, string[]> = {
     pending: ['active', 'blocked', 'done', 'cancelled'],
@@ -243,21 +237,25 @@ export function validateStatusTransition(
 
   const allowed = validTransitions[currentStatus];
   if (!allowed) {
-    return [{
-      rule: 'valid-status-transition',
-      field: 'status',
-      message: `Unknown current status: '${currentStatus}'`,
-      severity: 'error',
-    }];
+    return [
+      {
+        rule: 'valid-status-transition',
+        field: 'status',
+        message: `Unknown current status: '${currentStatus}'`,
+        severity: 'error',
+      },
+    ];
   }
 
   if (!allowed.includes(newStatus)) {
-    return [{
-      rule: 'valid-status-transition',
-      field: 'status',
-      message: `Cannot transition from '${currentStatus}' to '${newStatus}'. Valid: ${allowed.join(', ')}`,
-      severity: 'error',
-    }];
+    return [
+      {
+        rule: 'valid-status-transition',
+        field: 'status',
+        message: `Cannot transition from '${currentStatus}' to '${newStatus}'. Valid: ${allowed.join(', ')}`,
+        severity: 'error',
+      },
+    ];
   }
 
   return [];
@@ -271,7 +269,7 @@ export function validateNewTask(
   existingIds: Set<string>,
   existingDescriptions: string[],
   existingTasks: Array<{ id: string; parentId?: string | null; type?: string }>,
-  limits?: { maxDepth?: number; maxSiblings?: number }
+  limits?: { maxDepth?: number; maxSiblings?: number },
 ): RuleViolation[] {
   const violations: RuleViolation[] = [];
 
@@ -283,15 +281,11 @@ export function validateNewTask(
   }
 
   if (task.description) {
-    violations.push(
-      ...validateNoDuplicateDescription(task.description, existingDescriptions)
-    );
+    violations.push(...validateNoDuplicateDescription(task.description, existingDescriptions));
   }
 
   if (task.parentId) {
-    violations.push(
-      ...validateHierarchy(task.parentId, existingTasks, task.type, limits)
-    );
+    violations.push(...validateHierarchy(task.parentId, existingTasks, task.type, limits));
   }
 
   return violations;

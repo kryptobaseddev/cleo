@@ -7,12 +7,12 @@
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getDb, getNativeDb } from '../../store/sqlite.js';
-import { schemaMeta } from '../../store/tasks-schema.js';
-import { setMetaValue } from '../../store/sqlite-data-accessor.js';
 import { createDataAccessor, type DataAccessor } from '../../store/data-accessor.js';
+import { getDb, getNativeDb } from '../../store/sqlite.js';
+import { setMetaValue } from '../../store/sqlite-data-accessor.js';
+import { schemaMeta } from '../../store/tasks-schema.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 const SEQUENCE_META_KEY = 'task_id_sequence';
 
@@ -33,9 +33,11 @@ interface SequenceState {
 function isValidSequenceState(value: unknown): value is SequenceState {
   if (!value || typeof value !== 'object') return false;
   const seq = value as Partial<SequenceState>;
-  return typeof seq.counter === 'number'
-    && typeof seq.lastId === 'string'
-    && typeof seq.checksum === 'string';
+  return (
+    typeof seq.counter === 'number' &&
+    typeof seq.lastId === 'string' &&
+    typeof seq.checksum === 'string'
+  );
 }
 
 function isSeedSequence(value: SequenceState): boolean {
@@ -66,7 +68,10 @@ function renameLegacyFile(path: string): void {
   }
 }
 
-async function readSequenceFromDb(cwd?: string, accessor?: DataAccessor): Promise<SequenceState | null> {
+async function readSequenceFromDb(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<SequenceState | null> {
   if (accessor?.getMetaValue) {
     const value = await accessor.getMetaValue<unknown>(SEQUENCE_META_KEY);
     return isValidSequenceState(value) ? value : null;
@@ -89,7 +94,11 @@ async function readSequenceFromDb(cwd?: string, accessor?: DataAccessor): Promis
   }
 }
 
-async function writeSequenceToDb(state: SequenceState, cwd?: string, accessor?: DataAccessor): Promise<void> {
+async function writeSequenceToDb(
+  state: SequenceState,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<void> {
   if (accessor?.setMetaValue) {
     await accessor.setMetaValue(SEQUENCE_META_KEY, state);
     return;
@@ -114,11 +123,12 @@ async function maybeMigrateLegacySequence(
     return dbState;
   }
 
-  const preferredLegacy = candidates.reduce((best, current) => (
-    current.counter > best.counter ? current : best
-  ));
+  const preferredLegacy = candidates.reduce((best, current) =>
+    current.counter > best.counter ? current : best,
+  );
 
-  const shouldMigrate = !dbState || isSeedSequence(dbState) || preferredLegacy.counter > dbState.counter;
+  const shouldMigrate =
+    !dbState || isSeedSequence(dbState) || preferredLegacy.counter > dbState.counter;
   if (shouldMigrate) {
     await writeSequenceToDb(preferredLegacy, cwd, accessor);
   }
@@ -163,7 +173,7 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
 
 async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Array<{ id: string }>> {
   let localAccessor: DataAccessor | null = null;
-  const activeAccessor = accessor ?? await createDataAccessor(undefined, cwd);
+  const activeAccessor = accessor ?? (await createDataAccessor(undefined, cwd));
   if (!accessor) {
     localAccessor = activeAccessor;
   }
@@ -171,10 +181,7 @@ async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Arra
   try {
     const taskData = await activeAccessor.loadTaskFile();
     const archiveData = await activeAccessor.loadArchive();
-    return [
-      ...(taskData?.tasks ?? []),
-      ...(archiveData?.archivedTasks ?? []),
-    ];
+    return [...(taskData?.tasks ?? []), ...(archiveData?.archivedTasks ?? [])];
   } finally {
     if (localAccessor) {
       await localAccessor.close();
@@ -183,7 +190,10 @@ async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Arra
 }
 
 /** Check sequence integrity. */
-export async function checkSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function checkSequence(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const seq = await readSequence(cwd, accessor);
   if (!seq) {
     // File missing — return invalid state so callers trigger auto-repair instead of crashing.
@@ -200,10 +210,12 @@ export async function checkSequence(cwd?: string, accessor?: DataAccessor): Prom
     counter: seq.counter,
     maxIdInData: maxId,
     valid,
-    ...(valid ? {} : {
-      issue: `Counter (${seq.counter}) is behind max ID (T${maxId})`,
-      fix: 'Run cleo sequence repair',
-    }),
+    ...(valid
+      ? {}
+      : {
+          issue: `Counter (${seq.counter}) is behind max ID (T${maxId})`,
+          fix: 'Run cleo sequence repair',
+        }),
   };
 }
 
@@ -241,7 +253,13 @@ export async function repairSequence(cwd?: string, accessor?: DataAccessor): Pro
   }
 
   if (oldCounter >= maxId) {
-    return { repaired: false, message: 'Sequence already valid', counter: oldCounter, oldCounter, newCounter: oldCounter };
+    return {
+      repaired: false,
+      message: 'Sequence already valid',
+      counter: oldCounter,
+      oldCounter,
+      newCounter: oldCounter,
+    };
   }
 
   const newCounter = maxId;
@@ -281,14 +299,18 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
   await getDb(cwd);
   const nativeDb = getNativeDb();
   if (!nativeDb) {
-    throw new CleoError(ExitCode.FILE_ERROR, 'Native database not available for atomic ID allocation');
+    throw new CleoError(
+      ExitCode.FILE_ERROR,
+      'Native database not available for atomic ID allocation',
+    );
   }
 
   // Atomic transaction: increment counter and read new value
   nativeDb.prepare('BEGIN IMMEDIATE').run();
   try {
     // Increment counter atomically
-    nativeDb.prepare(`
+    nativeDb
+      .prepare(`
       UPDATE schema_meta
       SET value = json_set(value,
         '$.counter', json_extract(value, '$.counter') + 1,
@@ -296,13 +318,16 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
         '$.checksum', 'alloc-' || strftime('%s','now')
       )
       WHERE key = 'task_id_sequence'
-    `).run();
+    `)
+      .run();
 
     // Read new counter value
-    const row = nativeDb.prepare(`
+    const row = nativeDb
+      .prepare(`
       SELECT json_extract(value, '$.counter') AS counter
       FROM schema_meta WHERE key = 'task_id_sequence'
-    `).get() as { counter: number } | undefined;
+    `)
+      .get() as { counter: number } | undefined;
 
     if (!row) {
       throw new CleoError(ExitCode.FILE_ERROR, 'Sequence counter not found after increment');
@@ -311,9 +336,9 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
     const newId = `T${String(row.counter).padStart(3, '0')}`;
 
     // Collision check: verify no existing task with this ID
-    const existing = nativeDb.prepare(
-      'SELECT id FROM tasks WHERE id = ?',
-    ).get(newId) as { id: string } | undefined;
+    const existing = nativeDb.prepare('SELECT id FROM tasks WHERE id = ?').get(newId) as
+      | { id: string }
+      | undefined;
 
     if (existing) {
       // Counter was behind actual data — rollback, repair, and retry
@@ -334,7 +359,11 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
     return newId;
   } catch (err) {
     // Ensure transaction is rolled back on any error
-    try { nativeDb.prepare('ROLLBACK').run(); } catch { /* ignore rollback errors */ }
+    try {
+      nativeDb.prepare('ROLLBACK').run();
+    } catch {
+      /* ignore rollback errors */
+    }
     throw err;
   }
 }

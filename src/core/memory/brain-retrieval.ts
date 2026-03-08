@@ -17,14 +17,14 @@
  */
 
 import { createHash } from 'node:crypto';
-import { searchBrain } from './brain-search.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
-import {
-  BRAIN_OBSERVATION_TYPES,
+import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
+  BRAIN_OBSERVATION_TYPES,
 } from '../../store/brain-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
+import { searchBrain } from './brain-search.js';
 
 // ============================================================================
 // Types
@@ -160,7 +160,7 @@ export async function searchBrainCompact(
       id: d.id,
       type: 'decision',
       title: d.decision.slice(0, 80),
-      date: (d.createdAt ?? raw['created_at'] as string) || '',
+      date: (d.createdAt ?? (raw['created_at'] as string)) || '',
     });
   }
 
@@ -170,7 +170,7 @@ export async function searchBrainCompact(
       id: p.id,
       type: 'pattern',
       title: p.pattern.slice(0, 80),
-      date: (p.extractedAt ?? raw['extracted_at'] as string) || '',
+      date: (p.extractedAt ?? (raw['extracted_at'] as string)) || '',
     });
   }
 
@@ -180,7 +180,7 @@ export async function searchBrainCompact(
       id: l.id,
       type: 'learning',
       title: l.insight.slice(0, 80),
-      date: (l.createdAt ?? raw['created_at'] as string) || '',
+      date: (l.createdAt ?? (raw['created_at'] as string)) || '',
     });
   }
 
@@ -190,7 +190,7 @@ export async function searchBrainCompact(
       id: o.id,
       type: 'observation',
       title: o.title.slice(0, 80),
-      date: (o.createdAt ?? raw['created_at'] as string) || '',
+      date: (o.createdAt ?? (raw['created_at'] as string)) || '',
     });
   }
 
@@ -304,7 +304,8 @@ export async function timelineBrain(
 
   // UNION ALL across all 4 tables to get chronological neighbors.
   // Excludes the anchor itself.
-  const beforeRows = nativeDb.prepare(`
+  const beforeRows = nativeDb
+    .prepare(`
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at < ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at < ? AND id != ?
@@ -314,15 +315,21 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at < ? AND id != ?
     ORDER BY date DESC
     LIMIT ?
-  `).all(
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    depthBefore,
-  ) as unknown as TimelineNeighbor[];
+  `)
+    .all(
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      depthBefore,
+    ) as unknown as TimelineNeighbor[];
 
-  const afterRows = nativeDb.prepare(`
+  const afterRows = nativeDb
+    .prepare(`
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at > ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at > ? AND id != ?
@@ -332,13 +339,18 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at > ? AND id != ?
     ORDER BY date ASC
     LIMIT ?
-  `).all(
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    anchorDate, anchorId,
-    depthAfter,
-  ) as unknown as TimelineNeighbor[];
+  `)
+    .all(
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      anchorDate,
+      anchorId,
+      depthAfter,
+    ) as unknown as TimelineNeighbor[];
 
   return {
     anchor: { id: anchorId, type: anchorType, data: anchorData },
@@ -507,15 +519,20 @@ export async function observeBrain(
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   // Content-hash dedup: SHA-256 prefix of title+text
-  const contentHash = createHash('sha256').update(title + text).digest('hex').slice(0, 16);
+  const contentHash = createHash('sha256')
+    .update(title + text)
+    .digest('hex')
+    .slice(0, 16);
 
   // Check for recent duplicate (same content within last 30 seconds)
   const nativeDb = getBrainNativeDb();
   if (nativeDb) {
     const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
-    const existing = nativeDb.prepare(
-      'SELECT id, type, created_at FROM brain_observations WHERE content_hash = ? AND created_at > ?',
-    ).all(contentHash, cutoff) as Array<{ id: string; type: string; created_at: string }>;
+    const existing = nativeDb
+      .prepare(
+        'SELECT id, type, created_at FROM brain_observations WHERE content_hash = ? AND created_at > ?',
+      )
+      .all(contentHash, cutoff) as Array<{ id: string; type: string; created_at: string }>;
 
     if (existing.length > 0) {
       return {
@@ -547,9 +564,9 @@ export async function observeBrain(
     try {
       const vector = await embedText(text);
       if (vector && nativeDb) {
-        nativeDb.prepare(
-          'INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)',
-        ).run(id, Buffer.from(vector.buffer));
+        nativeDb
+          .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+          .run(id, Buffer.from(vector.buffer));
       }
     } catch {
       // Silently skip embedding failures
@@ -604,13 +621,15 @@ export async function populateEmbeddings(
   let skipped = 0;
 
   // Find observations without embeddings
-  const rows = nativeDb.prepare(`
+  const rows = nativeDb
+    .prepare(`
     SELECT o.id, o.narrative, o.title
     FROM brain_observations o
     LEFT JOIN brain_embeddings e ON o.id = e.id
     WHERE e.id IS NULL AND o.narrative IS NOT NULL
     ORDER BY o.created_at DESC
-  `).all() as Array<{ id: string; narrative: string; title: string }>;
+  `)
+    .all() as Array<{ id: string; narrative: string; title: string }>;
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
@@ -618,9 +637,9 @@ export async function populateEmbeddings(
       try {
         const vector = await embedText(row.narrative || row.title);
         if (vector) {
-          nativeDb.prepare(
-            'INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)',
-          ).run(row.id, Buffer.from(vector.buffer));
+          nativeDb
+            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+            .run(row.id, Buffer.from(vector.buffer));
           processed++;
         } else {
           skipped++;

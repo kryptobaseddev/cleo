@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import type { DetectionResult } from '@cleocode/caamp';
+import { describe, expect, it } from 'vitest';
 import { selectRuntimeProviderContext } from '../provider-detection.js';
 
 function makeDetection(overrides: Partial<DetectionResult>): DetectionResult {

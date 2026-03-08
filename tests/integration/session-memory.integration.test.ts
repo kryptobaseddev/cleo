@@ -10,10 +10,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DebriefData } from '../../src/core/sessions/handoff.js';
 
 let tempDir: string;
@@ -185,10 +185,11 @@ describe('Session Memory Integration', () => {
       await persistSessionMemory(tempDir, 'S-prior', debrief);
 
       // Now retrieve memory context (simulating what computeBriefing does)
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T5149', epicId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, {
+        type: 'epic',
+        rootTaskId: 'T5149',
+        epicId: 'T5149',
+      });
 
       expect(context).toHaveProperty('recentDecisions');
       expect(context).toHaveProperty('relevantPatterns');
@@ -197,9 +198,7 @@ describe('Session Memory Integration', () => {
     });
 
     it('memoryContext is empty when brain.db has no data', async () => {
-      const { getSessionMemoryContext } = await import(
-        '../../src/core/memory/session-memory.js'
-      );
+      const { getSessionMemoryContext } = await import('../../src/core/memory/session-memory.js');
 
       // brain.db is initialized but empty
       const context = await getSessionMemoryContext(tempDir);
@@ -236,10 +235,11 @@ describe('Session Memory Integration', () => {
       });
 
       // Get context scoped to T5149
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T5149', epicId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, {
+        type: 'epic',
+        rootTaskId: 'T5149',
+        epicId: 'T5149',
+      });
 
       // Should have results -- the T5149-related observations from debrief
       // The unrelated T9999 observation should not appear in decisions search
@@ -264,10 +264,11 @@ describe('Session Memory Integration', () => {
       await persistSessionMemory(tempDir, 'S-resume-prior', debrief);
 
       // Simulate what sessionResume does: call getSessionMemoryContext
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T5149', epicId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, {
+        type: 'epic',
+        rootTaskId: 'T5149',
+        epicId: 'T5149',
+      });
 
       expect(context).toHaveProperty('recentDecisions');
       expect(context).toHaveProperty('relevantPatterns');
@@ -294,16 +295,14 @@ describe('Session Memory Integration', () => {
       await persistSessionMemory(tempDir, 'S-resume-001', debrief);
 
       // Get context (simulating resume)
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T5149', epicId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, {
+        type: 'epic',
+        rootTaskId: 'T5149',
+        epicId: 'T5149',
+      });
 
       // Should find the persisted observations
-      const allHits = [
-        ...context.recentDecisions,
-        ...context.recentObservations,
-      ];
+      const allHits = [...context.recentDecisions, ...context.recentObservations];
 
       // At minimum we should have some results from the persisted data
       // (the exact results depend on FTS5 search matching)

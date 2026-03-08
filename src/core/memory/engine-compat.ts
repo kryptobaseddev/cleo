@@ -13,39 +13,36 @@
  * @epic T5149
  */
 
-// BRAIN memory imports (T4770)
-import {
-  storePattern,
-  searchPatterns,
-  patternStats,
-  type StorePatternParams,
-  type SearchPatternParams,
-} from './patterns.js';
-import {
-  storeLearning,
-  searchLearnings,
-  learningStats,
-  type StoreLearningParams,
-  type SearchLearningParams,
-} from './learnings.js';
-
-// BRAIN retrieval imports (T5131-T5135)
-import {
-  searchBrainCompact,
-  timelineBrain,
-  fetchBrainEntries,
-  observeBrain,
-  type ObserveBrainParams,
-} from './brain-retrieval.js';
-
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getAccessor } from '../../store/data-accessor.js';
-import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { getProjectRoot } from '../paths.js';
-
-import type { EngineResult } from '../../dispatch/engines/_error.js';
+import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
+// BRAIN retrieval imports (T5131-T5135)
+import {
+  fetchBrainEntries,
+  type ObserveBrainParams,
+  observeBrain,
+  searchBrainCompact,
+  timelineBrain,
+} from './brain-retrieval.js';
+import {
+  learningStats,
+  type SearchLearningParams,
+  type StoreLearningParams,
+  searchLearnings,
+  storeLearning,
+} from './learnings.js';
+// BRAIN memory imports (T4770)
+import {
+  patternStats,
+  type SearchPatternParams,
+  type StorePatternParams,
+  searchPatterns,
+  storePattern,
+} from './patterns.js';
 
 // ============================================================================
 // Internal helpers
@@ -77,10 +74,7 @@ function parseIdPrefix(id: string): 'decision' | 'pattern' | 'learning' | 'obser
 // ============================================================================
 
 /** memory.show - Look up a brain.db entry by ID */
-export async function memoryShow(
-  entryId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function memoryShow(entryId: string, projectRoot?: string): Promise<EngineResult> {
   if (!entryId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entryId is required' } };
   }
@@ -92,7 +86,10 @@ export async function memoryShow(
     if (!entryType) {
       return {
         success: false,
-        error: { code: 'E_INVALID_INPUT', message: `Unknown entry ID format: '${entryId}'. Expected prefix D-, P-, L-, or O-` },
+        error: {
+          code: 'E_INVALID_INPUT',
+          message: `Unknown entry ID format: '${entryId}'. Expected prefix D-, P-, L-, or O-`,
+        },
       };
     }
 
@@ -102,34 +99,55 @@ export async function memoryShow(
       case 'decision': {
         const row = await accessor.getDecision(entryId);
         if (!row) {
-          return { success: false, error: { code: 'E_NOT_FOUND', message: `Decision '${entryId}' not found in brain.db` } };
+          return {
+            success: false,
+            error: { code: 'E_NOT_FOUND', message: `Decision '${entryId}' not found in brain.db` },
+          };
         }
         return { success: true, data: { type: 'decision', entry: row } };
       }
       case 'pattern': {
         const row = await accessor.getPattern(entryId);
         if (!row) {
-          return { success: false, error: { code: 'E_NOT_FOUND', message: `Pattern '${entryId}' not found in brain.db` } };
+          return {
+            success: false,
+            error: { code: 'E_NOT_FOUND', message: `Pattern '${entryId}' not found in brain.db` },
+          };
         }
         return { success: true, data: { type: 'pattern', entry: row } };
       }
       case 'learning': {
         const row = await accessor.getLearning(entryId);
         if (!row) {
-          return { success: false, error: { code: 'E_NOT_FOUND', message: `Learning '${entryId}' not found in brain.db` } };
+          return {
+            success: false,
+            error: { code: 'E_NOT_FOUND', message: `Learning '${entryId}' not found in brain.db` },
+          };
         }
         return { success: true, data: { type: 'learning', entry: row } };
       }
       case 'observation': {
         const row = await accessor.getObservation(entryId);
         if (!row) {
-          return { success: false, error: { code: 'E_NOT_FOUND', message: `Observation '${entryId}' not found in brain.db` } };
+          return {
+            success: false,
+            error: {
+              code: 'E_NOT_FOUND',
+              message: `Observation '${entryId}' not found in brain.db`,
+            },
+          };
         }
         return { success: true, data: { type: 'observation', entry: row } };
       }
     }
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_SHOW', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_SHOW',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -138,9 +156,7 @@ export async function memoryShow(
 // ============================================================================
 
 /** memory.stats - Aggregate stats from brain.db across all tables */
-export async function memoryBrainStats(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function memoryBrainStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
     await getBrainDb(root);
@@ -160,10 +176,18 @@ export async function memoryBrainStats(
       };
     }
 
-    const obsCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_observations').get() as { cnt: number }).cnt;
-    const decCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_decisions').get() as { cnt: number }).cnt;
-    const patCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_patterns').get() as { cnt: number }).cnt;
-    const learnCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_learnings').get() as { cnt: number }).cnt;
+    const obsCount = (
+      nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_observations').get() as { cnt: number }
+    ).cnt;
+    const decCount = (
+      nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_decisions').get() as { cnt: number }
+    ).cnt;
+    const patCount = (
+      nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_patterns').get() as { cnt: number }
+    ).cnt;
+    const learnCount = (
+      nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_learnings').get() as { cnt: number }
+    ).cnt;
 
     return {
       success: true,
@@ -176,7 +200,13 @@ export async function memoryBrainStats(
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_STATS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_STATS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -203,12 +233,14 @@ export async function memoryDecisionFind(
 
       const likePattern = `%${params.query}%`;
       const limit = params.limit ?? 20;
-      const rows = nativeDb.prepare(`
+      const rows = nativeDb
+        .prepare(`
         SELECT * FROM brain_decisions
         WHERE decision LIKE ? OR rationale LIKE ?
         ORDER BY created_at DESC
         LIMIT ?
-      `).all(likePattern, likePattern, limit) as unknown as Array<Record<string, unknown>>;
+      `)
+        .all(likePattern, likePattern, limit) as unknown as Array<Record<string, unknown>>;
 
       return { success: true, data: { decisions: rows, total: rows.length } };
     }
@@ -220,17 +252,32 @@ export async function memoryDecisionFind(
 
     return { success: true, data: { decisions, total: decisions.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_DECISION_FIND', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_DECISION_FIND',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 /** memory.decision.store - Store a decision to brain.db */
 export async function memoryDecisionStore(
-  params: { decision: string; rationale: string; alternatives?: string[]; taskId?: string; sessionId?: string },
+  params: {
+    decision: string;
+    rationale: string;
+    alternatives?: string[];
+    taskId?: string;
+    sessionId?: string;
+  },
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!params.decision) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'decision text is required' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'decision text is required' },
+    };
   }
   if (!params.rationale) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'rationale is required' } };
@@ -266,7 +313,13 @@ export async function memoryDecisionStore(
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_DECISION_STORE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_DECISION_STORE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -276,7 +329,13 @@ export async function memoryDecisionStore(
 
 /** memory.find - Token-efficient brain search */
 export async function memoryFind(
-  params: { query: string; limit?: number; tables?: string[]; dateStart?: string; dateEnd?: string },
+  params: {
+    query: string;
+    limit?: number;
+    tables?: string[];
+    dateStart?: string;
+    dateEnd?: string;
+  },
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
@@ -284,13 +343,21 @@ export async function memoryFind(
     const result = await searchBrainCompact(root, {
       query: params.query,
       limit: params.limit,
-      tables: params.tables as Array<'decisions' | 'patterns' | 'learnings' | 'observations'> | undefined,
+      tables: params.tables as
+        | Array<'decisions' | 'patterns' | 'learnings' | 'observations'>
+        | undefined,
       dateStart: params.dateStart,
       dateEnd: params.dateEnd,
     });
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_SEARCH',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -308,7 +375,13 @@ export async function memoryTimeline(
     });
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_TIMELINE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_TIMELINE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -322,13 +395,26 @@ export async function memoryFetch(
     const result = await fetchBrainEntries(root, { ids: params.ids });
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_FETCH', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_FETCH',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 /** memory.observe - Save observation to brain */
 export async function memoryObserve(
-  params: { text: string; title?: string; type?: string; project?: string; sourceSessionId?: string; sourceType?: string },
+  params: {
+    text: string;
+    title?: string;
+    type?: string;
+    project?: string;
+    sourceSessionId?: string;
+    sourceType?: string;
+  },
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
@@ -343,7 +429,13 @@ export async function memoryObserve(
     });
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_BRAIN_OBSERVE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_BRAIN_OBSERVE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -361,7 +453,13 @@ export async function memoryPatternStore(
     const result = await storePattern(root, params);
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_STORE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_PATTERN_STORE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -375,20 +473,30 @@ export async function memoryPatternFind(
     const results = await searchPatterns(root, params);
     return { success: true, data: { patterns: results, total: results.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_PATTERN_SEARCH',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 /** memory.pattern.stats - Get pattern memory statistics */
-export async function memoryPatternStats(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function memoryPatternStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
     const stats = await patternStats(root);
     return { success: true, data: stats };
   } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_STATS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_PATTERN_STATS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -406,7 +514,13 @@ export async function memoryLearningStore(
     const result = await storeLearning(root, params);
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_STORE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_LEARNING_STORE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -420,20 +534,30 @@ export async function memoryLearningFind(
     const results = await searchLearnings(root, params);
     return { success: true, data: { learnings: results, total: results.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_LEARNING_SEARCH',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 /** memory.learning.stats - Get learning memory statistics */
-export async function memoryLearningStats(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function memoryLearningStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
     const stats = await learningStats(root);
     return { success: true, data: stats };
   } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_STATS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_LEARNING_STATS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -442,9 +566,7 @@ export async function memoryLearningStats(
 // ============================================================================
 
 /** memory.contradictions - Find contradictory entries in brain.db */
-export async function memoryContradictions(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function memoryContradictions(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
     await getBrainDb(root);
@@ -459,7 +581,10 @@ export async function memoryContradictions(
       [/\bdoes NOT\b/i, /\bdoes\b(?!.*\bnot\b)/i],
       [/\bcannot\b/i, /\bcan\b(?!.*\bnot\b)/i],
       [/\bno\s+\w+\s+required\b/i, /\brequired\b(?!.*\bno\b)/i],
-      [/\bnot\s+(?:available|supported|possible|recommended)\b/i, /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i],
+      [
+        /\bnot\s+(?:available|supported|possible|recommended)\b/i,
+        /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i,
+      ],
       [/\bwithout\b/i, /\brequires?\b/i],
       [/\bavoid\b/i, /\buse\b/i],
       [/\bdeprecated\b/i, /\brecommended\b/i],
@@ -467,11 +592,13 @@ export async function memoryContradictions(
     ];
 
     // Fetch all decisions with context for comparison
-    const decisions = nativeDb.prepare(`
+    const decisions = nativeDb
+      .prepare(`
       SELECT id, type, decision, rationale, context_task_id, created_at
       FROM brain_decisions
       ORDER BY created_at DESC
-    `).all() as Array<{
+    `)
+      .all() as Array<{
       id: string;
       type: string;
       decision: string;
@@ -481,11 +608,13 @@ export async function memoryContradictions(
     }>;
 
     // Fetch all patterns
-    const patterns = nativeDb.prepare(`
+    const patterns = nativeDb
+      .prepare(`
       SELECT id, type, pattern, context, anti_pattern, created_at
       FROM brain_patterns
       ORDER BY created_at DESC
-    `).all() as Array<{
+    `)
+      .all() as Array<{
       id: string;
       type: string;
       pattern: string;
@@ -495,11 +624,13 @@ export async function memoryContradictions(
     }>;
 
     // Fetch all learnings
-    const learnings = nativeDb.prepare(`
+    const learnings = nativeDb
+      .prepare(`
       SELECT id, insight, source, created_at
       FROM brain_learnings
       ORDER BY created_at DESC
-    `).all() as Array<{
+    `)
+      .all() as Array<{
       id: string;
       insight: string;
       source: string;
@@ -517,7 +648,7 @@ export async function memoryContradictions(
     const seenPairs = new Set<string>();
 
     // Helper to create sorted pair key
-    const pairKey = (idA: string, idB: string) => idA < idB ? `${idA}::${idB}` : `${idB}::${idA}`;
+    const pairKey = (idA: string, idB: string) => (idA < idB ? `${idA}::${idB}` : `${idB}::${idA}`);
 
     // Check decisions against each other (grouped by task context)
     const decisionsByTask = new Map<string | null, typeof decisions>();
@@ -547,8 +678,18 @@ export async function memoryContradictions(
             ) {
               seenPairs.add(key);
               contradictions.push({
-                entryA: { id: a.id, type: 'decision', content: a.decision, createdAt: a.created_at },
-                entryB: { id: b.id, type: 'decision', content: b.decision, createdAt: b.created_at },
+                entryA: {
+                  id: a.id,
+                  type: 'decision',
+                  content: a.decision,
+                  createdAt: a.created_at,
+                },
+                entryB: {
+                  id: b.id,
+                  type: 'decision',
+                  content: b.decision,
+                  createdAt: b.created_at,
+                },
                 context: taskId || undefined,
                 conflictDetails: `Negation pattern: "${contentA.slice(0, 80)}..." vs "${contentB.slice(0, 80)}..."`,
               });
@@ -564,7 +705,12 @@ export async function memoryContradictions(
       if (p.anti_pattern) {
         contradictions.push({
           entryA: { id: p.id, type: 'pattern', content: p.pattern, createdAt: p.created_at },
-          entryB: { id: p.id, type: 'anti-pattern', content: p.anti_pattern, createdAt: p.created_at },
+          entryB: {
+            id: p.id,
+            type: 'anti-pattern',
+            content: p.anti_pattern,
+            createdAt: p.created_at,
+          },
           conflictDetails: `Pattern defines its own anti-pattern`,
         });
       }
@@ -597,7 +743,13 @@ export async function memoryContradictions(
 
     return { success: true, data: { contradictions } };
   } catch (error) {
-    return { success: false, error: { code: 'E_CONTRADICTIONS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_CONTRADICTIONS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -651,7 +803,10 @@ export async function memorySuperseded(
     };
 
     // === DECISIONS: Group by type + contextTaskId/contextEpicId ===
-    const decisionGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const decisionGroups = new Map<
+      string,
+      Array<{ id: string; type: string; createdAt: string; summary: string }>
+    >();
     const decisionQuery = params?.type
       ? `SELECT id, type, decision, context_task_id, context_epic_id, created_at
           FROM brain_decisions WHERE type = ? ORDER BY created_at DESC`
@@ -684,7 +839,10 @@ export async function memorySuperseded(
     }
 
     // === PATTERNS: Group by type + context (first 100 chars for similarity) ===
-    const patternGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const patternGroups = new Map<
+      string,
+      Array<{ id: string; type: string; createdAt: string; summary: string }>
+    >();
     const patternQuery = params?.type
       ? `SELECT id, type, pattern, context, extracted_at
           FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC`
@@ -717,7 +875,10 @@ export async function memorySuperseded(
     }
 
     // === LEARNINGS: Group by source + applicableTypes ===
-    const learningGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const learningGroups = new Map<
+      string,
+      Array<{ id: string; type: string; createdAt: string; summary: string }>
+    >();
     const learningQuery = `SELECT id, source, insight, applicable_types_json, created_at
         FROM brain_learnings ORDER BY created_at DESC`;
     const learnings = nativeDb.prepare(learningQuery).all() as Array<{
@@ -747,7 +908,10 @@ export async function memorySuperseded(
     }
 
     // === OBSERVATIONS: Group by type + project ===
-    const observationGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const observationGroups = new Map<
+      string,
+      Array<{ id: string; type: string; createdAt: string; summary: string }>
+    >();
     const observationQuery = params?.type
       ? `SELECT id, type, title, project, created_at
           FROM brain_observations WHERE type = ? ORDER BY created_at DESC`
@@ -763,7 +927,7 @@ export async function memorySuperseded(
     }>;
 
     for (const o of observations) {
-      const projectKey = params?.project ? params.project : (o.project || 'general');
+      const projectKey = params?.project ? params.project : o.project || 'general';
       const groupKey = `observation:${o.type}:${projectKey}`;
       if (!observationGroups.has(groupKey)) observationGroups.set(groupKey, []);
       observationGroups.get(groupKey)!.push({
@@ -780,7 +944,13 @@ export async function memorySuperseded(
 
     return { success: true, data: { superseded, total: superseded.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MEMORY_SUPERSEDED', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MEMORY_SUPERSEDED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -790,20 +960,35 @@ export async function memoryLink(
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!params.taskId || !params.entryId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' },
+    };
   }
 
   const entryType = parseIdPrefix(params.entryId);
   if (!entryType) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' },
+    };
   }
 
   try {
     const root = resolveRoot(projectRoot);
     await linkMemoryToTask(root, entryType, params.entryId, params.taskId, 'applies_to');
-    return { success: true, data: { linked: true, taskId: params.taskId, entryId: params.entryId } };
+    return {
+      success: true,
+      data: { linked: true, taskId: params.taskId, entryId: params.entryId },
+    };
   } catch (error) {
-    return { success: false, error: { code: 'E_MEMORY_LINK', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MEMORY_LINK',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -813,20 +998,35 @@ export async function memoryUnlink(
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!params.taskId || !params.entryId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' },
+    };
   }
 
   const entryType = parseIdPrefix(params.entryId);
   if (!entryType) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' },
+    };
   }
 
   try {
     const root = resolveRoot(projectRoot);
     await unlinkMemoryFromTask(root, entryType, params.entryId, params.taskId, 'applies_to');
-    return { success: true, data: { unlinked: true, taskId: params.taskId, entryId: params.entryId } };
+    return {
+      success: true,
+      data: { unlinked: true, taskId: params.taskId, entryId: params.entryId },
+    };
   } catch (error) {
-    return { success: false, error: { code: 'E_MEMORY_UNLINK', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MEMORY_UNLINK',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -857,7 +1057,8 @@ export async function memoryGraphAdd(
       const edge = await accessor.addPageEdge({
         fromId: params.fromId,
         toId: params.toId,
-        edgeType: params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
+        edgeType:
+          params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
         weight: params.weight,
       });
       return { success: true, data: { type: 'edge', edge } };
@@ -867,7 +1068,8 @@ export async function memoryGraphAdd(
     if (params.nodeId && params.nodeType && params.label) {
       const node = await accessor.addPageNode({
         id: params.nodeId,
-        nodeType: params.nodeType as typeof import('../../store/brain-schema.js').BRAIN_NODE_TYPES[number],
+        nodeType:
+          params.nodeType as typeof import('../../store/brain-schema.js').BRAIN_NODE_TYPES[number],
         label: params.label,
         metadataJson: params.metadataJson,
       });
@@ -878,11 +1080,18 @@ export async function memoryGraphAdd(
       success: false,
       error: {
         code: 'E_INVALID_INPUT',
-        message: 'Provide (nodeId + nodeType + label) for a node or (fromId + toId + edgeType) for an edge',
+        message:
+          'Provide (nodeId + nodeType + label) for a node or (fromId + toId + edgeType) for an edge',
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_GRAPH_ADD', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_ADD',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -901,13 +1110,22 @@ export async function memoryGraphShow(
 
     const node = await accessor.getPageNode(params.nodeId);
     if (!node) {
-      return { success: false, error: { code: 'E_NOT_FOUND', message: `Node '${params.nodeId}' not found` } };
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Node '${params.nodeId}' not found` },
+      };
     }
 
     const edges = await accessor.getPageEdges(params.nodeId, 'both');
     return { success: true, data: { node, edges } };
   } catch (error) {
-    return { success: false, error: { code: 'E_GRAPH_SHOW', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_SHOW',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -926,11 +1144,19 @@ export async function memoryGraphNeighbors(
 
     const neighbors = await accessor.getNeighbors(
       params.nodeId,
-      params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number] | undefined,
+      params.edgeType as
+        | typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number]
+        | undefined,
     );
     return { success: true, data: { neighbors, total: neighbors.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_GRAPH_NEIGHBORS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_NEIGHBORS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -954,7 +1180,13 @@ export async function memoryReasonWhy(
     const result = await reasonWhy(params.taskId, root, taskAccessor);
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: { code: 'E_REASON_WHY', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_REASON_WHY',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -973,7 +1205,13 @@ export async function memoryReasonSimilar(
     const results = await reasonSimilar(params.entryId, root, params.limit);
     return { success: true, data: { results, total: results.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_REASON_SIMILAR', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_REASON_SIMILAR',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -1003,7 +1241,13 @@ export async function memorySearchHybrid(
     });
     return { success: true, data: { results, total: results.length } };
   } catch (error) {
-    return { success: false, error: { code: 'E_HYBRID_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_HYBRID_SEARCH',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -1028,7 +1272,15 @@ export async function memoryGraphRemove(
         params.toId,
         params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
       );
-      return { success: true, data: { removed: 'edge', fromId: params.fromId, toId: params.toId, edgeType: params.edgeType } };
+      return {
+        success: true,
+        data: {
+          removed: 'edge',
+          fromId: params.fromId,
+          toId: params.toId,
+          edgeType: params.edgeType,
+        },
+      };
     }
 
     // Node removal: nodeId (cascades edges)
@@ -1045,6 +1297,12 @@ export async function memoryGraphRemove(
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_GRAPH_REMOVE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_REMOVE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }

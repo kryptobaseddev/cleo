@@ -28,10 +28,7 @@ export async function repairMissingSizes(
   const { tasks } = await import('../store/tasks-schema.js');
   const db = await getDb(cwd);
 
-  const affected = await db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(isNull(tasks.size));
+  const affected = await db.select({ id: tasks.id }).from(tasks).where(isNull(tasks.size));
 
   if (affected.length === 0) {
     return {
@@ -49,10 +46,7 @@ export async function repairMissingSizes(
     };
   }
 
-  await db
-    .update(tasks)
-    .set({ size: 'medium' })
-    .where(isNull(tasks.size));
+  await db.update(tasks).set({ size: 'medium' }).where(isNull(tasks.size));
 
   return {
     action: 'fix_missing_sizes',

@@ -4,13 +4,16 @@
  * @epic T4454
  */
 
-import type { TaskRow } from '../../store/tasks-schema.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import type { TaskRow } from '../../store/tasks-schema.js';
 
 import { depsReady } from './deps-ready.js';
 
 // Internal task record — subset of Drizzle TaskRow for plan computation
-type TaskRecord = Pick<TaskRow, 'id' | 'title' | 'status' | 'priority' | 'type' | 'phase' | 'parentId' | 'createdAt'> & {
+type TaskRecord = Pick<
+  TaskRow,
+  'id' | 'title' | 'status' | 'priority' | 'type' | 'phase' | 'parentId' | 'createdAt'
+> & {
   labels?: string[];
   origin?: string;
   depends?: string[];
@@ -117,8 +120,6 @@ function findEpicId(task: TaskRecord, taskMap: Map<string, TaskRecord>): string 
   return task.parentId ?? task.id;
 }
 
-
-
 /**
  * Get current phase from tasks.
  */
@@ -131,7 +132,10 @@ async function getCurrentPhase(projectRoot: string): Promise<string | null> {
 /**
  * Calculate completion percentage for an epic.
  */
-function calculateEpicCompletion(epicId: string, taskMap: Map<string, TaskRecord>): { activeTasks: number; completionPercent: number } {
+function calculateEpicCompletion(
+  epicId: string,
+  taskMap: Map<string, TaskRecord>,
+): { activeTasks: number; completionPercent: number } {
   let totalTasks = 0;
   let completedTasks = 0;
   let activeTasks = 0;
@@ -155,9 +159,7 @@ function calculateEpicCompletion(epicId: string, taskMap: Map<string, TaskRecord
 
   collectTasks(epicId);
 
-  const completionPercent = totalTasks > 0
-    ? Math.round((completedTasks / totalTasks) * 100)
-    : 0;
+  const completionPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return { activeTasks, completionPercent };
 }
@@ -340,9 +342,9 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   const epics = allTasks.filter((t) => t.type === 'epic');
   const activeEpics = epics.filter((t) => t.status === 'active').length;
 
-  const actionable = allTasks.filter((t) =>
-    (t.status === 'pending' || t.status === 'active') &&
-    !blockedTasks.some((b) => b.id === t.id)
+  const actionable = allTasks.filter(
+    (t) =>
+      (t.status === 'pending' || t.status === 'active') && !blockedTasks.some((b) => b.id === t.id),
   ).length;
 
   const blocked = blockedTasks.length;
@@ -352,9 +354,8 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   for (const task of allTasks) {
     totalLeverage += calculateLeverage(task.id, taskMap);
   }
-  const avgLeverage = allTasks.length > 0
-    ? Math.round((totalLeverage / allTasks.length) * 100) / 100
-    : 0;
+  const avgLeverage =
+    allTasks.length > 0 ? Math.round((totalLeverage / allTasks.length) * 100) / 100 : 0;
 
   const metrics: PlanMetrics = {
     totalEpics: epics.length,

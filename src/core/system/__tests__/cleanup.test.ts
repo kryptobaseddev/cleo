@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanupSystem } from '../cleanup.js';
 
 async function insertAuditRows(
@@ -13,13 +13,16 @@ async function insertAuditRows(
   const db = await getDb(projectRoot);
 
   for (const row of rows) {
-    await db.insert(auditLog).values({
-      id: row.id,
-      timestamp: row.timestamp,
-      action: row.action,
-      taskId: row.taskId,
-      actor: 'test',
-    }).run();
+    await db
+      .insert(auditLog)
+      .values({
+        id: row.id,
+        timestamp: row.timestamp,
+        action: row.action,
+        taskId: row.taskId,
+        actor: 'test',
+      })
+      .run();
   }
 }
 

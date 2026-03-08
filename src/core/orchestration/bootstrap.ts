@@ -4,13 +4,13 @@
  * @task T4784
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath, getSessionsPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
-import type { BrainState } from '../../types/operations/orchestrate.js';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { BrainState } from '../../types/operations/orchestrate.js';
+import type { TaskFile } from '../../types/task.js';
+import { getSessionsPath, getTaskPath } from '../paths.js';
 
 /** Build brain state for agent bootstrapping. */
 export async function buildBrainState(
@@ -56,27 +56,27 @@ export async function buildBrainState(
   const tasks = data?.tasks ?? [];
   brain.progress = {
     total: tasks.length,
-    done: tasks.filter(t => t.status === 'done').length,
-    active: tasks.filter(t => t.status === 'active').length,
-    blocked: tasks.filter(t => t.status === 'blocked').length,
-    pending: tasks.filter(t => t.status === 'pending').length,
+    done: tasks.filter((t) => t.status === 'done').length,
+    active: tasks.filter((t) => t.status === 'active').length,
+    blocked: tasks.filter((t) => t.status === 'blocked').length,
+    pending: tasks.filter((t) => t.status === 'pending').length,
   };
 
   // --- Current Task (from focus or session) ---
   const focusTaskId = data?.focus?.currentTask ?? null;
   if (focusTaskId) {
-    const task = tasks.find(t => t.id === focusTaskId);
+    const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
       brain.currentTask = { id: task.id, title: task.title, status: task.status };
     }
   }
 
   // --- Next Suggestion (simple: pick first pending task with all deps met) ---
-  const completedIds = new Set(tasks.filter(t => t.status === 'done').map(t => t.id));
-  const readyTasks = tasks.filter(t => {
+  const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const readyTasks = tasks.filter((t) => {
     if (t.status !== 'pending') return false;
     const deps = t.depends ?? [];
-    return deps.every(d => completedIds.has(d));
+    return deps.every((d) => completedIds.has(d));
   });
 
   if (readyTasks.length > 0) {
@@ -94,10 +94,10 @@ export async function buildBrainState(
   // --- Full tier: decisions, blockers, contextDrift ---
   if (speed === 'full' || speed === 'complete') {
     // Blockers
-    const blockedTasks = tasks.filter(t => t.status === 'blocked' || (
-      t.depends && t.depends.some(d => !completedIds.has(d))
-    ));
-    brain.blockers = blockedTasks.slice(0, 10).map(b => ({
+    const blockedTasks = tasks.filter(
+      (t) => t.status === 'blocked' || t.depends?.some((d) => !completedIds.has(d)),
+    );
+    brain.blockers = blockedTasks.slice(0, 10).map((b) => ({
       taskId: b.id,
       title: b.title,
       blockedBy: b.depends || [],
@@ -109,9 +109,17 @@ export async function buildBrainState(
       if (existsSync(decisionLogPath)) {
         const content = readFileSync(decisionLogPath, 'utf-8').trim();
         if (content) {
-          const entries = content.split('\n').filter(l => l.trim()).map(l => {
-            try { return JSON.parse(l); } catch { return null; }
-          }).filter(Boolean);
+          const entries = content
+            .split('\n')
+            .filter((l) => l.trim())
+            .map((l) => {
+              try {
+                return JSON.parse(l);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
           const recent = entries.slice(-5);
           brain.recentDecisions = recent.map((d: Record<string, unknown>) => ({
             id: (d.id as string) ?? '',

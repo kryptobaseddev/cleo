@@ -9,10 +9,10 @@
  * @task T5384
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -93,7 +93,7 @@ describe('BrainDataAccessor PageIndex', () => {
 
     const tasks = await accessor.findPageNodes({ nodeType: 'task' });
     expect(tasks).toHaveLength(2);
-    expect(tasks.every(n => n.nodeType === 'task')).toBe(true);
+    expect(tasks.every((n) => n.nodeType === 'task')).toBe(true);
 
     const docs = await accessor.findPageNodes({ nodeType: 'doc' });
     expect(docs).toHaveLength(1);

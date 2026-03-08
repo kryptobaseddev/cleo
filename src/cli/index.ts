@@ -4,7 +4,7 @@
  * @task T4455
  */
 
-import { Command, Help, Option } from 'commander';
+import { Command, Help, type Option } from 'commander';
 
 /**
  * Custom Help class that groups commands by domain.
@@ -13,41 +13,82 @@ import { Command, Help, Option } from 'commander';
 class GroupedHelp extends Help {
   // Domain to command names mapping - organized by functional domain
   private domainGroups: Record<string, string[]> = {
-    'Tasks': [
-      'add', 'list', 'show', 'find', 'complete', 'update', 'delete',
-      'archive', 'start', 'stop', 'current', 'next',
-      'archive-stats', 'restore', 'reorder', 'reparent', 'relates',
-      'tree', 'deps', 'labels', 'tags', 'blockers', 'exists', 'stats', 'history'
+    Tasks: [
+      'add',
+      'list',
+      'show',
+      'find',
+      'complete',
+      'update',
+      'delete',
+      'archive',
+      'start',
+      'stop',
+      'current',
+      'next',
+      'archive-stats',
+      'restore',
+      'reorder',
+      'reparent',
+      'relates',
+      'tree',
+      'deps',
+      'labels',
+      'tags',
+      'blockers',
+      'exists',
+      'stats',
+      'history',
     ],
-    'Session': [
-      'session', 'briefing', 'phase', 'checkpoint', 'safestop'
+    Session: ['session', 'briefing', 'phase', 'checkpoint', 'safestop'],
+    Memory: ['memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note'],
+    Check: ['validate', 'verify', 'compliance', 'doctor', 'analyze'],
+    Pipeline: [
+      'release',
+      'lifecycle',
+      'promote',
+      'upgrade',
+      'specification',
+      'detect-drift',
+      'roadmap',
+      'plan',
+      'log',
+      'issue',
+      'bug',
+      'generate-changelog',
+      'phases',
     ],
-    'Memory': [
-      'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note'
+    Orchestration: [
+      'orchestrate',
+      'ops',
+      'consensus',
+      'contribution',
+      'decomposition',
+      'implementation',
+      'sequence',
+      'dash',
     ],
-    'Check': [
-      'validate', 'verify', 'compliance', 'doctor', 'analyze'
+    Research: ['research', 'extract', 'web', 'docs'],
+    Nexus: ['nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'],
+    Admin: [
+      'config',
+      'backup',
+      'export-tasks',
+      'import-tasks',
+      'env',
+      'mcp-install',
+      'testing',
+      'skills',
+      'self-update',
+      'install-global',
+      'grade',
+      'migrate-claude-mem',
+      'migrate',
+      'otel',
+      'token',
+      'adr',
+      'commands',
     ],
-    'Pipeline': [
-      'release', 'lifecycle', 'promote', 'upgrade', 'specification',
-      'detect-drift', 'roadmap', 'plan', 'log', 'issue', 'bug',
-      'generate-changelog', 'phases'
-    ],
-    'Orchestration': [
-      'orchestrate', 'ops', 'consensus', 'contribution', 'decomposition',
-      'implementation', 'sequence', 'dash'
-    ],
-    'Research': [
-      'research', 'extract', 'web', 'docs'
-    ],
-    'Nexus': [
-      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'
-    ],
-    'Admin': [
-      'config', 'backup', 'export-tasks', 'import-tasks',
-      'env', 'mcp-install', 'testing', 'skills', 'self-update',
-      'install-global', 'grade', 'migrate-claude-mem', 'migrate', 'otel', 'token', 'adr', 'commands'
-    ]
   };
 
   /** Override formatHelp to group commands by domain. */
@@ -116,7 +157,11 @@ class GroupedHelp extends Help {
   }
 
   /** Format arguments as a block. */
-  private formatArgumentsBlock(args: import('commander').Argument[], helper: Help, cmd: Command): string {
+  private formatArgumentsBlock(
+    args: import('commander').Argument[],
+    helper: Help,
+    cmd: Command,
+  ): string {
     const lines: string[] = ['Arguments:'];
     const width = this.longestArgumentTermLength(cmd, helper);
 
@@ -178,143 +223,132 @@ class GroupedHelp extends Help {
     return lines.join('\n');
   }
 }
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+// Centralized pino logger
+import { loadConfig as loadCoreConfig } from '../core/config.js';
+// Startup guard: fail fast if Node.js version is below minimum
+import {
+  getNodeUpgradeInstructions,
+  getNodeVersionInfo,
+  MINIMUM_NODE_MAJOR,
+} from '../core/platform.js';
+// Core: pre-flight migration check (@task T4699)
+import { checkStorageMigration } from '../core/system/storage-preflight.js';
 import { registerAddCommand } from './commands/add.js';
-import { registerListCommand } from './commands/list.js';
-import { registerShowCommand } from './commands/show.js';
-import { registerFindCommand } from './commands/find.js';
-import { registerCompleteCommand } from './commands/complete.js';
-import { registerUpdateCommand } from './commands/update.js';
-import { registerDeleteCommand } from './commands/delete.js';
+// ADR-017: ADR validation, listing, and sync
+import { registerAdrCommand } from './commands/adr.js';
+// Wave 3: Register remaining commands (T4585)
+import { registerAnalyzeCommand } from './commands/analyze.js';
 import { registerArchiveCommand } from './commands/archive.js';
-import { registerStartCommand } from './commands/start.js';
-import { registerStopCommand } from './commands/stop.js';
-import { registerCurrentCommand } from './commands/current.js';
+// Wave 1: Partial port fixes (T4555)
+import { registerArchiveStatsCommand } from './commands/archive-stats.js';
+import { registerBackupCommand } from './commands/backup.js';
+import { registerBlockersCommand } from './commands/blockers.js';
 import { registerBriefingCommand } from './commands/briefing.js';
-import { registerSessionCommand } from './commands/session.js';
-import { registerPhaseCommand } from './commands/phase.js';
-import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
-import { registerResearchCommand } from './commands/research.js';
-import { registerOrchestrateCommand } from './commands/orchestrate.js';
-import { registerLifecycleCommand } from './commands/lifecycle.js';
-import { registerReleaseCommand } from './commands/release.js';
-import { registerEnvCommand } from './commands/env.js';
-import { registerMcpInstallCommand } from './commands/mcp-install.js';
-
+import { registerBugCommand } from './commands/bug.js';
 // Wave 1: Ported scripts (T4551)
 import { registerCheckpointCommand } from './commands/checkpoint.js';
 import { registerCommandsCommand } from './commands/commands.js';
-import { registerDocsCommand } from './commands/docs.js';
-import { registerExportTasksCommand } from './commands/export-tasks.js';
-import { registerExtractCommand } from './commands/extract.js';
-import { registerImportTasksCommand } from './commands/import-tasks.js';
-import { registerSafestopCommand } from './commands/safestop.js';
-import { registerSyncCommand } from './commands/sync.js';
-import { registerTestingCommand } from './commands/testing.js';
-import { registerWebCommand } from './commands/web.js';
-import { registerNexusCommand } from './commands/nexus.js';
-
-// Wave 1: Partial port fixes (T4555)
-import { registerArchiveStatsCommand } from './commands/archive-stats.js';
-import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
-import { registerIssueCommand } from './commands/issue.js';
-import { registerSkillsCommand } from './commands/skills.js';
-
-// Wave 1: Utility commands
-import { registerExistsCommand } from './commands/exists.js';
-import { registerBugCommand } from './commands/bug.js';
-
-// Wave 3: Register remaining commands (T4585)
-import { registerAnalyzeCommand } from './commands/analyze.js';
-import { registerBackupCommand } from './commands/backup.js';
-import { registerBlockersCommand } from './commands/blockers.js';
+import { registerCompleteCommand } from './commands/complete.js';
 import { registerComplianceCommand } from './commands/compliance.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerConsensusCommand } from './commands/consensus.js';
 import { registerContextCommand } from './commands/context.js';
 import { registerContributionCommand } from './commands/contribution.js';
+import { registerCurrentCommand } from './commands/current.js';
 import { registerDashCommand } from './commands/dash.js';
 import { registerDecompositionCommand } from './commands/decomposition.js';
+import { registerDeleteCommand } from './commands/delete.js';
+import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
+import { registerDetectDriftCommand } from './commands/detect-drift.js';
+import { registerDocsCommand } from './commands/docs.js';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { registerEnvCommand } from './commands/env.js';
+// Wave 1: Utility commands
+import { registerExistsCommand } from './commands/exists.js';
 import { registerExportCommand } from './commands/export.js';
+import { registerExportTasksCommand } from './commands/export-tasks.js';
+import { registerExtractCommand } from './commands/extract.js';
+import { registerFindCommand } from './commands/find.js';
+import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
+import { registerGradeCommand } from './commands/grade.js';
 import { registerHistoryCommand } from './commands/history.js';
 import { registerImplementationCommand } from './commands/implementation.js';
 import { registerImportCommand } from './commands/import.js';
+import { registerImportTasksCommand } from './commands/import-tasks.js';
 import { registerInitCommand } from './commands/init.js';
 import { registerInjectCommand } from './commands/inject.js';
+// T4916: CAAMP global install refresh + session behavioral grading
+import { registerInstallGlobalCommand } from './commands/install-global.js';
+import { registerIssueCommand } from './commands/issue.js';
 import { registerLabelsCommand } from './commands/labels.js';
+import { registerLifecycleCommand } from './commands/lifecycle.js';
+import { registerListCommand } from './commands/list.js';
 import { registerLogCommand } from './commands/log.js';
+import { registerMcpInstallCommand } from './commands/mcp-install.js';
+// T4770: BRAIN memory commands (patterns, learnings)
+import { registerMemoryBrainCommand } from './commands/memory-brain.js';
+// T5143: Claude-mem to brain.db migration
+import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 import { registerNextCommand } from './commands/next.js';
-import { registerPlanCommand } from './commands/plan.js';
+import { registerNexusCommand } from './commands/nexus.js';
+// T4362: Progressive disclosure ops command
+import { registerOpsCommand } from './commands/ops.js';
+import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerOtelCommand } from './commands/otel.js';
-import { registerTokenCommand } from './commands/token.js';
+import { registerPhaseCommand } from './commands/phase.js';
 import { registerPhasesCommand } from './commands/phases.js';
+import { registerPlanCommand } from './commands/plan.js';
 import { registerPromoteCommand } from './commands/promote.js';
 import { registerRelatesCommand } from './commands/relates.js';
+import { registerReleaseCommand } from './commands/release.js';
+// T4884: .cleo/.git remote push/pull
+import { registerRemoteCommand } from './commands/remote.js';
 import { registerReorderCommand } from './commands/reorder.js';
 import { registerReparentCommand } from './commands/reparent.js';
+import { registerResearchCommand } from './commands/research.js';
 import { registerRestoreCommand } from './commands/restore.js';
 import { registerRoadmapCommand } from './commands/roadmap.js';
+import { registerSafestopCommand } from './commands/safestop.js';
 import { registerSelfUpdateCommand } from './commands/self-update.js';
 import { registerSequenceCommand } from './commands/sequence.js';
+import { registerSessionCommand } from './commands/session.js';
+import { registerShowCommand } from './commands/show.js';
+import { registerSkillsCommand } from './commands/skills.js';
+// T4882: Multi-contributor snapshot
+import { registerSnapshotCommand } from './commands/snapshot.js';
 import { registerSpecificationCommand } from './commands/specification.js';
+import { registerStartCommand } from './commands/start.js';
 import { registerStatsCommand } from './commands/stats.js';
+// T5281: Sticky notes command
+import { registerStickyCommand } from './commands/sticky.js';
+import { registerStopCommand } from './commands/stop.js';
+import { registerSyncCommand } from './commands/sync.js';
+import { registerTestingCommand } from './commands/testing.js';
+import { registerTokenCommand } from './commands/token.js';
+import { registerUpdateCommand } from './commands/update.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
 import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
-import { registerDetectDriftCommand } from './commands/detect-drift.js';
-
-// T4362: Progressive disclosure ops command
-import { registerOpsCommand } from './commands/ops.js';
-
-// T4882: Multi-contributor snapshot
-import { registerSnapshotCommand } from './commands/snapshot.js';
-
-// T4884: .cleo/.git remote push/pull
-import { registerRemoteCommand } from './commands/remote.js';
-
-// T4916: CAAMP global install refresh + session behavioral grading
-import { registerInstallGlobalCommand } from './commands/install-global.js';
-import { registerGradeCommand } from './commands/grade.js';
-
-// ADR-017: ADR validation, listing, and sync
-import { registerAdrCommand } from './commands/adr.js';
-
-// T4770: BRAIN memory commands (patterns, learnings)
-import { registerMemoryBrainCommand } from './commands/memory-brain.js';
-
-// T5143: Claude-mem to brain.db migration
-import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
-
-// T5281: Sticky notes command
-import { registerStickyCommand } from './commands/sticky.js';
-
-// Core: pre-flight migration check (@task T4699)
-import { checkStorageMigration } from '../core/system/storage-preflight.js';
-
-// T4665: Output format resolution (LAFS middleware)
-import { resolveFormat } from './middleware/output-format.js';
-import { setFormatContext } from './format-context.js';
+import { registerWebCommand } from './commands/web.js';
 
 // T4953: Universal field extraction context
 import { resolveFieldContext, setFieldContext } from './field-context.js';
-
-// Centralized pino logger
-import { loadConfig as loadCoreConfig } from '../core/config.js';
+import { setFormatContext } from './format-context.js';
 import { initCliLogger } from './logger-bootstrap.js';
-
-// Startup guard: fail fast if Node.js version is below minimum
-import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
+// T4665: Output format resolution (LAFS middleware)
+import { resolveFormat } from './middleware/output-format.js';
 
 const nodeInfo = getNodeVersionInfo();
 if (!nodeInfo.meetsMinimum) {
   const upgrade = getNodeUpgradeInstructions();
   process.stderr.write(
-    `\nError: CLEO requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n`
-    + `\nUpgrade options:\n`
-    + upgrade.instructions.map(i => `  - ${i}`).join('\n')
-    + `\n\n`,
+    `\nError: CLEO requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n` +
+      `\nUpgrade options:\n` +
+      upgrade.instructions.map((i) => `  - ${i}`).join('\n') +
+      `\n\n`,
   );
   process.exit(1);
 }
@@ -510,8 +544,9 @@ program.hook('preAction', async () => {
 
     // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
     const { pruneAuditLog } = await import('../core/audit-prune.js');
-    pruneAuditLog(join(process.cwd(), '.cleo'), config.logging)
-      .catch(() => { /* non-blocking */ });
+    pruneAuditLog(join(process.cwd(), '.cleo'), config.logging).catch(() => {
+      /* non-blocking */
+    });
   } catch {
     // Logger init is best-effort — fallback stderr logger will be used
   }
@@ -549,8 +584,7 @@ program.hook('preAction', (thisCommand) => {
     const result = checkStorageMigration();
     if (result.migrationNeeded) {
       process.stderr.write(
-        `\n⚠ Storage migration needed: ${result.summary}\n`
-        + `  Fix: ${result.fix}\n\n`,
+        `\n⚠ Storage migration needed: ${result.summary}\n` + `  Fix: ${result.fix}\n\n`,
       );
     }
   } catch {
@@ -565,11 +599,9 @@ program.hook('preAction', (thisCommand) => {
 if (process.argv[2] === 'mcp') {
   const mcpPath = join(import.meta.dirname ?? '', '..', 'mcp', 'index.js');
   const { spawn } = await import('node:child_process');
-  const child = spawn(
-    process.execPath,
-    ['--disable-warning=ExperimentalWarning', mcpPath],
-    { stdio: 'inherit' },
-  );
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', mcpPath], {
+    stdio: 'inherit',
+  });
   child.on('exit', (code) => process.exit(code ?? 0));
 } else {
   program.parse();

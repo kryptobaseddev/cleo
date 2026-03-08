@@ -8,12 +8,8 @@
  * @task T5239
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  OPERATIONS,
-  deriveGatewayMatrix,
-  getGatewayDomains,
-} from '../registry.js';
+import { describe, expect, it } from 'vitest';
+import { deriveGatewayMatrix, getGatewayDomains, OPERATIONS } from '../registry.js';
 import { CANONICAL_DOMAINS } from '../types.js';
 
 describe('deriveGatewayMatrix', () => {
@@ -122,10 +118,7 @@ describe('deriveGatewayMatrix', () => {
       seen.add(key);
     }
 
-    expect(
-      duplicates,
-      `Duplicate registry entries: ${duplicates.join(', ')}`,
-    ).toHaveLength(0);
+    expect(duplicates, `Duplicate registry entries: ${duplicates.join(', ')}`).toHaveLength(0);
   });
 });
 

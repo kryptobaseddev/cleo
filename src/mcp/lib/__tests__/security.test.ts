@@ -5,23 +5,23 @@
  * @epic T3125
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { TASK_STATUSES } from '../../../store/status-registry.js';
 import {
-  sanitizeTaskId,
-  sanitizePath,
-  sanitizeContent,
-  validateEnum,
-  sanitizeParams,
+  DEFAULT_RATE_LIMITS,
   RateLimiter,
   SecurityError,
-  VALID_PRIORITIES,
+  sanitizeContent,
+  sanitizeParams,
+  sanitizePath,
+  sanitizeTaskId,
   VALID_DOMAINS,
   VALID_GATEWAYS,
-  DEFAULT_RATE_LIMITS,
+  VALID_PRIORITIES,
+  validateEnum,
 } from '../security.js';
-import { TASK_STATUSES } from '../../../store/status-registry.js';
 
 describe('Security Module', () => {
   describe('sanitizeTaskId', () => {
@@ -492,21 +492,15 @@ describe('Security Module', () => {
 
     it('should sanitize path fields when projectRoot provided', () => {
       const paramRoot = join(tmpdir(), 'cleo-param-test-project');
-      const result = sanitizeParams(
-        { path: 'src/test.ts' },
-        paramRoot
-      );
+      const result = sanitizeParams({ path: 'src/test.ts' }, paramRoot);
       expect(result?.path).toBe(resolve(paramRoot, 'src', 'test.ts'));
     });
 
     it('should reject path traversal in params', () => {
       const paramRoot = join(tmpdir(), 'cleo-param-test-project');
-      expect(() =>
-        sanitizeParams(
-          { path: '../../../etc/passwd' },
-          paramRoot
-        )
-      ).toThrow(SecurityError);
+      expect(() => sanitizeParams({ path: '../../../etc/passwd' }, paramRoot)).toThrow(
+        SecurityError,
+      );
     });
   });
 

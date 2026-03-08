@@ -1,4 +1,10 @@
-import { DispatchRequest, DispatchResponse, Middleware, DispatchNext, RateLimitMeta } from '../types.js';
+import type {
+  DispatchNext,
+  DispatchRequest,
+  DispatchResponse,
+  Middleware,
+  RateLimitMeta,
+} from '../types.js';
 
 /**
  * Rate Limit Configuration
@@ -67,7 +73,7 @@ export class RateLimiter {
     }
 
     // Clean up old timestamps
-    bucket.timestamps = bucket.timestamps.filter(t => t > windowStart);
+    bucket.timestamps = bucket.timestamps.filter((t) => t > windowStart);
 
     const allowed = bucket.timestamps.length < limitConfig.maxRequests;
     if (allowed) {
@@ -86,7 +92,11 @@ export class RateLimiter {
     };
   }
 
-  private resolveCategory(gateway: string, domain: string, operation: string): 'query' | 'mutate' | 'spawn' {
+  private resolveCategory(
+    gateway: string,
+    domain: string,
+    operation: string,
+  ): 'query' | 'mutate' | 'spawn' {
     if (domain === 'orchestrate' && operation === 'spawn') {
       return 'spawn';
     }
@@ -124,7 +134,7 @@ export function createRateLimiter(config?: Partial<RateLimitingConfig>): Middlew
           code: 'E_RATE_LIMIT_EXCEEDED',
           exitCode: 429, // Too Many Requests
           message: `Rate limit exceeded for category: ${check.category}. Please wait ${Math.ceil(check.resetMs / 1000)} seconds.`,
-        }
+        },
       };
     }
 
@@ -135,7 +145,7 @@ export function createRateLimiter(config?: Partial<RateLimitingConfig>): Middlew
       resetMs: check.resetMs,
       category: check.category,
     };
-    
+
     return response;
   };
 }

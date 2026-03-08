@@ -9,12 +9,12 @@
  * @epic T4454
  */
 
-import { existsSync, appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
 import { isoTimestamp, readJsonlFile } from './common.js';
-import { isOtelEnabled, getSessionTokens } from './otel-integration.js';
+import { getSessionTokens, isOtelEnabled } from './otel-integration.js';
 
 /** A/B test variant. */
 export type ABVariant = 'cleo' | 'baseline';
@@ -52,9 +52,7 @@ export async function logABEvent(
   await mkdir(dir, { recursive: true });
 
   const file = getABMetricsFile(cwd);
-  const parsedContext = typeof context === 'string'
-    ? { note: context }
-    : (context ?? {});
+  const parsedContext = typeof context === 'string' ? { note: context } : (context ?? {});
 
   const entry = {
     timestamp: isoTimestamp(),
@@ -96,10 +94,16 @@ export async function startABTest(
     startTokens,
   };
 
-  await logABEvent('start', testName, variant, {
-    description: description ?? '',
-    otel_enabled: isOtelEnabled(),
-  }, cwd);
+  await logABEvent(
+    'start',
+    testName,
+    variant,
+    {
+      description: description ?? '',
+      otel_enabled: isOtelEnabled(),
+    },
+    cwd,
+  );
 }
 
 /** A/B test summary result. */
@@ -150,7 +154,7 @@ export async function endABTest(
     if (existsSync(tokenFile)) {
       const entries = readJsonlFile(tokenFile);
       totalTokens = entries
-        .filter(e => e.session_id === currentTest!.testName)
+        .filter((e) => e.session_id === currentTest!.testName)
         .reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
       tokenSource = 'estimated';
     }
@@ -180,7 +184,13 @@ export async function endABTest(
     notes: options.notes ?? '',
   };
 
-  await logABEvent('end', currentTest.testName, currentTest.variant, summary as unknown as Record<string, unknown>, cwd);
+  await logABEvent(
+    'end',
+    currentTest.testName,
+    currentTest.variant,
+    summary as unknown as Record<string, unknown>,
+    cwd,
+  );
 
   currentTest = null;
   return summary;
@@ -197,11 +207,7 @@ export function getABTestResults(
 
   const entries = readJsonlFile(file);
   const endEntry = entries
-    .filter(e =>
-      e.test_name === testName &&
-      e.variant === variant &&
-      e.event_type === 'end',
-    )
+    .filter((e) => e.test_name === testName && e.variant === variant && e.event_type === 'end')
     .pop();
 
   if (!endEntry) return null;
@@ -215,7 +221,7 @@ export function listABTests(filter?: string, cwd?: string): Record<string, unkno
 
   let entries = readJsonlFile(file);
   if (filter) {
-    entries = entries.filter(e => e.test_name === filter);
+    entries = entries.filter((e) => e.test_name === filter);
   }
 
   // Group by test name
@@ -228,17 +234,18 @@ export function listABTests(filter?: string, cwd?: string): Record<string, unkno
 
   return Array.from(byTest.entries()).map(([testName, group]) => ({
     test_name: testName,
-    variants: [...new Set(group.map(e => e.variant as string))],
+    variants: [...new Set(group.map((e) => e.variant as string))],
     total_runs: group.length,
-    last_run: group.map(e => e.timestamp as string).sort().pop() ?? null,
+    last_run:
+      group
+        .map((e) => e.timestamp as string)
+        .sort()
+        .pop() ?? null,
   }));
 }
 
 /** Compare two variants of the same test. */
-export function compareABTest(
-  testName: string,
-  cwd?: string,
-): Record<string, unknown> {
+export function compareABTest(testName: string, cwd?: string): Record<string, unknown> {
   const cleoResult = getABTestResults(testName, 'cleo', cwd);
   const baselineResult = getABTestResults(testName, 'baseline', cwd);
 
@@ -249,8 +256,9 @@ export function compareABTest(
   const baselineTokens = (baselineResult.tokens_consumed as number) ?? 0;
   const cleoTasks = (cleoResult.tasks_completed as number) ?? 0;
   const baselineTasks = (baselineResult.tasks_completed as number) ?? 0;
-  const cleoValRate = ((cleoResult.validations as Record<string, number>)?.pass_rate_percent) ?? 0;
-  const baselineValRate = ((baselineResult.validations as Record<string, number>)?.pass_rate_percent) ?? 0;
+  const cleoValRate = (cleoResult.validations as Record<string, number>)?.pass_rate_percent ?? 0;
+  const baselineValRate =
+    (baselineResult.validations as Record<string, number>)?.pass_rate_percent ?? 0;
   const cleoDuration = (cleoResult.duration_seconds as number) ?? 0;
   const baselineDuration = (baselineResult.duration_seconds as number) ?? 0;
 
@@ -286,9 +294,12 @@ export function compareABTest(
       tokens_per_task: {
         cleo: cleoTokensPerTask,
         baseline: baselineTokensPerTask,
-        efficiency_gain_percent: baselineTokensPerTask > 0
-          ? Math.floor(((baselineTokensPerTask - cleoTokensPerTask) * 100) / baselineTokensPerTask)
-          : 0,
+        efficiency_gain_percent:
+          baselineTokensPerTask > 0
+            ? Math.floor(
+                ((baselineTokensPerTask - cleoTokensPerTask) * 100) / baselineTokensPerTask,
+              )
+            : 0,
       },
       validation_pass_rate: {
         cleo: cleoValRate,
@@ -318,7 +329,7 @@ export function getABTestStats(cwd?: string): Record<string, unknown> {
   }
 
   const entries = readJsonlFile(file);
-  const uniqueTests = new Set(entries.map(e => e.test_name as string));
+  const uniqueTests = new Set(entries.map((e) => e.test_name as string));
   const totalRuns = entries.length;
 
   let totalSavings = 0;
@@ -327,8 +338,9 @@ export function getABTestStats(cwd?: string): Record<string, unknown> {
   for (const testName of uniqueTests) {
     const comparison = compareABTest(testName, cwd);
     if (!comparison.error) {
-      const savings = (comparison.comparison as Record<string, Record<string, number>>)
-        ?.tokens?.savings_percent ?? 0;
+      const savings =
+        (comparison.comparison as Record<string, Record<string, number>>)?.tokens
+          ?.savings_percent ?? 0;
       totalSavings += savings;
       comparisonCount++;
     }

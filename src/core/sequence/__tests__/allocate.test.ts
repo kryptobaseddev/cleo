@@ -3,12 +3,12 @@
  * @task T5184
  */
 
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import { getDb,getNativeDb,resetDbState } from '../../../store/sqlite.js';
-import { allocateNextTaskId,showSequence } from '../index.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getDb, getNativeDb, resetDbState } from '../../../store/sqlite.js';
+import { allocateNextTaskId, showSequence } from '../index.js';
 
 describe('allocateNextTaskId', () => {
   let tempDir: string;
@@ -56,9 +56,11 @@ describe('allocateNextTaskId', () => {
     const nativeDb = getNativeDb()!;
 
     // Manually insert a task with ID T010 to simulate stale counter
-    nativeDb.prepare(
-      `INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
-    ).run('T010', 'Existing task');
+    nativeDb
+      .prepare(
+        `INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+      )
+      .run('T010', 'Existing task');
 
     // Counter is at 0 (seed), so allocateNextTaskId will try T001 first,
     // which doesn't collide. It should return T001 since T001 doesn't exist.
@@ -70,16 +72,20 @@ describe('allocateNextTaskId', () => {
     const nativeDb = getNativeDb()!;
 
     // Set counter to 5
-    nativeDb.prepare(`
+    nativeDb
+      .prepare(`
       UPDATE schema_meta
       SET value = json_set(value, '$.counter', 5, '$.lastId', 'T005')
       WHERE key = 'task_id_sequence'
-    `).run();
+    `)
+      .run();
 
     // Insert T006 to cause a collision on next allocation
-    nativeDb.prepare(
-      `INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
-    ).run('T006', 'Blocking task');
+    nativeDb
+      .prepare(
+        `INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+      )
+      .run('T006', 'Blocking task');
 
     // Should detect collision on T006, repair, and return T007
     const id = await allocateNextTaskId(tempDir);
@@ -118,11 +124,13 @@ describe('allocateNextTaskId', () => {
     const nativeDb = getNativeDb()!;
 
     // Set counter to 999
-    nativeDb.prepare(`
+    nativeDb
+      .prepare(`
       UPDATE schema_meta
       SET value = json_set(value, '$.counter', 999, '$.lastId', 'T999')
       WHERE key = 'task_id_sequence'
-    `).run();
+    `)
+      .run();
 
     const id = await allocateNextTaskId(tempDir);
     expect(id).toBe('T1000');

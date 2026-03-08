@@ -12,17 +12,20 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import type { DatabaseSync } from 'node:sqlite';
-
 import { dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as nexusSchema from './nexus-schema.js';
 import { getCleoHome } from '../core/paths.js';
-import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
+import * as nexusSchema from './nexus-schema.js';
+import {
+  createBatchCallback,
+  createDrizzleCallback,
+  openNativeDatabase,
+} from './node-sqlite-adapter.js';
 
 /** Database file name within ~/.cleo/ directory. */
 const DB_FILENAME = 'nexus.db';
@@ -60,9 +63,9 @@ export function resolveNexusMigrationsFolder(): string {
  * Check whether a table exists in the SQLite database.
  */
 function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
-  const result = nativeDb.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-  ).get(tableName) as Record<string, unknown> | undefined;
+  const result = nativeDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(tableName) as Record<string, unknown> | undefined;
   return !!result;
 }
 
@@ -87,29 +90,37 @@ async function runNexusMigrations(
     const migrations = readMigrationFiles({ migrationsFolder });
     const baseline = migrations[0];
     if (baseline) {
-      nativeDb.prepare(
-        `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
-      ).run();
-      nativeDb.prepare(
-        `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
-      ).run();
+      nativeDb
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
+        )
+        .run();
+      nativeDb
+        .prepare(
+          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
+        )
+        .run();
     }
   }
 
   // Run pending migrations via drizzle-orm/sqlite-proxy/migrator.
   // Each batch is wrapped in an IMMEDIATE transaction.
-  await migrate(db, async (queries: string[]) => {
-    nativeDb.prepare('BEGIN IMMEDIATE').run();
-    try {
-      for (const query of queries) {
-        nativeDb.prepare(query).run();
+  await migrate(
+    db,
+    async (queries: string[]) => {
+      nativeDb.prepare('BEGIN IMMEDIATE').run();
+      try {
+        for (const query of queries) {
+          nativeDb.prepare(query).run();
+        }
+        nativeDb.prepare('COMMIT').run();
+      } catch (err) {
+        nativeDb.prepare('ROLLBACK').run();
+        throw err;
       }
-      nativeDb.prepare('COMMIT').run();
-    } catch (err) {
-      nativeDb.prepare('ROLLBACK').run();
-      throw err;
-    }
-  }, { migrationsFolder });
+    },
+    { migrationsFolder },
+  );
 }
 
 /**
@@ -153,9 +164,11 @@ export async function getNexusDb(): Promise<SqliteRemoteDatabase<typeof nexusSch
     await runNexusMigrations(nativeDb, db);
 
     // Seed schema version for new databases (no-op if already set)
-    nativeDb.prepare(
-      `INSERT OR IGNORE INTO nexus_schema_meta (key, value) VALUES ('schemaVersion', '${NEXUS_SCHEMA_VERSION}')`,
-    ).run();
+    nativeDb
+      .prepare(
+        `INSERT OR IGNORE INTO nexus_schema_meta (key, value) VALUES ('schemaVersion', '${NEXUS_SCHEMA_VERSION}')`,
+      )
+      .run();
 
     // Set singleton only after migrations complete
     _nexusDb = db;

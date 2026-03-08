@@ -11,14 +11,10 @@
  * @phase 1E
  */
 
-import { spawn, exec } from 'child_process';
+import { exec, spawn } from 'child_process';
+import { unlink, writeFile } from 'fs/promises';
 import { promisify } from 'util';
-import { writeFile, unlink } from 'fs/promises';
-import type {
-  CLEOSpawnAdapter,
-  CLEOSpawnContext,
-  CLEOSpawnResult,
-} from '../../../types/spawn.js';
+import type { CLEOSpawnAdapter, CLEOSpawnContext, CLEOSpawnResult } from '../../../types/spawn.js';
 
 const execAsync = promisify(exec);
 
@@ -81,14 +77,10 @@ export class ClaudeCodeSpawnAdapter implements CLEOSpawnAdapter {
       tmpFile = `/tmp/claude-spawn-${instanceId}.txt`;
       await writeFile(tmpFile, context.prompt, 'utf-8');
 
-      const child = spawn(
-        'claude',
-        ['--allow-insecure', '--no-upgrade-check', tmpFile],
-        {
-          detached: true,
-          stdio: 'ignore',
-        }
-      );
+      const child = spawn('claude', ['--allow-insecure', '--no-upgrade-check', tmpFile], {
+        detached: true,
+        stdio: 'ignore',
+      });
 
       child.unref();
 

@@ -9,15 +9,15 @@
  * @epic T5149
  */
 
+import { getBrainAccessor } from '../../store/brain-accessor.js';
+import type { BrainDecisionRow } from '../../store/brain-schema.js';
+import { getBrainDb } from '../../store/brain-sqlite.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJsonRequired } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { searchSimilar } from './brain-similarity.js';
-import { searchBrain } from './brain-search.js';
-import { getBrainDb } from '../../store/brain-sqlite.js';
 import type { TaskFile } from '../../types/task.js';
-import type { BrainDecisionRow } from '../../store/brain-schema.js';
+import { getTaskPath } from '../paths.js';
+import { searchBrain } from './brain-search.js';
+import { searchSimilar } from './brain-similarity.js';
 
 // ============================================================================
 // Types
@@ -50,11 +50,15 @@ const MAX_DEPTH = 10;
  * and their associated brain decisions. Leaf blockers (no further unresolved
  * deps) are reported as root causes.
  */
-export async function reasonWhy(taskId: string, projectRoot: string, taskAccessor?: DataAccessor): Promise<CausalTrace> {
+export async function reasonWhy(
+  taskId: string,
+  projectRoot: string,
+  taskAccessor?: DataAccessor,
+): Promise<CausalTrace> {
   const data = taskAccessor
-    ? (await taskAccessor.loadTaskFile() as TaskFile)
+    ? ((await taskAccessor.loadTaskFile()) as TaskFile)
     : await readJsonRequired<TaskFile>(getTaskPath(projectRoot));
-  const taskMap = new Map(data.tasks.map(t => [t.id, t]));
+  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
   const completedStatuses = new Set(['done', 'cancelled']);
 
@@ -82,7 +86,7 @@ export async function reasonWhy(taskId: string, projectRoot: string, taskAccesso
     if (!task) return;
 
     // Collect unresolved dependencies
-    const unresolvedDeps = (task.depends ?? []).filter(depId => {
+    const unresolvedDeps = (task.depends ?? []).filter((depId) => {
       const dep = taskMap.get(depId);
       return dep && !completedStatuses.has(dep.status);
     });
@@ -101,7 +105,7 @@ export async function reasonWhy(taskId: string, projectRoot: string, taskAccesso
       let decisions: Array<{ id: string; title: string; rationale?: string }> = [];
       if (accessor) {
         const relatedDecisions = await findDecisionsForTask(accessor, depId);
-        decisions = relatedDecisions.map(d => ({
+        decisions = relatedDecisions.map((d) => ({
           id: d.id,
           title: d.decision,
           rationale: d.rationale,
@@ -122,17 +126,17 @@ export async function reasonWhy(taskId: string, projectRoot: string, taskAccesso
   await walk(taskId, 0);
 
   // Root causes: leaf blockers whose own deps are all resolved or absent
-  const blockerIds = new Set(blockers.map(b => b.taskId));
+  const blockerIds = new Set(blockers.map((b) => b.taskId));
   const rootCauses = blockers
-    .filter(b => {
+    .filter((b) => {
       const task = taskMap.get(b.taskId);
       if (!task?.depends?.length) return true;
-      return task.depends.every(depId => {
+      return task.depends.every((depId) => {
         const dep = taskMap.get(depId);
         return !dep || completedStatuses.has(dep.status) || !blockerIds.has(depId);
       });
     })
-    .map(b => b.taskId);
+    .map((b) => b.taskId);
 
   return {
     taskId,
@@ -210,15 +214,13 @@ export async function reasonSimilar(
   const vecResults = await searchSimilar(sourceText, projectRoot, maxResults + 1);
 
   if (vecResults.length > 0) {
-    return vecResults
-      .filter(r => r.id !== entryId)
-      .slice(0, maxResults);
+    return vecResults.filter((r) => r.id !== entryId).slice(0, maxResults);
   }
 
   // FTS5 fallback: extract key terms and search
   const terms = sourceText
     .split(/\s+/)
-    .filter(t => t.length > 3)
+    .filter((t) => t.length > 3)
     .slice(0, 5)
     .join(' ');
 

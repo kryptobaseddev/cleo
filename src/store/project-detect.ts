@@ -98,7 +98,11 @@ export type ProjectInfo = ProjectContext;
 export function detectProjectType(projectDir: string): ProjectContext {
   const exists = (f: string) => existsSync(join(projectDir, f));
   const readJsonSafe = (f: string): Record<string, unknown> | null => {
-    try { return JSON.parse(readFileSync(join(projectDir, f), 'utf-8')) as Record<string, unknown>; } catch { return null; }
+    try {
+      return JSON.parse(readFileSync(join(projectDir, f), 'utf-8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   };
 
   const projectTypes: ProjectType[] = [];
@@ -108,16 +112,51 @@ export function detectProjectType(projectDir: string): ProjectContext {
   let packageManager: string | undefined;
 
   // Detect ALL project types (polyglot support)
-  if (exists('package.json')) { projectTypes.push('node'); primaryType = 'node'; }
-  if (exists('pyproject.toml') || exists('setup.py') || exists('requirements.txt') || exists('Pipfile')) { projectTypes.push('python'); if (primaryType === 'unknown') primaryType = 'python'; }
-  if (exists('Cargo.toml')) { projectTypes.push('rust'); if (primaryType === 'unknown') primaryType = 'rust'; }
-  if (exists('go.mod')) { projectTypes.push('go'); if (primaryType === 'unknown') primaryType = 'go'; }
-  if (exists('Gemfile')) { projectTypes.push('ruby'); if (primaryType === 'unknown') primaryType = 'ruby'; }
-  if (exists('pom.xml') || exists('build.gradle') || exists('build.gradle.kts')) { projectTypes.push('java'); if (primaryType === 'unknown') primaryType = 'java'; }
-  if (hasFileWithExtension(projectDir, '.csproj') || hasFileWithExtension(projectDir, '.sln')) { projectTypes.push('dotnet'); if (primaryType === 'unknown') primaryType = 'dotnet'; }
-  if (exists('deno.json') || exists('deno.jsonc')) { projectTypes.push('deno'); if (primaryType === 'unknown') primaryType = 'deno'; }
-  if (exists('mix.exs')) { projectTypes.push('elixir'); if (primaryType === 'unknown') primaryType = 'elixir'; }
-  if (exists('composer.json')) { projectTypes.push('php'); if (primaryType === 'unknown') primaryType = 'php'; }
+  if (exists('package.json')) {
+    projectTypes.push('node');
+    primaryType = 'node';
+  }
+  if (
+    exists('pyproject.toml') ||
+    exists('setup.py') ||
+    exists('requirements.txt') ||
+    exists('Pipfile')
+  ) {
+    projectTypes.push('python');
+    if (primaryType === 'unknown') primaryType = 'python';
+  }
+  if (exists('Cargo.toml')) {
+    projectTypes.push('rust');
+    if (primaryType === 'unknown') primaryType = 'rust';
+  }
+  if (exists('go.mod')) {
+    projectTypes.push('go');
+    if (primaryType === 'unknown') primaryType = 'go';
+  }
+  if (exists('Gemfile')) {
+    projectTypes.push('ruby');
+    if (primaryType === 'unknown') primaryType = 'ruby';
+  }
+  if (exists('pom.xml') || exists('build.gradle') || exists('build.gradle.kts')) {
+    projectTypes.push('java');
+    if (primaryType === 'unknown') primaryType = 'java';
+  }
+  if (hasFileWithExtension(projectDir, '.csproj') || hasFileWithExtension(projectDir, '.sln')) {
+    projectTypes.push('dotnet');
+    if (primaryType === 'unknown') primaryType = 'dotnet';
+  }
+  if (exists('deno.json') || exists('deno.jsonc')) {
+    projectTypes.push('deno');
+    if (primaryType === 'unknown') primaryType = 'deno';
+  }
+  if (exists('mix.exs')) {
+    projectTypes.push('elixir');
+    if (primaryType === 'unknown') primaryType = 'elixir';
+  }
+  if (exists('composer.json')) {
+    projectTypes.push('php');
+    if (primaryType === 'unknown') primaryType = 'php';
+  }
 
   if (projectTypes.length === 0) {
     // Bash/shell fallback
@@ -138,7 +177,13 @@ export function detectProjectType(projectDir: string): ProjectContext {
   }
 
   // Monorepo detection
-  if (exists('lerna.json') || exists('pnpm-workspace.yaml') || exists('turbo.json') || exists('nx.json') || exists('rush.json')) {
+  if (
+    exists('lerna.json') ||
+    exists('pnpm-workspace.yaml') ||
+    exists('turbo.json') ||
+    exists('nx.json') ||
+    exists('rush.json')
+  ) {
     monorepo = true;
   } else if (exists('package.json')) {
     const pkg = readJsonSafe('package.json');
@@ -147,16 +192,27 @@ export function detectProjectType(projectDir: string): ProjectContext {
     try {
       const content = readFileSync(join(projectDir, 'Cargo.toml'), 'utf-8');
       if (content.includes('[workspace]')) monorepo = true;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Test framework detection (expanded)
   // Node.js
-  if (exists('vitest.config.ts') || exists('vitest.config.js') || exists('vitest.config.mts')) testFramework = 'vitest';
-  else if (exists('jest.config.ts') || exists('jest.config.js') || exists('jest.config.mjs')) testFramework = 'jest';
-  else if (exists('.mocharc.yml') || exists('.mocharc.json') || exists('.mocharc.js')) testFramework = 'mocha';
-  else if (exists('playwright.config.ts') || exists('playwright.config.js')) testFramework = 'playwright';
-  else if (exists('cypress.config.ts') || exists('cypress.config.js') || exists('cypress.config.mjs')) testFramework = 'cypress';
+  if (exists('vitest.config.ts') || exists('vitest.config.js') || exists('vitest.config.mts'))
+    testFramework = 'vitest';
+  else if (exists('jest.config.ts') || exists('jest.config.js') || exists('jest.config.mjs'))
+    testFramework = 'jest';
+  else if (exists('.mocharc.yml') || exists('.mocharc.json') || exists('.mocharc.js'))
+    testFramework = 'mocha';
+  else if (exists('playwright.config.ts') || exists('playwright.config.js'))
+    testFramework = 'playwright';
+  else if (
+    exists('cypress.config.ts') ||
+    exists('cypress.config.js') ||
+    exists('cypress.config.mjs')
+  )
+    testFramework = 'cypress';
   // Python
   else if (primaryType === 'python') testFramework = 'pytest';
   // Rust
@@ -168,7 +224,8 @@ export function detectProjectType(projectDir: string): ProjectContext {
   // Java
   else if (primaryType === 'java') testFramework = 'junit';
   // Bash
-  else if (primaryType === 'bash' && (exists('tests/unit') || exists('tests/integration'))) testFramework = 'bats';
+  else if (primaryType === 'bash' && (exists('tests/unit') || exists('tests/integration')))
+    testFramework = 'bats';
 
   // Build detection
   const build = detectBuild(primaryType, packageManager, exists, readJsonSafe);
@@ -184,7 +241,13 @@ export function detectProjectType(projectDir: string): ProjectContext {
   const conventions = detectConventions(projectDir, primaryType, hasTypeScript, readJsonSafe);
 
   // LLM hints generation
-  const llmHints = generateLlmHints(packageManager, testFramework, hasTypeScript, monorepo, conventions);
+  const llmHints = generateLlmHints(
+    packageManager,
+    testFramework,
+    hasTypeScript,
+    monorepo,
+    conventions,
+  );
 
   return {
     schemaVersion: '1.0.0',
@@ -204,7 +267,7 @@ export function detectProjectType(projectDir: string): ProjectContext {
 function hasFileWithExtension(dir: string, ext: string): boolean {
   try {
     const entries = readdirSync(dir);
-    return entries.some(e => e.endsWith(ext));
+    return entries.some((e) => e.endsWith(ext));
   } catch {
     return false;
   }
@@ -292,7 +355,9 @@ function detectTesting(
   return result;
 }
 
-function detectDirectories(exists: (f: string) => boolean): ProjectContext['directories'] | undefined {
+function detectDirectories(
+  exists: (f: string) => boolean,
+): ProjectContext['directories'] | undefined {
   const result: NonNullable<ProjectContext['directories']> = {};
 
   if (exists('src')) result.source = 'src';
@@ -321,22 +386,30 @@ function detectConventions(
   // File naming convention — detect from source files
   if (existsSync(join(projectDir, 'src'))) {
     try {
-      const files = readdirSync(join(projectDir, 'src')).filter(f => !f.startsWith('.'));
+      const files = readdirSync(join(projectDir, 'src')).filter((f) => !f.startsWith('.'));
       result.fileNaming = detectFileNaming(files);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Import style
   if (primaryType === 'node') {
     const pkg = readJsonSafe('package.json');
     if (pkg?.type === 'module') result.importStyle = 'esm';
-    else if (pkg?.type === 'commonjs' || (!pkg?.type && !hasTypeScript)) result.importStyle = 'commonjs';
+    else if (pkg?.type === 'commonjs' || (!pkg?.type && !hasTypeScript))
+      result.importStyle = 'commonjs';
     else if (hasTypeScript) {
       // Check tsconfig for module type
       const tsconfig = readJsonSafe('tsconfig.json');
       const compilerOptions = tsconfig?.compilerOptions as Record<string, unknown> | undefined;
       const moduleType = (compilerOptions?.module as string | undefined)?.toLowerCase();
-      if (moduleType?.includes('esnext') || moduleType?.includes('es2') || moduleType === 'nodenext' || moduleType === 'node16') {
+      if (
+        moduleType?.includes('esnext') ||
+        moduleType?.includes('es2') ||
+        moduleType === 'nodenext' ||
+        moduleType === 'node16'
+      ) {
         result.importStyle = 'esm';
       } else if (moduleType === 'commonjs') {
         result.importStyle = 'commonjs';
@@ -355,7 +428,10 @@ function detectConventions(
     const strict = compilerOptions?.strict;
     result.typeSystem = strict ? 'TypeScript strict' : 'TypeScript';
   } else if (primaryType === 'python') {
-    if (existsSync(join(projectDir, 'py.typed')) || existsSync(join(projectDir, 'pyproject.toml'))) {
+    if (
+      existsSync(join(projectDir, 'py.typed')) ||
+      existsSync(join(projectDir, 'pyproject.toml'))
+    ) {
       const pyproject = readJsonSafe('pyproject.toml');
       if (pyproject) result.typeSystem = 'Python type hints';
     }
@@ -369,10 +445,13 @@ function detectConventions(
 }
 
 function detectFileNaming(files: string[]): FileNamingConvention {
-  const sourceFiles = files.filter(f => !f.startsWith('_') && f.includes('.'));
+  const sourceFiles = files.filter((f) => !f.startsWith('_') && f.includes('.'));
   if (sourceFiles.length === 0) return 'kebab-case';
 
-  let kebab = 0, snake = 0, camel = 0, pascal = 0;
+  let kebab = 0,
+    snake = 0,
+    camel = 0,
+    pascal = 0;
   for (const f of sourceFiles) {
     const name = f.split('.')[0];
     if (/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/.test(name)) kebab++;
@@ -431,7 +510,8 @@ function generateLlmHints(
 
   // TypeScript hints
   if (hasTypeScript) {
-    typeSystem = conventions?.typeSystem === 'TypeScript strict' ? 'TypeScript strict mode' : 'TypeScript';
+    typeSystem =
+      conventions?.typeSystem === 'TypeScript strict' ? 'TypeScript strict mode' : 'TypeScript';
     commonPatterns.push('Use explicit return types on exported functions');
     if (conventions?.typeSystem === 'TypeScript strict') {
       avoidPatterns.push('Do not use any type — strict mode is enabled');

@@ -5,7 +5,7 @@
  * @epic T4545, T5323
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -31,7 +31,13 @@ export function registerSyncCommand(program: Command): void {
     .description('Clear sync state without merging')
     .option('--dry-run', 'Preview what would be cleared')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'tools', 'todowrite.clear', { dryRun: opts['dryRun'] }, { command: 'sync' });
+      await dispatchFromCli(
+        'mutate',
+        'tools',
+        'todowrite.clear',
+        { dryRun: opts['dryRun'] },
+        { command: 'sync' },
+      );
     });
 
   // Inject and extract are registered separately as standalone commands

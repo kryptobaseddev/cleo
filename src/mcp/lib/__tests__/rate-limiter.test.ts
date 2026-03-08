@@ -9,7 +9,7 @@
  * @task T2916
  */
 
-import { DEFAULT_RATE_LIMITING,RateLimiter } from '../rate-limiter.js';
+import { DEFAULT_RATE_LIMITING, RateLimiter } from '../rate-limiter.js';
 
 describe('RateLimiter', () => {
   let limiter: RateLimiter;

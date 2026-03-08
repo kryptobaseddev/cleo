@@ -13,61 +13,67 @@
  * @epic T4454
  */
 
-import { readJson } from '../../store/json.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { join } from 'node:path';
-import { LIFECYCLE_STAGE_STATUSES } from '../../store/tasks-schema.js';
+import { eq } from 'drizzle-orm';
+import { readJson } from '../../store/json.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
-import { eq } from 'drizzle-orm';
-import { ensureStageArtifact } from './stage-artifacts.js';
-import { linkProvenance } from './evidence.js';
-import { syncAdrsToDb } from '../adrs/sync.js';
+import { LIFECYCLE_STAGE_STATUSES } from '../../store/tasks-schema.js';
+import { ExitCode } from '../../types/exit-codes.js';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
+import { syncAdrsToDb } from '../adrs/sync.js';
+import { CleoError } from '../errors.js';
+import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { linkProvenance } from './evidence.js';
+import { ensureStageArtifact } from './stage-artifacts.js';
 
 // =============================================================================
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
 // =============================================================================
 
 export {
-  PIPELINE_STAGES,
   CONTRIBUTION_STAGE,
-  type Stage,
-  type StageStatus,
-  type StageCategory,
-  type StageDefinition,
-  STAGE_DEFINITIONS as CANONICAL_STAGE_DEFINITIONS,
-  STAGE_PREREQUISITES as CANONICAL_PREREQUISITES,
-  STAGE_ORDER,
-  STAGE_COUNT,
-  FIRST_STAGE,
-  LAST_STAGE,
-  PLANNING_STAGES,
-  DECISION_STAGES,
-  EXECUTION_STAGES,
-  VALIDATION_STAGES,
-  DELIVERY_STAGES,
-  getStageOrder,
-  getPrerequisites,
-  isPrerequisite,
-  getDependents,
   checkTransition,
-  validateStage,
+  DECISION_STAGES,
+  DELIVERY_STAGES,
+  EXECUTION_STAGES,
+  FIRST_STAGE,
+  getDependents,
+  getNextStage,
+  getPrerequisites,
+  getPreviousStage,
+  getSkippableStages,
+  getStageOrder,
+  getStagesBetween,
+  getStagesByCategory,
+  isPrerequisite,
+  isStageAfter,
+  isStageBefore,
   isValidStage,
   isValidStageStatus,
-  getNextStage,
-  getPreviousStage,
-  getStagesBetween,
-  isStageBefore,
-  isStageAfter,
-  getStagesByCategory,
-  getSkippableStages,
+  LAST_STAGE,
+  PIPELINE_STAGES,
+  PLANNING_STAGES,
+  STAGE_COUNT,
+  STAGE_DEFINITIONS as CANONICAL_STAGE_DEFINITIONS,
+  STAGE_ORDER,
+  STAGE_PREREQUISITES as CANONICAL_PREREQUISITES,
+  type Stage,
+  type StageCategory,
+  type StageDefinition,
+  type StageStatus,
+  VALIDATION_STAGES,
+  validateStage,
 } from './stages.js';
 
-import { PIPELINE_STAGES, STAGE_ORDER, STAGE_DEFINITIONS, STAGE_PREREQUISITES, isValidStage } from './stages.js';
 import type { Stage } from './stages.js';
+import {
+  isValidStage,
+  PIPELINE_STAGES,
+  STAGE_DEFINITIONS,
+  STAGE_ORDER,
+  STAGE_PREREQUISITES,
+} from './stages.js';
 
 // =============================================================================
 // MANIFEST TYPES (canonical on-disk format with legacy path compatibility)
@@ -87,7 +93,7 @@ export interface GateData {
 
 /** Stage data in an on-disk manifest. */
 export interface ManifestStageData {
-  status: typeof LIFECYCLE_STAGE_STATUSES[number];
+  status: (typeof LIFECYCLE_STAGE_STATUSES)[number];
   completedAt?: string;
   skippedAt?: string;
   skippedReason?: string;
@@ -139,10 +145,7 @@ export interface StageTransitionResult {
  * Get the current lifecycle state for an epic.
  * @task T4467
  */
-export async function getLifecycleState(
-  epicId: string,
-  cwd?: string,
-): Promise<RcasdManifest> {
+export async function getLifecycleState(epicId: string, cwd?: string): Promise<RcasdManifest> {
   const status = await getLifecycleStatus(epicId, cwd);
   const gates = await getLifecycleGates(epicId, cwd);
 
@@ -171,10 +174,7 @@ export async function startStage(
   // Gate check
   const gateResult = await checkGate(epicId, stage, cwd);
   if (!gateResult.allowed) {
-    throw new CleoError(
-      ExitCode.LIFECYCLE_GATE_FAILED,
-      gateResult.message,
-    );
+    throw new CleoError(ExitCode.LIFECYCLE_GATE_FAILED, gateResult.message);
   }
 
   if (!PIPELINE_STAGES.includes(stage as Stage)) {
@@ -182,7 +182,7 @@ export async function startStage(
   }
 
   const current = await getLifecycleStatus(epicId, cwd);
-  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
+  const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -216,7 +216,7 @@ export async function completeStage(
   }
 
   const current = await getLifecycleStatus(epicId, cwd);
-  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
+  const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -251,7 +251,7 @@ export async function skipStage(
   }
 
   const current = await getLifecycleStatus(epicId, cwd);
-  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
+  const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -300,9 +300,10 @@ export async function checkGate(
   const missing = prereqResult.missingPrerequisites;
 
   const allowed = mode === 'advisory' || missing.length === 0;
-  const message = missing.length > 0
-    ? `SPAWN BLOCKED: Lifecycle prerequisites not met. Missing: ${missing.join(', ')}`
-    : 'All prerequisites met';
+  const message =
+    missing.length > 0
+      ? `SPAWN BLOCKED: Lifecycle prerequisites not met. Missing: ${missing.join(', ')}`
+      : 'All prerequisites met';
 
   return {
     allowed,
@@ -381,7 +382,7 @@ export async function getLifecycleStatus(
     return {
       epicId,
       currentStage: null,
-      stages: PIPELINE_STAGES.map(s => ({ stage: s, status: 'not_started' })),
+      stages: PIPELINE_STAGES.map((s) => ({ stage: s, status: 'not_started' })),
       nextStage: 'research',
       blockedOn: [],
       initialized: false,
@@ -429,7 +430,7 @@ export async function getLifecycleStatus(
   }
 
   // Build stages array in PIPELINE_STAGES order
-  const stages = PIPELINE_STAGES.map(s => {
+  const stages = PIPELINE_STAGES.map((s) => {
     const data = stageDataMap.get(s);
     return {
       stage: s,
@@ -528,9 +529,7 @@ export async function getLifecycleHistory(
   // Add stage completion and skip events
   for (const stage of stages) {
     if (stage.status === 'completed' && stage.completedAt) {
-      const notes = stage.notesJson
-        ? JSON.parse(stage.notesJson).join(', ')
-        : undefined;
+      const notes = stage.notesJson ? JSON.parse(stage.notesJson).join(', ') : undefined;
       history.push({
         stage: stage.stageName,
         action: 'completed',
@@ -550,7 +549,7 @@ export async function getLifecycleHistory(
   }
 
   // Query gate results for all stages in this pipeline
-  const stageIds = stages.map(s => s.id);
+  const stageIds = stages.map((s) => s.id);
   if (stageIds.length > 0) {
     const gateResults = await db
       .select()
@@ -628,11 +627,8 @@ export async function getLifecycleGates(
     if (gateRows.length > 0) {
       gates[stage.stageName] = {};
       for (const gateRow of gateRows) {
-        const status: GateData['status'] = gateRow.result === 'pass'
-          ? 'passed'
-          : gateRow.result === 'fail'
-            ? 'failed'
-            : 'pending';
+        const status: GateData['status'] =
+          gateRow.result === 'pass' ? 'passed' : gateRow.result === 'fail' ? 'failed' : 'pending';
 
         gates[stage.stageName][gateRow.gateName] = {
           status,
@@ -667,7 +663,9 @@ export function getStagePrerequisites(targetStage: string): {
   const def = STAGE_DEFINITIONS[targetStage as Stage];
   return {
     prerequisites: STAGE_PREREQUISITES[targetStage as Stage] || [],
-    stageInfo: def ? { stage: def.stage, name: def.name, description: def.description, order: def.order } : undefined,
+    stageInfo: def
+      ? { stage: def.stage, name: def.name, description: def.description, order: def.order }
+      : undefined,
   };
 }
 
@@ -697,9 +695,7 @@ export async function checkStagePrerequisites(
   const lifecycleStatus = await getLifecycleStatus(epicId, cwd);
   const prereqs: string[] = STAGE_PREREQUISITES[targetStage as Stage] || [];
 
-  const stageStatusMap = new Map(
-    lifecycleStatus.stages.map(s => [s.stage, s.status]),
-  );
+  const stageStatusMap = new Map(lifecycleStatus.stages.map((s) => [s.stage, s.status]));
 
   const missingPrerequisites: string[] = [];
   const issues: Array<{ stage: string; severity: string; message: string }> = [];
@@ -728,7 +724,7 @@ export async function checkStagePrerequisites(
 
 interface EnsureLifecycleContextOptions {
   now: string;
-  stageStatusOnCreate: typeof schema.LIFECYCLE_STAGE_STATUSES[number];
+  stageStatusOnCreate: (typeof schema.LIFECYCLE_STAGE_STATUSES)[number];
   updateCurrentStage: boolean;
 }
 
@@ -743,9 +739,11 @@ async function ensureLifecycleContext(
   const stageId = `stage-${epicId}-${stageName}`;
 
   const { getNativeDb } = await import('../../store/sqlite.js');
-  getNativeDb()!.prepare(
-    `INSERT OR IGNORE INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
-  ).run(epicId, `Task ${epicId}`);
+  getNativeDb()!
+    .prepare(
+      `INSERT OR IGNORE INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+    )
+    .run(epicId, `Task ${epicId}`);
 
   const existingPipeline = await db
     .select()
@@ -781,7 +779,7 @@ async function ensureLifecycleContext(
       .values({
         id: stageId,
         pipelineId,
-        stageName: stageName as typeof schema.LIFECYCLE_STAGE_NAMES[number],
+        stageName: stageName as (typeof schema.LIFECYCLE_STAGE_NAMES)[number],
         status: options.stageStatusOnCreate,
         sequence,
         startedAt: options.now,
@@ -829,7 +827,7 @@ export async function recordStageProgress(
   const stageName = stage as Stage;
   const { db, stageId, pipelineId } = await ensureLifecycleContext(epicId, stage, cwd, {
     now,
-    stageStatusOnCreate: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+    stageStatusOnCreate: status as (typeof schema.LIFECYCLE_STAGE_STATUSES)[number],
     updateCurrentStage: true,
   });
 
@@ -852,7 +850,7 @@ export async function recordStageProgress(
 
   const sequence = STAGE_ORDER[stage as Stage];
   const stageValues: Partial<schema.NewLifecycleStageRow> = {
-    status: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+    status: status as (typeof schema.LIFECYCLE_STAGE_STATUSES)[number],
     completedAt: status === 'completed' ? now : null,
     skippedAt: status === 'skipped' ? now : null,
     skipReason: status === 'skipped' ? (notes ?? null) : null,
@@ -868,8 +866,8 @@ export async function recordStageProgress(
       .values({
         id: stageId,
         pipelineId,
-        stageName: stage as typeof schema.LIFECYCLE_STAGE_NAMES[number],
-        status: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+        stageName: stage as (typeof schema.LIFECYCLE_STAGE_NAMES)[number],
+        status: status as (typeof schema.LIFECYCLE_STAGE_STATUSES)[number],
         sequence,
         startedAt: now,
         completedAt: status === 'completed' ? now : null,
@@ -1000,10 +998,7 @@ export async function passGate(
       .where(eq(schema.lifecycleGateResults.id, gateId))
       .run();
   } else {
-    await db
-      .insert(schema.lifecycleGateResults)
-      .values(gateValues)
-      .run();
+    await db.insert(schema.lifecycleGateResults).values(gateValues).run();
   }
 
   return { epicId, gateName, timestamp: now };
@@ -1056,10 +1051,7 @@ export async function failGate(
       .where(eq(schema.lifecycleGateResults.id, gateId))
       .run();
   } else {
-    await db
-      .insert(schema.lifecycleGateResults)
-      .values(gateValues)
-      .run();
+    await db.insert(schema.lifecycleGateResults).values(gateValues).run();
   }
 
   return { epicId, gateName, reason, timestamp: now };
@@ -1077,7 +1069,7 @@ export async function listEpicsWithLifecycle(cwd?: string): Promise<string[]> {
       .from(schema.lifecyclePipelines)
       .all();
 
-    return rows.map(r => r.taskId).sort();
+    return rows.map((r) => r.taskId).sort();
   } catch {
     return [];
   }

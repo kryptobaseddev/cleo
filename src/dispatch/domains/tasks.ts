@@ -13,48 +13,47 @@
  * @task T4818
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
-
+import { getProjectRoot } from '../../core/paths.js';
 import {
-  taskShow,
-  taskList,
-  taskFind,
-  taskExists,
-  taskCreate,
-  taskUpdate,
-  taskComplete,
-  taskDelete,
-  taskArchive,
-  taskNext,
-  taskPlan,
-  taskBlockers,
-  taskTree,
-  taskRelates,
-  taskRelatesAdd,
   taskAnalyze,
-  taskRestore,
-  taskReopen,
+  taskArchive,
+  taskBlockers,
   taskCancel,
-  taskUnarchive,
-  taskReorder,
-  taskReparent,
-  taskPromote,
+  taskComplete,
   taskComplexityEstimate,
-  taskDepends,
-  taskDepsOverview,
-  taskDepsCycles,
+  taskCreate,
   taskCurrentGet,
-  taskStart,
-  taskStop,
-  taskWorkHistory,
+  taskDelete,
+  taskDepends,
+  taskDepsCycles,
+  taskDepsOverview,
+  taskExists,
+  taskFind,
   taskHistory,
-  taskRelatesFind,
   taskLabelList,
   taskLabelShow,
+  taskList,
+  taskNext,
+  taskPlan,
+  taskPromote,
+  taskRelates,
+  taskRelatesAdd,
+  taskRelatesFind,
+  taskReopen,
+  taskReorder,
+  taskReparent,
+  taskRestore,
+  taskShow,
+  taskStart,
+  taskStop,
+  taskTree,
+  taskUnarchive,
+  taskUpdate,
+  taskWorkHistory,
 } from '../lib/engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // TasksHandler
@@ -71,10 +70,7 @@ export class TasksHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -82,7 +78,14 @@ export class TasksHandler implements DomainHandler {
         case 'show': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskShow(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -123,7 +126,14 @@ export class TasksHandler implements DomainHandler {
         case 'exists': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskExists(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -136,7 +146,10 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'blockers': {
-          const result = await taskBlockers(this.projectRoot, params as { analyze?: boolean; limit?: number });
+          const result = await taskBlockers(
+            this.projectRoot,
+            params as { analyze?: boolean; limit?: number },
+          );
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -154,7 +167,14 @@ export class TasksHandler implements DomainHandler {
           // Default: single-task dependency query requires taskId
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required (or use action: overview|cycles)', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required (or use action: overview|cycles)',
+              startTime,
+            );
           }
           const direction = params?.direction as 'upstream' | 'downstream' | 'both' | undefined;
           const tree = params?.tree as boolean | undefined;
@@ -170,7 +190,10 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'next': {
-          const result = await taskNext(this.projectRoot, params as { count?: number; explain?: boolean });
+          const result = await taskNext(
+            this.projectRoot,
+            params as { count?: number; explain?: boolean },
+          );
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -182,7 +205,14 @@ export class TasksHandler implements DomainHandler {
         case 'relates': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskRelates(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -191,7 +221,14 @@ export class TasksHandler implements DomainHandler {
         case 'relates.find': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskRelatesFind(this.projectRoot, taskId, {
             mode: params?.mode as 'suggest' | 'discover',
@@ -203,7 +240,14 @@ export class TasksHandler implements DomainHandler {
         case 'complexity.estimate': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskComplexityEstimate(this.projectRoot, { taskId });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -232,7 +276,14 @@ export class TasksHandler implements DomainHandler {
         case 'label.show': {
           const label = params?.label as string;
           if (!label) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'label is required', startTime);
+            return this.errorResponse(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'label is required',
+              startTime,
+            );
           }
           const result = await taskLabelShow(this.projectRoot, label);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -250,10 +301,7 @@ export class TasksHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -261,11 +309,18 @@ export class TasksHandler implements DomainHandler {
         case 'add': {
           const title = params?.title as string;
           if (!title) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'title is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'title is required',
+              startTime,
+            );
           }
           const result = await taskCreate(this.projectRoot, {
             title,
-            description: params?.description as string ?? title,
+            description: (params?.description as string) ?? title,
             parent: (params?.parent ?? params?.parentId) as string | undefined,
             depends: params?.depends as string[] | undefined,
             priority: params?.priority as string | undefined,
@@ -278,7 +333,14 @@ export class TasksHandler implements DomainHandler {
         case 'update': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskUpdate(this.projectRoot, taskId, {
             title: params?.title as string | undefined,
@@ -303,18 +365,40 @@ export class TasksHandler implements DomainHandler {
         case 'complete': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
-          const result = await taskComplete(this.projectRoot, taskId, params?.notes as string | undefined);
+          const result = await taskComplete(
+            this.projectRoot,
+            taskId,
+            params?.notes as string | undefined,
+          );
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'delete': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
-          const result = await taskDelete(this.projectRoot, taskId, params?.force as boolean | undefined);
+          const result = await taskDelete(
+            this.projectRoot,
+            taskId,
+            params?.force as boolean | undefined,
+          );
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
@@ -330,7 +414,14 @@ export class TasksHandler implements DomainHandler {
         case 'restore': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskRestore(this.projectRoot, taskId, {
             cascade: params?.cascade as boolean | undefined,
@@ -342,16 +433,34 @@ export class TasksHandler implements DomainHandler {
         case 'cancel': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
-          const result = await taskCancel(this.projectRoot, taskId, params?.reason as string | undefined);
+          const result = await taskCancel(
+            this.projectRoot,
+            taskId,
+            params?.reason as string | undefined,
+          );
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'reopen': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskReopen(this.projectRoot, taskId, {
             status: params?.status as string | undefined,
@@ -363,7 +472,14 @@ export class TasksHandler implements DomainHandler {
         case 'unarchive': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskUnarchive(this.projectRoot, taskId, {
             status: params?.status as string | undefined,
@@ -375,7 +491,14 @@ export class TasksHandler implements DomainHandler {
         case 'reparent': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskReparent(
             this.projectRoot,
@@ -388,7 +511,14 @@ export class TasksHandler implements DomainHandler {
         case 'promote': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskPromote(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
@@ -397,11 +527,25 @@ export class TasksHandler implements DomainHandler {
         case 'reorder': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const position = params?.position as number;
           if (position === undefined || position === null) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'position is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'position is required',
+              startTime,
+            );
           }
           const result = await taskReorder(this.projectRoot, taskId, position);
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
@@ -413,7 +557,14 @@ export class TasksHandler implements DomainHandler {
           const relatedId = (params?.relatedId ?? params?.targetId) as string;
           const type = params?.type as string;
           if (!taskId || !relatedId || !type) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId, relatedId (or targetId), and type are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId, relatedId (or targetId), and type are required',
+              startTime,
+            );
           }
           const result = await taskRelatesAdd(
             this.projectRoot,
@@ -428,7 +579,14 @@ export class TasksHandler implements DomainHandler {
         case 'start': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await taskStart(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
@@ -454,16 +612,40 @@ export class TasksHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'plan', 'relates', 'relates.find', 'complexity.estimate',
-        'history', 'current',
-        'label.list', 'label.show',
+        'show',
+        'list',
+        'find',
+        'exists',
+        'tree',
+        'blockers',
+        'depends',
+        'analyze',
+        'next',
+        'plan',
+        'relates',
+        'relates.find',
+        'complexity.estimate',
+        'history',
+        'current',
+        'label.list',
+        'label.show',
       ],
       mutate: [
-        'add', 'update', 'complete', 'cancel', 'delete', 'archive', 'restore',
-        'reopen', 'unarchive',
-        'reparent', 'promote', 'reorder', 'relates.add',
-        'start', 'stop',
+        'add',
+        'update',
+        'complete',
+        'cancel',
+        'delete',
+        'archive',
+        'restore',
+        'reopen',
+        'unarchive',
+        'reparent',
+        'promote',
+        'reorder',
+        'relates.add',
+        'start',
+        'stop',
       ],
     };
   }
@@ -496,20 +678,27 @@ export class TasksHandler implements DomainHandler {
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
       ...(result.page ? { page: result.page } : {}),
-      ...(result.error ? {
-        error: {
-          code: result.error.code,
-          message: result.error.message,
-          exitCode: result.error.exitCode,
-          details: result.error.details as Record<string, unknown> | undefined,
-          fix: result.error.fix,
-          alternatives: result.error.alternatives,
-        }
-      } : {}),
+      ...(result.error
+        ? {
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+              exitCode: result.error.exitCode,
+              details: result.error.details as Record<string, unknown> | undefined,
+              fix: result.error.fix,
+              alternatives: result.error.alternatives,
+            },
+          }
+        : {}),
     };
   }
 
-  private unsupported(gateway: string, domain: string, operation: string, startTime: number): DispatchResponse {
+  private unsupported(
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number,
+  ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
@@ -532,7 +721,13 @@ export class TasksHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:tasks').error({ gateway, domain, operation, err: error }, message);
     return {

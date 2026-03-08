@@ -8,8 +8,8 @@
 import type { Task } from '../../types/task.js';
 
 export interface AtomicityResult {
-  score: number;        // 0–6
-  passed: boolean;      // score >= threshold
+  score: number; // 0–6
+  passed: boolean; // score >= threshold
   violations: string[]; // names of failed criteria
 }
 
@@ -22,7 +22,7 @@ export const ATOMICITY_CRITERIA = [
   'programmatic-validation-possible',
 ] as const;
 
-export type AtomicityCriterion = typeof ATOMICITY_CRITERIA[number];
+export type AtomicityCriterion = (typeof ATOMICITY_CRITERIA)[number];
 
 const ACTION_VERBS = /\b(add|create|update|fix|refactor)\b/gi;
 
@@ -30,14 +30,20 @@ const ACCEPTANCE_KEYWORDS =
   /\b(must|should|acceptance|criteria|verify|test|passes when|done when)\b/i;
 
 const DOMAIN_KEYWORDS = [
-  'frontend', 'backend', 'database', 'api', 'ui', 'cli', 'mcp', 'test', 'docs',
+  'frontend',
+  'backend',
+  'database',
+  'api',
+  'ui',
+  'cli',
+  'mcp',
+  'test',
+  'docs',
 ] as const;
 
-const HIDDEN_DECISION_KEYWORDS =
-  /\b(decide|choose|pick|tbd|todo|unclear|figure out|determine)\b/i;
+const HIDDEN_DECISION_KEYWORDS = /\b(decide|choose|pick|tbd|todo|unclear|figure out|determine)\b/i;
 
-const VALIDATION_KEYWORDS =
-  /\b(test|spec|assert|verify|check|validate|returns|output)\b/i;
+const VALIDATION_KEYWORDS = /\b(test|spec|assert|verify|check|validate|returns|output)\b/i;
 
 function countFileExtensions(text: string): number {
   const matches = text.match(/\.(ts|js|json)\b/g);
@@ -46,7 +52,7 @@ function countFileExtensions(text: string): number {
 
 function countActionVerbs(text: string): number {
   const matches = text.match(ACTION_VERBS);
-  return matches ? new Set(matches.map(v => v.toLowerCase())).size : 0;
+  return matches ? new Set(matches.map((v) => v.toLowerCase())).size : 0;
 }
 
 function countDomainKeywords(text: string): number {

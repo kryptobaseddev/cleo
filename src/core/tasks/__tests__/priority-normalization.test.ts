@@ -4,12 +4,8 @@
  * @task T4572
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  normalizePriority,
-  validatePriority,
-  VALID_PRIORITIES,
-} from '../add.js';
+import { describe, expect, it } from 'vitest';
+import { normalizePriority, VALID_PRIORITIES, validatePriority } from '../add.js';
 
 describe('normalizePriority', () => {
   describe('canonical string priorities', () => {

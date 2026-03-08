@@ -14,18 +14,18 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { cancelTask } from './cancel-ops.js';
-import { readJsonFile as storeReadJsonFile, getDataPath } from '../../store/file-utils.js';
+import { getDataPath, readJsonFile as storeReadJsonFile } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
-import { depsReady } from './deps-ready.js';
+import { cancelTask } from './cancel-ops.js';
 import {
-  getTransitiveBlockers,
-  getLeafBlockers,
-  validateDependencies,
-  getBlockedTasks,
-  getReadyTasks,
   detectCircularDeps,
+  getBlockedTasks,
+  getLeafBlockers,
+  getReadyTasks,
+  getTransitiveBlockers,
+  validateDependencies,
 } from './dependency-check.js';
+import { depsReady } from './deps-ready.js';
 
 // ============================================================================
 // Types (shared)
@@ -91,11 +91,7 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   return data.tasks as unknown as TaskRecord[];
 }
 
-
-function buildTreeNode(
-  task: TaskRecord,
-  childrenMap: Map<string, TaskRecord[]>,
-): TaskTreeNode {
+function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): TaskTreeNode {
   const children = (childrenMap.get(task.id) ?? []).map((child) =>
     buildTreeNode(child, childrenMap),
   );
@@ -209,43 +205,45 @@ export async function coreTaskNext(
   const taskFile = await accessor.loadTaskFile();
   const currentPhase = taskFile.project?.currentPhase ?? null;
 
-  const candidates = allTasks.filter((t) =>
-    t.status === 'pending' && depsReady(t.depends, taskMap),
+  const candidates = allTasks.filter(
+    (t) => t.status === 'pending' && depsReady(t.depends, taskMap),
   );
 
   if (candidates.length === 0) {
     return { suggestions: [], totalCandidates: 0 };
   }
 
-  const scored = candidates.map((task) => {
-    const reasons: string[] = [];
-    let score = 0;
+  const scored = candidates
+    .map((task) => {
+      const reasons: string[] = [];
+      let score = 0;
 
-    score += PRIORITY_SCORE[task.priority] ?? 50;
-    reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
+      score += PRIORITY_SCORE[task.priority] ?? 50;
+      reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
 
-    if (currentPhase && task.phase === currentPhase) {
-      score += 20;
-      reasons.push(`phase alignment: ${currentPhase} (+20)`);
-    }
-
-    if (depsReady(task.depends, taskMap)) {
-      score += 10;
-      reasons.push('all dependencies satisfied (+10)');
-    }
-
-    if (task.createdAt) {
-      const ageMs = Date.now() - new Date(task.createdAt).getTime();
-      const ageDays = ageMs / (1000 * 60 * 60 * 24);
-      if (ageDays > 7) {
-        const ageBonus = Math.min(15, Math.floor(ageDays / 7));
-        score += ageBonus;
-        reasons.push(`age: ${Math.floor(ageDays)} days (+${ageBonus})`);
+      if (currentPhase && task.phase === currentPhase) {
+        score += 20;
+        reasons.push(`phase alignment: ${currentPhase} (+20)`);
       }
-    }
 
-    return { task, score, reasons };
-  }).sort((a, b) => b.score - a.score);
+      if (depsReady(task.depends, taskMap)) {
+        score += 10;
+        reasons.push('all dependencies satisfied (+10)');
+      }
+
+      if (task.createdAt) {
+        const ageMs = Date.now() - new Date(task.createdAt).getTime();
+        const ageDays = ageMs / (1000 * 60 * 60 * 24);
+        if (ageDays > 7) {
+          const ageBonus = Math.min(15, Math.floor(ageDays / 7));
+          score += ageBonus;
+          reasons.push(`age: ${Math.floor(ageDays)} days (+${ageBonus})`);
+        }
+      }
+
+      return { task, score, reasons };
+    })
+    .sort((a, b) => b.score - a.score);
 
   const count = Math.min(params?.count || 1, scored.length);
   const explain = params?.explain ?? false;
@@ -293,14 +291,15 @@ export async function coreTaskBlockers(
 
   const blockedTasks = allTasks.filter((t) => t.status === 'blocked');
 
-  const depBlockedTasks = allTasks.filter((t) =>
-    t.status === 'pending' &&
-    t.depends &&
-    t.depends.length > 0 &&
-    t.depends.some((depId) => {
-      const dep = taskMap.get(depId);
-      return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-    }),
+  const depBlockedTasks = allTasks.filter(
+    (t) =>
+      t.status === 'pending' &&
+      t.depends &&
+      t.depends.length > 0 &&
+      t.depends.some((depId) => {
+        const dep = taskMap.get(depId);
+        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
+      }),
   );
 
   const tasksAsTask = allTasks as unknown as import('../../types/task.js').Task[];
@@ -344,9 +343,7 @@ export async function coreTaskBlockers(
   return {
     blockedTasks: pagedBlockerInfos,
     criticalBlockers,
-    summary: total === 0
-      ? 'No blocked tasks found'
-      : `${total} blocked task(s)`,
+    summary: total === 0 ? 'No blocked tasks found' : `${total} blocked task(s)`,
     total,
     limit: effectiveLimit,
   };
@@ -436,7 +433,13 @@ export async function coreTaskDeps(
 
   const unresolvedDeps = (task.depends ?? []).filter((depId) => !completedIds.has(depId));
 
-  return { taskId, dependsOn, dependedOnBy, unresolvedDeps, allDepsReady: unresolvedDeps.length === 0 };
+  return {
+    taskId,
+    dependsOn,
+    dependedOnBy,
+    unresolvedDeps,
+    allDepsReady: unresolvedDeps.length === 0,
+  };
 }
 
 // ============================================================================
@@ -599,27 +602,32 @@ export async function coreTaskAnalyze(
   const high = scored.filter((t) => t.priority === 'high');
   const normal = scored.filter((t) => t.priority !== 'critical' && t.priority !== 'high');
 
-  const recommended = scored.length > 0
-    ? {
-        id: scored[0]!.id,
-        title: scored[0]!.title,
-        leverage: scored[0]!.leverage,
-        reason: 'Highest combined priority and leverage score',
-      }
-    : null;
+  const recommended =
+    scored.length > 0
+      ? {
+          id: scored[0]!.id,
+          title: scored[0]!.title,
+          leverage: scored[0]!.leverage,
+          reason: 'Highest combined priority and leverage score',
+        }
+      : null;
 
   const totalLeverage = Object.values(leverageMap).reduce((s, v) => s + v, 0);
-  const avgLeverage = tasks.length > 0
-    ? Math.round((totalLeverage / tasks.length) * 100) / 100
-    : 0;
+  const avgLeverage = tasks.length > 0 ? Math.round((totalLeverage / tasks.length) * 100) / 100 : 0;
 
   return {
     recommended,
     bottlenecks,
     tiers: {
-      critical: critical.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
-      high: high.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
-      normal: normal.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
+      critical: critical
+        .slice(0, effectiveTierLimit)
+        .map(({ id, title, leverage }) => ({ id, title, leverage })),
+      high: high
+        .slice(0, effectiveTierLimit)
+        .map(({ id, title, leverage }) => ({ id, title, leverage })),
+      normal: normal
+        .slice(0, effectiveTierLimit)
+        .map(({ id, title, leverage }) => ({ id, title, leverage })),
     },
     metrics: {
       totalTasks: tasks.length,
@@ -656,7 +664,9 @@ export async function coreTaskRestore(
   }
 
   if (task.status !== 'cancelled') {
-    throw new Error(`Task '${taskId}' is not cancelled (status: ${task.status}). Only cancelled tasks can be restored.`);
+    throw new Error(
+      `Task '${taskId}' is not cancelled (status: ${task.status}). Only cancelled tasks can be restored.`,
+    );
   }
 
   const tasksToRestore: TaskRecord[] = [task];
@@ -719,7 +729,11 @@ export async function coreTaskCancel(
     throw new Error('No valid task data found');
   }
 
-  const { tasks: updatedTasks, result } = cancelTask(taskId, current.tasks as Parameters<typeof cancelTask>[1], params?.reason);
+  const { tasks: updatedTasks, result } = cancelTask(
+    taskId,
+    current.tasks as Parameters<typeof cancelTask>[1],
+    params?.reason,
+  );
 
   if (!result.success) {
     throw new Error(result.error!.message);
@@ -729,7 +743,9 @@ export async function coreTaskCancel(
 
   const cancelledTask = updatedTasks.find((t) => t.id === taskId);
   if (cancelledTask && accessor.upsertSingleTask) {
-    await accessor.upsertSingleTask(cancelledTask as Parameters<typeof accessor.upsertSingleTask>[0]);
+    await accessor.upsertSingleTask(
+      cancelledTask as Parameters<typeof accessor.upsertSingleTask>[0],
+    );
   } else {
     await accessor.saveTaskFile(current);
   }
@@ -770,7 +786,9 @@ export async function coreTaskUnarchive(
     throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
-  const task = archive.archivedTasks[taskIndex] as TaskRecord & { _archive?: Record<string, unknown> };
+  const task = archive.archivedTasks[taskIndex] as TaskRecord & {
+    _archive?: Record<string, unknown>;
+  };
 
   delete task._archive;
 
@@ -854,7 +872,12 @@ export async function coreTaskReorder(
     await accessor.saveTaskFile(current);
   }
 
-  return { task: taskId, reordered: true, newPosition: newIndex + 1, totalSiblings: allSiblings.length };
+  return {
+    task: taskId,
+    reordered: true,
+    newPosition: newIndex + 1,
+    totalSiblings: allSiblings.length,
+  };
 }
 
 // ============================================================================
@@ -919,7 +942,9 @@ export async function coreTaskReparent(
   let ancestor: TaskRecord | undefined = newParent as unknown as TaskRecord;
   while (ancestor) {
     if (ancestor.id === taskId) {
-      throw new Error(`Moving '${taskId}' under '${effectiveParentId}' would create circular reference`);
+      throw new Error(
+        `Moving '${taskId}' under '${effectiveParentId}' would create circular reference`,
+      );
     }
     if (!ancestor.parentId) break;
     ancestor = taskMap.get(ancestor.parentId) as unknown as TaskRecord | undefined;
@@ -940,9 +965,13 @@ export async function coreTaskReparent(
   }
 
   // Check sibling limit (0 = unlimited)
-  const siblingCount = current.tasks.filter((t) => t.parentId === effectiveParentId && t.id !== taskId).length;
+  const siblingCount = current.tasks.filter(
+    (t) => t.parentId === effectiveParentId && t.id !== taskId,
+  ).length;
   if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
-    throw new Error(`Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`);
+    throw new Error(
+      `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`,
+    );
   }
 
   const oldParent = task.parentId ?? null;
@@ -961,7 +990,13 @@ export async function coreTaskReparent(
     await accessor.saveTaskFile(current);
   }
 
-  return { task: taskId, reparented: true, oldParent, newParent: effectiveParentId, newType: task.type };
+  return {
+    task: taskId,
+    reparented: true,
+    oldParent,
+    newParent: effectiveParentId,
+    newType: task.type,
+  };
 }
 
 // ============================================================================
@@ -975,7 +1010,12 @@ export async function coreTaskReparent(
 export async function coreTaskPromote(
   projectRoot: string,
   taskId: string,
-): Promise<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }> {
+): Promise<{
+  task: string;
+  promoted: boolean;
+  previousParent: string | null;
+  typeChanged: boolean;
+}> {
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
@@ -1036,7 +1076,9 @@ export async function coreTaskReopen(
   }
 
   if (task.status !== 'done') {
-    throw new Error(`Task '${taskId}' is not completed (status: ${task.status}). Only done tasks can be reopened.`);
+    throw new Error(
+      `Task '${taskId}' is not completed (status: ${task.status}). Only done tasks can be reopened.`,
+    );
   }
 
   const targetStatus = params?.status || 'pending';
@@ -1051,7 +1093,9 @@ export async function coreTaskReopen(
 
   if (!task.notes) task.notes = [];
   const reason = params?.reason;
-  task.notes.push(`[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
+  task.notes.push(
+    `[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`,
+  );
 
   const reopenRef = current.tasks.find((t) => t.id === taskId)!;
   if (accessor.upsertSingleTask) {
@@ -1095,16 +1139,31 @@ export async function coreTaskComplexityEstimate(
   const descLen = (task.description || '').length;
   let descScore: number;
   let descLabel: string;
-  if (descLen < 100) { descScore = 1; descLabel = 'short'; }
-  else if (descLen < 500) { descScore = 2; descLabel = 'medium'; }
-  else { descScore = 3; descLabel = 'long'; }
+  if (descLen < 100) {
+    descScore = 1;
+    descLabel = 'short';
+  } else if (descLen < 500) {
+    descScore = 2;
+    descLabel = 'medium';
+  } else {
+    descScore = 3;
+    descLabel = 'long';
+  }
   score += descScore;
-  factors.push({ name: 'descriptionLength', value: descScore, detail: `${descLabel} (${descLen} chars)` });
+  factors.push({
+    name: 'descriptionLength',
+    value: descScore,
+    detail: `${descLabel} (${descLen} chars)`,
+  });
 
   const acceptanceCount = task.acceptance?.length ?? 0;
   const acceptanceScore = Math.min(acceptanceCount, 3);
   score += acceptanceScore;
-  factors.push({ name: 'acceptanceCriteria', value: acceptanceScore, detail: `${acceptanceCount} criteria` });
+  factors.push({
+    name: 'acceptanceCriteria',
+    value: acceptanceScore,
+    detail: `${acceptanceCount} criteria`,
+  });
 
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const dependencyDepth = measureDependencyDepth(params.taskId, taskMap);
@@ -1138,9 +1197,7 @@ export async function coreTaskComplexityEstimate(
  * Overview of all dependencies across the project.
  * @task T5157
  */
-export async function coreTaskDepsOverview(
-  projectRoot: string,
-): Promise<{
+export async function coreTaskDepsOverview(projectRoot: string): Promise<{
   totalTasks: number;
   tasksWithDeps: number;
   blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
@@ -1167,11 +1224,13 @@ export async function coreTaskDepsOverview(
         return dep && dep.status !== 'done' && dep.status !== 'cancelled';
       }),
     })),
-    readyTasks: ready.filter((t) => t.status !== 'done' && t.status !== 'cancelled').map((t) => ({
-      id: t.id,
-      title: t.title,
-      status: t.status,
-    })),
+    readyTasks: ready
+      .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+      })),
     validation: {
       valid: validation.valid,
       errorCount: validation.errors.length,
@@ -1188,9 +1247,7 @@ export async function coreTaskDepsOverview(
  * Detect circular dependencies across the project.
  * @task T5157
  */
-export async function coreTaskDepsCycles(
-  projectRoot: string,
-): Promise<{
+export async function coreTaskDepsCycles(projectRoot: string): Promise<{
   hasCycles: boolean;
   cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
 }> {
@@ -1216,7 +1273,9 @@ export async function coreTaskDepsCycles(
           return { id, title: t?.title ?? 'unknown' };
         }),
       });
-      cycle.forEach((id) => visited.add(id));
+      for (const id of cycle) {
+        visited.add(id);
+      }
     }
   }
 
@@ -1287,9 +1346,10 @@ export async function coreTaskDepends(
   });
 
   const allDepsReady = unresolvedChain === 0;
-  const hint = unresolvedChain > 0
-    ? `Run 'ct deps show ${taskId} --tree' for full dependency graph`
-    : undefined;
+  const hint =
+    unresolvedChain > 0
+      ? `Run 'ct deps show ${taskId} --tree' for full dependency graph`
+      : undefined;
 
   // Optional upstream tree
   let upstreamTree: TaskTreeNode[] | undefined;
@@ -1410,15 +1470,17 @@ export async function coreTaskExport(
 
   if (params?.format === 'csv') {
     const headers = ['id', 'title', 'status', 'priority', 'type', 'parentId', 'createdAt'];
-    const rows = tasks.map((t) => [
-      t.id,
-      `"${(t.title || '').replace(/"/g, '""')}"`,
-      t.status,
-      t.priority,
-      t.type ?? 'task',
-      t.parentId ?? '',
-      t.createdAt,
-    ].join(','));
+    const rows = tasks.map((t) =>
+      [
+        t.id,
+        `"${(t.title || '').replace(/"/g, '""')}"`,
+        t.status,
+        t.priority,
+        t.type ?? 'task',
+        t.parentId ?? '',
+        t.createdAt,
+      ].join(','),
+    );
     const csv = [headers.join(','), ...rows].join('\n');
     return { format: 'csv', content: csv, taskCount: tasks.length };
   }
@@ -1507,17 +1569,17 @@ export async function coreTaskHistory(
 export async function coreTaskLint(
   projectRoot: string,
   taskId?: string,
-): Promise<Array<{
-  taskId: string;
-  severity: 'error' | 'warning';
-  rule: string;
-  message: string;
-}>> {
+): Promise<
+  Array<{
+    taskId: string;
+    severity: 'error' | 'warning';
+    rule: string;
+    message: string;
+  }>
+> {
   const allTasks = await loadAllTasks(projectRoot);
 
-  const tasks = taskId
-    ? allTasks.filter((t) => t.id === taskId)
-    : allTasks;
+  const tasks = taskId ? allTasks.filter((t) => t.id === taskId) : allTasks;
 
   if (taskId && tasks.length === 0) {
     throw new Error(`Task '${taskId}' not found`);
@@ -1550,41 +1612,81 @@ export async function coreTaskLint(
     }
 
     if (!task.title || task.title.trim().length === 0) {
-      issues.push({ taskId: task.id, severity: 'error', rule: 'title-required', message: 'Task is missing a title' });
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'title-required',
+        message: 'Task is missing a title',
+      });
     }
 
     if (!task.description || task.description.trim().length === 0) {
-      issues.push({ taskId: task.id, severity: 'warning', rule: 'description-required', message: 'Task is missing a description' });
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'description-required',
+        message: 'Task is missing a description',
+      });
     }
 
     if (task.title && task.description && task.title.trim() === task.description.trim()) {
-      issues.push({ taskId: task.id, severity: 'warning', rule: 'title-description-different', message: 'Title and description should not be identical' });
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'title-description-different',
+        message: 'Title and description should not be identical',
+      });
     }
 
     if (task.description) {
       const descLower = task.description.toLowerCase();
       if (allDescriptions.has(descLower)) {
-        issues.push({ taskId: task.id, severity: 'warning', rule: 'unique-description', message: 'Duplicate task description found' });
+        issues.push({
+          taskId: task.id,
+          severity: 'warning',
+          rule: 'unique-description',
+          message: 'Duplicate task description found',
+        });
       }
       allDescriptions.add(descLower);
     }
 
     if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
-      issues.push({ taskId: task.id, severity: 'error', rule: 'valid-status', message: `Invalid status: ${task.status}` });
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'valid-status',
+        message: `Invalid status: ${task.status}`,
+      });
     }
 
     const now = new Date();
     if (task.createdAt && new Date(task.createdAt) > now) {
-      issues.push({ taskId: task.id, severity: 'warning', rule: 'no-future-timestamps', message: 'createdAt is in the future' });
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'no-future-timestamps',
+        message: 'createdAt is in the future',
+      });
     }
 
     if (task.parentId && !allTasks.some((t) => t.id === task.parentId)) {
-      issues.push({ taskId: task.id, severity: 'error', rule: 'valid-parent', message: `Parent task '${task.parentId}' does not exist` });
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'valid-parent',
+        message: `Parent task '${task.parentId}' does not exist`,
+      });
     }
 
     for (const depId of task.depends ?? []) {
       if (!allTasks.some((t) => t.id === depId)) {
-        issues.push({ taskId: task.id, severity: 'warning', rule: 'valid-dependency', message: `Dependency '${depId}' does not exist` });
+        issues.push({
+          taskId: task.id,
+          severity: 'warning',
+          rule: 'valid-dependency',
+          message: `Dependency '${depId}' does not exist`,
+        });
       }
     }
   }
@@ -1617,7 +1719,10 @@ export async function coreTaskBatchValidate(
 }> {
   const allTasks = await loadAllTasks(projectRoot);
 
-  const results: Record<string, Array<{ severity: 'error' | 'warning'; rule: string; message: string }>> = {};
+  const results: Record<
+    string,
+    Array<{ severity: 'error' | 'warning'; rule: string; message: string }>
+  > = {};
 
   let totalErrors = 0;
   let totalWarnings = 0;
@@ -1636,31 +1741,55 @@ export async function coreTaskBatchValidate(
       taskIssues.push({ severity: 'error', rule: 'title-required', message: 'Missing title' });
     }
     if (!task.description || task.description.trim().length === 0) {
-      taskIssues.push({ severity: 'warning', rule: 'description-required', message: 'Missing description' });
+      taskIssues.push({
+        severity: 'warning',
+        rule: 'description-required',
+        message: 'Missing description',
+      });
     }
 
     if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
-      taskIssues.push({ severity: 'error', rule: 'valid-status', message: `Invalid status: ${task.status}` });
+      taskIssues.push({
+        severity: 'error',
+        rule: 'valid-status',
+        message: `Invalid status: ${task.status}`,
+      });
     }
 
     if (checkMode === 'full') {
       if (task.title && task.description && task.title.trim() === task.description.trim()) {
-        taskIssues.push({ severity: 'warning', rule: 'title-description-different', message: 'Title equals description' });
+        taskIssues.push({
+          severity: 'warning',
+          rule: 'title-description-different',
+          message: 'Title equals description',
+        });
       }
 
       if (task.parentId && !allTasks.some((t) => t.id === task.parentId)) {
-        taskIssues.push({ severity: 'error', rule: 'valid-parent', message: `Parent '${task.parentId}' not found` });
+        taskIssues.push({
+          severity: 'error',
+          rule: 'valid-parent',
+          message: `Parent '${task.parentId}' not found`,
+        });
       }
 
       for (const depId of task.depends ?? []) {
         if (!allTasks.some((t) => t.id === depId)) {
-          taskIssues.push({ severity: 'warning', rule: 'valid-dependency', message: `Dependency '${depId}' not found` });
+          taskIssues.push({
+            severity: 'warning',
+            rule: 'valid-dependency',
+            message: `Dependency '${depId}' not found`,
+          });
         }
       }
 
       const now = new Date();
       if (task.createdAt && new Date(task.createdAt) > now) {
-        taskIssues.push({ severity: 'warning', rule: 'no-future-timestamps', message: 'createdAt in future' });
+        taskIssues.push({
+          severity: 'warning',
+          rule: 'no-future-timestamps',
+          message: 'createdAt in future',
+        });
       }
     }
 
@@ -1698,7 +1827,12 @@ export async function coreTaskImport(
   projectRoot: string,
   source: string,
   overwrite?: boolean,
-): Promise<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }> {
+): Promise<{
+  imported: number;
+  skipped: number;
+  errors: string[];
+  remapTable?: Record<string, string>;
+}> {
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
@@ -1736,7 +1870,7 @@ export async function coreTaskImport(
   let nextIdNum = 0;
   for (const t of current.tasks) {
     const num = parseInt(t.id.replace('T', ''), 10);
-    if (!isNaN(num) && num > nextIdNum) nextIdNum = num;
+    if (!Number.isNaN(num) && num > nextIdNum) nextIdNum = num;
   }
 
   const tasksList = current.tasks as unknown as TaskRecord[];

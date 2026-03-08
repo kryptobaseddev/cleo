@@ -4,16 +4,16 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  getLastActivity,
-  classifyStaleness,
-  getStalenessInfo,
-  findStaleTasks,
-  getStalenessSummary,
-  DEFAULT_THRESHOLDS,
-} from '../staleness.js';
+import { describe, expect, it } from 'vitest';
 import type { Task } from '../../../types/task.js';
+import {
+  classifyStaleness,
+  DEFAULT_THRESHOLDS,
+  findStaleTasks,
+  getLastActivity,
+  getStalenessInfo,
+  getStalenessSummary,
+} from '../staleness.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -118,15 +118,15 @@ describe('getStalenessInfo', () => {
 describe('findStaleTasks', () => {
   it('finds stale tasks and excludes fresh ones', () => {
     const tasks = [
-      makeTask({ id: 'T001', createdAt: daysAgo(1) }),  // fresh
-      makeTask({ id: 'T002', createdAt: daysAgo(8) }),  // stale
+      makeTask({ id: 'T001', createdAt: daysAgo(1) }), // fresh
+      makeTask({ id: 'T002', createdAt: daysAgo(8) }), // stale
       makeTask({ id: 'T003', createdAt: daysAgo(15) }), // critical
       makeTask({ id: 'T004', status: 'done', createdAt: daysAgo(100) }), // done = fresh
     ];
     const stale = findStaleTasks(tasks);
     expect(stale).toHaveLength(2);
-    expect(stale.map(s => s.taskId)).toContain('T002');
-    expect(stale.map(s => s.taskId)).toContain('T003');
+    expect(stale.map((s) => s.taskId)).toContain('T002');
+    expect(stale.map((s) => s.taskId)).toContain('T003');
   });
 
   it('sorts by daysSinceUpdate descending', () => {
@@ -151,10 +151,10 @@ describe('findStaleTasks', () => {
 describe('getStalenessSummary', () => {
   it('computes summary statistics', () => {
     const tasks = [
-      makeTask({ id: 'T001', createdAt: daysAgo(0) }),     // fresh
-      makeTask({ id: 'T002', createdAt: daysAgo(8) }),     // stale
-      makeTask({ id: 'T003', createdAt: daysAgo(15) }),    // critical
-      makeTask({ id: 'T004', createdAt: daysAgo(31) }),    // abandoned
+      makeTask({ id: 'T001', createdAt: daysAgo(0) }), // fresh
+      makeTask({ id: 'T002', createdAt: daysAgo(8) }), // stale
+      makeTask({ id: 'T003', createdAt: daysAgo(15) }), // critical
+      makeTask({ id: 'T004', createdAt: daysAgo(31) }), // abandoned
       makeTask({ id: 'T005', status: 'done', createdAt: daysAgo(100) }), // excluded
     ];
     const summary = getStalenessSummary(tasks);

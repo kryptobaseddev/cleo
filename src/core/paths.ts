@@ -9,9 +9,9 @@
  * @task T4458
  */
 
-import { resolve, dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { getPlatformPaths } from './system/platform-paths.js';
 
 /**

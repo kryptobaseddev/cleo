@@ -13,17 +13,38 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
-import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
-import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import { forceCheckpointBeforeOperation, acquireLock, type ReleaseFn } from '../store/index.js';
-import { ensureCleoStructure, ensureConfig, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
-import { initAgentDefinition, initMcpServer, initCoreSkills, initNexusRegistration } from './init.js';
+import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from '../store/index.js';
 import { ensureGitHooks } from './hooks.js';
-import { ensureGlobalSchemas, cleanProjectSchemas } from './schema-management.js';
+import {
+  initAgentDefinition,
+  initCoreSkills,
+  initMcpServer,
+  initNexusRegistration,
+} from './init.js';
 import { ensureInjection } from './injection.js';
+import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
+import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
+import {
+  ensureCleoGitRepo,
+  ensureCleoStructure,
+  ensureConfig,
+  ensureGitignore,
+  ensureProjectContext,
+  ensureProjectInfo,
+  ensureSqliteDb,
+  removeCleoFromRootGitignore,
+} from './scaffold.js';
+import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
+import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 
 /** A single upgrade action with status. */
 export interface UpgradeAction {
@@ -65,12 +86,9 @@ export interface UpgradeResult {
  * @param options.autoMigrate  Auto-migrate storage if needed (default: true)
  * @param options.cwd  Project directory override
  */
-export async function runUpgrade(options: {
-  dryRun?: boolean;
-  includeGlobal?: boolean;
-  autoMigrate?: boolean;
-  cwd?: string;
-} = {}): Promise<UpgradeResult> {
+export async function runUpgrade(
+  options: { dryRun?: boolean; includeGlobal?: boolean; autoMigrate?: boolean; cwd?: string } = {},
+): Promise<UpgradeResult> {
   const isDryRun = options.dryRun ?? false;
   const autoMigrate = options.autoMigrate ?? true;
   const actions: UpgradeAction[] = [];
@@ -87,18 +105,26 @@ export async function runUpgrade(options: {
       status: 'error',
       details: `Pre-flight check failed: ${String(err)}`,
     });
-    return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors: [String(err)] };
+    return {
+      success: false,
+      upToDate: false,
+      dryRun: isDryRun,
+      actions,
+      applied: 0,
+      errors: [String(err)],
+    };
   }
 
   // Determine what actions are actually needed
   const cleoDir = getCleoDirAbsolute(options.cwd);
   const dbPath = join(cleoDir, 'tasks.db');
   const dbExists = existsSync(dbPath);
-  
-  const legacyRecordCount = preflight.details.todoJsonTaskCount
-    + preflight.details.archiveJsonTaskCount
-    + preflight.details.sessionsJsonCount;
-  
+
+  const legacyRecordCount =
+    preflight.details.todoJsonTaskCount +
+    preflight.details.archiveJsonTaskCount +
+    preflight.details.sessionsJsonCount;
+
   // Migration needed only if: no DB exists AND JSON has data
   const needsMigration = !dbExists && legacyRecordCount > 0;
   // Cleanup needed if: DB exists AND stale JSON files exist
@@ -159,7 +185,12 @@ export async function runUpgrade(options: {
         });
         await updateMigrationPhase(cleoDir, 'backup');
         logger.info('init', 'start', 'Migration state initialized');
-        const dbBackupPath = join(cleoDir, 'backups', 'safety', `tasks.db.pre-migration.${Date.now()}`);
+        const dbBackupPath = join(
+          cleoDir,
+          'backups',
+          'safety',
+          `tasks.db.pre-migration.${Date.now()}`,
+        );
         const dbTempPath = join(cleoDir, 'tasks.db.migrating');
 
         // Step 1: Backup existing tasks.db if it exists (NEVER delete without backup)
@@ -173,11 +204,13 @@ export async function runUpgrade(options: {
           // Verify backup integrity: SHA-256 checksum + SQLite open check
           const { createHash } = await import('node:crypto');
           const origChecksum = createHash('sha256').update(readFileSync(dbPath)).digest('hex');
-          const backupChecksum = createHash('sha256').update(readFileSync(dbBackupPath)).digest('hex');
+          const backupChecksum = createHash('sha256')
+            .update(readFileSync(dbBackupPath))
+            .digest('hex');
           if (origChecksum !== backupChecksum) {
             throw new Error(
               `Backup verification failed: checksum mismatch. ` +
-              `Aborting migration to prevent data loss.`
+                `Aborting migration to prevent data loss.`,
             );
           }
           const { validateSqliteDatabase } = await import('../store/atomic.js');
@@ -185,10 +218,12 @@ export async function runUpgrade(options: {
           if (!backupIsValid) {
             throw new Error(
               `Backup verification failed: backup is not a valid SQLite database. ` +
-              `Aborting migration to prevent data loss.`
+                `Aborting migration to prevent data loss.`,
             );
           }
-          logger.info('backup', 'verified', 'Backup integrity verified', { checksum: origChecksum });
+          logger.info('backup', 'verified', 'Backup integrity verified', {
+            checksum: origChecksum,
+          });
         }
 
         // Step 2: Remove temp DB if leftover from a previous failed attempt
@@ -213,14 +248,18 @@ export async function runUpgrade(options: {
         // Step 6: Migrate JSON → temp DB, then atomically rename into place
         await updateMigrationPhase(cleoDir, 'import');
         const { migrateJsonToSqliteAtomic } = await import('../store/migration-sqlite.js');
-        const { atomicDatabaseMigration, validateSqliteDatabase: validateDb } = await import('../store/atomic.js');
+        const { atomicDatabaseMigration, validateSqliteDatabase: validateDb } = await import(
+          '../store/atomic.js'
+        );
         const result = await migrateJsonToSqliteAtomic(options.cwd, dbTempPath, logger);
 
         // Step 6b: Atomically rename temp DB into place (only if migration succeeded)
         if (result.success) {
           const atomicResult = await atomicDatabaseMigration(dbPath, dbTempPath, validateDb);
           if (!atomicResult.success) {
-            throw new Error(`Atomic rename failed: ${atomicResult.error}. Original database preserved.`);
+            throw new Error(
+              `Atomic rename failed: ${atomicResult.error}. Original database preserved.`,
+            );
           }
         }
 
@@ -277,8 +316,9 @@ export async function runUpgrade(options: {
             actions.push({
               action: 'storage_migration',
               status: 'applied',
-              details: `Migrated to SQLite: ${result.tasksImported} tasks, `
-                + `${result.archivedImported} archived, ${result.sessionsImported} sessions`,
+              details:
+                `Migrated to SQLite: ${result.tasksImported} tasks, ` +
+                `${result.archivedImported} archived, ${result.sessionsImported} sessions`,
             });
             storageMigrationResult = {
               migrated: true,
@@ -327,7 +367,7 @@ export async function runUpgrade(options: {
           if (existsSync(safetyDir)) {
             // Find most recent pre-migration backup
             const backups = readdirSync(safetyDir)
-              .filter(f => f.startsWith('tasks.db.pre-migration.'))
+              .filter((f) => f.startsWith('tasks.db.pre-migration.'))
               .sort()
               .reverse();
             if (backups.length > 0 && !existsSync(dbPath)) {
@@ -387,8 +427,9 @@ export async function runUpgrade(options: {
 
   // ── Step 2a: Sequence state migration (.sequence/.sequence.json -> SQLite) ──
   if (existsSync(dbPath)) {
-    const legacySequenceFiles = ['.sequence', '.sequence.json']
-      .filter(f => existsSync(join(cleoDir, f)));
+    const legacySequenceFiles = ['.sequence', '.sequence.json'].filter((f) =>
+      existsSync(join(cleoDir, f)),
+    );
 
     if (legacySequenceFiles.length > 0) {
       if (isDryRun) {
@@ -421,8 +462,14 @@ export async function runUpgrade(options: {
   // If tasks.db exists and there are stale legacy files, safely backup and delete them
   // so they don't trigger false positives or cause confusion.
   if (needsCleanup) {
-    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', '.sequence', '.sequence.json'];
-    const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
+    const staleJsonFiles = [
+      'todo.json',
+      'sessions.json',
+      'todo-archive.json',
+      '.sequence',
+      '.sequence.json',
+    ];
+    const foundStale = staleJsonFiles.filter((f) => existsSync(join(cleoDir, f)));
 
     if (foundStale.length > 0) {
       if (isDryRun) {
@@ -494,9 +541,17 @@ export async function runUpgrade(options: {
       // Check current state for dry-run reporting
       const gitignorePath = join(cleoDir, '.gitignore');
       if (!existsSync(gitignorePath)) {
-        actions.push({ action: 'gitignore_integrity', status: 'preview', details: 'Would create .cleo/.gitignore from template' });
+        actions.push({
+          action: 'gitignore_integrity',
+          status: 'preview',
+          details: 'Would create .cleo/.gitignore from template',
+        });
       } else {
-        actions.push({ action: 'gitignore_integrity', status: 'preview', details: 'Would verify .cleo/.gitignore matches template' });
+        actions.push({
+          action: 'gitignore_integrity',
+          status: 'preview',
+          details: 'Would verify .cleo/.gitignore matches template',
+        });
       }
     } else {
       const gitignoreResult = await ensureGitignore(projectRoot);
@@ -545,20 +600,37 @@ export async function runUpgrade(options: {
     if (isDryRun) {
       const contextPath = join(cleoDir, 'project-context.json');
       if (!existsSync(contextPath)) {
-        actions.push({ action: 'project_context_detection', status: 'preview', details: 'Would detect and create project-context.json' });
+        actions.push({
+          action: 'project_context_detection',
+          status: 'preview',
+          details: 'Would detect and create project-context.json',
+        });
       } else {
         try {
           const context = JSON.parse(readFileSync(contextPath, 'utf-8'));
           if (context.detectedAt) {
-            const daysSince = (Date.now() - new Date(context.detectedAt).getTime()) / (1000 * 60 * 60 * 24);
+            const daysSince =
+              (Date.now() - new Date(context.detectedAt).getTime()) / (1000 * 60 * 60 * 24);
             if (daysSince > 30) {
-              actions.push({ action: 'project_context_detection', status: 'preview', details: `Would refresh project-context.json (${Math.round(daysSince)} days old)` });
+              actions.push({
+                action: 'project_context_detection',
+                status: 'preview',
+                details: `Would refresh project-context.json (${Math.round(daysSince)} days old)`,
+              });
             } else {
-              actions.push({ action: 'project_context_detection', status: 'skipped', details: 'project-context.json is up to date' });
+              actions.push({
+                action: 'project_context_detection',
+                status: 'skipped',
+                details: 'project-context.json is up to date',
+              });
             }
           }
         } catch {
-          actions.push({ action: 'project_context_detection', status: 'preview', details: 'Would regenerate project-context.json (unreadable)' });
+          actions.push({
+            action: 'project_context_detection',
+            status: 'preview',
+            details: 'Would regenerate project-context.json (unreadable)',
+          });
         }
       }
     } else {
@@ -603,71 +675,125 @@ export async function runUpgrade(options: {
     try {
       const structResult = await ensureCleoStructure(projectRootForMaint);
       if (structResult.action !== 'skipped') {
-        actions.push({ action: 'ensure_structure', status: 'applied', details: structResult.details ?? 'Created missing directories' });
+        actions.push({
+          action: 'ensure_structure',
+          status: 'applied',
+          details: structResult.details ?? 'Created missing directories',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Ensure .cleo/config.json exists and matches current template semantics
     try {
       const configResult = await ensureConfig(projectRootForMaint);
       if (configResult.action !== 'skipped') {
-        actions.push({ action: 'config_file', status: 'applied', details: configResult.details ?? 'Created or updated config.json' });
+        actions.push({
+          action: 'config_file',
+          status: 'applied',
+          details: configResult.details ?? 'Created or updated config.json',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Install/update git hooks
     try {
       const hooksResult = await ensureGitHooks(projectRootForMaint);
       if (hooksResult.action !== 'skipped') {
-        actions.push({ action: 'git_hooks', status: 'applied', details: hooksResult.details ?? 'Installed git hooks' });
+        actions.push({
+          action: 'git_hooks',
+          status: 'applied',
+          details: hooksResult.details ?? 'Installed git hooks',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Create project-info.json if missing
     try {
       const infoResult = await ensureProjectInfo(projectRootForMaint);
       if (infoResult.action !== 'skipped') {
-        actions.push({ action: 'project_info', status: 'applied', details: infoResult.details ?? 'Created project-info.json' });
+        actions.push({
+          action: 'project_info',
+          status: 'applied',
+          details: infoResult.details ?? 'Created project-info.json',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Install global schemas
     try {
       const schemasResult = ensureGlobalSchemas();
-      actions.push({ action: 'global_schemas', status: 'applied', details: `Installed ${schemasResult.installed} schemas (${schemasResult.updated} updated)` });
-    } catch { /* best-effort */ }
+      actions.push({
+        action: 'global_schemas',
+        status: 'applied',
+        details: `Installed ${schemasResult.installed} schemas (${schemasResult.updated} updated)`,
+      });
+    } catch {
+      /* best-effort */
+    }
 
     // Clean deprecated project schemas
     try {
       const cleanResult = await cleanProjectSchemas(projectRootForMaint);
       if (cleanResult.cleaned) {
-        actions.push({ action: 'clean_project_schemas', status: 'applied', details: 'Backed up and removed deprecated .cleo/schemas/' });
+        actions.push({
+          action: 'clean_project_schemas',
+          status: 'applied',
+          details: 'Backed up and removed deprecated .cleo/schemas/',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Initialize .cleo/.git checkpoint repo
     try {
       const gitRepoResult = await ensureCleoGitRepo(projectRootForMaint);
       if (gitRepoResult.action !== 'skipped') {
-        actions.push({ action: 'cleo_git_repo', status: 'applied', details: gitRepoResult.details ?? 'Created .cleo/.git checkpoint repository' });
+        actions.push({
+          action: 'cleo_git_repo',
+          status: 'applied',
+          details: gitRepoResult.details ?? 'Created .cleo/.git checkpoint repository',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Initialize SQLite database for fresh projects
     try {
       const dbResult = await ensureSqliteDb(projectRootForMaint);
       if (dbResult.action !== 'skipped') {
-        actions.push({ action: 'ensure_sqlite_db', status: 'applied', details: dbResult.details ?? 'SQLite database initialized' });
+        actions.push({
+          action: 'ensure_sqlite_db',
+          status: 'applied',
+          details: dbResult.details ?? 'SQLite database initialized',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Remove .cleo/ from root .gitignore if present
     try {
       const rootGitignoreResult = await removeCleoFromRootGitignore(projectRootForMaint);
       if (rootGitignoreResult.removed) {
-        actions.push({ action: 'root_gitignore_cleanup', status: 'applied', details: '.cleo/ removed from root .gitignore' });
+        actions.push({
+          action: 'root_gitignore_cleanup',
+          status: 'applied',
+          details: '.cleo/ removed from root .gitignore',
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Install cleo-subagent agent definition
     try {
@@ -675,9 +801,15 @@ export async function runUpgrade(options: {
       const agentWarnings: string[] = [];
       await initAgentDefinition(agentCreated, agentWarnings);
       if (agentCreated.length > 0) {
-        actions.push({ action: 'agent_definition', status: 'applied', details: agentCreated.join(', ') });
+        actions.push({
+          action: 'agent_definition',
+          status: 'applied',
+          details: agentCreated.join(', '),
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Install MCP server to detected providers
     try {
@@ -687,7 +819,9 @@ export async function runUpgrade(options: {
       if (mcpCreated.length > 0) {
         actions.push({ action: 'mcp_server', status: 'applied', details: mcpCreated.join(', ') });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Install core skills
     try {
@@ -695,9 +829,15 @@ export async function runUpgrade(options: {
       const skillsWarnings: string[] = [];
       await initCoreSkills(skillsCreated, skillsWarnings);
       if (skillsCreated.length > 0) {
-        actions.push({ action: 'core_skills', status: 'applied', details: skillsCreated.join(', ') });
+        actions.push({
+          action: 'core_skills',
+          status: 'applied',
+          details: skillsCreated.join(', '),
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Register with NEXUS
     try {
@@ -705,12 +845,23 @@ export async function runUpgrade(options: {
       const nexusWarnings: string[] = [];
       await initNexusRegistration(projectRootForMaint, nexusCreated, nexusWarnings);
       if (nexusCreated.length > 0) {
-        actions.push({ action: 'nexus_registration', status: 'applied', details: nexusCreated.join(', ') });
+        actions.push({
+          action: 'nexus_registration',
+          status: 'applied',
+          details: nexusCreated.join(', '),
+        });
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   } else {
     // Dry-run reporting for new steps
-    actions.push({ action: 'structural_maintenance', status: 'preview', details: 'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration' });
+    actions.push({
+      action: 'structural_maintenance',
+      status: 'preview',
+      details:
+        'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration',
+    });
   }
 
   const applied = actions.filter((a) => a.status === 'applied');

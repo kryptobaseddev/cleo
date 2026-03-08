@@ -31,8 +31,12 @@ function formatTimestamp(d: Date): string {
 function rotateSnapshots(backupDir: string): void {
   try {
     const files = readdirSync(backupDir)
-      .filter(f => f.match(/^tasks-\d{8}-\d{6}\.db$/))
-      .map(f => ({ name: f, path: join(backupDir, f), mtimeMs: statSync(join(backupDir, f)).mtimeMs }))
+      .filter((f) => f.match(/^tasks-\d{8}-\d{6}\.db$/))
+      .map((f) => ({
+        name: f,
+        path: join(backupDir, f),
+        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
+      }))
       .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
 
     while (files.length >= MAX_SNAPSHOTS) {
@@ -98,15 +102,21 @@ export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> 
 /**
  * List existing SQLite backup snapshots, newest first.
  */
-export function listSqliteBackups(cwd?: string): Array<{ name: string; path: string; mtimeMs: number }> {
+export function listSqliteBackups(
+  cwd?: string,
+): Array<{ name: string; path: string; mtimeMs: number }> {
   try {
     const cleoDir = getCleoDir(cwd);
     const backupDir = join(cleoDir, 'backups', 'sqlite');
     if (!existsSync(backupDir)) return [];
 
     return readdirSync(backupDir)
-      .filter(f => f.match(/^tasks-\d{8}-\d{6}\.db$/))
-      .map(f => ({ name: f, path: join(backupDir, f), mtimeMs: statSync(join(backupDir, f)).mtimeMs }))
+      .filter((f) => f.match(/^tasks-\d{8}-\d{6}\.db$/))
+      .map((f) => ({
+        name: f,
+        path: join(backupDir, f),
+        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
+      }))
       .sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first
   } catch {
     return [];

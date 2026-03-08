@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { describe,expect,it,vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { registerImportTasksCommand } from '../commands/import-tasks.js';
 
 vi.mock('../../store/json.js', () => ({

@@ -13,7 +13,7 @@
  * @task T4809
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import * as schema from '../../../store/tasks-schema.js';
 
 // Helper: extract column names from a Drizzle table
@@ -50,7 +50,9 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       const statusCol = schema.lifecyclePipelines.status;
       expect(statusCol).toBeDefined();
       // The enum config is stored in the column's config
-      const config = (statusCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
+      const config = (statusCol as Record<string, unknown>)['config'] as
+        | Record<string, unknown>
+        | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
         expect(enumValues).toContain('active');
@@ -68,9 +70,19 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
     it('has all columns required by resume.ts', () => {
       const cols = getColumnNames(schema.lifecycleStages);
       const required = [
-        'id', 'pipelineId', 'stageName', 'status', 'sequence',
-        'startedAt', 'completedAt', 'blockedAt', 'blockReason',
-        'skippedAt', 'skipReason', 'notesJson', 'metadataJson',
+        'id',
+        'pipelineId',
+        'stageName',
+        'status',
+        'sequence',
+        'startedAt',
+        'completedAt',
+        'blockedAt',
+        'blockReason',
+        'skippedAt',
+        'skipReason',
+        'notesJson',
+        'metadataJson',
       ];
       for (const col of required) {
         expect(cols, `Missing column: lifecycleStages.${col}`).toContain(col);
@@ -82,7 +94,9 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // Canonical values: 'not_started' | 'in_progress' | 'blocked' | 'completed' | 'skipped' | 'failed'
       const statusCol = schema.lifecycleStages.status;
       expect(statusCol).toBeDefined();
-      const config = (statusCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
+      const config = (statusCol as Record<string, unknown>)['config'] as
+        | Record<string, unknown>
+        | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
         expect(enumValues).toContain('not_started');
@@ -102,7 +116,16 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
   describe('lifecycleGateResults table', () => {
     it('has all columns required by resume.ts', () => {
       const cols = getColumnNames(schema.lifecycleGateResults);
-      const required = ['id', 'stageId', 'gateName', 'result', 'checkedAt', 'checkedBy', 'details', 'reason'];
+      const required = [
+        'id',
+        'stageId',
+        'gateName',
+        'result',
+        'checkedAt',
+        'checkedBy',
+        'details',
+        'reason',
+      ];
       for (const col of required) {
         expect(cols, `Missing column: lifecycleGateResults.${col}`).toContain(col);
       }
@@ -112,7 +135,9 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts GateResultContext uses 'pass' | 'fail' | 'warn'
       const resultCol = schema.lifecycleGateResults.result;
       expect(resultCol).toBeDefined();
-      const config = (resultCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
+      const config = (resultCol as Record<string, unknown>)['config'] as
+        | Record<string, unknown>
+        | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
         expect(enumValues).toContain('pass');
@@ -139,7 +164,9 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts EvidenceContext uses 'file' | 'url' | 'manifest'
       const typeCol = schema.lifecycleEvidence.type;
       expect(typeCol).toBeDefined();
-      const config = (typeCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
+      const config = (typeCol as Record<string, unknown>)['config'] as
+        | Record<string, unknown>
+        | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
         expect(enumValues).toContain('file');
@@ -156,7 +183,14 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
   describe('lifecycleTransitions table', () => {
     it('has all columns required by resume.ts', () => {
       const cols = getColumnNames(schema.lifecycleTransitions);
-      const required = ['id', 'pipelineId', 'fromStageId', 'toStageId', 'transitionType', 'createdAt'];
+      const required = [
+        'id',
+        'pipelineId',
+        'fromStageId',
+        'toStageId',
+        'transitionType',
+        'createdAt',
+      ];
       for (const col of required) {
         expect(cols, `Missing column: lifecycleTransitions.${col}`).toContain(col);
       }
@@ -166,7 +200,9 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts inserts with transitionType: 'manual' at line 790
       const typeCol = schema.lifecycleTransitions.transitionType;
       expect(typeCol).toBeDefined();
-      const config = (typeCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
+      const config = (typeCol as Record<string, unknown>)['config'] as
+        | Record<string, unknown>
+        | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
         expect(enumValues).toContain('manual');

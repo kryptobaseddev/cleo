@@ -9,11 +9,11 @@
  * @epic T4663
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, access, mkdir, writeFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync, constants as fsConstants } from 'node:fs';
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { constants as fsConstants, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initProject } from '../init.js';
 import { showSequence } from '../sequence/index.js';
 
@@ -49,7 +49,9 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -168,10 +170,13 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
   it('handles --detect flag for project type detection', async () => {
     // Create a package.json so detection has something to find
     const { writeFile: wf } = await import('node:fs/promises');
-    await wf(join(testDir, 'package.json'), JSON.stringify({
-      name: 'test-project',
-      devDependencies: { vitest: '^1.0.0' },
-    }));
+    await wf(
+      join(testDir, 'package.json'),
+      JSON.stringify({
+        name: 'test-project',
+        devDependencies: { vitest: '^1.0.0' },
+      }),
+    );
 
     const result = await initProject({ name: 'test-project', detect: true });
     expect(result.initialized).toBe(true);

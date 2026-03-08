@@ -17,14 +17,14 @@
  * @epic T4663
  */
 
-import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
-import { initProject, type InitOptions } from '../../core/init.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Command } from 'commander';
+import { CleoError } from '../../core/errors.js';
+import { type InitOptions, initProject } from '../../core/init.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Load the gitignore template from the package's templates/ directory.
@@ -75,14 +75,17 @@ export function registerInitCommand(program: Command): void {
 
         const result = await initProject(initOpts);
 
-        cliOutput({
-          initialized: result.initialized,
-          directory: result.directory,
-          created: result.created,
-          skipped: result.skipped,
-          ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
-          ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
-        }, { command: 'init' });
+        cliOutput(
+          {
+            initialized: result.initialized,
+            directory: result.directory,
+            created: result.created,
+            skipped: result.skipped,
+            ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+            ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
+          },
+          { command: 'init' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

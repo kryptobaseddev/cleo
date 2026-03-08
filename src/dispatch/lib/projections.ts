@@ -30,8 +30,16 @@ export const PROJECTIONS: Record<MviTier, ProjectionConfig> = {
   },
   orchestrator: {
     allowedDomains: [
-      'tasks', 'session', 'admin', 'memory', 'check', 'pipeline',
-      'orchestrate', 'tools', 'nexus', 'sticky',
+      'tasks',
+      'session',
+      'admin',
+      'memory',
+      'check',
+      'pipeline',
+      'orchestrate',
+      'tools',
+      'nexus',
+      'sticky',
     ],
     maxDepth: 8,
   },

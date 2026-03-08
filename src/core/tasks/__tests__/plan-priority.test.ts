@@ -7,8 +7,8 @@
  * @task T4820
  */
 
-import { describe, it, expect } from 'vitest';
-import type { ReadyTask, BlockedTask, OpenBug } from '../plan.js';
+import { describe, expect, it } from 'vitest';
+import type { BlockedTask, OpenBug, ReadyTask } from '../plan.js';
 
 describe('plan types - Drizzle-derived interfaces', () => {
   describe('ReadyTask', () => {
@@ -70,7 +70,7 @@ describe('plan types - Drizzle-derived interfaces', () => {
         priority: 'medium',
         epicId: 'T100',
         leverage: 4,
-        score: 50 + 10 + (4 * 5), // priority(50) + deps(10) + leverage(20)
+        score: 50 + 10 + 4 * 5, // priority(50) + deps(10) + leverage(20)
         reasons: [],
       };
       expect(task.score).toBe(80);
@@ -78,9 +78,33 @@ describe('plan types - Drizzle-derived interfaces', () => {
 
     it('sorts by score descending', () => {
       const tasks: ReadyTask[] = [
-        { id: 'T001', title: 'Low', priority: 'low', epicId: 'T100', leverage: 0, score: 35, reasons: [] },
-        { id: 'T002', title: 'High', priority: 'high', epicId: 'T100', leverage: 0, score: 85, reasons: [] },
-        { id: 'T003', title: 'Med', priority: 'medium', epicId: 'T100', leverage: 0, score: 60, reasons: [] },
+        {
+          id: 'T001',
+          title: 'Low',
+          priority: 'low',
+          epicId: 'T100',
+          leverage: 0,
+          score: 35,
+          reasons: [],
+        },
+        {
+          id: 'T002',
+          title: 'High',
+          priority: 'high',
+          epicId: 'T100',
+          leverage: 0,
+          score: 85,
+          reasons: [],
+        },
+        {
+          id: 'T003',
+          title: 'Med',
+          priority: 'medium',
+          epicId: 'T100',
+          leverage: 0,
+          score: 60,
+          reasons: [],
+        },
       ];
 
       tasks.sort((a, b) => b.score - a.score);

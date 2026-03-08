@@ -7,8 +7,11 @@
  */
 
 import type { RateLimitingConfig } from './rate-limiter.js';
+
 export type { RateLimitingConfig } from './rate-limiter.js';
+
 import { DEFAULT_RATE_LIMITING } from './rate-limiter.js';
+
 export { DEFAULT_RATE_LIMITING } from './rate-limiter.js';
 
 /**

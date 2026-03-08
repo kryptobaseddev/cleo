@@ -12,8 +12,8 @@
  * @task T4808
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cliError, type CliErrorDetails } from '../index.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { type CliErrorDetails, cliError } from '../index.js';
 
 // Mock format context so cliError can run without side effects
 vi.mock('../../format-context.js', () => ({
@@ -32,15 +32,11 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   it('accepts the dispatchFromCli call pattern: (string, number, CliErrorDetails)', () => {
     // This mirrors the exact call in cli.ts adapter
     expect(() => {
-      cliError(
-        'Task not found',
-        4,
-        {
-          name: 'E_NOT_FOUND',
-          details: { taskId: 'T999' },
-          fix: 'Use ct find to verify task exists',
-        },
-      );
+      cliError('Task not found', 4, {
+        name: 'E_NOT_FOUND',
+        details: { taskId: 'T999' },
+        fix: 'Use ct find to verify task exists',
+      });
     }).not.toThrow();
   });
 
@@ -51,15 +47,11 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   it('accepts the add command call pattern: (string, number, { name?: string })', () => {
     // add.ts passes response.error?.code which can be undefined
     expect(() => {
-      cliError(
-        'Validation error',
-        6,
-        {
-          name: undefined,
-          details: undefined,
-          fix: undefined,
-        },
-      );
+      cliError('Validation error', 6, {
+        name: undefined,
+        details: undefined,
+        fix: undefined,
+      });
     }).not.toThrow();
   });
 

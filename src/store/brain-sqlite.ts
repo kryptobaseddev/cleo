@@ -11,19 +11,22 @@
 
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openNativeDatabase() in node-sqlite-adapter.ts via createRequire.
 import type { DatabaseSync } from 'node:sqlite';
-
-import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as brainSchema from './brain-schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
-import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
+import * as brainSchema from './brain-schema.js';
+import {
+  createBatchCallback,
+  createDrizzleCallback,
+  openNativeDatabase,
+} from './node-sqlite-adapter.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -64,9 +67,9 @@ export function resolveBrainMigrationsFolder(): string {
  * Check whether a table exists in the SQLite database.
  */
 function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
-  const result = nativeDb.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-  ).get(tableName) as Record<string, unknown> | undefined;
+  const result = nativeDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(tableName) as Record<string, unknown> | undefined;
   return !!result;
 }
 
@@ -106,18 +109,22 @@ async function runBrainMigrations(
 
   // Run pending migrations via drizzle-orm/sqlite-proxy/migrator.
   // Each batch is wrapped in an IMMEDIATE transaction.
-  await migrate(db, async (queries: string[]) => {
-    nativeDb.prepare('BEGIN IMMEDIATE').run();
-    try {
-      for (const query of queries) {
-        nativeDb.prepare(query).run();
+  await migrate(
+    db,
+    async (queries: string[]) => {
+      nativeDb.prepare('BEGIN IMMEDIATE').run();
+      try {
+        for (const query of queries) {
+          nativeDb.prepare(query).run();
+        }
+        nativeDb.prepare('COMMIT').run();
+      } catch (err) {
+        nativeDb.prepare('ROLLBACK').run();
+        throw err;
       }
-      nativeDb.prepare('COMMIT').run();
-    } catch (err) {
-      nativeDb.prepare('ROLLBACK').run();
-      throw err;
-    }
-  }, { migrationsFolder });
+    },
+    { migrationsFolder },
+  );
 }
 
 /**
@@ -150,9 +157,11 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * @task T5157
  */
 function initializeBrainVec(nativeDb: DatabaseSync): void {
-  nativeDb.prepare(
-    'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
-  ).run();
+  nativeDb
+    .prepare(
+      'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
+    )
+    .run();
 }
 
 /**
@@ -214,9 +223,11 @@ export async function getBrainDb(cwd?: string): Promise<SqliteRemoteDatabase<typ
     }
 
     // Seed schema version for new databases (no-op if already set)
-    nativeDb.prepare(
-      `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
-    ).run();
+    nativeDb
+      .prepare(
+        `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
+      )
+      .run();
 
     // Set singleton only after migrations complete
     _db = db;

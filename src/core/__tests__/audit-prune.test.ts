@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readdir, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { createGunzip } from 'node:zlib';
+import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { pruneAuditLog } from '../audit-prune.js';
+import { createGunzip } from 'node:zlib';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LoggingConfig } from '../../types/config.js';
+import { pruneAuditLog } from '../audit-prune.js';
 
 /** Insert audit_log rows with given timestamps into a test DB. */
 async function insertAuditRows(
@@ -18,13 +18,16 @@ async function insertAuditRows(
   const db = await getDb(projectRoot);
 
   for (const row of rows) {
-    await db.insert(auditLog).values({
-      id: row.id,
-      timestamp: row.timestamp,
-      action: row.action,
-      taskId: row.taskId,
-      actor: 'test',
-    }).run();
+    await db
+      .insert(auditLog)
+      .values({
+        id: row.id,
+        timestamp: row.timestamp,
+        action: row.action,
+        taskId: row.taskId,
+        actor: 'test',
+      })
+      .run();
   }
 }
 

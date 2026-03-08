@@ -8,50 +8,41 @@
  * @epic T4654
  */
 
-import {
-  injectContext,
-  type ContextInjectionData,
-} from '../../core/sessions/context-inject.js';
-
-// ... existing imports ...
-import { getAccessor } from '../../store/data-accessor.js';
-import {
-  showSession,
-  suspendSession,
-  getSessionHistory,
-  cleanupSessions,
-  getSessionStats,
-  switchSession,
-  archiveSessions,
-  getContextDrift,
-  recordDecision,
-  getDecisionLog,
-  recordAssumption,
-  computeHandoff,
-  persistHandoff,
-  getLastHandoff,
-  computeBriefing,
-  findSessions,
-} from '../../core/sessions/index.js';
-import type { MinimalSessionRecord, FindSessionsParams } from '../../core/sessions/find.js';
-import { generateSessionId } from '../../core/sessions/session-id.js';
-import type { HandoffData } from '../../core/sessions/handoff.js';
-import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
-import type { SessionBriefing } from '../../core/sessions/briefing.js';
-import type { DecisionRecord } from '../../core/sessions/types.js';
-import type { Session } from '../../types/session.js';
-import type { TaskWorkState } from '../../types/task.js';
-import {
-  currentTask,
-  startTask,
-  stopTask,
-  getTaskHistory,
-} from '../../core/task-work/index.js';
-import type { TaskWorkHistoryEntry } from '../../core/task-work/index.js';
 import { CleoError } from '../../core/errors.js';
 import { paginate } from '../../core/pagination.js';
+import type { SessionBriefing } from '../../core/sessions/briefing.js';
+import { type ContextInjectionData, injectContext } from '../../core/sessions/context-inject.js';
+import type { FindSessionsParams, MinimalSessionRecord } from '../../core/sessions/find.js';
+import type { HandoffData } from '../../core/sessions/handoff.js';
+import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
+import {
+  archiveSessions,
+  cleanupSessions,
+  computeBriefing,
+  computeHandoff,
+  findSessions,
+  getContextDrift,
+  getDecisionLog,
+  getLastHandoff,
+  getSessionHistory,
+  getSessionStats,
+  persistHandoff,
+  recordAssumption,
+  recordDecision,
+  showSession,
+  suspendSession,
+  switchSession,
+} from '../../core/sessions/index.js';
+import { generateSessionId } from '../../core/sessions/session-id.js';
+import type { DecisionRecord } from '../../core/sessions/types.js';
+import type { TaskWorkHistoryEntry } from '../../core/task-work/index.js';
+import { currentTask, getTaskHistory, startTask, stopTask } from '../../core/task-work/index.js';
+// ... existing imports ...
+import { getAccessor } from '../../store/data-accessor.js';
 import { getExitCodeName } from '../../types/exit-codes.js';
-import { engineError, type EngineResult } from './_error.js';
+import type { Session } from '../../types/session.js';
+import type { TaskWorkState } from '../../types/task.js';
+import { type EngineResult, engineError } from './_error.js';
 
 // Re-export types for consumers
 export type { Session as SessionRecord };
@@ -64,9 +55,7 @@ export type { EngineResult };
  * Get current session status.
  * @task T4782
  */
-export async function sessionStatus(
-  projectRoot: string,
-): Promise<
+export async function sessionStatus(projectRoot: string): Promise<
   EngineResult<{
     hasActiveSession: boolean;
     session?: Session | null;
@@ -110,12 +99,14 @@ const SESSION_LIST_DEFAULT_LIMIT = 10;
 export async function sessionList(
   projectRoot: string,
   params?: { active?: boolean; status?: string; limit?: number; offset?: number },
-): Promise<EngineResult<{
-  sessions: Session[];
-  total: number;
-  filtered: number;
-  _meta: { truncated: boolean; total: number };
-}>> {
+): Promise<
+  EngineResult<{
+    sessions: Session[];
+    total: number;
+    filtered: number;
+    _meta: { truncated: boolean; total: number };
+  }>
+> {
   try {
     const accessor = await getAccessor(projectRoot);
 
@@ -132,7 +123,7 @@ export async function sessionList(
 
     const total = sessions.length;
     const filtered = result.length;
-    const limit = (params?.limit && params.limit > 0) ? params.limit : SESSION_LIST_DEFAULT_LIMIT;
+    const limit = params?.limit && params.limit > 0 ? params.limit : SESSION_LIST_DEFAULT_LIMIT;
     const offset = typeof params?.offset === 'number' && params.offset > 0 ? params.offset : 0;
     const pageResult = paginate(result, limit, offset);
     const truncated = filtered !== pageResult.items.length || offset > 0;
@@ -323,14 +314,16 @@ export async function sessionStart(
     {
       const sessions = await accessor.loadSessions();
       const sameScope = sessions
-        .filter((s: Session) =>
-          s.status === 'ended' &&
-          s.endedAt &&
-          s.scope?.rootTaskId === rootTaskId &&
-          s.scope?.type === scopeType,
+        .filter(
+          (s: Session) =>
+            s.status === 'ended' &&
+            s.endedAt &&
+            s.scope?.rootTaskId === rootTaskId &&
+            s.scope?.type === scopeType,
         )
-        .sort((a: Session, b: Session) =>
-          new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
+        .sort(
+          (a: Session, b: Session) =>
+            new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
         );
       if (sameScope.length > 0) {
         previousSessionId = sameScope[0].id;
@@ -338,9 +331,10 @@ export async function sessionStart(
     }
 
     // Resolve agent identifier from params or env
-    const agentIdentifier = (params as Record<string, unknown>).agentIdentifier as string | undefined
-      ?? process.env.CLEO_AGENT_ID
-      ?? null;
+    const agentIdentifier =
+      ((params as Record<string, unknown>).agentIdentifier as string | undefined) ??
+      process.env.CLEO_AGENT_ID ??
+      null;
 
     const startingTaskId = params.startTask || (params.autoStart ? rootTaskId : null);
 
@@ -450,7 +444,9 @@ export async function sessionStart(
           if (pred.debriefJson) {
             previousDebrief = JSON.parse(pred.debriefJson as string) as DebriefData;
           } else if ((pred as unknown as Record<string, unknown>).handoffJson) {
-            previousHandoff = JSON.parse((pred as unknown as Record<string, unknown>).handoffJson as string) as HandoffData;
+            previousHandoff = JSON.parse(
+              (pred as unknown as Record<string, unknown>).handoffJson as string,
+            ) as HandoffData;
           }
           // Always mark consumed regardless of debrief vs handoff
           pred.handoffConsumedAt = new Date().toISOString();
@@ -516,9 +512,7 @@ export async function sessionEnd(
     // Update session record in SQLite
     if (sessionId !== 'default') {
       const sessions = await accessor.loadSessions();
-      const session = sessions.find(
-        (s: Session) => s.id === sessionId,
-      );
+      const session = sessions.find((s: Session) => s.id === sessionId);
       if (session) {
         session.status = 'ended';
         session.endedAt = now;
@@ -562,7 +556,10 @@ export async function sessionResume(
     }
 
     if ((session.status as string) === 'archived') {
-      return engineError('E_INVALID_INPUT', `Session '${sessionId}' is archived and cannot be resumed`);
+      return engineError(
+        'E_INVALID_INPUT',
+        `Session '${sessionId}' is archived and cannot be resumed`,
+      );
     }
 
     const now = new Date().toISOString();
@@ -587,7 +584,9 @@ export async function sessionResume(
     await accessor.saveSessions(sessions);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
-    let memoryContext: import('../../core/memory/session-memory.js').SessionMemoryContext | undefined;
+    let memoryContext:
+      | import('../../core/memory/session-memory.js').SessionMemoryContext
+      | undefined;
     try {
       const { getSessionMemoryContext } = await import('../../core/memory/session-memory.js');
       const scopeType = session.scope?.type;
@@ -634,9 +633,7 @@ export async function sessionGc(
     // Mark stale active sessions as orphaned
     for (const session of sessions) {
       if (session.status === 'active') {
-        const lastActive = new Date(
-          session.endedAt || session.startedAt,
-        ).getTime();
+        const lastActive = new Date(session.endedAt || session.startedAt).getTime();
         if (now - lastActive > maxAgeMs) {
           session.status = 'ended';
           session.endedAt = new Date().toISOString();
@@ -648,9 +645,7 @@ export async function sessionGc(
     // Remove very old ended sessions
     sessions = sessions.filter((s: Session) => {
       if (s.status === 'active') return true;
-      const endedAt = s.endedAt
-        ? new Date(s.endedAt).getTime()
-        : new Date(s.startedAt).getTime();
+      const endedAt = s.endedAt ? new Date(s.endedAt).getTime() : new Date(s.startedAt).getTime();
       if (now - endedAt > thirtyDaysMs) {
         removed.push(s.id);
         return false;
@@ -795,9 +790,7 @@ export async function sessionContextDrift(
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    const code = message.includes('not found')
-      ? 'E_NOT_FOUND'
-      : 'E_NOT_INITIALIZED';
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
     return engineError(code, message);
   }
 }
@@ -829,9 +822,10 @@ export async function sessionRecordAssumption(
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    const code = message.includes('required') || message.includes('must be')
-      ? 'E_INVALID_INPUT'
-      : 'E_NOT_INITIALIZED';
+    const code =
+      message.includes('required') || message.includes('must be')
+        ? 'E_INVALID_INPUT'
+        : 'E_NOT_INITIALIZED';
     return engineError(code, message);
   }
 }
@@ -868,9 +862,7 @@ export async function sessionStats(
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    const code = message.includes('not found')
-      ? 'E_NOT_FOUND'
-      : 'E_NOT_INITIALIZED';
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
     return engineError(code, message);
   }
 }
@@ -920,9 +912,7 @@ export async function sessionArchive(
 export async function sessionHandoff(
   projectRoot: string,
   scope?: { type: string; epicId?: string },
-): Promise<
-  EngineResult<{ sessionId: string; handoff: HandoffData } | null>
-> {
+): Promise<EngineResult<{ sessionId: string; handoff: HandoffData } | null>> {
   try {
     const result = await getLastHandoff(projectRoot, scope);
     return { success: true, data: result };
@@ -957,10 +947,7 @@ export async function sessionComputeHandoff(
     return { success: true, data: handoff };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    return engineError(
-      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
-      message,
-    );
+    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
   }
 }
 
@@ -984,10 +971,7 @@ export async function sessionBriefing(
     return { success: true, data: briefing };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    return engineError(
-      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
-      message,
-    );
+    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
   }
 }
 
@@ -1032,10 +1016,7 @@ export async function sessionComputeDebrief(
     return { success: true, data: debrief };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    return engineError(
-      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
-      message,
-    );
+    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
   }
 }
 
@@ -1081,10 +1062,7 @@ export async function sessionDebriefShow(
     return { success: true, data: null };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    return engineError(
-      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
-      message,
-    );
+    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
   }
 }
 
@@ -1096,14 +1074,18 @@ export async function sessionDebriefShow(
 export async function sessionChainShow(
   projectRoot: string,
   sessionId: string,
-): Promise<EngineResult<Array<{
-  id: string;
-  status: string;
-  startedAt: string;
-  endedAt: string | null;
-  agentIdentifier: string | null;
-  position: number;
-}>>> {
+): Promise<
+  EngineResult<
+    Array<{
+      id: string;
+      status: string;
+      startedAt: string;
+      endedAt: string | null;
+      agentIdentifier: string | null;
+      position: number;
+    }>
+  >
+> {
   try {
     const accessor = await getAccessor(projectRoot);
     const sessions = await accessor.loadSessions();

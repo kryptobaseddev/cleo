@@ -3,9 +3,9 @@
  * @task T4522
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Task } from '../../../types/task.js';
-import { autoDispatch,getProtocolForDispatch,prepareSpawnContext } from '../dispatch.js';
+import { autoDispatch, getProtocolForDispatch, prepareSpawnContext } from '../dispatch.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -83,7 +83,12 @@ describe('autoDispatch', () => {
 
 describe('getProtocolForDispatch', () => {
   it('should return protocol from dispatch result', () => {
-    const result = { skill: 'ct-research-agent', strategy: 'keyword' as const, confidence: 0.7, protocol: 'research' as const };
+    const result = {
+      skill: 'ct-research-agent',
+      strategy: 'keyword' as const,
+      confidence: 0.7,
+      protocol: 'research' as const,
+    };
     expect(getProtocolForDispatch(result)).toBe('research');
   });
 

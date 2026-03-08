@@ -11,14 +11,15 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getTaskPath, getAgentOutputsAbsolute, getManifestPath as getManifestPathFromPaths } from '../../paths.js';
 import { MANIFEST_STATUSES } from '../../../store/status-registry.js';
 import type { Task } from '../../../types/task.js';
-import type {
-  ManifestEntry,
-  ManifestValidationResult,
-  ComplianceResult,
-} from '../types.js';
+import {
+  getAgentOutputsAbsolute,
+  getManifestPath as getManifestPathFromPaths,
+  getTaskPath,
+} from '../../paths.js';
+import type { ComplianceResult, ManifestEntry, ManifestValidationResult } from '../types.js';
+
 // validateReturnMessage used for protocol validation in validate_return_message
 // import { validateReturnMessage } from '../validation.js';
 
@@ -29,7 +30,14 @@ import type {
 const KEY_FINDINGS_MIN = 3;
 const KEY_FINDINGS_MAX = 7;
 const MANIFEST_REQUIRED_FIELDS = [
-  'id', 'file', 'title', 'date', 'status', 'topics', 'key_findings', 'actionable',
+  'id',
+  'file',
+  'title',
+  'date',
+  'status',
+  'topics',
+  'key_findings',
+  'actionable',
 ];
 const VALID_STATUSES_SET = new Set(MANIFEST_STATUSES);
 
@@ -91,7 +99,7 @@ export function validateSubagentOutput(
   ];
 
   const entries = readManifestEntries(cwd);
-  const entry = entries.find(e => e.id === researchId);
+  const entry = entries.find((e) => e.id === researchId);
 
   if (!entry) {
     issues.push(`MANIFEST_ENTRY_MISSING: No manifest entry found for id=${researchId}`);
@@ -114,9 +122,13 @@ export function validateSubagentOutput(
   if (!Array.isArray(entry.key_findings)) {
     issues.push('KEY_FINDINGS_NOT_ARRAY');
   } else if (entry.key_findings.length < KEY_FINDINGS_MIN) {
-    issues.push(`KEY_FINDINGS_TOO_FEW: count=${entry.key_findings.length} (must be ${KEY_FINDINGS_MIN}-${KEY_FINDINGS_MAX})`);
+    issues.push(
+      `KEY_FINDINGS_TOO_FEW: count=${entry.key_findings.length} (must be ${KEY_FINDINGS_MIN}-${KEY_FINDINGS_MAX})`,
+    );
   } else if (entry.key_findings.length > KEY_FINDINGS_MAX) {
-    issues.push(`KEY_FINDINGS_TOO_MANY: count=${entry.key_findings.length} (must be ${KEY_FINDINGS_MIN}-${KEY_FINDINGS_MAX})`);
+    issues.push(
+      `KEY_FINDINGS_TOO_MANY: count=${entry.key_findings.length} (must be ${KEY_FINDINGS_MIN}-${KEY_FINDINGS_MAX})`,
+    );
   }
 
   // Validate date format
@@ -162,7 +174,7 @@ export function validateManifestIntegrity(cwd?: string): ManifestValidationResul
   }
 
   const content = readFileSync(manifestPath, 'utf-8');
-  const lines = content.split('\n').filter(l => l.trim());
+  const lines = content.split('\n').filter((l) => l.trim());
   const issues: string[] = [];
   let validEntries = 0;
   let invalidEntries = 0;
@@ -244,26 +256,23 @@ export function verifyCompliance(
   let entry: ManifestEntry | undefined;
 
   if (researchId) {
-    entry = entries.find(e => e.id === researchId);
+    entry = entries.find((e) => e.id === researchId);
   } else {
     // Search by linked_tasks
-    entry = entries.find(e =>
-      e.linked_tasks?.includes(previousTaskId) ||
-      e.needs_followup?.includes(previousTaskId),
+    entry = entries.find(
+      (e) => e.linked_tasks?.includes(previousTaskId) || e.needs_followup?.includes(previousTaskId),
     );
 
     // Try ID pattern match
     if (!entry) {
       const taskNum = previousTaskId.replace(/^T/, '');
-      entry = entries.find(e => e.id.includes(taskNum));
+      entry = entries.find((e) => e.id.includes(taskNum));
     }
   }
 
   const manifestEntryExists = !!entry;
   if (!manifestEntryExists) {
-    violations.push(
-      `MANIFEST_ENTRY_MISSING: No manifest entry found for task ${previousTaskId}`,
-    );
+    violations.push(`MANIFEST_ENTRY_MISSING: No manifest entry found for task ${previousTaskId}`);
   }
 
   // Check research linked to task
@@ -341,7 +350,7 @@ export function validateOrchestratorCompliance(
         const sorted = tasks.sort(
           (a, b) => new Date(a.updatedAt ?? '').getTime() - new Date(b.updatedAt ?? '').getTime(),
         );
-        const completionOrder = sorted.map(t => t.id);
+        const completionOrder = sorted.map((t) => t.id);
 
         for (let i = 0; i < sorted.length; i++) {
           const deps = sorted[i].depends ?? [];

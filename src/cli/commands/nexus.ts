@@ -8,7 +8,7 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -16,9 +16,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
  * @task T4554
  */
 export function registerNexusCommand(program: Command): void {
-  const nexus = program
-    .command('nexus')
-    .description('Cross-project NEXUS operations');
+  const nexus = program.command('nexus').description('Cross-project NEXUS operations');
 
   // ── nexus init ──────────────────────────────────────────────────────
 
@@ -37,11 +35,17 @@ export function registerNexusCommand(program: Command): void {
     .option('--name <name>', 'Custom project name (default: directory name)')
     .option('--permissions <perms>', 'Permissions: read|write|execute', 'read')
     .action(async (projectPath: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'nexus', 'register', {
-        path: projectPath,
-        name: opts['name'] as string | undefined,
-        permission: opts['permissions'] as string,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'register',
+        {
+          path: projectPath,
+          name: opts['name'] as string | undefined,
+          permission: opts['permissions'] as string,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus unregister ────────────────────────────────────────────────
@@ -50,9 +54,15 @@ export function registerNexusCommand(program: Command): void {
     .command('unregister <nameOrHash>')
     .description('Remove a project from the registry')
     .action(async (nameOrHash: string) => {
-      await dispatchFromCli('mutate', 'nexus', 'unregister', {
-        name: nameOrHash,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'unregister',
+        {
+          name: nameOrHash,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus list ──────────────────────────────────────────────────────
@@ -80,9 +90,15 @@ export function registerNexusCommand(program: Command): void {
     .alias('query')
     .description('Show a task across projects (project:T### or T###)')
     .action(async (taskId: string) => {
-      await dispatchFromCli('query', 'nexus', 'query', {
-        query: taskId,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'query',
+        {
+          query: taskId,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus discover ──────────────────────────────────────────────────
@@ -93,11 +109,17 @@ export function registerNexusCommand(program: Command): void {
     .option('--method <method>', 'Discovery method: labels|description|files|auto', 'auto')
     .option('--limit <n>', 'Max results', parseInt, 10)
     .action(async (taskQuery: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'nexus', 'discover', {
-        query: taskQuery,
-        method: opts['method'] as string,
-        limit: opts['limit'] as number,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'discover',
+        {
+          query: taskQuery,
+          method: opts['method'] as string,
+          limit: opts['limit'] as number,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus search ────────────────────────────────────────────────────
@@ -108,11 +130,17 @@ export function registerNexusCommand(program: Command): void {
     .option('--project <name>', 'Limit search to specific project')
     .option('--limit <n>', 'Max results', parseInt, 20)
     .action(async (pattern: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'nexus', 'search', {
-        pattern,
-        project: opts['project'] as string | undefined,
-        limit: opts['limit'] as number,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'search',
+        {
+          pattern,
+          project: opts['project'] as string | undefined,
+          limit: opts['limit'] as number,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus deps ──────────────────────────────────────────────────────
@@ -122,10 +150,16 @@ export function registerNexusCommand(program: Command): void {
     .description('Show cross-project dependencies')
     .option('--reverse', 'Show reverse dependencies (what depends on this)')
     .action(async (taskQuery: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'nexus', 'deps', {
-        query: taskQuery,
-        direction: opts['reverse'] ? 'reverse' : 'forward',
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'deps',
+        {
+          query: taskQuery,
+          direction: opts['reverse'] ? 'reverse' : 'forward',
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus critical-path ───────────────────────────────────────────
@@ -143,9 +177,15 @@ export function registerNexusCommand(program: Command): void {
     .command('blocking <taskQuery>')
     .description('Show blocking impact analysis for a task')
     .action(async (taskQuery: string) => {
-      await dispatchFromCli('query', 'nexus', 'blocking', {
-        query: taskQuery,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'blocking',
+        {
+          query: taskQuery,
+        },
+        { command: 'nexus' },
+      );
     });
 
   // ── nexus orphans ─────────────────────────────────────────────────
@@ -164,9 +204,15 @@ export function registerNexusCommand(program: Command): void {
     .description('Sync project metadata (task count, labels)')
     .action(async (project?: string) => {
       if (project) {
-        await dispatchFromCli('mutate', 'nexus', 'sync', {
-          name: project,
-        }, { command: 'nexus' });
+        await dispatchFromCli(
+          'mutate',
+          'nexus',
+          'sync',
+          {
+            name: project,
+          },
+          { command: 'nexus' },
+        );
       } else {
         await dispatchFromCli('mutate', 'nexus', 'sync.all', {}, { command: 'nexus' });
       }
@@ -176,11 +222,19 @@ export function registerNexusCommand(program: Command): void {
 
   nexus
     .command('reconcile')
-    .description('Reconcile current project with NEXUS registry (auto-register if new, update path if moved)')
+    .description(
+      'Reconcile current project with NEXUS registry (auto-register if new, update path if moved)',
+    )
     .option('--path <path>', 'Project path (default: current directory)')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'nexus', 'reconcile', {
-        projectRoot: opts['path'] as string | undefined,
-      }, { command: 'nexus' });
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'reconcile',
+        {
+          projectRoot: opts['path'] as string | undefined,
+        },
+        { command: 'nexus' },
+      );
     });
 }

@@ -4,7 +4,7 @@
  * @task T3080
  */
 
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BackgroundJobManager } from '../background-jobs.js';
 
 describe('BackgroundJobManager', () => {
@@ -21,15 +21,13 @@ describe('BackgroundJobManager', () => {
   describe('job creation and execution', () => {
     it('should create a job and return a UUID', async () => {
       const jobId = await manager.startJob('test.operation', async () => 'result');
-      expect(jobId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-      );
+      expect(jobId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('should set initial job status to running', async () => {
       const jobId = await manager.startJob(
         'test.operation',
-        () => new Promise(() => {}) // never resolves
+        () => new Promise(() => {}), // never resolves
       );
       const job = manager.getJob(jobId);
       expect(job).toBeDefined();
@@ -86,14 +84,8 @@ describe('BackgroundJobManager', () => {
     });
 
     it('should track multiple jobs simultaneously', async () => {
-      const id1 = await manager.startJob(
-        'op.one',
-        () => new Promise(() => {})
-      );
-      const id2 = await manager.startJob(
-        'op.two',
-        () => new Promise(() => {})
-      );
+      const id1 = await manager.startJob('op.one', () => new Promise(() => {}));
+      const id2 = await manager.startJob('op.two', () => new Promise(() => {}));
 
       const job1 = manager.getJob(id1);
       const job2 = manager.getJob(id2);
@@ -161,10 +153,7 @@ describe('BackgroundJobManager', () => {
 
   describe('job cancellation', () => {
     it('should cancel a running job', async () => {
-      const jobId = await manager.startJob(
-        'op.slow',
-        () => new Promise(() => {})
-      );
+      const jobId = await manager.startJob('op.slow', () => new Promise(() => {}));
 
       const cancelled = manager.cancelJob(jobId);
       expect(cancelled).toBe(true);
@@ -188,10 +177,7 @@ describe('BackgroundJobManager', () => {
     });
 
     it('should return false for already cancelled job', async () => {
-      const jobId = await manager.startJob(
-        'op.slow',
-        () => new Promise(() => {})
-      );
+      const jobId = await manager.startJob('op.slow', () => new Promise(() => {}));
 
       manager.cancelJob(jobId);
       const secondCancel = manager.cancelJob(jobId);
@@ -205,7 +191,7 @@ describe('BackgroundJobManager', () => {
         () =>
           new Promise((resolve) => {
             resolveExecutor = resolve;
-          })
+          }),
       );
 
       manager.cancelJob(jobId);
@@ -265,10 +251,7 @@ describe('BackgroundJobManager', () => {
     });
 
     it('should clean up cancelled jobs past retention', async () => {
-      const jobId = await manager.startJob(
-        'op.cancel',
-        () => new Promise(() => {})
-      );
+      const jobId = await manager.startJob('op.cancel', () => new Promise(() => {}));
       manager.cancelJob(jobId);
 
       const job = manager.getJob(jobId)!;
@@ -285,9 +268,9 @@ describe('BackgroundJobManager', () => {
       await manager.startJob('op.2', () => new Promise(() => {}));
       await manager.startJob('op.3', () => new Promise(() => {}));
 
-      await expect(
-        manager.startJob('op.4', () => new Promise(() => {}))
-      ).rejects.toThrow('Maximum concurrent jobs reached (3)');
+      await expect(manager.startJob('op.4', () => new Promise(() => {}))).rejects.toThrow(
+        'Maximum concurrent jobs reached (3)',
+      );
     });
 
     it('should allow new jobs after completed ones free up slots', async () => {
@@ -317,10 +300,7 @@ describe('BackgroundJobManager', () => {
 
   describe('progress tracking', () => {
     it('should update progress on a running job', async () => {
-      const jobId = await manager.startJob(
-        'op.progress',
-        () => new Promise(() => {})
-      );
+      const jobId = await manager.startJob('op.progress', () => new Promise(() => {}));
 
       const updated = manager.updateProgress(jobId, 50);
       expect(updated).toBe(true);
@@ -330,10 +310,7 @@ describe('BackgroundJobManager', () => {
     });
 
     it('should clamp progress to 0-100 range', async () => {
-      const jobId = await manager.startJob(
-        'op.progress',
-        () => new Promise(() => {})
-      );
+      const jobId = await manager.startJob('op.progress', () => new Promise(() => {}));
 
       manager.updateProgress(jobId, -10);
       expect(manager.getJob(jobId)!.progress).toBe(0);
@@ -370,9 +347,8 @@ describe('BackgroundJobManager', () => {
     });
 
     it('should handle rejected promise in executor', async () => {
-      const jobId = await manager.startJob(
-        'op.reject',
-        () => Promise.reject(new Error('rejected'))
+      const jobId = await manager.startJob('op.reject', () =>
+        Promise.reject(new Error('rejected')),
       );
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -420,9 +396,9 @@ describe('BackgroundJobManager', () => {
         await defaultManager.startJob(`op.${i}`, () => new Promise(() => {}));
       }
 
-      await expect(
-        defaultManager.startJob('op.11', () => new Promise(() => {}))
-      ).rejects.toThrow('Maximum concurrent jobs reached (10)');
+      await expect(defaultManager.startJob('op.11', () => new Promise(() => {}))).rejects.toThrow(
+        'Maximum concurrent jobs reached (10)',
+      );
 
       defaultManager.destroy();
     });

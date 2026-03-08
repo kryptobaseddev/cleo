@@ -9,15 +9,15 @@
  * @task T2922
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  setupIntegrationTest,
   cleanupIntegrationTest,
   createTestTask,
-  startTestSession,
   getAuditLogEntries,
-  taskExists,
   type IntegrationTestContext,
+  setupIntegrationTest,
+  startTestSession,
+  taskExists,
 } from '../../__tests__/integration-setup.js';
 
 describe('mutate Gateway Integration', () => {
@@ -43,8 +43,12 @@ describe('mutate Gateway Integration', () => {
     // Each test that mutates a task destructively pulls from this pool by index.
     const taskPool: string[] = [];
     const POOL_LABELS = [
-      'update', 'complete', 'idempotent-complete',
-      'archive', 'unarchive', 'delete',
+      'update',
+      'complete',
+      'idempotent-complete',
+      'archive',
+      'unarchive',
+      'delete',
     ];
 
     beforeAll(async () => {
@@ -53,7 +57,7 @@ describe('mutate Gateway Integration', () => {
           context,
           `Mutate Pool [${label}] ${Date.now()}`,
           `Task for testing ${label} operations`,
-          { parent: testEpicId }
+          { parent: testEpicId },
         );
         taskPool.push(id);
       }
@@ -139,7 +143,9 @@ describe('mutate Gateway Integration', () => {
       // Second completion: either succeeds (idempotent), or returns a specific
       // "already done" error code. CLEO CLI uses exit code 17 (TASK_COMPLETED)
       // for already-completed tasks, which is an informational non-zero code.
-      expect(result.success || result.exitCode === 0 || result.exitCode === 17 || result.exitCode >= 100).toBe(true);
+      expect(
+        result.success || result.exitCode === 0 || result.exitCode === 17 || result.exitCode >= 100,
+      ).toBe(true);
     });
 
     it('should archive done tasks', async () => {
@@ -248,11 +254,9 @@ describe('mutate Gateway Integration', () => {
 
     it('should set focused task', async () => {
       // Use one of the pre-created tasks from the isolated environment
-      const taskId = context.createdTaskIds[0] || await createTestTask(
-        context,
-        'Focus Test Task',
-        'Task for testing focus',
-      );
+      const taskId =
+        context.createdTaskIds[0] ||
+        (await createTestTask(context, 'Focus Test Task', 'Task for testing focus'));
 
       const result = await context.executor.execute({
         domain: 'tasks',
@@ -340,8 +344,11 @@ describe('mutate Gateway Integration', () => {
           try {
             const parsed = JSON.parse(startResult.stdout.trim());
             const payload = parsed.result ?? parsed.data ?? parsed;
-            sessionIdToResume = payload.sessionId || payload.session?.sessionId || sessionIdToResume;
-          } catch { /* keep existing */ }
+            sessionIdToResume =
+              payload.sessionId || payload.session?.sessionId || sessionIdToResume;
+          } catch {
+            /* keep existing */
+          }
         }
       }
 
@@ -389,13 +396,13 @@ describe('mutate Gateway Integration', () => {
       // Accept success, informational exit code, or backup command output
       expect(
         result.exitCode === 0 ||
-        result.success ||
-        result.stdout?.includes('backup') ||
-        result.stdout?.includes('Backup') ||
-        result.stderr?.includes('backup') ||
-        result.stderr?.includes('Backup') ||
-        // Backup command may not be available in all environments
-        result.exitCode !== undefined
+          result.success ||
+          result.stdout?.includes('backup') ||
+          result.stdout?.includes('Backup') ||
+          result.stderr?.includes('backup') ||
+          result.stderr?.includes('Backup') ||
+          // Backup command may not be available in all environments
+          result.exitCode !== undefined,
       ).toBe(true);
     });
 
@@ -497,9 +504,10 @@ describe('mutate Gateway Integration', () => {
       // Some versions may accept it - check for either failure or warning
       if (result.success) {
         // If it succeeded, it should have included a warning
-        const hasWarning = result.stdout?.includes('warning') ||
-                          result.stdout?.includes('Warning') ||
-                          result.stdout?.includes('"warnings"');
+        const hasWarning =
+          result.stdout?.includes('warning') ||
+          result.stdout?.includes('Warning') ||
+          result.stdout?.includes('"warnings"');
         // Accept either explicit failure or success with warning
         expect(result.success || hasWarning).toBe(true);
         // Track for cleanup
@@ -536,7 +544,9 @@ describe('mutate Gateway Integration', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toMatch(/E_(VALIDATION_PARENT_NOT_FOUND|PARENT_NOT_FOUND|NOT_FOUND)/);
+      expect(result.error?.code).toMatch(
+        /E_(VALIDATION_PARENT_NOT_FOUND|PARENT_NOT_FOUND|NOT_FOUND)/,
+      );
     });
 
     it('should enforce hierarchy depth limit', async () => {
@@ -580,10 +590,14 @@ describe('mutate Gateway Integration', () => {
             },
           });
           expect(result4.success).toBe(false);
-          expect(result4.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i);
+          expect(result4.error?.code).toMatch(
+            /E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i,
+          );
         }
       } else {
-        expect(result.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i);
+        expect(result.error?.code).toMatch(
+          /E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i,
+        );
       }
     });
 
@@ -592,7 +606,7 @@ describe('mutate Gateway Integration', () => {
       const siblingParent = await createTestTask(
         context,
         'Sibling Test Parent',
-        'Parent for sibling limit test'
+        'Parent for sibling limit test',
       );
 
       // Create 15 siblings (matches the configured hierarchy.maxSiblings)
@@ -615,7 +629,9 @@ describe('mutate Gateway Integration', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toMatch(/E_(VALIDATION_SIBLING_LIMIT|SIBLING_LIMIT|SIBLING|LIMIT|CHILD)/i);
+      expect(result.error?.code).toMatch(
+        /E_(VALIDATION_SIBLING_LIMIT|SIBLING_LIMIT|SIBLING|LIMIT|CHILD)/i,
+      );
     }, 90000); // 90s: creating 15+ siblings via CLI is slow
   });
 
@@ -674,7 +690,7 @@ describe('mutate Gateway Integration', () => {
       const taskId = await createTestTask(
         context,
         'Idempotent Task',
-        'Test idempotency for completion'
+        'Test idempotency for completion',
       );
 
       // Complete first time
@@ -697,7 +713,12 @@ describe('mutate Gateway Integration', () => {
 
       // Should succeed, or return exit code 100+ (already done),
       // or exit code 17 (TASK_COMPLETED) as informational error
-      expect(result2.exitCode === 0 || result2.exitCode === 17 || result2.exitCode >= 100 || result2.success).toBe(true);
+      expect(
+        result2.exitCode === 0 ||
+          result2.exitCode === 17 ||
+          result2.exitCode >= 100 ||
+          result2.success,
+      ).toBe(true);
     });
 
     it('should handle duplicate session end', async () => {
@@ -759,11 +780,11 @@ describe('mutate Gateway Integration', () => {
       const code2 = result2.error?.code;
       expect(
         result2.success ||
-        result2.exitCode === 0 ||
-        result2.exitCode === 1 ||
-        result2.exitCode >= 100 ||
-        (typeof code2 === 'string' && code2.includes('SESSION')) ||
-        typeof code2 === 'number'
+          result2.exitCode === 0 ||
+          result2.exitCode === 1 ||
+          result2.exitCode >= 100 ||
+          (typeof code2 === 'string' && code2.includes('SESSION')) ||
+          typeof code2 === 'number',
       ).toBe(true);
     });
   });

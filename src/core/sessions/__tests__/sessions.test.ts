@@ -4,18 +4,18 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  startSession,
   endSession,
-  sessionStatus,
-  resumeSession,
-  listSessions,
   gcSessions,
+  listSessions,
   parseScope,
+  resumeSession,
+  sessionStatus,
+  startSession,
 } from '../index.js';
 
 describe('parseScope', () => {
@@ -48,15 +48,20 @@ describe('Session lifecycle', () => {
     try {
       const { closeAllDatabases } = await import('../../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* module may not be loaded */ }
+    } catch {
+      /* module may not be loaded */
+    }
     await rm(tempDir, { recursive: true, force: true });
   });
 
   it('starts a new session', async () => {
-    const session = await startSession({
-      name: 'Test session',
-      scope: 'epic:T001',
-    }, tempDir);
+    const session = await startSession(
+      {
+        name: 'Test session',
+        scope: 'epic:T001',
+      },
+      tempDir,
+    );
 
     expect(session.id).toMatch(/^session-/);
     expect(session.name).toBe('Test session');
@@ -78,10 +83,13 @@ describe('Session lifecycle', () => {
   });
 
   it('ends a session', async () => {
-    const started = await startSession({
-      name: 'Ending session',
-      scope: 'global',
-    }, tempDir);
+    const started = await startSession(
+      {
+        name: 'Ending session',
+        scope: 'global',
+      },
+      tempDir,
+    );
 
     const ended = await endSession({ note: 'Done for now' }, tempDir);
     expect(ended.id).toBe(started.id);
@@ -91,17 +99,15 @@ describe('Session lifecycle', () => {
   });
 
   it('throws when ending non-existent session', async () => {
-    await expect(
-      endSession({}, tempDir),
-    ).rejects.toThrow('No active session');
+    await expect(endSession({}, tempDir)).rejects.toThrow('No active session');
   });
 
   it('prevents duplicate scope sessions', async () => {
     await startSession({ name: 'First', scope: 'epic:T001' }, tempDir);
 
-    await expect(
-      startSession({ name: 'Second', scope: 'epic:T001' }, tempDir),
-    ).rejects.toThrow('Active session already exists');
+    await expect(startSession({ name: 'Second', scope: 'epic:T001' }, tempDir)).rejects.toThrow(
+      'Active session already exists',
+    );
   });
 
   it('allows different scope sessions', async () => {

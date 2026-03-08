@@ -11,8 +11,8 @@
 import {
   getProvidersBySpawnCapability,
   getSpawnCapableProviders,
-  providerSupportsById,
   type Provider,
+  providerSupportsById,
 } from '@cleocode/caamp';
 import type { CLEOSpawnAdapter } from '../../types/spawn.js';
 
@@ -138,9 +138,7 @@ export class SpawnAdapterRegistry {
  * @param capability - The spawn capability to filter by
  * @returns Array of providers with the specified capability
  */
-export function getProvidersWithSpawnCapability(
-  capability: SpawnCapability,
-): Provider[] {
+export function getProvidersWithSpawnCapability(capability: SpawnCapability): Provider[] {
   return getProvidersBySpawnCapability(capability);
 }
 

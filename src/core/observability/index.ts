@@ -8,41 +8,37 @@
  * @epic T5186
  */
 
-export type {
-  PinoLevel,
-  PinoLogEntry,
-  LogFileInfo,
-  LogFilter,
-  LogQueryResult,
-  LogDiscoveryOptions,
-  LogSummary,
-} from './types.js';
-
-export { PINO_LEVEL_VALUES } from './types.js';
+export { compareLevels, filterEntries, matchesFilter, paginate } from './log-filter.js';
+export { isValidLevel, parseLogLine, parseLogLines } from './log-parser.js';
 
 export {
   discoverLogFiles,
+  getGlobalLogDir,
+  getProjectLogDir,
   readLogFileLines,
   streamLogFileLines,
-  getProjectLogDir,
-  getGlobalLogDir,
 } from './log-reader.js';
-
-export { parseLogLine, parseLogLines, isValidLevel } from './log-parser.js';
-
-export { filterEntries, matchesFilter, paginate, compareLevels } from './log-filter.js';
-
-import type {
-  PinoLogEntry,
+export type {
+  LogDiscoveryOptions,
+  LogFileInfo,
   LogFilter,
   LogQueryResult,
-  LogDiscoveryOptions,
   LogSummary,
+  PinoLevel,
+  PinoLogEntry,
 } from './types.js';
-import { discoverLogFiles, readLogFileLines } from './log-reader.js';
-import { parseLogLine, parseLogLines } from './log-parser.js';
+export { PINO_LEVEL_VALUES } from './types.js';
+
 import { filterEntries, matchesFilter, paginate } from './log-filter.js';
-import { streamLogFileLines } from './log-reader.js';
+import { parseLogLine, parseLogLines } from './log-parser.js';
+import { discoverLogFiles, readLogFileLines, streamLogFileLines } from './log-reader.js';
+import type {
+  LogDiscoveryOptions,
+  LogFilter,
+  LogQueryResult,
+  LogSummary,
+  PinoLogEntry,
+} from './types.js';
 
 /**
  * High-level query: discover files, parse, filter, paginate.
@@ -54,10 +50,10 @@ export function queryLogs(
   cwd?: string,
 ): LogQueryResult {
   const files = discoverLogFiles(options, cwd);
-  const filesPaths = files.map(f => f.path);
+  const filesPaths = files.map((f) => f.path);
 
   let totalScanned = 0;
-  let allEntries: PinoLogEntry[] = [];
+  const allEntries: PinoLogEntry[] = [];
 
   for (const file of files) {
     const lines = readLogFileLines(file.path);
@@ -115,10 +111,7 @@ export async function* streamLogs(
  * Get a summary of log activity (counts by level, date range, subsystems).
  * Reads all discovered files but does not return individual entries.
  */
-export function getLogSummary(
-  options?: LogDiscoveryOptions,
-  cwd?: string,
-): LogSummary {
+export function getLogSummary(options?: LogDiscoveryOptions, cwd?: string): LogSummary {
   const files = discoverLogFiles(options, cwd);
   const byLevel: Record<string, number> = {};
   const bySubsystem: Record<string, number> = {};

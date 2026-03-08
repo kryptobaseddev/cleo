@@ -8,7 +8,7 @@
  * @task T4815
  */
 
-import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
+import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**
  * Composes an array of Middleware functions into a single Middleware function.

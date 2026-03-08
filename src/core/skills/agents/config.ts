@@ -10,10 +10,10 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import type { AgentConfig } from '../types.js';
-import { parseFrontmatter } from '../discovery.js';
+import { basename, join } from 'node:path';
 import { getProjectRoot } from '../../paths.js';
+import { parseFrontmatter } from '../discovery.js';
+import type { AgentConfig } from '../types.js';
 
 // ============================================================================
 // Agent Config Resolution

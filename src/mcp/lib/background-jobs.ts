@@ -75,7 +75,7 @@ export class BackgroundJobManager {
     const runningCount = this.listJobs('running').length;
     if (runningCount >= this.maxJobs) {
       throw new Error(
-        `Maximum concurrent jobs reached (${this.maxJobs}). Cancel or wait for existing jobs to complete.`
+        `Maximum concurrent jobs reached (${this.maxJobs}). Cancel or wait for existing jobs to complete.`,
       );
     }
 
@@ -206,7 +206,7 @@ export class BackgroundJobManager {
   private async executeJob(
     jobId: string,
     executor: () => Promise<unknown>,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<void> {
     const job = this.jobs.get(jobId);
     if (!job) {

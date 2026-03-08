@@ -8,7 +8,7 @@
  * @epic T5186
  */
 
-import type { PinoLogEntry, PinoLevel, LogFilter } from './types.js';
+import type { LogFilter, PinoLevel, PinoLogEntry } from './types.js';
 import { PINO_LEVEL_VALUES } from './types.js';
 
 /**
@@ -26,7 +26,8 @@ export function compareLevels(a: PinoLevel, b: PinoLevel): number {
 export function matchesFilter(entry: PinoLogEntry, filter: LogFilter): boolean {
   if (filter.level !== undefined && entry.level !== filter.level) return false;
 
-  if (filter.minLevel !== undefined && compareLevels(entry.level, filter.minLevel) < 0) return false;
+  if (filter.minLevel !== undefined && compareLevels(entry.level, filter.minLevel) < 0)
+    return false;
 
   if (filter.since !== undefined && entry.time < filter.since) return false;
 
@@ -53,17 +54,13 @@ export function matchesFilter(entry: PinoLogEntry, filter: LogFilter): boolean {
  * Does not apply pagination (limit/offset) -- use paginate() for that.
  */
 export function filterEntries(entries: PinoLogEntry[], filter: LogFilter): PinoLogEntry[] {
-  return entries.filter(entry => matchesFilter(entry, filter));
+  return entries.filter((entry) => matchesFilter(entry, filter));
 }
 
 /**
  * Apply pagination (limit/offset) to a result set.
  */
-export function paginate(
-  entries: PinoLogEntry[],
-  limit?: number,
-  offset?: number,
-): PinoLogEntry[] {
+export function paginate(entries: PinoLogEntry[], limit?: number, offset?: number): PinoLogEntry[] {
   const start = offset ?? 0;
   if (limit !== undefined) {
     return entries.slice(start, start + limit);

@@ -3,10 +3,10 @@
  * @task T4784
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 export interface CriticalPathNode {
   taskId: string;
@@ -39,7 +39,7 @@ export async function getCriticalPath(
     return { path: [], length: 0, totalEffort: 0, completedInPath: 0, remainingInPath: 0 };
   }
 
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // Build dependency maps
   const dependsOn = new Map<string, Set<string>>();
@@ -82,7 +82,7 @@ export async function getCriticalPath(
   }
 
   // Find leaf nodes
-  const leafNodes = tasks.filter(t => {
+  const leafNodes = tasks.filter((t) => {
     const deps = dependents.get(t.id);
     return !deps || deps.size === 0;
   });
@@ -102,10 +102,10 @@ export async function getCriticalPath(
 
   const sizeWeights: Record<string, number> = { small: 1, medium: 3, large: 8 };
 
-  const annotatedPath: CriticalPathNode[] = criticalPath.map(taskId => {
+  const annotatedPath: CriticalPathNode[] = criticalPath.map((taskId) => {
     const task = taskMap.get(taskId);
     const size = task?.size || 'medium';
-    const incompleteDeps = (task?.depends || []).filter(dep => {
+    const incompleteDeps = (task?.depends || []).filter((dep) => {
       const depTask = taskMap.get(dep);
       return depTask && depTask.status !== 'done' && depTask.status !== 'cancelled';
     });
@@ -119,11 +119,19 @@ export async function getCriticalPath(
     };
   });
 
-  const completedInPath = annotatedPath.filter(t => t.status === 'done' || t.status === 'cancelled').length;
+  const completedInPath = annotatedPath.filter(
+    (t) => t.status === 'done' || t.status === 'cancelled',
+  ).length;
   const remainingInPath = annotatedPath.length - completedInPath;
   const totalEffort = annotatedPath
-    .filter(t => t.status !== 'done' && t.status !== 'cancelled')
+    .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
     .reduce((sum, t) => sum + (sizeWeights[t.size] ?? 3), 0);
 
-  return { path: annotatedPath, length: criticalPath.length, totalEffort, completedInPath, remainingInPath };
+  return {
+    path: annotatedPath,
+    length: criticalPath.length,
+    totalEffort,
+    completedInPath,
+    remainingInPath,
+  };
 }

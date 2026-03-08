@@ -10,7 +10,7 @@
  * @task T5123
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core modules before importing session-engine
 vi.mock('../../../core/sessions/index.js', () => ({
@@ -50,10 +50,10 @@ vi.mock('../../../core/task-work/index.js', () => ({
   stopTask: vi.fn(),
 }));
 
-import { sessionHandoff } from '../session-engine.js';
-import { getLastHandoff } from '../../../core/sessions/index.js';
 import { CleoError } from '../../../core/errors.js';
+import { getLastHandoff } from '../../../core/sessions/index.js';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { sessionHandoff } from '../session-engine.js';
 
 const mockGetLastHandoff = vi.mocked(getLastHandoff);
 

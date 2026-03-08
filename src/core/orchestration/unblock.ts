@@ -3,10 +3,10 @@
  * @task T4784
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { Task, TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 export interface HighImpactTask {
   taskId: string;
@@ -79,11 +79,11 @@ export async function getUnblockOpportunities(
     : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const completedIds = new Set(
-    tasks.filter(t => t.status === 'done' || t.status === 'cancelled').map(t => t.id),
+    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
   );
-  const nonDoneTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
+  const nonDoneTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
   const reverseMap = buildReverseDependencyMap(tasks);
 
   // 1. High-impact completions
@@ -106,7 +106,7 @@ export async function getUnblockOpportunities(
   const singleBlocker: SingleBlockerTask[] = [];
   for (const task of tasks) {
     if (!task.depends || task.depends.length === 0) continue;
-    const incompleteDeps = task.depends.filter(depId => !completedIds.has(depId));
+    const incompleteDeps = task.depends.filter((depId) => !completedIds.has(depId));
     if (incompleteDeps.length === 1) {
       const blockerId = incompleteDeps[0]!;
       const blockerTask = taskMap.get(blockerId);

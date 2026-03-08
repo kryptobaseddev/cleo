@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerResearchCommand(program: Command): void {
@@ -20,12 +20,22 @@ export function registerResearchCommand(program: Command): void {
     .option('--findings <findings>', 'Comma-separated findings')
     .option('--sources <sources>', 'Comma-separated sources')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'session', 'context.inject', {
-        taskId: opts['task'],
-        topic: opts['topic'],
-        findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
-        sources: opts['sources'] ? (opts['sources'] as string).split(',').map(s => s.trim()) : undefined,
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'context.inject',
+        {
+          taskId: opts['task'],
+          topic: opts['topic'],
+          findings: opts['findings']
+            ? (opts['findings'] as string).split(',').map((s) => s.trim())
+            : undefined,
+          sources: opts['sources']
+            ? (opts['sources'] as string).split(',').map((s) => s.trim())
+            : undefined,
+        },
+        { command: 'research' },
+      );
     });
 
   research
@@ -42,9 +52,17 @@ export function registerResearchCommand(program: Command): void {
     .option('-s, --status <status>', 'Filter by status')
     .option('-l, --limit <n>', 'Limit results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.list', {
-        taskId: opts['task'], status: opts['status'], limit: opts['limit'],
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'manifest.list',
+        {
+          taskId: opts['task'],
+          status: opts['status'],
+          limit: opts['limit'],
+        },
+        { command: 'research' },
+      );
     });
 
   research
@@ -58,9 +76,16 @@ export function registerResearchCommand(program: Command): void {
     .command('link <researchId> <taskId>')
     .description('Link a research entry to a task')
     .action(async (researchId: string, taskId: string) => {
-      await dispatchFromCli('mutate', 'memory', 'link', {
-        entryId: researchId, taskId,
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'link',
+        {
+          entryId: researchId,
+          taskId,
+        },
+        { command: 'research' },
+      );
     });
 
   research
@@ -70,13 +95,23 @@ export function registerResearchCommand(program: Command): void {
     .option('--sources <sources>', 'Comma-separated sources')
     .option('-s, --status <status>', 'Set status')
     .action(async (id: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'session', 'context.inject', {
-        entryId: id,
-        action: 'update',
-        findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
-        sources: opts['sources'] ? (opts['sources'] as string).split(',').map(s => s.trim()) : undefined,
-        status: opts['status'],
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'context.inject',
+        {
+          entryId: id,
+          action: 'update',
+          findings: opts['findings']
+            ? (opts['findings'] as string).split(',').map((s) => s.trim())
+            : undefined,
+          sources: opts['sources']
+            ? (opts['sources'] as string).split(',').map((s) => s.trim())
+            : undefined,
+          status: opts['status'],
+        },
+        { command: 'research' },
+      );
     });
 
   research
@@ -109,12 +144,18 @@ export function registerResearchCommand(program: Command): void {
     .option('-t, --task <taskId>', 'Filter by linked task')
     .option('-l, --limit <n>', 'Limit results')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.list', {
-        status: opts['status'],
-        agentType: opts['agentType'],
-        topic: opts['topic'],
-        taskId: opts['task'],
-        limit: opts['limit'] ? parseInt(opts['limit'] as string, 10) : undefined,
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'manifest.list',
+        {
+          status: opts['status'],
+          agentType: opts['agentType'],
+          topic: opts['topic'],
+          taskId: opts['task'],
+          limit: opts['limit'] ? parseInt(opts['limit'] as string, 10) : undefined,
+        },
+        { command: 'research' },
+      );
     });
 }

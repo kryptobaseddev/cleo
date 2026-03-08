@@ -8,32 +8,44 @@
  * @task W1-T6
  */
 
-import type { Task, TaskStatus, TaskType } from '../types/task.js';
-import type { Session } from '../types/session.js';
-import type { DataAccessor } from './data-accessor.js';
-import { getAccessor } from './data-accessor.js';
-
+import type {
+  TaskCurrentResult,
+  TaskStartResult,
+  TaskWorkHistoryEntry,
+} from '../core/task-work/index.js';
 // Domain operation types - re-exported from core modules
 import type { AddTaskOptions, AddTaskResult } from '../core/tasks/add.js';
+import type { AnalysisResult } from '../core/tasks/analyze.js';
+import type { ArchiveTasksOptions, ArchiveTasksResult } from '../core/tasks/archive.js';
 import type { CompleteTaskOptions, CompleteTaskResult } from '../core/tasks/complete.js';
-import type { UpdateTaskOptions, UpdateTaskResult } from '../core/tasks/update.js';
 import type { DeleteTaskOptions, DeleteTaskResult } from '../core/tasks/delete.js';
 import type { FindTasksOptions, FindTasksResult } from '../core/tasks/find.js';
 import type { ListTasksOptions, ListTasksResult } from '../core/tasks/list.js';
-import type { ArchiveTasksOptions, ArchiveTasksResult } from '../core/tasks/archive.js';
-import type { TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry } from '../core/task-work/index.js';
-import type { AnalysisResult } from '../core/tasks/analyze.js';
+import type { UpdateTaskOptions, UpdateTaskResult } from '../core/tasks/update.js';
+import type { Session } from '../types/session.js';
+import type { Task, TaskStatus, TaskType } from '../types/task.js';
+import type { DataAccessor } from './data-accessor.js';
+import { getAccessor } from './data-accessor.js';
 
 // Re-export domain operation types for CLI consumers
 export type {
-  AddTaskOptions, AddTaskResult,
-  CompleteTaskOptions, CompleteTaskResult,
-  UpdateTaskOptions, UpdateTaskResult,
-  DeleteTaskOptions, DeleteTaskResult,
-  FindTasksOptions, FindTasksResult,
-  ListTasksOptions, ListTasksResult,
-  ArchiveTasksOptions, ArchiveTasksResult,
-  TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
+  AddTaskOptions,
+  AddTaskResult,
+  CompleteTaskOptions,
+  CompleteTaskResult,
+  UpdateTaskOptions,
+  UpdateTaskResult,
+  DeleteTaskOptions,
+  DeleteTaskResult,
+  FindTasksOptions,
+  FindTasksResult,
+  ListTasksOptions,
+  ListTasksResult,
+  ArchiveTasksOptions,
+  ArchiveTasksResult,
+  TaskCurrentResult,
+  TaskStartResult,
+  TaskWorkHistoryEntry,
   AnalysisResult,
 };
 
@@ -42,7 +54,6 @@ export type {
  * @task T4647
  */
 export type StoreEngine = 'sqlite';
-
 
 /** Common task filter options. */
 export interface TaskFilters {
@@ -84,7 +95,9 @@ export interface StoreProvider {
 
   // Task work (session-level)
   startTaskOnSession(sessionId: string, taskId: string): Promise<void>;
-  getCurrentTaskForSession(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
+  getCurrentTaskForSession(
+    sessionId: string,
+  ): Promise<{ taskId: string | null; since: string | null }>;
   stopTaskOnSession(sessionId: string): Promise<void>;
 
   // Lifecycle
@@ -155,7 +168,12 @@ export interface StoreProvider {
   /** Suggest related tasks based on shared attributes. */
   suggestRelated(taskId: string, opts?: { threshold?: number }): Promise<Record<string, unknown>>;
   /** Add a relationship between two tasks. */
-  addRelation(from: string, to: string, type: string, reason: string): Promise<Record<string, unknown>>;
+  addRelation(
+    from: string,
+    to: string,
+    type: string,
+    reason: string,
+  ): Promise<Record<string, unknown>>;
   /** Discover related tasks using various methods. */
   discoverRelated(taskId: string): Promise<Record<string, unknown>>;
   /** List existing relations for a task. */
@@ -174,16 +192,40 @@ export interface StoreProvider {
  * @task T4656
  * @epic T4654
  */
-async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<Pick<StoreProvider,
-  'addTask' | 'completeTask' | 'richUpdateTask' | 'showTask' |
-  'richDeleteTask' | 'richFindTasks' | 'richListTasks' | 'richArchiveTasks' |
-  'startSession' | 'richEndSession' | 'sessionStatus' | 'resumeSession' |
-  'richListSessions' | 'gcSessions' |
-  'currentTask' | 'startTask' | 'stopTask' | 'getWorkHistory' |
-  'listLabels' | 'showLabelTasks' | 'getLabelStats' |
-  'suggestRelated' | 'addRelation' | 'discoverRelated' | 'listRelations' |
-  'analyzeTaskPriority'
->> {
+async function createDomainOps(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<
+  Pick<
+    StoreProvider,
+    | 'addTask'
+    | 'completeTask'
+    | 'richUpdateTask'
+    | 'showTask'
+    | 'richDeleteTask'
+    | 'richFindTasks'
+    | 'richListTasks'
+    | 'richArchiveTasks'
+    | 'startSession'
+    | 'richEndSession'
+    | 'sessionStatus'
+    | 'resumeSession'
+    | 'richListSessions'
+    | 'gcSessions'
+    | 'currentTask'
+    | 'startTask'
+    | 'stopTask'
+    | 'getWorkHistory'
+    | 'listLabels'
+    | 'showLabelTasks'
+    | 'getLabelStats'
+    | 'suggestRelated'
+    | 'addRelation'
+    | 'discoverRelated'
+    | 'listRelations'
+    | 'analyzeTaskPriority'
+  >
+> {
   const { addTask } = await import('../core/tasks/add.js');
   const { completeTask } = await import('../core/tasks/complete.js');
   const { updateTask } = await import('../core/tasks/update.js');
@@ -199,7 +241,7 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
   const taskWork = await import('../core/task-work/index.js');
 
   // Resolve accessor once; all domain ops share the same instance.
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
 
   return {
     addTask: (options) => addTask(options, cwd, acc),

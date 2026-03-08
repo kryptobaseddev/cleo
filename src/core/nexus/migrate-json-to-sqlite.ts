@@ -8,14 +8,14 @@
  * @task T5366
  */
 
-import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
-import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { projectRegistry } from '../../store/nexus-schema.js';
-import { getRegistryPath } from './registry.js';
+import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { getLogger } from '../logger.js';
+import { getRegistryPath } from './registry.js';
 
 /**
  * Migrate projects from legacy JSON registry to nexus.db.
@@ -85,23 +85,26 @@ export async function migrateJsonToSqlite(): Promise<number> {
     const taskCount = typeof entry['taskCount'] === 'number' ? entry['taskCount'] : 0;
     const labels = Array.isArray(entry['labels']) ? entry['labels'] : [];
 
-    await db.insert(projectRegistry).values({
-      projectId,
-      projectHash,
-      projectPath,
-      name,
-      healthStatus,
-      permissions,
-      taskCount,
-      labelsJson: JSON.stringify(labels),
-    }).onConflictDoUpdate({
-      target: projectRegistry.projectHash,
-      set: {
-        projectPath: sql`excluded.project_path`,
-        name: sql`excluded.name`,
-        lastSeen: sql`(datetime('now'))`,
-      },
-    });
+    await db
+      .insert(projectRegistry)
+      .values({
+        projectId,
+        projectHash,
+        projectPath,
+        name,
+        healthStatus,
+        permissions,
+        taskCount,
+        labelsJson: JSON.stringify(labels),
+      })
+      .onConflictDoUpdate({
+        target: projectRegistry.projectHash,
+        set: {
+          projectPath: sql`excluded.project_path`,
+          name: sql`excluded.name`,
+          lastSeen: sql`(datetime('now'))`,
+        },
+      });
     migrated++;
   }
 

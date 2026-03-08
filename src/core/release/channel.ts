@@ -42,15 +42,12 @@ export function getDefaultChannelConfig(): ChannelConfig {
  * 5. Starts with 'feature/', 'hotfix/', 'release/', or `config.feature` → 'alpha'
  * 6. Fallback → 'alpha'
  */
-export function resolveChannelFromBranch(
-  branch: string,
-  config?: ChannelConfig,
-): ReleaseChannel {
+export function resolveChannelFromBranch(branch: string, config?: ChannelConfig): ReleaseChannel {
   const cfg = config ?? getDefaultChannelConfig();
 
   // 1. Exact match in custom map
   if (cfg.custom) {
-    if (Object.prototype.hasOwnProperty.call(cfg.custom, branch)) {
+    if (Object.hasOwn(cfg.custom, branch)) {
       return cfg.custom[branch] as ReleaseChannel;
     }
 

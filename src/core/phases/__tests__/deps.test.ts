@@ -4,39 +4,77 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Task } from '../../../types/task.js';
 import {
   buildGraph,
-  getDepsOverview,
-  getTaskDeps,
-  topologicalSort,
-  getExecutionWaves,
-  getCriticalPath,
-  getImpact,
   detectCycles,
+  getCriticalPath,
+  getDepsOverview,
+  getExecutionWaves,
+  getImpact,
+  getTaskDeps,
   getTaskTree,
+  topologicalSort,
 } from '../deps.js';
-import type { Task } from '../../../types/task.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../../../store/data-accessor.js';
 
 let env: TestDbEnv;
 let accessor: DataAccessor;
 
 const baseTasks: Array<Partial<Task> & { id: string }> = [
-  { id: 'T001', title: 'Foundation', status: 'done', priority: 'high', type: 'task', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T002', title: 'Core', status: 'active', priority: 'high', type: 'task', depends: ['T001'], createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T003', title: 'UI', status: 'pending', priority: 'medium', type: 'task', depends: ['T001'], createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T004', title: 'Integration', status: 'pending', priority: 'high', type: 'task', depends: ['T002', 'T003'], createdAt: '2026-01-01T00:00:00Z' },
+  {
+    id: 'T001',
+    title: 'Foundation',
+    status: 'done',
+    priority: 'high',
+    type: 'task',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T002',
+    title: 'Core',
+    status: 'active',
+    priority: 'high',
+    type: 'task',
+    depends: ['T001'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T003',
+    title: 'UI',
+    status: 'pending',
+    priority: 'medium',
+    type: 'task',
+    depends: ['T001'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T004',
+    title: 'Integration',
+    status: 'pending',
+    priority: 'high',
+    type: 'task',
+    depends: ['T002', 'T003'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
-const baseTasksFull: Task[] = baseTasks.map(t => ({
-  title: t.title ?? `Task ${t.id}`,
-  status: t.status ?? 'pending',
-  priority: t.priority ?? 'medium',
-  createdAt: t.createdAt ?? new Date().toISOString(),
-  ...t,
-} as Task));
+const baseTasksFull: Task[] = baseTasks.map(
+  (t) =>
+    ({
+      title: t.title ?? `Task ${t.id}`,
+      status: t.status ?? 'pending',
+      priority: t.priority ?? 'medium',
+      createdAt: t.createdAt ?? new Date().toISOString(),
+      ...t,
+    }) as Task,
+);
 
 beforeEach(async () => {
   env = await createTestDb();
@@ -104,7 +142,7 @@ describe('getTaskDeps', () => {
 describe('topologicalSort', () => {
   it('sorts tasks in dependency order', () => {
     const sorted = topologicalSort(baseTasksFull);
-    const ids = sorted.map(t => t.id);
+    const ids = sorted.map((t) => t.id);
 
     // T001 must come before T002 and T003
     expect(ids.indexOf('T001')).toBeLessThan(ids.indexOf('T002'));
@@ -117,8 +155,22 @@ describe('topologicalSort', () => {
 
   it('throws on circular dependencies', () => {
     const circular: Task[] = [
-      { id: 'T001', title: 'A', status: 'pending', priority: 'medium', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'B', status: 'pending', priority: 'medium', depends: ['T001'], createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'A',
+        status: 'pending',
+        priority: 'medium',
+        depends: ['T002'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'B',
+        status: 'pending',
+        priority: 'medium',
+        depends: ['T001'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ] as Task[];
     expect(() => topologicalSort(circular)).toThrow('Circular');
   });
@@ -162,9 +214,34 @@ describe('detectCycles', () => {
 describe('getTaskTree', () => {
   it('builds task hierarchy tree', async () => {
     const tasks: Array<Partial<Task> & { id: string }> = [
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Child 1', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', position: 1, createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T003', title: 'Child 2', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', position: 2, createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Child 1',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        position: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T003',
+        title: 'Child 2',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        position: 2,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ];
     await writeTodo(tasks);
     const tree = await getTaskTree('T001', env.tempDir, accessor);

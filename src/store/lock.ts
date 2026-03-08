@@ -45,14 +45,10 @@ export async function acquireLock(
     });
     return release;
   } catch (err) {
-    throw new CleoError(
-      ExitCode.LOCK_TIMEOUT,
-      `Failed to acquire lock: ${filePath}`,
-      {
-        fix: `Another process may be writing to this file. Wait and retry.`,
-        cause: err,
-      },
-    );
+    throw new CleoError(ExitCode.LOCK_TIMEOUT, `Failed to acquire lock: ${filePath}`, {
+      fix: `Another process may be writing to this file. Wait and retry.`,
+      cause: err,
+    });
   }
 }
 

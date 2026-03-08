@@ -3,7 +3,7 @@
  * @task T4362
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -16,12 +16,6 @@ export function registerOpsCommand(program: Command): void {
     .option('-t, --tier <n>', 'disclosure tier: 0=basic (default), 1=+memory/check, 2=all', '0')
     .action(async (options: { tier?: string }) => {
       const tier = parseInt(options.tier ?? '0', 10);
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'help',
-        { tier },
-        { command: 'ops' },
-      );
+      await dispatchFromCli('query', 'admin', 'help', { tier }, { command: 'ops' });
     });
 }

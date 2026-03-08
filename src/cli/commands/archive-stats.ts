@@ -6,9 +6,9 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /** Archived task shape (subset of fields used for stats). */
 interface ArchivedTask {
@@ -31,19 +31,15 @@ type ReportType = 'summary' | 'by-phase' | 'by-label' | 'by-priority' | 'cycle-t
  * Filter tasks by date range on archivedAt.
  * @task T4555
  */
-function filterByDate(
-  tasks: ArchivedTask[],
-  since?: string,
-  until?: string,
-): ArchivedTask[] {
+function filterByDate(tasks: ArchivedTask[], since?: string, until?: string): ArchivedTask[] {
   let filtered = tasks;
   if (since) {
     const sinceDate = since.includes('T') ? since : `${since}T00:00:00Z`;
-    filtered = filtered.filter(t => (t._archive?.archivedAt ?? '') >= sinceDate);
+    filtered = filtered.filter((t) => (t._archive?.archivedAt ?? '') >= sinceDate);
   }
   if (until) {
     const untilDate = until.includes('T') ? until : `${until}T23:59:59Z`;
-    filtered = filtered.filter(t => (t._archive?.archivedAt ?? '') <= untilDate);
+    filtered = filtered.filter((t) => (t._archive?.archivedAt ?? '') <= untilDate);
   }
   return filtered;
 }
@@ -70,16 +66,17 @@ function summaryReport(tasks: ArchivedTask[]): Record<string, unknown> {
   }
 
   const sorted = tasks
-    .filter(t => t._archive?.archivedAt)
-    .sort((a, b) => (a._archive!.archivedAt!).localeCompare(b._archive!.archivedAt!));
+    .filter((t) => t._archive?.archivedAt)
+    .sort((a, b) => a._archive!.archivedAt!.localeCompare(b._archive!.archivedAt!));
 
   return {
     totalArchived: tasks.length,
     byStatus,
     byPriority,
-    averageCycleTime: cycleTimes.length > 0
-      ? Math.round((cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length) * 100) / 100
-      : null,
+    averageCycleTime:
+      cycleTimes.length > 0
+        ? Math.round((cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length) * 100) / 100
+        : null,
     oldestArchived: sorted[0]?._archive?.archivedAt ?? null,
     newestArchived: sorted[sorted.length - 1]?._archive?.archivedAt ?? null,
     archiveSourceBreakdown: sourceBreakdown,
@@ -100,14 +97,15 @@ function byPhaseReport(tasks: ArchivedTask[]): Array<Record<string, unknown>> {
   return Object.entries(groups)
     .map(([phase, items]) => {
       const cycles = items
-        .map(t => t._archive?.cycleTimeDays)
+        .map((t) => t._archive?.cycleTimeDays)
         .filter((c): c is number => c != null);
       return {
         phase,
         count: items.length,
-        avgCycleTime: cycles.length > 0
-          ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 100) / 100
-          : null,
+        avgCycleTime:
+          cycles.length > 0
+            ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 100) / 100
+            : null,
       };
     })
     .sort((a, b) => b.count - a.count);
@@ -144,17 +142,20 @@ function byPriorityReport(tasks: ArchivedTask[]): Array<Record<string, unknown>>
   return Object.entries(groups)
     .map(([priority, items]) => {
       const cycles = items
-        .map(t => t._archive?.cycleTimeDays)
+        .map((t) => t._archive?.cycleTimeDays)
         .filter((c): c is number => c != null);
       return {
         priority,
         count: items.length,
-        avgCycleTime: cycles.length > 0
-          ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 100) / 100
-          : null,
+        avgCycleTime:
+          cycles.length > 0
+            ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 100) / 100
+            : null,
       };
     })
-    .sort((a, b) => PRIO_ORDER.indexOf(a.priority as string) - PRIO_ORDER.indexOf(b.priority as string));
+    .sort(
+      (a, b) => PRIO_ORDER.indexOf(a.priority as string) - PRIO_ORDER.indexOf(b.priority as string),
+    );
 }
 
 /**
@@ -163,20 +164,25 @@ function byPriorityReport(tasks: ArchivedTask[]): Array<Record<string, unknown>>
  */
 function cycleTimesReport(tasks: ArchivedTask[]): Record<string, unknown> {
   const times = tasks
-    .map(t => t._archive?.cycleTimeDays)
+    .map((t) => t._archive?.cycleTimeDays)
     .filter((c): c is number => c != null)
     .sort((a, b) => a - b);
 
   if (times.length === 0) {
     return {
-      count: 0, min: null, max: null, avg: null, median: null,
+      count: 0,
+      min: null,
+      max: null,
+      avg: null,
+      median: null,
       distribution: { '0-1 days': 0, '2-7 days': 0, '8-30 days': 0, '30+ days': 0 },
     };
   }
 
-  const median = times.length % 2 === 0
-    ? (times[times.length / 2 - 1]! + times[times.length / 2]!) / 2
-    : times[Math.floor(times.length / 2)]!;
+  const median =
+    times.length % 2 === 0
+      ? (times[times.length / 2 - 1]! + times[times.length / 2]!) / 2
+      : times[Math.floor(times.length / 2)]!;
 
   const percentile = (p: number) => times[Math.floor(times.length * p)] ?? null;
 
@@ -187,16 +193,16 @@ function cycleTimesReport(tasks: ArchivedTask[]): Record<string, unknown> {
     avg: Math.round((times.reduce((a, b) => a + b, 0) / times.length) * 100) / 100,
     median,
     distribution: {
-      '0-1 days': times.filter(t => t <= 1).length,
-      '2-7 days': times.filter(t => t > 1 && t <= 7).length,
-      '8-30 days': times.filter(t => t > 7 && t <= 30).length,
-      '30+ days': times.filter(t => t > 30).length,
+      '0-1 days': times.filter((t) => t <= 1).length,
+      '2-7 days': times.filter((t) => t > 1 && t <= 7).length,
+      '8-30 days': times.filter((t) => t > 7 && t <= 30).length,
+      '30+ days': times.filter((t) => t > 30).length,
     },
     percentiles: {
       p25: percentile(0.25),
-      p50: percentile(0.50),
+      p50: percentile(0.5),
       p75: percentile(0.75),
-      p90: percentile(0.90),
+      p90: percentile(0.9),
     },
   };
 }
@@ -206,7 +212,7 @@ function cycleTimesReport(tasks: ArchivedTask[]): Record<string, unknown> {
  * @task T4555
  */
 function trendsReport(tasks: ArchivedTask[]): Record<string, unknown> {
-  const withDate = tasks.filter(t => t._archive?.archivedAt);
+  const withDate = tasks.filter((t) => t._archive?.archivedAt);
   const byDay: Record<string, number> = {};
   for (const t of withDate) {
     const date = t._archive!.archivedAt!.slice(0, 10);
@@ -221,8 +227,7 @@ function trendsReport(tasks: ArchivedTask[]): Record<string, unknown> {
     const month = date.slice(0, 7);
     byMonth[month] = (byMonth[month] ?? 0) + count;
   }
-  const monthlyEntries = Object.entries(byMonth)
-    .map(([month, count]) => ({ month, count }));
+  const monthlyEntries = Object.entries(byMonth).map(([month, count]) => ({ month, count }));
 
   const totalPeriod = dailyEntries.reduce((sum, d) => sum + d.count, 0);
 
@@ -230,9 +235,8 @@ function trendsReport(tasks: ArchivedTask[]): Record<string, unknown> {
     byDay: dailyEntries,
     byMonth: monthlyEntries,
     totalPeriod,
-    averagePerDay: dailyEntries.length > 0
-      ? Math.round((totalPeriod / dailyEntries.length) * 100) / 100
-      : 0,
+    averagePerDay:
+      dailyEntries.length > 0 ? Math.round((totalPeriod / dailyEntries.length) * 100) / 100 : 0,
   };
 }
 
@@ -262,18 +266,32 @@ export async function getArchiveStats(opts: {
 
   let reportData: unknown;
   switch (reportType) {
-    case 'summary':      reportData = summaryReport(filtered); break;
-    case 'by-phase':     reportData = byPhaseReport(filtered); break;
-    case 'by-label':     reportData = byLabelReport(filtered); break;
-    case 'by-priority':  reportData = byPriorityReport(filtered); break;
-    case 'cycle-times':  reportData = cycleTimesReport(filtered); break;
-    case 'trends':       reportData = trendsReport(filtered); break;
-    default:             reportData = summaryReport(filtered);
+    case 'summary':
+      reportData = summaryReport(filtered);
+      break;
+    case 'by-phase':
+      reportData = byPhaseReport(filtered);
+      break;
+    case 'by-label':
+      reportData = byLabelReport(filtered);
+      break;
+    case 'by-priority':
+      reportData = byPriorityReport(filtered);
+      break;
+    case 'cycle-times':
+      reportData = cycleTimesReport(filtered);
+      break;
+    case 'trends':
+      reportData = trendsReport(filtered);
+      break;
+    default:
+      reportData = summaryReport(filtered);
   }
 
   return {
     report: reportType,
-    filters: (opts.since || opts.until) ? { since: opts.since ?? null, until: opts.until ?? null } : null,
+    filters:
+      opts.since || opts.until ? { since: opts.since ?? null, until: opts.until ?? null } : null,
     data: reportData,
   };
 }
@@ -303,10 +321,16 @@ export function registerArchiveStatsCommand(program: Command): void {
       else if (opts['cycleTimes']) report = 'cycle-times';
       else if (opts['trends']) report = 'trends';
 
-      await dispatchFromCli('query', 'check', 'archive.stats', {
-        report,
-        since: opts['since'] as string | undefined,
-        until: opts['until'] as string | undefined,
-      }, { command: 'archive-stats' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'archive.stats',
+        {
+          report,
+          since: opts['since'] as string | undefined,
+          until: opts['until'] as string | undefined,
+        },
+        { command: 'archive-stats' },
+      );
     });
 }

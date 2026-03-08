@@ -6,76 +6,41 @@
  * @task T4516
  */
 
-// CAAMP re-exports (delegated types and catalog bridge)
-export type {
-  Provider,
-  CaampSkillMetadata,
-  McpServerConfig,
-  CtSkillEntry,
-  CtDispatchMatrix,
-  CtManifest,
-  CtManifestSkill,
-  CtProfileDefinition,
-  CtValidationResult,
-  CtValidationIssue,
-} from './types.js';
-
 // Re-export CAAMP catalog for direct access by consumers
 export { catalog } from '@cleocode/caamp';
-
-// Types
-export type {
-  Skill,
-  SkillFrontmatter,
-  SkillSummary,
-  SkillManifest,
-  SkillProtocolType,
-  SkillSearchPath,
-  SkillSearchScope,
-  AgentConfig,
-  AgentRegistryEntry,
-  AgentRegistry,
-  DispatchResult,
-  DispatchStrategy,
-  TokenDefinition,
-  TokenContext,
-  TokenValidationResult,
-  OrchestratorThresholds,
-  PreSpawnCheckResult,
-  SpawnPromptResult,
-  DependencyWave,
-  DependencyAnalysis,
-  HitlSummary,
-  ManifestEntry,
-  ManifestValidationResult,
-  ComplianceResult,
-  InstalledSkill,
-  InstalledSkillsFile,
-} from './types.js';
-
-export { SKILL_NAME_MAP } from './types.js';
+// Agents
+export { agentExists, getAgentsDir, getSubagentConfig, loadAgentConfig } from './agents/config.js';
+export { installAgent, installAllAgents, uninstallAgent } from './agents/install.js';
+export {
+  getAgent,
+  listAgents,
+  readRegistry,
+  registerAgent,
+  syncRegistry,
+  unregisterAgent,
+} from './agents/registry.js';
 
 // Discovery & paths
 export {
-  getSkillSearchPaths,
-  getSkillsDir,
-  getSharedDir,
-  mapSkillName,
-  listCanonicalSkillNames,
-  parseFrontmatter,
-  discoverSkill,
-  discoverSkillsInDir,
-  discoverAllSkills,
-  findSkill,
-  toSkillSummary,
-  generateManifest,
-  resolveTemplatePath,
-  // CAAMP delegated discovery (T4679)
-  caampParseSkillFile,
   caampDiscoverSkill,
   caampDiscoverSkills,
+  // CAAMP delegated discovery (T4679)
+  caampParseSkillFile,
+  discoverAllSkills,
+  discoverSkill,
+  discoverSkillsInDir,
+  findSkill,
+  generateManifest,
+  getSharedDir,
+  getSkillSearchPaths,
+  getSkillsDir,
+  listCanonicalSkillNames,
+  mapSkillName,
+  parseFrontmatter,
+  resolveTemplatePath,
+  toSkillSummary,
 } from './discovery.js';
-
+export type { MultiSkillComposition } from './dispatch.js';
 // Dispatch
 export {
   autoDispatch,
@@ -84,127 +49,159 @@ export {
   prepareSpawnContext,
   prepareSpawnMulti,
 } from './dispatch.js';
-export type { MultiSkillComposition } from './dispatch.js';
-
-// Validation
 export {
-  validateSkill,
-  validateSkills,
-  validateReturnMessage,
-} from './validation.js';
-export type { SkillValidationResult, ValidationIssue, IssueSeverity } from './validation.js';
-
-// Agents
-export { loadAgentConfig, getSubagentConfig, agentExists, getAgentsDir } from './agents/config.js';
-export { readRegistry, registerAgent, unregisterAgent, getAgent, listAgents, syncRegistry } from './agents/registry.js';
-export { installAgent, installAllAgents, uninstallAgent } from './agents/install.js';
-
-// Orchestrator
-export {
-  getThresholds,
-  getContextState,
-  sessionInit,
-  shouldPause,
-  analyzeDependencies,
-  getNextTask,
-  getReadyTasks,
-  generateHitlSummary,
-} from './orchestrator/startup.js';
-export type { SessionInitResult, PauseStatus } from './orchestrator/startup.js';
-
-export { buildPrompt, spawn, canParallelize, spawnBatch } from './orchestrator/spawn.js';
-export type { BatchSpawnEntry, BatchSpawnResult } from './orchestrator/spawn.js';
-
-export {
-  validateSubagentOutput,
-  validateManifestIntegrity,
-  verifyCompliance,
-  validateOrchestratorCompliance,
-} from './orchestrator/validator.js';
-
-// Manifests
-export {
-  ensureOutputs,
-  readManifest,
-  appendManifest,
-  findEntry,
-  filterEntries,
-  getPendingFollowup,
-  getFollowupTaskIds,
-  taskHasResearch,
-  archiveEntry,
-  rotateManifest,
-} from './manifests/research.js';
-
-export { resolveManifest, isCacheFresh, invalidateCache, regenerateCache } from './manifests/resolver.js';
-
-export {
-  generateContributionId,
-  validateContributionTask,
-  getContributionInjection,
-  detectConflicts,
-  computeConsensus,
-  createContributionManifestEntry,
-} from './manifests/contribution.js';
-export type { ContributionDecision, ContributionConflict, ConsensusResult } from './manifests/contribution.js';
-
-// Injection
-export {
-  injectTokens,
-  hasUnresolvedTokens,
-  loadAndInject,
-  validateRequired,
-  validateAllTokens,
-  validateTokenValue,
-  buildDefaults,
-  loadPlaceholders,
-  setFullContext,
-} from './injection/token.js';
-export type { TokenValues } from './injection/token.js';
-
-export {
-  loadProtocolBase,
   buildTaskContext,
   injectProtocol,
+  loadProtocolBase,
   orchestratorSpawnSkill,
   prepareTokenValues,
 } from './injection/subagent.js';
-
-// Install
+export type { TokenValues } from './injection/token.js';
+// Injection
 export {
-  installSkill,
-} from './install.js';
-
+  buildDefaults,
+  hasUnresolvedTokens,
+  injectTokens,
+  loadAndInject,
+  loadPlaceholders,
+  setFullContext,
+  validateAllTokens,
+  validateRequired,
+  validateTokenValue,
+} from './injection/token.js';
+// Install
+export { installSkill } from './install.js';
+export type {
+  ConsensusResult,
+  ContributionConflict,
+  ContributionDecision,
+} from './manifests/contribution.js';
+export {
+  computeConsensus,
+  createContributionManifestEntry,
+  detectConflicts,
+  generateContributionId,
+  getContributionInjection,
+  validateContributionTask,
+} from './manifests/contribution.js';
+// Manifests
+export {
+  appendManifest,
+  archiveEntry,
+  ensureOutputs,
+  filterEntries,
+  findEntry,
+  getFollowupTaskIds,
+  getPendingFollowup,
+  readManifest,
+  rotateManifest,
+  taskHasResearch,
+} from './manifests/research.js';
+export {
+  invalidateCache,
+  isCacheFresh,
+  regenerateCache,
+  resolveManifest,
+} from './manifests/resolver.js';
+export type { MarketplaceSkill, SkillsMpConfig } from './marketplace.js';
 // Marketplace
 export {
-  loadConfig as loadMpConfig,
-  searchSkills,
   getSkill as getMpSkill,
   isEnabled as isMpEnabled,
+  loadConfig as loadMpConfig,
+  searchSkills,
 } from './marketplace.js';
-export type { SkillsMpConfig, MarketplaceSkill } from './marketplace.js';
-
-// Version tracking (CAAMP primary)
+export type { BatchSpawnEntry, BatchSpawnResult } from './orchestrator/spawn.js';
+export { buildPrompt, canParallelize, spawn, spawnBatch } from './orchestrator/spawn.js';
+export type { PauseStatus, SessionInitResult } from './orchestrator/startup.js';
+// Orchestrator
 export {
-  getInstalledVersionAsync,
-  checkSkillUpdateAsync,
-  checkAllSkillUpdatesAsync,
-} from './version.js';
-
+  analyzeDependencies,
+  generateHitlSummary,
+  getContextState,
+  getNextTask,
+  getReadyTasks,
+  getThresholds,
+  sessionInit,
+  shouldPause,
+} from './orchestrator/startup.js';
+export {
+  validateManifestIntegrity,
+  validateOrchestratorCompliance,
+  validateSubagentOutput,
+  verifyCompliance,
+} from './orchestrator/validator.js';
+export type {
+  SkillSearchPath as MultiSourceSkillSearchPath,
+  SkillSourceMode,
+  SkillSourceType,
+} from './skill-paths.js';
 // Skill paths (multi-source resolver)
 export {
   getSkillSearchPaths as getMultiSourceSkillPaths,
-  resolveSkillPath,
+  getSkillSourceType,
   resolveProtocolPath,
   resolveSharedPath,
-  getSkillSourceType,
+  resolveSkillPath,
 } from './skill-paths.js';
-export type { SkillSourceType, SkillSourceMode, SkillSearchPath as MultiSourceSkillSearchPath } from './skill-paths.js';
-
 // Test utilities
 export {
+  formatDateYMD,
   formatIsoDate,
   getCurrentTimestamp,
   isValidIsoDate,
-  formatDateYMD,
 } from './test-utility.js';
+// CAAMP re-exports (delegated types and catalog bridge)
+// Types
+export type {
+  AgentConfig,
+  AgentRegistry,
+  AgentRegistryEntry,
+  CaampSkillMetadata,
+  ComplianceResult,
+  CtDispatchMatrix,
+  CtManifest,
+  CtManifestSkill,
+  CtProfileDefinition,
+  CtSkillEntry,
+  CtValidationIssue,
+  CtValidationResult,
+  DependencyAnalysis,
+  DependencyWave,
+  DispatchResult,
+  DispatchStrategy,
+  HitlSummary,
+  InstalledSkill,
+  InstalledSkillsFile,
+  ManifestEntry,
+  ManifestValidationResult,
+  McpServerConfig,
+  OrchestratorThresholds,
+  PreSpawnCheckResult,
+  Provider,
+  Skill,
+  SkillFrontmatter,
+  SkillManifest,
+  SkillProtocolType,
+  SkillSearchPath,
+  SkillSearchScope,
+  SkillSummary,
+  SpawnPromptResult,
+  TokenContext,
+  TokenDefinition,
+  TokenValidationResult,
+} from './types.js';
+export { SKILL_NAME_MAP } from './types.js';
+export type { IssueSeverity, SkillValidationResult, ValidationIssue } from './validation.js';
+// Validation
+export {
+  validateReturnMessage,
+  validateSkill,
+  validateSkills,
+} from './validation.js';
+// Version tracking (CAAMP primary)
+export {
+  checkAllSkillUpdatesAsync,
+  checkSkillUpdateAsync,
+  getInstalledVersionAsync,
+} from './version.js';

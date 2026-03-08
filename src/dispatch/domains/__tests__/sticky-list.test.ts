@@ -22,8 +22,8 @@ vi.mock('../../engines/sticky-engine.js', () => ({
   stickyPurge: vi.fn(),
 }));
 
-import { StickyHandler } from '../sticky.js';
 import { stickyList } from '../../engines/sticky-engine.js';
+import { StickyHandler } from '../sticky.js';
 
 describe('StickyHandler list compliance', () => {
   let handler: StickyHandler;

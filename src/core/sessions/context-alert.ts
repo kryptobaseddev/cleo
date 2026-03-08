@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
+
 /** Synchronous config value reader (avoids async config pipeline for sync functions). */
 function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string): unknown {
   try {
@@ -80,10 +81,7 @@ export function getContextStatePath(sessionId?: string, cwd?: string): string {
 }
 
 /** Read context state for a session. Returns null if stale or missing. */
-export function readContextState(
-  sessionId?: string,
-  cwd?: string,
-): Record<string, unknown> | null {
+export function readContextState(sessionId?: string, cwd?: string): Record<string, unknown> | null {
   const statePath = getContextStatePath(sessionId, cwd);
   if (!existsSync(statePath)) return null;
 
@@ -182,10 +180,7 @@ export function getRecommendedAction(percentage: number): string | null {
  * Main function to check and determine if an alert should fire.
  * Non-blocking - always returns a result.
  */
-export function checkContextAlert(
-  currentCommand?: string,
-  cwd?: string,
-): AlertCheckResult {
+export function checkContextAlert(currentCommand?: string, cwd?: string): AlertCheckResult {
   const noAlert: AlertCheckResult = {
     alerted: false,
     level: null,
@@ -202,7 +197,11 @@ export function checkContextAlert(
 
     // Check trigger commands
     if (currentCommand) {
-      const triggerCommands = readConfigValueSync('contextAlerts.triggerCommands', [], cwd) as string[];
+      const triggerCommands = readConfigValueSync(
+        'contextAlerts.triggerCommands',
+        [],
+        cwd,
+      ) as string[];
       if (triggerCommands.length > 0 && !triggerCommands.includes(currentCommand)) {
         return noAlert;
       }
@@ -229,7 +228,11 @@ export function checkContextAlert(
   const lastAlertedPct = alertState?.lastAlertedLevel ?? 0;
 
   try {
-    const suppressDuration = readConfigValueSync('contextAlerts.suppressDuration', 0, cwd) as number;
+    const suppressDuration = readConfigValueSync(
+      'contextAlerts.suppressDuration',
+      0,
+      cwd,
+    ) as number;
     if (suppressDuration > 0 && alertState?.lastAlertedAt) {
       const ageSeconds = (Date.now() - new Date(alertState.lastAlertedAt).getTime()) / 1000;
       if (ageSeconds < suppressDuration) return noAlert;

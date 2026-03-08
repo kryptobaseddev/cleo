@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  clearSchemaCache,
-  validateSchema,
-  validateTask,
-} from '../validation/schema-validator.js';
-import {
-  validateAgainstSchema,
-  checkSchema,
-} from '../json-schema-validator.js';
+import { checkSchema, validateAgainstSchema } from '../json-schema-validator.js';
+import { clearSchemaCache, validateSchema, validateTask } from '../validation/schema-validator.js';
 
 describe('core schema validation', () => {
   it('validates config data through canonical AJV path', () => {

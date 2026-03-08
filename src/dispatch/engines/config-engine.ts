@@ -8,15 +8,12 @@
  */
 
 import { getRawConfig, getRawConfigValue, setConfigValue } from '../../core/config.js';
-import { engineError, type EngineResult } from './_error.js';
+import { type EngineResult, engineError } from './_error.js';
 
 /**
  * Get config value by key (dot-notation supported)
  */
-export async function configGet(
-  projectRoot: string,
-  key?: string
-): Promise<EngineResult<unknown>> {
+export async function configGet(projectRoot: string, key?: string): Promise<EngineResult<unknown>> {
   try {
     if (!key) {
       const config = await getRawConfig(projectRoot);
@@ -43,7 +40,7 @@ export async function configGet(
 export async function configSet(
   projectRoot: string,
   key: string,
-  value: unknown
+  value: unknown,
 ): Promise<EngineResult<{ key: string; value: unknown }>> {
   try {
     const result = await setConfigValue(key, value, projectRoot);

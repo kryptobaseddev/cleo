@@ -21,10 +21,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /** Small delay to avoid Date.now() ID collision in observeBrain(). */
 function delay(ms: number): Promise<void> {
@@ -142,13 +142,13 @@ describe('Scenario 1: Observation Full Lifecycle', () => {
   });
 
   it('rejects empty text observations', async () => {
-    await expect(
-      brainRetrieval.observeBrain(testDir, { text: '' }),
-    ).rejects.toThrow('Observation text is required');
+    await expect(brainRetrieval.observeBrain(testDir, { text: '' })).rejects.toThrow(
+      'Observation text is required',
+    );
 
-    await expect(
-      brainRetrieval.observeBrain(testDir, { text: '   ' }),
-    ).rejects.toThrow('Observation text is required');
+    await expect(brainRetrieval.observeBrain(testDir, { text: '   ' })).rejects.toThrow(
+      'Observation text is required',
+    );
   });
 
   it('fetchBrainEntries handles unknown IDs gracefully', async () => {
@@ -262,12 +262,42 @@ describe('Scenario 2: Multi-Type Search', () => {
 
     // Observations seeded via accessor with explicit IDs
     const observations = [
-      { id: 'O-seed-001', type: 'discovery' as const, title: 'FTS5 rebuild after bulk insert', narrative: 'Discovered that FTS5 requires explicit rebuild after bulk inserts' },
-      { id: 'O-seed-002', type: 'change' as const, title: 'Auto-rebuild FTS on first query', narrative: 'Changed the brain-search module to auto-rebuild FTS on first query' },
-      { id: 'O-seed-003', type: 'feature' as const, title: '3-layer retrieval pattern', narrative: 'Implemented the 3-layer retrieval pattern: search, timeline, fetch' },
-      { id: 'O-seed-004', type: 'bugfix' as const, title: 'Fix empty search FTS5 error', narrative: 'Fixed a bug where empty search queries caused FTS5 syntax error' },
-      { id: 'O-seed-005', type: 'decision' as const, title: 'Base36 timestamps for IDs', narrative: 'Decided to use base36 timestamps for observation IDs' },
-      { id: 'O-seed-006', type: 'refactor' as const, title: 'Refactor brain-accessor to drizzle', narrative: 'Refactored the brain-accessor to use drizzle ORM instead of raw SQL' },
+      {
+        id: 'O-seed-001',
+        type: 'discovery' as const,
+        title: 'FTS5 rebuild after bulk insert',
+        narrative: 'Discovered that FTS5 requires explicit rebuild after bulk inserts',
+      },
+      {
+        id: 'O-seed-002',
+        type: 'change' as const,
+        title: 'Auto-rebuild FTS on first query',
+        narrative: 'Changed the brain-search module to auto-rebuild FTS on first query',
+      },
+      {
+        id: 'O-seed-003',
+        type: 'feature' as const,
+        title: '3-layer retrieval pattern',
+        narrative: 'Implemented the 3-layer retrieval pattern: search, timeline, fetch',
+      },
+      {
+        id: 'O-seed-004',
+        type: 'bugfix' as const,
+        title: 'Fix empty search FTS5 error',
+        narrative: 'Fixed a bug where empty search queries caused FTS5 syntax error',
+      },
+      {
+        id: 'O-seed-005',
+        type: 'decision' as const,
+        title: 'Base36 timestamps for IDs',
+        narrative: 'Decided to use base36 timestamps for observation IDs',
+      },
+      {
+        id: 'O-seed-006',
+        type: 'refactor' as const,
+        title: 'Refactor brain-accessor to drizzle',
+        narrative: 'Refactored the brain-accessor to use drizzle ORM instead of raw SQL',
+      },
     ];
 
     for (const obs of observations) {
@@ -399,7 +429,8 @@ describe('Scenario 3: Token Efficiency', () => {
         id: `O-token-${String(i).padStart(3, '0')}`,
         type: 'discovery',
         title: `Detailed observation about CLEO system aspect #${i}`,
-        narrative: `Observation #${i}: This is a detailed finding about the CLEO task management system. ` +
+        narrative:
+          `Observation #${i}: This is a detailed finding about the CLEO task management system. ` +
           `It covers architectural patterns, implementation details, and performance characteristics. ` +
           `The system uses SQLite with WAL mode for reliable storage, FTS5 for full-text search, ` +
           `and drizzle ORM for type-safe queries. Each observation has metadata including timestamps, ` +
@@ -875,10 +906,11 @@ describe('Scenario 6: Session Briefing with Memory', () => {
     await sessionMemory.persistSessionMemory(testDir, 'SES-BRIEF-001', debrief);
 
     // Now get context for the epic
-    const context = await sessionMemory.getSessionMemoryContext(
-      testDir,
-      { type: 'epic', epicId: 'T5149', rootTaskId: 'T5149' },
-    );
+    const context = await sessionMemory.getSessionMemoryContext(testDir, {
+      type: 'epic',
+      epicId: 'T5149',
+      rootTaskId: 'T5149',
+    });
 
     // Should have observations from the seeded debrief
     expect(context.recentObservations.length).toBeGreaterThanOrEqual(0);
@@ -921,10 +953,10 @@ describe('Scenario 6: Session Briefing with Memory', () => {
       createdAt: '2026-03-01 11:00:00',
     });
 
-    const context = await sessionMemory.getSessionMemoryContext(
-      testDir,
-      { type: 'epic', rootTaskId: 'T5149' },
-    );
+    const context = await sessionMemory.getSessionMemoryContext(testDir, {
+      type: 'epic',
+      rootTaskId: 'T5149',
+    });
 
     // Results should be present (searches for 'T5149')
     expect(context.tokensEstimated).toBeGreaterThanOrEqual(0);
@@ -1032,7 +1064,7 @@ describe('Scenario 7: FTS5 Search Quality', () => {
         id: `L${String(i + 1).padStart(3, '0')}`,
         insight: learningTopics[i],
         source: 'implementation-experience',
-        confidence: 0.7 + (i * 0.03),
+        confidence: 0.7 + i * 0.03,
         actionable: i % 2 === 0,
         createdAt: `2026-02-${String(i + 11).padStart(2, '0')} 14:00:00`,
       });
@@ -1040,21 +1072,81 @@ describe('Scenario 7: FTS5 Search Quality', () => {
 
     // 15 observations with explicit IDs
     const observationData = [
-      { id: 'O-fts-001', type: 'discovery' as const, text: 'The brain.db schema supports 5 table types for cognitive data' },
-      { id: 'O-fts-002', type: 'feature' as const, text: 'FTS5 BM25 ranking provides relevance-sorted search results' },
-      { id: 'O-fts-003', type: 'bugfix' as const, text: 'Fixed race condition in concurrent brain.db initialization' },
-      { id: 'O-fts-004', type: 'refactor' as const, text: 'Refactored brain-accessor to use drizzle ORM queries' },
-      { id: 'O-fts-005', type: 'feature' as const, text: 'Added cross-linking between memory entries and tasks' },
-      { id: 'O-fts-006', type: 'change' as const, text: 'Changed session memory capture to be best-effort' },
-      { id: 'O-fts-007', type: 'decision' as const, text: 'Decided to use O- prefix for observation IDs' },
-      { id: 'O-fts-008', type: 'discovery' as const, text: 'The timeline API returns chronological neighbors efficiently' },
-      { id: 'O-fts-009', type: 'feature' as const, text: 'Implemented compact search returning 50 tokens per result' },
-      { id: 'O-fts-010', type: 'bugfix' as const, text: 'Fixed FTS5 syntax error on queries with special characters' },
-      { id: 'O-fts-011', type: 'refactor' as const, text: 'Refactored search to fall back to LIKE when FTS5 unavailable' },
-      { id: 'O-fts-012', type: 'feature' as const, text: 'Added date range filtering to compact search results' },
-      { id: 'O-fts-013', type: 'discovery' as const, text: 'The migration system handles JSONL to SQLite conversion' },
-      { id: 'O-fts-014', type: 'change' as const, text: 'Changed observation auto-classification keyword matching' },
-      { id: 'O-fts-015', type: 'decision' as const, text: 'Decided on 3-layer retrieval for progressive disclosure' },
+      {
+        id: 'O-fts-001',
+        type: 'discovery' as const,
+        text: 'The brain.db schema supports 5 table types for cognitive data',
+      },
+      {
+        id: 'O-fts-002',
+        type: 'feature' as const,
+        text: 'FTS5 BM25 ranking provides relevance-sorted search results',
+      },
+      {
+        id: 'O-fts-003',
+        type: 'bugfix' as const,
+        text: 'Fixed race condition in concurrent brain.db initialization',
+      },
+      {
+        id: 'O-fts-004',
+        type: 'refactor' as const,
+        text: 'Refactored brain-accessor to use drizzle ORM queries',
+      },
+      {
+        id: 'O-fts-005',
+        type: 'feature' as const,
+        text: 'Added cross-linking between memory entries and tasks',
+      },
+      {
+        id: 'O-fts-006',
+        type: 'change' as const,
+        text: 'Changed session memory capture to be best-effort',
+      },
+      {
+        id: 'O-fts-007',
+        type: 'decision' as const,
+        text: 'Decided to use O- prefix for observation IDs',
+      },
+      {
+        id: 'O-fts-008',
+        type: 'discovery' as const,
+        text: 'The timeline API returns chronological neighbors efficiently',
+      },
+      {
+        id: 'O-fts-009',
+        type: 'feature' as const,
+        text: 'Implemented compact search returning 50 tokens per result',
+      },
+      {
+        id: 'O-fts-010',
+        type: 'bugfix' as const,
+        text: 'Fixed FTS5 syntax error on queries with special characters',
+      },
+      {
+        id: 'O-fts-011',
+        type: 'refactor' as const,
+        text: 'Refactored search to fall back to LIKE when FTS5 unavailable',
+      },
+      {
+        id: 'O-fts-012',
+        type: 'feature' as const,
+        text: 'Added date range filtering to compact search results',
+      },
+      {
+        id: 'O-fts-013',
+        type: 'discovery' as const,
+        text: 'The migration system handles JSONL to SQLite conversion',
+      },
+      {
+        id: 'O-fts-014',
+        type: 'change' as const,
+        text: 'Changed observation auto-classification keyword matching',
+      },
+      {
+        id: 'O-fts-015',
+        type: 'decision' as const,
+        text: 'Decided on 3-layer retrieval for progressive disclosure',
+      },
     ];
 
     for (const obs of observationData) {
@@ -1096,9 +1188,7 @@ describe('Scenario 7: FTS5 Search Quality', () => {
     expect(result.results.length).toBeGreaterThanOrEqual(3);
     const foundTypes = new Set(result.results.map((r) => r.type));
     // Should find decisions and learnings at minimum
-    expect(
-      foundTypes.has('decision') || foundTypes.has('learning'),
-    ).toBe(true);
+    expect(foundTypes.has('decision') || foundTypes.has('learning')).toBe(true);
   });
 
   it('finds results for "atomic" in patterns and observations', async () => {
@@ -1136,9 +1226,7 @@ describe('Scenario 7: FTS5 Search Quality', () => {
     });
 
     expect(result.results.length).toBeGreaterThanOrEqual(1);
-    const found = result.results.find((r) =>
-      r.title.toLowerCase().includes('race condition'),
-    );
+    const found = result.results.find((r) => r.title.toLowerCase().includes('race condition'));
     expect(found).toBeDefined();
   });
 

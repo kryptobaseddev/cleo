@@ -12,11 +12,11 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import { tokenUsage, type NewTokenUsageRow, type TokenUsageRow } from '../../store/tasks-schema.js';
+import { type NewTokenUsageRow, type TokenUsageRow, tokenUsage } from '../../store/tasks-schema.js';
 import { getCleoHome } from '../paths.js';
 import { resolveProviderFromModelRegistry } from './model-provider-registry.js';
 import { detectRuntimeProviderContext } from './provider-detection.js';
@@ -89,7 +89,12 @@ function normalizeProvider(provider?: string, model?: string, runtimeProvider?: 
   const runtimeValue = (runtimeProvider ?? '').trim().toLowerCase();
 
   if (value) return value;
-  if (modelValue.startsWith('gpt') || modelValue.startsWith('o1') || modelValue.startsWith('o3') || modelValue.startsWith('text-embedding')) {
+  if (
+    modelValue.startsWith('gpt') ||
+    modelValue.startsWith('o1') ||
+    modelValue.startsWith('o3') ||
+    modelValue.startsWith('text-embedding')
+  ) {
     return 'openai';
   }
   if (modelValue.includes('claude')) return 'anthropic';
@@ -122,7 +127,12 @@ async function resolveMeasurementProvider(input: TokenExchangeInput): Promise<{
   const fallback = normalizeProvider(undefined, input.model, runtime.inferredModelProvider);
   return {
     provider: fallback,
-    source: fallback === 'unknown' ? 'unknown' : (runtime.inferredModelProvider ? 'runtime-vendor' : 'heuristic'),
+    source:
+      fallback === 'unknown'
+        ? 'unknown'
+        : runtime.inferredModelProvider
+          ? 'runtime-vendor'
+          : 'heuristic',
     candidates: fromRegistry.candidates,
   };
 }
@@ -149,7 +159,10 @@ function toText(payload: unknown): string {
 function isLikelyJson(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
     return true;
   }
   try {
@@ -198,7 +211,12 @@ function readOtelJsonl(dir: string): Array<Record<string, unknown>> {
   return entries;
 }
 
-function readOtelTokenUsage(input: TokenExchangeInput, resolvedProvider: string, providerSource: string, providerCandidates?: string[]): TokenMeasurement | null {
+function readOtelTokenUsage(
+  input: TokenExchangeInput,
+  resolvedProvider: string,
+  providerSource: string,
+  providerCandidates?: string[],
+): TokenMeasurement | null {
   const dir = getOtelDir();
   const events = readOtelJsonl(dir);
   if (events.length === 0) return null;
@@ -244,14 +262,23 @@ function readOtelTokenUsage(input: TokenExchangeInput, resolvedProvider: string,
   };
 }
 
-async function tokenizerCount(text: string, provider: string, model?: string): Promise<number | null> {
+async function tokenizerCount(
+  text: string,
+  provider: string,
+  model?: string,
+): Promise<number | null> {
   if (!text) return 0;
   if (provider !== 'openai') return null;
   try {
     const mod = await import('js-tiktoken');
-    const encoding = model && 'encodingForModel' in mod
-      ? (mod as { encodingForModel: (name: string) => { encode: (value: string) => number[] } }).encodingForModel(model)
-      : (mod as { getEncoding: (name: string) => { encode: (value: string) => number[] } }).getEncoding('cl100k_base');
+    const encoding =
+      model && 'encodingForModel' in mod
+        ? (
+            mod as { encodingForModel: (name: string) => { encode: (value: string) => number[] } }
+          ).encodingForModel(model)
+        : (
+            mod as { getEncoding: (name: string) => { encode: (value: string) => number[] } }
+          ).getEncoding('cl100k_base');
     return encoding.encode(text).length;
   } catch {
     return null;
@@ -413,7 +440,10 @@ export async function showTokenUsage(id: string, cwd?: string): Promise<TokenUsa
   return rows[0] ?? null;
 }
 
-export async function listTokenUsage(filters: TokenUsageFilters = {}, cwd?: string): Promise<{ records: TokenUsageRow[]; total: number; filtered: number }> {
+export async function listTokenUsage(
+  filters: TokenUsageFilters = {},
+  cwd?: string,
+): Promise<{ records: TokenUsageRow[]; total: number; filtered: number }> {
   const db = await getDb(cwd);
   const clauses = whereClauses(filters);
   const where = clauses.length > 0 ? and(...clauses) : undefined;
@@ -435,7 +465,10 @@ export async function listTokenUsage(filters: TokenUsageFilters = {}, cwd?: stri
   };
 }
 
-export async function summarizeTokenUsage(filters: TokenUsageFilters = {}, cwd?: string): Promise<TokenUsageSummary> {
+export async function summarizeTokenUsage(
+  filters: TokenUsageFilters = {},
+  cwd?: string,
+): Promise<TokenUsageSummary> {
   const db = await getDb(cwd);
   const clauses = whereClauses(filters);
   const where = clauses.length > 0 ? and(...clauses) : undefined;
@@ -477,18 +510,27 @@ export async function summarizeTokenUsage(filters: TokenUsageFilters = {}, cwd?:
     outputTokens,
     totalTokens,
     byMethod: Array.from(byMethod.entries()).map(([method, stats]) => ({ method, ...stats })),
-    byTransport: Array.from(byTransport.entries()).map(([transport, stats]) => ({ transport, ...stats })),
+    byTransport: Array.from(byTransport.entries()).map(([transport, stats]) => ({
+      transport,
+      ...stats,
+    })),
     byOperation: Array.from(byOperation.entries()).map(([key, stats]) => ({ key, ...stats })),
   };
 }
 
-export async function deleteTokenUsage(id: string, cwd?: string): Promise<{ deleted: boolean; id: string }> {
+export async function deleteTokenUsage(
+  id: string,
+  cwd?: string,
+): Promise<{ deleted: boolean; id: string }> {
   const db = await getDb(cwd);
   await db.delete(tokenUsage).where(eq(tokenUsage.id, id));
   return { deleted: true, id };
 }
 
-export async function clearTokenUsage(filters: TokenUsageFilters = {}, cwd?: string): Promise<{ deleted: number }> {
+export async function clearTokenUsage(
+  filters: TokenUsageFilters = {},
+  cwd?: string,
+): Promise<{ deleted: number }> {
   const db = await getDb(cwd);
   const clauses = whereClauses(filters);
   const where = clauses.length > 0 ? and(...clauses) : undefined;
@@ -511,7 +553,9 @@ export async function getLatestTokenRecord(cwd?: string): Promise<TokenUsageRow 
   return rows[0] ?? null;
 }
 
-export async function getTokenUsageAggregateSql(cwd?: string): Promise<Array<{ provider: string; transport: string; totalTokens: number; count: number }>> {
+export async function getTokenUsageAggregateSql(
+  cwd?: string,
+): Promise<Array<{ provider: string; transport: string; totalTokens: number; count: number }>> {
   const db = await getDb(cwd);
   return db
     .select({

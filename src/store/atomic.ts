@@ -6,10 +6,10 @@
  * @task T4721 - Added atomic database operations
  */
 
-import writeFileAtomic from 'write-file-atomic';
-import { readFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { mkdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import writeFileAtomic from 'write-file-atomic';
 import { CleoError } from '../core/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
 
@@ -30,11 +30,7 @@ export async function atomicWrite(
       mode: options?.mode,
     });
   } catch (err) {
-    throw new CleoError(
-      ExitCode.FILE_ERROR,
-      `Atomic write failed: ${filePath}`,
-      { cause: err },
-    );
+    throw new CleoError(ExitCode.FILE_ERROR, `Atomic write failed: ${filePath}`, { cause: err });
   }
 }
 
@@ -49,11 +45,7 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
     if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
-    throw new CleoError(
-      ExitCode.FILE_ERROR,
-      `Failed to read: ${filePath}`,
-      { cause: err },
-    );
+    throw new CleoError(ExitCode.FILE_ERROR, `Failed to read: ${filePath}`, { cause: err });
   }
 }
 
@@ -194,9 +186,13 @@ export async function validateSqliteDatabase(dbPath: string): Promise<boolean> {
     const _req = createRequire(import.meta.url);
     const { DatabaseSync } = _req('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(dbPath, { readOnly: true });
-    const integrityRow = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined;
+    const integrityRow = db.prepare('PRAGMA integrity_check').get() as
+      | { integrity_check: string }
+      | undefined;
     const isOk = integrityRow?.integrity_check === 'ok';
-    const tableRow = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+    const tableRow = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+      .get();
     const hasTasksTable = !!tableRow;
     db.close();
     return isOk && hasTasksTable;

@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   checkIdUniqueness,
   checkTimestampSanity,
@@ -24,7 +24,7 @@ import {
   validateSingleActivePhase,
   validateStatusTransition,
   validateTask,
-  validateTitle
+  validateTitle,
 } from '../engine.js';
 
 // ============================================================================
@@ -289,7 +289,7 @@ describe('validateTask', () => {
       activeForm: 'Working',
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.field === 'status')).toBe(true);
+    expect(result.errors.some((e) => e.field === 'status')).toBe(true);
   });
 });
 
@@ -426,9 +426,7 @@ describe('validateAll', () => {
 
   it('catches semantic errors', () => {
     const result = validateAll({
-      tasks: [
-        { id: 'T1', content: 'Task', status: 'invalid', activeForm: 'Working' },
-      ],
+      tasks: [{ id: 'T1', content: 'Task', status: 'invalid', activeForm: 'Working' }],
     });
     expect(result.semanticErrors).toBeGreaterThan(0);
   });

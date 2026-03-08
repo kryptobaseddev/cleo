@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { getQueryOperationCount } from '../../src/mcp/gateways/query.js';
 import { getMutateOperationCount } from '../../src/mcp/gateways/mutate.js';
+import { getQueryOperationCount } from '../../src/mcp/gateways/query.js';
 
 const queryCount = getQueryOperationCount();
 const mutateCount = getMutateOperationCount();
@@ -18,10 +18,14 @@ describe('operation-count doc sync', () => {
     expect(agents).toContain(`${mutateCount} mutate operations`);
     expect(agents).toContain(`All ${totalCount} MCP operations`);
 
-    expect(vision).toContain(`${totalCount} MCP operations (${queryCount} query + ${mutateCount} mutate)`);
+    expect(vision).toContain(
+      `${totalCount} MCP operations (${queryCount} query + ${mutateCount} mutate)`,
+    );
     expect(vision).toContain(`${totalCount} operations across 10 domains`);
 
-    expect(constitution).toContain(`| **Total** | **${queryCount}** | **${mutateCount}** | **${totalCount}** |`);
+    expect(constitution).toContain(
+      `| **Total** | **${queryCount}** | **${mutateCount}** | **${totalCount}** |`,
+    );
 
     const staleDriftPatterns = [
       /All 207 MCP operations/,

@@ -5,11 +5,11 @@
  * @epic T4637
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkRootGitignore } from '../../../core/validation/doctor/checks.js';
 
 let testDir: string;
@@ -38,7 +38,7 @@ describe('cleo-gitignore template', () => {
     const content = await readFile(templatePath, 'utf-8');
 
     // Key patterns that should be present (deny-by-default template)
-    expect(content).toContain('*');           // Step 1: ignore everything
+    expect(content).toContain('*'); // Step 1: ignore everything
     expect(content).toContain('!.gitignore'); // Allow list
     expect(content).toContain('!config.json');
     expect(content).toContain('.backups/');
@@ -52,14 +52,13 @@ describe('cleo-gitignore template', () => {
   it('template does NOT ignore core tracked files', async () => {
     const templatePath = join(process.cwd(), 'templates', 'cleo-gitignore');
     const content = await readFile(templatePath, 'utf-8');
-    const lines = content.split('\n')
-      .filter(l => !l.trim().startsWith('#') && l.trim() !== '');
+    const lines = content.split('\n').filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
 
     // These patterns should NOT appear as active ignore rules
     // (they should be tracked)
     const trackedFiles = ['todo.json', 'todo-archive.json', 'config.json', 'sessions.json'];
     for (const tracked of trackedFiles) {
-      const hasExactIgnore = lines.some(l => l.trim() === tracked);
+      const hasExactIgnore = lines.some((l) => l.trim() === tracked);
       expect(hasExactIgnore).toBe(false);
     }
   });
@@ -128,7 +127,7 @@ describe('init removes .cleo/ from root .gitignore', () => {
     // Read, filter, write - same logic as removeCleoFromRootGitignore
     const content = await readFile(gitignorePath, 'utf-8');
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
     });
@@ -146,7 +145,7 @@ describe('init removes .cleo/ from root .gitignore', () => {
 
     const content = await readFile(gitignorePath, 'utf-8');
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
     });
@@ -163,7 +162,7 @@ describe('init removes .cleo/ from root .gitignore', () => {
 
     const content = await readFile(gitignorePath, 'utf-8');
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
     });
@@ -180,7 +179,7 @@ describe('init removes .cleo/ from root .gitignore', () => {
 
     const content = await readFile(gitignorePath, 'utf-8');
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
     });
@@ -201,7 +200,7 @@ describe('init removes .cleo/ from root .gitignore', () => {
 
     const content = await readFile(gitignorePath, 'utf-8');
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
     });

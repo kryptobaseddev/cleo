@@ -6,11 +6,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 import type { AssumptionRecord, TaskFileExt } from './types.js';
 
 export interface RecordAssumptionParams {
@@ -30,28 +30,18 @@ export async function recordAssumption(
   params: RecordAssumptionParams,
 ): Promise<Omit<AssumptionRecord, 'validatedAt'> & { timestamp: string }> {
   if (!params?.assumption) {
-    throw new CleoError(
-      ExitCode.INVALID_INPUT,
-      'assumption is required',
-    );
+    throw new CleoError(ExitCode.INVALID_INPUT, 'assumption is required');
   }
 
-  if (
-    !params?.confidence ||
-    !['high', 'medium', 'low'].includes(params.confidence)
-  ) {
-    throw new CleoError(
-      ExitCode.INVALID_INPUT,
-      'confidence must be one of: high, medium, low',
-    );
+  if (!params?.confidence || !['high', 'medium', 'low'].includes(params.confidence)) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'confidence must be one of: high, medium, low');
   }
 
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
 
-  const sessionId =
-    params.sessionId || current._meta?.activeSession || 'default';
+  const sessionId = params.sessionId || current._meta?.activeSession || 'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
 

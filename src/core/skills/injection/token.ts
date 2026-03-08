@@ -154,7 +154,10 @@ export function validateTokenValue(
   }
 
   if (!pattern.test(value)) {
-    return { valid: false, error: `Token ${token} value "${value}" does not match pattern ${pattern}` };
+    return {
+      valid: false,
+      error: `Token ${token} value "${value}" does not match pattern ${pattern}`,
+    };
   }
 
   return { valid: true };
@@ -164,9 +167,11 @@ export function validateTokenValue(
  * Validate all required tokens are present and valid.
  * @task T4521
  */
-export function validateRequired(
-  values: TokenValues,
-): { valid: boolean; missing: string[]; invalid: Array<{ token: string; error: string }> } {
+export function validateRequired(values: TokenValues): {
+  valid: boolean;
+  missing: string[];
+  invalid: Array<{ token: string; error: string }>;
+} {
   const missing: string[] = [];
   const invalid: Array<{ token: string; error: string }> = [];
 
@@ -194,9 +199,10 @@ export function validateRequired(
  * Validate all tokens in a values map (required + optional).
  * @task T4521
  */
-export function validateAllTokens(
-  values: TokenValues,
-): { valid: boolean; errors: Array<{ token: string; error: string }> } {
+export function validateAllTokens(values: TokenValues): {
+  valid: boolean;
+  errors: Array<{ token: string; error: string }>;
+} {
   const errors: Array<{ token: string; error: string }> = [];
 
   for (const [token, value] of Object.entries(values)) {
@@ -240,7 +246,7 @@ export function injectTokens(template: string, values: TokenValues): string {
  */
 export function hasUnresolvedTokens(content: string): string[] {
   const matches = content.match(/\{\{(\w+)\}\}/g) ?? [];
-  return [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
+  return [...new Set(matches.map((m) => m.replace(/\{\{|\}\}/g, '')))];
 }
 
 /**
@@ -279,15 +285,25 @@ export function loadAndInject(
  * @epic T4663
  */
 export function setFullContext(
-  task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[] },
+  task: {
+    id: string;
+    title: string;
+    description?: string;
+    parentId?: string;
+    labels?: string[];
+    depends?: string[];
+  },
   options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string },
 ): TokenValues {
   const dateToday = options?.date ?? new Date().toISOString().split('T')[0];
 
-  const topicSlug = options?.topicSlug ?? (task.title
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .toLowerCase()
-    .replace(/^-|-$/g, '') || `task-${task.id}`);
+  const topicSlug =
+    options?.topicSlug ??
+    (task.title
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .toLowerCase()
+      .replace(/^-|-$/g, '') ||
+      `task-${task.id}`);
 
   const outputDir = options?.outputDir ?? '.cleo/agent-outputs';
   const manifestPath = options?.manifestPath ?? `${outputDir}/MANIFEST.jsonl`;

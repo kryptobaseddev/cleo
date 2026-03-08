@@ -4,27 +4,36 @@
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import {
-  buildGlobalGraph,
-  nexusDeps,
   blockingAnalysis,
-  orphanDetection,
+  buildGlobalGraph,
   criticalPath,
   invalidateGraphCache,
+  nexusDeps,
+  orphanDetection,
 } from '../deps.js';
 import { nexusRegister, resetNexusDbState } from '../registry.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
-import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 /** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProjectDb(
   dir: string,
-  tasks: Array<{ id: string; title: string; status: string; description?: string; labels?: string[]; depends?: string[]; priority?: string; createdAt?: string }>,
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    description?: string;
+    labels?: string[];
+    depends?: string[];
+    priority?: string;
+    createdAt?: string;
+  }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
   resetDbState();
@@ -119,7 +128,7 @@ describe('buildGlobalGraph', () => {
     const graph = await buildGlobalGraph();
 
     expect(graph.nodes).toHaveLength(4); // 2 from each project
-    expect(graph.nodes.map(n => n.id).sort()).toEqual(['T001', 'T002', 'T100', 'T101']);
+    expect(graph.nodes.map((n) => n.id).sort()).toEqual(['T001', 'T002', 'T100', 'T101']);
   });
 
   it('builds edges for same-project dependencies', async () => {
@@ -127,7 +136,7 @@ describe('buildGlobalGraph', () => {
 
     const graph = await buildGlobalGraph();
 
-    const edge = graph.edges.find(e => e.from === 'T002' && e.to === 'T001');
+    const edge = graph.edges.find((e) => e.from === 'T002' && e.to === 'T001');
     expect(edge).toBeDefined();
     expect(edge!.fromProject).toBe('backend');
     expect(edge!.toProject).toBe('backend');
@@ -140,7 +149,7 @@ describe('buildGlobalGraph', () => {
     const graph = await buildGlobalGraph();
 
     // T101 depends on T100 within frontend project
-    const localEdge = graph.edges.find(e => e.from === 'T101' && e.to === 'T100');
+    const localEdge = graph.edges.find((e) => e.from === 'T101' && e.to === 'T100');
     expect(localEdge).toBeDefined();
     expect(localEdge!.fromProject).toBe('frontend');
     expect(localEdge!.toProject).toBe('frontend');
@@ -175,7 +184,7 @@ describe('nexusDeps', () => {
 
     // T002 depends on T001 within backend project
     expect(result.blocking.length).toBeGreaterThanOrEqual(1);
-    const backendDep = result.blocking.find(b => b.query.includes('T002'));
+    const backendDep = result.blocking.find((b) => b.query.includes('T002'));
     expect(backendDep).toBeDefined();
   });
 
@@ -253,7 +262,7 @@ describe('blockingAnalysis', () => {
     expect(result.task).toBe('backend:T001');
     // T002 depends on T001
     expect(result.impactScore).toBeGreaterThanOrEqual(1);
-    expect(result.blocking.some(b => b.query.includes('T002'))).toBe(true);
+    expect(result.blocking.some((b) => b.query.includes('T002'))).toBe(true);
   });
 
   it('each blocking entry has query and project fields', async () => {
@@ -273,8 +282,20 @@ describe('blockingAnalysis', () => {
     const chainDir = join(testDir, 'chain-project2');
     await createTestProjectDb(chainDir, [
       { id: 'T020', title: 'Root task', status: 'active', description: 'Root of chain' },
-      { id: 'T021', title: 'Mid task', status: 'pending', description: 'Mid of chain', depends: ['T020'] },
-      { id: 'T022', title: 'Leaf task', status: 'pending', description: 'Leaf of chain', depends: ['T021'] },
+      {
+        id: 'T021',
+        title: 'Mid task',
+        status: 'pending',
+        description: 'Mid of chain',
+        depends: ['T020'],
+      },
+      {
+        id: 'T022',
+        title: 'Leaf task',
+        status: 'pending',
+        description: 'Leaf of chain',
+        depends: ['T021'],
+      },
     ]);
     invalidateGraphCache();
     await nexusRegister(chainDir, 'chain2', 'read');
@@ -283,9 +304,9 @@ describe('blockingAnalysis', () => {
 
     // T020 transitively blocks both T021 and T022
     expect(result.impactScore).toBeGreaterThanOrEqual(2);
-    const blockedIds = result.blocking.map(b => b.query);
-    expect(blockedIds.some(q => q.includes('T021'))).toBe(true);
-    expect(blockedIds.some(q => q.includes('T022'))).toBe(true);
+    const blockedIds = result.blocking.map((b) => b.query);
+    expect(blockedIds.some((q) => q.includes('T021'))).toBe(true);
+    expect(blockedIds.some((q) => q.includes('T022'))).toBe(true);
   });
 
   it('returns zero impact for a leaf task with no dependents', async () => {

@@ -13,14 +13,10 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
-import { ensureStagePath, getStagePath } from './rcasd-paths.js';
-import {
-  addFrontmatter,
-  buildFrontmatter,
-  type RelatedLink,
-} from './frontmatter.js';
-import { STAGE_DEFINITIONS, STAGE_PREREQUISITES, type Stage } from './stages.js';
 import { getProjectRoot } from '../paths.js';
+import { addFrontmatter, buildFrontmatter, type RelatedLink } from './frontmatter.js';
+import { ensureStagePath, getStagePath } from './rcasd-paths.js';
+import { STAGE_DEFINITIONS, STAGE_PREREQUISITES, type Stage } from './stages.js';
 
 export interface StageArtifactResult {
   absolutePath: string;
@@ -66,7 +62,12 @@ function toWorkspaceRelative(path: string, cwd?: string): string {
   return relative(projectRoot, path).replaceAll('\\', '/');
 }
 
-function buildRelatedLinks(epicId: string, stage: Stage, absolutePath: string, cwd?: string): RelatedLink[] {
+function buildRelatedLinks(
+  epicId: string,
+  stage: Stage,
+  absolutePath: string,
+  cwd?: string,
+): RelatedLink[] {
   const prereqs = STAGE_PREREQUISITES[stage] ?? [];
   const related: RelatedLink[] = [{ type: 'task', id: epicId }];
   const artifactDir = dirname(absolutePath);

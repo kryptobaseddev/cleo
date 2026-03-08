@@ -15,40 +15,54 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdtemp,readFile,rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock @cleocode/caamp to avoid requiring actual provider installations
 vi.mock('@cleocode/caamp', () => {
   const providers = [
-    { id: 'claude', name: 'Claude Code', instructionFile: 'CLAUDE.md', pathProject: '', instructFile: 'CLAUDE.md' },
-    { id: 'gemini', name: 'Gemini CLI', instructionFile: 'GEMINI.md', pathProject: '', instructFile: 'GEMINI.md' },
+    {
+      id: 'claude',
+      name: 'Claude Code',
+      instructionFile: 'CLAUDE.md',
+      pathProject: '',
+      instructFile: 'CLAUDE.md',
+    },
+    {
+      id: 'gemini',
+      name: 'Gemini CLI',
+      instructionFile: 'GEMINI.md',
+      pathProject: '',
+      instructFile: 'GEMINI.md',
+    },
   ];
 
   return {
     getInstalledProviders: vi.fn(() => providers),
     // injectAll writes @AGENTS.md into provider instruction files
-    injectAll: vi.fn(async (_providers: unknown[], projectRoot: string, _scope: string, content: string) => {
-      const { writeFile: wf } = await import('node:fs/promises');
-      const { join: pjoin } = await import('node:path');
-      const { existsSync: exists, readFileSync } = await import('node:fs');
-      const results = new Map<string, string>();
+    injectAll: vi.fn(
+      async (_providers: unknown[], projectRoot: string, _scope: string, content: string) => {
+        const { writeFile: wf } = await import('node:fs/promises');
+        const { join: pjoin } = await import('node:path');
+        const { existsSync: exists, readFileSync } = await import('node:fs');
+        const results = new Map<string, string>();
 
-      for (const p of providers) {
-        const filePath = pjoin(projectRoot, p.instructionFile);
-        let existing = '';
-        if (exists(filePath)) {
-          existing = readFileSync(filePath, 'utf-8');
+        for (const p of providers) {
+          const filePath = pjoin(projectRoot, p.instructionFile);
+          let existing = '';
+          if (exists(filePath)) {
+            existing = readFileSync(filePath, 'utf-8');
+          }
+          // Write CAAMP marker block with the content
+          const newContent = `<!-- CAAMP:START -->\n${content}\n<!-- CAAMP:END -->\n${existing}`;
+          await wf(filePath, newContent);
+          results.set(filePath, 'injected');
         }
-        // Write CAAMP marker block with the content
-        const newContent = `<!-- CAAMP:START -->\n${content}\n<!-- CAAMP:END -->\n${existing}`;
-        await wf(filePath, newContent);
-        results.set(filePath, 'injected');
-      }
-      return results;
-    }),
+        return results;
+      },
+    ),
     // inject writes CLEO content into a specific file (AGENTS.md)
     inject: vi.fn(async (filePath: string, content: string) => {
       const { writeFile: wf } = await import('node:fs/promises');
@@ -62,15 +76,24 @@ vi.mock('@cleocode/caamp', () => {
       return 'injected';
     }),
     // buildInjectionContent returns the content string passed to injectAll
-    buildInjectionContent: vi.fn(({ references }: { references: string[] }) => references.join('\n')),
+    buildInjectionContent: vi.fn(({ references }: { references: string[] }) =>
+      references.join('\n'),
+    ),
     installMcpServerToAll: vi.fn(async () => []),
     installSkill: vi.fn(async () => ({ success: true })),
     getCanonicalSkillsDir: vi.fn(() => '/mock/.agents/skills'),
     parseSkillFile: vi.fn(async () => null),
     discoverSkill: vi.fn(async () => null),
     discoverSkills: vi.fn(async () => []),
-    installBatchWithRollback: vi.fn(async () => ({ success: true, results: [], rolledBack: false })),
-    configureProviderGlobalAndProject: vi.fn(async () => ({ global: { success: true }, project: { success: true } })),
+    installBatchWithRollback: vi.fn(async () => ({
+      success: true,
+      results: [],
+      rolledBack: false,
+    })),
+    configureProviderGlobalAndProject: vi.fn(async () => ({
+      global: { success: true },
+      project: { success: true },
+    })),
   };
 });
 
@@ -114,7 +137,9 @@ describe('E2E: injection chain validation (T4694)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 

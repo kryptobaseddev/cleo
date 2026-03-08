@@ -9,13 +9,13 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // Runtime-load node:sqlite
 const _require = createRequire(import.meta.url);
@@ -65,18 +65,21 @@ function createClaudeMemFixture(dbPath: string): DatabaseSync {
 /**
  * Insert observation rows into the fixture database.
  */
-function seedObservations(db: DatabaseSync, observations: Array<{
-  type: string;
-  title: string;
-  subtitle?: string | null;
-  narrative?: string | null;
-  facts?: string | null;
-  concepts?: string | null;
-  project?: string | null;
-  files_read?: string | null;
-  files_modified?: string | null;
-  created_at?: string;
-}>): void {
+function seedObservations(
+  db: DatabaseSync,
+  observations: Array<{
+    type: string;
+    title: string;
+    subtitle?: string | null;
+    narrative?: string | null;
+    facts?: string | null;
+    concepts?: string | null;
+    project?: string | null;
+    files_read?: string | null;
+    files_modified?: string | null;
+    created_at?: string;
+  }>,
+): void {
   const stmt = db.prepare(`
     INSERT INTO observations (type, title, subtitle, narrative, facts, concepts, project, files_read, files_modified, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -101,12 +104,15 @@ function seedObservations(db: DatabaseSync, observations: Array<{
 /**
  * Insert session summary rows into the fixture database.
  */
-function seedSessionSummaries(db: DatabaseSync, summaries: Array<{
-  session_id?: string | null;
-  summary?: string | null;
-  learned?: string | null;
-  created_at?: string;
-}>): void {
+function seedSessionSummaries(
+  db: DatabaseSync,
+  summaries: Array<{
+    session_id?: string | null;
+    summary?: string | null;
+    learned?: string | null;
+    created_at?: string;
+  }>,
+): void {
   const stmt = db.prepare(`
     INSERT INTO session_summaries (session_id, summary, learned, created_at)
     VALUES (?, ?, ?, ?)
@@ -194,7 +200,9 @@ describe('Claude-mem Migration', () => {
     // Verify observations in brain.db
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const rows = nativeDb.prepare('SELECT * FROM brain_observations ORDER BY id').all() as Array<Record<string, unknown>>;
+    const rows = nativeDb.prepare('SELECT * FROM brain_observations ORDER BY id').all() as Array<
+      Record<string, unknown>
+    >;
     expect(rows).toHaveLength(5);
     expect(rows[0]!['id']).toBe('CM-1');
     expect(rows[0]!['source_type']).toBe('claude-mem');
@@ -238,7 +246,9 @@ describe('Claude-mem Migration', () => {
     // Verify decisions in brain.db
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const decisions = nativeDb.prepare('SELECT * FROM brain_decisions ORDER BY id').all() as Array<Record<string, unknown>>;
+    const decisions = nativeDb.prepare('SELECT * FROM brain_decisions ORDER BY id').all() as Array<
+      Record<string, unknown>
+    >;
     expect(decisions).toHaveLength(2);
     expect(decisions[0]!['id']).toBe('CMD-1');
     expect(decisions[0]!['type']).toBe('tactical');
@@ -282,11 +292,15 @@ describe('Claude-mem Migration', () => {
     // Verify learnings in brain.db
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const learnings = nativeDb.prepare('SELECT * FROM brain_learnings ORDER BY id').all() as Array<Record<string, unknown>>;
+    const learnings = nativeDb.prepare('SELECT * FROM brain_learnings ORDER BY id').all() as Array<
+      Record<string, unknown>
+    >;
     expect(learnings).toHaveLength(2);
 
     expect(learnings[0]!['id']).toBe('CML-1');
-    expect(learnings[0]!['insight']).toBe('Atomic writes prevent corruption; WAL mode improves concurrency');
+    expect(learnings[0]!['insight']).toBe(
+      'Atomic writes prevent corruption; WAL mode improves concurrency',
+    );
     expect(learnings[0]!['source']).toBe('claude-mem session sess-abc');
     expect(learnings[0]!['confidence']).toBe(0.5);
 
@@ -305,9 +319,7 @@ describe('Claude-mem Migration', () => {
       { type: 'discovery', title: 'Observation 1', narrative: 'First observation' },
       { type: 'decision', title: 'Decision 1', narrative: 'First decision' },
     ]);
-    seedSessionSummaries(sourceDb, [
-      { session_id: 'sess-1', learned: 'Learning 1' },
-    ]);
+    seedSessionSummaries(sourceDb, [{ session_id: 'sess-1', learned: 'Learning 1' }]);
     sourceDb.close();
 
     // First run
@@ -337,9 +349,7 @@ describe('Claude-mem Migration', () => {
       { type: 'decision', title: 'Dec 1', narrative: 'Test decision' },
       { type: 'feature', title: 'Feat 1', narrative: 'Test feature' },
     ]);
-    seedSessionSummaries(sourceDb, [
-      { session_id: 'sess-dry', learned: 'Dry run learning' },
-    ]);
+    seedSessionSummaries(sourceDb, [{ session_id: 'sess-dry', learned: 'Dry run learning' }]);
     sourceDb.close();
 
     const result = await migrateClaudeMem(tempDir, {
@@ -355,13 +365,22 @@ describe('Claude-mem Migration', () => {
     // Verify nothing was actually inserted
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const obs = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_observations').get() as Record<string, unknown>;
+    const obs = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_observations').get() as Record<
+      string,
+      unknown
+    >;
     expect(obs['cnt']).toBe(0);
 
-    const decs = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_decisions').get() as Record<string, unknown>;
+    const decs = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_decisions').get() as Record<
+      string,
+      unknown
+    >;
     expect(decs['cnt']).toBe(0);
 
-    const learns = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_learnings').get() as Record<string, unknown>;
+    const learns = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_learnings').get() as Record<
+      string,
+      unknown
+    >;
     expect(learns['cnt']).toBe(0);
   });
 
@@ -385,7 +404,9 @@ describe('Claude-mem Migration', () => {
 
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const row = nativeDb.prepare('SELECT project FROM brain_observations WHERE id = ?').get('CM-1') as Record<string, unknown>;
+    const row = nativeDb
+      .prepare('SELECT project FROM brain_observations WHERE id = ?')
+      .get('CM-1') as Record<string, unknown>;
     expect(row['project']).toBe('override-project');
   });
 
@@ -427,7 +448,9 @@ describe('Claude-mem Migration', () => {
 
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const row = nativeDb.prepare('SELECT * FROM brain_observations WHERE id = ?').get('CM-1') as Record<string, unknown>;
+    const row = nativeDb
+      .prepare('SELECT * FROM brain_observations WHERE id = ?')
+      .get('CM-1') as Record<string, unknown>;
 
     expect(row['type']).toBe('feature');
     expect(row['title']).toBe('Full-featured observation');
@@ -448,9 +471,9 @@ describe('Claude-mem Migration', () => {
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
     // Insert directly with an unknown type to bypass any validation
-    sourceDb.prepare(
-      'INSERT INTO observations (type, title, created_at) VALUES (?, ?, ?)',
-    ).run('unknown_type', 'Unknown type obs', '2026-01-20 10:00:00');
+    sourceDb
+      .prepare('INSERT INTO observations (type, title, created_at) VALUES (?, ?, ?)')
+      .run('unknown_type', 'Unknown type obs', '2026-01-20 10:00:00');
     sourceDb.close();
 
     const result = await migrateClaudeMem(tempDir, { sourcePath: claudeMemDbPath });
@@ -458,7 +481,9 @@ describe('Claude-mem Migration', () => {
 
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const row = nativeDb.prepare('SELECT type FROM brain_observations WHERE id = ?').get('CM-1') as Record<string, unknown>;
+    const row = nativeDb
+      .prepare('SELECT type FROM brain_observations WHERE id = ?')
+      .get('CM-1') as Record<string, unknown>;
     expect(row['type']).toBe('discovery');
   });
 
@@ -478,7 +503,9 @@ describe('Claude-mem Migration', () => {
 
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const row = nativeDb.prepare('SELECT rationale FROM brain_decisions WHERE id = ?').get('CMD-1') as Record<string, unknown>;
+    const row = nativeDb
+      .prepare('SELECT rationale FROM brain_decisions WHERE id = ?')
+      .get('CMD-1') as Record<string, unknown>;
     expect(row['rationale']).toBe('Imported from claude-mem');
   });
 
@@ -501,7 +528,9 @@ describe('Claude-mem Migration', () => {
 
     const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
-    const row = nativeDb.prepare('SELECT insight FROM brain_learnings WHERE id = ?').get('CML-1') as Record<string, unknown>;
+    const row = nativeDb
+      .prepare('SELECT insight FROM brain_learnings WHERE id = ?')
+      .get('CML-1') as Record<string, unknown>;
     expect(row['insight']).toBe('First thing; Second thing; Third thing');
   });
 

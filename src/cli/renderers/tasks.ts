@@ -10,9 +10,19 @@
 
 import type { Task } from '../../types/task.js';
 import {
-  BOLD, DIM, NC, RED, GREEN, YELLOW,
-  BOX, hRule,
-  statusSymbol, statusColor, prioritySymbol, priorityColor, shortDate,
+  BOLD,
+  BOX,
+  DIM,
+  GREEN,
+  hRule,
+  NC,
+  priorityColor,
+  prioritySymbol,
+  RED,
+  shortDate,
+  statusColor,
+  statusSymbol,
+  YELLOW,
 } from './colors.js';
 
 // ---------------------------------------------------------------------------
@@ -53,7 +63,8 @@ function renderShowFull(task: Task): string {
   if (task.type) lines.push(`${BOX.v}  ${DIM}Type:${NC}        ${task.type}`);
   if (task.phase) lines.push(`${BOX.v}  ${DIM}Phase:${NC}       ${task.phase}`);
   if (task.size) lines.push(`${BOX.v}  ${DIM}Size:${NC}        ${task.size}`);
-  if (task.labels?.length) lines.push(`${BOX.v}  ${DIM}Labels:${NC}      ${task.labels.join(', ')}`);
+  if (task.labels?.length)
+    lines.push(`${BOX.v}  ${DIM}Labels:${NC}      ${task.labels.join(', ')}`);
   if (task.parentId) lines.push(`${BOX.v}  ${DIM}Parent:${NC}      ${task.parentId}`);
 
   const created = shortDate(task.createdAt);
@@ -134,7 +145,7 @@ export function renderList(data: Record<string, unknown>, quiet: boolean): strin
   }
 
   if (quiet) {
-    return tasks.map(t => `${t.id} ${statusSymbol(t.status)} ${t.title}`).join('\n');
+    return tasks.map((t) => `${t.id} ${statusSymbol(t.status)} ${t.title}`).join('\n');
   }
 
   const lines: string[] = [];
@@ -188,10 +199,12 @@ export function renderFind(data: Record<string, unknown>, quiet: boolean): strin
   }
 
   if (quiet) {
-    return results.map(r => {
-      const t = r as unknown as Task;
-      return `${t.id} ${t.title}`;
-    }).join('\n');
+    return results
+      .map((r) => {
+        const t = r as unknown as Task;
+        return `${t.id} ${t.title}`;
+      })
+      .join('\n');
   }
 
   const lines: string[] = [];
@@ -278,7 +291,9 @@ export function renderComplete(data: Record<string, unknown>, quiet: boolean): s
   lines.push(`${GREEN}\u2713 Completed:${NC} ${BOLD}${task.id}${NC} ${task.title}`);
 
   if (autoCompleted?.length) {
-    lines.push(`  ${DIM}Auto-completed ${autoCompleted.length} child task${autoCompleted.length > 1 ? 's' : ''}:${NC}`);
+    lines.push(
+      `  ${DIM}Auto-completed ${autoCompleted.length} child task${autoCompleted.length > 1 ? 's' : ''}:${NC}`,
+    );
     for (const child of autoCompleted) {
       lines.push(`    ${child.id} ${child.title}`);
     }
@@ -303,7 +318,9 @@ export function renderDelete(data: Record<string, unknown>, quiet: boolean): str
   lines.push(`${RED}\u2717 Deleted:${NC} ${BOLD}${deletedTask.id}${NC} ${deletedTask.title}`);
 
   if (cascadeDeleted?.length) {
-    lines.push(`  ${DIM}Cascade-deleted ${cascadeDeleted.length} child task${cascadeDeleted.length > 1 ? 's' : ''}:${NC}`);
+    lines.push(
+      `  ${DIM}Cascade-deleted ${cascadeDeleted.length} child task${cascadeDeleted.length > 1 ? 's' : ''}:${NC}`,
+    );
     for (const child of cascadeDeleted) {
       lines.push(`    ${child.id} ${child.title}`);
     }

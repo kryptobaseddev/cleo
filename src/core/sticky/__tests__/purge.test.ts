@@ -6,12 +6,12 @@
  * @task T5363
  */
 
-import { describe, it, expect } from 'vitest';
-import { purgeSticky } from '../purge.js';
-import { addSticky } from '../create.js';
-import { getSticky } from '../show.js';
-import { archiveSticky } from '../archive.js';
+import { describe, expect, it } from 'vitest';
 import { getProjectRoot } from '../../../core/paths.js';
+import { archiveSticky } from '../archive.js';
+import { addSticky } from '../create.js';
+import { purgeSticky } from '../purge.js';
+import { getSticky } from '../show.js';
 
 describe('purgeSticky', () => {
   const projectRoot = getProjectRoot();

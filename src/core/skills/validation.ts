@@ -9,9 +9,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import type { SkillFrontmatter } from './types.js';
+import { basename, join } from 'node:path';
 import { parseFrontmatter } from './discovery.js';
+import type { SkillFrontmatter } from './types.js';
 
 // ============================================================================
 // Validation Types
@@ -44,8 +44,15 @@ export interface SkillValidationResult {
 
 /** Valid protocol types for validation. */
 const VALID_PROTOCOLS: Set<string> = new Set<string>([
-  'research', 'consensus', 'specification', 'decomposition',
-  'implementation', 'contribution', 'release', 'artifact-publish', 'provenance',
+  'research',
+  'consensus',
+  'specification',
+  'decomposition',
+  'implementation',
+  'contribution',
+  'release',
+  'artifact-publish',
+  'provenance',
 ]);
 
 /**
@@ -114,11 +121,7 @@ export function validateSkill(skillDir: string): SkillValidationResult {
  * Validate skill frontmatter content.
  * @task T4517
  */
-function validateFrontmatter(
-  fm: SkillFrontmatter,
-  issues: ValidationIssue[],
-  path: string,
-): void {
+function validateFrontmatter(fm: SkillFrontmatter, issues: ValidationIssue[], path: string): void {
   // Required fields
   if (!fm.name) {
     issues.push({
@@ -219,8 +222,8 @@ function buildResult(
   skillPath: string,
   issues: ValidationIssue[],
 ): SkillValidationResult {
-  const errorCount = issues.filter(i => i.severity === 'error').length;
-  const warningCount = issues.filter(i => i.severity === 'warning').length;
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  const warningCount = issues.filter((i) => i.severity === 'warning').length;
 
   return {
     valid: errorCount === 0,

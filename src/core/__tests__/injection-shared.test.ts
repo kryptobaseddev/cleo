@@ -7,11 +7,11 @@
  *   - checkInjection(): injection health checks (markers, refs, etc.)
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir, homedir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock scaffold.ts to control getPackageRoot and stripCLEOBlocks
 vi.mock('../scaffold.js', () => ({
@@ -24,7 +24,7 @@ vi.mock('../paths.js', () => ({
   getCleoHome: vi.fn(() => '/mock-cleo-home'),
 }));
 
-import { getInjectionTemplateContent, checkInjection, ensureInjection } from '../injection.js';
+import { checkInjection, ensureInjection, getInjectionTemplateContent } from '../injection.js';
 import { getPackageRoot } from '../scaffold.js';
 
 // ── getInjectionTemplateContent ──────────────────────────────────────
@@ -90,10 +90,7 @@ describe('checkInjection', () => {
 
   it('returns warning when CAAMP markers are unbalanced', async () => {
     // One START, no END
-    await writeFile(
-      join(tempDir, 'AGENTS.md'),
-      '<!-- CAAMP:START -->\n@some-ref\n',
-    );
+    await writeFile(join(tempDir, 'AGENTS.md'), '<!-- CAAMP:START -->\n@some-ref\n');
 
     const result = checkInjection(tempDir);
     expect(result.status).toBe('warning');
@@ -158,10 +155,7 @@ describe('checkInjection', () => {
     );
 
     // CLAUDE.md with unbalanced markers
-    await writeFile(
-      join(tempDir, 'CLAUDE.md'),
-      '<!-- CAAMP:START -->\n@AGENTS.md\n',
-    );
+    await writeFile(join(tempDir, 'CLAUDE.md'), '<!-- CAAMP:START -->\n@AGENTS.md\n');
 
     const result = checkInjection(tempDir);
     expect(result.status).toBe('warning');
@@ -233,14 +227,22 @@ describe('ensureInjection', () => {
 
   it('returns result with action when providers exist', async () => {
     const providers = [
-      { id: 'claude', name: 'Claude Code', instructionFile: 'CLAUDE.md', pathProject: '', instructFile: 'CLAUDE.md' },
+      {
+        id: 'claude',
+        name: 'Claude Code',
+        instructionFile: 'CLAUDE.md',
+        pathProject: '',
+        instructFile: 'CLAUDE.md',
+      },
     ];
 
     vi.doMock('@cleocode/caamp', () => ({
       getInstalledProviders: vi.fn(() => providers),
       injectAll: vi.fn(async () => new Map([[join(tempDir, 'CLAUDE.md'), 'injected']])),
       inject: vi.fn(async () => 'injected'),
-      buildInjectionContent: vi.fn(({ references }: { references: string[] }) => references.join('\n')),
+      buildInjectionContent: vi.fn(({ references }: { references: string[] }) =>
+        references.join('\n'),
+      ),
     }));
 
     // Create the CLAUDE.md so stripCLEOBlocks has a file to work with

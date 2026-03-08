@@ -12,8 +12,8 @@
  *  T4901
  */
 
-import type { Gateway } from '../types.js';
 import { OPERATIONS } from '../registry.js';
+import type { Gateway } from '../types.js';
 import { buildMcpInputSchema, type JSONSchemaObject } from './param-utils.js';
 
 /**
@@ -51,7 +51,7 @@ export function getOperationSchema(
   gateway: Gateway,
 ): JSONSchemaObject {
   const def = OPERATIONS.find(
-    o => o.domain === domain && o.operation === operation && o.gateway === gateway,
+    (o) => o.domain === domain && o.operation === operation && o.gateway === gateway,
   );
 
   if (!def || (def.params ?? []).length === 0) {
@@ -68,17 +68,13 @@ export function getOperationSchema(
  *
  * @returns Record keyed by "<domain>.<operation>" → JSONSchemaObject
  */
-export function getAllOperationSchemas(
-  gateway: Gateway,
-): Record<string, JSONSchemaObject> {
+export function getAllOperationSchemas(gateway: Gateway): Record<string, JSONSchemaObject> {
   const result: Record<string, JSONSchemaObject> = {};
 
   for (const def of OPERATIONS) {
     if (def.gateway !== gateway) continue;
     const key = `${def.domain}.${def.operation}`;
-    result[key] = (def.params ?? []).length === 0
-      ? PERMISSIVE_SCHEMA
-      : buildMcpInputSchema(def);
+    result[key] = (def.params ?? []).length === 0 ? PERMISSIVE_SCHEMA : buildMcpInputSchema(def);
   }
 
   return result;

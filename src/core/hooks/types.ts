@@ -1,17 +1,17 @@
 /**
  * Universal Hooks Core Types - Phase 2B of T5237
- * 
+ *
  * This module defines the core type system for CLEO's Universal Hooks
  * integration with CAAMP 1.6.0. CLEO builds the hook registry and
  * execution system while CAAMP provides the event definitions.
- * 
+ *
  * @module @cleocode/cleo/hooks/types
  */
 
 import type { HookEvent as CAAMPHookEvent } from '@cleocode/caamp';
 
 // Re-export CAAMP provider query functions for hook capability discovery
-export { getProvidersByHookEvent, getCommonHookEvents } from '@cleocode/caamp';
+export { getCommonHookEvents, getProvidersByHookEvent } from '@cleocode/caamp';
 
 /**
  * CAAMP-defined hook events supported by provider capability discovery.
@@ -32,7 +32,7 @@ export const INTERNAL_HOOK_EVENTS = [
   'onPatrol',
 ] as const;
 
-export type InternalHookEvent = typeof INTERNAL_HOOK_EVENTS[number];
+export type InternalHookEvent = (typeof INTERNAL_HOOK_EVENTS)[number];
 
 /**
  * Full CLEO hook event union.
@@ -65,16 +65,16 @@ export function isInternalHookEvent(event: HookEvent): event is InternalHookEven
 export interface HookPayload {
   /** ISO 8601 timestamp when the hook fired */
   timestamp: string;
-  
+
   /** Optional session ID if firing within a session context */
   sessionId?: string;
-  
+
   /** Optional task ID if firing within a task context */
   taskId?: string;
-  
+
   /** Optional provider ID that triggered the hook */
   providerId?: string;
-  
+
   /** Optional metadata for extensibility */
   metadata?: Record<string, unknown>;
 }
@@ -86,13 +86,13 @@ export interface HookPayload {
 export interface OnSessionStartPayload extends HookPayload {
   /** Session identifier (required for session events) */
   sessionId: string;
-  
+
   /** Human-readable session name */
   name: string;
-  
+
   /** Session scope/area of work */
   scope: string;
-  
+
   /** Optional agent identifier */
   agent?: string;
 }
@@ -104,10 +104,10 @@ export interface OnSessionStartPayload extends HookPayload {
 export interface OnSessionEndPayload extends HookPayload {
   /** Session identifier */
   sessionId: string;
-  
+
   /** Session duration in seconds */
   duration: number;
-  
+
   /** Array of task IDs completed during this session */
   tasksCompleted: string[];
 }
@@ -119,10 +119,10 @@ export interface OnSessionEndPayload extends HookPayload {
 export interface OnToolStartPayload extends HookPayload {
   /** Task identifier */
   taskId: string;
-  
+
   /** Human-readable task title */
   taskTitle: string;
-  
+
   /** Optional ID of the previous task if sequential */
   previousTask?: string;
 }
@@ -134,10 +134,10 @@ export interface OnToolStartPayload extends HookPayload {
 export interface OnToolCompletePayload extends HookPayload {
   /** Task identifier */
   taskId: string;
-  
+
   /** Human-readable task title */
   taskTitle: string;
-  
+
   /** Final status of the completed task */
   status: 'done' | 'archived' | 'cancelled';
 }
@@ -148,7 +148,7 @@ export interface OnToolCompletePayload extends HookPayload {
  */
 export type HookHandler<T extends HookPayload = HookPayload> = (
   projectRoot: string,
-  payload: T
+  payload: T,
 ) => Promise<void> | void;
 
 /**
@@ -158,13 +158,13 @@ export type HookHandler<T extends HookPayload = HookPayload> = (
 export interface HookRegistration<T extends HookPayload = HookPayload> {
   /** Unique identifier for this registration */
   id: string;
-  
+
   /** CAAMP hook event this handler listens for */
   event: HookEvent;
-  
+
   /** Handler function to execute when event fires */
   handler: HookHandler<T>;
-  
+
   /** Priority for execution order (higher = earlier) */
   priority: number;
 }
@@ -176,7 +176,7 @@ export interface HookRegistration<T extends HookPayload = HookPayload> {
 export interface HookConfig {
   /** Master switch for hook system */
   enabled: boolean;
-  
+
   /** Per-event enable/disable configuration */
   events: Record<HookEvent, boolean>;
 }

@@ -8,7 +8,7 @@
  * @task T5156
  * @epic T5150
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock getAccessor — must be before imports
 vi.mock('../../../store/data-accessor.js', () => ({
@@ -30,14 +30,28 @@ vi.mock('../../../core/tasks/find.js', () => ({
   findTasks: vi.fn(),
 }));
 
-import { getAccessor } from '../../../store/data-accessor.js';
-import { listTasks as coreListTasks, toCompact } from '../../../core/tasks/list.js';
 import { findTasks as coreFindTasks } from '../../../core/tasks/find.js';
-import { taskList, taskFind } from '../../engines/task-engine.js';
+import { listTasks as coreListTasks, toCompact } from '../../../core/tasks/list.js';
+import { getAccessor } from '../../../store/data-accessor.js';
+import { taskFind, taskList } from '../../engines/task-engine.js';
 
 const MOCK_TASKS = [
-  { id: 'T001', title: 'Task one', status: 'active', priority: 'high', description: 'First', parentId: undefined },
-  { id: 'T002', title: 'Task two', status: 'pending', priority: 'medium', description: 'Second', parentId: 'T001' },
+  {
+    id: 'T001',
+    title: 'Task one',
+    status: 'active',
+    priority: 'high',
+    description: 'First',
+    parentId: undefined,
+  },
+  {
+    id: 'T002',
+    title: 'Task two',
+    status: 'pending',
+    priority: 'medium',
+    description: 'Second',
+    parentId: 'T001',
+  },
 ];
 
 const mockAccessor = { loadTaskFile: vi.fn() };

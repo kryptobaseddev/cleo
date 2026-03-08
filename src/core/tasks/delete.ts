@@ -4,18 +4,18 @@
  * @epic T4454
  */
 
-import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath, getBackupDir } from '../paths.js';
-import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
-  safeSaveTaskFile,
-  safeSaveArchive,
   safeAppendLog,
+  safeSaveArchive,
+  safeSaveTaskFile,
 } from '../../store/data-safety-central.js';
+import { computeChecksum, readJson, readJsonRequired, saveJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getArchivePath, getBackupDir, getTaskPath } from '../paths.js';
+import { logOperation } from './add.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {
@@ -34,7 +34,11 @@ export interface DeleteTaskResult {
  * Delete a task (soft delete - moves to archive).
  * @task T4461
  */
-export async function deleteTask(options: DeleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<DeleteTaskResult> {
+export async function deleteTask(
+  options: DeleteTaskOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<DeleteTaskResult> {
   const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
   const backupDir = getBackupDir(cwd);
@@ -43,20 +47,18 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(taskPath);
 
-  const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
+  const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
   if (taskIdx === -1) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Task not found: ${options.taskId}`,
-      { fix: `Use 'cleo find "${options.taskId}"' to search` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+      fix: `Use 'cleo find "${options.taskId}"' to search`,
+    });
   }
 
   const task = data.tasks[taskIdx]!;
   const cascadeDeleted: string[] = [];
 
   // Check for children
-  const children = data.tasks.filter(t => t.parentId === options.taskId);
+  const children = data.tasks.filter((t) => t.parentId === options.taskId);
   if (children.length > 0) {
     if (!options.cascade && !options.force) {
       throw new CleoError(
@@ -65,7 +67,10 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
         {
           alternatives: [
             { action: 'Delete with children', command: `cleo delete ${options.taskId} --cascade` },
-            { action: 'Force delete (orphan children)', command: `cleo delete ${options.taskId} --force` },
+            {
+              action: 'Force delete (orphan children)',
+              command: `cleo delete ${options.taskId} --force`,
+            },
           ],
         },
       );
@@ -96,13 +101,13 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
 
   // Check for dependents (other tasks depending on this one)
   if (!options.force) {
-    const dependents = data.tasks.filter(t =>
-      t.depends?.includes(options.taskId) && t.id !== options.taskId,
+    const dependents = data.tasks.filter(
+      (t) => t.depends?.includes(options.taskId) && t.id !== options.taskId,
     );
     if (dependents.length > 0) {
       throw new CleoError(
         ExitCode.HAS_DEPENDENTS,
-        `Task ${options.taskId} is a dependency of: ${dependents.map(d => d.id).join(', ')}`,
+        `Task ${options.taskId} is a dependency of: ${dependents.map((d) => d.id).join(', ')}`,
         { fix: `Use --force to delete anyway or remove the dependency first` },
       );
     }
@@ -110,8 +115,8 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
 
   // Determine tasks to move to archive
   const idsToDelete = new Set<string>([options.taskId, ...cascadeDeleted]);
-  const tasksToArchive = data.tasks.filter(t => idsToDelete.has(t.id));
-  const remainingTasks = data.tasks.filter(t => !idsToDelete.has(t.id));
+  const tasksToArchive = data.tasks.filter((t) => idsToDelete.has(t.id));
+  const remainingTasks = data.tasks.filter((t) => !idsToDelete.has(t.id));
 
   // Read/create archive
   let archive: { archivedTasks: Task[]; version?: string } | null;
@@ -136,7 +141,7 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
   for (const t of remainingTasks) {
     if (t.depends) {
       const before = t.depends.length;
-      t.depends = t.depends.filter(d => !idsToDelete.has(d));
+      t.depends = t.depends.filter((d) => !idsToDelete.has(d));
       if (t.depends.length !== before) depsModifiedIds.add(t.id);
       if (t.depends.length === 0) delete t.depends;
     }
@@ -174,16 +179,26 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
       await safeSaveTaskFile(accessor, data, cwd);
       await safeSaveArchive(accessor, archive, cwd);
     }
-    await safeAppendLog(accessor, {
-      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      action: 'task_deleted',
-      taskId: options.taskId,
-      actor: 'system',
-      details: { title: task.title, cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined },
-      before: null,
-      after: { title: task.title, cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined },
-    }, cwd);
+    await safeAppendLog(
+      accessor,
+      {
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'task_deleted',
+        taskId: options.taskId,
+        actor: 'system',
+        details: {
+          title: task.title,
+          cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
+        },
+        before: null,
+        after: {
+          title: task.title,
+          cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
+        },
+      },
+      cwd,
+    );
   } else {
     await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archive, { backupDir });

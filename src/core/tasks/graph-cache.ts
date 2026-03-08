@@ -7,9 +7,9 @@
  */
 
 import type { Task } from '../../types/task.js';
-import { getDescendantIds, getChildIds } from './hierarchy.js';
 import { getDependentIds } from './dependency-check.js';
 import { computeDependencyWaves, type DependencyWave } from './graph-ops.js';
+import { getChildIds, getDescendantIds } from './hierarchy.js';
 
 /** Cache entry with TTL tracking. */
 interface CacheEntry<T> {

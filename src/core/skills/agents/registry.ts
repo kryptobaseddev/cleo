@@ -9,11 +9,11 @@
  * @task T4518
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import type { AgentConfig, AgentRegistry, AgentRegistryEntry } from '../types.js';
-import { parseAgentConfig, getAgentsDir } from './config.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { getCleoHome } from '../../paths.js';
+import type { AgentConfig, AgentRegistry, AgentRegistryEntry } from '../types.js';
+import { getAgentsDir, parseAgentConfig } from './config.js';
 
 // ============================================================================
 // Registry Paths
@@ -76,15 +76,11 @@ export function saveRegistry(registry: AgentRegistry): void {
  * Register an agent in the registry.
  * @task T4518
  */
-export function registerAgent(
-  name: string,
-  path: string,
-  config: AgentConfig,
-): AgentRegistryEntry {
+export function registerAgent(name: string, path: string, config: AgentConfig): AgentRegistryEntry {
   const registry = readRegistry();
 
   // Remove existing entry if present
-  registry.agents = registry.agents.filter(a => a.name !== name);
+  registry.agents = registry.agents.filter((a) => a.name !== name);
 
   const entry: AgentRegistryEntry = {
     name,
@@ -107,7 +103,7 @@ export function unregisterAgent(name: string): boolean {
   const registry = readRegistry();
   const initialCount = registry.agents.length;
 
-  registry.agents = registry.agents.filter(a => a.name !== name);
+  registry.agents = registry.agents.filter((a) => a.name !== name);
 
   if (registry.agents.length < initialCount) {
     saveRegistry(registry);
@@ -123,7 +119,7 @@ export function unregisterAgent(name: string): boolean {
  */
 export function getAgent(name: string): AgentRegistryEntry | null {
   const registry = readRegistry();
-  return registry.agents.find(a => a.name === name) ?? null;
+  return registry.agents.find((a) => a.name === name) ?? null;
 }
 
 /**
@@ -169,7 +165,7 @@ export function syncRegistry(cwd?: string): {
   }
 
   // Track existing names
-  const existingNames = new Set(registry.agents.map(a => a.name));
+  const existingNames = new Set(registry.agents.map((a) => a.name));
 
   // Add new agents
   for (const [name, config] of diskAgents) {

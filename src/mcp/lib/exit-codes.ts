@@ -194,9 +194,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Verify command parameters: {details}',
-    alternatives: [
-      { action: 'Show command help', command: 'cleo help {command}' },
-    ],
+    alternatives: [{ action: 'Show command help', command: 'cleo help {command}' }],
   },
 
   [ExitCode.E_FILE_ERROR]: {
@@ -328,9 +326,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Cannot create circular dependency: {cycle}',
-    alternatives: [
-      { action: 'View dependencies', command: 'cleo deps {taskId}' },
-    ],
+    alternatives: [{ action: 'View dependencies', command: 'cleo deps {taskId}' }],
   },
 
   [ExitCode.E_ORPHAN_DETECTED]: {
@@ -478,9 +474,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Specify valid epic scope: --scope epic:{epicId}',
-    alternatives: [
-      { action: 'List epics', command: 'cleo list --type epic' },
-    ],
+    alternatives: [{ action: 'List epics', command: 'cleo list --type epic' }],
   },
 
   [ExitCode.E_TASK_NOT_IN_SCOPE]: {
@@ -592,9 +586,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Unknown gate: {gateName}',
-    alternatives: [
-      { action: 'List valid gates', command: 'cleo gate list' },
-    ],
+    alternatives: [{ action: 'List valid gates', command: 'cleo gate list' }],
   },
 
   [ExitCode.E_INVALID_AGENT]: {
@@ -605,9 +597,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Unknown agent: {agentName}',
-    alternatives: [
-      { action: 'List valid agents', command: 'skill list' },
-    ],
+    alternatives: [{ action: 'List valid agents', command: 'skill list' }],
   },
 
   [ExitCode.E_MAX_ROUNDS_EXCEEDED]: {
@@ -628,9 +618,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Complete prerequisite gate first: {prerequisiteGate}',
-    alternatives: [
-      { action: 'View gate status', command: 'cleo lifecycle gates {taskId}' },
-    ],
+    alternatives: [{ action: 'View gate status', command: 'cleo lifecycle gates {taskId}' }],
   },
 
   [ExitCode.E_VERIFICATION_LOCKED]: {
@@ -690,9 +678,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.CRITICAL,
     retryable: false,
     fixTemplate: 'Context usage at {percentage}%, MUST use cleo safestop now',
-    alternatives: [
-      { action: 'Safe stop', command: 'cleo safestop' },
-    ],
+    alternatives: [{ action: 'Safe stop', command: 'cleo safestop' }],
   },
 
   [ExitCode.E_CONTEXT_EMERGENCY]: {
@@ -703,9 +689,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.CRITICAL,
     retryable: false,
     fixTemplate: 'Context usage at {percentage}%, EMERGENCY - use cleo safestop immediately',
-    alternatives: [
-      { action: 'Safe stop', command: 'cleo safestop' },
-    ],
+    alternatives: [{ action: 'Safe stop', command: 'cleo safestop' }],
   },
 
   [ExitCode.E_CONTEXT_STALE]: {
@@ -839,9 +823,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Increase test coverage to meet threshold',
-    alternatives: [
-      { action: 'View coverage', command: 'cleo test coverage' },
-    ],
+    alternatives: [{ action: 'View coverage', command: 'cleo test coverage' }],
   },
 
   // Nexus Errors (71-79)
@@ -1026,14 +1008,16 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
  * Get error mapping for exit code
  */
 export function getErrorMapping(exitCode: number): ErrorMapping {
-  return ERROR_MAP[exitCode] || {
-    code: 'E_UNKNOWN',
-    name: 'Unknown Error',
-    description: `Unknown exit code: ${exitCode}`,
-    category: ErrorCategory.GENERAL,
-    severity: ErrorSeverity.ERROR,
-    retryable: false,
-  };
+  return (
+    ERROR_MAP[exitCode] || {
+      code: 'E_UNKNOWN',
+      name: 'Unknown Error',
+      description: `Unknown exit code: ${exitCode}`,
+      category: ErrorCategory.GENERAL,
+      severity: ErrorSeverity.ERROR,
+      retryable: false,
+    }
+  );
 }
 
 /**
@@ -1063,7 +1047,7 @@ export function isSuccess(exitCode: number): boolean {
  */
 export function generateFixCommand(
   exitCode: number,
-  context: Record<string, string>
+  context: Record<string, string>,
 ): string | undefined {
   const mapping = getErrorMapping(exitCode);
   if (!mapping.fixTemplate) {
@@ -1083,7 +1067,7 @@ export function generateFixCommand(
  */
 export function generateSuggestions(
   exitCode: number,
-  context: Record<string, string>
+  context: Record<string, string>,
 ): ErrorAlternative[] {
   const mapping = getErrorMapping(exitCode);
   if (!mapping.alternatives) {
@@ -1109,14 +1093,14 @@ export function generateSuggestions(
  * @task T3142
  */
 export const RETRYABLE_EXIT_CODES: ReadonlySet<number> = new Set([
-  ExitCode.E_LOCK_TIMEOUT,              // 7
-  ExitCode.E_CHECKSUM_MISMATCH,         // 20
-  ExitCode.E_CONCURRENT_MODIFICATION,   // 21
-  ExitCode.E_ID_COLLISION,              // 22
-  ExitCode.E_PROTOCOL_RESEARCH,         // 60
-  ExitCode.E_PROTOCOL_CONSENSUS,        // 61
-  ExitCode.E_PROTOCOL_SPECIFICATION,    // 62
-  ExitCode.E_PROTOCOL_DECOMPOSITION,    // 63
+  ExitCode.E_LOCK_TIMEOUT, // 7
+  ExitCode.E_CHECKSUM_MISMATCH, // 20
+  ExitCode.E_CONCURRENT_MODIFICATION, // 21
+  ExitCode.E_ID_COLLISION, // 22
+  ExitCode.E_PROTOCOL_RESEARCH, // 60
+  ExitCode.E_PROTOCOL_CONSENSUS, // 61
+  ExitCode.E_PROTOCOL_SPECIFICATION, // 62
+  ExitCode.E_PROTOCOL_DECOMPOSITION, // 63
 ]);
 
 /**
@@ -1126,10 +1110,10 @@ export const RETRYABLE_EXIT_CODES: ReadonlySet<number> = new Set([
  * @task T3142
  */
 export const NON_RECOVERABLE_EXIT_CODES: ReadonlySet<number> = new Set([
-  ExitCode.E_LIFECYCLE_GATE_FAILED,         // 80
-  ExitCode.E_CIRCULAR_VALIDATION,           // 82
-  ExitCode.E_LIFECYCLE_TRANSITION_INVALID,  // 83
-  ExitCode.E_PROVENANCE_REQUIRED,           // 84
+  ExitCode.E_LIFECYCLE_GATE_FAILED, // 80
+  ExitCode.E_CIRCULAR_VALIDATION, // 82
+  ExitCode.E_LIFECYCLE_TRANSITION_INVALID, // 83
+  ExitCode.E_PROVENANCE_REQUIRED, // 84
 ]);
 
 /**

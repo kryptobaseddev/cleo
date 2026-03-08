@@ -6,9 +6,9 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
+import { CleoError } from '../errors.js';
 import type { TaskFileExt } from './types.js';
 
 export interface ContextDriftResult {
@@ -61,10 +61,7 @@ export async function getContextDrift(
     const sessions = await accessor.loadSessions();
     session = sessions.find((s) => s.id === params.sessionId);
     if (!session) {
-      throw new CleoError(
-        ExitCode.SESSION_NOT_FOUND,
-        `Session '${params.sessionId}' not found`,
-      );
+      throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${params.sessionId}' not found`);
     }
   } else {
     const activeSessionId = current._meta?.activeSession;
@@ -95,18 +92,12 @@ export async function getContextDrift(
     inScopeIds.add(rootTaskId);
 
     const inScopeTasks = tasks.filter((t) => inScopeIds.has(t.id));
-    const completedInScope = inScopeTasks.filter(
-      (t) => t.status === 'done',
-    ).length;
+    const completedInScope = inScopeTasks.filter((t) => t.status === 'done').length;
     const totalInScope = inScopeTasks.length;
 
-    const score =
-      totalInScope > 0
-        ? Math.round((completedInScope / totalInScope) * 100)
-        : 0;
+    const score = totalInScope > 0 ? Math.round((completedInScope / totalInScope) * 100) : 0;
     factors.push('Single-session mode (focus-based scope)');
-    if (completedInScope === 0)
-      factors.push('No tasks completed in scope yet');
+    if (completedInScope === 0) factors.push('No tasks completed in scope yet');
 
     return { score, factors, completedInScope, totalInScope, outOfScope: 0 };
   }
@@ -115,10 +106,7 @@ export async function getContextDrift(
   const rootTaskId = session.scope.rootTaskId ?? session.scope.epicId ?? '';
   const inScopeIds = new Set<string>();
 
-  if (
-    session.scope.explicitTaskIds &&
-    session.scope.explicitTaskIds.length > 0
-  ) {
+  if (session.scope.explicitTaskIds && session.scope.explicitTaskIds.length > 0) {
     for (const id of session.scope.explicitTaskIds) {
       inScopeIds.add(id);
     }
@@ -139,9 +127,7 @@ export async function getContextDrift(
   }
 
   const inScopeTasks = tasks.filter((t) => inScopeIds.has(t.id));
-  const completedInScope = inScopeTasks.filter(
-    (t) => t.status === 'done',
-  ).length;
+  const completedInScope = inScopeTasks.filter((t) => t.status === 'done').length;
   const totalInScope = inScopeTasks.length;
 
   // Detect out-of-scope work: tasks completed during session that are NOT in scope
@@ -150,9 +136,7 @@ export async function getContextDrift(
   for (const task of tasks) {
     if (!inScopeIds.has(task.id) && task.status === 'done') {
       const completedAt =
-        typeof task.completedAt === 'string'
-          ? new Date(task.completedAt).getTime()
-          : 0;
+        typeof task.completedAt === 'string' ? new Date(task.completedAt).getTime() : 0;
       if (completedAt >= sessionStartTime) {
         outOfScope++;
       }
@@ -163,26 +147,17 @@ export async function getContextDrift(
   let score = 0;
   if (totalInScope > 0) {
     const progressRatio = completedInScope / totalInScope;
-    const driftPenalty =
-      outOfScope > 0 ? Math.min(outOfScope / totalInScope, 0.5) : 0;
-    score = Math.round(
-      Math.max(0, Math.min(100, progressRatio * 100 - driftPenalty * 50)),
-    );
+    const driftPenalty = outOfScope > 0 ? Math.min(outOfScope / totalInScope, 0.5) : 0;
+    score = Math.round(Math.max(0, Math.min(100, progressRatio * 100 - driftPenalty * 50)));
   }
 
   if (totalInScope === 0) factors.push('No tasks found in session scope');
-  if (completedInScope === 0 && totalInScope > 0)
-    factors.push('No tasks completed in scope yet');
+  if (completedInScope === 0 && totalInScope > 0) factors.push('No tasks completed in scope yet');
   if (completedInScope === totalInScope && totalInScope > 0)
     factors.push('All in-scope tasks completed');
-  if (outOfScope > 0)
-    factors.push(
-      `${outOfScope} task(s) completed outside of session scope`,
-    );
-  if (outOfScope === 0 && completedInScope > 0)
-    factors.push('All completed work is within scope');
-  if (session.scope.type)
-    factors.push(`Scope type: ${session.scope.type}`);
+  if (outOfScope > 0) factors.push(`${outOfScope} task(s) completed outside of session scope`);
+  if (outOfScope === 0 && completedInScope > 0) factors.push('All completed work is within scope');
+  if (session.scope.type) factors.push(`Scope type: ${session.scope.type}`);
 
   return { score, factors, completedInScope, totalInScope, outOfScope };
 }

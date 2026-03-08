@@ -7,10 +7,10 @@
  * @epic T4545
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
 import { writeFile } from 'node:fs/promises';
-import type { Task } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { buildExportPackage } from '../../store/export.js';
+import type { Task } from '../../types/task.js';
 
 interface FilterEntry {
   key: string;
@@ -42,9 +42,7 @@ function applyFilters(tasks: Task[], filters: FilterEntry[]): Task[] {
       }
       case 'labels': {
         const values = filter.value.split(',').map((s) => s.trim());
-        result = result.filter((t) =>
-          t.labels?.some((l) => values.includes(l)) ?? false,
-        );
+        result = result.filter((t) => t.labels?.some((l) => values.includes(l)) ?? false);
         break;
       }
       case 'type': {

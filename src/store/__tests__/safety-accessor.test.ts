@@ -15,12 +15,12 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskFile } from '../../types/task.js';
-import type { DataAccessor, ArchiveFile, SessionsFile } from '../data-accessor.js';
+import type { ArchiveFile, DataAccessor, SessionsFile } from '../data-accessor.js';
 
 // Mock git-checkpoint
 vi.mock('../git-checkpoint.js', () => ({
@@ -70,14 +70,30 @@ describe('SafetyDataAccessor', () => {
 
     return {
       engine: 'sqlite' as const,
-      async loadTaskFile() { return data.taskFile; },
-      async saveTaskFile(d: TaskFile) { data.taskFile = d; },
-      async loadTodoFile() { return data.taskFile; },
-      async saveTodoFile(d: TaskFile) { data.taskFile = d; },
-      async loadArchive() { return data.archive; },
-      async saveArchive(d: ArchiveFile) { data.archive = d; },
-      async loadSessions() { return data.sessions; },
-      async saveSessions(d: SessionsFile) { data.sessions = d; },
+      async loadTaskFile() {
+        return data.taskFile;
+      },
+      async saveTaskFile(d: TaskFile) {
+        data.taskFile = d;
+      },
+      async loadTodoFile() {
+        return data.taskFile;
+      },
+      async saveTodoFile(d: TaskFile) {
+        data.taskFile = d;
+      },
+      async loadArchive() {
+        return data.archive;
+      },
+      async saveArchive(d: ArchiveFile) {
+        data.archive = d;
+      },
+      async loadSessions() {
+        return data.sessions;
+      },
+      async saveSessions(d: SessionsFile) {
+        data.sessions = d;
+      },
       async appendLog() {},
       async close() {},
     };

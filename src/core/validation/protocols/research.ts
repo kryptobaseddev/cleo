@@ -4,9 +4,9 @@
  * @epic T4798
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { CleoError } from '../../errors.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { CleoError } from '../../errors.js';
 import { getManifestPath } from '../../paths.js';
 
 interface ValidationResult {
@@ -50,7 +50,11 @@ export async function validateResearchTask(
   }
 
   // RSCH-002: key_findings must be present and non-empty
-  if (!manifest.key_findings || !Array.isArray(manifest.key_findings) || manifest.key_findings.length === 0) {
+  if (
+    !manifest.key_findings ||
+    !Array.isArray(manifest.key_findings) ||
+    manifest.key_findings.length === 0
+  ) {
     violations.push({
       code: 'RSCH-002',
       severity: 'high',

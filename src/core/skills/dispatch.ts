@@ -13,16 +13,12 @@
  * @task T4517
  */
 
-import { catalog } from '@cleocode/caamp';
 import type { CtDispatchMatrix } from '@cleocode/caamp';
+import { catalog } from '@cleocode/caamp';
 import type { Task } from '../../types/task.js';
-import type {
-  DispatchResult,
-  Skill,
-  SkillProtocolType,
-} from './types.js';
 import { discoverAllSkills, findSkill } from './discovery.js';
 import { injectTokens } from './injection/token.js';
+import type { DispatchResult, Skill, SkillProtocolType } from './types.js';
 
 // ============================================================================
 // Keyword Dispatch Map
@@ -30,16 +26,36 @@ import { injectTokens } from './injection/token.js';
 
 /** Keyword patterns mapped to skill names. */
 const KEYWORD_DISPATCH: Array<{ pattern: RegExp; skill: string; protocol?: SkillProtocolType }> = [
-  { pattern: /\b(research|investigate|explore|analyze|study)\b/i, skill: 'ct-research-agent', protocol: 'research' },
-  { pattern: /\b(spec|rfc|design|specification)\b/i, skill: 'ct-spec-writer', protocol: 'specification' },
-  { pattern: /\b(epic|plan|decompose|breakdown)\b/i, skill: 'ct-epic-architect', protocol: 'decomposition' },
-  { pattern: /\b(implement|build|create|code|develop)\b/i, skill: 'ct-task-executor', protocol: 'implementation' },
+  {
+    pattern: /\b(research|investigate|explore|analyze|study)\b/i,
+    skill: 'ct-research-agent',
+    protocol: 'research',
+  },
+  {
+    pattern: /\b(spec|rfc|design|specification)\b/i,
+    skill: 'ct-spec-writer',
+    protocol: 'specification',
+  },
+  {
+    pattern: /\b(epic|plan|decompose|breakdown)\b/i,
+    skill: 'ct-epic-architect',
+    protocol: 'decomposition',
+  },
+  {
+    pattern: /\b(implement|build|create|code|develop)\b/i,
+    skill: 'ct-task-executor',
+    protocol: 'implementation',
+  },
   { pattern: /\b(test|vitest|testing|unit test)\b/i, skill: 'ct-dev-workflow' },
   { pattern: /\b(validate|check|verify|audit)\b/i, skill: 'ct-validator' },
   { pattern: /\b(doc|document|documentation|write docs)\b/i, skill: 'ct-documentor' },
   { pattern: /\b(vote|consensus|decide)\b/i, skill: 'ct-task-executor', protocol: 'consensus' },
   { pattern: /\b(release|version|publish)\b/i, skill: 'ct-task-executor', protocol: 'release' },
-  { pattern: /\b(pr|merge|contribution|shared)\b/i, skill: 'ct-task-executor', protocol: 'contribution' },
+  {
+    pattern: /\b(pr|merge|contribution|shared)\b/i,
+    skill: 'ct-task-executor',
+    protocol: 'contribution',
+  },
 ];
 
 /** Type-to-protocol mapping. */
@@ -87,7 +103,7 @@ function dispatchByLabels(task: Task, skills: Skill[]): DispatchResult | null {
   const labels = task.labels ?? [];
   if (labels.length === 0) return null;
 
-  const labelSet = new Set(labels.map(l => l.toLowerCase()));
+  const labelSet = new Set(labels.map((l) => l.toLowerCase()));
 
   for (const skill of skills) {
     const tags = skill.frontmatter.tags ?? [];
@@ -260,7 +276,7 @@ export function prepareSpawnContext(
   cwd?: string,
 ): { skill: string; protocol: SkillProtocolType | null; dispatch: DispatchResult } {
   const dispatch = overrideSkill
-    ? dispatchExplicit(overrideSkill, cwd) ?? autoDispatch(task, cwd)
+    ? (dispatchExplicit(overrideSkill, cwd) ?? autoDispatch(task, cwd))
     : autoDispatch(task, cwd);
 
   return {
@@ -330,7 +346,9 @@ function loadProgressive(content: string): string {
   }
 
   result.push('');
-  result.push('> **Note**: This skill is loaded in progressive mode. Request full content if needed.');
+  result.push(
+    '> **Note**: This skill is loaded in progressive mode. Request full content if needed.',
+  );
 
   return result.join('\n');
 }
@@ -396,4 +414,3 @@ export function prepareSpawnMulti(
     prompt,
   };
 }
-

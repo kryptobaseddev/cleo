@@ -3,7 +3,7 @@
  * @task T5069
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../../types/task.js';
 
 // Mock the data accessor
@@ -69,9 +69,7 @@ describe('coreTaskDepends transitive hints', () => {
     setupTasks(tasks);
 
     const result = await coreTaskDepends('/mock', 'T003');
-    expect(result.leafBlockers).toEqual([
-      { id: 'T001', title: 'Root task', status: 'pending' },
-    ]);
+    expect(result.leafBlockers).toEqual([{ id: 'T001', title: 'Root task', status: 'pending' }]);
   });
 
   it('hint is present when chain > 0, absent when resolved', async () => {

@@ -8,32 +8,35 @@
  * @task T4784
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolveProjectRoot } from '../../core/platform.js';
-import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
-import { getAccessor } from '../../store/data-accessor.js';
-import type { TaskRecord } from './task-engine.js';
-import type { Task } from '../../types/task.js';
-import type { BrainState } from '../../types/operations/orchestrate.js';
-import type { CLEOSpawnAdapter, CLEOSpawnContext } from '../../types/spawn.js';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Provider } from '@cleocode/caamp';
-
+import { buildBrainState } from '../../core/orchestration/bootstrap.js';
+import { getCriticalPath } from '../../core/orchestration/critical-path.js';
 // Core module imports
 import {
   analyzeEpic,
-  getReadyTasks,
   getNextTask,
+  getReadyTasks,
   prepareSpawn,
 } from '../../core/orchestration/index.js';
-import { computeWaves, getEnrichedWaves } from '../../core/orchestration/waves.js';
-import { getCriticalPath } from '../../core/orchestration/critical-path.js';
-import { getUnblockOpportunities } from '../../core/orchestration/unblock.js';
-import { startParallelExecution, endParallelExecution, getParallelStatus } from '../../core/orchestration/parallel.js';
+import {
+  endParallelExecution,
+  getParallelStatus,
+  startParallelExecution,
+} from '../../core/orchestration/parallel.js';
 import { getSkillContent } from '../../core/orchestration/skill-ops.js';
+import { getUnblockOpportunities } from '../../core/orchestration/unblock.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
-import { buildBrainState } from '../../core/orchestration/bootstrap.js';
-import { engineError, type EngineResult } from './_error.js';
-import { sessionEnd, sessionStatus, sessionContextInject } from './session-engine.js';
+import { computeWaves, getEnrichedWaves } from '../../core/orchestration/waves.js';
+import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
+import { resolveProjectRoot } from '../../core/platform.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { BrainState } from '../../types/operations/orchestrate.js';
+import type { CLEOSpawnAdapter, CLEOSpawnContext } from '../../types/spawn.js';
+import type { Task } from '../../types/task.js';
+import { type EngineResult, engineError } from './_error.js';
+import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
+import type { TaskRecord } from './task-engine.js';
 
 type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
 
@@ -99,12 +102,12 @@ export async function orchestrateStatus(
     const tasks = await loadTasks(root);
 
     if (epicId) {
-      const epic = tasks.find(t => t.id === epicId);
+      const epic = tasks.find((t) => t.id === epicId);
       if (!epic) {
         return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
       }
 
-      const children = tasks.filter(t => t.parentId === epicId);
+      const children = tasks.filter((t) => t.parentId === epicId);
       const waves = computeWaves(children as unknown as Task[]);
 
       return {
@@ -114,21 +117,21 @@ export async function orchestrateStatus(
           epicTitle: epic.title,
           totalTasks: children.length,
           byStatus: {
-            pending: children.filter(t => t.status === 'pending').length,
-            active: children.filter(t => t.status === 'active').length,
-            blocked: children.filter(t => t.status === 'blocked').length,
-            done: children.filter(t => t.status === 'done').length,
-            cancelled: children.filter(t => t.status === 'cancelled').length,
+            pending: children.filter((t) => t.status === 'pending').length,
+            active: children.filter((t) => t.status === 'active').length,
+            blocked: children.filter((t) => t.status === 'blocked').length,
+            done: children.filter((t) => t.status === 'done').length,
+            cancelled: children.filter((t) => t.status === 'cancelled').length,
           },
           waves: waves.length,
-          currentWave: waves.find(w => w.status !== 'completed')?.waveNumber || null,
+          currentWave: waves.find((w) => w.status !== 'completed')?.waveNumber || null,
         },
       };
     }
 
     // No epicId - return overall status
     const epics = tasks.filter(
-      t => !t.parentId && (t.type === 'epic' || tasks.some(c => c.parentId === t.id)),
+      (t) => !t.parentId && (t.type === 'epic' || tasks.some((c) => c.parentId === t.id)),
     );
 
     return {
@@ -137,10 +140,10 @@ export async function orchestrateStatus(
         totalEpics: epics.length,
         totalTasks: tasks.length,
         byStatus: {
-          pending: tasks.filter(t => t.status === 'pending').length,
-          active: tasks.filter(t => t.status === 'active').length,
-          blocked: tasks.filter(t => t.status === 'blocked').length,
-          done: tasks.filter(t => t.status === 'done').length,
+          pending: tasks.filter((t) => t.status === 'pending').length,
+          active: tasks.filter((t) => t.status === 'active').length,
+          blocked: tasks.filter((t) => t.status === 'blocked').length,
+          done: tasks.filter((t) => t.status === 'done').length,
         },
       },
     };
@@ -175,7 +178,7 @@ export async function orchestrateAnalyze(
 
     // Add dependency graph and circular dep detection that core analyzeEpic provides
     const tasks = await loadTasks(root);
-    const children = tasks.filter(t => t.parentId === epicId);
+    const children = tasks.filter((t) => t.parentId === epicId);
 
     // Build dependency graph
     const graph = new Map<string, Set<string>>();
@@ -212,12 +215,12 @@ export async function orchestrateAnalyze(
     }
 
     // Missing deps
-    const childIds = new Set(children.map(t => t.id));
+    const childIds = new Set(children.map((t) => t.id));
     const missingDeps: Array<{ taskId: string; missingDep: string }> = [];
     for (const task of children) {
       if (task.depends) {
         for (const dep of task.depends) {
-          if (!childIds.has(dep) && !tasks.find(t => t.id === dep && t.status === 'done')) {
+          if (!childIds.has(dep) && !tasks.find((t) => t.id === dep && t.status === 'done')) {
             missingDeps.push({ taskId: task.id, missingDep: dep });
           }
         }
@@ -228,7 +231,7 @@ export async function orchestrateAnalyze(
       success: true,
       data: {
         epicId: result.epicId,
-        epicTitle: tasks.find(t => t.id === epicId)?.title || epicId,
+        epicTitle: tasks.find((t) => t.id === epicId)?.title || epicId,
         totalTasks: result.totalTasks,
         waves: result.waves,
         circularDependencies: circularDeps,
@@ -260,13 +263,13 @@ export async function orchestrateReady(
     const root = projectRoot || resolveProjectRoot();
     const accessor = await getAccessor(root);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter(t => t.ready);
+    const ready = readyTasks.filter((t) => t.ready);
 
     return {
       success: true,
       data: {
         epicId,
-        readyTasks: ready.map(t => ({
+        readyTasks: ready.map((t) => ({
           id: t.taskId,
           title: t.title,
           priority: 'medium', // getReadyTasks doesn't return priority
@@ -285,10 +288,7 @@ export async function orchestrateReady(
  * orchestrate.next - Next task to spawn
  * @task T4478
  */
-export async function orchestrateNext(
-  epicId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function orchestrateNext(epicId: string, projectRoot?: string): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
@@ -311,14 +311,16 @@ export async function orchestrateNext(
 
     // Get all ready tasks for alternatives
     const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter(t => t.ready);
+    const ready = readyTasks.filter((t) => t.ready);
 
     return {
       success: true,
       data: {
         epicId,
         nextTask: { id: nextTask.taskId, title: nextTask.title, priority: 'medium' },
-        alternatives: ready.slice(1, 4).map(t => ({ id: t.taskId, title: t.title, priority: 'medium' })),
+        alternatives: ready
+          .slice(1, 4)
+          .map((t) => ({ id: t.taskId, title: t.title, priority: 'medium' })),
         totalReady: ready.length,
       },
     };
@@ -365,7 +367,7 @@ export async function orchestrateContext(
 
     let taskCount = tasks.length;
     if (epicId) {
-      taskCount = tasks.filter(t => t.parentId === epicId).length;
+      taskCount = tasks.filter((t) => t.parentId === epicId).length;
     }
 
     const estimatedTokens = taskCount * 100;
@@ -375,7 +377,7 @@ export async function orchestrateContext(
     if (existsSync(manifestPath)) {
       try {
         const content = readFileSync(manifestPath, 'utf-8');
-        manifestEntries = content.split('\n').filter(l => l.trim()).length;
+        manifestEntries = content.split('\n').filter((l) => l.trim()).length;
       } catch {
         // ignore
       }
@@ -388,9 +390,10 @@ export async function orchestrateContext(
         taskCount,
         manifestEntries,
         estimatedTokens,
-        recommendation: estimatedTokens > 5000
-          ? 'Consider using manifest summaries instead of full task details'
-          : 'Context usage is within recommended limits',
+        recommendation:
+          estimatedTokens > 5000
+            ? 'Consider using manifest summaries instead of full task details'
+            : 'Context usage is within recommended limits',
         limits: {
           orchestratorBudget: 10000,
           maxFilesPerAgent: 3,
@@ -430,7 +433,12 @@ export async function orchestrateValidate(
  * @task T5236
  */
 export async function orchestrateSpawnSelectProvider(
-  capabilities: Array<'supportsSubagents' | 'supportsProgrammaticSpawn' | 'supportsInterAgentComms' | 'supportsParallelSpawn'>,
+  capabilities: Array<
+    | 'supportsSubagents'
+    | 'supportsProgrammaticSpawn'
+    | 'supportsInterAgentComms'
+    | 'supportsParallelSpawn'
+  >,
   _projectRoot?: string,
 ): Promise<EngineResult> {
   if (!capabilities || capabilities.length === 0) {
@@ -438,12 +446,12 @@ export async function orchestrateSpawnSelectProvider(
   }
 
   try {
-    const { initializeDefaultAdapters, spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
-    const {
-      getAllProviders,
-      getProvidersBySpawnCapability,
-      providerSupportsById,
-    } = await import('@cleocode/caamp');
+    const { initializeDefaultAdapters, spawnRegistry } = await import(
+      '../../core/spawn/adapter-registry.js'
+    );
+    const { getAllProviders, getProvidersBySpawnCapability, providerSupportsById } = await import(
+      '@cleocode/caamp'
+    );
 
     await initializeDefaultAdapters();
 
@@ -455,15 +463,15 @@ export async function orchestrateSpawnSelectProvider(
       matchingProviders = getProvidersBySpawnCapability(capabilities[0]);
     } else {
       // Multiple capabilities - find intersection
-      const providerSets = capabilities.map(cap =>
-        new Set(getProvidersBySpawnCapability(cap).map((p: Provider) => p.id))
+      const providerSets = capabilities.map(
+        (cap) => new Set(getProvidersBySpawnCapability(cap).map((p: Provider) => p.id)),
       );
 
       // Find intersection of all provider IDs
       const allProviders = await spawnRegistry.listSpawnCapable();
       const intersection = allProviders
-        .filter(adapter => providerSets.every(set => set.has(adapter.providerId)))
-        .map(adapter => getAllProviders().find((p: Provider) => p.id === adapter.providerId))
+        .filter((adapter) => providerSets.every((set) => set.has(adapter.providerId)))
+        .map((adapter) => getAllProviders().find((p: Provider) => p.id === adapter.providerId))
         .filter((provider): provider is Provider => provider !== undefined);
 
       matchingProviders = intersection;
@@ -514,8 +522,8 @@ export async function orchestrateSpawnSelectProvider(
       data: {
         providerId: adapter.providerId,
         adapterId: adapter.id,
-        capabilities: capabilities.filter(cap =>
-          providerSupportsById(adapter.providerId, `spawn.${cap}`)
+        capabilities: capabilities.filter((cap) =>
+          providerSupportsById(adapter.providerId, `spawn.${cap}`),
         ),
       },
     };
@@ -539,7 +547,9 @@ export async function orchestrateSpawnExecute(
 
   try {
     // Get spawn registry
-    const { initializeDefaultAdapters, spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+    const { initializeDefaultAdapters, spawnRegistry } = await import(
+      '../../core/spawn/adapter-registry.js'
+    );
     await initializeDefaultAdapters();
 
     // Find adapter
@@ -638,7 +648,6 @@ export async function orchestrateSpawnExecute(
         timing: result.timing,
       },
     };
-
   } catch (error) {
     return {
       success: false,
@@ -718,15 +727,15 @@ export async function orchestrateStartup(
     const accessor = await getAccessor(root);
 
     const tasks = await loadTasks(root);
-    const epic = tasks.find(t => t.id === epicId);
+    const epic = tasks.find((t) => t.id === epicId);
     if (!epic) {
       return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
     }
 
-    const children = tasks.filter(t => t.parentId === epicId);
+    const children = tasks.filter((t) => t.parentId === epicId);
     const waves = computeWaves(children as unknown as Task[]);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter(t => t.ready);
+    const ready = readyTasks.filter((t) => t.ready);
 
     return {
       success: true,
@@ -739,10 +748,10 @@ export async function orchestrateStartup(
           totalWaves: waves.length,
           readyTasks: ready.length,
           byStatus: {
-            pending: children.filter(t => t.status === 'pending').length,
-            active: children.filter(t => t.status === 'active').length,
-            blocked: children.filter(t => t.status === 'blocked').length,
-            done: children.filter(t => t.status === 'done').length,
+            pending: children.filter((t) => t.status === 'pending').length,
+            active: children.filter((t) => t.status === 'active').length,
+            blocked: children.filter((t) => t.status === 'blocked').length,
+            done: children.filter((t) => t.status === 'done').length,
           },
         },
         firstWave: waves[0] || null,
@@ -777,9 +786,7 @@ export async function orchestrateBootstrap(
  * orchestrate.critical-path - Find the longest dependency chain
  * @task T4478
  */
-export async function orchestrateCriticalPath(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function orchestrateCriticalPath(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
     const accessor = await getAccessor(root);
@@ -794,9 +801,7 @@ export async function orchestrateCriticalPath(
  * orchestrate.unblock-opportunities - Analyze dependency graph for unblocking opportunities
  * @task T4478
  */
-export async function orchestrateUnblockOpportunities(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function orchestrateUnblockOpportunities(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
     const accessor = await getAccessor(root);
@@ -908,19 +913,17 @@ export function orchestrateParallelEnd(
  * orchestrate.check - Check current orchestration state
  * @task T4632
  */
-export async function orchestrateCheck(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function orchestrateCheck(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
     const parallelState = getParallelStatus(root);
     const tasks = await loadTasks(root);
 
-    const activeTasks = tasks.filter(t => t.status === 'active');
+    const activeTasks = tasks.filter((t) => t.status === 'active');
     const total = tasks.length;
-    const done = tasks.filter(t => t.status === 'done').length;
-    const pending = tasks.filter(t => t.status === 'pending').length;
-    const blocked = tasks.filter(t => t.status === 'blocked').length;
+    const done = tasks.filter((t) => t.status === 'done').length;
+    const pending = tasks.filter((t) => t.status === 'pending').length;
+    const blocked = tasks.filter((t) => t.status === 'blocked').length;
 
     return {
       success: true,
@@ -932,7 +935,7 @@ export async function orchestrateCheck(
           tasks: parallelState.tasks || [],
           startedAt: parallelState.startedAt || null,
         },
-        activeTasks: activeTasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+        activeTasks: activeTasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
         progress: {
           total,
           done,
@@ -952,10 +955,7 @@ export async function orchestrateCheck(
  * orchestrate.skill.inject - Read skill content for injection into agent context
  * @task T4632
  */
-export function orchestrateSkillInject(
-  skillName: string,
-  projectRoot?: string,
-): EngineResult {
+export function orchestrateSkillInject(skillName: string, projectRoot?: string): EngineResult {
   try {
     const root = projectRoot || resolveProjectRoot();
     const result = getSkillContent(skillName, root);
@@ -1002,7 +1002,8 @@ export async function orchestrateHandoff(
     key: params.idempotencyKey ?? null,
     policy: 'non-idempotent' as const,
     safeRetryFrom: 'start' as 'start' | 'orchestrate.spawn',
-    reason: 'session.end and orchestrate.spawn mutate state and may be executed independently on retry',
+    reason:
+      'session.end and orchestrate.spawn mutate state and may be executed independently on retry',
   };
 
   let activeSessionId: string | null = null;
@@ -1023,13 +1024,15 @@ export async function orchestrateHandoff(
         idempotency,
         steps,
       } satisfies HandoffFailureDetails,
-      fix: safeRetryFrom === 'orchestrate.spawn'
-        ? 'Retry only step 3 with mutate orchestrate spawn'
-        : 'Retry from step 1 with mutate orchestrate handoff',
+      fix:
+        safeRetryFrom === 'orchestrate.spawn'
+          ? 'Retry only step 3 with mutate orchestrate spawn'
+          : 'Retry from step 1 with mutate orchestrate handoff',
       alternatives: [
         {
           action: 'Run canonical multi-op fallback manually',
-          command: 'mutate session context.inject -> mutate session end -> mutate orchestrate spawn',
+          command:
+            'mutate session context.inject -> mutate session end -> mutate orchestrate spawn',
         },
       ],
     });

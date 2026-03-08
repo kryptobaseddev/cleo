@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { registerTestingCommand } from '../commands/testing.js';
 
 describe('registerTestingCommand', () => {

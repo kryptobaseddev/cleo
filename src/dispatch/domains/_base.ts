@@ -44,15 +44,17 @@ export function wrapResult(
     success: result.success,
     ...(result.success ? { data: result.data } : {}),
     ...(result.page ? { page: result.page } : {}),
-    ...(result.error ? {
-      error: {
-        code: result.error.code,
-        message: result.error.message,
-        details: result.error.details as Record<string, unknown> | undefined,
-        fix: result.error.fix,
-        alternatives: result.error.alternatives,
-      },
-    } : {}),
+    ...(result.error
+      ? {
+          error: {
+            code: result.error.code,
+            message: result.error.message,
+            details: result.error.details as Record<string, unknown> | undefined,
+            fix: result.error.fix,
+            alternatives: result.error.alternatives,
+          },
+        }
+      : {}),
   };
 }
 
@@ -93,9 +95,13 @@ export function unsupportedOp(
 /**
  * Extract limit and offset pagination params from a params dict.
  */
-export function getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+export function getListParams(params?: Record<string, unknown>): {
+  limit?: number;
+  offset?: number;
+} {
   const limit = typeof params?.limit === 'number' && params.limit > 0 ? params.limit : undefined;
-  const offset = typeof params?.offset === 'number' && params.offset > 0 ? params.offset : undefined;
+  const offset =
+    typeof params?.offset === 'number' && params.offset > 0 ? params.offset : undefined;
   return { limit, offset };
 }
 

@@ -50,18 +50,13 @@ function daysSince(dateStr: string): number {
  * Get the most recent activity timestamp for a task.
  */
 export function getLastActivity(task: Task): string {
-  const dates = [
-    task.updatedAt,
-    task.createdAt,
-    task.completedAt,
-    task.cancelledAt,
-  ].filter((d): d is string => d != null && d !== '');
+  const dates = [task.updatedAt, task.createdAt, task.completedAt, task.cancelledAt].filter(
+    (d): d is string => d != null && d !== '',
+  );
 
   if (dates.length === 0) return task.createdAt;
 
-  return dates.reduce((latest, d) =>
-    new Date(d) > new Date(latest) ? d : latest,
-  );
+  return dates.reduce((latest, d) => (new Date(d) > new Date(latest) ? d : latest));
 }
 
 /**
@@ -86,10 +81,7 @@ export function classifyStaleness(
 /**
  * Get staleness info for a single task.
  */
-export function getStalenessInfo(
-  task: Task,
-  thresholds?: StalenessThresholds,
-): StalenessInfo {
+export function getStalenessInfo(task: Task, thresholds?: StalenessThresholds): StalenessInfo {
   const lastActivity = getLastActivity(task);
   return {
     taskId: task.id,
@@ -102,10 +94,7 @@ export function getStalenessInfo(
 /**
  * Find all stale tasks (stale, critical, or abandoned).
  */
-export function findStaleTasks(
-  tasks: Task[],
-  thresholds?: StalenessThresholds,
-): StalenessInfo[] {
+export function findStaleTasks(tasks: Task[], thresholds?: StalenessThresholds): StalenessInfo[] {
   return tasks
     .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
     .map((t) => getStalenessInfo(t, thresholds))
@@ -128,9 +117,7 @@ export function getStalenessSummary(
   tasks: Task[],
   thresholds?: StalenessThresholds,
 ): StalenessSummary {
-  const activeTasks = tasks.filter(
-    (t) => t.status !== 'done' && t.status !== 'cancelled',
-  );
+  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
 
   const summary: StalenessSummary = {
     total: activeTasks.length,

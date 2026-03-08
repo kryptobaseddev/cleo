@@ -40,11 +40,14 @@ export interface CapabilityReport {
   native: number;
   cli: number;
   hybrid: number;
-  domains: Record<string, {
-    native: string[];
-    cli: string[];
-    hybrid: string[];
-  }>;
+  domains: Record<
+    string,
+    {
+      native: string[];
+      cli: string[];
+      hybrid: string[];
+    }
+  >;
 }
 
 /**
@@ -311,13 +314,10 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
 export function getOperationMode(
   domain: string,
   operation: string,
-  gateway: GatewayType
+  gateway: GatewayType,
 ): ExecutionMode | undefined {
   const entry = CAPABILITY_MATRIX.find(
-    (cap) =>
-      cap.domain === domain &&
-      cap.operation === operation &&
-      cap.gateway === gateway
+    (cap) => cap.domain === domain && cap.operation === operation && cap.gateway === gateway,
   );
   return entry?.mode;
 }
@@ -325,11 +325,7 @@ export function getOperationMode(
 /**
  * Check if an operation can run natively (without CLI)
  */
-export function canRunNatively(
-  domain: string,
-  operation: string,
-  gateway: GatewayType
-): boolean {
+export function canRunNatively(domain: string, operation: string, gateway: GatewayType): boolean {
   const mode = getOperationMode(domain, operation, gateway);
   return mode === 'native' || mode === 'hybrid';
 }
@@ -337,11 +333,7 @@ export function canRunNatively(
 /**
  * Check if an operation requires CLI
  */
-export function requiresCLI(
-  domain: string,
-  operation: string,
-  gateway: GatewayType
-): boolean {
+export function requiresCLI(domain: string, operation: string, gateway: GatewayType): boolean {
   const mode = getOperationMode(domain, operation, gateway);
   return mode === 'cli';
 }
@@ -351,7 +343,7 @@ export function requiresCLI(
  */
 export function getNativeOperations(domain: string): OperationCapability[] {
   return CAPABILITY_MATRIX.filter(
-    (cap) => cap.domain === domain && (cap.mode === 'native' || cap.mode === 'hybrid')
+    (cap) => cap.domain === domain && (cap.mode === 'native' || cap.mode === 'hybrid'),
   );
 }
 

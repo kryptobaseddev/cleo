@@ -12,7 +12,7 @@
  * @task T5671
  */
 
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 // ===========================================================================
 // Mocks — all engine and external dependencies
@@ -24,98 +24,204 @@ vi.mock('../../lib/engine.js', () => {
   const mockSync = () => vi.fn().mockReturnValue({ success: true, data: {} });
   return {
     // Task engine
-    taskShow: mockFn(), taskList: mockFn(), taskFind: mockFn(), taskExists: mockFn(),
-    taskCreate: mockFn(), taskUpdate: mockFn(), taskComplete: mockFn(), taskDelete: mockFn(),
-    taskArchive: mockFn(), taskNext: mockFn(), taskPlan: mockFn(), taskBlockers: mockFn(),
-    taskTree: mockFn(), taskRelates: mockFn(), taskRelatesAdd: mockFn(), taskAnalyze: mockFn(),
-    taskRestore: mockFn(), taskReopen: mockFn(), taskCancel: mockFn(), taskUnarchive: mockFn(),
-    taskReorder: mockFn(), taskReparent: mockFn(), taskPromote: mockFn(),
-    taskComplexityEstimate: mockFn(), taskDepends: mockFn(), taskDepsOverview: mockFn(),
-    taskDepsCycles: mockFn(), taskCurrentGet: mockFn(), taskStart: mockFn(), taskStop: mockFn(),
-    taskWorkHistory: mockFn(), taskHistory: mockFn(), taskRelatesFind: mockFn(),
-    taskLabelList: mockFn(), taskLabelShow: mockFn(),
+    taskShow: mockFn(),
+    taskList: mockFn(),
+    taskFind: mockFn(),
+    taskExists: mockFn(),
+    taskCreate: mockFn(),
+    taskUpdate: mockFn(),
+    taskComplete: mockFn(),
+    taskDelete: mockFn(),
+    taskArchive: mockFn(),
+    taskNext: mockFn(),
+    taskPlan: mockFn(),
+    taskBlockers: mockFn(),
+    taskTree: mockFn(),
+    taskRelates: mockFn(),
+    taskRelatesAdd: mockFn(),
+    taskAnalyze: mockFn(),
+    taskRestore: mockFn(),
+    taskReopen: mockFn(),
+    taskCancel: mockFn(),
+    taskUnarchive: mockFn(),
+    taskReorder: mockFn(),
+    taskReparent: mockFn(),
+    taskPromote: mockFn(),
+    taskComplexityEstimate: mockFn(),
+    taskDepends: mockFn(),
+    taskDepsOverview: mockFn(),
+    taskDepsCycles: mockFn(),
+    taskCurrentGet: mockFn(),
+    taskStart: mockFn(),
+    taskStop: mockFn(),
+    taskWorkHistory: mockFn(),
+    taskHistory: mockFn(),
+    taskRelatesFind: mockFn(),
+    taskLabelList: mockFn(),
+    taskLabelShow: mockFn(),
     // Session engine
-    sessionStatus: mockFn(), sessionList: mockFn(), sessionShow: mockFn(),
-    sessionStart: mockFn(), sessionEnd: mockFn(), sessionResume: mockFn(),
-    sessionSuspend: mockFn(), sessionGc: mockFn(), sessionHistory: mockFn(),
-    sessionRecordDecision: mockFn(), sessionDecisionLog: mockFn(),
-    sessionContextDrift: mockFn(), sessionRecordAssumption: mockFn(),
-    sessionHandoff: mockFn(), sessionComputeHandoff: mockFn(),
-    sessionBriefing: mockFn(), sessionComputeDebrief: mockFn(),
-    sessionDebriefShow: mockFn(), sessionChainShow: mockFn(),
-    sessionFind: mockFn(), sessionContextInject: mockSync(),
+    sessionStatus: mockFn(),
+    sessionList: mockFn(),
+    sessionShow: mockFn(),
+    sessionStart: mockFn(),
+    sessionEnd: mockFn(),
+    sessionResume: mockFn(),
+    sessionSuspend: mockFn(),
+    sessionGc: mockFn(),
+    sessionHistory: mockFn(),
+    sessionRecordDecision: mockFn(),
+    sessionDecisionLog: mockFn(),
+    sessionContextDrift: mockFn(),
+    sessionRecordAssumption: mockFn(),
+    sessionHandoff: mockFn(),
+    sessionComputeHandoff: mockFn(),
+    sessionBriefing: mockFn(),
+    sessionComputeDebrief: mockFn(),
+    sessionDebriefShow: mockFn(),
+    sessionChainShow: mockFn(),
+    sessionFind: mockFn(),
+    sessionContextInject: mockSync(),
     // System engine
-    systemDash: mockFn(), systemStats: mockFn(), systemLog: mockFn(),
-    systemContext: mockSync(), systemRuntime: mockFn(), systemSequence: mockFn(),
-    systemHealth: mockSync(), systemDoctor: mockFn(), systemFix: mockFn(),
-    systemInjectGenerate: mockFn(), systemBackup: mockSync(),
-    systemRestore: mockSync(), backupRestore: mockFn(),
-    systemMigrate: mockFn(), systemCleanup: mockFn(), systemSafestop: mockSync(),
-    systemSync: mockSync(), systemArchiveStats: mockFn(),
+    systemDash: mockFn(),
+    systemStats: mockFn(),
+    systemLog: mockFn(),
+    systemContext: mockSync(),
+    systemRuntime: mockFn(),
+    systemSequence: mockFn(),
+    systemHealth: mockSync(),
+    systemDoctor: mockFn(),
+    systemFix: mockFn(),
+    systemInjectGenerate: mockFn(),
+    systemBackup: mockSync(),
+    systemRestore: mockSync(),
+    backupRestore: mockFn(),
+    systemMigrate: mockFn(),
+    systemCleanup: mockFn(),
+    systemSafestop: mockSync(),
+    systemSync: mockSync(),
+    systemArchiveStats: mockFn(),
     // Config engine
-    configGet: mockFn(), configSet: mockFn(),
+    configGet: mockFn(),
+    configSet: mockFn(),
     // Init engine
-    getVersion: mockFn(), initProject: mockFn(),
+    getVersion: mockFn(),
+    initProject: mockFn(),
     isAutoInitEnabled: vi.fn(() => false),
     ensureInitialized: vi.fn(() => ({ success: true, data: { initialized: true } })),
     // Lifecycle engine
-    lifecycleStatus: mockFn(), lifecycleHistory: mockFn(),
-    lifecycleGates: mockFn(), lifecyclePrerequisites: mockFn(),
-    lifecycleCheck: mockFn(), lifecycleProgress: mockFn(),
-    lifecycleSkip: mockFn(), lifecycleReset: mockFn(),
-    lifecycleGatePass: mockFn(), lifecycleGateFail: mockFn(),
+    lifecycleStatus: mockFn(),
+    lifecycleHistory: mockFn(),
+    lifecycleGates: mockFn(),
+    lifecyclePrerequisites: mockFn(),
+    lifecycleCheck: mockFn(),
+    lifecycleProgress: mockFn(),
+    lifecycleSkip: mockFn(),
+    lifecycleReset: mockFn(),
+    lifecycleGatePass: mockFn(),
+    lifecycleGateFail: mockFn(),
     // Validate engine
-    validateSchemaOp: mockSync(), validateTaskOp: mockFn(),
-    validateProtocol: mockFn(), validateManifestOp: mockSync(),
-    validateOutput: mockSync(), validateComplianceSummary: mockSync(),
-    validateComplianceViolations: mockSync(), validateComplianceRecord: mockSync(),
-    validateTestStatus: mockSync(), validateTestCoverage: mockSync(),
-    validateCoherenceCheck: mockFn(), validateTestRun: mockSync(),
+    validateSchemaOp: mockSync(),
+    validateTaskOp: mockFn(),
+    validateProtocol: mockFn(),
+    validateManifestOp: mockSync(),
+    validateOutput: mockSync(),
+    validateComplianceSummary: mockSync(),
+    validateComplianceViolations: mockSync(),
+    validateComplianceRecord: mockSync(),
+    validateTestStatus: mockSync(),
+    validateTestCoverage: mockSync(),
+    validateCoherenceCheck: mockFn(),
+    validateTestRun: mockSync(),
     validateBatchValidate: mockFn(),
-    validateProtocolConsensus: mockFn(), validateProtocolContribution: mockFn(),
-    validateProtocolDecomposition: mockFn(), validateProtocolImplementation: mockFn(),
-    validateProtocolSpecification: mockFn(), validateGateVerify: mockFn(),
+    validateProtocolConsensus: mockFn(),
+    validateProtocolContribution: mockFn(),
+    validateProtocolDecomposition: mockFn(),
+    validateProtocolImplementation: mockFn(),
+    validateProtocolSpecification: mockFn(),
+    validateGateVerify: mockFn(),
     // Orchestrate engine
-    orchestrateStatus: mockFn(), orchestrateAnalyze: mockFn(),
-    orchestrateReady: mockFn(), orchestrateNext: mockFn(),
-    orchestrateWaves: mockFn(), orchestrateContext: mockFn(),
-    orchestrateValidate: mockFn(), orchestrateSpawn: mockFn(),
-    orchestrateHandoff: mockFn(), orchestrateSpawnExecute: mockFn(),
-    orchestrateStartup: mockFn(), orchestrateBootstrap: mockFn(),
-    orchestrateCriticalPath: mockFn(), orchestrateUnblockOpportunities: mockFn(),
-    orchestrateParallelStart: mockFn(), orchestrateParallelEnd: mockSync(),
-    orchestrateCheck: mockFn(), orchestrateSkillInject: mockFn(),
+    orchestrateStatus: mockFn(),
+    orchestrateAnalyze: mockFn(),
+    orchestrateReady: mockFn(),
+    orchestrateNext: mockFn(),
+    orchestrateWaves: mockFn(),
+    orchestrateContext: mockFn(),
+    orchestrateValidate: mockFn(),
+    orchestrateSpawn: mockFn(),
+    orchestrateHandoff: mockFn(),
+    orchestrateSpawnExecute: mockFn(),
+    orchestrateStartup: mockFn(),
+    orchestrateBootstrap: mockFn(),
+    orchestrateCriticalPath: mockFn(),
+    orchestrateUnblockOpportunities: mockFn(),
+    orchestrateParallelStart: mockFn(),
+    orchestrateParallelEnd: mockSync(),
+    orchestrateCheck: mockFn(),
+    orchestrateSkillInject: mockFn(),
     // Memory engine
-    memoryShow: mockFn(), memoryBrainStats: mockFn(),
-    memoryFind: mockFn(), memoryTimeline: mockFn(), memoryFetch: mockFn(),
-    memoryObserve: mockFn(), memoryDecisionFind: mockFn(), memoryDecisionStore: mockFn(),
-    memoryPatternFind: mockFn(), memoryPatternStore: mockFn(), memoryPatternStats: mockFn(),
-    memoryLearningFind: mockFn(), memoryLearningStore: mockFn(), memoryLearningStats: mockFn(),
-    memoryLink: mockFn(), memoryUnlink: mockFn(),
-    memoryGraphAdd: mockFn(), memoryGraphShow: mockFn(),
-    memoryGraphNeighbors: mockFn(), memoryGraphRemove: mockFn(),
-    memoryReasonWhy: mockFn(), memoryReasonSimilar: mockFn(), memorySearchHybrid: mockFn(),
-    memoryContradictions: mockFn(), memorySuperseded: mockFn(),
+    memoryShow: mockFn(),
+    memoryBrainStats: mockFn(),
+    memoryFind: mockFn(),
+    memoryTimeline: mockFn(),
+    memoryFetch: mockFn(),
+    memoryObserve: mockFn(),
+    memoryDecisionFind: mockFn(),
+    memoryDecisionStore: mockFn(),
+    memoryPatternFind: mockFn(),
+    memoryPatternStore: mockFn(),
+    memoryPatternStats: mockFn(),
+    memoryLearningFind: mockFn(),
+    memoryLearningStore: mockFn(),
+    memoryLearningStats: mockFn(),
+    memoryLink: mockFn(),
+    memoryUnlink: mockFn(),
+    memoryGraphAdd: mockFn(),
+    memoryGraphShow: mockFn(),
+    memoryGraphNeighbors: mockFn(),
+    memoryGraphRemove: mockFn(),
+    memoryReasonWhy: mockFn(),
+    memoryReasonSimilar: mockFn(),
+    memorySearchHybrid: mockFn(),
+    memoryContradictions: mockFn(),
+    memorySuperseded: mockFn(),
     // Pipeline manifest
-    pipelineManifestShow: mockFn(), pipelineManifestList: mockFn(),
-    pipelineManifestFind: mockFn(), pipelineManifestStats: mockFn(),
-    pipelineManifestAppend: mockFn(), pipelineManifestArchive: mockFn(),
+    pipelineManifestShow: mockFn(),
+    pipelineManifestList: mockFn(),
+    pipelineManifestFind: mockFn(),
+    pipelineManifestStats: mockFn(),
+    pipelineManifestAppend: mockFn(),
+    pipelineManifestArchive: mockFn(),
     pipelineManifestPending: mockFn(),
-    readManifestEntries: mockFn(), filterEntries: mockFn(),
+    readManifestEntries: mockFn(),
+    filterEntries: mockFn(),
     // Phase engine
-    phaseList: vi.fn().mockResolvedValue({ success: true, data: { phases: [], summary: { total: 0 } } }),
-    phaseShow: mockFn(), phaseSet: mockFn(),
-    phaseStart: mockFn(), phaseComplete: mockFn(), phaseAdvance: mockFn(),
-    phaseRename: mockFn(), phaseDelete: mockFn(),
+    phaseList: vi
+      .fn()
+      .mockResolvedValue({ success: true, data: { phases: [], summary: { total: 0 } } }),
+    phaseShow: mockFn(),
+    phaseSet: mockFn(),
+    phaseStart: mockFn(),
+    phaseComplete: mockFn(),
+    phaseAdvance: mockFn(),
+    phaseRename: mockFn(),
+    phaseDelete: mockFn(),
     // Release engine
-    releasePrepare: mockFn(), releaseChangelog: mockFn(),
-    releaseList: mockFn(), releaseShow: mockFn(),
-    releaseCommit: mockFn(), releaseTag: mockFn(),
-    releaseGatesRun: mockFn(), releaseRollback: mockFn(),
-    releaseCancel: mockFn(), releasePush: mockFn(), releaseShip: mockFn(),
+    releasePrepare: mockFn(),
+    releaseChangelog: mockFn(),
+    releaseList: mockFn(),
+    releaseShow: mockFn(),
+    releaseCommit: mockFn(),
+    releaseTag: mockFn(),
+    releaseGatesRun: mockFn(),
+    releaseRollback: mockFn(),
+    releaseCancel: mockFn(),
+    releasePush: mockFn(),
+    releaseShip: mockFn(),
     // Template parser
-    parseIssueTemplates: mockFn(), getTemplateForSubcommand: mockFn(),
-    generateTemplateConfig: mockFn(), validateLabels: mockFn(),
+    parseIssueTemplates: mockFn(),
+    getTemplateForSubcommand: mockFn(),
+    generateTemplateConfig: mockFn(),
+    validateLabels: mockFn(),
   };
 });
 
@@ -133,7 +239,10 @@ vi.mock('../../../core/paths.js', () => ({
 // Core logger
 vi.mock('../../../core/logger.js', () => ({
   getLogger: vi.fn(() => ({
-    error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
   })),
 }));
 
@@ -174,9 +283,15 @@ vi.mock('../../../core/admin/sync.js', () => ({
 
 // Snapshot
 vi.mock('../../../core/snapshot/index.js', () => ({
-  exportSnapshot: vi.fn().mockResolvedValue({ _meta: { taskCount: 0, checksum: 'abc', createdAt: '2026-01-01', source: 'test' }, tasks: [] }),
+  exportSnapshot: vi.fn().mockResolvedValue({
+    _meta: { taskCount: 0, checksum: 'abc', createdAt: '2026-01-01', source: 'test' },
+    tasks: [],
+  }),
   writeSnapshot: vi.fn().mockResolvedValue(undefined),
-  readSnapshot: vi.fn().mockResolvedValue({ _meta: { taskCount: 0, checksum: 'abc', createdAt: '2026-01-01', source: 'test' }, tasks: [] }),
+  readSnapshot: vi.fn().mockResolvedValue({
+    _meta: { taskCount: 0, checksum: 'abc', createdAt: '2026-01-01', source: 'test' },
+    tasks: [],
+  }),
   importSnapshot: vi.fn().mockResolvedValue({ added: 0, updated: 0, skipped: 0, conflicts: [] }),
   getDefaultSnapshotPath: vi.fn(() => '/mock/snapshot.json'),
 }));
@@ -301,7 +416,9 @@ vi.mock('../../../core/nexus/registry.js', () => ({
 
 // Nexus query
 vi.mock('../../../core/nexus/query.js', () => ({
-  resolveTask: vi.fn().mockResolvedValue({ id: 'T001', title: 'Test', status: 'pending', _project: 'test' }),
+  resolveTask: vi
+    .fn()
+    .mockResolvedValue({ id: 'T001', title: 'Test', status: 'pending', _project: 'test' }),
   parseQuery: vi.fn(() => ({ project: 'test', taskId: 'T001' })),
   validateSyntax: vi.fn(() => true),
 }));
@@ -550,12 +667,10 @@ describe('Registry-Handler Parity (T5671)', () => {
 
           const params = MINIMAL_PARAMS[domain]?.[op.operation] ?? {};
 
-          let result;
-          if (op.gateway === 'query') {
-            result = await handler.query(op.operation, params);
-          } else {
-            result = await handler.mutate(op.operation, params);
-          }
+          const result =
+            op.gateway === 'query'
+              ? await handler.query(op.operation, params)
+              : await handler.mutate(op.operation, params);
 
           // The handler MUST NOT return E_INVALID_OPERATION.
           // Other errors (E_INVALID_INPUT, E_INTERNAL, etc.) are acceptable
@@ -563,7 +678,7 @@ describe('Registry-Handler Parity (T5671)', () => {
           if (result.error?.code === 'E_INVALID_OPERATION') {
             expect.fail(
               `Handler for ${domain}.${op.operation} (${op.gateway}) returned E_INVALID_OPERATION. ` +
-              `This means the ${domain} domain handler is missing a case for "${op.operation}".`,
+                `This means the ${domain} domain handler is missing a case for "${op.operation}".`,
             );
           }
         });
@@ -574,8 +689,16 @@ describe('Registry-Handler Parity (T5671)', () => {
   // Verify all 10 domains have handlers
   it('should have handlers for all 10 canonical domains', () => {
     const expectedDomains = [
-      'tasks', 'session', 'memory', 'check', 'pipeline',
-      'orchestrate', 'tools', 'admin', 'nexus', 'sticky',
+      'tasks',
+      'session',
+      'memory',
+      'check',
+      'pipeline',
+      'orchestrate',
+      'tools',
+      'admin',
+      'nexus',
+      'sticky',
     ];
     for (const domain of expectedDomains) {
       expect(handlers.has(domain), `Missing handler for domain: ${domain}`).toBe(true);

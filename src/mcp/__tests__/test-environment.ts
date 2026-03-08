@@ -13,11 +13,11 @@
  */
 
 import { exec } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
+import path from 'path';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
@@ -41,7 +41,7 @@ export interface TestEnvironment {
 async function cleoExec(
   cliPath: string,
   cwd: string,
-  command: string
+  command: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   try {
     const { stdout, stderr } = await execAsync(`${cliPath} ${command}`, {
@@ -71,11 +71,16 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
   // Fall back to CLEO_CLI_PATH env var or the globally installed 'cleo'.
   const projectCli = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '..', '..', '..', 'dist', 'cli', 'index.js'
+    '..',
+    '..',
+    '..',
+    'dist',
+    'cli',
+    'index.js',
   );
   const defaultCliPath = await fs.access(projectCli).then(
     () => `node ${projectCli}`,
-    () => 'cleo'
+    () => 'cleo',
   );
   const cliPath = process.env.CLEO_CLI_PATH || defaultCliPath;
 
@@ -86,9 +91,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     // Initialize CLEO project
     const initResult = await cleoExec(cliPath, tmpBase, 'init "mcp-test" --json');
     if (!initResult.stdout.includes('"success":true')) {
-      throw new Error(
-        `cleo init failed: ${initResult.stderr || initResult.stdout}`
-      );
+      throw new Error(`cleo init failed: ${initResult.stderr || initResult.stdout}`);
     }
 
     // Disable session enforcement so tests can run without sessions
@@ -119,7 +122,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     const epicResult = await cleoExec(
       cliPath,
       tmpBase,
-      'add "Test Epic" --description "Epic for integration testing" --json'
+      'add "Test Epic" --description "Epic for integration testing" --json',
     );
     const epicOutput = epicResult.stdout.trim() || epicResult.stderr.trim();
     let epicParsed: any;
@@ -128,10 +131,16 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     } catch {
       throw new Error(
         `Failed to parse epic creation output (exit ${epicResult.exitCode}): ` +
-        `stdout=${JSON.stringify(epicResult.stdout)}, stderr=${JSON.stringify(epicResult.stderr)}`
+          `stdout=${JSON.stringify(epicResult.stdout)}, stderr=${JSON.stringify(epicResult.stderr)}`,
       );
     }
-    const epicId = epicParsed.result?.task?.id ?? epicParsed.result?.id ?? epicParsed.data?.task?.id ?? epicParsed.data?.id ?? epicParsed.task?.id ?? epicParsed.id;
+    const epicId =
+      epicParsed.result?.task?.id ??
+      epicParsed.result?.id ??
+      epicParsed.data?.task?.id ??
+      epicParsed.data?.id ??
+      epicParsed.task?.id ??
+      epicParsed.id;
     if (!epicId) {
       throw new Error(`Failed to create test epic: ${epicOutput}`);
     }
@@ -150,7 +159,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
       const result = await cleoExec(
         cliPath,
         tmpBase,
-        `add "${task.title}" --description "${task.desc}" --parent ${epicId} --json`
+        `add "${task.title}" --description "${task.desc}" --parent ${epicId} --json`,
       );
       const taskOutput = result.stdout.trim() || result.stderr.trim();
       let parsed: any;
@@ -159,10 +168,16 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
       } catch {
         throw new Error(
           `Failed to parse task creation output for "${task.title}" (exit ${result.exitCode}): ` +
-          `stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}`
+            `stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}`,
         );
       }
-      const taskId = parsed.result?.task?.id ?? parsed.result?.id ?? parsed.data?.task?.id ?? parsed.data?.id ?? parsed.task?.id ?? parsed.id;
+      const taskId =
+        parsed.result?.task?.id ??
+        parsed.result?.id ??
+        parsed.data?.task?.id ??
+        parsed.data?.id ??
+        parsed.task?.id ??
+        parsed.id;
       if (taskId) {
         taskIds.push(taskId);
       }
@@ -191,7 +206,9 @@ export async function destroyTestEnvironment(env: TestEnvironment): Promise<void
   try {
     const { closeAllDatabases } = await import('../../store/sqlite.js');
     await closeAllDatabases();
-  } catch { /* module may not be loaded */ }
+  } catch {
+    /* module may not be loaded */
+  }
   try {
     await fs.rm(env.projectRoot, { recursive: true, force: true });
   } catch (error) {
@@ -209,7 +226,7 @@ export async function readAuditEntries(
     action?: string;
     taskId?: string;
     sessionId?: string;
-  }
+  },
 ): Promise<any[]> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
@@ -217,7 +234,7 @@ export async function readAuditEntries(
     const db = await getDb(projectRoot);
     const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
 
-    let entries = rows.map(r => ({
+    let entries = rows.map((r) => ({
       action: r.action,
       taskId: r.taskId,
       sessionId: r.sessionId,

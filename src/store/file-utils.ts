@@ -8,9 +8,17 @@
  * @epic T4654
  */
 
-import { readFileSync, writeFileSync, renameSync, existsSync, unlinkSync, mkdirSync, readdirSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import * as lockfile from 'proper-lockfile';
 
 /**
@@ -33,19 +41,27 @@ function rotateBackup(filePath: string): void {
   for (let i = MAX_BACKUPS; i >= 1; i--) {
     const current = join(backupDir, `${name}.${i}`);
     if (i === MAX_BACKUPS) {
-      try { unlinkSync(current); } catch { /* May not exist */ }
+      try {
+        unlinkSync(current);
+      } catch {
+        /* May not exist */
+      }
     } else {
       const next = join(backupDir, `${name}.${i + 1}`);
       try {
         if (existsSync(current)) renameSync(current, next);
-      } catch { /* Ignore rename errors */ }
+      } catch {
+        /* Ignore rename errors */
+      }
     }
   }
 
   try {
     const content = readFileSync(filePath, 'utf-8');
     writeFileSync(join(backupDir, `${name}.1`), content, 'utf-8');
-  } catch { /* Non-fatal */ }
+  } catch {
+    /* Non-fatal */
+  }
 }
 
 /**
@@ -57,11 +73,7 @@ function rotateBackup(filePath: string): void {
  * @param data - Data to serialize as JSON
  * @param indent - JSON indentation (default: 2 spaces)
  */
-export function writeJsonFileAtomic<T>(
-  filePath: string,
-  data: T,
-  indent: number = 2,
-): void {
+export function writeJsonFileAtomic<T>(filePath: string, data: T, indent: number = 2): void {
   const dir = dirname(filePath);
   const tempPath = join(dir, `.${basename(filePath)}.${randomBytes(6).toString('hex')}.tmp`);
 
@@ -75,7 +87,11 @@ export function writeJsonFileAtomic<T>(
     }
     renameSync(tempPath, filePath);
   } catch (error) {
-    try { unlinkSync(tempPath); } catch { /* Ignore cleanup errors */ }
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      /* Ignore cleanup errors */
+    }
     throw error;
   }
 }
@@ -225,9 +241,7 @@ export async function withMultiLock<T>(
   operation: () => T | Promise<T>,
 ): Promise<T> {
   // Sort by lock priority to prevent deadlocks
-  const sorted = [...filePaths].sort(
-    (a, b) => getLockPriority(a) - getLockPriority(b),
-  );
+  const sorted = [...filePaths].sort((a, b) => getLockPriority(a) - getLockPriority(b));
 
   const releases: Array<() => Promise<void>> = [];
 

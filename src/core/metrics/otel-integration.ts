@@ -8,7 +8,7 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, readdirSync, statSync, appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
@@ -71,10 +71,14 @@ function findLatestMetricsFile(cwd?: string): string | null {
   if (!existsSync(otelDir)) return null;
 
   const files = readdirSync(otelDir)
-    .filter(f => f.endsWith('.json'))
-    .map(f => join(otelDir, f))
-    .filter(f => {
-      try { return statSync(f).isFile(); } catch { return false; }
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => join(otelDir, f))
+    .filter((f) => {
+      try {
+        return statSync(f).isFile();
+      } catch {
+        return false;
+      }
     })
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
 
@@ -174,7 +178,10 @@ export function getSessionTokens(sessionId?: string, cwd?: string): AggregatedTo
 }
 
 /** Record token counts at session start. */
-export async function recordSessionStart(sessionId: string, cwd?: string): Promise<Record<string, unknown>> {
+export async function recordSessionStart(
+  sessionId: string,
+  cwd?: string,
+): Promise<Record<string, unknown>> {
   const otelDir = getOtelDir(cwd);
   await mkdir(otelDir, { recursive: true });
 
@@ -191,7 +198,10 @@ export async function recordSessionStart(sessionId: string, cwd?: string): Promi
 }
 
 /** Record token counts at session end. */
-export async function recordSessionEnd(sessionId: string, cwd?: string): Promise<Record<string, unknown>> {
+export async function recordSessionEnd(
+  sessionId: string,
+  cwd?: string,
+): Promise<Record<string, unknown>> {
   const otelDir = getOtelDir(cwd);
   await mkdir(otelDir, { recursive: true });
 
@@ -206,7 +216,7 @@ export async function recordSessionEnd(sessionId: string, cwd?: string): Promise
     const lines = readFileSync(metricsPath, 'utf-8').trim().split('\n').filter(Boolean);
     const startLine = lines
       .reverse()
-      .find(l => l.includes(`"session_id":"${sessionId}"`) && l.includes('session_start'));
+      .find((l) => l.includes(`"session_id":"${sessionId}"`) && l.includes('session_start'));
 
     if (startLine) {
       const startData = JSON.parse(startLine) as AggregatedTokens;
@@ -245,9 +255,9 @@ export function compareSessions(
   const lines = readFileSync(metricsPath, 'utf-8').trim().split('\n').filter(Boolean);
 
   const findSessionEnd = (id: string): number => {
-    const line = lines.reverse().find(
-      l => l.includes(`"session_id":"${id}"`) && l.includes('session_end'),
-    );
+    const line = lines
+      .reverse()
+      .find((l) => l.includes(`"session_id":"${id}"`) && l.includes('session_end'));
     if (!line) return 0;
     const data = JSON.parse(line) as { session_tokens?: { total?: number } };
     return data.session_tokens?.total ?? 0;
@@ -289,7 +299,7 @@ export function getTokenStats(cwd?: string): Record<string, unknown> {
   }
 
   const lines = readFileSync(metricsPath, 'utf-8').trim().split('\n').filter(Boolean);
-  const endEvents = lines.filter(l => l.includes('session_end'));
+  const endEvents = lines.filter((l) => l.includes('session_end'));
 
   if (endEvents.length === 0) {
     return { sessions: 0, avg_tokens: 0, min_tokens: 0, max_tokens: 0 };

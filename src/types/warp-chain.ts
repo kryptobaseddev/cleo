@@ -8,8 +8,8 @@
  * @task T5407
  */
 
-import type { GateName } from '../core/validation/verification.js';
 import type { ProtocolType } from '../core/orchestration/protocol-validators.js';
+import type { GateName } from '../core/validation/verification.js';
 
 // =============================================================================
 // CHAIN SHAPE (Warp topology)

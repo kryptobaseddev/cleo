@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  getProvidersByHookEventMock,
-  getCommonHookEventsMock,
-} = vi.hoisted(() => ({
+const { getProvidersByHookEventMock, getCommonHookEventsMock } = vi.hoisted(() => ({
   getProvidersByHookEventMock: vi.fn(),
   getCommonHookEventsMock: vi.fn(),
 }));
@@ -28,10 +25,7 @@ describe('provider hook capability helpers', () => {
   });
 
   it('delegates provider-backed hook events to CAAMP', () => {
-    getProvidersByHookEventMock.mockReturnValue([
-      { id: 'claude-code' },
-      { id: 'opencode' },
-    ]);
+    getProvidersByHookEventMock.mockReturnValue([{ id: 'claude-code' }, { id: 'opencode' }]);
 
     const providers = getHookCapableProviders('onToolStart');
 

@@ -35,13 +35,13 @@
  * ```
  */
 
-import { eq, and, inArray, desc, asc, sql as drizzleSql } from 'drizzle-orm';
+import { and, asc, desc, sql as drizzleSql, eq, inArray } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 import type { Stage } from './stages.js';
-import { validateStage, getNextStage } from './stages.js';
+import { getNextStage, validateStage } from './stages.js';
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -385,9 +385,7 @@ export async function findResumablePipelines(
   const db = await getDb(cwd);
 
   // Build base query conditions
-  const conditions = [
-    eq(schema.lifecyclePipelines.status, 'active'),
-  ];
+  const conditions = [eq(schema.lifecyclePipelines.status, 'active')];
 
   if (options.taskIds && options.taskIds.length > 0) {
     conditions.push(inArray(schema.lifecyclePipelines.taskId, options.taskIds));
@@ -406,24 +404,18 @@ export async function findResumablePipelines(
       schema.lifecycleStages,
       eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
     )
-    .innerJoin(
-      schema.tasks,
-      eq(schema.tasks.id, schema.lifecyclePipelines.taskId),
-    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.lifecyclePipelines.taskId))
     .where(and(...conditions))
-    .orderBy(
-      asc(schema.tasks.priority),
-      desc(schema.lifecyclePipelines.startedAt),
-    )
+    .orderBy(asc(schema.tasks.priority), desc(schema.lifecyclePipelines.startedAt))
     .all();
 
   // Group by pipeline and find current stage for each
-  const pipelineMap = new Map<string, typeof results[0]>();
-  
+  const pipelineMap = new Map<string, (typeof results)[0]>();
+
   for (const row of results) {
     const pipelineId = row.pipeline.id;
     const currentStageId = row.pipeline.currentStageId;
-    
+
     // If this row's stage matches the pipeline's current stage, use it
     if (currentStageId && row.stage.stageName === currentStageId) {
       pipelineMap.set(pipelineId, row);
@@ -531,10 +523,7 @@ function calculateResumePriority(
  * @ref T4801 - Uses lifecycle_pipelines, lifecycle_stages, lifecycle_gate_results, lifecycle_evidence tables
  * @ref T4804 - Loads gate results and evidence
  */
-export async function loadPipelineContext(
-  taskId: string,
-  cwd?: string,
-): Promise<PipelineContext> {
+export async function loadPipelineContext(taskId: string, cwd?: string): Promise<PipelineContext> {
   const db = await getDb(cwd);
 
   // Load pipeline with current stage
@@ -549,30 +538,26 @@ export async function loadPipelineContext(
       schema.lifecycleStages,
       eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
     )
-    .innerJoin(
-      schema.tasks,
-      eq(schema.tasks.id, schema.lifecyclePipelines.taskId),
-    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.lifecyclePipelines.taskId))
     .where(
       and(
         eq(schema.lifecyclePipelines.taskId, taskId),
-        eq(schema.lifecycleStages.stageName, drizzleSql`${schema.lifecyclePipelines.currentStageId}`),
+        eq(
+          schema.lifecycleStages.stageName,
+          drizzleSql`${schema.lifecyclePipelines.currentStageId}`,
+        ),
       ),
     )
     .limit(1)
     .all();
 
   if (pipelineResult.length === 0) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `No active pipeline found for task ${taskId}`,
-      {
-        fix: 'Check that the task exists and has an active pipeline',
-        alternatives: [
-          { action: 'List active pipelines', command: 'cleo lifecycle list --status active' },
-        ],
-      },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `No active pipeline found for task ${taskId}`, {
+      fix: 'Check that the task exists and has an active pipeline',
+      alternatives: [
+        { action: 'List active pipelines', command: 'cleo lifecycle list --status active' },
+      ],
+    });
   }
 
   const { pipeline, stage, task } = pipelineResult[0];
@@ -854,10 +839,7 @@ export async function autoResume(cwd?: string): Promise<AutoResumeResult> {
       schema.lifecycleStages,
       eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
     )
-    .innerJoin(
-      schema.tasks,
-      eq(schema.tasks.id, schema.lifecyclePipelines.taskId),
-    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.lifecyclePipelines.taskId))
     .where(eq(schema.lifecyclePipelines.status, 'active'))
     .orderBy(asc(schema.tasks.priority), desc(schema.lifecycleStages.startedAt))
     .all();
@@ -917,7 +899,8 @@ export async function autoResume(cwd?: string): Promise<AutoResumeResult> {
 
     // Boost score for recently started stages
     if (row.stage.startedAt) {
-      const hoursSinceStart = (Date.now() - new Date(row.stage.startedAt).getTime()) / (1000 * 60 * 60);
+      const hoursSinceStart =
+        (Date.now() - new Date(row.stage.startedAt).getTime()) / (1000 * 60 * 60);
       if (hoursSinceStart < 24) {
         score *= 1.2; // Boost recent work
       }
@@ -974,7 +957,9 @@ export async function autoResume(cwd?: string): Promise<AutoResumeResult> {
   // No high-scoring candidates but some pipelines exist
   if (candidates.length > 0) {
     // Check if we should advance any pipelines
-    const completedStages = candidates.filter((c) => c.stageStatus === 'completed' || c.stageStatus === 'skipped');
+    const completedStages = candidates.filter(
+      (c) => c.stageStatus === 'completed' || c.stageStatus === 'skipped',
+    );
 
     if (completedStages.length > 0) {
       // These pipelines may need to advance to next stage
@@ -1104,7 +1089,9 @@ export async function checkSessionResume(
   if (options.scope?.type === 'epic' && options.scope.epicId) {
     // For epic scope, we'd need to check task parent hierarchy
     // This is a simplified version
-    filtered = resumable.filter((r) => r.taskId === options.scope!.epicId || r.taskId.startsWith(options.scope!.epicId!));
+    filtered = resumable.filter(
+      (r) => r.taskId === options.scope!.epicId || r.taskId.startsWith(options.scope!.epicId!),
+    );
   }
 
   if (filtered.length === 0) {
@@ -1136,7 +1123,7 @@ export async function checkSessionResume(
           message: `Auto-resumed ${candidate.taskId} at ${candidate.currentStage} stage`,
           requiresUserChoice: false,
         };
-      } catch (error) {
+      } catch (_error) {
         // Auto-resume failed, present options
         return {
           didResume: false,
@@ -1291,10 +1278,15 @@ export function handleBlockedStage(context: PipelineContext): {
 
   // Check prerequisite stages
   const prerequisiteStages = context.stages.filter(
-    (s) => s.sequence < currentStageContext.sequence && s.status !== 'completed' && s.status !== 'skipped',
+    (s) =>
+      s.sequence < currentStageContext.sequence &&
+      s.status !== 'completed' &&
+      s.status !== 'skipped',
   );
   if (prerequisiteStages.length > 0) {
-    resolutions.push(`Complete prerequisite stage(s): ${prerequisiteStages.map((s) => s.stage).join(', ')}`);
+    resolutions.push(
+      `Complete prerequisite stage(s): ${prerequisiteStages.map((s) => s.stage).join(', ')}`,
+    );
   }
 
   // Generic resolution
@@ -1348,7 +1340,10 @@ export async function checkBlockedStageDetails(
     .where(
       and(
         eq(schema.lifecyclePipelines.taskId, taskId),
-        eq(schema.lifecycleStages.stageName, drizzleSql`${schema.lifecyclePipelines.currentStageId}`),
+        eq(
+          schema.lifecycleStages.stageName,
+          drizzleSql`${schema.lifecyclePipelines.currentStageId}`,
+        ),
       ),
     )
     .limit(1)

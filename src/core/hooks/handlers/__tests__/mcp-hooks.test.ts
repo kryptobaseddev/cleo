@@ -62,9 +62,7 @@ describe('mcp hook handlers', () => {
 
     it('swallows brain schema missing error when capture is on', async () => {
       process.env['CLEO_BRAIN_CAPTURE_MCP'] = 'true';
-      observeBrainMock.mockRejectedValue(
-        new Error('no such table: brain_observations'),
-      );
+      observeBrainMock.mockRejectedValue(new Error('no such table: brain_observations'));
 
       await expect(
         handlePromptSubmit('/tmp/project', {
@@ -136,9 +134,7 @@ describe('mcp hook handlers', () => {
 
     it('swallows brain schema missing error when capture is on', async () => {
       process.env['CLEO_BRAIN_CAPTURE_MCP'] = 'true';
-      observeBrainMock.mockRejectedValue(
-        new Error('SQLITE_ERROR: no such table: brain_decisions'),
-      );
+      observeBrainMock.mockRejectedValue(new Error('SQLITE_ERROR: no such table: brain_decisions'));
 
       await expect(
         handleResponseComplete('/tmp/project', {

@@ -6,8 +6,8 @@
  * @epic T4498
  */
 
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 /** Protocol violation entry. */
 export interface ProtocolViolation {
@@ -54,29 +54,26 @@ export const PROTOCOL_TYPES = [
   'provenance',
 ] as const;
 
-export type ProtocolType = typeof PROTOCOL_TYPES[number];
+export type ProtocolType = (typeof PROTOCOL_TYPES)[number];
 
 /** Map protocol types to exit codes. */
 export const PROTOCOL_EXIT_CODES: Record<ProtocolType, ExitCode> = {
-  'research': ExitCode.PROTOCOL_MISSING,         // 60
-  'consensus': ExitCode.INVALID_RETURN_MESSAGE,   // 61
-  'specification': ExitCode.MANIFEST_ENTRY_MISSING, // 62
-  'decomposition': ExitCode.SPAWN_VALIDATION_FAILED, // 63
-  'implementation': ExitCode.AUTONOMOUS_BOUNDARY,  // 64
-  'contribution': ExitCode.HANDOFF_REQUIRED,       // 65
-  'release': ExitCode.RESUME_FAILED,               // 66
-  'artifact-publish': ExitCode.CONCURRENT_SESSION,  // 67
-  'provenance': ExitCode.CONCURRENT_SESSION,        // 67 (shared with artifact-publish)
+  research: ExitCode.PROTOCOL_MISSING, // 60
+  consensus: ExitCode.INVALID_RETURN_MESSAGE, // 61
+  specification: ExitCode.MANIFEST_ENTRY_MISSING, // 62
+  decomposition: ExitCode.SPAWN_VALIDATION_FAILED, // 63
+  implementation: ExitCode.AUTONOMOUS_BOUNDARY, // 64
+  contribution: ExitCode.HANDOFF_REQUIRED, // 65
+  release: ExitCode.RESUME_FAILED, // 66
+  'artifact-publish': ExitCode.CONCURRENT_SESSION, // 67
+  provenance: ExitCode.CONCURRENT_SESSION, // 67 (shared with artifact-publish)
 };
 
 // ============================================================
 // Common validation helpers
 // ============================================================
 
-function checkRequiredField(
-  entry: ManifestEntryInput,
-  field: keyof ManifestEntryInput,
-): boolean {
+function checkRequiredField(entry: ManifestEntryInput, field: keyof ManifestEntryInput): boolean {
   const value = entry[field];
   if (value === undefined || value === null) return false;
   if (typeof value === 'string' && value.trim().length === 0) return false;
@@ -154,7 +151,7 @@ export function validateResearchProtocol(
     score -= 10;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'research', violations, score: Math.max(0, score) };
 }
 
@@ -188,7 +185,7 @@ export function validateConsensusProtocol(
 
   // CONS-003: MUST have confidence scores (0.0-1.0)
   const invalidConfidence = votingMatrix.options.filter(
-    o => o.confidence < 0.0 || o.confidence > 1.0,
+    (o) => o.confidence < 0.0 || o.confidence > 1.0,
   );
   if (invalidConfidence.length > 0) {
     violations.push({
@@ -202,9 +199,10 @@ export function validateConsensusProtocol(
 
   // CONS-004: MUST meet threshold (50% by default)
   const threshold = votingMatrix.threshold ?? 0.5;
-  const topConfidence = votingMatrix.options.length > 0
-    ? Math.max(...votingMatrix.options.map(o => o.confidence))
-    : 0;
+  const topConfidence =
+    votingMatrix.options.length > 0
+      ? Math.max(...votingMatrix.options.map((o) => o.confidence))
+      : 0;
   if (topConfidence < threshold) {
     violations.push({
       requirement: 'CONS-004',
@@ -226,7 +224,7 @@ export function validateConsensusProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'consensus', violations, score: Math.max(0, score) };
 }
 
@@ -244,8 +242,18 @@ export function validateSpecificationProtocol(
 
   // SPEC-001: MUST contain RFC 2119 keywords
   if (specContent) {
-    const rfc2119Keywords = ['MUST', 'MUST NOT', 'SHALL', 'SHALL NOT', 'SHOULD', 'SHOULD NOT', 'MAY', 'REQUIRED', 'OPTIONAL'];
-    const hasRfc = rfc2119Keywords.some(kw => specContent.includes(kw));
+    const rfc2119Keywords = [
+      'MUST',
+      'MUST NOT',
+      'SHALL',
+      'SHALL NOT',
+      'SHOULD',
+      'SHOULD NOT',
+      'MAY',
+      'REQUIRED',
+      'OPTIONAL',
+    ];
+    const hasRfc = rfc2119Keywords.some((kw) => specContent.includes(kw));
     if (!hasRfc) {
       violations.push({
         requirement: 'SPEC-001',
@@ -290,7 +298,7 @@ export function validateSpecificationProtocol(
     score -= 20;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'specification', violations, score: Math.max(0, score) };
 }
 
@@ -301,7 +309,12 @@ export function validateSpecificationProtocol(
 /** @task T4499 */
 export function validateDecompositionProtocol(
   entry: ManifestEntryInput,
-  options: { siblingCount?: number; descriptionClarity?: boolean; maxSiblings?: number; maxDepth?: number } = {},
+  options: {
+    siblingCount?: number;
+    descriptionClarity?: boolean;
+    maxSiblings?: number;
+    maxDepth?: number;
+  } = {},
 ): ProtocolValidationResult {
   const violations: ProtocolViolation[] = [];
   let score = 100;
@@ -340,7 +353,7 @@ export function validateDecompositionProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'decomposition', violations, score: Math.max(0, score) };
 }
 
@@ -400,7 +413,7 @@ export function validateImplementationProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'implementation', violations, score: Math.max(0, score) };
 }
 
@@ -449,7 +462,7 @@ export function validateContributionProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'contribution', violations, score: Math.max(0, score) };
 }
 
@@ -500,7 +513,7 @@ export function validateReleaseProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'release', violations, score: Math.max(0, score) };
 }
 
@@ -549,7 +562,7 @@ export function validateArtifactPublishProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'artifact-publish', violations, score: Math.max(0, score) };
 }
 
@@ -598,7 +611,7 @@ export function validateProvenanceProtocol(
     score -= 15;
   }
 
-  const hasErrors = violations.some(v => v.severity === 'error');
+  const hasErrors = violations.some((v) => v.severity === 'error');
   return { valid: !hasErrors, protocol: 'provenance', violations, score: Math.max(0, score) };
 }
 
@@ -621,7 +634,10 @@ export function validateProtocol(
 
   switch (protocol) {
     case 'research':
-      result = validateResearchProtocol(entry, options as { strict?: boolean; hasCodeChanges?: boolean });
+      result = validateResearchProtocol(
+        entry,
+        options as { strict?: boolean; hasCodeChanges?: boolean },
+      );
       break;
     case 'consensus':
       result = validateConsensusProtocol(entry, options.votingMatrix as VotingMatrix);
@@ -630,7 +646,15 @@ export function validateProtocol(
       result = validateSpecificationProtocol(entry, options.specContent as string);
       break;
     case 'decomposition':
-      result = validateDecompositionProtocol(entry, options as { siblingCount?: number; descriptionClarity?: boolean; maxSiblings?: number; maxDepth?: number });
+      result = validateDecompositionProtocol(
+        entry,
+        options as {
+          siblingCount?: number;
+          descriptionClarity?: boolean;
+          maxSiblings?: number;
+          maxDepth?: number;
+        },
+      );
       break;
     case 'implementation':
       result = validateImplementationProtocol(entry, options as { hasTaskTags?: boolean });
@@ -639,13 +663,22 @@ export function validateProtocol(
       result = validateContributionProtocol(entry, options as { hasContributionTags?: boolean });
       break;
     case 'release':
-      result = validateReleaseProtocol(entry, options as { version?: string; hasChangelog?: boolean });
+      result = validateReleaseProtocol(
+        entry,
+        options as { version?: string; hasChangelog?: boolean },
+      );
       break;
     case 'artifact-publish':
-      result = validateArtifactPublishProtocol(entry, options as { artifactType?: string; buildPassed?: boolean });
+      result = validateArtifactPublishProtocol(
+        entry,
+        options as { artifactType?: string; buildPassed?: boolean },
+      );
       break;
     case 'provenance':
-      result = validateProvenanceProtocol(entry, options as { hasAttestation?: boolean; hasSbom?: boolean });
+      result = validateProvenanceProtocol(
+        entry,
+        options as { hasAttestation?: boolean; hasSbom?: boolean },
+      );
       break;
     default:
       throw new CleoError(ExitCode.CONCURRENT_SESSION, `Unknown protocol: ${protocol as string}`);
@@ -655,7 +688,10 @@ export function validateProtocol(
     const exitCode = PROTOCOL_EXIT_CODES[protocol];
     throw new CleoError(
       exitCode,
-      `Protocol validation failed for ${protocol}: ${result.violations.filter(v => v.severity === 'error').map(v => v.message).join('; ')}`,
+      `Protocol validation failed for ${protocol}: ${result.violations
+        .filter((v) => v.severity === 'error')
+        .map((v) => v.message)
+        .join('; ')}`,
     );
   }
 

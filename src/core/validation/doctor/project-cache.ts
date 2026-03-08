@@ -8,9 +8,9 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { getCleoHome } from '../../paths.js';
 
 // ============================================================================
@@ -198,10 +198,7 @@ export function cacheValidationResult(
  * Clear cache for a specific project.
  * @task T4525
  */
-export function clearProjectCache(
-  projectHash: string,
-  cacheFile?: string,
-): void {
+export function clearProjectCache(projectHash: string, cacheFile?: string): void {
   const cachePath = cacheFile ?? getCacheFilePath();
   const cache = loadCache(cachePath);
   if (!cache) return;

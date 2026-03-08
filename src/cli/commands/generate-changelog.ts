@@ -6,16 +6,16 @@
  * @epic T4545
  */
 
-// CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
-import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getConfigPath, getProjectRoot } from '../../core/paths.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join, dirname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+// CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
+import type { Command } from 'commander';
+import { CleoError } from '../../core/errors.js';
+import { formatError } from '../../core/output.js';
+import { getConfigPath, getProjectRoot } from '../../core/paths.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Platform output config shape from config.json.
@@ -62,10 +62,10 @@ function getEnabledPlatforms(cwd?: string): ChangelogOutputConfig[] {
  */
 function getDefaultOutputPath(platform: string): string {
   switch (platform) {
-    case 'mintlify': return 'docs/changelog/overview.mdx';
-    case 'docusaurus': return 'docs/changelog.md';
-    case 'github':
-    case 'plain':
+    case 'mintlify':
+      return 'docs/changelog/overview.mdx';
+    case 'docusaurus':
+      return 'docs/changelog.md';
     default:
       return 'CHANGELOG.md';
   }
@@ -83,9 +83,7 @@ function getGitHubRepoSlug(cwd?: string): string {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    return remoteUrl
-      .replace(/.*github\.com[:/]/, '')
-      .replace(/\.git$/, '');
+    return remoteUrl.replace(/.*github\.com[:/]/, '').replace(/\.git$/, '');
   } catch {
     return '';
   }
@@ -106,8 +104,6 @@ function generateForPlatform(
       return generateMintlify(sourceContent, repoSlug, limit);
     case 'docusaurus':
       return generateDocusaurus(sourceContent, limit);
-    case 'plain':
-    case 'github':
     default:
       return sourceContent;
   }
@@ -143,7 +139,10 @@ function generateMintlify(source: string, repoSlug: string, limit: number): stri
         blocks.push({
           version: currentBlock.version,
           date: currentBlock.date,
-          content: sourceLines.slice(currentBlock.startLine + 1, i).join('\n').trim(),
+          content: sourceLines
+            .slice(currentBlock.startLine + 1, i)
+            .join('\n')
+            .trim(),
         });
       }
       currentBlock = { version: vMatch[1]!, date: vMatch[2]!, startLine: i };
@@ -153,7 +152,10 @@ function generateMintlify(source: string, repoSlug: string, limit: number): stri
     blocks.push({
       version: currentBlock.version,
       date: currentBlock.date,
-      content: sourceLines.slice(currentBlock.startLine + 1).join('\n').trim(),
+      content: sourceLines
+        .slice(currentBlock.startLine + 1)
+        .join('\n')
+        .trim(),
     });
   }
 
@@ -163,7 +165,9 @@ function generateMintlify(source: string, repoSlug: string, limit: number): stri
     lines.push(block.content);
     lines.push('');
     if (repoSlug) {
-      lines.push(`[View full release notes](https://github.com/${repoSlug}/releases/tag/v${block.version})`);
+      lines.push(
+        `[View full release notes](https://github.com/${repoSlug}/releases/tag/v${block.version})`,
+      );
       lines.push('');
     }
   }
@@ -238,7 +242,7 @@ export function registerGenerateChangelogCommand(program: Command): void {
 
         if (targetPlatform) {
           const platforms = getEnabledPlatforms();
-          const platformConfig = platforms.find(p => p.platform === targetPlatform);
+          const platformConfig = platforms.find((p) => p.platform === targetPlatform);
           const outputPath = platformConfig?.path ?? getDefaultOutputPath(targetPlatform);
           const content = generateForPlatform(targetPlatform, sourceContent, repoSlug, limit);
 
@@ -277,12 +281,15 @@ export function registerGenerateChangelogCommand(program: Command): void {
           }
         }
 
-        cliOutput({
-          dryRun,
-          source: sourceFile,
-          repoSlug: repoSlug || null,
-          generated: results,
-        }, { command: 'generate-changelog' });
+        cliOutput(
+          {
+            dryRun,
+            source: sourceFile,
+            repoSlug: repoSlug || null,
+            generated: results,
+          },
+          { command: 'generate-changelog' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

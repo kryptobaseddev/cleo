@@ -18,11 +18,11 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { getLastHandoff, type HandoffData } from './handoff.js';
 import type { Session } from '../../types/session.js';
-import type { TaskFileExt } from './types.js';
-import { depsReady } from '../tasks/deps-ready.js';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
+import { depsReady } from '../tasks/deps-ready.js';
+import { getLastHandoff, type HandoffData } from './handoff.js';
+import type { TaskFileExt } from './types.js';
 
 /**
  * Task summary for briefing output.
@@ -147,7 +147,10 @@ export async function computeBriefing(
   const scopeFilter = parseScope(options.scope, current);
 
   // Compute in-scope task IDs (undefined = all tasks in scope)
-  const scopeTaskIds = getScopeTaskIdSet(scopeFilter, tasks as Array<{ id: string; parentId?: string; [key: string]: unknown }>);
+  const scopeTaskIds = getScopeTaskIdSet(
+    scopeFilter,
+    tasks as Array<{ id: string; parentId?: string; [key: string]: unknown }>,
+  );
 
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
@@ -304,9 +307,7 @@ async function computeLastSession(
   scopeFilter: { type: 'global' | 'epic'; epicId?: string } | undefined,
 ): Promise<LastSessionInfo | null> {
   try {
-    const scope = scopeFilter
-      ? { type: scopeFilter.type, epicId: scopeFilter.epicId }
-      : undefined;
+    const scope = scopeFilter ? { type: scopeFilter.type, epicId: scopeFilter.epicId } : undefined;
 
     const handoffResult = await getLastHandoff(projectRoot, scope);
     if (!handoffResult) return null;
@@ -361,7 +362,7 @@ function computeCurrentTask(
 
   // Check for unresolved dependencies on the focused task
   if (task.depends?.length) {
-    const unresolved = task.depends.filter(depId => {
+    const unresolved = task.depends.filter((depId) => {
       const dep = taskMap.get(depId) as { status?: string } | undefined;
       return dep && dep.status !== 'done' && dep.status !== 'cancelled';
     });
@@ -398,8 +399,9 @@ function computeNextTasks(
 ): BriefingTask[] {
   const pendingTasks = tasks.filter((t) => {
     const task = t as { id?: string; status?: string };
-    return task.status === 'pending' &&
-      (!options.scopeTaskIds || options.scopeTaskIds.has(task.id!));
+    return (
+      task.status === 'pending' && (!options.scopeTaskIds || options.scopeTaskIds.has(task.id!))
+    );
   });
 
   const scored: BriefingTask[] = [];
@@ -611,9 +613,7 @@ function calculateEpicCompletion(epicId: string, taskMap: Map<string, unknown>):
  */
 function computePipelineStage(current: TaskFileExt): PipelineStageInfo | undefined {
   // Try to get from _meta or focus
-  const stage = (current._meta as Record<string, unknown>)?.pipelineStage as
-    | string
-    | undefined;
+  const stage = (current._meta as Record<string, unknown>)?.pipelineStage as string | undefined;
   const stageStatus = (current._meta as Record<string, unknown>)?.pipelineStageStatus as
     | string
     | undefined;

@@ -13,14 +13,14 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { getTaskPath, getAgentOutputsDir } from '../../paths.js';
-import { findSkill, mapSkillName } from '../discovery.js';
-import { type TokenValues } from '../injection/token.js';
-import { injectProtocol } from '../injection/subagent.js';
-import type { Task } from '../../../types/task.js';
-import type { SpawnPromptResult } from '../types.js';
-import { CleoError } from '../../errors.js';
 import { ExitCode } from '../../../types/exit-codes.js';
+import type { Task } from '../../../types/task.js';
+import { CleoError } from '../../errors.js';
+import { getAgentOutputsDir, getTaskPath } from '../../paths.js';
+import { findSkill, mapSkillName } from '../discovery.js';
+import { injectProtocol } from '../injection/subagent.js';
+import type { TokenValues } from '../injection/token.js';
+import type { SpawnPromptResult } from '../types.js';
 
 // ============================================================================
 // Prompt Building
@@ -45,7 +45,7 @@ export function buildPrompt(
   // Load task
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find(t => t.id === taskId);
+  const task = tasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
@@ -55,11 +55,9 @@ export function buildPrompt(
   const skill = findSkill(templateName, cwd);
   if (!skill || !skill.content) {
     const { canonical } = mapSkillName(templateName);
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Skill template ${templateName} not found`,
-      { fix: `Expected at skills/${canonical}/SKILL.md` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Skill template ${templateName} not found`, {
+      fix: `Expected at skills/${canonical}/SKILL.md`,
+    });
   }
 
   // Prepare token values
@@ -183,10 +181,10 @@ export function canParallelize(
   const safeToSpawn: string[] = [];
 
   for (const tid of taskIds) {
-    const task = tasks.find(t => t.id === tid);
+    const task = tasks.find((t) => t.id === tid);
     if (!task) continue;
 
-    const depsInSet = (task.depends ?? []).filter(d => taskIdSet.has(d));
+    const depsInSet = (task.depends ?? []).filter((d) => taskIdSet.has(d));
     if (depsInSet.length > 0) {
       conflicts.push({ id: tid, dependsOn: depsInSet });
     } else {
@@ -251,9 +249,8 @@ export function spawnBatch(
 
   return {
     count: spawns.length,
-    succeeded: spawns.filter(s => s.success).length,
-    failed: spawns.filter(s => !s.success).length,
+    succeeded: spawns.filter((s) => s.success).length,
+    failed: spawns.filter((s) => !s.success).length,
     spawns,
   };
 }
-

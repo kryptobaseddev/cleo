@@ -10,10 +10,10 @@
  * @task T4520
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { getTaskPath } from '../../paths.js';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Task } from '../../../types/task.js';
+import { getTaskPath } from '../../paths.js';
 import type { ManifestEntry } from '../types.js';
 
 // ============================================================================
@@ -78,7 +78,7 @@ export function validateContributionTask(
 
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find(t => t.id === taskId);
+  const task = tasks.find((t) => t.id === taskId);
 
   if (!task) {
     return { valid: false, issues: [`Task ${taskId} not found`] };
@@ -202,7 +202,7 @@ export function computeConsensus(
 
   // Detect conflicts among decisions
   const conflicts: ContributionConflict[] = [];
-  const uniqueDecisions = [...new Set(decisions.map(d => d.decision))];
+  const uniqueDecisions = [...new Set(decisions.map((d) => d.decision))];
   if (uniqueDecisions.length > 1) {
     // Pairwise conflict detection
     for (let i = 0; i < decisions.length; i++) {
@@ -247,7 +247,7 @@ export function createContributionManifestEntry(
     status: 'completed',
     agent_type: 'contribution',
     topics: ['contribution', 'multi-agent'],
-    key_findings: decisions.map(d => `${d.agentId}: ${d.decision} (conf: ${d.confidence})`),
+    key_findings: decisions.map((d) => `${d.agentId}: ${d.decision} (conf: ${d.confidence})`),
     actionable: true,
     needs_followup: [],
     linked_tasks: [taskId],

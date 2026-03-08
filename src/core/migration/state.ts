@@ -10,10 +10,10 @@
  * @epic T4454
  */
 
-import { readFile, writeFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 /** Migration phase - tracks current step in the migration process */
 export type MigrationPhase =
@@ -142,8 +142,9 @@ export async function createMigrationState(
       files.archiveJson = {
         path: archivePath,
         checksum: await computeFileChecksum(archivePath),
-        archivedCount: await countRecords(archivePath, 'tasks') ||
-          await countRecords(archivePath, 'archivedTasks'),
+        archivedCount:
+          (await countRecords(archivePath, 'tasks')) ||
+          (await countRecords(archivePath, 'archivedTasks')),
       };
     }
   }
@@ -176,10 +177,7 @@ export async function createMigrationState(
  * @param cleoDir - Path to .cleo directory
  * @param state - Migration state to write
  */
-async function writeMigrationState(
-  cleoDir: string,
-  state: MigrationState,
-): Promise<void> {
+async function writeMigrationState(cleoDir: string, state: MigrationState): Promise<void> {
   const statePath = join(cleoDir, STATE_FILENAME);
   const tempPath = `${statePath}.tmp`;
 
@@ -233,9 +231,7 @@ export async function updateMigrationState(
     : current.sourceFiles;
 
   // Merge arrays
-  const mergedErrors = updates.errors
-    ? [...current.errors, ...updates.errors]
-    : current.errors;
+  const mergedErrors = updates.errors ? [...current.errors, ...updates.errors] : current.errors;
 
   const mergedWarnings = updates.warnings
     ? [...current.warnings, ...updates.warnings]
@@ -307,10 +303,7 @@ export async function updateMigrationProgress(
  * @returns The updated migration state
  * @task T4726
  */
-export async function addMigrationError(
-  cleoDir: string,
-  error: string,
-): Promise<MigrationState> {
+export async function addMigrationError(cleoDir: string, error: string): Promise<MigrationState> {
   const state = await loadMigrationState(cleoDir);
   if (!state) {
     throw new Error('No migration state exists');
@@ -351,9 +344,7 @@ export async function addMigrationWarning(
  * @returns Migration state, or null if no state file exists
  * @task T4726
  */
-export async function loadMigrationState(
-  cleoDir: string,
-): Promise<MigrationState | null> {
+export async function loadMigrationState(cleoDir: string): Promise<MigrationState | null> {
   try {
     const statePath = join(cleoDir, STATE_FILENAME);
     const content = await readFile(statePath, 'utf-8');
@@ -370,9 +361,7 @@ export async function loadMigrationState(
  * @returns true if migration state exists and is not complete/failed
  * @task T4726
  */
-export async function isMigrationInProgress(
-  cleoDir: string,
-): Promise<boolean> {
+export async function isMigrationInProgress(cleoDir: string): Promise<boolean> {
   const state = await loadMigrationState(cleoDir);
   if (!state) return false;
   return state.phase !== 'complete' && state.phase !== 'failed';
@@ -385,9 +374,7 @@ export async function isMigrationInProgress(
  * @returns Object with resume info, or null if cannot resume
  * @task T4726
  */
-export async function canResumeMigration(
-  cleoDir: string,
-): Promise<{
+export async function canResumeMigration(cleoDir: string): Promise<{
   canResume: boolean;
   phase: MigrationPhase;
   progress: MigrationProgress;
@@ -414,9 +401,7 @@ export async function canResumeMigration(
  * @returns The completed migration state
  * @task T4726
  */
-export async function completeMigration(
-  cleoDir: string,
-): Promise<MigrationState> {
+export async function completeMigration(cleoDir: string): Promise<MigrationState> {
   const state = await updateMigrationState(cleoDir, {
     phase: 'complete',
     completedAt: new Date().toISOString(),
@@ -441,10 +426,7 @@ export async function completeMigration(
  * @returns The failed migration state
  * @task T4726
  */
-export async function failMigration(
-  cleoDir: string,
-  error: string,
-): Promise<MigrationState> {
+export async function failMigration(cleoDir: string, error: string): Promise<MigrationState> {
   return updateMigrationState(cleoDir, {
     phase: 'failed',
     errors: [error],
@@ -474,9 +456,7 @@ export async function clearMigrationState(cleoDir: string): Promise<void> {
  * @returns Human-readable summary, or null if no state
  * @task T4726
  */
-export async function getMigrationSummary(
-  cleoDir: string,
-): Promise<string | null> {
+export async function getMigrationSummary(cleoDir: string): Promise<string | null> {
   const state = await loadMigrationState(cleoDir);
   if (!state) return null;
 
@@ -499,12 +479,16 @@ export async function getMigrationSummary(
 
   if (errors.length > 0) {
     lines.push(`\nErrors (${errors.length}):`);
-    errors.forEach((e) => lines.push(`  - ${e}`));
+    for (const e of errors) {
+      lines.push(`  - ${e}`);
+    }
   }
 
   if (warnings.length > 0) {
     lines.push(`\nWarnings (${warnings.length}):`);
-    warnings.forEach((w) => lines.push(`  - ${w}`));
+    for (const w of warnings) {
+      lines.push(`  - ${w}`);
+    }
   }
 
   return lines.join('\n');
@@ -520,9 +504,7 @@ export async function getMigrationSummary(
  * @returns Object with verification results
  * @task T4726
  */
-export async function verifySourceIntegrity(
-  cleoDir: string,
-): Promise<{
+export async function verifySourceIntegrity(cleoDir: string): Promise<{
   valid: boolean;
   changed: string[];
   missing: string[];

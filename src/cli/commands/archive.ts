@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -23,7 +23,8 @@ export function registerArchiveCommand(program: Command): void {
       const params: Record<string, unknown> = {};
 
       if (opts['before'] !== undefined) params['before'] = opts['before'];
-      if (opts['tasks']) params['taskIds'] = (opts['tasks'] as string).split(',').map(s => s.trim());
+      if (opts['tasks'])
+        params['taskIds'] = (opts['tasks'] as string).split(',').map((s) => s.trim());
       if (opts['cancelled'] === false) params['includeCancelled'] = false;
       if (opts['dryRun']) params['dryRun'] = opts['dryRun'];
 

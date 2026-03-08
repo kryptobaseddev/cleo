@@ -8,8 +8,8 @@
  * to numeric exit codes. It mirrors ERROR_CODE_TO_EXIT in cli.ts.
  */
 
-import { getLogger } from '../../core/logger.js';
 import type { LAFSPage } from '@cleocode/lafs-protocol';
+import { getLogger } from '../../core/logger.js';
 
 /**
  * Canonical EngineResult type used by all engines.
@@ -211,7 +211,10 @@ export function engineError<T>(
     // at module load time (before CLI's preAction hook calls initLogger()).
     // This prevents the double-output envelope bug (T5148).
     const logger = getLogger('engine');
-    logger[level]({ code, exitCode, ...(options?.details && { details: options.details }) }, message);
+    logger[level](
+      { code, exitCode, ...(options?.details && { details: options.details }) },
+      message,
+    );
   }
 
   return {

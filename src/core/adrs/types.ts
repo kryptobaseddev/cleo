@@ -26,9 +26,9 @@ export interface AdrFrontmatter {
 }
 
 export interface AdrRecord {
-  id: string;        // e.g., 'ADR-007'
-  file: string;      // relative path from project root
-  title: string;     // H1 title from markdown
+  id: string; // e.g., 'ADR-007'
+  file: string; // relative path from project root
+  title: string; // H1 title from markdown
   frontmatter: AdrFrontmatter;
 }
 

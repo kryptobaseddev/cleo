@@ -15,9 +15,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs-protocol';
+import type { LafsEnvelope, LafsError, LafsSuccess } from '../types/lafs.js';
 import { CleoError } from './errors.js';
 import { getCurrentSessionId } from './sessions/context-alert.js';
-import type { LafsSuccess, LafsError, LafsEnvelope } from '../types/lafs.js';
 
 export type { LafsSuccess, LafsError, LafsEnvelope };
 
@@ -77,7 +77,10 @@ export interface FormatOptions {
  * @task T4702
  * @epic T4663
  */
-function createCliMeta(operation: string, mvi: import('@cleocode/lafs-protocol').MVILevel = 'standard'): LAFSMeta {
+function createCliMeta(
+  operation: string,
+  mvi: import('@cleocode/lafs-protocol').MVILevel = 'standard',
+): LAFSMeta {
   const warnings = drainWarnings();
   const meta: LAFSMeta = {
     specVersion: '1.2.3',
@@ -110,10 +113,13 @@ function createCliMeta(operation: string, mvi: import('@cleocode/lafs-protocol')
  * @task T4670
  * @epic T4663
  */
-export function formatSuccess<T>(data: T, message?: string, operationOrOpts?: string | FormatOptions): string {
-  const opts: FormatOptions = typeof operationOrOpts === 'string'
-    ? { operation: operationOrOpts }
-    : operationOrOpts ?? {};
+export function formatSuccess<T>(
+  data: T,
+  message?: string,
+  operationOrOpts?: string | FormatOptions,
+): string {
+  const opts: FormatOptions =
+    typeof operationOrOpts === 'string' ? { operation: operationOrOpts } : (operationOrOpts ?? {});
 
   const envelope: Record<string, unknown> = {
     $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',

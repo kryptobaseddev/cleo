@@ -43,10 +43,7 @@ function generateLearningId(): string {
  * Store a new learning.
  * @task T4769, T5241
  */
-export async function storeLearning(
-  projectRoot: string,
-  params: StoreLearningParams,
-) {
+export async function storeLearning(projectRoot: string, params: StoreLearningParams) {
   if (!params.insight || !params.insight.trim()) {
     throw new Error('Insight text is required');
   }
@@ -94,10 +91,7 @@ export async function storeLearning(
  * Results sorted by confidence (highest first).
  * @task T4769, T5241
  */
-export async function searchLearnings(
-  projectRoot: string,
-  params: SearchLearningParams = {},
-) {
+export async function searchLearnings(projectRoot: string, params: SearchLearningParams = {}) {
   const accessor = await getBrainAccessor(projectRoot);
 
   let entries = await accessor.findLearnings({
@@ -119,7 +113,7 @@ export async function searchLearnings(
       (e) =>
         e.insight.toLowerCase().includes(q) ||
         e.source.toLowerCase().includes(q) ||
-        (e.application && e.application.toLowerCase().includes(q)),
+        e.application?.toLowerCase().includes(q),
     );
   }
 
@@ -157,9 +151,8 @@ export async function learningStats(projectRoot: string) {
   return {
     total: entries.length,
     actionable,
-    averageConfidence: entries.length > 0
-      ? Math.round((totalConfidence / entries.length) * 100) / 100
-      : 0,
+    averageConfidence:
+      entries.length > 0 ? Math.round((totalConfidence / entries.length) * 100) / 100 : 0,
     bySource,
     highConfidence,
     lowConfidence,

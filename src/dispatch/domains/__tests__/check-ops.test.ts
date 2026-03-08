@@ -35,15 +35,15 @@ vi.mock('../../../core/logger.js', () => ({
 }));
 
 import {
+  systemArchiveStats,
+  validateCoherenceCheck,
   validateComplianceSummary,
   validateComplianceViolations,
-  validateTestStatus,
-  validateTestCoverage,
-  validateCoherenceCheck,
+  validateGateVerify,
   validateProtocol,
   validateProtocolConsensus,
-  validateGateVerify,
-  systemArchiveStats,
+  validateTestCoverage,
+  validateTestStatus,
 } from '../../lib/engine.js';
 
 describe('CheckHandler Operations', () => {
@@ -52,7 +52,7 @@ describe('CheckHandler Operations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handler = new CheckHandler();
-    
+
     // Default mock implementations to return success
     vi.mocked(validateComplianceSummary).mockReturnValue({ success: true, data: {} } as any);
     vi.mocked(validateComplianceViolations).mockReturnValue({ success: true, data: {} } as any);
@@ -108,13 +108,16 @@ describe('CheckHandler Operations', () => {
 
     it('calls validateProtocolConsensus when type is consensus', async () => {
       await handler.query('protocol', { protocolType: 'consensus', taskId: 'T1', strict: true });
-      expect(validateProtocolConsensus).toHaveBeenCalledWith({
-        mode: 'task',
-        taskId: 'T1',
-        manifestFile: undefined,
-        strict: true,
-        votingMatrixFile: undefined,
-      }, '/mock/project');
+      expect(validateProtocolConsensus).toHaveBeenCalledWith(
+        {
+          mode: 'task',
+          taskId: 'T1',
+          manifestFile: undefined,
+          strict: true,
+          votingMatrixFile: undefined,
+        },
+        '/mock/project',
+      );
     });
   });
 
@@ -126,11 +129,14 @@ describe('CheckHandler Operations', () => {
 
     it('gate.set calls validateGateVerify with write params', async () => {
       await handler.mutate('gate.set', { taskId: 'T1', gate: 'testsPassed', value: true });
-      expect(validateGateVerify).toHaveBeenCalledWith(expect.objectContaining({
-        taskId: 'T1',
-        gate: 'testsPassed',
-        value: true,
-      }), '/mock/project');
+      expect(validateGateVerify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'T1',
+          gate: 'testsPassed',
+          value: true,
+        }),
+        '/mock/project',
+      );
     });
   });
 

@@ -4,19 +4,17 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the session command group.
  * @task T4463
  */
 export function registerSessionCommand(program: Command): void {
-  const session = program
-    .command('session')
-    .description('Manage work sessions');
+  const session = program.command('session').description('Manage work sessions');
 
   session
     .command('start')
@@ -29,13 +27,19 @@ export function registerSessionCommand(program: Command): void {
     .option('--agent <agent>', 'Agent identifier')
     .option('--grade', 'Enable full query+mutation audit logging for behavioral grading')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'session', 'start', {
-        scope: opts['scope'] as string,
-        name: opts['name'] as string,
-        autoStart: (opts['autoStart'] || opts['autoFocus']) as boolean | undefined,
-        focus: opts['focus'] as string | undefined,
-        grade: opts['grade'] as boolean | undefined,
-      }, { command: 'session', operation: 'session.start' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'start',
+        {
+          scope: opts['scope'] as string,
+          name: opts['name'] as string,
+          autoStart: (opts['autoStart'] || opts['autoFocus']) as boolean | undefined,
+          focus: opts['focus'] as string | undefined,
+          grade: opts['grade'] as boolean | undefined,
+        },
+        { command: 'session', operation: 'session.start' },
+      );
     });
 
   session
@@ -46,10 +50,16 @@ export function registerSessionCommand(program: Command): void {
     .option('--note <note>', 'Stop note')
     .option('--next-action <action>', 'Suggested next action')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'session', 'end', {
-        note: opts['note'] as string | undefined,
-        nextAction: opts['nextAction'] as string | undefined,
-      }, { command: 'session', operation: 'session.stop' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'end',
+        {
+          note: opts['note'] as string | undefined,
+          nextAction: opts['nextAction'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.stop' },
+      );
     });
 
   session
@@ -58,7 +68,7 @@ export function registerSessionCommand(program: Command): void {
     .option('--scope <scope>', 'Filter by scope (epic:T### or global)')
     .action(async (opts: Record<string, unknown>) => {
       const scope = opts['scope'] as string | undefined;
-      
+
       const response = await dispatchRaw('query', 'session', 'handoff.show', {
         scope,
       });
@@ -72,7 +82,11 @@ export function registerSessionCommand(program: Command): void {
       if (!data || !data.handoff) {
         cliOutput(
           { handoff: null },
-          { command: 'session handoff', message: 'No handoff data available', operation: 'session.handoff.show' }
+          {
+            command: 'session handoff',
+            message: 'No handoff data available',
+            operation: 'session.handoff.show',
+          },
         );
         process.exit(ExitCode.NO_DATA);
         return;
@@ -96,7 +110,7 @@ export function registerSessionCommand(program: Command): void {
 
       cliOutput(
         { handoff: formattedHandoff },
-        { command: 'session handoff', operation: 'session.handoff.show' }
+        { command: 'session handoff', operation: 'session.handoff.show' },
       );
     });
 
@@ -109,8 +123,11 @@ export function registerSessionCommand(program: Command): void {
         handleRawError(response, { command: 'session', operation: 'session.status' });
       }
       const data = response.data as Record<string, unknown> | null;
-      if (!data || (data['session'] === null) || (data['session'] === undefined && !data['id'])) {
-        cliOutput({ session: null }, { command: 'session', message: 'No active session', operation: 'session.status' });
+      if (!data || data['session'] === null || (data['session'] === undefined && !data['id'])) {
+        cliOutput(
+          { session: null },
+          { command: 'session', message: 'No active session', operation: 'session.status' },
+        );
         process.exit(ExitCode.NO_DATA);
         return;
       }
@@ -121,9 +138,15 @@ export function registerSessionCommand(program: Command): void {
     .command('resume <sessionId>')
     .description('Resume an existing session')
     .action(async (sessionId: string) => {
-      await dispatchFromCli('mutate', 'session', 'resume', {
-        sessionId,
-      }, { command: 'session', operation: 'session.resume' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'resume',
+        {
+          sessionId,
+        },
+        { command: 'session', operation: 'session.resume' },
+      );
     });
 
   session
@@ -133,11 +156,17 @@ export function registerSessionCommand(program: Command): void {
     .option('--limit <n>', 'Max results', parseInt)
     .option('--offset <n>', 'Skip first n results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'session', 'list', {
-        status: opts['status'] as string | undefined,
-        limit: opts['limit'] as number | undefined,
-        offset: opts['offset'] as number | undefined,
-      }, { command: 'session', operation: 'session.list' });
+      await dispatchFromCli(
+        'query',
+        'session',
+        'list',
+        {
+          status: opts['status'] as string | undefined,
+          limit: opts['limit'] as number | undefined,
+          offset: opts['offset'] as number | undefined,
+        },
+        { command: 'session', operation: 'session.list' },
+      );
     });
 
   session
@@ -145,8 +174,14 @@ export function registerSessionCommand(program: Command): void {
     .description('Garbage collect old sessions')
     .option('--max-age <hours>', 'Max age in hours for active sessions', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'session', 'gc', {
-        maxAgeDays: opts['maxAge'] as number | undefined,
-      }, { command: 'session', operation: 'session.gc' });
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'gc',
+        {
+          maxAgeDays: opts['maxAge'] as number | undefined,
+        },
+        { command: 'session', operation: 'session.gc' },
+      );
     });
 }

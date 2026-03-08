@@ -14,7 +14,9 @@ describe('session hook handlers', () => {
   });
 
   it('swallows missing brain schema errors on session start', async () => {
-    observeBrainMock.mockRejectedValue(new Error('SQLITE_ERROR: no such table: brain_observations'));
+    observeBrainMock.mockRejectedValue(
+      new Error('SQLITE_ERROR: no such table: brain_observations'),
+    );
 
     await expect(
       handleSessionStart('/tmp/project', {
@@ -22,7 +24,7 @@ describe('session hook handlers', () => {
         timestamp: '2026-03-04T00:00:00.000Z',
         name: 'Test Session',
         scope: 'T5306',
-      })
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -35,7 +37,7 @@ describe('session hook handlers', () => {
         timestamp: '2026-03-04T00:30:00.000Z',
         duration: 1800,
         tasksCompleted: [],
-      })
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -48,7 +50,7 @@ describe('session hook handlers', () => {
         timestamp: '2026-03-04T00:00:00.000Z',
         name: 'Test Session',
         scope: 'T5306',
-      })
+      }),
     ).rejects.toThrow('database is locked');
   });
 
@@ -69,7 +71,7 @@ describe('session hook handlers', () => {
         title: 'Session end: ses-2',
         type: 'change',
         sourceSessionId: 'ses-2',
-      })
+      }),
     );
   });
 });

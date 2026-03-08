@@ -6,15 +6,15 @@
 
 // Re-export all CAAMP precedence types
 export type {
-  SkillsPrecedence,
   ProviderSkillsCapability,
+  SkillsPrecedence,
 } from '@cleocode/caamp';
 
 // Import CAAMP functions that CLEO will use
 export {
-  getProvidersBySkillsPrecedence,
-  getEffectiveSkillsPaths,
   buildSkillsMap,
+  getEffectiveSkillsPaths,
+  getProvidersBySkillsPrecedence,
 } from '@cleocode/caamp';
 
 // CLEO-specific types for skills operations with precedence

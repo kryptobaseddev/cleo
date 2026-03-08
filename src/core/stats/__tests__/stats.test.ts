@@ -4,10 +4,10 @@
  * @task T0000
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { rankBlockedTask, getDashboard } from '../index.js';
-import type { Task, TaskFile } from '../../../types/task.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Task, TaskFile } from '../../../types/task.js';
+import { getDashboard, rankBlockedTask } from '../index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,7 +139,12 @@ describe('rankBlockedTask', () => {
 
   it('focus proximity: sibling of focused task gets +15 boost', () => {
     const focus = makeTask({ id: 'T100', title: 'Focus', parentId: 'T050' });
-    const sibling = makeTask({ id: 'T101', title: 'Sibling', priority: 'medium', parentId: 'T050' });
+    const sibling = makeTask({
+      id: 'T101',
+      title: 'Sibling',
+      priority: 'medium',
+      parentId: 'T050',
+    });
     const unrelated = makeTask({ id: 'T200', title: 'Unrelated', priority: 'medium' });
 
     expect(rankBlockedTask(sibling, allTasks, focus)).toBeGreaterThan(
@@ -183,8 +188,7 @@ describe('rankBlockedTask', () => {
     });
 
     const diff =
-      rankBlockedTask(child, allTasks, focus) -
-      rankBlockedTask(unrelated, allTasks, focus);
+      rankBlockedTask(child, allTasks, focus) - rankBlockedTask(unrelated, allTasks, focus);
     expect(diff).toBe(15);
   });
 
@@ -204,8 +208,7 @@ describe('rankBlockedTask', () => {
     });
 
     const diff =
-      rankBlockedTask(parent, allTasks, focus) -
-      rankBlockedTask(unrelated, allTasks, focus);
+      rankBlockedTask(parent, allTasks, focus) - rankBlockedTask(unrelated, allTasks, focus);
     expect(diff).toBe(15);
   });
 
@@ -246,8 +249,7 @@ describe('rankBlockedTask', () => {
     });
 
     const diff =
-      rankBlockedTask(withAll, allTasks, null) -
-      rankBlockedTask(withNone, allTasks, null);
+      rankBlockedTask(withAll, allTasks, null) - rankBlockedTask(withNone, allTasks, null);
     expect(diff).toBe(24);
   });
 
@@ -418,7 +420,7 @@ describe('getDashboard', () => {
     const result = await getDashboard({ cwd: '/fake' }, accessor);
     const hp = result['highPriority'] as { tasks: Task[] };
 
-    const ids = hp.tasks.map(t => t.id);
+    const ids = hp.tasks.map((t) => t.id);
     expect(ids.indexOf('T002')).toBeLessThan(ids.indexOf('T001'));
   });
 
@@ -455,6 +457,6 @@ describe('getDashboard', () => {
     const bt = result['blockedTasks'] as { count: number; tasks: Task[] };
 
     expect(bt.count).toBe(1);
-    expect(bt.tasks.every(t => t.status === 'blocked')).toBe(true);
+    expect(bt.tasks.every((t) => t.status === 'blocked')).toBe(true);
   });
 });

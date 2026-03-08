@@ -49,7 +49,7 @@ export function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
   const properties: Record<string, JsonSchemaProperty> = {};
   const required: string[] = [];
 
-  for (const param of (def.params ?? [])) {
+  for (const param of def.params ?? []) {
     // Skip CLI-only params from MCP schema
     if (param.mcp?.hidden === true) continue;
 
@@ -78,10 +78,14 @@ export function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
 
 function paramTypeToJsonSchema(t: ParamDef['type']): JsonSchemaType {
   switch (t) {
-    case 'string':  return 'string';
-    case 'number':  return 'number';
-    case 'boolean': return 'boolean';
-    case 'array':   return 'array';
+    case 'string':
+      return 'string';
+    case 'number':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    case 'array':
+      return 'array';
   }
 }
 
@@ -108,7 +112,7 @@ export function buildCommanderArgs(def: OperationDef): CommanderArgSplit {
   const positionals: ParamDef[] = [];
   const options: ParamDef[] = [];
 
-  for (const param of (def.params ?? [])) {
+  for (const param of def.params ?? []) {
     // Params with no cli key are MCP-only — skip for Commander
     if (param.cli === undefined) continue;
 
@@ -141,7 +145,7 @@ export function buildCommanderArgs(def: OperationDef): CommanderArgSplit {
  */
 export function buildCommanderOptionString(param: ParamDef): string {
   const flagName = param.cli?.flag ?? camelToKebab(param.name);
-  const short    = param.cli?.short;
+  const short = param.cli?.short;
 
   // Boolean flags have no value placeholder
   if (param.type === 'boolean') {
@@ -149,9 +153,7 @@ export function buildCommanderOptionString(param: ParamDef): string {
   }
 
   const placeholder = `<${flagName}>`;
-  return short
-    ? `${short}, --${flagName} ${placeholder}`
-    : `--${flagName} ${placeholder}`;
+  return short ? `${short}, --${flagName} ${placeholder}` : `--${flagName} ${placeholder}`;
 }
 
 /**
@@ -179,6 +181,9 @@ export function validateRequiredParamsDef(
   const provided = params ?? {};
   return (def.params ?? [])
     .filter((p: ParamDef) => p.required)
-    .filter((p: ParamDef) => provided[p.name] === undefined || provided[p.name] === null || provided[p.name] === '')
+    .filter(
+      (p: ParamDef) =>
+        provided[p.name] === undefined || provided[p.name] === null || provided[p.name] === '',
+    )
     .map((p: ParamDef) => p.name);
 }

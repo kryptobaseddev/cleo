@@ -84,7 +84,7 @@ export function extractRepoOwnerAndName(remote: string): RepoIdentity | null {
 export async function detectBranchProtection(
   branch: string,
   remote: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<BranchProtectionResult> {
   const cwdOpts = projectRoot ? { cwd: projectRoot } : {};
 
@@ -101,15 +101,11 @@ export async function detectBranchProtection(
       if (identity) {
         const { owner, repo } = identity;
         try {
-          execFileSync(
-            'gh',
-            ['api', `/repos/${owner}/${repo}/branches/${branch}/protection`],
-            {
-              encoding: 'utf-8',
-              stdio: 'pipe',
-              ...cwdOpts,
-            }
-          );
+          execFileSync('gh', ['api', `/repos/${owner}/${repo}/branches/${branch}/protection`], {
+            encoding: 'utf-8',
+            stdio: 'pipe',
+            ...cwdOpts,
+          });
           // Exit code 0 means protection rules exist
           return { protected: true, detectionMethod: 'gh-api' };
         } catch (apiErr: unknown) {
@@ -132,15 +128,11 @@ export async function detectBranchProtection(
 
   // Strategy 2: git push --dry-run
   try {
-    const result = execFileSync(
-      'git',
-      ['push', '--dry-run', remote, `HEAD:${branch}`],
-      {
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        ...cwdOpts,
-      }
-    );
+    const result = execFileSync('git', ['push', '--dry-run', remote, `HEAD:${branch}`], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      ...cwdOpts,
+    });
     // If stderr from a successful dry-run contains protection signals
     const output = typeof result === 'string' ? result : '';
     if (

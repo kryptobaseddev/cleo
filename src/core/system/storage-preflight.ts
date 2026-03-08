@@ -114,22 +114,25 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
 
   const currentEngine: PreflightResult['currentEngine'] = details.tasksDbExists ? 'sqlite' : 'none';
 
-  const jsonHasData = details.todoJsonTaskCount > 0
-    || details.archiveJsonTaskCount > 0
-    || details.sessionsJsonCount > 0;
+  const jsonHasData =
+    details.todoJsonTaskCount > 0 ||
+    details.archiveJsonTaskCount > 0 ||
+    details.sessionsJsonCount > 0;
 
   let migrationNeeded = false;
   let summary = '';
   let fix: string | null = null;
 
-  const hasStaleLegacyFiles = details.todoJsonExists || details.archiveJsonExists || details.sessionsJsonExists;
+  const hasStaleLegacyFiles =
+    details.todoJsonExists || details.archiveJsonExists || details.sessionsJsonExists;
 
   if (!details.tasksDbExists && jsonHasData) {
     const totalTasks = details.todoJsonTaskCount + details.archiveJsonTaskCount;
     migrationNeeded = true;
-    summary = `Found ${totalTasks} task(s) in legacy JSON files but no SQLite database. `
-      + 'SQLite is the only supported storage engine (ADR-006). '
-      + 'Run migration to upgrade.';
+    summary =
+      `Found ${totalTasks} task(s) in legacy JSON files but no SQLite database. ` +
+      'SQLite is the only supported storage engine (ADR-006). ' +
+      'Run migration to upgrade.';
     fix = 'cleo upgrade';
   } else if (!details.tasksDbExists && !jsonHasData) {
     summary = 'No data found. Run cleo init to set up a new project.';

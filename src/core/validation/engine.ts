@@ -9,9 +9,10 @@
  * @epic T4454
  */
 
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import { TASK_STATUSES, type TaskStatus } from '../../store/status-registry.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+
 export type { TaskStatus } from '../../store/status-registry.js';
 
 // ============================================================================
@@ -19,7 +20,14 @@ export type { TaskStatus } from '../../store/status-registry.js';
 // ============================================================================
 
 export const VALID_OPERATIONS = [
-  'create', 'update', 'complete', 'archive', 'restore', 'delete', 'validate', 'backup',
+  'create',
+  'update',
+  'complete',
+  'archive',
+  'restore',
+  'delete',
+  'validate',
+  'backup',
 ] as const;
 
 /** Field length limits matching the Bash implementation. */
@@ -62,8 +70,22 @@ export interface ValidationResult {
 
 /** Shell metacharacters that could enable injection. */
 const SHELL_METACHARACTERS = new Set([
-  '$', '`', ';', '|', '&', '<', '>', "'", '"',
-  '(', ')', '{', '}', '[', ']', '!',
+  '$',
+  '`',
+  ';',
+  '|',
+  '&',
+  '<',
+  '>',
+  "'",
+  '"',
+  '(',
+  ')',
+  '{',
+  '}',
+  '[',
+  ']',
+  '!',
 ]);
 
 /**
@@ -108,12 +130,12 @@ export function sanitizeFilePath(path: string): string {
 
 /** Zero-width and invisible Unicode codepoints. */
 const INVISIBLE_CODEPOINTS = [
-  0x200B, // Zero-width space
-  0x200C, // Zero-width non-joiner
-  0x200D, // Zero-width joiner
-  0xFEFF, // BOM
+  0x200b, // Zero-width space
+  0x200c, // Zero-width non-joiner
+  0x200d, // Zero-width joiner
+  0xfeff, // BOM
   0x2060, // Word joiner
-  0x00AD, // Soft hyphen
+  0x00ad, // Soft hyphen
 ];
 
 /**
@@ -135,11 +157,19 @@ export function validateTitle(title: string): ValidationResult {
   }
 
   if (title.includes('\\n')) {
-    errors.push({ field: 'title', message: 'Title cannot contain newline sequences', severity: 'error' });
+    errors.push({
+      field: 'title',
+      message: 'Title cannot contain newline sequences',
+      severity: 'error',
+    });
   }
 
   if (title.includes('\r')) {
-    errors.push({ field: 'title', message: 'Title cannot contain carriage returns', severity: 'error' });
+    errors.push({
+      field: 'title',
+      message: 'Title cannot contain carriage returns',
+      severity: 'error',
+    });
   }
 
   // Check for invisible/zero-width characters
@@ -157,9 +187,17 @@ export function validateTitle(title: string): ValidationResult {
   // Check for ASCII control characters (0x00-0x1F except \n \r \t, and 0x7F)
   for (let i = 0; i < title.length; i++) {
     const code = title.charCodeAt(i);
-    if ((code >= 0 && code <= 0x08) || (code >= 0x0B && code <= 0x0C) ||
-        (code >= 0x0E && code <= 0x1F) || code === 0x7F) {
-      errors.push({ field: 'title', message: 'Title contains control characters', severity: 'error' });
+    if (
+      (code >= 0 && code <= 0x08) ||
+      (code >= 0x0b && code <= 0x0c) ||
+      (code >= 0x0e && code <= 0x1f) ||
+      code === 0x7f
+    ) {
+      errors.push({
+        field: 'title',
+        message: 'Title contains control characters',
+        severity: 'error',
+      });
       break;
     }
   }
@@ -195,11 +233,13 @@ export function validateDescription(desc: string): ValidationResult {
   if (desc.length > FIELD_LIMITS.MAX_DESCRIPTION_LENGTH) {
     return {
       valid: false,
-      errors: [{
-        field: 'description',
-        message: `Description exceeds ${FIELD_LIMITS.MAX_DESCRIPTION_LENGTH} characters (${desc.length} provided)`,
-        severity: 'error',
-      }],
+      errors: [
+        {
+          field: 'description',
+          message: `Description exceeds ${FIELD_LIMITS.MAX_DESCRIPTION_LENGTH} characters (${desc.length} provided)`,
+          severity: 'error',
+        },
+      ],
       warnings: [],
     };
   }
@@ -212,11 +252,13 @@ export function validateNote(note: string): ValidationResult {
   if (note.length > FIELD_LIMITS.MAX_NOTE_LENGTH) {
     return {
       valid: false,
-      errors: [{
-        field: 'note',
-        message: `Note exceeds ${FIELD_LIMITS.MAX_NOTE_LENGTH} characters (${note.length} provided)`,
-        severity: 'error',
-      }],
+      errors: [
+        {
+          field: 'note',
+          message: `Note exceeds ${FIELD_LIMITS.MAX_NOTE_LENGTH} characters (${note.length} provided)`,
+          severity: 'error',
+        },
+      ],
       warnings: [],
     };
   }
@@ -229,11 +271,13 @@ export function validateBlockedBy(reason: string): ValidationResult {
   if (reason.length > FIELD_LIMITS.MAX_BLOCKED_BY_LENGTH) {
     return {
       valid: false,
-      errors: [{
-        field: 'blockedBy',
-        message: `Blocked-by reason exceeds ${FIELD_LIMITS.MAX_BLOCKED_BY_LENGTH} characters (${reason.length} provided)`,
-        severity: 'error',
-      }],
+      errors: [
+        {
+          field: 'blockedBy',
+          message: `Blocked-by reason exceeds ${FIELD_LIMITS.MAX_BLOCKED_BY_LENGTH} characters (${reason.length} provided)`,
+          severity: 'error',
+        },
+      ],
       warnings: [],
     };
   }
@@ -246,11 +290,13 @@ export function validateSessionNote(note: string): ValidationResult {
   if (note.length > FIELD_LIMITS.MAX_SESSION_NOTE_LENGTH) {
     return {
       valid: false,
-      errors: [{
-        field: 'sessionNote',
-        message: `Session note exceeds ${FIELD_LIMITS.MAX_SESSION_NOTE_LENGTH} characters (${note.length} provided)`,
-        severity: 'error',
-      }],
+      errors: [
+        {
+          field: 'sessionNote',
+          message: `Session note exceeds ${FIELD_LIMITS.MAX_SESSION_NOTE_LENGTH} characters (${note.length} provided)`,
+          severity: 'error',
+        },
+      ],
       warnings: [],
     };
   }
@@ -263,8 +309,23 @@ export function validateSessionNote(note: string): ValidationResult {
 
 /** Characters disallowed in cancellation reasons. */
 const CANCEL_REASON_DISALLOWED = new Set([
-  '|', ';', '&', '$', '`', '\\', '<', '>', '(', ')',
-  '{', '}', '[', ']', '!', '"', "'",
+  '|',
+  ';',
+  '&',
+  '$',
+  '`',
+  '\\',
+  '<',
+  '>',
+  '(',
+  ')',
+  '{',
+  '}',
+  '[',
+  ']',
+  '!',
+  '"',
+  "'",
 ]);
 
 /**
@@ -339,7 +400,10 @@ const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
  * Validate that a status transition is allowed.
  * @task T4523
  */
-export function validateStatusTransition(oldStatus: TaskStatus, newStatus: TaskStatus): ValidationResult {
+export function validateStatusTransition(
+  oldStatus: TaskStatus,
+  newStatus: TaskStatus,
+): ValidationResult {
   if (oldStatus === newStatus) {
     return { valid: true, errors: [], warnings: [] };
   }
@@ -351,12 +415,14 @@ export function validateStatusTransition(oldStatus: TaskStatus, newStatus: TaskS
 
   return {
     valid: false,
-    errors: [{
-      field: 'status',
-      message: `Invalid status transition: '${oldStatus}' -> '${newStatus}'`,
-      severity: 'error',
-      fix: `Valid transitions from '${oldStatus}': ${allowed?.join(', ') ?? 'none'}`,
-    }],
+    errors: [
+      {
+        field: 'status',
+        message: `Invalid status transition: '${oldStatus}' -> '${newStatus}'`,
+        severity: 'error',
+        fix: `Valid transitions from '${oldStatus}': ${allowed?.join(', ') ?? 'none'}`,
+      },
+    ],
     warnings: [],
   };
 }
@@ -379,10 +445,7 @@ const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
  * Check timestamp format and sanity.
  * @task T4523
  */
-export function checkTimestampSanity(
-  createdAt: string,
-  completedAt?: string,
-): ValidationResult {
+export function checkTimestampSanity(createdAt: string, completedAt?: string): ValidationResult {
   const errors: ValidationError[] = [];
 
   if (!ISO_TIMESTAMP_REGEX.test(createdAt)) {
@@ -452,7 +515,7 @@ const METADATA_FIELDS = new Set(['type', 'parentId', 'labels', 'size']);
  * @task T4523
  */
 export function isMetadataOnlyUpdate(fields: string[]): boolean {
-  return fields.every(f => METADATA_FIELDS.has(f));
+  return fields.every((f) => METADATA_FIELDS.has(f));
 }
 
 // ============================================================================
@@ -465,11 +528,16 @@ export function isMetadataOnlyUpdate(fields: string[]): boolean {
  */
 export function normalizeLabels(labels: string): string {
   if (!labels) return '';
-  return [...new Set(
-    labels.split(',')
-      .map(l => l.trim())
-      .filter(Boolean)
-  )].sort().join(',');
+  return [
+    ...new Set(
+      labels
+        .split(',')
+        .map((l) => l.trim())
+        .filter(Boolean),
+    ),
+  ]
+    .sort()
+    .join(',');
 }
 
 // ============================================================================
@@ -496,11 +564,14 @@ export interface TaskFile {
   tasks: Task[];
   project?: {
     currentPhase?: string;
-    phases?: Record<string, {
-      status?: string;
-      startedAt?: string;
-      completedAt?: string;
-    }>;
+    phases?: Record<
+      string,
+      {
+        status?: string;
+        startedAt?: string;
+        completedAt?: string;
+      }
+    >;
   };
   [key: string]: unknown;
 }
@@ -514,15 +585,10 @@ export interface ArchiveFile {
  * Check ID uniqueness within and across files.
  * @task T4523
  */
-export function checkIdUniqueness(
-  taskFile: TaskFile,
-  archiveFile?: ArchiveFile,
-): ValidationResult {
+export function checkIdUniqueness(taskFile: TaskFile, archiveFile?: ArchiveFile): ValidationResult {
   const errors: ValidationError[] = [];
 
-  const taskIds = taskFile.tasks
-    .map(t => t.id)
-    .filter((id): id is string => !!id);
+  const taskIds = taskFile.tasks.map((t) => t.id).filter((id): id is string => !!id);
 
   // Check for duplicates within todo
   const seen = new Set<string>();
@@ -543,12 +609,10 @@ export function checkIdUniqueness(
   // Check against archive
   if (archiveFile) {
     const archiveIds = new Set(
-      archiveFile.archived_tasks
-        .map(t => t.id)
-        .filter((id): id is string => !!id),
+      archiveFile.archived_tasks.map((t) => t.id).filter((id): id is string => !!id),
     );
 
-    const crossDuplicates = taskIds.filter(id => archiveIds.has(id));
+    const crossDuplicates = taskIds.filter((id) => archiveIds.has(id));
     if (crossDuplicates.length > 0) {
       errors.push({
         message: `Task IDs exist in both todo and archive: ${crossDuplicates.join(', ')}`,
@@ -575,15 +639,30 @@ export function validateTask(task: Task): ValidationResult {
 
   // Required fields
   if (!task.content) {
-    errors.push({ field: 'content', message: 'Missing content field', severity: 'error', fix: 'Add content field with task description' });
+    errors.push({
+      field: 'content',
+      message: 'Missing content field',
+      severity: 'error',
+      fix: 'Add content field with task description',
+    });
   }
 
   if (!task.status) {
-    errors.push({ field: 'status', message: 'Missing status field', severity: 'error', fix: `Add status field (${TASK_STATUSES.join('|')})` });
+    errors.push({
+      field: 'status',
+      message: 'Missing status field',
+      severity: 'error',
+      fix: `Add status field (${TASK_STATUSES.join('|')})`,
+    });
   }
 
   if (!task.activeForm) {
-    errors.push({ field: 'activeForm', message: 'Missing activeForm field', severity: 'error', fix: 'Add activeForm field with present continuous form' });
+    errors.push({
+      field: 'activeForm',
+      message: 'Missing activeForm field',
+      severity: 'error',
+      fix: 'Add activeForm field with present continuous form',
+    });
   }
 
   // Status enum
@@ -722,11 +801,13 @@ export function validateNoCircularDeps(
   if (dfs(taskId)) {
     return {
       valid: false,
-      errors: [{
-        message: `Circular dependency detected involving: ${taskId}`,
-        severity: 'error',
-        fix: 'Remove dependency that creates the cycle',
-      }],
+      errors: [
+        {
+          message: `Circular dependency detected involving: ${taskId}`,
+          severity: 'error',
+          fix: 'Remove dependency that creates the cycle',
+        },
+      ],
       warnings: [],
     };
   }
@@ -746,16 +827,18 @@ export function validateSingleActivePhase(taskFile: TaskFile): ValidationResult 
   const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
-  const activeCount = Object.values(phases).filter(p => p.status === 'active').length;
+  const activeCount = Object.values(phases).filter((p) => p.status === 'active').length;
 
   if (activeCount > 1) {
     return {
       valid: false,
-      errors: [{
-        message: `Multiple phases marked as active (${activeCount} found, only 1 allowed)`,
-        severity: 'error',
-        fix: "Use 'cleo phase set <slug>' to set a single active phase",
-      }],
+      errors: [
+        {
+          message: `Multiple phases marked as active (${activeCount} found, only 1 allowed)`,
+          severity: 'error',
+          fix: "Use 'cleo phase set <slug>' to set a single active phase",
+        },
+      ],
       warnings: [],
     };
   }
@@ -778,11 +861,13 @@ export function validateCurrentPhaseConsistency(taskFile: TaskFile): ValidationR
   if (!phase) {
     return {
       valid: false,
-      errors: [{
-        message: `Current phase '${currentPhase}' does not exist in phases definition`,
-        severity: 'error',
-        fix: 'Set currentPhase to an existing phase slug',
-      }],
+      errors: [
+        {
+          message: `Current phase '${currentPhase}' does not exist in phases definition`,
+          severity: 'error',
+          fix: 'Set currentPhase to an existing phase slug',
+        },
+      ],
       warnings: [],
     };
   }
@@ -790,11 +875,13 @@ export function validateCurrentPhaseConsistency(taskFile: TaskFile): ValidationR
   if (phase.status !== 'active') {
     return {
       valid: false,
-      errors: [{
-        message: `Current phase '${currentPhase}' has status '${phase.status}', expected 'active'`,
-        severity: 'error',
-        fix: "Either change phase status to 'active' or set a different currentPhase",
-      }],
+      errors: [
+        {
+          message: `Current phase '${currentPhase}' has status '${phase.status}', expected 'active'`,
+          severity: 'error',
+          fix: "Either change phase status to 'active' or set a different currentPhase",
+        },
+      ],
       warnings: [],
     };
   }
@@ -895,7 +982,11 @@ export function validateAll(
   const idResult = checkIdUniqueness(taskFile, archiveFile);
   if (!idResult.valid) {
     semanticErrors++;
-    checks.push({ name: 'id_uniqueness', passed: false, message: idResult.errors[0]?.message ?? 'Duplicate IDs found' });
+    checks.push({
+      name: 'id_uniqueness',
+      passed: false,
+      message: idResult.errors[0]?.message ?? 'Duplicate IDs found',
+    });
   } else {
     checks.push({ name: 'id_uniqueness', passed: true, message: 'All IDs unique' });
   }
@@ -908,16 +999,28 @@ export function validateAll(
   }
   if (taskErrors > 0) {
     semanticErrors++;
-    checks.push({ name: 'task_validation', passed: false, message: `${taskErrors} task(s) have validation errors` });
+    checks.push({
+      name: 'task_validation',
+      passed: false,
+      message: `${taskErrors} task(s) have validation errors`,
+    });
   } else {
-    checks.push({ name: 'task_validation', passed: true, message: `All tasks valid (${taskFile.tasks.length} tasks)` });
+    checks.push({
+      name: 'task_validation',
+      passed: true,
+      message: `All tasks valid (${taskFile.tasks.length} tasks)`,
+    });
   }
 
   // 4. Content duplicate check
-  const contents = taskFile.tasks.map(t => t.content).filter(Boolean);
+  const contents = taskFile.tasks.map((t) => t.content).filter(Boolean);
   const contentDuplicates = contents.filter((c, i) => contents.indexOf(c) !== i);
   if (contentDuplicates.length > 0) {
-    checks.push({ name: 'content_duplicates', passed: true, message: `Warning: duplicate content found` });
+    checks.push({
+      name: 'content_duplicates',
+      passed: true,
+      message: `Warning: duplicate content found`,
+    });
   } else {
     checks.push({ name: 'content_duplicates', passed: true, message: 'No duplicate content' });
   }
@@ -932,7 +1035,11 @@ export function validateAll(
 
     if (phaseErrors > 0) {
       semanticErrors++;
-      checks.push({ name: 'phase_validation', passed: false, message: `Phase validation failed (${phaseErrors} issues)` });
+      checks.push({
+        name: 'phase_validation',
+        passed: false,
+        message: `Phase validation failed (${phaseErrors} issues)`,
+      });
     } else {
       checks.push({ name: 'phase_validation', passed: true, message: 'Phase configuration valid' });
     }
@@ -948,18 +1055,24 @@ export function validateAll(
   }
   if (cycleErrors > 0) {
     semanticErrors++;
-    checks.push({ name: 'circular_deps', passed: false, message: `Circular dependencies detected (${cycleErrors} cycles)` });
+    checks.push({
+      name: 'circular_deps',
+      passed: false,
+      message: `Circular dependencies detected (${cycleErrors} cycles)`,
+    });
   } else {
     checks.push({ name: 'circular_deps', passed: true, message: 'No circular dependencies' });
   }
 
   // 7. Done status consistency
-  const invalidDone = taskFile.tasks.filter(
-    t => t.status === 'done' && !t.completed_at,
-  );
+  const invalidDone = taskFile.tasks.filter((t) => t.status === 'done' && !t.completed_at);
   if (invalidDone.length > 0) {
     semanticErrors++;
-    checks.push({ name: 'done_consistency', passed: false, message: 'Done tasks missing completed_at timestamp' });
+    checks.push({
+      name: 'done_consistency',
+      passed: false,
+      message: 'Done tasks missing completed_at timestamp',
+    });
   } else {
     checks.push({ name: 'done_consistency', passed: true, message: 'Done status consistent' });
   }

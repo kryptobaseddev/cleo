@@ -4,97 +4,89 @@
  * @task T4455
  */
 
-// Types
-export { ExitCode } from './types/exit-codes.js';
-export type { Task, TaskFile, Phase, Release } from './types/task.js';
-
 // Core
 export { CleoError } from './core/errors.js';
-export { formatOutput, formatSuccess, formatError } from './core/output.js';
-
-// Tasks
-export { addTask } from './core/tasks/add.js';
-export { listTasks } from './core/tasks/list.js';
-export { showTask } from './core/tasks/show.js';
-export { findTasks } from './core/tasks/find.js';
-
-// Phases
+// Lifecycle
 export {
-  listPhases,
-  showPhase,
-  setPhase,
-  startPhase,
-  completePhase,
-  advancePhase,
-  renamePhase,
-  deletePhase,
-} from './core/phases/index.js';
-
-// Dependencies
-export {
-  buildGraph,
-  getDepsOverview,
-  getTaskDeps,
-  topologicalSort,
-  getExecutionWaves,
-  getCriticalPath,
-  getImpact,
-  detectCycles,
-  getTaskTree,
-  addRelation,
-} from './core/phases/deps.js';
-
+  checkGate,
+  completeStage,
+  getLifecycleState,
+  skipStage,
+  startStage,
+} from './core/lifecycle/index.js';
 // Research
 export {
   addResearch,
-  showResearch,
+  appendManifest,
+  linkResearch,
   listResearch,
   pendingResearch,
-  linkResearch,
-  updateResearch,
-  readManifest,
-  appendManifest,
   queryManifest,
+  readManifest,
+  showResearch,
+  updateResearch,
 } from './core/memory/index.js';
-
-// Orchestration
-export {
-  startOrchestration,
-  analyzeEpic,
-  getReadyTasks,
-  getNextTask,
-  prepareSpawn,
-  validateSpawnOutput,
-  getOrchestratorContext,
-  autoDispatch,
-  resolveTokens,
-} from './core/orchestration/index.js';
-
-// Lifecycle
-export {
-  getLifecycleState,
-  startStage,
-  completeStage,
-  skipStage,
-  checkGate,
-} from './core/lifecycle/index.js';
-
-// System migration status + storage preflight
-export { getMigrationStatus as getSystemMigrationStatus } from './core/system/migrate.js';
-export type { MigrateResult, MigrateResult as SystemMigrateResult } from './core/system/migrate.js';
-export { checkStorageMigration } from './core/system/storage-preflight.js';
-export type { PreflightResult } from './core/system/storage-preflight.js';
-
-// Migration compatibility exports (package-root API)
-export {
-  detectVersion,
-  compareSemver,
-  getMigrationStatus,
-  runMigration,
-  runAllMigrations,
-} from './core/migration/index.js';
 export type {
-  SchemaVersion,
   MigrationResult,
   MigrationStatus,
+  SchemaVersion,
 } from './core/migration/index.js';
+// Migration compatibility exports (package-root API)
+export {
+  compareSemver,
+  detectVersion,
+  getMigrationStatus,
+  runAllMigrations,
+  runMigration,
+} from './core/migration/index.js';
+// Orchestration
+export {
+  analyzeEpic,
+  autoDispatch,
+  getNextTask,
+  getOrchestratorContext,
+  getReadyTasks,
+  prepareSpawn,
+  resolveTokens,
+  startOrchestration,
+  validateSpawnOutput,
+} from './core/orchestration/index.js';
+export { formatError, formatOutput, formatSuccess } from './core/output.js';
+// Dependencies
+export {
+  addRelation,
+  buildGraph,
+  detectCycles,
+  getCriticalPath,
+  getDepsOverview,
+  getExecutionWaves,
+  getImpact,
+  getTaskDeps,
+  getTaskTree,
+  topologicalSort,
+} from './core/phases/deps.js';
+
+// Phases
+export {
+  advancePhase,
+  completePhase,
+  deletePhase,
+  listPhases,
+  renamePhase,
+  setPhase,
+  showPhase,
+  startPhase,
+} from './core/phases/index.js';
+export type { MigrateResult, MigrateResult as SystemMigrateResult } from './core/system/migrate.js';
+// System migration status + storage preflight
+export { getMigrationStatus as getSystemMigrationStatus } from './core/system/migrate.js';
+export type { PreflightResult } from './core/system/storage-preflight.js';
+export { checkStorageMigration } from './core/system/storage-preflight.js';
+// Tasks
+export { addTask } from './core/tasks/add.js';
+export { findTasks } from './core/tasks/find.js';
+export { listTasks } from './core/tasks/list.js';
+export { showTask } from './core/tasks/show.js';
+// Types
+export { ExitCode } from './types/exit-codes.js';
+export type { Phase, Release, Task, TaskFile } from './types/task.js';

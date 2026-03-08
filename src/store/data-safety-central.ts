@@ -1,32 +1,28 @@
 /**
  * Centralized Data Safety Manager
- * 
+ *
  * SINGLE POINT OF SAFETY for ALL CLEO data operations.
- * 
+ *
  * Design Principles:
  * - All data operations MUST flow through this layer
  * - Zero-config safety: works automatically for all callers
  * - Atomic operations: verify + checkpoint + log in single transaction
  * - Recoverable: every operation leaves system in valid state
- * 
+ *
  * This eliminates the need for wrapper functions and ensures safety
  * at the architectural level, not as an afterthought.
- * 
+ *
  * @task T4739
  * @epic T4732
  */
 
-import type { DataAccessor } from './data-accessor.js';
-import type { TaskFile } from '../types/task.js';
+import { getLogger } from '../core/logger.js';
+import { checkSequence, repairSequence } from '../core/sequence/index.js';
 import type { Session } from '../types/session.js';
-import type { ArchiveFile } from './data-accessor.js';
+import type { TaskFile } from '../types/task.js';
+import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';
-import {
-  checkSequence,
-  repairSequence,
-} from '../core/sequence/index.js';
-import { getLogger } from '../core/logger.js';
 
 const log = getLogger('data-safety');
 
@@ -100,17 +96,16 @@ async function ensureSequenceValid(cwd?: string, options?: SafetyOptions): Promi
   if (!options?.validateSequence) return;
 
   const check = await checkSequence(cwd);
-  
+
   if (!check.valid) {
     log.warn({ counter: check.counter, maxId: check.maxIdInData }, 'Sequence behind, repairing');
     const repair = await repairSequence(cwd);
-    
+
     if (!repair.repaired && options.strict) {
-      throw new DataSafetyError(
-        `Sequence repair failed: ${repair.message}`,
-        'SEQUENCE_INVALID',
-        { check, repair },
-      );
+      throw new DataSafetyError(`Sequence repair failed: ${repair.message}`, 'SEQUENCE_INVALID', {
+        check,
+        repair,
+      });
     }
   }
 }
@@ -138,13 +133,17 @@ async function checkpoint(context: string, cwd?: string, options?: SafetyOptions
  * Verify TaskFile was written correctly.
  * Reads back and validates basic structure.
  */
-async function verifyTaskFile(data: TaskFile, accessor: DataAccessor, options?: SafetyOptions): Promise<void> {
+async function verifyTaskFile(
+  data: TaskFile,
+  accessor: DataAccessor,
+  options?: SafetyOptions,
+): Promise<void> {
   if (!options?.verify) return;
 
   stats.verifications++;
-  
+
   const readBack = await accessor.loadTaskFile();
-  
+
   // Basic structural validation
   if (!readBack.tasks) {
     throw new DataSafetyError(
@@ -166,7 +165,7 @@ async function verifyTaskFile(data: TaskFile, accessor: DataAccessor, options?: 
   // Verify specific tasks if we know what we wrote
   if (data.tasks && data.tasks.length > 0) {
     const lastTask = data.tasks[data.tasks.length - 1];
-    const found = readBack.tasks.find(t => t.id === lastTask!.id);
+    const found = readBack.tasks.find((t) => t.id === lastTask!.id);
     if (!found && options.strict) {
       throw new DataSafetyError(
         `TaskFile verification failed: last written task ${lastTask!.id} not found`,
@@ -177,12 +176,14 @@ async function verifyTaskFile(data: TaskFile, accessor: DataAccessor, options?: 
   }
 }
 
-
-
 /**
  * Verify sessions were written correctly.
  */
-async function verifySessions(data: Session[], accessor: DataAccessor, options?: SafetyOptions): Promise<void> {
+async function verifySessions(
+  data: Session[],
+  accessor: DataAccessor,
+  options?: SafetyOptions,
+): Promise<void> {
   if (!options?.verify) return;
 
   stats.verifications++;
@@ -201,13 +202,17 @@ async function verifySessions(data: Session[], accessor: DataAccessor, options?:
 /**
  * Verify ArchiveFile was written correctly.
  */
-async function verifyArchiveFile(data: ArchiveFile, accessor: DataAccessor, options?: SafetyOptions): Promise<void> {
+async function verifyArchiveFile(
+  data: ArchiveFile,
+  accessor: DataAccessor,
+  options?: SafetyOptions,
+): Promise<void> {
   if (!options?.verify) return;
 
   stats.verifications++;
-  
+
   const readBack = await accessor.loadArchive();
-  
+
   if (!readBack) {
     throw new DataSafetyError(
       'ArchiveFile verification failed: file not found after write',
@@ -226,7 +231,7 @@ async function verifyArchiveFile(data: ArchiveFile, accessor: DataAccessor, opti
 
 /**
  * Safe wrapper for DataAccessor.saveTaskFile()
- * 
+ *
  * Performs:
  * 1. Sequence validation
  * 2. Write operation
@@ -240,17 +245,17 @@ export async function safeSaveTaskFile(
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
   const opts = { ...DEFAULT_SAFETY, ...options };
-  
+
   // 1. Validate sequence
   await ensureSequenceValid(cwd, opts);
-  
+
   // 2. Perform write
   await accessor.saveTaskFile(data);
   stats.writes++;
-  
+
   // 3. Verify write
   await verifyTaskFile(data, accessor, opts);
-  
+
   // 4. Checkpoint
   const taskCount = data.tasks?.length ?? 0;
   await checkpoint(`saved TaskFile (${taskCount} tasks)`, cwd, opts);
@@ -297,10 +302,10 @@ export async function safeSaveArchive(
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
   const opts = { ...DEFAULT_SAFETY, ...options };
-  
+
   await accessor.saveArchive(data);
   stats.writes++;
-  
+
   await verifyArchiveFile(data, accessor, opts);
   await checkpoint(`saved Archive (${data.archivedTasks.length} tasks)`, cwd, opts);
 }
@@ -338,7 +343,7 @@ export async function safeSingleTaskWrite(
 
 /**
  * Safe wrapper for DataAccessor.appendLog()
- * 
+ *
  * Note: Log appends are fire-and-forget (no verification)
  * but we still checkpoint to ensure data is committed.
  */
@@ -349,10 +354,10 @@ export async function safeAppendLog(
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
   const opts = { ...DEFAULT_SAFETY, ...options, verify: false }; // Logs don't need verification
-  
+
   await accessor.appendLog(entry);
   stats.writes++;
-  
+
   await checkpoint('log entry', cwd, opts);
 }
 
@@ -377,7 +382,7 @@ export async function runDataIntegrityCheck(
     const seqCheck = await checkSequence(cwd);
     if (!seqCheck.valid) {
       errors.push(`Sequence invalid: counter=${seqCheck.counter}, maxId=T${seqCheck.maxIdInData}`);
-      
+
       // Try to repair
       const repair = await repairSequence(cwd);
       if (repair.repaired) {
@@ -429,10 +434,7 @@ export async function runDataIntegrityCheck(
  * Force immediate checkpoint.
  * Use before destructive operations.
  */
-export async function forceSafetyCheckpoint(
-  context: string,
-  cwd?: string,
-): Promise<void> {
+export async function forceSafetyCheckpoint(context: string, cwd?: string): Promise<void> {
   log.info({ context }, 'Forcing checkpoint');
   await gitCheckpoint('manual', context, cwd);
   vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
@@ -444,7 +446,7 @@ export async function forceSafetyCheckpoint(
  */
 export function disableSafety(): void {
   log.warn('All safety checks disabled - emergency recovery mode');
-  
+
   // Set all safety options to false
   Object.assign(DEFAULT_SAFETY, {
     verify: false,
@@ -459,7 +461,7 @@ export function disableSafety(): void {
  */
 export function enableSafety(): void {
   log.info('Safety checks re-enabled');
-  
+
   Object.assign(DEFAULT_SAFETY, {
     verify: true,
     checkpoint: true,

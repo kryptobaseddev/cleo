@@ -8,8 +8,8 @@
  * @task T5333
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDirAbsolute } from './paths.js';
 

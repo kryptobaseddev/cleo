@@ -13,8 +13,8 @@
  * @epic T4454
  */
 
-import type { Task, TaskFile } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import type { Task, TaskFile } from '../types/task.js';
 import type { ArchiveFields } from './db-helpers.js';
 
 /** Archive file structure. */
@@ -82,7 +82,12 @@ export interface DataAccessor {
   removeSingleTask?(taskId: string): Promise<void>;
 
   /** Insert a row into the task_relations table (T5168). */
-  addRelation?(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
+  addRelation?(
+    taskId: string,
+    relatedTo: string,
+    relationType: string,
+    reason?: string,
+  ): Promise<void>;
 
   // ---- Metadata (schema_meta KV store) ----
 
@@ -106,10 +111,7 @@ export interface DataAccessor {
  * @param _engine - Ignored. Kept for API compatibility during migration period.
  * @param cwd - Working directory (defaults to process.cwd())
  */
-export async function createDataAccessor(
-  _engine?: 'sqlite',
-  cwd?: string,
-): Promise<DataAccessor> {
+export async function createDataAccessor(_engine?: 'sqlite', cwd?: string): Promise<DataAccessor> {
   const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
   const inner = await createSqliteDataAccessor(cwd);
 

@@ -11,10 +11,10 @@
  * @task T4276
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pushRelease } from '../release-manifest.js';
 
 let testDir: string;
@@ -45,9 +45,9 @@ describe('pushRelease push policy', () => {
       },
     });
 
-    await expect(
-      pushRelease('v1.0.0', undefined, testDir),
-    ).rejects.toThrow('Push is disabled by config');
+    await expect(pushRelease('v1.0.0', undefined, testDir)).rejects.toThrow(
+      'Push is disabled by config',
+    );
   });
 
   it('should throw when push is disabled even with remote override', async () => {
@@ -60,9 +60,9 @@ describe('pushRelease push policy', () => {
       },
     });
 
-    await expect(
-      pushRelease('v1.0.0', 'upstream', testDir),
-    ).rejects.toThrow('Push is disabled by config');
+    await expect(pushRelease('v1.0.0', 'upstream', testDir)).rejects.toThrow(
+      'Push is disabled by config',
+    );
   });
 
   it('should allow push when disabled but explicitPush is true', async () => {
@@ -78,9 +78,9 @@ describe('pushRelease push policy', () => {
 
     // This will fail at the git push step (no real remote), but should NOT
     // fail at the config policy check
-    await expect(
-      pushRelease('v1.0.0', undefined, testDir, { explicitPush: true }),
-    ).rejects.toThrow(/git/i);
+    await expect(pushRelease('v1.0.0', undefined, testDir, { explicitPush: true })).rejects.toThrow(
+      /git/i,
+    );
     // Verify it did NOT throw the config error
     try {
       await pushRelease('v1.0.0', undefined, testDir, { explicitPush: true });

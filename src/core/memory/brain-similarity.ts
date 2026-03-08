@@ -9,9 +9,9 @@
  * @epic T5149
  */
 
-import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
-import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../../store/brain-sqlite.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../../store/brain-sqlite.js';
+import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 
 // ============================================================================
 // Types
@@ -20,7 +20,7 @@ import { getBrainAccessor } from '../../store/brain-accessor.js';
 export interface SimilarityResult {
   id: string;
   distance: number;
-  type: string;  // 'observation' | 'decision' | 'pattern' | 'learning'
+  type: string; // 'observation' | 'decision' | 'pattern' | 'learning'
   title: string;
   text: string;
 }
@@ -80,12 +80,14 @@ export async function searchSimilar(
   // Run KNN query against vec0 table
   let knnRows: Array<{ id: string; distance: number }>;
   try {
-    knnRows = nativeDb.prepare(
-      'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
-    ).all(
-      new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
-      maxResults,
-    ) as Array<{ id: string; distance: number }>;
+    knnRows = nativeDb
+      .prepare(
+        'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
+      )
+      .all(
+        new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
+        maxResults,
+      ) as Array<{ id: string; distance: number }>;
   } catch {
     // vec0 query failed — table may not exist or extension not loaded
     return [];

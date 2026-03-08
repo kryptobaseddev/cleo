@@ -16,8 +16,8 @@
  * with existing ~/.cleo installations.
  */
 
-import envPaths from 'env-paths';
 import { arch, hostname, platform, release } from 'node:os';
+import envPaths from 'env-paths';
 
 const APP_NAME = 'cleo';
 
@@ -47,7 +47,7 @@ export interface SystemInfo {
 
 let _paths: PlatformPaths | null = null;
 let _sysInfo: SystemInfo | null = null;
-let _lastCleoHome: string | undefined = undefined;
+let _lastCleoHome: string | undefined;
 
 /**
  * Get OS-appropriate paths for CLEO's global directories.

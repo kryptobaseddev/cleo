@@ -2,7 +2,7 @@
  * Tests for subagent protocol injection with tier filtering.
  * @task T5155
  */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { filterProtocolByTier } from '../subagent.js';
 
 const SAMPLE_PROTOCOL = `# Protocol Header

@@ -3,12 +3,12 @@
  * @task T4783
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readJson } from '../../store/json.js';
-import { getTaskPath, getSessionsPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { TaskFile } from '../../types/task.js';
+import { getSessionsPath, getTaskPath } from '../paths.js';
 
 export interface InjectGenerateResult {
   injection: string;
@@ -59,8 +59,10 @@ export async function generateInjection(
   try {
     const sessionsPath = getSessionsPath(projectRoot);
     if (existsSync(sessionsPath)) {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as { sessions: SessionLike[] };
-      const active = sessionsData.sessions?.find(s => s.status === 'active');
+      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as {
+        sessions: SessionLike[];
+      };
+      const active = sessionsData.sessions?.find((s) => s.status === 'active');
       if (active) {
         activeSessionName = active.name || active.id;
         focusTask = active.taskWork?.taskId ?? focusTask;
@@ -103,9 +105,7 @@ function buildMviMarkdown(state: {
   const sessionLine = state.activeSessionName
     ? `| Session | \`${state.activeSessionName}\` (${state.sessionScope || 'unknown'}) |`
     : '| Session | none |';
-  const focusLine = state.focusTask
-    ? `| Focus | \`${state.focusTask}\` |`
-    : '| Focus | none |';
+  const focusLine = state.focusTask ? `| Focus | \`${state.focusTask}\` |` : '| Focus | none |';
 
   return `## CLEO Task Management (MVI)
 

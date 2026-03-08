@@ -5,22 +5,22 @@
  * @epic T2908
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  ExitCode,
-  ErrorSeverity,
+  ERROR_MAP,
   ErrorCategory,
-  getErrorMapping,
-  isError,
-  isRetryable,
-  isSuccess,
-  isNonRecoverable,
-  isRecoverable,
+  ErrorSeverity,
+  ExitCode,
   generateFixCommand,
   generateSuggestions,
-  ERROR_MAP,
-  RETRYABLE_EXIT_CODES,
+  getErrorMapping,
+  isError,
+  isNonRecoverable,
+  isRecoverable,
+  isRetryable,
+  isSuccess,
   NON_RECOVERABLE_EXIT_CODES,
+  RETRYABLE_EXIT_CODES,
 } from '../exit-codes.js';
 
 describe('Exit Code Mapping', () => {
@@ -203,14 +203,9 @@ describe('Exit Code Mapping', () => {
     });
 
     it('should provide session alternatives', () => {
-      const suggestions = generateSuggestions(
-        ExitCode.E_SESSION_NOT_FOUND,
-        {}
-      );
+      const suggestions = generateSuggestions(ExitCode.E_SESSION_NOT_FOUND, {});
       expect(suggestions.length).toBeGreaterThan(0);
-      expect(suggestions.some((s) => s.command.includes('session'))).toBe(
-        true
-      );
+      expect(suggestions.some((s) => s.command.includes('session'))).toBe(true);
     });
   });
 
@@ -240,11 +235,7 @@ describe('Exit Code Mapping', () => {
 
   describe('Special Codes', () => {
     it('should map special codes as INFO severity', () => {
-      const specialCodes = [
-        ExitCode.E_NO_DATA,
-        ExitCode.E_ALREADY_EXISTS,
-        ExitCode.E_NO_CHANGE,
-      ];
+      const specialCodes = [ExitCode.E_NO_DATA, ExitCode.E_ALREADY_EXISTS, ExitCode.E_NO_CHANGE];
 
       specialCodes.forEach((code) => {
         const mapping = getErrorMapping(code);
@@ -271,12 +262,12 @@ describe('Exit Code Mapping', () => {
   describe('RETRYABLE_EXIT_CODES (Section 9.1)', () => {
     it('should include all spec-defined retryable codes', () => {
       // Per MCP-SERVER-SPECIFICATION Section 9.1
-      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_LOCK_TIMEOUT)).toBe(true);        // 7
-      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_CHECKSUM_MISMATCH)).toBe(true);   // 20
+      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_LOCK_TIMEOUT)).toBe(true); // 7
+      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_CHECKSUM_MISMATCH)).toBe(true); // 20
       expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_CONCURRENT_MODIFICATION)).toBe(true); // 21
-      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_ID_COLLISION)).toBe(true);         // 22
-      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_RESEARCH)).toBe(true);   // 60
-      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_CONSENSUS)).toBe(true);  // 61
+      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_ID_COLLISION)).toBe(true); // 22
+      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_RESEARCH)).toBe(true); // 60
+      expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_CONSENSUS)).toBe(true); // 61
       expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_SPECIFICATION)).toBe(true); // 62
       expect(RETRYABLE_EXIT_CODES.has(ExitCode.E_PROTOCOL_DECOMPOSITION)).toBe(true); // 63
     });
@@ -298,10 +289,10 @@ describe('Exit Code Mapping', () => {
 
   describe('NON_RECOVERABLE_EXIT_CODES (Section 9.2)', () => {
     it('should include lifecycle gate and provenance errors', () => {
-      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_LIFECYCLE_GATE_FAILED)).toBe(true);       // 80
-      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_CIRCULAR_VALIDATION)).toBe(true);          // 82
+      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_LIFECYCLE_GATE_FAILED)).toBe(true); // 80
+      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_CIRCULAR_VALIDATION)).toBe(true); // 82
       expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_LIFECYCLE_TRANSITION_INVALID)).toBe(true); // 83
-      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_PROVENANCE_REQUIRED)).toBe(true);          // 84
+      expect(NON_RECOVERABLE_EXIT_CODES.has(ExitCode.E_PROVENANCE_REQUIRED)).toBe(true); // 84
     });
 
     it('should not include retryable codes', () => {

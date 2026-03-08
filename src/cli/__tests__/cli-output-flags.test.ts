@@ -10,7 +10,7 @@
  * @task T4820
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the format-context and field-context modules
 vi.mock('../format-context.js', () => ({
@@ -27,11 +27,10 @@ vi.mock('../field-context.js', () => ({
   resolveFieldContext: vi.fn(),
 }));
 
-import { cliOutput } from '../renderers/index.js';
-import { getFormatContext } from '../format-context.js';
+import type { FieldExtractionResolution, FlagResolution } from '@cleocode/lafs-protocol';
 import { getFieldContext } from '../field-context.js';
-import type { FlagResolution } from '@cleocode/lafs-protocol';
-import type { FieldExtractionResolution } from '@cleocode/lafs-protocol';
+import { getFormatContext } from '../format-context.js';
+import { cliOutput } from '../renderers/index.js';
 
 describe('cliOutput flag behavior', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -88,10 +87,7 @@ describe('cliOutput flag behavior', () => {
         expectsCustomMvi: false,
       } as FieldExtractionResolution);
 
-      cliOutput(
-        { key: 'value' },
-        { command: 'unknown-command' },
-      );
+      cliOutput({ key: 'value' }, { command: 'unknown-command' });
 
       // Should not throw — falls back to renderGeneric
       expect(consoleSpy).toHaveBeenCalled();
@@ -111,10 +107,7 @@ describe('cliOutput flag behavior', () => {
         expectsCustomMvi: false,
       } as FieldExtractionResolution);
 
-      cliOutput(
-        { id: 'T001', title: 'Test' },
-        { command: 'show' },
-      );
+      cliOutput({ id: 'T001', title: 'Test' }, { command: 'show' });
 
       expect(consoleSpy).toHaveBeenCalled();
       const output = consoleSpy.mock.calls[0]?.[0] as string;
@@ -137,10 +130,7 @@ describe('cliOutput flag behavior', () => {
         expectsCustomMvi: false,
       } as FieldExtractionResolution);
 
-      cliOutput(
-        { id: 'T001', title: 'Test Task' },
-        { command: 'show' },
-      );
+      cliOutput({ id: 'T001', title: 'Test Task' }, { command: 'show' });
 
       expect(stdoutSpy).toHaveBeenCalledWith('Test Task\n');
     });
@@ -158,10 +148,7 @@ describe('cliOutput flag behavior', () => {
         expectsCustomMvi: false,
       } as FieldExtractionResolution);
 
-      cliOutput(
-        { id: 'T001', metadata: { key: 'value' } },
-        { command: 'show' },
-      );
+      cliOutput({ id: 'T001', metadata: { key: 'value' } }, { command: 'show' });
 
       expect(stdoutSpy).toHaveBeenCalledWith('{"key":"value"}\n');
     });
@@ -181,10 +168,7 @@ describe('cliOutput flag behavior', () => {
         expectsCustomMvi: false,
       } as FieldExtractionResolution);
 
-      cliOutput(
-        { id: 'T001', title: 'Test Task', status: 'pending' },
-        { command: 'show' },
-      );
+      cliOutput({ id: 'T001', title: 'Test Task', status: 'pending' }, { command: 'show' });
 
       // For primitive extracted values, it should print directly
       expect(consoleSpy).toHaveBeenCalledWith('Test Task');

@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AdrRecord, AdrFrontmatter } from './types.js';
+import type { AdrFrontmatter, AdrRecord } from './types.js';
 
 /** Extract ADR ID from filename (e.g., 'ADR-007-domain-consolidation.md' -> 'ADR-007') */
 export function extractAdrId(filename: string): string {

@@ -8,8 +8,18 @@
  * @epic T4454
  */
 
-import { existsSync, mkdirSync, statSync, appendFileSync, readdirSync, unlinkSync, readFileSync, accessSync, constants } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import {
+  accessSync,
+  appendFileSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 
 /** Log entry severity level */
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
@@ -347,14 +357,14 @@ export class MigrationLogger {
    * Get entries filtered by level.
    */
   getEntriesByLevel(level: LogLevel): MigrationLogEntry[] {
-    return this.entries.filter(e => e.level === level);
+    return this.entries.filter((e) => e.level === level);
   }
 
   /**
    * Get entries for a specific phase.
    */
   getEntriesByPhase(phase: string): MigrationLogEntry[] {
-    return this.entries.filter(e => e.phase === phase);
+    return this.entries.filter((e) => e.phase === phase);
   }
 
   /**

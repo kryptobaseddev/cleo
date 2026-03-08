@@ -9,14 +9,14 @@
  */
 
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { resolve } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
+import { promisify } from 'node:util';
 import {
-  makeCleoGitEnv,
   cleoGitCommand,
   isCleoGitInitialized,
+  makeCleoGitEnv,
 } from '../../store/git-checkpoint.js';
+import { getCleoDirAbsolute } from '../paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -106,13 +106,17 @@ export async function addRemote(url: string, name: string = 'origin', cwd?: stri
   // Check if remote already exists
   const existing = await cleoGitCommand(['remote', 'get-url', name], cleoDir);
   if (existing.success) {
-    throw new Error(`Remote '${name}' already exists with URL: ${existing.stdout}. Use 'cleo remote remove ${name}' first.`);
+    throw new Error(
+      `Remote '${name}' already exists with URL: ${existing.stdout}. Use 'cleo remote remove ${name}' first.`,
+    );
   }
 
   try {
     await cleoGitExec(['remote', 'add', name, url], cleoDir);
   } catch (err) {
-    throw new Error(`Failed to add remote '${name}': ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to add remote '${name}': ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -127,7 +131,9 @@ export async function removeRemote(name: string = 'origin', cwd?: string): Promi
   try {
     await cleoGitExec(['remote', 'remove', name], cleoDir);
   } catch (err) {
-    throw new Error(`Failed to remove remote '${name}': ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to remove remote '${name}': ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -221,10 +227,7 @@ export async function push(
  * Uses rebase strategy to maintain clean history.
  * @task T4884
  */
-export async function pull(
-  remote: string = 'origin',
-  cwd?: string,
-): Promise<PullResult> {
+export async function pull(remote: string = 'origin', cwd?: string): Promise<PullResult> {
   const cleoDir = getCleoDirAbsolute(cwd);
   ensureCleoGitRepo(cleoDir);
 
@@ -275,8 +278,13 @@ export async function pull(
     // Check for merge conflicts
     if (message.includes('CONFLICT') || message.includes('Automatic merge failed')) {
       // Get list of conflicting files
-      const conflictResult = await cleoGitCommand(['diff', '--name-only', '--diff-filter=U'], cleoDir);
-      const conflictFiles = conflictResult.stdout ? conflictResult.stdout.split('\n').filter(Boolean) : [];
+      const conflictResult = await cleoGitCommand(
+        ['diff', '--name-only', '--diff-filter=U'],
+        cleoDir,
+      );
+      const conflictFiles = conflictResult.stdout
+        ? conflictResult.stdout.split('\n').filter(Boolean)
+        : [];
 
       return {
         success: false,

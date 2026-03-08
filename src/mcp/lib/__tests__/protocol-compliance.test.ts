@@ -8,10 +8,9 @@
  * Covers all protocol requirements from lib/protocol-validation.sh
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { protocolFixtures } from '../../__tests__/fixtures/protocol-violations.js';
-import { ExitCode } from '../exit-codes.js';
+import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
 
 describe('Protocol Compliance Test Suite', () => {
   let enforcer: ProtocolEnforcer;
@@ -30,7 +29,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RESEARCH,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -39,7 +38,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'RSCH-001',
             severity: 'error',
             message: expect.stringContaining('must not modify code'),
-          })
+          }),
         );
         expect(result.score).toBeLessThan(100);
       });
@@ -49,7 +48,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RESEARCH,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -71,11 +70,9 @@ describe('Protocol Compliance Test Suite', () => {
           linked_tasks: ['T2050'],
         };
 
-        const result = await enforcer.validateProtocol(
-          ProtocolType.RESEARCH,
-          manifestEntry,
-          { hasCodeChanges: false }
-        );
+        const result = await enforcer.validateProtocol(ProtocolType.RESEARCH, manifestEntry, {
+          hasCodeChanges: false,
+        });
 
         expect(result.valid).toBe(true);
         const rsch004Violation = result.violations.find((v) => v.requirement === 'RSCH-004');
@@ -89,7 +86,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RESEARCH,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -97,7 +94,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'RSCH-006',
             severity: 'error',
-          })
+          }),
         );
       });
 
@@ -113,17 +110,15 @@ describe('Protocol Compliance Test Suite', () => {
           linked_tasks: ['T2051'],
         };
 
-        const result = await enforcer.validateProtocol(
-          ProtocolType.RESEARCH,
-          manifestEntry,
-          { hasCodeChanges: false }
-        );
+        const result = await enforcer.validateProtocol(ProtocolType.RESEARCH, manifestEntry, {
+          hasCodeChanges: false,
+        });
 
         expect(result.valid).toBe(false);
         expect(result.violations).toContainEqual(
           expect.objectContaining({
             requirement: 'RSCH-006',
-          })
+          }),
         );
       });
 
@@ -132,7 +127,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RESEARCH,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -145,7 +140,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RESEARCH,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -153,7 +148,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'RSCH-007',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -169,7 +164,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.CONSENSUS,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -178,7 +173,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'CONS-001',
             severity: 'error',
             message: expect.stringContaining('≥2 options'),
-          })
+          }),
         );
       });
     });
@@ -189,7 +184,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.CONSENSUS,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -197,16 +192,16 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'CONS-003',
             severity: 'error',
-          })
+          }),
         );
       });
 
       it('should accept confidence scores 0.0-1.0', async () => {
-        const { manifestEntry, additionalData} = protocolFixtures.consensus.valid;
+        const { manifestEntry, additionalData } = protocolFixtures.consensus.valid;
         const result = await enforcer.validateProtocol(
           ProtocolType.CONSENSUS,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -219,7 +214,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.CONSENSUS,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -227,7 +222,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'CONS-004',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -243,7 +238,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.SPECIFICATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -251,7 +246,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'SPEC-001',
             severity: 'error',
-          })
+          }),
         );
       });
 
@@ -260,7 +255,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.SPECIFICATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -273,7 +268,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.SPECIFICATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -281,7 +276,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'SPEC-002',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -297,7 +292,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.DECOMPOSITION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -305,7 +300,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'DCMP-003',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -316,7 +311,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.DECOMPOSITION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -325,7 +320,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'DCMP-005',
             severity: 'error',
             message: expect.stringContaining('time estimates'),
-          })
+          }),
         );
       });
     });
@@ -336,7 +331,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.DECOMPOSITION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -344,7 +339,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'DCMP-006',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -356,11 +351,12 @@ describe('Protocol Compliance Test Suite', () => {
   describe('Implementation Protocol (Exit Code 64)', () => {
     describe('IMPL-003: Provenance Tags', () => {
       it('should require @task tags on new functions', async () => {
-        const { manifestEntry, additionalData } = protocolFixtures.implementation.missingProvenanceTags;
+        const { manifestEntry, additionalData } =
+          protocolFixtures.implementation.missingProvenanceTags;
         const result = await enforcer.validateProtocol(
           ProtocolType.IMPLEMENTATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -369,7 +365,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'IMPL-003',
             severity: 'error',
             message: expect.stringContaining('provenance tags'),
-          })
+          }),
         );
       });
 
@@ -382,11 +378,9 @@ describe('Protocol Compliance Test Suite', () => {
           agent_type: 'implementation',
         };
 
-        const result = await enforcer.validateProtocol(
-          ProtocolType.IMPLEMENTATION,
-          manifestEntry,
-          { hasNewFunctions: false }
-        );
+        const result = await enforcer.validateProtocol(ProtocolType.IMPLEMENTATION, manifestEntry, {
+          hasNewFunctions: false,
+        });
 
         expect(result.valid).toBe(true);
       });
@@ -396,7 +390,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.IMPLEMENTATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -414,7 +408,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RELEASE,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -423,7 +417,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'RLSE-001',
             severity: 'error',
             message: expect.stringContaining('version format'),
-          })
+          }),
         );
       });
 
@@ -432,7 +426,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RELEASE,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -445,7 +439,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.RELEASE,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -453,7 +447,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'RLSE-002',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -465,11 +459,12 @@ describe('Protocol Compliance Test Suite', () => {
   describe('Validation Protocol (Exit Code 68)', () => {
     describe('VALID-001: Validation Result', () => {
       it('should require validation_result field', async () => {
-        const { manifestEntry, additionalData } = protocolFixtures.validation.missingValidationResult;
+        const { manifestEntry, additionalData } =
+          protocolFixtures.validation.missingValidationResult;
         const result = await enforcer.validateProtocol(
           ProtocolType.VALIDATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -477,7 +472,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'VALID-001',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -488,7 +483,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.VALIDATION,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -496,7 +491,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'VALID-003',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -512,7 +507,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.TESTING,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -521,7 +516,7 @@ describe('Protocol Compliance Test Suite', () => {
             requirement: 'TEST-004',
             severity: 'error',
             message: expect.stringContaining('100%'),
-          })
+          }),
         );
       });
 
@@ -530,7 +525,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.TESTING,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(true);
@@ -543,7 +538,7 @@ describe('Protocol Compliance Test Suite', () => {
         const result = await enforcer.validateProtocol(
           ProtocolType.TESTING,
           manifestEntry,
-          additionalData
+          additionalData,
         );
 
         expect(result.valid).toBe(false);
@@ -551,7 +546,7 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'TEST-006',
             severity: 'error',
-          })
+          }),
         );
       });
     });
@@ -566,7 +561,7 @@ describe('Protocol Compliance Test Suite', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.RESEARCH,
         manifestEntry,
-        additionalData
+        additionalData,
       );
 
       expect(result.score).toBeLessThan(100);
@@ -578,7 +573,7 @@ describe('Protocol Compliance Test Suite', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.RESEARCH,
         manifestEntry,
-        additionalData
+        additionalData,
       );
 
       expect(result.score).toBe(100);
@@ -599,7 +594,7 @@ describe('Protocol Compliance Test Suite', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.RESEARCH,
         manifestEntry,
-        { hasCodeChanges: true } // Code modified (RSCH-001)
+        { hasCodeChanges: true }, // Code modified (RSCH-001)
       );
 
       expect(result.violations.length).toBeGreaterThan(2);
@@ -616,7 +611,7 @@ describe('Protocol Compliance Test Suite', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.DECOMPOSITION,
         manifestEntry,
-        additionalData
+        additionalData,
       );
 
       const violation = result.violations[0];
@@ -629,7 +624,7 @@ describe('Protocol Compliance Test Suite', () => {
       const result = await enforcer.validateProtocol(
         ProtocolType.SPECIFICATION,
         manifestEntry,
-        additionalData
+        additionalData,
       );
 
       const violation = result.violations.find((v) => v.requirement === 'SPEC-001');

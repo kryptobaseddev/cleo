@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
-import { readJson } from '../../store/json.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getTaskPath } from '../paths.js';
-import type { Task, TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getTaskPath } from '../paths.js';
 
 /** Minimal audit row for stats queries. */
 interface AuditRow {
@@ -37,13 +37,15 @@ async function queryAuditEntries(cwd?: string): Promise<AuditRow[]> {
       .from(auditLog)
       .orderBy(auditLog.timestamp);
 
-    return rows.map(r => {
+    return rows.map((r) => {
       let afterStatus: string | undefined;
       if (r.afterJson) {
         try {
           const after = JSON.parse(r.afterJson);
           afterStatus = after?.status;
-        } catch { /* skip malformed */ }
+        } catch {
+          /* skip malformed */
+        }
       }
       return { action: r.action, timestamp: r.timestamp, afterStatus };
     });
@@ -55,27 +57,35 @@ async function queryAuditEntries(cwd?: string): Promise<AuditRow[]> {
 /** Period alias resolution. */
 function resolvePeriod(period: string): number {
   const aliases: Record<string, number> = {
-    today: 1, t: 1,
-    week: 7, w: 7,
-    month: 30, m: 30,
-    quarter: 90, q: 90,
-    year: 365, y: 365,
+    today: 1,
+    t: 1,
+    week: 7,
+    w: 7,
+    month: 30,
+    m: 30,
+    quarter: 90,
+    q: 90,
+    year: 365,
+    y: 365,
   };
   const resolved = aliases[period];
   if (resolved) return resolved;
   const num = parseInt(period, 10);
-  if (isNaN(num) || num <= 0) {
+  if (Number.isNaN(num) || num <= 0) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Invalid period: ${period}`);
   }
   return num;
 }
 
 /** Get project statistics. */
-export async function getProjectStats(opts: {
-  period?: string;
-  verbose?: boolean;
-  cwd?: string;
-}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function getProjectStats(
+  opts: {
+    period?: string;
+    verbose?: boolean;
+    cwd?: string;
+  },
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const periodDays = resolvePeriod(opts.period ?? '30');
   const data = accessor
     ? await accessor.loadTaskFile()
@@ -85,11 +95,11 @@ export async function getProjectStats(opts: {
   }
 
   const tasks = data.tasks ?? [];
-  const pending = tasks.filter(t => t.status === 'pending').length;
-  const active = tasks.filter(t => t.status === 'active').length;
-  const done = tasks.filter(t => t.status === 'done').length;
-  const blocked = tasks.filter(t => t.status === 'blocked').length;
-  const cancelled = tasks.filter(t => t.status === 'cancelled').length;
+  const pending = tasks.filter((t) => t.status === 'pending').length;
+  const active = tasks.filter((t) => t.status === 'active').length;
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  const cancelled = tasks.filter((t) => t.status === 'cancelled').length;
   const totalActive = tasks.length;
 
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
@@ -99,23 +109,17 @@ export async function getProjectStats(opts: {
 
   const isCreate = (e: AuditRow) => e.action === 'task_created' || e.action === 'add';
   const isComplete = (e: AuditRow) =>
-    e.action === 'task_completed' || e.action === 'complete' ||
+    e.action === 'task_completed' ||
+    e.action === 'complete' ||
     (e.action === 'status_changed' && e.afterStatus === 'done');
   const isArchive = (e: AuditRow) => e.action === 'task_archived' || e.action === 'archive';
 
-  const createdInPeriod = entries.filter(
-    (e) => isCreate(e) && e.timestamp >= cutoff,
-  ).length;
-  const completedInPeriod = entries.filter(
-    (e) => isComplete(e) && e.timestamp >= cutoff,
-  ).length;
-  const archivedInPeriod = entries.filter(
-    (e) => isArchive(e) && e.timestamp >= cutoff,
-  ).length;
+  const createdInPeriod = entries.filter((e) => isCreate(e) && e.timestamp >= cutoff).length;
+  const completedInPeriod = entries.filter((e) => isComplete(e) && e.timestamp >= cutoff).length;
+  const archivedInPeriod = entries.filter((e) => isArchive(e) && e.timestamp >= cutoff).length;
 
-  const completionRate = createdInPeriod > 0
-    ? Math.round((completedInPeriod / createdInPeriod) * 10000) / 100
-    : 0;
+  const completionRate =
+    createdInPeriod > 0 ? Math.round((completedInPeriod / createdInPeriod) * 10000) / 100 : 0;
 
   // All-time from direct DB counts (audit_log is incomplete — started after task creation history)
   let totalCreated = 0;
@@ -140,14 +144,16 @@ export async function getProjectStats(opts: {
     }
     archivedCount = statusMap['archived'] ?? 0;
     totalCreated = Object.values(statusMap).reduce((sum, n) => sum + n, 0);
-    totalCancelled = (statusMap['cancelled'] ?? 0);
+    totalCancelled = statusMap['cancelled'] ?? 0;
     totalArchived = archivedCount;
 
     // Count archived tasks that were completed (archiveReason = 'completed')
     const archivedDoneRow = await db
       .select({ c: dbCount() })
       .from(tasksTable)
-      .where(dbAnd(dbEq(tasksTable.status, 'archived'), dbEq(tasksTable.archiveReason, 'completed')))
+      .where(
+        dbAnd(dbEq(tasksTable.status, 'archived'), dbEq(tasksTable.archiveReason, 'completed')),
+      )
       .get();
     archivedCompleted = archivedDoneRow?.c ?? 0;
     // totalCompleted = currently done (not yet archived) + archived-as-completed
@@ -161,7 +167,12 @@ export async function getProjectStats(opts: {
 
   return {
     currentState: {
-      pending, active, done, blocked, cancelled, totalActive,
+      pending,
+      active,
+      done,
+      blocked,
+      cancelled,
+      totalActive,
       archived: archivedCount,
       grandTotal: totalActive + archivedCount,
     },
@@ -195,11 +206,7 @@ const URGENT_LABELS = new Set(['critical', 'blocker', 'bug']);
  * Compute a ranking score for a blocked task.
  * Higher score = more urgent = sort first.
  */
-export function rankBlockedTask(
-  task: Task,
-  allTasks: Task[],
-  focusTask: Task | null,
-): number {
+export function rankBlockedTask(task: Task, allTasks: Task[], focusTask: Task | null): number {
   let score = 0;
 
   // (1) Priority weight: 10-40 points
@@ -207,7 +214,7 @@ export function rankBlockedTask(
 
   // (2) Downstream impact: tasks whose depends array includes this task's id
   const downstreamCount = allTasks.filter(
-    t => t.status !== 'done' && (t.depends ?? []).includes(task.id),
+    (t) => t.status !== 'done' && (t.depends ?? []).includes(task.id),
   ).length;
   score += downstreamCount * 5;
 
@@ -218,8 +225,8 @@ export function rankBlockedTask(
 
   // (4) Focus proximity boost (+15 if sibling/parent/child of focused task)
   if (focusTask) {
-    const isFocusChild   = task.parentId != null && task.parentId === focusTask.id;
-    const isFocusParent  = focusTask.parentId != null && task.id === focusTask.parentId;
+    const isFocusChild = task.parentId != null && task.parentId === focusTask.id;
+    const isFocusParent = focusTask.parentId != null && task.id === focusTask.parentId;
     const isFocusSibling = task.parentId != null && task.parentId === focusTask.parentId;
     if (isFocusChild || isFocusParent || isFocusSibling) {
       score += 15;
@@ -253,16 +260,19 @@ const PRIORITY_ORDER: Record<string, number> = {
 };
 
 /** Get project dashboard data. */
-export async function getDashboard(opts: {
-  compact?: boolean;
-  period?: number;
-  showCharts?: boolean;
-  sections?: string[];
-  verbose?: boolean;
-  quiet?: boolean;
-  cwd?: string;
-  blockedTasksLimit?: number;
-}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function getDashboard(
+  opts: {
+    compact?: boolean;
+    period?: number;
+    showCharts?: boolean;
+    sections?: string[];
+    verbose?: boolean;
+    quiet?: boolean;
+    cwd?: string;
+    blockedTasksLimit?: number;
+  },
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJson<TaskFile>(getTaskPath(opts.cwd));
@@ -271,11 +281,11 @@ export async function getDashboard(opts: {
   }
 
   const tasks = data.tasks ?? [];
-  const pending = tasks.filter(t => t.status === 'pending').length;
-  const active = tasks.filter(t => t.status === 'active').length;
-  const done = tasks.filter(t => t.status === 'done').length;
-  const blocked = tasks.filter(t => t.status === 'blocked').length;
-  const cancelled = tasks.filter(t => t.status === 'cancelled').length;
+  const pending = tasks.filter((t) => t.status === 'pending').length;
+  const active = tasks.filter((t) => t.status === 'active').length;
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  const cancelled = tasks.filter((t) => t.status === 'cancelled').length;
   const total = tasks.length;
 
   // Query archived count directly from DB (loadTaskFile excludes archived rows)
@@ -301,26 +311,32 @@ export async function getDashboard(opts: {
   const focusId = data.focus?.currentTask ?? null;
   let focusTask: Task | null = null;
   if (focusId) {
-    focusTask = tasks.find(t => t.id === focusId) ?? null;
+    focusTask = tasks.find((t) => t.id === focusId) ?? null;
   }
 
   const highPriority = tasks
-    .filter(t => (t.priority === 'critical' || t.priority === 'high') && t.status !== 'done' && t.status !== 'cancelled')
+    .filter(
+      (t) =>
+        (t.priority === 'critical' || t.priority === 'high') &&
+        t.status !== 'done' &&
+        t.status !== 'cancelled',
+    )
     .sort((a, b) => {
-      const pDiff = (PRIORITY_ORDER[a.priority ?? 'low'] ?? 9) - (PRIORITY_ORDER[b.priority ?? 'low'] ?? 9);
+      const pDiff =
+        (PRIORITY_ORDER[a.priority ?? 'low'] ?? 9) - (PRIORITY_ORDER[b.priority ?? 'low'] ?? 9);
       if (pDiff !== 0) return pDiff;
       return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
     });
 
   const blockedTasksLimitVal = opts.blockedTasksLimit ?? 10;
-  const allBlockedTasks = tasks.filter(t => t.status === 'blocked');
+  const allBlockedTasks = tasks.filter((t) => t.status === 'blocked');
   const rankedBlocked = allBlockedTasks
-    .map(t => ({ task: t, score: rankBlockedTask(t, tasks, focusTask) }))
+    .map((t) => ({ task: t, score: rankBlockedTask(t, tasks, focusTask) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return (a.task.createdAt ?? '').localeCompare(b.task.createdAt ?? '');
     })
-    .map(r => r.task);
+    .map((r) => r.task);
 
   // Label aggregation (active tasks only — exclude cancelled)
   const labelMap: Record<string, number> = {};
@@ -338,7 +354,16 @@ export async function getDashboard(opts: {
   return {
     project,
     currentPhase,
-    summary: { pending, active, blocked, done, cancelled, total, archived, grandTotal: total + archived },
+    summary: {
+      pending,
+      active,
+      blocked,
+      done,
+      cancelled,
+      total,
+      archived,
+      grandTotal: total + archived,
+    },
     focus: { currentTask: focusId, task: focusTask },
     highPriority: { count: highPriority.length, tasks: highPriority.slice(0, 5) },
     blockedTasks: {
@@ -365,10 +390,12 @@ export async function getCompletionHistory(opts: {
   const endDate = opts.until ?? new Date().toISOString();
 
   const completions = allEntries.filter(
-    (e) => (e.action === 'task_completed' || e.action === 'complete' ||
-            (e.action === 'status_changed' && e.afterStatus === 'done'))
-      && e.timestamp >= cutoff
-      && e.timestamp <= endDate,
+    (e) =>
+      (e.action === 'task_completed' ||
+        e.action === 'complete' ||
+        (e.action === 'status_changed' && e.afterStatus === 'done')) &&
+      e.timestamp >= cutoff &&
+      e.timestamp <= endDate,
   );
 
   // Group by date
@@ -384,10 +411,10 @@ export async function getCompletionHistory(opts: {
 
   const totalCompletions = completions.length;
   const avgPerDay = days > 0 ? Math.round((totalCompletions / days) * 100) / 100 : 0;
-  const peakDay = dailyCounts.reduce(
-    (max, d) => d.count > max.count ? d : max,
-    { date: '', count: 0 },
-  );
+  const peakDay = dailyCounts.reduce((max, d) => (d.count > max.count ? d : max), {
+    date: '',
+    count: 0,
+  });
 
   return {
     period: { days, since: cutoff, until: endDate },

@@ -3,10 +3,10 @@
  * @task T4916
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditEntry } from '../../../../dispatch/middleware/audit.js';
 
 // We need to mock two modules: queryAudit (to inject test data) and
@@ -22,8 +22,7 @@ vi.mock('../../../dispatch/middleware/audit.js', () => ({
 }));
 
 vi.mock('../../paths.js', () => ({
-  getCleoDirAbsolute: (cwd?: string) =>
-    cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value,
+  getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
 }));
 
 // Import after mocks are set up
@@ -37,9 +36,7 @@ function ts(offsetMs: number): string {
 }
 
 /** Build a minimal AuditEntry for testing. */
-function entry(
-  overrides: Partial<AuditEntry> & { domain: string; operation: string },
-): AuditEntry {
+function entry(overrides: Partial<AuditEntry> & { domain: string; operation: string }): AuditEntry {
   return {
     timestamp: overrides.timestamp ?? T,
     sessionId: overrides.sessionId ?? 'test-session',
@@ -86,9 +83,24 @@ describe('gradeSession', () => {
     it('scores 100/100 for all-perfect entries', async () => {
       mocks.queryAudit.mockResolvedValue([
         entry({ domain: 'session', operation: 'list', timestamp: ts(0) }),
-        entry({ domain: 'admin', operation: 'help', timestamp: ts(100), metadata: { source: 'mcp', gateway: 'query' } }),
-        entry({ domain: 'tasks', operation: 'find', timestamp: ts(200), metadata: { source: 'mcp', gateway: 'query' } }),
-        entry({ domain: 'tasks', operation: 'show', timestamp: ts(300), metadata: { source: 'mcp', gateway: 'query' } }),
+        entry({
+          domain: 'admin',
+          operation: 'help',
+          timestamp: ts(100),
+          metadata: { source: 'mcp', gateway: 'query' },
+        }),
+        entry({
+          domain: 'tasks',
+          operation: 'find',
+          timestamp: ts(200),
+          metadata: { source: 'mcp', gateway: 'query' },
+        }),
+        entry({
+          domain: 'tasks',
+          operation: 'show',
+          timestamp: ts(300),
+          metadata: { source: 'mcp', gateway: 'query' },
+        }),
         entry({ domain: 'tasks', operation: 'exists', timestamp: ts(400) }),
         entry({
           domain: 'tasks',
@@ -172,9 +184,7 @@ describe('gradeSession', () => {
 
       const result = await gradeSession('s1-noend', tempDir);
 
-      expect(result.flags).toContain(
-        'session.end never called (always end sessions when done)',
-      );
+      expect(result.flags).toContain('session.end never called (always end sessions when done)');
     });
 
     it('awards 20pts for both session.list (before) and session.end', async () => {
@@ -220,9 +230,7 @@ describe('gradeSession', () => {
 
       expect(result.dimensions.discoveryEfficiency.score).toBe(8);
       expect(result.flags).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/tasks\.list used 1x/),
-        ]),
+        expect.arrayContaining([expect.stringMatching(/tasks\.list used 1x/)]),
       );
     });
 
@@ -234,9 +242,7 @@ describe('gradeSession', () => {
       const result = await gradeSession('s2-none', tempDir);
 
       expect(result.dimensions.discoveryEfficiency.score).toBe(10);
-      expect(result.dimensions.discoveryEfficiency.evidence).toContain(
-        'No discovery calls needed',
-      );
+      expect(result.dimensions.discoveryEfficiency.evidence).toContain('No discovery calls needed');
     });
 
     it('adds +5 bonus for tasks.show usage', async () => {
@@ -314,7 +320,7 @@ describe('gradeSession', () => {
 
       // 20 - 5 - 5 = 10
       expect(result.dimensions.taskHygiene.score).toBe(10);
-      const descFlags = result.flags.filter(f => f.includes('tasks.add without description'));
+      const descFlags = result.flags.filter((f) => f.includes('tasks.add without description'));
       expect(descFlags).toHaveLength(2);
     });
 
@@ -431,9 +437,7 @@ describe('gradeSession', () => {
       const result = await gradeSession('s4-clean', tempDir);
 
       expect(result.dimensions.errorProtocol.score).toBe(20);
-      expect(result.dimensions.errorProtocol.evidence).toContain(
-        'No error protocol violations',
-      );
+      expect(result.dimensions.errorProtocol.evidence).toContain('No error protocol violations');
     });
 
     it('deducts -5 per unrecovered E_NOT_FOUND', async () => {
@@ -451,9 +455,7 @@ describe('gradeSession', () => {
 
       expect(result.dimensions.errorProtocol.score).toBe(15);
       expect(result.flags).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/E_NOT_FOUND.*not followed by recovery/),
-        ]),
+        expect.arrayContaining([expect.stringMatching(/E_NOT_FOUND.*not followed by recovery/)]),
       );
     });
 
@@ -535,9 +537,7 @@ describe('gradeSession', () => {
 
       expect(result.dimensions.errorProtocol.score).toBe(15);
       expect(result.flags).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/potentially duplicate task create/),
-        ]),
+        expect.arrayContaining([expect.stringMatching(/potentially duplicate task create/)]),
       );
     });
 
@@ -722,10 +722,7 @@ describe('gradeSession', () => {
       mocks.queryAudit.mockResolvedValue([]);
       await gradeSession('write-test', tempDir);
 
-      const content = await readFile(
-        join(tempDir, '.cleo', 'metrics', 'GRADES.jsonl'),
-        'utf8',
-      );
+      const content = await readFile(join(tempDir, '.cleo', 'metrics', 'GRADES.jsonl'), 'utf8');
       const lines = content.trim().split('\n');
       expect(lines).toHaveLength(1);
 
@@ -741,10 +738,7 @@ describe('gradeSession', () => {
       await gradeSession('session-1', tempDir);
       await gradeSession('session-2', tempDir);
 
-      const content = await readFile(
-        join(tempDir, '.cleo', 'metrics', 'GRADES.jsonl'),
-        'utf8',
-      );
+      const content = await readFile(join(tempDir, '.cleo', 'metrics', 'GRADES.jsonl'), 'utf8');
       const lines = content.trim().split('\n');
       expect(lines).toHaveLength(2);
 

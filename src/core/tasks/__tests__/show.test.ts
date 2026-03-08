@@ -4,10 +4,14 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { showTask } from '../show.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import { showTask } from '../show.js';
 
 describe('showTask', () => {
   let env: TestDbEnv;
@@ -24,7 +28,14 @@ describe('showTask', () => {
 
   it('shows a task by ID', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Test task', status: 'pending', priority: 'high', description: 'Detailed info', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Test task',
+        status: 'pending',
+        priority: 'high',
+        description: 'Detailed info',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await showTask('T001', env.tempDir, accessor);
@@ -41,9 +52,30 @@ describe('showTask', () => {
 
   it('includes children list', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Child 1', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
-      { id: 'T003', title: 'Child 2', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Child 1',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T001',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Child 2',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T001',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await showTask('T001', env.tempDir, accessor);
@@ -52,8 +84,21 @@ describe('showTask', () => {
 
   it('includes dependency status', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Dependency', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Blocked task', status: 'pending', priority: 'medium', depends: ['T001'], createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Dependency',
+        status: 'done',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Blocked task',
+        status: 'pending',
+        priority: 'medium',
+        depends: ['T001'],
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await showTask('T002', env.tempDir, accessor);
@@ -67,9 +112,30 @@ describe('showTask', () => {
 
   it('includes hierarchy path', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
-      { id: 'T003', title: 'Subtask', status: 'pending', priority: 'medium', parentId: 'T002', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T001',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Subtask',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T002',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await showTask('T003', env.tempDir, accessor);

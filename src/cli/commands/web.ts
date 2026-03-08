@@ -5,16 +5,16 @@
  * @epic T4545
  */
 
-// CLI-only: web command requires process spawn/PID management not suitable for dispatch
-import { Command } from 'commander';
-import { spawn, execFileSync } from 'node:child_process';
-import { readFile, writeFile, mkdir, rm, stat } from 'node:fs/promises';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+// CLI-only: web command requires process spawn/PID management not suitable for dispatch
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import { formatError } from '../../core/output.js';
 import { getCleoHome } from '../../core/paths.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 const DEFAULT_PORT = 3456;
 const DEFAULT_HOST = '127.0.0.1';
@@ -62,7 +62,7 @@ async function getStatus(): Promise<{
     const pidStr = (await readFile(pidFile, 'utf-8')).trim();
     const pid = parseInt(pidStr, 10);
 
-    if (isNaN(pid) || !isProcessRunning(pid)) {
+    if (Number.isNaN(pid) || !isProcessRunning(pid)) {
       return { running: false, pid: null, port: null, host: null, url: null };
     }
 
@@ -88,9 +88,7 @@ async function getStatus(): Promise<{
  * @task T4551
  */
 export function registerWebCommand(program: Command): void {
-  const webCmd = program
-    .command('web')
-    .description('Manage CLEO Web UI server');
+  const webCmd = program.command('web').description('Manage CLEO Web UI server');
 
   webCmd
     .command('start')
@@ -106,7 +104,10 @@ export function registerWebCommand(program: Command): void {
         // Check if already running
         const status = await getStatus();
         if (status.running) {
-          throw new CleoError(ExitCode.GENERAL_ERROR, `Server already running (PID: ${status.pid})`);
+          throw new CleoError(
+            ExitCode.GENERAL_ERROR,
+            `Server already running (PID: ${status.pid})`,
+          );
         }
 
         // Resolve MCP server location — uses src/mcp/ from the main @cleocode/cleo package
@@ -117,11 +118,14 @@ export function registerWebCommand(program: Command): void {
         await mkdir(join(getCleoHome(), 'logs'), { recursive: true });
 
         // Save config
-        await writeFile(configFile, JSON.stringify({
-          port,
-          host,
-          startedAt: new Date().toISOString(),
-        }));
+        await writeFile(
+          configFile,
+          JSON.stringify({
+            port,
+            host,
+            startedAt: new Date().toISOString(),
+          }),
+        );
 
         // Check if MCP server is built (dist/mcp/index.js from @cleocode/cleo)
         const webIndexPath = join(distMcpDir, 'index.js');
@@ -169,17 +173,24 @@ export function registerWebCommand(program: Command): void {
         }
 
         if (!started) {
-          try { process.kill(serverProcess.pid!); } catch { /* ignore */ }
+          try {
+            process.kill(serverProcess.pid!);
+          } catch {
+            /* ignore */
+          }
           await rm(pidFile, { force: true });
           throw new CleoError(ExitCode.GENERAL_ERROR, 'Server failed to start within 15 seconds');
         }
 
-        cliOutput({
-          pid: serverProcess.pid,
-          port,
-          host,
-          url: `http://${host}:${port}`,
-        }, { command: 'web', message: `CLEO Web UI running on port ${port}` });
+        cliOutput(
+          {
+            pid: serverProcess.pid,
+            port,
+            host,
+            url: `http://${host}:${port}`,
+          },
+          { command: 'web', message: `CLEO Web UI running on port ${port}` },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -200,15 +211,16 @@ export function registerWebCommand(program: Command): void {
         if (!status.running || !status.pid) {
           // Clean up stale PID file
           await rm(pidFile, { force: true });
-          cliOutput(
-            { running: false },
-            { command: 'web', message: 'Server is not running' },
-          );
+          cliOutput({ running: false }, { command: 'web', message: 'Server is not running' });
           return;
         }
 
         // Graceful shutdown
-        try { process.kill(status.pid, 'SIGTERM'); } catch { /* ignore */ }
+        try {
+          process.kill(status.pid, 'SIGTERM');
+        } catch {
+          /* ignore */
+        }
 
         // Wait for exit
         for (let i = 0; i < 10; i++) {
@@ -218,15 +230,16 @@ export function registerWebCommand(program: Command): void {
 
         // Force kill if still running
         if (isProcessRunning(status.pid)) {
-          try { process.kill(status.pid, 'SIGKILL'); } catch { /* ignore */ }
+          try {
+            process.kill(status.pid, 'SIGKILL');
+          } catch {
+            /* ignore */
+          }
         }
 
         await rm(pidFile, { force: true });
 
-        cliOutput(
-          { stopped: true },
-          { command: 'web', message: 'CLEO Web UI stopped' },
-        );
+        cliOutput({ stopped: true }, { command: 'web', message: 'CLEO Web UI stopped' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -259,7 +272,10 @@ export function registerWebCommand(program: Command): void {
       try {
         const status = await getStatus();
         if (!status.running || !status.url) {
-          throw new CleoError(ExitCode.GENERAL_ERROR, 'Web server is not running. Start with: cleo web start');
+          throw new CleoError(
+            ExitCode.GENERAL_ERROR,
+            'Web server is not running. Start with: cleo web start',
+          );
         }
 
         // Try to open browser
@@ -276,10 +292,7 @@ export function registerWebCommand(program: Command): void {
           // Can't open browser
         }
 
-        cliOutput(
-          { url },
-          { command: 'web', message: `Open browser to: ${url}` },
-        );
+        cliOutput({ url }, { command: 'web', message: `Open browser to: ${url}` });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

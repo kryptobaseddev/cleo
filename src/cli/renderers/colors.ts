@@ -12,8 +12,8 @@
  * @epic T4663
  */
 import {
-  TASK_STATUS_SYMBOLS_UNICODE,
   TASK_STATUS_SYMBOLS_ASCII,
+  TASK_STATUS_SYMBOLS_UNICODE,
   type TaskStatus,
 } from '../../store/status-registry.js';
 
@@ -41,7 +41,7 @@ function ansi(code: string): string {
 
 export const BOLD = ansi('\x1b[1m');
 export const DIM = ansi('\x1b[2m');
-export const NC = ansi('\x1b[0m');  // reset
+export const NC = ansi('\x1b[0m'); // reset
 export const RED = ansi('\x1b[0;31m');
 export const GREEN = ansi('\x1b[0;32m');
 export const YELLOW = ansi('\x1b[1;33m');
@@ -62,13 +62,20 @@ export function statusSymbol(status: string): string {
 /** Map task status to a color escape. */
 export function statusColor(status: string): string {
   switch (status as TaskStatus) {
-    case 'pending':   return CYAN;
-    case 'active':    return GREEN;
-    case 'blocked':   return RED;
-    case 'done':      return DIM;
-    case 'cancelled': return DIM;
-    case 'archived':  return DIM;
-    default: return '';
+    case 'pending':
+      return CYAN;
+    case 'active':
+      return GREEN;
+    case 'blocked':
+      return RED;
+    case 'done':
+      return DIM;
+    case 'cancelled':
+      return DIM;
+    case 'archived':
+      return DIM;
+    default:
+      return '';
   }
 }
 
@@ -76,30 +83,45 @@ export function statusColor(status: string): string {
 export function prioritySymbol(priority: string): string {
   if (unicodeEnabled) {
     switch (priority) {
-      case 'critical': return '\uD83D\uDD34';  // red circle emoji
-      case 'high': return '\uD83D\uDFE1';      // yellow circle emoji
-      case 'medium': return '\uD83D\uDD35';    // blue circle emoji
-      case 'low': return '\u26AA';              // white circle emoji
-      default: return '';
+      case 'critical':
+        return '\uD83D\uDD34'; // red circle emoji
+      case 'high':
+        return '\uD83D\uDFE1'; // yellow circle emoji
+      case 'medium':
+        return '\uD83D\uDD35'; // blue circle emoji
+      case 'low':
+        return '\u26AA'; // white circle emoji
+      default:
+        return '';
     }
   }
   switch (priority) {
-    case 'critical': return '!';
-    case 'high': return 'H';
-    case 'medium': return 'M';
-    case 'low': return 'L';
-    default: return '';
+    case 'critical':
+      return '!';
+    case 'high':
+      return 'H';
+    case 'medium':
+      return 'M';
+    case 'low':
+      return 'L';
+    default:
+      return '';
   }
 }
 
 /** Map task priority to a color escape. */
 export function priorityColor(priority: string): string {
   switch (priority) {
-    case 'critical': return RED;
-    case 'high': return YELLOW;
-    case 'medium': return BLUE;
-    case 'low': return DIM;
-    default: return '';
+    case 'critical':
+      return RED;
+    case 'high':
+      return YELLOW;
+    case 'medium':
+      return BLUE;
+    case 'low':
+      return DIM;
+    default:
+      return '';
   }
 }
 
@@ -108,7 +130,16 @@ export function priorityColor(priority: string): string {
 // ---------------------------------------------------------------------------
 
 export const BOX = unicodeEnabled
-  ? { tl: '\u256D', tr: '\u256E', bl: '\u2570', br: '\u256F', h: '\u2500', v: '\u2502', ml: '\u251C', mr: '\u2524' }
+  ? {
+      tl: '\u256D',
+      tr: '\u256E',
+      bl: '\u2570',
+      br: '\u256F',
+      h: '\u2500',
+      v: '\u2502',
+      ml: '\u251C',
+      mr: '\u2524',
+    }
   : { tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|', ml: '+', mr: '+' };
 
 /** Create a horizontal rule with box-drawing characters. */

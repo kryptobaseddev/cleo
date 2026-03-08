@@ -4,76 +4,62 @@
  * @task T4572
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  validateLayer1Schema,
-  VALIDATION_RULES,
-} from '../gate-validators.js';
-import {
-  GateStatus,
-  type OperationContext,
-} from '../verification-gates.js';
+import { describe, expect, it } from 'vitest';
+import { VALIDATION_RULES, validateLayer1Schema } from '../gate-validators.js';
+import { GateStatus, type OperationContext } from '../verification-gates.js';
 
 describe('MCP Priority Validation (T4572)', () => {
   describe('validateLayer1Schema - priority field', () => {
     describe('string priorities (canonical format)', () => {
-      it.each(['critical', 'high', 'medium', 'low'])(
-        'should accept string priority "%s"',
-        async (priority) => {
-          const context: OperationContext = {
-            domain: 'tasks',
-            operation: 'add',
-            gateway: 'mutate',
-            params: { priority },
-          };
+      it.each([
+        'critical',
+        'high',
+        'medium',
+        'low',
+      ])('should accept string priority "%s"', async (priority) => {
+        const context: OperationContext = {
+          domain: 'tasks',
+          operation: 'add',
+          gateway: 'mutate',
+          params: { priority },
+        };
 
-          const result = await validateLayer1Schema(context);
-          const priorityViolations = result.violations.filter(
-            (v) => v.code === 'E_INVALID_PRIORITY',
-          );
-          expect(priorityViolations).toHaveLength(0);
-        },
-      );
+        const result = await validateLayer1Schema(context);
+        const priorityViolations = result.violations.filter((v) => v.code === 'E_INVALID_PRIORITY');
+        expect(priorityViolations).toHaveLength(0);
+      });
     });
 
     describe('numeric priorities (number type)', () => {
-      it.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
-        'should accept numeric priority %d',
-        async (priority) => {
-          const context: OperationContext = {
-            domain: 'tasks',
-            operation: 'add',
-            gateway: 'mutate',
-            params: { priority },
-          };
+      it.each([
+        1, 2, 3, 4, 5, 6, 7, 8, 9,
+      ])('should accept numeric priority %d', async (priority) => {
+        const context: OperationContext = {
+          domain: 'tasks',
+          operation: 'add',
+          gateway: 'mutate',
+          params: { priority },
+        };
 
-          const result = await validateLayer1Schema(context);
-          const priorityViolations = result.violations.filter(
-            (v) => v.code === 'E_INVALID_PRIORITY',
-          );
-          expect(priorityViolations).toHaveLength(0);
-        },
-      );
+        const result = await validateLayer1Schema(context);
+        const priorityViolations = result.violations.filter((v) => v.code === 'E_INVALID_PRIORITY');
+        expect(priorityViolations).toHaveLength(0);
+      });
     });
 
     describe('numeric string priorities', () => {
-      it.each(['1', '5', '9'])(
-        'should accept numeric string priority "%s"',
-        async (priority) => {
-          const context: OperationContext = {
-            domain: 'tasks',
-            operation: 'add',
-            gateway: 'mutate',
-            params: { priority },
-          };
+      it.each(['1', '5', '9'])('should accept numeric string priority "%s"', async (priority) => {
+        const context: OperationContext = {
+          domain: 'tasks',
+          operation: 'add',
+          gateway: 'mutate',
+          params: { priority },
+        };
 
-          const result = await validateLayer1Schema(context);
-          const priorityViolations = result.violations.filter(
-            (v) => v.code === 'E_INVALID_PRIORITY',
-          );
-          expect(priorityViolations).toHaveLength(0);
-        },
-      );
+        const result = await validateLayer1Schema(context);
+        const priorityViolations = result.violations.filter((v) => v.code === 'E_INVALID_PRIORITY');
+        expect(priorityViolations).toHaveLength(0);
+      });
     });
 
     describe('invalid priorities', () => {

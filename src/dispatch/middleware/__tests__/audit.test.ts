@@ -8,30 +8,24 @@
  * @task T4844
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DispatchRequest, DispatchResponse } from '../../types.js';
 
 // Hoist mock functions so vi.mock factories can reference them
-const {
-  mockLogInfo,
-  mockLogWarn,
-  mockLogError,
-  mockInsertRun,
-  mockInsertValues,
-  mockInsert,
-} = vi.hoisted(() => {
-  const mockInsertRun = vi.fn().mockResolvedValue(undefined);
-  const mockInsertValues = vi.fn(() => ({ run: mockInsertRun }));
-  const mockInsert = vi.fn(() => ({ values: mockInsertValues }));
-  return {
-    mockLogInfo: vi.fn(),
-    mockLogWarn: vi.fn(),
-    mockLogError: vi.fn(),
-    mockInsertRun,
-    mockInsertValues,
-    mockInsert,
-  };
-});
+const { mockLogInfo, mockLogWarn, mockLogError, mockInsertRun, mockInsertValues, mockInsert } =
+  vi.hoisted(() => {
+    const mockInsertRun = vi.fn().mockResolvedValue(undefined);
+    const mockInsertValues = vi.fn(() => ({ run: mockInsertRun }));
+    const mockInsert = vi.fn(() => ({ values: mockInsertValues }));
+    return {
+      mockLogInfo: vi.fn(),
+      mockLogWarn: vi.fn(),
+      mockLogError: vi.fn(),
+      mockInsertRun,
+      mockInsertValues,
+      mockInsert,
+    };
+  });
 
 // Mock Pino logger
 vi.mock('../../../core/logger.js', () => ({
@@ -81,7 +75,7 @@ describe('createAudit middleware', () => {
 
   afterEach(async () => {
     // Drain fire-and-forget promises from previous test before clearing
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
@@ -136,7 +130,7 @@ describe('createAudit middleware', () => {
     await middleware(request, next);
 
     // Wait for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(mockLogInfo).toHaveBeenCalledOnce();
     const [logObj, logMsg] = mockLogInfo.mock.calls[0]!;
@@ -155,7 +149,7 @@ describe('createAudit middleware', () => {
     await middleware(request, next);
 
     // Wait for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(mockInsert).toHaveBeenCalled();
     expect(mockInsertValues).toHaveBeenCalled();
@@ -175,7 +169,7 @@ describe('createAudit middleware', () => {
     await middleware(request, next);
 
     // Wait for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(mockLogInfo).not.toHaveBeenCalled();
     expect(mockInsert).not.toHaveBeenCalled();
@@ -192,7 +186,7 @@ describe('createAudit middleware', () => {
     const result = await middleware(request, next);
 
     // Wait for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Pipeline should still return the response
     expect(result).toBe(response);
@@ -212,7 +206,7 @@ describe('createAudit middleware', () => {
     await middleware(request, next);
 
     // Wait for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Check Pino log includes failure info
     const [logObj] = mockLogInfo.mock.calls[0]!;

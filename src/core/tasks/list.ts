@@ -4,9 +4,9 @@
  * @epic T4454
  */
 
-import type { Task, TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 import type { LAFSPage } from '@cleocode/lafs-protocol';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import type { Task, TaskPriority, TaskStatus, TaskType } from '../../types/task.js';
 import { paginate } from '../pagination.js';
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
@@ -63,40 +63,45 @@ export interface ListTasksResult {
  * List tasks with optional filtering and pagination.
  * @task T4460
  */
-export async function listTasks(options: ListTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ListTasksResult> {
-  const dataAccessor = accessor ?? await (await import('../../store/data-accessor.js')).getAccessor(cwd);
+export async function listTasks(
+  options: ListTasksOptions = {},
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ListTasksResult> {
+  const dataAccessor =
+    accessor ?? (await (await import('../../store/data-accessor.js')).getAccessor(cwd));
   const data = await dataAccessor.loadTaskFile();
 
   let filtered = data.tasks;
 
   // Apply filters
   if (options.status) {
-    filtered = filtered.filter(t => t.status === options.status);
+    filtered = filtered.filter((t) => t.status === options.status);
   }
 
   if (options.priority) {
-    filtered = filtered.filter(t => t.priority === options.priority);
+    filtered = filtered.filter((t) => t.priority === options.priority);
   }
 
   if (options.type) {
-    filtered = filtered.filter(t => t.type === options.type);
+    filtered = filtered.filter((t) => t.type === options.type);
   }
 
   if (options.parentId) {
     if (options.children) {
       // Show direct children of the parent
-      filtered = filtered.filter(t => t.parentId === options.parentId);
+      filtered = filtered.filter((t) => t.parentId === options.parentId);
     } else {
-      filtered = filtered.filter(t => t.parentId === options.parentId);
+      filtered = filtered.filter((t) => t.parentId === options.parentId);
     }
   }
 
   if (options.phase) {
-    filtered = filtered.filter(t => t.phase === options.phase);
+    filtered = filtered.filter((t) => t.phase === options.phase);
   }
 
   if (options.label) {
-    filtered = filtered.filter(t => t.labels?.includes(options.label!));
+    filtered = filtered.filter((t) => t.labels?.includes(options.label!));
   }
 
   const total = data.tasks.length;
@@ -105,22 +110,23 @@ export async function listTasks(options: ListTasksOptions = {}, cwd?: string, ac
   // Sort by position within parent groups
   filtered.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-  const limit = options.limit === 0
-    ? undefined
-    : typeof options.limit === 'number' && options.limit > 0
-      ? options.limit
-      : TASK_LIST_DEFAULT_LIMIT;
-  const offset = typeof options.offset === 'number' && options.offset > 0
-    ? options.offset
-    : undefined;
+  const limit =
+    options.limit === 0
+      ? undefined
+      : typeof options.limit === 'number' && options.limit > 0
+        ? options.limit
+        : TASK_LIST_DEFAULT_LIMIT;
+  const offset =
+    typeof options.offset === 'number' && options.offset > 0 ? options.offset : undefined;
   const { items: tasks, page } = paginate(filtered, limit, offset);
-  const pagination = page.mode === 'offset'
-    ? {
-        limit: page.limit,
-        offset: page.offset,
-        hasMore: page.hasMore,
-      }
-    : undefined;
+  const pagination =
+    page.mode === 'offset'
+      ? {
+          limit: page.limit,
+          offset: page.offset,
+          hasMore: page.hasMore,
+        }
+      : undefined;
 
   return {
     tasks,

@@ -8,7 +8,7 @@
  * @task T4904
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerValidateCommand(program: Command): void {
@@ -17,9 +17,15 @@ export function registerValidateCommand(program: Command): void {
     .description('Validate task data against schema and business rules')
     .option('--strict', 'Treat warnings as errors')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'schema', {
-        type: 'tasks',
-        strict: opts['strict'],
-      }, { command: 'validate', operation: 'check.schema' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'schema',
+        {
+          type: 'tasks',
+          strict: opts['strict'],
+        },
+        { command: 'validate', operation: 'check.schema' },
+      );
     });
 }

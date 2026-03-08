@@ -4,12 +4,12 @@
  * @epic T4881
  */
 
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { execFile } from 'node:child_process';
-import { getCleoHome } from '../paths.js';
 import { promisify } from 'node:util';
+import { getCleoHome } from '../paths.js';
 
 type RuntimeChannel = 'stable' | 'beta' | 'dev';
 
@@ -116,7 +116,9 @@ async function parseVersionFile(dataRoot: string): Promise<VersionInfo | null> {
   };
 }
 
-async function getPackageInfo(sourceDir?: string): Promise<{ name: string; version: string } | null> {
+async function getPackageInfo(
+  sourceDir?: string,
+): Promise<{ name: string; version: string } | null> {
   const candidates: string[] = [];
   if (sourceDir && sourceDir !== 'unknown' && sourceDir !== 'npm') {
     candidates.push(join(sourceDir, 'package.json'));
@@ -148,7 +150,9 @@ async function resolveBinaryPath(name: string): Promise<string | null> {
   }
 }
 
-export async function getRuntimeDiagnostics(options?: { detailed?: boolean }): Promise<RuntimeDiagnostics> {
+export async function getRuntimeDiagnostics(options?: {
+  detailed?: boolean;
+}): Promise<RuntimeDiagnostics> {
   const scriptPath = process.argv[1] ?? '';
   const invocationName = basename(scriptPath || process.argv0 || 'cleo');
   const envChannel = normalizeChannel(process.env['CLEO_CHANNEL']);
@@ -157,12 +161,13 @@ export async function getRuntimeDiagnostics(options?: { detailed?: boolean }): P
   const versionInfo = await parseVersionFile(dataRoot);
   const packageInfo = await getPackageInfo(versionInfo?.source);
 
-  const channel = envChannel
-    ?? detectFromInvocation(invocationName)
-    ?? normalizeChannel(versionInfo?.version.includes('-beta') ? 'beta' : undefined)
-    ?? detectFromDataRoot(dataRoot)
-    ?? normalizeChannel(versionInfo?.mode.startsWith('dev') ? 'dev' : undefined)
-    ?? 'stable';
+  const channel =
+    envChannel ??
+    detectFromInvocation(invocationName) ??
+    normalizeChannel(versionInfo?.version.includes('-beta') ? 'beta' : undefined) ??
+    detectFromDataRoot(dataRoot) ??
+    normalizeChannel(versionInfo?.mode.startsWith('dev') ? 'dev' : undefined) ??
+    'stable';
 
   const naming = getExpectedNaming(channel);
   const warnings: string[] = [];
@@ -199,14 +204,13 @@ export async function getRuntimeDiagnostics(options?: { detailed?: boolean }): P
   };
 
   if (options?.detailed) {
-    const binNames = [
-      'cleo',
-      'ct',
-      'cleo-dev',
-      'cleo-beta',
-    ];
-    const entries = await Promise.all(binNames.map(async (name) => [name, await resolveBinaryPath(name)] as const));
-    result.binaries = Object.fromEntries(entries.map(([name, path]) => [name, path ?? 'not found']));
+    const binNames = ['cleo', 'ct', 'cleo-dev', 'cleo-beta'];
+    const entries = await Promise.all(
+      binNames.map(async (name) => [name, await resolveBinaryPath(name)] as const),
+    );
+    result.binaries = Object.fromEntries(
+      entries.map(([name, path]) => [name, path ?? 'not found']),
+    );
     result.package = {
       name: packageInfo?.name ?? 'unknown',
       version: packageInfo?.version ?? 'unknown',

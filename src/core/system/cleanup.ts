@@ -3,12 +3,12 @@
  * @task T4783
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { loadConfig } from '../config.js';
 import { pruneAuditLog } from '../audit-prune.js';
+import { loadConfig } from '../config.js';
+import { CleoError } from '../errors.js';
 
 export interface CleanupResult {
   target: string;
@@ -26,7 +26,10 @@ export async function cleanupSystem(
   params: { target: string; olderThan?: string; dryRun?: boolean },
 ): Promise<CleanupResult> {
   if (!params.target) {
-    throw new CleoError(ExitCode.INVALID_INPUT, 'target is required (sessions|backups|logs|archive)');
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      'target is required (sessions|backups|logs|archive)',
+    );
   }
 
   const cleoDir = join(projectRoot, '.cleo');
@@ -44,14 +47,16 @@ export async function cleanupSystem(
         try {
           const data = JSON.parse(readFileSync(sessPath, 'utf-8'));
           const sessions = data.sessions ?? [];
-          const stale = sessions.filter((s: { status: string; lastActivity?: string; id: string }) => {
-            if (s.status !== 'active') return false;
-            if (params.olderThan && s.lastActivity) {
-              return s.lastActivity < params.olderThan;
-            }
-            const cutoff = new Date(Date.now() - 86400000).toISOString();
-            return s.lastActivity && s.lastActivity < cutoff;
-          });
+          const stale = sessions.filter(
+            (s: { status: string; lastActivity?: string; id: string }) => {
+              if (s.status !== 'active') return false;
+              if (params.olderThan && s.lastActivity) {
+                return s.lastActivity < params.olderThan;
+              }
+              const cutoff = new Date(Date.now() - 86400000).toISOString();
+              return s.lastActivity && s.lastActivity < cutoff;
+            },
+          );
           for (const s of stale) {
             items.push((s as { id: string }).id);
           }
@@ -83,15 +88,23 @@ export async function cleanupSystem(
                       unlinkSync(metaFilePath);
                       for (const bf of readdirSync(fullDir)) {
                         if (bf.includes(meta.backupId)) {
-                          try { unlinkSync(join(fullDir, bf)); } catch { /* skip */ }
+                          try {
+                            unlinkSync(join(fullDir, bf));
+                          } catch {
+                            /* skip */
+                          }
                         }
                       }
                     }
                   }
-                } catch { /* skip */ }
+                } catch {
+                  /* skip */
+                }
               }
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
       }
       break;
@@ -112,7 +125,11 @@ export async function cleanupSystem(
           if (auditPattern.test(file)) {
             items.push(file);
             if (!dryRun) {
-              try { unlinkSync(join(cleoDir, file)); } catch { /* skip */ }
+              try {
+                unlinkSync(join(cleoDir, file));
+              } catch {
+                /* skip */
+              }
             }
           }
         }

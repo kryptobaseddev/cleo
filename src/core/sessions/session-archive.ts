@@ -30,7 +30,12 @@ export async function archiveSessions(
   for (const session of sessions) {
     if (session.status === 'active') continue;
     // Only archive ended, orphaned, or suspended sessions
-    if (session.status !== 'ended' && session.status !== 'orphaned' && session.status !== 'suspended') continue;
+    if (
+      session.status !== 'ended' &&
+      session.status !== 'orphaned' &&
+      session.status !== 'suspended'
+    )
+      continue;
 
     // Check age threshold
     if (olderThan) {

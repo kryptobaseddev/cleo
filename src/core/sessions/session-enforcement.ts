@@ -8,10 +8,10 @@
  * @epic T4454
  */
 
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 import { getCleoDir } from '../paths.js';
 import { sessionStatus } from './index.js';
 
@@ -108,9 +108,12 @@ export async function requireActiveSession(
       ExitCode.SESSION_REQUIRED,
       `Operation '${operation}' requires an active session`,
       {
-        fix: "Start a session with 'cleo session start --scope epic:T### --auto-start --name \"Work\"'",
+        fix: 'Start a session with \'cleo session start --scope epic:T### --auto-start --name "Work"\'',
         alternatives: [
-          { action: 'Start session', command: 'cleo session start --scope epic:T001 --auto-start --name "Work"' },
+          {
+            action: 'Start session',
+            command: 'cleo session start --scope epic:T001 --auto-start --name "Work"',
+          },
           { action: 'List sessions', command: 'cleo session list' },
         ],
       },

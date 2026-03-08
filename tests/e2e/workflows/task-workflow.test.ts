@@ -8,7 +8,7 @@
  * @epic T3125
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock engine imports
@@ -20,7 +20,7 @@ vi.mock('../../../src/dispatch/lib/engine.js', () => ({
 }));
 
 // Import the mocked functions for configuration
-import { taskFind, taskShow, taskComplete } from '../../../src/dispatch/lib/engine.js';
+import { taskComplete, taskFind, taskShow } from '../../../src/dispatch/lib/engine.js';
 
 describe('11.1 Task Workflow', () => {
   beforeEach(() => {
@@ -36,7 +36,7 @@ describe('11.1 Task Workflow', () => {
     response: any,
     expectedGateway: string,
     expectedDomain: string,
-    expectedOperation: string
+    expectedOperation: string,
   ) {
     expect(response._meta).toBeDefined();
     expect(response._meta.gateway).toBe(expectedGateway);
@@ -72,9 +72,7 @@ describe('11.1 Task Workflow', () => {
     // Step 1: Find task (query tasks find)
     (taskFind as any).mockResolvedValueOnce({
       success: true,
-      data: [
-        { id: 'T2405', title: 'Authentication module', status: 'active' },
-      ],
+      data: [{ id: 'T2405', title: 'Authentication module', status: 'active' }],
     });
 
     const findResult = await dispatchRaw('query', 'tasks', 'find', {

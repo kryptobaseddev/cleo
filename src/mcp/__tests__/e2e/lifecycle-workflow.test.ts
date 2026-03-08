@@ -7,13 +7,9 @@
  * @task T2937
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import {
-  setupE2ETest,
-  cleanupE2ETest,
-  extractTaskId,
-} from './setup.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { IntegrationTestContext } from '../integration-setup.js';
+import { cleanupE2ETest, extractTaskId, setupE2ETest } from './setup.js';
 
 describe('E2E: Lifecycle Workflow', () => {
   let context: IntegrationTestContext;

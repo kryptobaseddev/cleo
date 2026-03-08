@@ -12,11 +12,11 @@
  * @task T4942 — MANIFEST generation folded in so one command keeps both in sync
  */
 
-import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import { architectureDecisions, adrTaskLinks } from '../../store/tasks-schema.js';
+import { adrTaskLinks, architectureDecisions } from '../../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrSyncResult } from './types.js';
 
@@ -30,8 +30,8 @@ function extractAdrIdFromRef(ref: string): string | null {
 function parseTaskIds(raw: string): string[] {
   return raw
     .split(',')
-    .map(t => t.trim())
-    .filter(t => /^T\d{1,5}$/.test(t));
+    .map((t) => t.trim())
+    .filter((t) => /^T\d{1,5}$/.test(t));
 }
 
 /** Collect all ADR .md files recursively (top-level + archive/) */
@@ -81,7 +81,7 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
 
   const allFiles = collectAdrFiles(adrsDir);
   // Only sync top-level files to DB (archive/ ADRs are superseded)
-  const activeFiles = allFiles.filter(f => !f.relPath.includes('/'));
+  const activeFiles = allFiles.filter((f) => !f.relPath.includes('/'));
   const manifestEntries: Record<string, unknown>[] = [];
 
   // --- DB sync (active ADRs only) ---
@@ -123,7 +123,10 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
         .all();
 
       if (existing.length > 0) {
-        await db.update(architectureDecisions).set(rowBase).where(eq(architectureDecisions.id, record.id));
+        await db
+          .update(architectureDecisions)
+          .set(rowBase)
+          .where(eq(architectureDecisions.id, record.id));
         result.updated++;
       } else {
         await db.insert(architectureDecisions).values({ ...rowBase, createdAt: now });
@@ -161,13 +164,22 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
       if (fm.Amends) entry['amends'] = fm.Amends;
       if (fm['Amended By']) entry['amendedBy'] = fm['Amended By'];
       if (fm['Related Tasks']) {
-        entry['relatedTasks'] = fm['Related Tasks'].split(',').map(s => s.trim()).filter(Boolean);
+        entry['relatedTasks'] = fm['Related Tasks']
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
       }
       if (fm.Gate) entry['gate'] = fm.Gate;
       if (fm['Gate Status']) entry['gateStatus'] = fm['Gate Status'];
       if (fm.Summary) entry['summary'] = fm.Summary;
-      if (fm.Keywords) entry['keywords'] = fm.Keywords.split(',').map(s => s.trim()).filter(Boolean);
-      if (fm.Topics) entry['topics'] = fm.Topics.split(',').map(s => s.trim()).filter(Boolean);
+      if (fm.Keywords)
+        entry['keywords'] = fm.Keywords.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      if (fm.Topics)
+        entry['topics'] = fm.Topics.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
 
       manifestEntries.push(entry);
     } catch {
@@ -177,7 +189,7 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
 
   writeFileSync(
     join(adrsDir, 'MANIFEST.jsonl'),
-    manifestEntries.map(e => JSON.stringify(e)).join('\n') + '\n',
+    manifestEntries.map((e) => JSON.stringify(e)).join('\n') + '\n',
     'utf-8',
   );
 

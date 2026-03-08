@@ -6,11 +6,10 @@
  * @task T5121 - Default limits on session.list
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { findSessions } from '../find.js';
-import type { MinimalSessionRecord } from '../find.js';
-import type { Session } from '../../../types/session.js';
+import { describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Session } from '../../../types/session.js';
+import { findSessions } from '../find.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,10 +38,34 @@ function mockAccessor(sessions: Session[]): DataAccessor {
 
 describe('findSessions (T5119)', () => {
   const sessions: Session[] = [
-    makeSession({ id: 'session-1', name: 'Alpha', status: 'active', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-01T00:00:00Z' }),
-    makeSession({ id: 'session-2', name: 'Beta', status: 'ended', scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true }, startedAt: '2026-01-02T00:00:00Z' }),
-    makeSession({ id: 'session-3', name: 'Gamma', status: 'active', scope: { type: 'global' }, startedAt: '2026-01-03T00:00:00Z' }),
-    makeSession({ id: 'session-4', name: 'Delta search-me', status: 'ended', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-04T00:00:00Z' }),
+    makeSession({
+      id: 'session-1',
+      name: 'Alpha',
+      status: 'active',
+      scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+      startedAt: '2026-01-01T00:00:00Z',
+    }),
+    makeSession({
+      id: 'session-2',
+      name: 'Beta',
+      status: 'ended',
+      scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true },
+      startedAt: '2026-01-02T00:00:00Z',
+    }),
+    makeSession({
+      id: 'session-3',
+      name: 'Gamma',
+      status: 'active',
+      scope: { type: 'global' },
+      startedAt: '2026-01-03T00:00:00Z',
+    }),
+    makeSession({
+      id: 'session-4',
+      name: 'Delta search-me',
+      status: 'ended',
+      scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+      startedAt: '2026-01-04T00:00:00Z',
+    }),
   ];
 
   it('returns minimal fields only', async () => {

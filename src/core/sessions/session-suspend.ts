@@ -6,9 +6,9 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
+import { CleoError } from '../errors.js';
 import type { TaskFileExt } from './types.js';
 
 /**
@@ -30,10 +30,7 @@ export async function suspendSession(
   const session = sessions.find((s) => s.id === sessionId);
 
   if (!session) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${sessionId}' not found`,
-    );
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${sessionId}' not found`);
   }
 
   if (session.status !== 'active') {

@@ -12,7 +12,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { getCleoDir } from '../paths.js';
-import { getCurrentSessionId, getContextStatePath, THRESHOLDS } from './context-alert.js';
+import { getContextStatePath, getCurrentSessionId, THRESHOLDS } from './context-alert.js';
 
 /** Context window input from Claude Code. */
 export interface ContextWindowInput {

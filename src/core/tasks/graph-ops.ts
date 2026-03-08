@@ -20,9 +20,7 @@ export interface DependencyWave {
  * Tasks in the same wave can run in parallel; waves must be sequential.
  */
 export function computeDependencyWaves(tasks: Task[]): DependencyWave[] {
-  const activeTasks = tasks.filter(
-    (t) => t.status !== 'done' && t.status !== 'cancelled',
-  );
+  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
 
   if (activeTasks.length === 0) return [];
 
@@ -34,9 +32,7 @@ export function computeDependencyWaves(tasks: Task[]): DependencyWave[] {
   // Compute in-degree for each task (only counting active deps)
   const inDegree = new Map<string, number>();
   for (const task of activeTasks) {
-    const activeDeps = (task.depends ?? []).filter(
-      (d) => !completedIds.has(d) && taskMap.has(d),
-    );
+    const activeDeps = (task.depends ?? []).filter((d) => !completedIds.has(d) && taskMap.has(d));
     inDegree.set(task.id, activeDeps.length);
   }
 
@@ -55,9 +51,7 @@ export function computeDependencyWaves(tasks: Task[]): DependencyWave[] {
 
     if (wave.length === 0) {
       // Remaining tasks have cycles - add them all to final wave
-      const remaining = activeTasks
-        .filter((t) => !assigned.has(t.id))
-        .map((t) => t.id);
+      const remaining = activeTasks.filter((t) => !assigned.has(t.id)).map((t) => t.id);
       if (remaining.length > 0) {
         waves.push({ wave: waveNum, taskIds: remaining });
       }
@@ -123,9 +117,7 @@ export function getNextTask(tasks: Task[]): Task | null {
  * Returns task IDs along the critical path.
  */
 export function getCriticalPath(tasks: Task[]): string[] {
-  const activeTasks = tasks.filter(
-    (t) => t.status !== 'done' && t.status !== 'cancelled',
-  );
+  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
 
   if (activeTasks.length === 0) return [];
 

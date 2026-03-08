@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -46,10 +46,14 @@ export function registerAddCommand(program: Command): void {
       } else {
         params['description'] = title;
       }
-      if (opts['labels']) params['labels'] = (opts['labels'] as string).split(',').map(s => s.trim());
-      if (opts['files']) params['files'] = (opts['files'] as string).split(',').map(s => s.trim());
-      if (opts['acceptance']) params['acceptance'] = (opts['acceptance'] as string).split(',').map(s => s.trim());
-      if (opts['depends']) params['depends'] = (opts['depends'] as string).split(',').map(s => s.trim());
+      if (opts['labels'])
+        params['labels'] = (opts['labels'] as string).split(',').map((s) => s.trim());
+      if (opts['files'])
+        params['files'] = (opts['files'] as string).split(',').map((s) => s.trim());
+      if (opts['acceptance'])
+        params['acceptance'] = (opts['acceptance'] as string).split(',').map((s) => s.trim());
+      if (opts['depends'])
+        params['depends'] = (opts['depends'] as string).split(',').map((s) => s.trim());
       if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
       if (opts['position'] !== undefined) params['position'] = opts['position'];
       if (opts['dryRun'] !== undefined) params['dryRun'] = opts['dryRun'];
@@ -62,9 +66,17 @@ export function registerAddCommand(program: Command): void {
 
       const data = response.data as Record<string, unknown>;
       if (data?.duplicate) {
-        cliOutput(data, { command: 'add', message: 'Task with identical title was created recently', operation: 'tasks.add' });
+        cliOutput(data, {
+          command: 'add',
+          message: 'Task with identical title was created recently',
+          operation: 'tasks.add',
+        });
       } else if (data?.dryRun) {
-        cliOutput(data, { command: 'add', message: 'Dry run - no changes made', operation: 'tasks.add' });
+        cliOutput(data, {
+          command: 'add',
+          message: 'Dry run - no changes made',
+          operation: 'tasks.add',
+        });
       } else {
         cliOutput(data, { command: 'add', operation: 'tasks.add' });
       }

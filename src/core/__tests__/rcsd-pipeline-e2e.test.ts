@@ -12,29 +12,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-
-// Canonical imports from stages.ts
-import {
-  checkTransition,
-  CONTRIBUTION_STAGE,
-  getNextStage,
-  getPrerequisites,
-  getPreviousStage,
-  PIPELINE_STAGES,
-  validateStage,
-} from '../lifecycle/stages.js';
-
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // Barrel imports from index.ts
 import {
   PIPELINE_STAGES as BARREL_PIPELINE_STAGES,
   CANONICAL_PREREQUISITES,
   CANONICAL_STAGE_DEFINITIONS,
 } from '../lifecycle/index.js';
-
 // RCASD-INDEX population
 import {
   buildIndex,
@@ -43,8 +30,18 @@ import {
   getTaskAnchor,
   readIndex,
   rebuildIndex,
-  writeIndex
+  writeIndex,
 } from '../lifecycle/rcasd-index.js';
+// Canonical imports from stages.ts
+import {
+  CONTRIBUTION_STAGE,
+  checkTransition,
+  getNextStage,
+  getPrerequisites,
+  getPreviousStage,
+  PIPELINE_STAGES,
+  validateStage,
+} from '../lifecycle/stages.js';
 
 describe('RCSD Pipeline E2E', () => {
   let testDir: string;
@@ -66,8 +63,15 @@ describe('RCSD Pipeline E2E', () => {
   describe('canonical stage definitions', () => {
     it('defines exactly 9 pipeline stages in order with full names', () => {
       expect(PIPELINE_STAGES).toEqual([
-        'research', 'consensus', 'architecture_decision', 'specification', 'decomposition',
-        'implementation', 'validation', 'testing', 'release',
+        'research',
+        'consensus',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
+        'release',
       ]);
       expect(PIPELINE_STAGES.length).toBe(9);
     });
@@ -205,10 +209,7 @@ describe('RCSD Pipeline E2E', () => {
           specification: { status: 'pending' },
         },
       };
-      await writeFile(
-        join(taskDir, '_manifest.json'),
-        JSON.stringify(manifest, null, 2),
-      );
+      await writeFile(join(taskDir, '_manifest.json'), JSON.stringify(manifest, null, 2));
 
       // Create a spec file
       await writeFile(

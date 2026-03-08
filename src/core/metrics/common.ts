@@ -51,8 +51,8 @@ export function readJsonlFile(filePath: string): Record<string, unknown>[] {
   if (!content) return [];
   return content
     .split('\n')
-    .filter(line => line.trim())
-    .map(line => JSON.parse(line) as Record<string, unknown>);
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 /** Compliance summary shape. */
@@ -74,10 +74,10 @@ export function getComplianceSummaryBase(compliancePath?: string): ComplianceSum
   const entries = readJsonlFile(path);
   const total = entries.length;
   const pass = entries.filter(
-    e => (e as Record<string, unknown>).compliance_pass_rate === 1,
+    (e) => (e as Record<string, unknown>).compliance_pass_rate === 1,
   ).length;
   const fail = total - pass;
-  const rate = total > 0 ? Math.round((pass * 100) / total * 100) / 100 : 0;
+  const rate = total > 0 ? Math.round(((pass * 100) / total) * 100) / 100 : 0;
 
   return { total, pass, fail, rate };
 }

@@ -13,11 +13,16 @@
  * @epic T4454
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import {
+  existsSync as configExists,
+  existsSync,
+  readFileSync as readConfigFileSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
+import { basename, join, join as joinPath } from 'node:path';
 import { getCleoDir } from '../paths.js';
-import { existsSync as configExists, readFileSync as readConfigFileSync } from 'node:fs';
-import { join as joinPath } from 'node:path';
 
 /** Synchronous config value reader. */
 function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string): unknown {
@@ -128,13 +133,16 @@ function getLockFiles(cwd?: string): LockInfo[] {
         // Not JSON, try as raw PID
         try {
           pid = parseInt(readFileSync(filePath, 'utf-8').trim(), 10);
-        } catch { /* empty */ }
+        } catch {
+          /* empty */
+        }
       }
 
       let status: LockInfo['status'] = 'active';
       if (pid > 0 && !isProcessRunning(pid)) {
         status = 'orphaned';
-      } else if (ageSeconds > 300) { // 5 minutes
+      } else if (ageSeconds > 300) {
+        // 5 minutes
         status = 'stale';
       }
 
@@ -161,9 +169,9 @@ export function generateHITLWarnings(cwd?: string): HITLWarningsResult {
   }
 
   const allLocks = getLockFiles(cwd);
-  const activeLocks = allLocks.filter(l => l.status === 'active');
-  const staleLocks = allLocks.filter(l => l.status === 'stale');
-  const orphanedLocks = allLocks.filter(l => l.status === 'orphaned');
+  const activeLocks = allLocks.filter((l) => l.status === 'active');
+  const staleLocks = allLocks.filter((l) => l.status === 'stale');
+  const orphanedLocks = allLocks.filter((l) => l.status === 'orphaned');
 
   const warnings: HITLWarning[] = [];
   let maxLevel: HITLLevel = 'none';
@@ -192,7 +200,7 @@ export function generateHITLWarnings(cwd?: string): HITLWarningsResult {
     }
 
     // High-risk operations
-    const highRiskLocks = activeLocks.filter(l => HIGH_RISK_RESOURCES.includes(l.resource));
+    const highRiskLocks = activeLocks.filter((l) => HIGH_RISK_RESOURCES.includes(l.resource));
     if (highRiskLocks.length > 0) {
       if (maxLevel !== 'block') {
         if (isWarnOnlyMode(cwd)) {
@@ -217,7 +225,7 @@ export function generateHITLWarnings(cwd?: string): HITLWarningsResult {
       level: 'WARN',
       type: 'CONCURRENT',
       message: 'Concurrent operation detected',
-      details: activeLocks.map(l => ({
+      details: activeLocks.map((l) => ({
         resource: l.resource,
         pid: l.pid,
         process: l.process,
@@ -251,25 +259,26 @@ export function generateHITLWarnings(cwd?: string): HITLWarningsResult {
     });
   }
 
-  const summary = warnings.length > 0
-    ? {
-        total: warnings.length,
-        byLevel: {
-          block: warnings.filter(w => w.level === 'BLOCK').length,
-          warn: warnings.filter(w => w.level === 'WARN').length,
-          info: warnings.filter(w => w.level === 'INFO').length,
-        },
-      }
-    : null;
+  const summary =
+    warnings.length > 0
+      ? {
+          total: warnings.length,
+          byLevel: {
+            block: warnings.filter((w) => w.level === 'BLOCK').length,
+            warn: warnings.filter((w) => w.level === 'WARN').length,
+            info: warnings.filter((w) => w.level === 'INFO').length,
+          },
+        }
+      : null;
 
   return { enabled: true, level: maxLevel, requiresHuman, warnings, activeLocks, summary };
 }
 
 /** Get highest warning level from warnings. */
 export function getHighestLevel(warnings: HITLWarning[]): HITLLevel {
-  if (warnings.some(w => w.level === 'BLOCK')) return 'block';
-  if (warnings.some(w => w.level === 'WARN')) return 'warn';
-  if (warnings.some(w => w.level === 'INFO')) return 'info';
+  if (warnings.some((w) => w.level === 'BLOCK')) return 'block';
+  if (warnings.some((w) => w.level === 'WARN')) return 'warn';
+  if (warnings.some((w) => w.level === 'INFO')) return 'info';
   return 'none';
 }
 

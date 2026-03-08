@@ -8,14 +8,18 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, accessSync, constants, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { getCleoHome } from '../../paths.js';
-import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
-import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
+import { join } from 'node:path';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
+import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
+import { getCleoHome } from '../../paths.js';
+import {
+  getNodeUpgradeInstructions,
+  getNodeVersionInfo,
+  MINIMUM_NODE_MAJOR,
+} from '../../platform.js';
 import { getGitignoreContent } from '../../scaffold.js';
 import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
 
@@ -39,9 +43,7 @@ export interface CheckResult {
 // ============================================================================
 
 /** @task T4525 */
-export function checkCliInstallation(
-  cleoHome: string = getCleoHome(),
-): CheckResult {
+export function checkCliInstallation(cleoHome: string = getCleoHome()): CheckResult {
   const exists = existsSync(cleoHome);
   return {
     id: 'cli_installation',
@@ -63,9 +65,7 @@ export function checkCliInstallation(
 const VERSION_REGEX = /^\d+\.\d+\.\d+$/;
 
 /** @task T4525 */
-export function checkCliVersion(
-  cleoHome: string = getCleoHome(),
-): CheckResult {
+export function checkCliVersion(cleoHome: string = getCleoHome()): CheckResult {
   const versionFile = join(cleoHome, 'VERSION');
 
   if (!existsSync(versionFile)) {
@@ -97,9 +97,7 @@ export function checkCliVersion(
 // ============================================================================
 
 /** @task T4525 */
-export function checkDocsAccessibility(
-  cleoHome: string = getCleoHome(),
-): CheckResult {
+export function checkDocsAccessibility(cleoHome: string = getCleoHome()): CheckResult {
   const docsFile = join(cleoHome, 'templates', 'CLEO-INJECTION.md');
 
   if (!existsSync(docsFile)) {
@@ -142,9 +140,7 @@ export function checkDocsAccessibility(
 // ============================================================================
 
 /** @task T4525 */
-export function checkAtReferenceResolution(
-  cleoHome: string = getCleoHome(),
-): CheckResult {
+export function checkAtReferenceResolution(cleoHome: string = getCleoHome()): CheckResult {
   const docsFile = join(cleoHome, 'templates', 'CLEO-INJECTION.md');
   const reference = '@~/.cleo/templates/CLEO-INJECTION.md';
 
@@ -204,9 +200,7 @@ export function checkAtReferenceResolution(
  * Check that AGENTS.md exists in project root and contains the CAAMP:START marker,
  * indicating it serves as the injection hub for CLEO protocol content.
  */
-export function checkAgentsMdHub(
-  projectRoot?: string,
-): CheckResult {
+export function checkAgentsMdHub(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const agentsMdPath = join(root, 'AGENTS.md');
 
@@ -266,9 +260,7 @@ export function checkAgentsMdHub(
  * @task T4641
  * @epic T4637
  */
-export function checkRootGitignore(
-  projectRoot?: string,
-): CheckResult {
+export function checkRootGitignore(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const gitignorePath = join(root, '.gitignore');
 
@@ -298,7 +290,7 @@ export function checkRootGitignore(
   }
 
   const lines = content.split('\n');
-  const blockingLines = lines.filter(line => {
+  const blockingLines = lines.filter((line) => {
     const trimmed = line.trim();
     if (trimmed.startsWith('#') || trimmed === '') return false;
     return /^\/?\.cleo\/?(\*)?$/.test(trimmed);
@@ -333,9 +325,7 @@ export function checkRootGitignore(
  * Check if .cleo/.gitignore exists and matches the template.
  * @task T4700
  */
-export function checkCleoGitignore(
-  projectRoot?: string,
-): CheckResult {
+export function checkCleoGitignore(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const gitignorePath = join(root, '.cleo', '.gitignore');
 
@@ -436,9 +426,7 @@ function detectStorageEngine(_projectRoot: string): string {
  * project-context.json). SQLite databases are excluded per ADR-013.
  * @task T4700
  */
-export function checkVitalFilesTracked(
-  projectRoot?: string,
-): CheckResult {
+export function checkVitalFilesTracked(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const gitDir = join(root, '.git');
 
@@ -455,7 +443,7 @@ export function checkVitalFilesTracked(
 
   // Build vital file list from centralized constant
   const engine = detectStorageEngine(root);
-  const vitalFiles = CORE_PROTECTED_FILES.map(f => `.cleo/${f}`);
+  const vitalFiles = CORE_PROTECTED_FILES.map((f) => `.cleo/${f}`);
 
   const untracked: string[] = [];
 
@@ -504,9 +492,7 @@ export function checkVitalFilesTracked(
  * any gitignore rule (root, .cleo/, or global).
  * Returns critical status if any protected file is gitignored.
  */
-export function checkCoreFilesNotIgnored(
-  projectRoot?: string,
-): CheckResult {
+export function checkCoreFilesNotIgnored(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const gitDir = join(root, '.git');
 
@@ -547,7 +533,9 @@ export function checkCoreFilesNotIgnored(
       status: 'failed',
       message: `Critical CLEO files are gitignored: ${ignoredFiles.join(', ')}`,
       details: { ignoredFiles },
-      fix: 'Remove ignore rules for these files from .gitignore and .cleo/.gitignore, then: git add ' + ignoredFiles.join(' '),
+      fix:
+        'Remove ignore rules for these files from .gitignore and .cleo/.gitignore, then: git add ' +
+        ignoredFiles.join(' '),
     };
   }
 
@@ -556,7 +544,7 @@ export function checkCoreFilesNotIgnored(
     category: 'configuration',
     status: 'passed',
     message: 'No core CLEO files are gitignored',
-    details: { checkedFiles: CORE_PROTECTED_FILES.map(f => `.cleo/${f}`) },
+    details: { checkedFiles: CORE_PROTECTED_FILES.map((f) => `.cleo/${f}`) },
     fix: null,
   };
 }
@@ -571,9 +559,7 @@ export function checkCoreFilesNotIgnored(
  * Warns if tasks.db is currently tracked so the user can untrack it.
  * @task T5160
  */
-export function checkSqliteNotTracked(
-  projectRoot?: string,
-): CheckResult {
+export function checkSqliteNotTracked(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const gitDir = join(root, '.git');
 
@@ -638,9 +624,7 @@ export function checkSqliteNotTracked(
  * Delegates detection to the migration/agent-outputs utility.
  * @task T4700
  */
-export function checkLegacyAgentOutputs(
-  projectRoot?: string,
-): CheckResult {
+export function checkLegacyAgentOutputs(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const cleoDir = join(root, '.cleo');
   const detection = detectLegacyAgentOutputs(root, cleoDir);
@@ -985,9 +969,7 @@ export function checkNodeVersion(): CheckResult {
  * Check that global schemas at ~/.cleo/schemas/ are installed and not stale.
  * Delegates to checkGlobalSchemas() from schema-management.ts.
  */
-export function checkGlobalSchemaHealth(
-  _projectRoot?: string,
-): CheckResult {
+export function checkGlobalSchemaHealth(_projectRoot?: string): CheckResult {
   try {
     const result = checkGlobalSchemasRaw();
 
@@ -1041,9 +1023,7 @@ export function checkGlobalSchemaHealth(
  * Warn if deprecated .cleo/schemas/ directory still exists in the project.
  * Schemas should live in ~/.cleo/schemas/ (global), not in project directories.
  */
-export function checkNoLocalSchemas(
-  projectRoot?: string,
-): CheckResult {
+export function checkNoLocalSchemas(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
   const localSchemasDir = join(root, '.cleo', 'schemas');
 
@@ -1083,12 +1063,10 @@ export function checkNoLocalSchemas(
  * Maps JsonFileIntegrityResult[] from checkSchemaIntegrity() into CheckResult[],
  * then returns a single rolled-up CheckResult for the doctor summary.
  */
-export async function checkJsonSchemaIntegrity(
-  projectDir: string,
-): Promise<CheckResult> {
+export async function checkJsonSchemaIntegrity(projectDir: string): Promise<CheckResult> {
   const { checkSchemaIntegrity } = await import('../schema-integrity.js');
 
-  let report;
+  let report: import('../schema-integrity.js').SchemaIntegrityReport;
   try {
     report = await checkSchemaIntegrity(projectDir);
   } catch (err) {
@@ -1102,9 +1080,7 @@ export async function checkJsonSchemaIntegrity(
     };
   }
 
-  const failures = report.files.filter(
-    (f) => f.status === 'missing' || f.status === 'invalid',
-  );
+  const failures = report.files.filter((f) => f.status === 'missing' || f.status === 'invalid');
   const warnings = report.files.filter(
     (f) => f.status === 'version_mismatch' || f.status === 'schema_not_found',
   );
@@ -1152,10 +1128,7 @@ export async function checkJsonSchemaIntegrity(
  * Run all global health checks and return results array.
  * @task T4525
  */
-export function runAllGlobalChecks(
-  cleoHome?: string,
-  projectRoot?: string,
-): CheckResult[] {
+export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): CheckResult[] {
   const home = cleoHome ?? getCleoHome();
 
   return [
@@ -1192,8 +1165,8 @@ export function runAllGlobalChecks(
  * @task T4525
  */
 export function calculateHealthStatus(checks: CheckResult[]): number {
-  const hasFailed = checks.some(c => c.status === 'failed');
-  const hasWarning = checks.some(c => c.status === 'warning');
+  const hasFailed = checks.some((c) => c.status === 'failed');
+  const hasWarning = checks.some((c) => c.status === 'warning');
 
   if (hasFailed) return 52;
   if (hasWarning) return 50;

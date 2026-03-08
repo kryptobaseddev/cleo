@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerSequenceCommand(program: Command): void {
@@ -16,20 +16,38 @@ export function registerSequenceCommand(program: Command): void {
     .command('show')
     .description('Display current sequence state')
     .action(async () => {
-      await dispatchFromCli('query', 'admin', 'sequence', { action: 'show' }, { command: 'sequence' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'sequence',
+        { action: 'show' },
+        { command: 'sequence' },
+      );
     });
 
   sequence
     .command('check')
     .description('Verify counter >= max(todo + archive)')
     .action(async () => {
-      await dispatchFromCli('query', 'admin', 'sequence', { action: 'check' }, { command: 'sequence' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'sequence',
+        { action: 'check' },
+        { command: 'sequence' },
+      );
     });
 
   sequence
     .command('repair')
     .description('Reset counter to max + 1 if behind')
     .action(async () => {
-      await dispatchFromCli('mutate', 'admin', 'config.set', { key: 'sequence', value: 'repair' }, { command: 'sequence' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'config.set',
+        { key: 'sequence', value: 'repair' },
+        { command: 'sequence' },
+      );
     });
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { sanitizeParams, sanitizeTaskId, SecurityError, ensureArray } from '../security.js';
+import { describe, expect, it } from 'vitest';
+import { ensureArray, SecurityError, sanitizeParams, sanitizeTaskId } from '../security.js';
 
 describe('sanitizeTaskId normalization', () => {
   it('normalizes bare digits to T-prefixed form', () => {

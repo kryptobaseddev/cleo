@@ -3,15 +3,15 @@
  * @task T4784
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { computeWaves } from './waves.js';
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getTaskPath } from '../paths.js';
+import { computeWaves } from './waves.js';
 
 interface ParallelState {
   active: boolean;
@@ -70,14 +70,14 @@ export async function startParallelExecution(
     : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
-  const epic = tasks.find(t => t.id === epicId);
+  const epic = tasks.find((t) => t.id === epicId);
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic ${epicId} not found`);
   }
 
-  const children = tasks.filter(t => t.parentId === epicId);
+  const children = tasks.filter((t) => t.parentId === epicId);
   const waves = computeWaves(children);
-  const targetWave = waves.find(w => w.waveNumber === wave);
+  const targetWave = waves.find((w) => w.waveNumber === wave);
 
   if (!targetWave) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Wave ${wave} not found for epic ${epicId}`);

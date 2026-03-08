@@ -8,36 +8,34 @@
  * @epic T4820
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { routeByParam } from './_routing.js';
-import { getProjectRoot } from '../../core/paths.js';
+import {
+  instantiateTessera,
+  listTesseraTemplates,
+  showTessera,
+} from '../../core/lifecycle/tessera-engine.js';
 import { getLogger } from '../../core/logger.js';
 import { paginate } from '../../core/pagination.js';
-
+import { getProjectRoot } from '../../core/paths.js';
 import {
-  orchestrateStatus,
   orchestrateAnalyze,
-  orchestrateReady,
-  orchestrateNext,
-  orchestrateWaves,
-  orchestrateContext,
   orchestrateBootstrap,
-  orchestrateUnblockOpportunities,
-  orchestrateStartup,
-  orchestrateSpawn,
+  orchestrateContext,
   orchestrateHandoff,
-  orchestrateSpawnExecute,
-  orchestrateValidate,
-  orchestrateParallelStart,
+  orchestrateNext,
   orchestrateParallelEnd,
+  orchestrateParallelStart,
+  orchestrateReady,
+  orchestrateSpawn,
+  orchestrateSpawnExecute,
+  orchestrateStartup,
+  orchestrateStatus,
+  orchestrateUnblockOpportunities,
+  orchestrateValidate,
+  orchestrateWaves,
 } from '../lib/engine.js';
-
-import {
-  showTessera,
-  listTesseraTemplates,
-  instantiateTessera,
-} from '../../core/lifecycle/tessera-engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
+import { routeByParam } from './_routing.js';
 
 // ---------------------------------------------------------------------------
 // OrchestrateHandler
@@ -54,10 +52,7 @@ export class OrchestrateHandler implements DomainHandler {
   // DomainHandler interface
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -71,8 +66,13 @@ export class OrchestrateHandler implements DomainHandler {
         case 'next': {
           const epicId = params?.epicId as string;
           if (!epicId) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
           }
           const result = await orchestrateNext(epicId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', operation, startTime);
@@ -81,8 +81,13 @@ export class OrchestrateHandler implements DomainHandler {
         case 'ready': {
           const epicId = params?.epicId as string;
           if (!epicId) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
           }
           const result = await orchestrateReady(epicId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', operation, startTime);
@@ -92,9 +97,8 @@ export class OrchestrateHandler implements DomainHandler {
         case 'critical.path': {
           const epicId = params?.epicId as string;
           // critical.path is a backward-compat alias — routes through analyze with mode='critical-path'
-          const mode = operation === 'critical.path'
-            ? 'critical-path'
-            : (params?.mode as string | undefined);
+          const mode =
+            operation === 'critical.path' ? 'critical-path' : (params?.mode as string | undefined);
           const result = await orchestrateAnalyze(epicId, this.projectRoot, mode);
           return this.wrapEngineResult(result, 'query', 'analyze', startTime);
         }
@@ -108,8 +112,13 @@ export class OrchestrateHandler implements DomainHandler {
         case 'waves': {
           const epicId = params?.epicId as string;
           if (!epicId) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
           }
           const result = await orchestrateWaves(epicId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', operation, startTime);
@@ -133,8 +142,13 @@ export class OrchestrateHandler implements DomainHandler {
           if (id) {
             const template = showTessera(id);
             if (!template) {
-              return this.errorResponse('query', 'tessera.list', 'E_NOT_FOUND',
-                `Tessera template "${id}" not found`, startTime);
+              return this.errorResponse(
+                'query',
+                'tessera.list',
+                'E_NOT_FOUND',
+                `Tessera template "${id}" not found`,
+                startTime,
+              );
             }
             return {
               _meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
@@ -159,18 +173,20 @@ export class OrchestrateHandler implements DomainHandler {
         }
 
         default:
-          return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
-            `Unknown orchestrate query: ${operation}`, startTime);
+          return this.errorResponse(
+            'query',
+            operation,
+            'E_INVALID_OPERATION',
+            `Unknown orchestrate query: ${operation}`,
+            startTime,
+          );
       }
     } catch (error) {
       return this.handleError('query', operation, error, startTime);
     }
   }
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -178,8 +194,13 @@ export class OrchestrateHandler implements DomainHandler {
         case 'start': {
           const epicId = params?.epicId as string;
           if (!epicId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
           }
           const result = await orchestrateStartup(epicId, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
@@ -188,8 +209,13 @@ export class OrchestrateHandler implements DomainHandler {
         case 'spawn': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const protocolType = params?.protocolType as string | undefined;
           const tier = params?.tier as 0 | 1 | 2 | undefined;
@@ -201,44 +227,73 @@ export class OrchestrateHandler implements DomainHandler {
           const taskId = params?.taskId as string;
           const protocolType = params?.protocolType as string;
           if (!taskId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           if (!protocolType) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'protocolType is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'protocolType is required',
+              startTime,
+            );
           }
           const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateHandoff({
-            taskId,
-            protocolType,
-            note: params?.note as string | undefined,
-            nextAction: params?.nextAction as string | undefined,
-            variant: params?.variant as string | undefined,
-            tier,
-            idempotencyKey: params?.idempotencyKey as string | undefined,
-          }, this.projectRoot);
+          const result = await orchestrateHandoff(
+            {
+              taskId,
+              protocolType,
+              note: params?.note as string | undefined,
+              nextAction: params?.nextAction as string | undefined,
+              variant: params?.variant as string | undefined,
+              tier,
+              idempotencyKey: params?.idempotencyKey as string | undefined,
+            },
+            this.projectRoot,
+          );
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
         case 'spawn.execute': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const adapterId = params?.adapterId as string | undefined;
           const protocolType = params?.protocolType as string | undefined;
           const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateSpawnExecute(taskId, adapterId, protocolType, this.projectRoot, tier);
+          const result = await orchestrateSpawnExecute(
+            taskId,
+            adapterId,
+            protocolType,
+            this.projectRoot,
+            tier,
+          );
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
         case 'validate': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await orchestrateValidate(taskId, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
@@ -249,24 +304,35 @@ export class OrchestrateHandler implements DomainHandler {
         case 'parallel.end': {
           // parallel.start and parallel.end are backward-compat aliases
           // Registry canonical: orchestrate.parallel with required 'action' param
-          const aliasAction = operation === 'parallel.start' ? 'start'
-            : operation === 'parallel.end' ? 'end'
-            : undefined;
-          const effectiveParams = aliasAction
-            ? { ...params, action: aliasAction }
-            : params;
+          const aliasAction =
+            operation === 'parallel.start'
+              ? 'start'
+              : operation === 'parallel.end'
+                ? 'end'
+                : undefined;
+          const effectiveParams = aliasAction ? { ...params, action: aliasAction } : params;
 
           return routeByParam(effectiveParams, 'action', {
             start: async () => {
               const epicId = effectiveParams?.epicId as string;
               const wave = effectiveParams?.wave as number;
               if (!epicId) {
-                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
-                  'epicId is required', startTime);
+                return this.errorResponse(
+                  'mutate',
+                  'parallel',
+                  'E_INVALID_INPUT',
+                  'epicId is required',
+                  startTime,
+                );
               }
               if (wave === undefined || wave === null) {
-                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
-                  'wave number is required', startTime);
+                return this.errorResponse(
+                  'mutate',
+                  'parallel',
+                  'E_INVALID_INPUT',
+                  'wave number is required',
+                  startTime,
+                );
               }
               const result = await orchestrateParallelStart(epicId, wave, this.projectRoot);
               return this.wrapEngineResult(result, 'mutate', 'parallel', startTime);
@@ -275,12 +341,22 @@ export class OrchestrateHandler implements DomainHandler {
               const epicId = effectiveParams?.epicId as string;
               const wave = effectiveParams?.wave as number;
               if (!epicId) {
-                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
-                  'epicId is required', startTime);
+                return this.errorResponse(
+                  'mutate',
+                  'parallel',
+                  'E_INVALID_INPUT',
+                  'epicId is required',
+                  startTime,
+                );
               }
               if (wave === undefined || wave === null) {
-                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
-                  'wave number is required', startTime);
+                return this.errorResponse(
+                  'mutate',
+                  'parallel',
+                  'E_INVALID_INPUT',
+                  'wave number is required',
+                  startTime,
+                );
               }
               const result = orchestrateParallelEnd(epicId, wave, this.projectRoot);
               return this.wrapEngineResult(result, 'mutate', 'parallel', startTime);
@@ -292,17 +368,32 @@ export class OrchestrateHandler implements DomainHandler {
           const templateId = params?.templateId as string;
           const epicId = params?.epicId as string;
           if (!templateId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'templateId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'templateId is required',
+              startTime,
+            );
           }
           if (!epicId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
           }
           const template = showTessera(templateId);
           if (!template) {
-            return this.errorResponse('mutate', operation, 'E_NOT_FOUND',
-              `Tessera template "${templateId}" not found`, startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_NOT_FOUND',
+              `Tessera template "${templateId}" not found`,
+              startTime,
+            );
           }
           const variables = (params?.variables as Record<string, unknown>) ?? {};
           const instance = await instantiateTessera(
@@ -318,8 +409,13 @@ export class OrchestrateHandler implements DomainHandler {
         }
 
         default:
-          return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
-            `Unknown orchestrate mutation: ${operation}`, startTime);
+          return this.errorResponse(
+            'mutate',
+            operation,
+            'E_INVALID_OPERATION',
+            `Unknown orchestrate mutation: ${operation}`,
+            startTime,
+          );
       }
     } catch (error) {
       return this.handleError('mutate', operation, error, startTime);
@@ -329,12 +425,22 @@ export class OrchestrateHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'next', 'ready', 'analyze', 'context',
-        'waves', 'bootstrap', 'unblock.opportunities',
+        'status',
+        'next',
+        'ready',
+        'analyze',
+        'context',
+        'waves',
+        'bootstrap',
+        'unblock.opportunities',
         'tessera.list',
       ],
       mutate: [
-        'start', 'spawn', 'handoff', 'spawn.execute', 'validate',
+        'start',
+        'spawn',
+        'handoff',
+        'spawn.execute',
+        'validate',
         'parallel',
         'tessera.instantiate',
       ],
@@ -346,7 +452,17 @@ export class OrchestrateHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
+    },
     gateway: string,
     operation: string,
     startTime: number,
@@ -391,13 +507,11 @@ export class OrchestrateHandler implements DomainHandler {
     startTime: number,
   ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:orchestrate').error({ gateway, domain: 'orchestrate', operation, err: error }, message);
-    return this.errorResponse(
-      gateway, operation,
-      'E_INTERNAL_ERROR',
+    getLogger('domain:orchestrate').error(
+      { gateway, domain: 'orchestrate', operation, err: error },
       message,
-      startTime,
     );
+    return this.errorResponse(gateway, operation, 'E_INTERNAL_ERROR', message, startTime);
   }
 
   private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
@@ -406,5 +520,4 @@ export class OrchestrateHandler implements DomainHandler {
       offset: typeof params?.offset === 'number' ? params.offset : undefined,
     };
   }
-
 }

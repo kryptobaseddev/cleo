@@ -15,25 +15,25 @@
  */
 
 import {
+  ADR_STATUSES,
+  LIFECYCLE_STAGE_STATUSES,
+  MANIFEST_STATUSES,
+  SESSION_STATUSES,
+  TASK_STATUSES,
+} from '../../store/status-registry.js';
+import { ErrorSeverity } from './exit-codes.js';
+import type { ProtocolEnforcer } from './protocol-enforcement.js';
+import {
   GateLayer,
   GateStatus,
-  GateViolation,
-  LayerResult,
-  OperationContext,
-  WorkflowGateName,
-  WorkflowGateTracker,
-  WORKFLOW_GATE_SEQUENCE,
+  type GateViolation,
   isValidWorkflowGateName,
+  type LayerResult,
+  type OperationContext,
+  WORKFLOW_GATE_SEQUENCE,
+  type WorkflowGateName,
+  type WorkflowGateTracker,
 } from './verification-gates.js';
-import { ErrorSeverity } from './exit-codes.js';
-import { ProtocolEnforcer } from './protocol-enforcement.js';
-import {
-  TASK_STATUSES,
-  MANIFEST_STATUSES,
-  LIFECYCLE_STAGE_STATUSES,
-  SESSION_STATUSES,
-  ADR_STATUSES,
-} from '../../store/status-registry.js';
 
 /**
  * Layer 1: Schema Validation
@@ -41,9 +41,7 @@ import {
  * Validates operation parameters against JSON Schema definitions.
  * Checks required fields, data types, and format constraints.
  */
-export async function validateLayer1Schema(
-  context: OperationContext
-): Promise<LayerResult> {
+export async function validateLayer1Schema(context: OperationContext): Promise<LayerResult> {
   const violations: GateViolation[] = [];
 
   // Task ID validation (if present)
@@ -137,8 +135,14 @@ export async function validateLayer1Schema(
     if (entry.agent_type) {
       const agentType = entry.agent_type as string;
       const validAgentTypes = [
-        'research', 'analysis', 'specification', 'implementation',
-        'testing', 'validation', 'documentation', 'release',
+        'research',
+        'analysis',
+        'specification',
+        'implementation',
+        'testing',
+        'validation',
+        'documentation',
+        'release',
       ];
       if (!validAgentTypes.includes(agentType)) {
         violations.push({
@@ -242,9 +246,7 @@ export async function validateLayer1Schema(
  * Validates business rules and logical constraints.
  * Checks hierarchy depth, sibling limits, title/description uniqueness.
  */
-export async function validateLayer2Semantic(
-  context: OperationContext
-): Promise<LayerResult> {
+export async function validateLayer2Semantic(context: OperationContext): Promise<LayerResult> {
   const violations: GateViolation[] = [];
 
   // Title and description must be different (anti-hallucination)
@@ -271,7 +273,7 @@ export async function validateLayer2Semantic(
       const value = context.params?.[field] as string | undefined;
       if (value) {
         const timestamp = new Date(value);
-        if (!isNaN(timestamp.getTime()) && timestamp > now) {
+        if (!Number.isNaN(timestamp.getTime()) && timestamp > now) {
           violations.push({
             layer: GateLayer.SEMANTIC,
             severity: ErrorSeverity.ERROR,
@@ -356,9 +358,10 @@ export async function validateLayer2Semantic(
 
   return {
     layer: GateLayer.SEMANTIC,
-    status: violations.filter((v) => v.severity === ErrorSeverity.ERROR).length > 0
-      ? GateStatus.FAILED
-      : GateStatus.PASSED,
+    status:
+      violations.filter((v) => v.severity === ErrorSeverity.ERROR).length > 0
+        ? GateStatus.FAILED
+        : GateStatus.PASSED,
     passed: violations.filter((v) => v.severity === ErrorSeverity.ERROR).length === 0,
     violations,
     duration_ms: 0,
@@ -371,9 +374,7 @@ export async function validateLayer2Semantic(
  * Validates cross-entity references and relationships.
  * Checks task existence, parent/child relationships, dependencies.
  */
-export async function validateLayer3Referential(
-  context: OperationContext
-): Promise<LayerResult> {
+export async function validateLayer3Referential(context: OperationContext): Promise<LayerResult> {
   const violations: GateViolation[] = [];
 
   // Parent task validation (if specified)
@@ -467,7 +468,11 @@ export async function validateLayer3Referential(
   // Sibling limit validation (Section 8.1: configured hierarchy policy, 0 = unlimited)
   if (context.params?.siblingCount !== undefined) {
     const siblingCount = context.params.siblingCount as number;
-    if (typeof siblingCount === 'number' && VALIDATION_RULES.MAX_SIBLINGS > 0 && siblingCount >= VALIDATION_RULES.MAX_SIBLINGS) {
+    if (
+      typeof siblingCount === 'number' &&
+      VALIDATION_RULES.MAX_SIBLINGS > 0 &&
+      siblingCount >= VALIDATION_RULES.MAX_SIBLINGS
+    ) {
       violations.push({
         layer: GateLayer.REFERENTIAL,
         severity: ErrorSeverity.ERROR,
@@ -515,7 +520,7 @@ export async function validateLayer3Referential(
  */
 export async function validateLayer4Protocol(
   context: OperationContext,
-  _enforcer: ProtocolEnforcer
+  _enforcer: ProtocolEnforcer,
 ): Promise<LayerResult> {
   const violations: GateViolation[] = [];
 
@@ -604,7 +609,11 @@ export async function validateLayer4Protocol(
     const manifestEntry = context.params?.manifestEntry as Record<string, unknown> | undefined;
     if (manifestEntry?.key_findings) {
       const findings = manifestEntry.key_findings;
-      if (!Array.isArray(findings) || findings.length < VALIDATION_RULES.KEY_FINDINGS_MIN || findings.length > VALIDATION_RULES.KEY_FINDINGS_MAX) {
+      if (
+        !Array.isArray(findings) ||
+        findings.length < VALIDATION_RULES.KEY_FINDINGS_MIN ||
+        findings.length > VALIDATION_RULES.KEY_FINDINGS_MAX
+      ) {
         violations.push({
           layer: GateLayer.PROTOCOL,
           severity: ErrorSeverity.ERROR,
@@ -637,9 +646,10 @@ export async function validateLayer4Protocol(
 
   return {
     layer: GateLayer.PROTOCOL,
-    status: violations.filter((v) => v.severity === ErrorSeverity.ERROR).length > 0
-      ? GateStatus.FAILED
-      : GateStatus.PASSED,
+    status:
+      violations.filter((v) => v.severity === ErrorSeverity.ERROR).length > 0
+        ? GateStatus.FAILED
+        : GateStatus.PASSED,
     passed: violations.filter((v) => v.severity === ErrorSeverity.ERROR).length === 0,
     violations,
     duration_ms: 0,
@@ -660,8 +670,14 @@ export const VALIDATION_RULES = {
   VALID_STATUSES: TASK_STATUSES,
   VALID_MANIFEST_STATUSES: MANIFEST_STATUSES,
   VALID_AGENT_TYPES: [
-    'research', 'analysis', 'specification', 'implementation',
-    'testing', 'validation', 'documentation', 'release',
+    'research',
+    'analysis',
+    'specification',
+    'implementation',
+    'testing',
+    'validation',
+    'documentation',
+    'release',
   ] as const,
   VALID_PRIORITIES: ['critical', 'high', 'medium', 'low'] as const,
   PRIORITY_NUMERIC_MIN: 1,
@@ -675,11 +691,7 @@ export const VALIDATION_RULES = {
 /**
  * Helper to check if a field is required for an operation
  */
-export function isFieldRequired(
-  domain: string,
-  operation: string,
-  field: string
-): boolean {
+export function isFieldRequired(domain: string, operation: string, field: string): boolean {
   const requirements: Record<string, Record<string, string[]>> = {
     tasks: {
       add: ['title', 'description'],
@@ -703,7 +715,14 @@ export function isFieldRequired(
 /**
  * Valid workflow gate agent names per Section 7.2
  */
-export const VALID_WORKFLOW_AGENTS = ['coder', 'testing', 'qa', 'cleanup', 'security', 'docs'] as const;
+export const VALID_WORKFLOW_AGENTS = [
+  'coder',
+  'testing',
+  'qa',
+  'cleanup',
+  'security',
+  'docs',
+] as const;
 
 /**
  * Valid workflow gate status values per Section 7.3
@@ -725,7 +744,7 @@ export function validateWorkflowGateName(name: string): boolean {
  * @task T3141
  */
 export function validateWorkflowGateStatus(
-  status: unknown
+  status: unknown,
 ): status is null | 'passed' | 'failed' | 'blocked' {
   return status === null || status === 'passed' || status === 'failed' || status === 'blocked';
 }
@@ -745,7 +764,7 @@ export function validateWorkflowGateUpdate(
   gateName: string,
   status: string,
   agent?: string,
-  tracker?: WorkflowGateTracker
+  tracker?: WorkflowGateTracker,
 ): GateViolation[] {
   const violations: GateViolation[] = [];
 

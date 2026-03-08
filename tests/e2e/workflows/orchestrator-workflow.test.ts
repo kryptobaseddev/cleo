@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock paths FIRST (before engine mock)
@@ -29,18 +29,38 @@ vi.mock('../../../src/dispatch/engines/orchestrate-engine.js', () => ({
 
 // Mock lifecycle engine (used by pipeline domain for stage.* operations)
 vi.mock('../../../src/dispatch/engines/lifecycle-engine.js', () => ({
-  lifecycleStatus: vi.fn(() => ({ success: true, data: { epicId: 'T2400', currentStage: 'implementation', stages: [{ stage: 'research', status: 'completed' }, { stage: 'consensus', status: 'skipped' }, { stage: 'specification', status: 'completed' }, { stage: 'implementation', status: 'in_progress' }], nextStage: 'validation', blockedOn: [] } })),
+  lifecycleStatus: vi.fn(() => ({
+    success: true,
+    data: {
+      epicId: 'T2400',
+      currentStage: 'implementation',
+      stages: [
+        { stage: 'research', status: 'completed' },
+        { stage: 'consensus', status: 'skipped' },
+        { stage: 'specification', status: 'completed' },
+        { stage: 'implementation', status: 'in_progress' },
+      ],
+      nextStage: 'validation',
+      blockedOn: [],
+    },
+  })),
   lifecycleCheck: vi.fn(() => ({ success: true, data: { canProgress: true } })),
 }));
 
 // Mock validate engine (used by check domain)
 vi.mock('../../../src/dispatch/engines/validate-engine.js', () => ({
-  validateComplianceSummary: vi.fn(() => ({ success: true, data: { compliant: true, score: 0.95, violations: [] } })),
+  validateComplianceSummary: vi.fn(() => ({
+    success: true,
+    data: { compliant: true, score: 0.95, violations: [] },
+  })),
 }));
 
+import { lifecycleCheck, lifecycleStatus } from '../../../src/dispatch/engines/lifecycle-engine.js';
 // Import mocked functions AFTER vi.mock calls
-import { orchestrateStartup, orchestrateSpawn } from '../../../src/dispatch/engines/orchestrate-engine.js';
-import { lifecycleStatus, lifecycleCheck } from '../../../src/dispatch/engines/lifecycle-engine.js';
+import {
+  orchestrateSpawn,
+  orchestrateStartup,
+} from '../../../src/dispatch/engines/orchestrate-engine.js';
 import { validateComplianceSummary } from '../../../src/dispatch/engines/validate-engine.js';
 
 describe('11.2 Orchestrator Workflow', () => {
@@ -57,7 +77,7 @@ describe('11.2 Orchestrator Workflow', () => {
     response: any,
     expectedGateway: string,
     expectedDomain: string,
-    expectedOperation: string
+    expectedOperation: string,
   ) {
     expect(response._meta).toBeDefined();
     expect(response._meta.gateway).toBe(expectedGateway);
@@ -75,10 +95,7 @@ describe('11.2 Orchestrator Workflow', () => {
     expect(response.error).toBeUndefined();
   }
 
-  function assertErrorResponse(
-    response: any,
-    expectedCode?: string
-  ) {
+  function assertErrorResponse(response: any, expectedCode?: string) {
     expect(response.success).toBe(false);
     expect(response.error).toBeDefined();
     expect(response.error!.code).toBeDefined();

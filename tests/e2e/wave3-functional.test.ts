@@ -15,10 +15,10 @@
  * @task T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // ============================================================================
 // 1. Session Engine: sessionFind, sessionList, sessionStart, sessionEnd
@@ -447,9 +447,7 @@ describe('FTS5 search — end-to-end', () => {
     // Search for "database" — should match multiple entries
     const dbResults = await brainSearchModule.searchBrain(testDir, 'database');
     const totalResults =
-      dbResults.decisions.length +
-      dbResults.patterns.length +
-      dbResults.learnings.length;
+      dbResults.decisions.length + dbResults.patterns.length + dbResults.learnings.length;
     expect(totalResults).toBeGreaterThanOrEqual(2);
 
     // Search for something that matches nothing

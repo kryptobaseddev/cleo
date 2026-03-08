@@ -5,7 +5,7 @@
  * Uses mocked data accessors to simulate SQLite behavior without real DB.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data accessor
 vi.mock('../../../store/data-accessor.js', () => ({
@@ -18,9 +18,9 @@ vi.mock('../decisions.js', () => ({
 }));
 
 import { getAccessor } from '../../../store/data-accessor.js';
-import { computeHandoff, persistHandoff, getHandoff, getLastHandoff } from '../handoff.js';
-import { computeBriefing } from '../briefing.js';
 import type { Session, SessionScope } from '../../../types/session.js';
+import { computeBriefing } from '../briefing.js';
+import { computeHandoff, getHandoff, getLastHandoff, persistHandoff } from '../handoff.js';
 
 /**
  * Simulates the session store — sessions live in one array (like SQLite).
@@ -28,18 +28,69 @@ import type { Session, SessionScope } from '../../../types/session.js';
  */
 function createMockStore() {
   const tasks = [
-    { id: 'T100', status: 'active', parentId: undefined, title: 'Epic', description: 'Epic task', type: 'epic' },
-    { id: 'T101', status: 'pending', parentId: 'T100', title: 'Child task 1', description: 'First child', priority: 'high' },
-    { id: 'T102', status: 'blocked', parentId: 'T100', title: 'Child task 2 (blocked)', description: 'Blocked child' },
-    { id: 'T103', status: 'pending', parentId: 'T101', title: 'Grandchild', description: 'Grandchild task', priority: 'medium' },
-    { id: 'T200', status: 'pending', parentId: undefined, title: 'Outside epic', description: 'Not in scope', priority: 'critical' },
-    { id: 'T300', status: 'active', parentId: undefined, title: 'Bug outside scope', description: 'Bug task', type: 'bug', labels: ['bug'], priority: 'high' },
+    {
+      id: 'T100',
+      status: 'active',
+      parentId: undefined,
+      title: 'Epic',
+      description: 'Epic task',
+      type: 'epic',
+    },
+    {
+      id: 'T101',
+      status: 'pending',
+      parentId: 'T100',
+      title: 'Child task 1',
+      description: 'First child',
+      priority: 'high',
+    },
+    {
+      id: 'T102',
+      status: 'blocked',
+      parentId: 'T100',
+      title: 'Child task 2 (blocked)',
+      description: 'Blocked child',
+    },
+    {
+      id: 'T103',
+      status: 'pending',
+      parentId: 'T101',
+      title: 'Grandchild',
+      description: 'Grandchild task',
+      priority: 'medium',
+    },
+    {
+      id: 'T200',
+      status: 'pending',
+      parentId: undefined,
+      title: 'Outside epic',
+      description: 'Not in scope',
+      priority: 'critical',
+    },
+    {
+      id: 'T300',
+      status: 'active',
+      parentId: undefined,
+      title: 'Bug outside scope',
+      description: 'Bug task',
+      type: 'bug',
+      labels: ['bug'],
+      priority: 'high',
+    },
   ];
 
   const sessions: Session[] = [];
   const taskData = {
     tasks,
-    focus: { currentTask: null, currentPhase: null, blockedUntil: null, sessionNote: null, sessionNotes: [], nextAction: null, primarySession: null },
+    focus: {
+      currentTask: null,
+      currentPhase: null,
+      blockedUntil: null,
+      sessionNote: null,
+      sessionNotes: [],
+      nextAction: null,
+      primarySession: null,
+    },
     _meta: { schemaVersion: '1.0.0', activeSession: null },
   };
 
@@ -84,7 +135,10 @@ describe('Session handoff full round-trip', () => {
     // Session stays in sessions array — this is the splice bug fix
 
     // === Step 3: Compute handoff ===
-    const handoff = await computeHandoff('/test', { sessionId: 'ses_001', note: 'Continue with T101' });
+    const handoff = await computeHandoff('/test', {
+      sessionId: 'ses_001',
+      note: 'Continue with T101',
+    });
 
     expect(handoff.lastTask).toBe('T101');
     expect(handoff.tasksCompleted).toEqual(['T103']);
@@ -130,7 +184,15 @@ describe('Session handoff full round-trip', () => {
       taskWork: { taskId: 'T101', setAt: new Date().toISOString() },
       startedAt: new Date(Date.now() - 7200000).toISOString(),
       endedAt: new Date(Date.now() - 3600000).toISOString(),
-      handoffJson: JSON.stringify({ lastTask: 'T101', tasksCompleted: [], tasksCreated: [], decisionsRecorded: 0, nextSuggested: [], openBlockers: [], openBugs: [] }),
+      handoffJson: JSON.stringify({
+        lastTask: 'T101',
+        tasksCompleted: [],
+        tasksCreated: [],
+        decisionsRecorded: 0,
+        nextSuggested: [],
+        openBlockers: [],
+        openBugs: [],
+      }),
     };
     // Session is in the array — handoff should be found
     store.sessions.push(session1);
@@ -153,7 +215,15 @@ describe('Session handoff full round-trip', () => {
       taskWork: { taskId: null, setAt: null },
       startedAt: new Date(Date.now() - 7200000).toISOString(),
       endedAt: new Date().toISOString(),
-      handoffJson: JSON.stringify({ lastTask: null, tasksCompleted: [], tasksCreated: [], decisionsRecorded: 0, nextSuggested: [], openBlockers: [], openBugs: [] }),
+      handoffJson: JSON.stringify({
+        lastTask: null,
+        tasksCompleted: [],
+        tasksCreated: [],
+        decisionsRecorded: 0,
+        nextSuggested: [],
+        openBlockers: [],
+        openBugs: [],
+      }),
     };
     store.sessions.push(engineSession);
 
@@ -180,12 +250,12 @@ describe('Session handoff full round-trip', () => {
     const briefing = await computeBriefing('/test', { scope: 'epic:T100' });
 
     // nextTasks should only contain T100-scope tasks
-    const nextIds = briefing.nextTasks.map(t => t.id);
+    const nextIds = briefing.nextTasks.map((t) => t.id);
     expect(nextIds).not.toContain('T200'); // Outside scope
     expect(nextIds).not.toContain('T300'); // Outside scope
 
     // openBugs should NOT contain T300 (outside scope)
-    const bugIds = briefing.openBugs.map(b => b.id);
+    const bugIds = briefing.openBugs.map((b) => b.id);
     expect(bugIds).not.toContain('T300');
 
     // currentTask should be set

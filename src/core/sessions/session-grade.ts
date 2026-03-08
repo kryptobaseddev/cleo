@@ -12,11 +12,11 @@
  * @task T4916
  */
 
-import { queryAudit } from '../../dispatch/middleware/audit.js';
-import type { AuditEntry } from '../../dispatch/middleware/audit.js';
-import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { readFile, appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { AuditEntry } from '../../dispatch/middleware/audit.js';
+import { queryAudit } from '../../dispatch/middleware/audit.js';
 import { getCleoDirAbsolute } from '../paths.js';
 
 export interface DimensionScore {
@@ -65,26 +65,27 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   };
 
   if (sessionEntries.length === 0) {
-    result.flags.push('No audit entries found for session (use --grade flag when starting session)');
+    result.flags.push(
+      'No audit entries found for session (use --grade flag when starting session)',
+    );
     await appendGradeResult(result, cwd);
     return result;
   }
 
   // -- Dimension 1: Session Discipline (20pts) --
   const sessionListCalls = sessionEntries.filter(
-    e => e.domain === 'session' && e.operation === 'list',
+    (e) => e.domain === 'session' && e.operation === 'list',
   );
   const sessionEndCalls = sessionEntries.filter(
-    e => e.domain === 'session' && e.operation === 'end',
+    (e) => e.domain === 'session' && e.operation === 'end',
   );
-  const taskOps = sessionEntries.filter(e => e.domain === 'tasks');
+  const taskOps = sessionEntries.filter((e) => e.domain === 'tasks');
 
   let disciplineScore = 0;
 
   if (sessionListCalls.length > 0) {
     const firstListTime = new Date(sessionListCalls[0].timestamp).getTime();
-    const firstTaskTime =
-      taskOps.length > 0 ? new Date(taskOps[0].timestamp).getTime() : Infinity;
+    const firstTaskTime = taskOps.length > 0 ? new Date(taskOps[0].timestamp).getTime() : Infinity;
     if (firstListTime <= firstTaskTime) {
       disciplineScore += 10;
       result.dimensions.sessionDiscipline.evidence.push('session.list called before first task op');
@@ -105,15 +106,9 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   result.dimensions.sessionDiscipline.score = disciplineScore;
 
   // -- Dimension 2: Discovery Efficiency (20pts) --
-  const findCalls = sessionEntries.filter(
-    e => e.domain === 'tasks' && e.operation === 'find',
-  );
-  const listCalls = sessionEntries.filter(
-    e => e.domain === 'tasks' && e.operation === 'list',
-  );
-  const showCalls = sessionEntries.filter(
-    e => e.domain === 'tasks' && e.operation === 'show',
-  );
+  const findCalls = sessionEntries.filter((e) => e.domain === 'tasks' && e.operation === 'find');
+  const listCalls = sessionEntries.filter((e) => e.domain === 'tasks' && e.operation === 'list');
+  const showCalls = sessionEntries.filter((e) => e.domain === 'tasks' && e.operation === 'show');
 
   let discoveryScore = 0;
   const totalDiscoveryCalls = findCalls.length + listCalls.length;
@@ -145,10 +140,10 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
 
   // -- Dimension 3: Task Hygiene (20pts) --
   const addCalls = sessionEntries.filter(
-    e => e.domain === 'tasks' && e.operation === 'add' && e.result.success,
+    (e) => e.domain === 'tasks' && e.operation === 'add' && e.result.success,
   );
   const existsCalls = sessionEntries.filter(
-    e => e.domain === 'tasks' && e.operation === 'exists',
+    (e) => e.domain === 'tasks' && e.operation === 'exists',
   );
 
   let hygieneScore = 20;
@@ -163,9 +158,11 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
     }
   }
 
-  const subtaskAdds = addCalls.filter(e => e.params?.parent);
+  const subtaskAdds = addCalls.filter((e) => e.params?.parent);
   if (subtaskAdds.length > 0 && existsCalls.length > 0) {
-    result.dimensions.taskHygiene.evidence.push('Parent existence verified before subtask creation');
+    result.dimensions.taskHygiene.evidence.push(
+      'Parent existence verified before subtask creation',
+    );
   } else if (subtaskAdds.length > 0) {
     result.flags.push('Subtasks created without tasks.exists parent check');
     hygieneScore -= 3;
@@ -180,9 +177,7 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   result.dimensions.taskHygiene.score = Math.max(0, hygieneScore);
 
   // -- Dimension 4: Error Protocol (20pts) --
-  const notFoundErrors = sessionEntries.filter(
-    e => !e.result.success && e.result.exitCode === 4,
-  );
+  const notFoundErrors = sessionEntries.filter((e) => !e.result.success && e.result.exitCode === 4);
 
   let errorScore = 20;
 
@@ -190,7 +185,7 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
     const errIdx = sessionEntries.indexOf(errEntry);
     const nextEntries = sessionEntries.slice(errIdx + 1, errIdx + 5);
     const hasRecovery = nextEntries.some(
-      e => e.domain === 'tasks' && (e.operation === 'find' || e.operation === 'exists'),
+      (e) => e.domain === 'tasks' && (e.operation === 'find' || e.operation === 'exists'),
     );
     if (!hasRecovery) {
       errorScore -= 5;
@@ -216,15 +211,13 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
 
   // -- Dimension 5: Progressive Disclosure Use (20pts) --
   const helpCalls = sessionEntries.filter(
-    e =>
+    (e) =>
       (e.domain === 'admin' && e.operation === 'help') ||
       (e.domain === 'tools' && (e.operation === 'skill.show' || e.operation === 'skill.list')) ||
       (e.domain === 'skills' && (e.operation === 'list' || e.operation === 'show')),
   );
   // gateway is stored as 'query'/'mutate' in the audit log
-  const mcpQueryCalls = sessionEntries.filter(
-    e => e.metadata?.gateway === 'query',
-  );
+  const mcpQueryCalls = sessionEntries.filter((e) => e.metadata?.gateway === 'query');
 
   let disclosureScore = 0;
 
@@ -239,9 +232,7 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
 
   if (mcpQueryCalls.length > 0) {
     disclosureScore += 10;
-    result.dimensions.disclosureUse.evidence.push(
-      `query (MCP) used ${mcpQueryCalls.length}x`,
-    );
+    result.dimensions.disclosureUse.evidence.push(`query (MCP) used ${mcpQueryCalls.length}x`);
   } else {
     result.flags.push('No MCP query calls (prefer query over CLI for programmatic access)');
   }
@@ -258,10 +249,10 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
 /** Detect potentially duplicate task creates (same title within session). */
 function detectDuplicateCreates(entries: AuditEntry[]): number {
   const creates = entries.filter(
-    e => e.domain === 'tasks' && e.operation === 'add' && e.result.success,
+    (e) => e.domain === 'tasks' && e.operation === 'add' && e.result.success,
   );
   const titles = creates
-    .map(e => (e.params?.title as string)?.toLowerCase().trim())
+    .map((e) => (e.params?.title as string)?.toLowerCase().trim())
     .filter(Boolean);
   const unique = new Set(titles);
   return titles.length - unique.size;
@@ -290,9 +281,9 @@ export async function readGrades(sessionId?: string, cwd?: string): Promise<Grad
     const content = await readFile(gradesPath, 'utf8');
     const results = content
       .split('\n')
-      .filter(l => l.trim())
-      .map(l => JSON.parse(l) as GradeResult);
-    return sessionId ? results.filter(r => r.sessionId === sessionId) : results;
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as GradeResult);
+    return sessionId ? results.filter((r) => r.sessionId === sessionId) : results;
   } catch {
     return [];
   }

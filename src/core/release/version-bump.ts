@@ -14,9 +14,9 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDir, getProjectRoot } from '../paths.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { getCleoDir, getProjectRoot } from '../paths.js';
 
 /** Synchronous config value reader for version bump targets. */
 function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string): unknown {
@@ -131,10 +131,10 @@ export function calculateNewVersion(current: string, bump: BumpType | string): s
 export interface VersionBumpTarget {
   file: string;
   strategy: 'plain' | 'json' | 'toml' | 'sed';
-  field?: string;       // For json strategy
-  key?: string;         // For toml strategy
-  section?: string;     // For toml strategy
-  pattern?: string;     // For sed strategy (with {{VERSION}} placeholder)
+  field?: string; // For json strategy
+  key?: string; // For toml strategy
+  section?: string; // For toml strategy
+  pattern?: string; // For sed strategy (with {{VERSION}} placeholder)
 }
 
 /** Raw config entry shape from .cleo/config.json (uses path/jsonPath/sedPattern). */
@@ -156,14 +156,16 @@ interface RawVersionBumpEntry {
 export function getVersionBumpConfig(cwd?: string): VersionBumpTarget[] {
   try {
     const raw = readConfigValueSync('release.versionBump.files', [], cwd) as RawVersionBumpEntry[];
-    return raw.map(entry => ({
-      file: entry.path ?? entry.file ?? '',
-      strategy: entry.strategy,
-      field: entry.jsonPath?.replace(/^\./, '') ?? entry.field,
-      key: entry.key,
-      section: entry.section,
-      pattern: entry.sedPattern ?? entry.pattern,
-    })).filter(t => t.file !== '');
+    return raw
+      .map((entry) => ({
+        file: entry.path ?? entry.file ?? '',
+        strategy: entry.strategy,
+        field: entry.jsonPath?.replace(/^\./, '') ?? entry.field,
+        key: entry.key,
+        section: entry.section,
+        pattern: entry.sedPattern ?? entry.pattern,
+      }))
+      .filter((t) => t.file !== '');
   } catch {
     return [];
   }
@@ -185,11 +187,7 @@ export interface BumpResult {
 }
 
 /** Apply version bump to a single target file. */
-function bumpFile(
-  target: VersionBumpTarget,
-  newVersion: string,
-  projectRoot: string,
-): BumpResult {
+function bumpFile(target: VersionBumpTarget, newVersion: string, projectRoot: string): BumpResult {
   const filePath = join(projectRoot, target.file);
 
   if (!existsSync(filePath)) {
@@ -244,10 +242,7 @@ function bumpFile(
         const regex = new RegExp(pattern.replace('{{VERSION}}', '([\\d.]+)'));
         const match = content.match(regex);
         previousVersion = match?.[1];
-        newContent = content.replace(
-          regex,
-          pattern.replace('{{VERSION}}', newVersion),
-        );
+        newContent = content.replace(regex, pattern.replace('{{VERSION}}', newVersion));
         break;
       }
 
@@ -318,13 +313,15 @@ export function bumpVersionFromConfig(
     results.push(bumpFile(target, newVersion, projectRoot));
   }
 
-  const allSuccess = results.every(r => r.success);
+  const allSuccess = results.every((r) => r.success);
   return { results, allSuccess };
 }
 
 // Nested field helpers
 function getNestedField(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((acc, key) => (acc as Record<string, unknown>)?.[key], obj);
+  return path
+    .split('.')
+    .reduce<unknown>((acc, key) => (acc as Record<string, unknown>)?.[key], obj);
 }
 
 function setNestedField(obj: Record<string, unknown>, path: string, value: unknown): void {

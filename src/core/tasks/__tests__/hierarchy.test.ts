@@ -4,25 +4,25 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Task } from '../../../types/task.js';
 import {
-  getChildren,
-  getChildIds,
-  getDescendants,
-  getDescendantIds,
-  getParentChain,
-  getParentChainIds,
-  getDepth,
-  getRootAncestor,
-  isAncestorOf,
-  isDescendantOf,
-  getSiblings,
-  validateHierarchy,
-  wouldCreateCircle,
   buildTree,
   flattenTree,
+  getChildIds,
+  getChildren,
+  getDepth,
+  getDescendantIds,
+  getDescendants,
+  getParentChain,
+  getParentChainIds,
+  getRootAncestor,
+  getSiblings,
+  isAncestorOf,
+  isDescendantOf,
+  validateHierarchy,
+  wouldCreateCircle,
 } from '../hierarchy.js';
-import type { Task } from '../../../types/task.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -45,14 +45,11 @@ describe('getChildren', () => {
     ];
     const children = getChildren('T001', tasks);
     expect(children).toHaveLength(2);
-    expect(children.map(c => c.id)).toEqual(['T002', 'T003']);
+    expect(children.map((c) => c.id)).toEqual(['T002', 'T003']);
   });
 
   it('returns empty array for leaf tasks', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     expect(getChildren('T001', tasks)).toHaveLength(0);
   });
 
@@ -84,7 +81,7 @@ describe('getDescendants', () => {
     ];
     const desc = getDescendants('T001', tasks);
     expect(desc).toHaveLength(4);
-    expect(desc.map(d => d.id).sort()).toEqual(['T002', 'T003', 'T004', 'T005']);
+    expect(desc.map((d) => d.id).sort()).toEqual(['T002', 'T003', 'T004', 'T005']);
   });
 
   it('returns empty array for leaf', () => {
@@ -99,7 +96,7 @@ describe('getDescendants', () => {
     ];
     // Should not infinite loop
     const desc = getDescendants('T001', tasks);
-    expect(desc.map(d => d.id)).toContain('T002');
+    expect(desc.map((d) => d.id)).toContain('T002');
   });
 });
 
@@ -161,10 +158,7 @@ describe('getDepth', () => {
   });
 
   it('returns 1 for direct children', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', parentId: 'T001' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', parentId: 'T001' })];
     expect(getDepth('T002', tasks)).toBe(1);
   });
 
@@ -239,15 +233,11 @@ describe('getSiblings', () => {
     ];
     const siblings = getSiblings('T002', tasks);
     expect(siblings).toHaveLength(2);
-    expect(siblings.map(s => s.id).sort()).toEqual(['T003', 'T004']);
+    expect(siblings.map((s) => s.id).sort()).toEqual(['T003', 'T004']);
   });
 
   it('returns root-level siblings', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-      makeTask({ id: 'T003' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' }), makeTask({ id: 'T003' })];
     const siblings = getSiblings('T001', tasks);
     expect(siblings).toHaveLength(2);
   });
@@ -294,10 +284,7 @@ describe('validateHierarchy', () => {
   });
 
   it('accepts valid parent within limits', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', parentId: 'T001' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', parentId: 'T001' })];
     const result = validateHierarchy('T001', tasks);
     expect(result.valid).toBe(true);
   });
@@ -344,10 +331,7 @@ describe('buildTree', () => {
   });
 
   it('handles multiple roots', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     const tree = buildTree(tasks);
     expect(tree).toHaveLength(2);
   });

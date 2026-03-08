@@ -4,15 +4,15 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Task } from '../../../types/task.js';
 import {
   computeDependencyWaves,
-  getNextTask,
   getCriticalPath,
-  getTaskOrder,
+  getNextTask,
   getParallelTasks,
+  getTaskOrder,
 } from '../graph-ops.js';
-import type { Task } from '../../../types/task.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -81,7 +81,7 @@ describe('computeDependencyWaves', () => {
     const waves = computeDependencyWaves(tasks);
     // T003 should be in first wave, cyclic ones in a later wave
     expect(waves.length).toBeGreaterThanOrEqual(1);
-    const allIds = waves.flatMap(w => w.taskIds);
+    const allIds = waves.flatMap((w) => w.taskIds);
     expect(allIds.sort()).toEqual(['T001', 'T002', 'T003']);
   });
 });
@@ -125,9 +125,7 @@ describe('getNextTask', () => {
   });
 
   it('returns null when no tasks are ready', () => {
-    const tasks = [
-      makeTask({ id: 'T001', status: 'done' }),
-    ];
+    const tasks = [makeTask({ id: 'T001', status: 'done' })];
     expect(getNextTask(tasks)).toBeNull();
   });
 
@@ -149,9 +147,7 @@ describe('getCriticalPath', () => {
   });
 
   it('returns empty for no active tasks', () => {
-    const tasks = [
-      makeTask({ id: 'T001', status: 'done' }),
-    ];
+    const tasks = [makeTask({ id: 'T001', status: 'done' })];
     expect(getCriticalPath(tasks)).toEqual([]);
   });
 
@@ -160,10 +156,7 @@ describe('getCriticalPath', () => {
   });
 
   it('returns single task path for independent tasks', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     const path = getCriticalPath(tasks);
     expect(path).toHaveLength(1);
   });

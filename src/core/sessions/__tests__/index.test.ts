@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   bridgeSessionToMemory: vi.fn(),
@@ -44,10 +44,13 @@ describe('sessions index memory bridge wiring', () => {
   });
 
   it('calls bridgeSessionToMemory with derived end-session payload', async () => {
-    const started = await startSession({
-      name: 'Bridge wiring test',
-      scope: 'epic:T5417',
-    }, tempDir);
+    const started = await startSession(
+      {
+        name: 'Bridge wiring test',
+        scope: 'epic:T5417',
+      },
+      tempDir,
+    );
 
     const ended = await endSession({}, tempDir);
 
@@ -67,10 +70,13 @@ describe('sessions index memory bridge wiring', () => {
   it('keeps session end successful when bridge rejects', async () => {
     mocks.bridgeSessionToMemory.mockRejectedValue(new Error('bridge unavailable'));
 
-    const started = await startSession({
-      name: 'Bridge failure resilience',
-      scope: 'global',
-    }, tempDir);
+    const started = await startSession(
+      {
+        name: 'Bridge failure resilience',
+        scope: 'global',
+      },
+      tempDir,
+    );
 
     await expect(endSession({}, tempDir)).resolves.toEqual(
       expect.objectContaining({

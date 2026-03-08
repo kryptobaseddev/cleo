@@ -7,12 +7,12 @@
  * @task T4458
  */
 
-import type { CleoConfig, ConfigSource, ResolvedValue } from '../types/config.js';
-import { readJson, saveJson } from '../store/json.js';
-import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { existsSync } from 'node:fs';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { readJson, saveJson } from '../store/json.js';
+import type { CleoConfig, ConfigSource, ResolvedValue } from '../types/config.js';
+import { getConfigPath, getGlobalConfigPath } from './paths.js';
 
 /** Default configuration values. */
 const DEFAULTS: CleoConfig = {
@@ -62,22 +62,22 @@ const DEFAULTS: CleoConfig = {
 
 /** Environment variable to config path mapping. */
 const ENV_MAP: Record<string, string> = {
-  'CLEO_FORMAT': 'output.defaultFormat',
-  'CLEO_OUTPUT_DEFAULT_FORMAT': 'output.defaultFormat',
-  'CLEO_OUTPUT_SHOW_COLOR': 'output.showColor',
-  'CLEO_OUTPUT_SHOW_UNICODE': 'output.showUnicode',
-  'CLEO_OUTPUT_SHOW_PROGRESS_BARS': 'output.showProgressBars',
-  'CLEO_OUTPUT_DATE_FORMAT': 'output.dateFormat',
-  'CLEO_HIERARCHY_MAX_DEPTH': 'hierarchy.maxDepth',
-  'CLEO_HIERARCHY_MAX_SIBLINGS': 'hierarchy.maxSiblings',
-  'CLEO_HIERARCHY_MAX_ACTIVE_SIBLINGS': 'hierarchy.maxActiveSiblings',
-  'CLEO_HIERARCHY_ENFORCEMENT_PROFILE': 'hierarchy.enforcementProfile',
-  'CLEO_SESSION_AUTO_START': 'session.autoStart',
-  'CLEO_SESSION_REQUIRE_NOTES': 'session.requireNotes',
-  'CLEO_LIFECYCLE_MODE': 'lifecycle.mode',
-  'CLEO_LOG_LEVEL': 'logging.level',
-  'CLEO_LOG_FILE': 'logging.filePath',
-  'CLEO_AUDIT_RETENTION_DAYS': 'logging.auditRetentionDays',
+  CLEO_FORMAT: 'output.defaultFormat',
+  CLEO_OUTPUT_DEFAULT_FORMAT: 'output.defaultFormat',
+  CLEO_OUTPUT_SHOW_COLOR: 'output.showColor',
+  CLEO_OUTPUT_SHOW_UNICODE: 'output.showUnicode',
+  CLEO_OUTPUT_SHOW_PROGRESS_BARS: 'output.showProgressBars',
+  CLEO_OUTPUT_DATE_FORMAT: 'output.dateFormat',
+  CLEO_HIERARCHY_MAX_DEPTH: 'hierarchy.maxDepth',
+  CLEO_HIERARCHY_MAX_SIBLINGS: 'hierarchy.maxSiblings',
+  CLEO_HIERARCHY_MAX_ACTIVE_SIBLINGS: 'hierarchy.maxActiveSiblings',
+  CLEO_HIERARCHY_ENFORCEMENT_PROFILE: 'hierarchy.enforcementProfile',
+  CLEO_SESSION_AUTO_START: 'session.autoStart',
+  CLEO_SESSION_REQUIRE_NOTES: 'session.requireNotes',
+  CLEO_LIFECYCLE_MODE: 'lifecycle.mode',
+  CLEO_LOG_LEVEL: 'logging.level',
+  CLEO_LOG_FILE: 'logging.filePath',
+  CLEO_AUDIT_RETENTION_DAYS: 'logging.auditRetentionDays',
 };
 
 /**
@@ -115,7 +115,10 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
  * Deep merge two objects. Source values override target values.
  * Arrays are replaced (not merged).
  */
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
   const result = { ...target };
   for (const key of Object.keys(source)) {
     const sourceVal = source[key];
@@ -146,7 +149,7 @@ function parseEnvValue(value: string): unknown {
   if (value === 'true') return true;
   if (value === 'false') return false;
   const num = Number(value);
-  if (!isNaN(num) && value.trim() !== '') return num;
+  if (!Number.isNaN(num) && value.trim() !== '') return num;
   return value;
 }
 
@@ -192,10 +195,7 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
  * Get a single config value with source tracking.
  * Returns the value and which source it came from.
  */
-export async function getConfigValue<T>(
-  path: string,
-  cwd?: string,
-): Promise<ResolvedValue<T>> {
+export async function getConfigValue<T>(path: string, cwd?: string): Promise<ResolvedValue<T>> {
   // Check environment variables first
   for (const [envKey, configPath] of Object.entries(ENV_MAP)) {
     if (configPath === path && process.env[envKey] !== undefined) {
@@ -235,10 +235,7 @@ export async function getConfigValue<T>(
  * Used by the engine layer for simple key lookups without source tracking.
  * @task T4789
  */
-export async function getRawConfigValue(
-  key: string,
-  cwd?: string,
-): Promise<unknown> {
+export async function getRawConfigValue(key: string, cwd?: string): Promise<unknown> {
   const configPath = getConfigPath(cwd);
   const config = await readJson<Record<string, unknown>>(configPath);
   if (!config) return undefined;
@@ -253,9 +250,7 @@ export async function getRawConfigValue(
  * Returns null if no config file exists.
  * @task T4789
  */
-export async function getRawConfig(
-  cwd?: string,
-): Promise<Record<string, unknown> | null> {
+export async function getRawConfig(cwd?: string): Promise<Record<string, unknown> | null> {
   return readJson<Record<string, unknown>>(getConfigPath(cwd));
 }
 

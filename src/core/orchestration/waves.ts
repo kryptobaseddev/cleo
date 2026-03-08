@@ -3,10 +3,10 @@
  * @task T4784
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { Task, TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 export interface Wave {
   waveNumber: number;
@@ -48,24 +48,24 @@ export function computeWaves(tasks: Task[]): Wave[] {
     }
   }
 
-  let remaining = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
+  let remaining = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
   let waveNumber = 1;
   const maxWaves = 50;
 
   while (remaining.length > 0 && waveNumber <= maxWaves) {
-    const waveTasks = remaining.filter(t => {
+    const waveTasks = remaining.filter((t) => {
       const deps = graph.get(t.id) || new Set();
-      return Array.from(deps).every(d => completed.has(d));
+      return Array.from(deps).every((d) => completed.has(d));
     });
 
     if (waveTasks.length === 0) break;
 
     waves.push({
       waveNumber,
-      tasks: waveTasks.map(t => t.id),
-      status: waveTasks.every(t => completed.has(t.id))
+      tasks: waveTasks.map((t) => t.id),
+      status: waveTasks.every((t) => completed.has(t.id))
         ? 'completed'
-        : waveTasks.some(t => t.status === 'active')
+        : waveTasks.some((t) => t.status === 'active')
           ? 'in_progress'
           : 'pending',
     });
@@ -74,14 +74,14 @@ export function computeWaves(tasks: Task[]): Wave[] {
       completed.add(t.id);
     }
 
-    remaining = remaining.filter(t => !waveTasks.some(wt => wt.id === t.id));
+    remaining = remaining.filter((t) => !waveTasks.some((wt) => wt.id === t.id));
     waveNumber++;
   }
 
   if (remaining.length > 0) {
     waves.push({
       waveNumber,
-      tasks: remaining.map(t => t.id),
+      tasks: remaining.map((t) => t.id),
       status: 'pending',
     });
   }
@@ -100,13 +100,13 @@ export async function getEnrichedWaves(
     : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
-  const children = tasks.filter(t => t.parentId === epicId);
+  const children = tasks.filter((t) => t.parentId === epicId);
   const waves = computeWaves(children);
-  const taskMap = new Map(children.map(t => [t.id, t]));
+  const taskMap = new Map(children.map((t) => [t.id, t]));
 
-  const enrichedWaves: EnrichedWave[] = waves.map(w => ({
+  const enrichedWaves: EnrichedWave[] = waves.map((w) => ({
     ...w,
-    tasks: w.tasks.map(id => ({
+    tasks: w.tasks.map((id) => ({
       id,
       title: taskMap.get(id)?.title || id,
       status: taskMap.get(id)?.status || 'unknown',

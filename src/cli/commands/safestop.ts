@@ -6,7 +6,7 @@
  * @task T4904
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -23,12 +23,18 @@ export function registerSafestopCommand(program: Command): void {
     .option('--no-session-end', 'Update notes but do not end session')
     .option('--dry-run', 'Show actions without executing')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'safestop', {
-        reason: opts['reason'],
-        commit: opts['commit'],
-        handoff: opts['handoff'],
-        noSessionEnd: opts['sessionEnd'] === false,
-        dryRun: opts['dryRun'],
-      }, { command: 'safestop', operation: 'admin.safestop' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'safestop',
+        {
+          reason: opts['reason'],
+          commit: opts['commit'],
+          handoff: opts['handoff'],
+          noSessionEnd: opts['sessionEnd'] === false,
+          dryRun: opts['dryRun'],
+        },
+        { command: 'safestop', operation: 'admin.safestop' },
+      );
     });
 }

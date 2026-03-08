@@ -2,21 +2,24 @@
  * Tests for syncComplianceMetrics.
  */
 
-import { mkdirSync,readFileSync,rmSync,utimesSync,writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { syncComplianceMetrics } from '../index.js';
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `cleo-compliance-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `cleo-compliance-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(join(dir, '.cleo', 'metrics'), { recursive: true });
   return dir;
 }
 
 function writeJsonl(dir: string, entries: Record<string, unknown>[]): void {
   const path = join(dir, '.cleo', 'metrics', 'COMPLIANCE.jsonl');
-  writeFileSync(path, entries.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+  writeFileSync(path, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
 }
 
 function readSummary(dir: string): Record<string, unknown> {
@@ -110,7 +113,7 @@ describe('syncComplianceMetrics', () => {
     const result = await syncComplianceMetrics({ cwd: tmpDir });
     expect(result.synced).toBe(0);
     expect(result.skipped).toBe(1);
-    expect((result.message as string)).toContain('up-to-date');
+    expect(result.message as string).toContain('up-to-date');
   });
 
   it('re-syncs when force is true even if summary is fresh', async () => {

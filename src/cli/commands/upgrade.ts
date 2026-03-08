@@ -12,12 +12,12 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
+import { formatError } from '../../core/output.js';
 import { runUpgrade } from '../../core/upgrade.js';
 import { createUpgradeProgress } from '../progress.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerUpgradeCommand(program: Command): void {
   program
@@ -31,7 +31,7 @@ export function registerUpgradeCommand(program: Command): void {
       const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
       const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
       const progress = createUpgradeProgress(isHuman);
-      
+
       try {
         const isDryRun = !!opts['dryRun'] || !!opts['status'];
         const includeGlobal = !!opts['includeGlobal'];
@@ -39,7 +39,7 @@ export function registerUpgradeCommand(program: Command): void {
 
         progress.start();
         progress.step(0, 'Analyzing current state');
-        
+
         if (includeGlobal) {
           progress.step(1, 'Checking global ~/.cleo data');
         } else {
@@ -57,20 +57,23 @@ export function registerUpgradeCommand(program: Command): void {
 
         progress.step(4, 'Verifying results');
 
-        cliOutput({
-          upToDate: result.upToDate,
-          dryRun: result.dryRun,
-          actions: result.actions,
-          applied: result.applied,
-          errors: result.errors.length > 0 ? result.errors : undefined,
-          storageMigration: result.storageMigration,
-        }, { command: 'upgrade' });
+        cliOutput(
+          {
+            upToDate: result.upToDate,
+            dryRun: result.dryRun,
+            actions: result.actions,
+            applied: result.applied,
+            errors: result.errors.length > 0 ? result.errors : undefined,
+            storageMigration: result.storageMigration,
+          },
+          { command: 'upgrade' },
+        );
 
         if (!result.success) {
           progress.error('Upgrade failed with errors');
           process.exit(1);
         }
-        
+
         progress.complete(isDryRun ? 'Preview complete' : 'Upgrade complete');
       } catch (err) {
         if (err instanceof CleoError) {

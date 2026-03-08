@@ -4,20 +4,23 @@
  * @task T4700
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   checkCleoGitignore,
-  checkVitalFilesTracked,
   checkCoreFilesNotIgnored,
   checkLegacyAgentOutputs,
+  checkVitalFilesTracked,
 } from '../doctor/checks.js';
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `cleo-doctor-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `cleo-doctor-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -30,7 +33,11 @@ describe('checkCleoGitignore', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('warns when .cleo/.gitignore does not exist', () => {
@@ -57,7 +64,11 @@ describe('checkVitalFilesTracked', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns info status when not a git repo', () => {
@@ -84,7 +95,11 @@ describe('checkCoreFilesNotIgnored', () => {
   let tempDir: string;
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns info status when not a git repo', () => {
@@ -143,7 +158,11 @@ describe('checkLegacyAgentOutputs', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('passes when no legacy directory exists', () => {

@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
@@ -22,8 +22,8 @@ vi.mock('../../core/paths.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
-import { readJson } from '../../store/json.js';
 import { Command } from 'commander';
+import { readJson } from '../../store/json.js';
 import { registerCheckpointCommand } from '../commands/checkpoint.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);

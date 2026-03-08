@@ -12,15 +12,22 @@
  */
 
 import { eq, ne } from 'drizzle-orm';
-import type { DataAccessor, ArchiveFile } from './data-accessor.js';
-import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import type { FileMeta, ProjectMeta, Task, TaskFile, TaskWorkState } from '../types/task.js';
+import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
+import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import type { ArchiveFields } from './db-helpers.js';
-import { getDb, closeDb, getNativeTasksDb } from './sqlite.js';
-import * as schema from './tasks-schema.js';
+import {
+  batchUpdateDependencies,
+  loadDependenciesForTasks,
+  loadRelationsForTasks,
+  updateDependencies,
+  upsertSession,
+  upsertTask,
+} from './db-helpers.js';
 import { computeChecksum } from './json.js';
-import { rowToTask, taskToRow, archivedTaskToRow, rowToSession } from './converters.js';
-import { upsertTask, upsertSession, updateDependencies, batchUpdateDependencies, loadDependenciesForTasks, loadRelationsForTasks } from './db-helpers.js';
+import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
+import * as schema from './tasks-schema.js';
 
 /**
  * Generate a unique audit log entry ID.
@@ -51,10 +58,15 @@ async function getMetaValue<T>(cwd: string | undefined, key: string): Promise<T 
 }
 
 /** Write a JSON blob to the schema_meta table by key. */
-export async function setMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
+export async function setMetaValue(
+  cwd: string | undefined,
+  key: string,
+  value: unknown,
+): Promise<void> {
   const db = await getDb(cwd);
   const json = JSON.stringify(value);
-  await db.insert(schema.schemaMeta)
+  await db
+    .insert(schema.schemaMeta)
     .values({ key, value: json })
     .onConflictDoUpdate({
       target: schema.schemaMeta.key,
@@ -136,8 +148,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         (await getMetaValue<TaskWorkState>(cwd, 'focus_state')) ?? DEFAULT_WORK_STATE;
 
       // 5. Load labels from schema_meta
-      const labels =
-        (await getMetaValue<Record<string, string[]>>(cwd, 'labels')) ?? undefined;
+      const labels = (await getMetaValue<Record<string, string[]>>(cwd, 'labels')) ?? undefined;
 
       // 6. Load file meta from schema_meta
       const storedMeta = await getMetaValue<FileMeta>(cwd, 'file_meta');
@@ -186,7 +197,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       // 3. Delete tasks that are in DB but NOT in incoming data (non-archived only)
       for (const eid of existingIds) {
         if (!incomingIds.has(eid)) {
-          await db.delete(schema.taskDependencies)
+          await db
+            .delete(schema.taskDependencies)
             .where(eq(schema.taskDependencies.taskId, eid))
             .run();
           await db.delete(schema.tasks).where(eq(schema.tasks.id, eid)).run();
@@ -251,8 +263,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           .where(ne(schema.tasks.status, 'archived'))
           .all();
         const allKnownIds = new Set([
-          ...archivedTasks.map(t => t.id),
-          ...activeRows.map(r => r.id),
+          ...archivedTasks.map((t) => t.id),
+          ...activeRows.map((r) => r.id),
         ]);
         await loadDependenciesForTasks(db, archivedTasks, allKnownIds);
         await loadRelationsForTasks(db, archivedTasks);
@@ -270,13 +282,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const db = await getDb(cwd);
 
       // Pre-compute archive IDs + active task IDs for dependency validation
-      const archiveIds = new Set(data.archivedTasks.map(t => t.id));
+      const archiveIds = new Set(data.archivedTasks.map((t) => t.id));
       const activeRows = await db
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
         .where(ne(schema.tasks.status, 'archived'))
         .all();
-      const validDepIds = new Set([...archiveIds, ...activeRows.map(r => r.id)]);
+      const validDepIds = new Set([...archiveIds, ...activeRows.map((r) => r.id)]);
 
       // Wrap all upserts + dependency updates in a single transaction
       const nativeDb = getNativeTasksDb();
@@ -354,16 +366,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
     async appendLog(entry: Record<string, unknown>): Promise<void> {
       const db = await getDb(cwd);
-      await db.insert(schema.auditLog).values({
-        id: (entry.id as string) ?? generateAuditLogId(),
-        timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-        action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
-        taskId: (entry.taskId as string) ?? 'unknown',
-        actor: (entry.actor as string) ?? 'system',
-        detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
-        beforeJson: entry.before ? JSON.stringify(entry.before) : null,
-        afterJson: entry.after ? JSON.stringify(entry.after) : null,
-      }).run();
+      await db
+        .insert(schema.auditLog)
+        .values({
+          id: (entry.id as string) ?? generateAuditLogId(),
+          timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+          action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
+          taskId: (entry.taskId as string) ?? 'unknown',
+          actor: (entry.actor as string) ?? 'system',
+          detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
+          beforeJson: entry.before ? JSON.stringify(entry.before) : null,
+          afterJson: entry.after ? JSON.stringify(entry.after) : null,
+        })
+        .run();
     },
 
     // ---- Fine-grained task operations (T5034) ----
@@ -375,15 +390,36 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       await updateDependencies(db, task.id, task.depends ?? []);
     },
 
-    async addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void> {
+    async addRelation(
+      taskId: string,
+      relatedTo: string,
+      relationType: string,
+      reason?: string,
+    ): Promise<void> {
       const db = await getDb(cwd);
       // Validate relation type - throw on invalid (T5168)
-      const validTypes = ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'] as const;
-      if (!validTypes.includes(relationType as typeof validTypes[number])) {
-        throw new Error(`Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`);
+      const validTypes = [
+        'related',
+        'blocks',
+        'duplicates',
+        'absorbs',
+        'fixes',
+        'extends',
+        'supersedes',
+      ] as const;
+      if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
+        throw new Error(
+          `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
+        );
       }
-      await db.insert(schema.taskRelations)
-        .values({ taskId, relatedTo, relationType: relationType as typeof validTypes[number], reason: reason ?? null })
+      await db
+        .insert(schema.taskRelations)
+        .values({
+          taskId,
+          relatedTo,
+          relationType: relationType as (typeof validTypes)[number],
+          reason: reason ?? null,
+        })
         .onConflictDoNothing()
         .run();
     },
@@ -391,11 +427,14 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       const db = await getDb(cwd);
       // Verify the task exists before archiving
-      const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+      const rows = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
         .where(eq(schema.tasks.id, taskId))
         .all();
       if (rows.length === 0) return;
-      await db.update(schema.tasks)
+      await db
+        .update(schema.tasks)
         .set({
           status: 'archived',
           archivedAt: fields.archivedAt ?? new Date().toISOString(),
@@ -410,16 +449,16 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async removeSingleTask(taskId: string): Promise<void> {
       const db = await getDb(cwd);
       // Delete dependencies first (both directions)
-      await db.delete(schema.taskDependencies)
+      await db
+        .delete(schema.taskDependencies)
         .where(eq(schema.taskDependencies.taskId, taskId))
         .run();
-      await db.delete(schema.taskDependencies)
+      await db
+        .delete(schema.taskDependencies)
         .where(eq(schema.taskDependencies.dependsOn, taskId))
         .run();
       // Delete the task itself
-      await db.delete(schema.tasks)
-        .where(eq(schema.tasks.id, taskId))
-        .run();
+      await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
     },
 
     // ---- close ----
@@ -442,7 +481,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const meta = await getMetaValue<{ schemaVersion?: string }>(cwd, 'file_meta');
       return meta?.schemaVersion ?? null;
     },
-
   };
 
   return accessor;

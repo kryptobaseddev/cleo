@@ -15,30 +15,24 @@
  * @epic T4894
  */
 
-import { describe, it, expect } from 'vitest';
-
+import { describe, expect, it } from 'vitest';
 import {
-  OPERATIONS,
-  resolve,
-  validateRequiredParams,
-  getByDomain,
-  getActiveDomains,
-  type OperationDef,
-} from '../../dispatch/registry.js';
-
-import {
-  buildMcpInputSchema,
   buildCommanderArgs,
   buildCommanderOptionString,
+  buildMcpInputSchema,
   camelToKebab,
 } from '../../dispatch/lib/param-utils.js';
-
+import { getAllOperationSchemas, getOperationSchema } from '../../dispatch/lib/schema-utils.js';
 import {
-  getOperationSchema,
-  getAllOperationSchemas,
-} from '../../dispatch/lib/schema-utils.js';
+  getActiveDomains,
+  getByDomain,
+  OPERATIONS,
+  type OperationDef,
+  resolve,
+  validateRequiredParams,
+} from '../../dispatch/registry.js';
 
-import type { ParamDef, CanonicalDomain } from '../../dispatch/types.js';
+import type { CanonicalDomain, ParamDef } from '../../dispatch/types.js';
 import { CANONICAL_DOMAINS } from '../../dispatch/types.js';
 
 // ===========================================================================
@@ -51,7 +45,10 @@ describe('Group 1: Registry completeness', () => {
       // params is optional in OperationDef (T4897 migration), so undefined is
       // allowed — but when present it MUST be an array.
       if (op.params !== undefined) {
-        expect(Array.isArray(op.params), `${op.domain}.${op.operation} params must be an array`).toBe(true);
+        expect(
+          Array.isArray(op.params),
+          `${op.domain}.${op.operation} params must be an array`,
+        ).toBe(true);
       }
     }
   });
@@ -59,18 +56,33 @@ describe('Group 1: Registry completeness', () => {
   it('every required param has name, type, required, and description', () => {
     for (const op of OPERATIONS) {
       for (const param of op.params ?? []) {
-        expect(typeof param.name, `param.name must be a string in ${op.domain}.${op.operation}`).toBe('string');
-        expect(param.name.length, `param.name must not be empty in ${op.domain}.${op.operation}`).toBeGreaterThan(0);
+        expect(
+          typeof param.name,
+          `param.name must be a string in ${op.domain}.${op.operation}`,
+        ).toBe('string');
+        expect(
+          param.name.length,
+          `param.name must not be empty in ${op.domain}.${op.operation}`,
+        ).toBeGreaterThan(0);
 
         expect(
           ['string', 'number', 'boolean', 'array'].includes(param.type),
           `param.type must be a valid ParamType in ${op.domain}.${op.operation}:${param.name}`,
         ).toBe(true);
 
-        expect(typeof param.required, `param.required must be boolean in ${op.domain}.${op.operation}:${param.name}`).toBe('boolean');
+        expect(
+          typeof param.required,
+          `param.required must be boolean in ${op.domain}.${op.operation}:${param.name}`,
+        ).toBe('boolean');
 
-        expect(typeof param.description, `param.description must be a string in ${op.domain}.${op.operation}:${param.name}`).toBe('string');
-        expect(param.description.length, `param.description must not be empty in ${op.domain}.${op.operation}:${param.name}`).toBeGreaterThan(0);
+        expect(
+          typeof param.description,
+          `param.description must be a string in ${op.domain}.${op.operation}:${param.name}`,
+        ).toBe('string');
+        expect(
+          param.description.length,
+          `param.description must not be empty in ${op.domain}.${op.operation}:${param.name}`,
+        ).toBeGreaterThan(0);
       }
     }
   });
@@ -114,8 +126,8 @@ describe('Group 1: Registry completeness', () => {
   });
 
   it('registry has the expected operation count', () => {
-    const queryCount = OPERATIONS.filter(o => o.gateway === 'query').length;
-    const mutateCount = OPERATIONS.filter(o => o.gateway === 'mutate').length;
+    const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;
+    const mutateCount = OPERATIONS.filter((o) => o.gateway === 'mutate').length;
 
     expect(queryCount).toBe(114);
     expect(mutateCount).toBe(86);
@@ -326,10 +338,10 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       sessionRequired: false,
       requiredParams: [],
       params: [
-        { name: 'strParam',  type: 'string',  required: false, description: 'A string' },
-        { name: 'numParam',  type: 'number',  required: false, description: 'A number' },
+        { name: 'strParam', type: 'string', required: false, description: 'A string' },
+        { name: 'numParam', type: 'number', required: false, description: 'A number' },
         { name: 'boolParam', type: 'boolean', required: false, description: 'A boolean' },
-        { name: 'arrParam',  type: 'array',   required: false, description: 'An array' },
+        { name: 'arrParam', type: 'array', required: false, description: 'An array' },
       ],
     };
 
@@ -391,7 +403,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
     expect(options[0].name).toBe('format');
 
     // mcpOnlyParam has no cli key — must be excluded from both arrays
-    const allNames = [...positionals, ...options].map(p => p.name);
+    const allNames = [...positionals, ...options].map((p) => p.name);
     expect(allNames).not.toContain('mcpOnlyParam');
   });
 
@@ -629,16 +641,13 @@ describe('Group 4: Dispatch routing correctness', () => {
     };
 
     // null → missing
-    expect(validateRequiredParams(def, { title: null, description: 'valid' }))
-      .toEqual(['title']);
+    expect(validateRequiredParams(def, { title: null, description: 'valid' })).toEqual(['title']);
 
     // empty string → missing
-    expect(validateRequiredParams(def, { title: '', description: 'valid' }))
-      .toEqual(['title']);
+    expect(validateRequiredParams(def, { title: '', description: 'valid' })).toEqual(['title']);
 
     // both present → none missing
-    expect(validateRequiredParams(def, { title: 'T', description: 'D' }))
-      .toEqual([]);
+    expect(validateRequiredParams(def, { title: 'T', description: 'D' })).toEqual([]);
   });
 
   it('resolve returns consistent def reference (same object as OPERATIONS entry)', () => {
@@ -647,7 +656,7 @@ describe('Group 4: Dispatch routing correctness', () => {
     expect(result).toBeDefined();
     // The def in the resolution should be the same object from OPERATIONS
     const directLookup = OPERATIONS.find(
-      o => o.gateway === 'mutate' && o.domain === 'tasks' && o.operation === 'complete',
+      (o) => o.gateway === 'mutate' && o.domain === 'tasks' && o.operation === 'complete',
     );
     expect(result!.def).toBe(directLookup);
   });
@@ -705,7 +714,7 @@ describe('Group 5: Schema utils', () => {
   it('getOperationSchema is gateway-sensitive', () => {
     // Confirm that schema lookup uses gateway to distinguish ops.
     // tasks.add is mutate; tasks.show is query — they should both resolve.
-    const addSchema  = getOperationSchema('tasks', 'add',  'mutate');
+    const addSchema = getOperationSchema('tasks', 'add', 'mutate');
     const showSchema = getOperationSchema('tasks', 'show', 'query');
 
     // Both exist in registry (but no params yet) → permissive fallback
@@ -720,7 +729,7 @@ describe('Group 5: Schema utils', () => {
 
   it('getAllOperationSchemas returns a schema for every query operation', () => {
     const schemas = getAllOperationSchemas('query');
-    const queryOps = OPERATIONS.filter(o => o.gateway === 'query');
+    const queryOps = OPERATIONS.filter((o) => o.gateway === 'query');
 
     expect(Object.keys(schemas)).toHaveLength(queryOps.length);
 
@@ -733,7 +742,7 @@ describe('Group 5: Schema utils', () => {
 
   it('getAllOperationSchemas returns a schema for every mutate operation', () => {
     const schemas = getAllOperationSchemas('mutate');
-    const mutateOps = OPERATIONS.filter(o => o.gateway === 'mutate');
+    const mutateOps = OPERATIONS.filter((o) => o.gateway === 'mutate');
 
     expect(Object.keys(schemas)).toHaveLength(mutateOps.length);
 
@@ -744,7 +753,7 @@ describe('Group 5: Schema utils', () => {
   });
 
   it('getAllOperationSchemas does not cross gateway boundaries', () => {
-    const querySchemas  = getAllOperationSchemas('query');
+    const querySchemas = getAllOperationSchemas('query');
     const mutateSchemas = getAllOperationSchemas('mutate');
 
     // tasks.add is mutate-only — should not appear in query schemas
@@ -809,8 +818,8 @@ describe('Group 6: Per-domain operation coverage', () => {
 
     for (const domain of activeDomains) {
       const domainOps = getByDomain(domain as CanonicalDomain);
-      const queryOps = domainOps.filter(o => o.gateway === 'query');
-      const mutateOps = domainOps.filter(o => o.gateway === 'mutate');
+      const queryOps = domainOps.filter((o) => o.gateway === 'query');
+      const mutateOps = domainOps.filter((o) => o.gateway === 'mutate');
 
       // At least one gateway must have operations
       expect(
@@ -825,8 +834,8 @@ describe('Group 6: Per-domain operation coverage', () => {
 
     for (const domain of coreDomains) {
       const domainOps = getByDomain(domain);
-      const queryOps = domainOps.filter(o => o.gateway === 'query');
-      const mutateOps = domainOps.filter(o => o.gateway === 'mutate');
+      const queryOps = domainOps.filter((o) => o.gateway === 'query');
+      const mutateOps = domainOps.filter((o) => o.gateway === 'mutate');
 
       expect(queryOps.length, `Domain "${domain}" has no query operations`).toBeGreaterThan(0);
       expect(mutateOps.length, `Domain "${domain}" has no mutate operations`).toBeGreaterThan(0);
@@ -835,13 +844,17 @@ describe('Group 6: Per-domain operation coverage', () => {
 
   it('nexus domain includes share.* sub-operations', () => {
     const nexusOps = getByDomain('nexus');
-    const shareQueryOps = nexusOps.filter(o => o.operation.startsWith('share.') && o.gateway === 'query');
-    const shareMutateOps = nexusOps.filter(o => o.operation.startsWith('share.') && o.gateway === 'mutate');
+    const shareQueryOps = nexusOps.filter(
+      (o) => o.operation.startsWith('share.') && o.gateway === 'query',
+    );
+    const shareMutateOps = nexusOps.filter(
+      (o) => o.operation.startsWith('share.') && o.gateway === 'mutate',
+    );
 
     expect(shareQueryOps.length).toBeGreaterThan(0);
     expect(shareMutateOps.length).toBeGreaterThan(0);
-    expect(shareQueryOps.map(o => o.operation)).toContain('share.status');
-    expect(shareMutateOps.map(o => o.operation)).toContain('share.snapshot.export');
+    expect(shareQueryOps.map((o) => o.operation)).toContain('share.status');
+    expect(shareMutateOps.map((o) => o.operation)).toContain('share.snapshot.export');
   });
 
   it('resolve() returns correct domain for each registered operation', () => {

@@ -4,21 +4,21 @@
  * @task T2929
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { resolve } from '../../../dispatch/registry.js';
 import {
-  MUTATE_OPERATIONS,
-  validateMutateParams,
+  getMutateDomains,
+  getMutateOperationCount,
+  getMutateOperations,
   handleMutateRequest,
   isIdempotentOperation,
-  requiresSession,
-  getMutateOperationCount,
   isMutateOperation,
-  getMutateDomains,
-  getMutateOperations,
-  registerMutateTool,
+  MUTATE_OPERATIONS,
   type MutateRequest,
+  registerMutateTool,
+  requiresSession,
+  validateMutateParams,
 } from '../mutate.js';
-import { resolve } from '../../../dispatch/registry.js';
 
 const ADVANCED_MEMORY_MUTATE_OPS = ['pattern.store', 'learning.store'] as const;
 
@@ -57,8 +57,8 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(17);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(6);
-    expect(MUTATE_OPERATIONS.nexus.length).toBe(8);  // Includes share.* operations
-    expect(getMutateOperationCount("nexus")).toBe(8);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(8); // Includes share.* operations
+    expect(getMutateOperationCount('nexus')).toBe(8);
   });
 });
 
@@ -301,7 +301,17 @@ describe('validateMutateParams', () => {
 
   describe('legacy domain aliases are rejected', () => {
     it('rejects removed legacy aliases with E_INVALID_DOMAIN', () => {
-      const legacyDomains = ['research', 'validate', 'lifecycle', 'release', 'system', 'skills', 'providers', 'issues', 'brain'];
+      const legacyDomains = [
+        'research',
+        'validate',
+        'lifecycle',
+        'release',
+        'system',
+        'skills',
+        'providers',
+        'issues',
+        'brain',
+      ];
 
       for (const domain of legacyDomains) {
         const result = validateMutateParams({
@@ -413,7 +423,6 @@ describe('validateMutateParams', () => {
       }
     });
   });
-
 });
 
 describe('isIdempotentOperation', () => {
@@ -512,8 +521,6 @@ describe('registerMutateTool', () => {
     expect(tool.description).toContain('write operations');
     expect(tool.inputSchema.type).toBe('object');
     expect(tool.inputSchema.required).toEqual(['domain', 'operation']);
-    expect(tool.inputSchema.properties.domain.enum).toEqual(
-      Object.keys(MUTATE_OPERATIONS),
-    );
+    expect(tool.inputSchema.properties.domain.enum).toEqual(Object.keys(MUTATE_OPERATIONS));
   });
 });

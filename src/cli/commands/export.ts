@@ -5,14 +5,18 @@
  * @task T4454, T5323, T5328
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 
 export function registerExportCommand(program: Command): void {
   program
     .command('export')
     .description('Export tasks to CSV, TSV, JSON, markdown, or TodoWrite format')
-    .option('--export-format <format>', 'Export format: json, csv, tsv, markdown, todowrite', 'json')
+    .option(
+      '--export-format <format>',
+      'Export format: json, csv, tsv, markdown, todowrite',
+      'json',
+    )
     .option('--output <file>', 'Output file path (stdout if omitted)')
     .option('--status <statuses>', 'Filter by status (comma-separated)')
     .option('--parent <id>', 'Filter by parent task')
@@ -21,13 +25,19 @@ export function registerExportCommand(program: Command): void {
       const hasOutput = !!opts['output'];
 
       if (hasOutput) {
-        await dispatchFromCli('query', 'admin', 'export', {
-          format: opts['exportFormat'],
-          output: opts['output'],
-          status: opts['status'],
-          parent: opts['parent'],
-          phase: opts['phase'],
-        }, { command: 'export' });
+        await dispatchFromCli(
+          'query',
+          'admin',
+          'export',
+          {
+            format: opts['exportFormat'],
+            output: opts['output'],
+            status: opts['status'],
+            parent: opts['parent'],
+            phase: opts['phase'],
+          },
+          { command: 'export' },
+        );
       } else {
         // No output file — write content directly to stdout for piping
         const response = await dispatchRaw('query', 'admin', 'export', {

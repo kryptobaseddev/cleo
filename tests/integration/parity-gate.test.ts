@@ -9,16 +9,11 @@
  * @task T5251
  */
 
-import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 
-import {
-  OPERATIONS,
-  resolve,
-  getByDomain,
-  getActiveDomains,
-} from '../../src/dispatch/registry.js';
+import { getActiveDomains, getByDomain, OPERATIONS, resolve } from '../../src/dispatch/registry.js';
 
 import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../src/dispatch/types.js';
 
@@ -31,16 +26,16 @@ const EXPECTED_QUERY = 114;
 const EXPECTED_MUTATE = 86;
 
 const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; total: number }> = {
-  tasks:       { query: 14, mutate: 12, total: 26 },
-  session:     { query:  8, mutate:  7, total: 15 },
-  memory:      { query: 11, mutate:  7, total: 18 },
-  check:       { query: 13, mutate:  3, total: 16 },
-  pipeline:    { query: 14, mutate: 17, total: 31 },
-  orchestrate: { query:  9, mutate:  7, total: 16 },
-  tools:       { query: 16, mutate:  6, total: 22 },
-  admin:       { query: 15, mutate: 15, total: 30 },
-  nexus:       { query: 12, mutate:  8, total: 20 },
-  sticky:      { query:  2, mutate:  4, total:  6 },
+  tasks: { query: 14, mutate: 12, total: 26 },
+  session: { query: 8, mutate: 7, total: 15 },
+  memory: { query: 11, mutate: 7, total: 18 },
+  check: { query: 13, mutate: 3, total: 16 },
+  pipeline: { query: 14, mutate: 17, total: 31 },
+  orchestrate: { query: 9, mutate: 7, total: 16 },
+  tools: { query: 16, mutate: 6, total: 22 },
+  admin: { query: 15, mutate: 15, total: 30 },
+  nexus: { query: 12, mutate: 8, total: 20 },
+  sticky: { query: 2, mutate: 4, total: 6 },
 };
 
 /** Aliases removed in T5245 — must never reappear. */
@@ -56,7 +51,6 @@ const REMOVED_ALIASES = [
 // ===========================================================================
 
 describe('CI Parity Gate: Registry Drift Detection', () => {
-
   it('registry has exactly 10 canonical domains', () => {
     const activeDomains = getActiveDomains();
     expect(activeDomains.sort()).toEqual([...CANONICAL_DOMAINS].sort());
@@ -64,8 +58,8 @@ describe('CI Parity Gate: Registry Drift Detection', () => {
   });
 
   it(`registry has exactly ${EXPECTED_TOTAL} operations total (${EXPECTED_QUERY}q + ${EXPECTED_MUTATE}m)`, () => {
-    const queryCount = OPERATIONS.filter(o => o.gateway === 'query').length;
-    const mutateCount = OPERATIONS.filter(o => o.gateway === 'mutate').length;
+    const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;
+    const mutateCount = OPERATIONS.filter((o) => o.gateway === 'mutate').length;
 
     expect(OPERATIONS.length).toBe(EXPECTED_TOTAL);
     expect(queryCount).toBe(EXPECTED_QUERY);
@@ -75,8 +69,8 @@ describe('CI Parity Gate: Registry Drift Detection', () => {
   it('each domain has expected operation count', () => {
     for (const [domain, expected] of Object.entries(EXPECTED_DOMAIN_COUNTS)) {
       const ops = getByDomain(domain as CanonicalDomain);
-      const queryOps = ops.filter(o => o.gateway === 'query');
-      const mutateOps = ops.filter(o => o.gateway === 'mutate');
+      const queryOps = ops.filter((o) => o.gateway === 'query');
+      const mutateOps = ops.filter((o) => o.gateway === 'mutate');
 
       expect(ops.length, `${domain}: total mismatch`).toBe(expected.total);
       expect(queryOps.length, `${domain}: query mismatch`).toBe(expected.query);
@@ -103,7 +97,9 @@ describe('CI Parity Gate: Registry Drift Detection', () => {
 
     for (const domain of CANONICAL_DOMAINS) {
       const handlerPath = join(domainsDir, `${domain}.ts`);
-      expect(existsSync(handlerPath), `Missing handler: src/dispatch/domains/${domain}.ts`).toBe(true);
+      expect(existsSync(handlerPath), `Missing handler: src/dispatch/domains/${domain}.ts`).toBe(
+        true,
+      );
     }
   });
 

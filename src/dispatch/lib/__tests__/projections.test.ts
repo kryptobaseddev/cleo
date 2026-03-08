@@ -1,6 +1,6 @@
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { applyProjection } from '../../middleware/projection.js';
-import { PROJECTIONS,resolveTier } from '../projections.js';
+import { PROJECTIONS, resolveTier } from '../projections.js';
 
 describe('resolveTier', () => {
   it('should default to standard when no params', () => {
@@ -235,7 +235,13 @@ describe('applyProjection', () => {
   });
 
   it('should remove top-level excluded fields', () => {
-    const data = { id: 'T1', title: 'Test', notes: ['note1'], history: [{ action: 'created' }], auditLog: [] };
+    const data = {
+      id: 'T1',
+      title: 'Test',
+      notes: ['note1'],
+      history: [{ action: 'created' }],
+      auditLog: [],
+    };
     const result = applyProjection(data, PROJECTIONS.minimal);
     expect(result).toEqual({ id: 'T1', title: 'Test' });
   });

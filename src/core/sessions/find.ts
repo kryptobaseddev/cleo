@@ -8,8 +8,8 @@
  * @task T5119
  */
 
-import type { Session, SessionScope } from '../../types/session.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import type { Session, SessionScope } from '../../types/session.js';
 
 /** Minimal session record returned by findSessions(). */
 export interface MinimalSessionRecord {
@@ -66,16 +66,12 @@ export async function findSessions(
   if (params?.query) {
     const q = params.query.toLowerCase();
     sessions = sessions.filter(
-      (s) =>
-        s.id.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q),
+      (s) => s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q),
     );
   }
 
   // Sort by start time, most recent first
-  sessions.sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-  );
+  sessions.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
   // Apply limit
   if (params?.limit && params.limit > 0) {

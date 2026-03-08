@@ -7,8 +7,8 @@
  */
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import type { StickyNote } from './types.js';
 import type { BrainStickyNoteRow } from '../../store/brain-schema.js';
+import type { StickyNote } from './types.js';
 
 /**
  * Convert database row to StickyNote interface.
@@ -22,8 +22,8 @@ function rowToStickyNote(row: BrainStickyNoteRow): StickyNote {
     tags: row.tagsJson ? JSON.parse(row.tagsJson) : [],
     status: row.status as StickyNote['status'],
     convertedTo: row.convertedToJson ? JSON.parse(row.convertedToJson) : undefined,
-    color: row.color as StickyNote['color'] ?? undefined,
-    priority: row.priority as StickyNote['priority'] ?? undefined,
+    color: (row.color as StickyNote['color']) ?? undefined,
+    priority: (row.priority as StickyNote['priority']) ?? undefined,
     sourceType: row.sourceType ?? 'sticky-note',
   };
 }
@@ -35,10 +35,7 @@ function rowToStickyNote(row: BrainStickyNoteRow): StickyNote {
  * @param projectRoot - Project root path
  * @returns The deleted sticky note or null if not found
  */
-export async function purgeSticky(
-  id: string,
-  projectRoot: string,
-): Promise<StickyNote | null> {
+export async function purgeSticky(id: string, projectRoot: string): Promise<StickyNote | null> {
   const accessor = await getBrainAccessor(projectRoot);
 
   // First get the sticky to return it

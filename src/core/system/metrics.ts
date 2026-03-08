@@ -40,7 +40,7 @@ export async function getSystemMetrics(
   let complianceEntries = readComplianceJsonl(projectRoot);
 
   if (opts?.since) {
-    complianceEntries = complianceEntries.filter(e => (e.timestamp as string) >= opts.since!);
+    complianceEntries = complianceEntries.filter((e) => (e.timestamp as string) >= opts.since!);
   }
 
   const totalCompliance = complianceEntries.length;
@@ -62,11 +62,15 @@ export async function getSystemMetrics(
   let sessionsCompleted = 0;
   try {
     if (accessor) {
-      const sessionsData = await accessor.loadSessions() as unknown as { sessions: Array<{ status: string }> };
+      const sessionsData = (await accessor.loadSessions()) as unknown as {
+        sessions: Array<{ status: string }>;
+      };
       const sessions = sessionsData?.sessions ?? [];
       sessionsTotal = sessions.length;
-      sessionsActive = sessions.filter(s => s.status === 'active').length;
-      sessionsCompleted = sessions.filter(s => s.status === 'ended' || s.status === 'completed').length;
+      sessionsActive = sessions.filter((s) => s.status === 'active').length;
+      sessionsCompleted = sessions.filter(
+        (s) => s.status === 'ended' || s.status === 'completed',
+      ).length;
     } else {
       const sessionsPath = join(cleoDir, 'sessions.json');
       if (existsSync(sessionsPath)) {
@@ -74,7 +78,9 @@ export async function getSystemMetrics(
         const sessions = sessionsData.sessions ?? [];
         sessionsTotal = sessions.length;
         sessionsActive = sessions.filter((s: { status: string }) => s.status === 'active').length;
-        sessionsCompleted = sessions.filter((s: { status: string }) => s.status === 'ended' || s.status === 'completed').length;
+        sessionsCompleted = sessions.filter(
+          (s: { status: string }) => s.status === 'ended' || s.status === 'completed',
+        ).length;
       }
     }
   } catch {

@@ -2,17 +2,17 @@
  * Tests for migration logger (@task T4727)
  */
 
-import { existsSync,mkdirSync,readFileSync,writeFileSync,rmdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  MigrationLogger,
   createMigrationLogger,
   getLatestMigrationLog,
   logFileExists,
-  readMigrationLog,
   type MigrationLogEntry,
+  MigrationLogger,
+  readMigrationLog,
 } from '../logger.js';
 
 describe('MigrationLogger', () => {
@@ -46,7 +46,7 @@ describe('MigrationLogger', () => {
     it('should create a log file with timestamp in name', () => {
       // Log something to create the file
       logger.info('test', 'init', 'Initial log entry');
-      
+
       const logPath = logger.getLogPath();
       expect(logPath).toMatch(/migration-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d{3})?Z?\.jsonl$/);
       expect(existsSync(logPath)).toBe(true);
@@ -125,7 +125,7 @@ describe('MigrationLogger', () => {
     it('should log validation results', () => {
       logger.logValidation('validation', 'json-source', true, { count: 10 });
 
-      let entries = logger.getEntries();
+      const entries = logger.getEntries();
       expect(entries[0].level).toBe('info');
       expect(entries[0].data).toMatchObject({
         target: 'json-source',
@@ -137,7 +137,7 @@ describe('MigrationLogger', () => {
     it('should log validation failures as errors', () => {
       logger.logValidation('validation', 'json-source', false, { count: 10 }, ['parse error']);
 
-      let entries = logger.getEntries();
+      const entries = logger.getEntries();
       expect(entries[0].level).toBe('error');
       expect(entries[0].data).toMatchObject({
         valid: false,
@@ -242,7 +242,7 @@ describe('MigrationLogger', () => {
   describe('duration tracking', () => {
     it('should track duration from initialization', async () => {
       const startTime = Date.now();
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       const duration = logger.getDurationMs();
       expect(duration).toBeGreaterThanOrEqual(45);
@@ -250,7 +250,7 @@ describe('MigrationLogger', () => {
 
     it('should track duration in log entries', async () => {
       logger.info('test', 'op1', 'First');
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       logger.info('test', 'op2', 'Second');
 
       const entries = logger.getEntries();
@@ -265,7 +265,10 @@ describe('helper functions', () => {
 
   beforeEach(() => {
     // Use unique timestamp + random to avoid conflicts
-    tempDir = join(tmpdir(), `migration-helper-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
+    tempDir = join(
+      tmpdir(),
+      `migration-helper-test-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+    );
     mkdirSync(tempDir, { recursive: true });
     logger = new MigrationLogger(tempDir);
     logger.info('test', 'op', 'Test');
@@ -301,8 +304,8 @@ describe('helper functions', () => {
 
   it('getLatestMigrationLog should return most recent log', async () => {
     // Wait to ensure different timestamps
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     // Create another logger (will have later timestamp)
     const logger2 = new MigrationLogger(tempDir);
     logger2.info('test', 'op2', 'Test 2');
@@ -315,5 +318,3 @@ describe('helper functions', () => {
     expect(entries[0].message).toBe('Test 2');
   });
 });
-
-

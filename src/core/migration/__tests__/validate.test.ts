@@ -5,15 +5,15 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { 
-  validateSourceFiles, 
-  formatValidationResult, 
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
   checkTaskCountMismatch,
-  type JsonValidationResult 
+  formatValidationResult,
+  type JsonValidationResult,
+  validateSourceFiles,
 } from '../validate.js';
 
 let tempDir: string;
@@ -41,28 +41,24 @@ describe('validateSourceFiles', () => {
             { id: 'T002', title: 'Task 2', status: 'done' },
           ],
           _meta: { schemaVersion: '2.10.0' },
-        })
+        }),
       );
 
       await writeFile(
         join(cleoDir, 'sessions.json'),
         JSON.stringify({
           version: '1.0.0',
-          sessions: [
-            { id: 'sess-001', name: 'Session 1', status: 'ended' },
-          ],
+          sessions: [{ id: 'sess-001', name: 'Session 1', status: 'ended' }],
           _meta: { schemaVersion: '1.0.0' },
-        })
+        }),
       );
 
       await writeFile(
         join(cleoDir, 'todo-archive.json'),
         JSON.stringify({
           _meta: { schemaVersion: '2.4.0' },
-          archivedTasks: [
-            { id: 'T100', title: 'Archived', status: 'done' },
-          ],
-        })
+          archivedTasks: [{ id: 'T100', title: 'Archived', status: 'done' }],
+        }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -84,7 +80,7 @@ describe('validateSourceFiles', () => {
         JSON.stringify({
           tasks: [{ id: 'T001', title: 'Task 1', status: 'pending' }],
           _meta: { schemaVersion: '2.10.0' },
-        })
+        }),
       );
 
       // No sessions.json or archive.json
@@ -103,7 +99,7 @@ describe('validateSourceFiles', () => {
     it('accepts archive.json with "tasks" key instead of "archivedTasks"', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } })
+        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } }),
       );
 
       await writeFile(
@@ -114,7 +110,7 @@ describe('validateSourceFiles', () => {
             { id: 'T100', title: 'Archived', status: 'done' },
             { id: 'T101', title: 'Archived 2', status: 'done' },
           ],
-        })
+        }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -129,7 +125,7 @@ describe('validateSourceFiles', () => {
     it('detects corrupted todo.json with syntax error', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        '{ "tasks": [ { "id": "T001", "title": "Test", "status": "pending" }, ] }' // Trailing comma
+        '{ "tasks": [ { "id": "T001", "title": "Test", "status": "pending" }, ] }', // Trailing comma
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -144,13 +140,10 @@ describe('validateSourceFiles', () => {
     it('detects corrupted sessions.json', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } })
+        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } }),
       );
 
-      await writeFile(
-        join(cleoDir, 'sessions.json'),
-        '{ invalid json content }'
-      );
+      await writeFile(join(cleoDir, 'sessions.json'), '{ invalid json content }');
 
       const result = validateSourceFiles(cleoDir);
 
@@ -162,13 +155,10 @@ describe('validateSourceFiles', () => {
     it('detects corrupted archive.json', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } })
+        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } }),
       );
 
-      await writeFile(
-        join(cleoDir, 'todo-archive.json'),
-        '[ "not", "an", "object" ]'
-      );
+      await writeFile(join(cleoDir, 'todo-archive.json'), '[ "not", "an", "object" ]');
 
       const result = validateSourceFiles(cleoDir);
 
@@ -201,7 +191,7 @@ describe('validateSourceFiles', () => {
     it('warns about empty tasks array', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } })
+        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -215,12 +205,12 @@ describe('validateSourceFiles', () => {
     it('warns about empty sessions array', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [{ id: 'T001', title: 'Test', status: 'pending' }] })
+        JSON.stringify({ tasks: [{ id: 'T001', title: 'Test', status: 'pending' }] }),
       );
 
       await writeFile(
         join(cleoDir, 'sessions.json'),
-        JSON.stringify({ sessions: [], _meta: { schemaVersion: '1.0.0' } })
+        JSON.stringify({ sessions: [], _meta: { schemaVersion: '1.0.0' } }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -233,12 +223,12 @@ describe('validateSourceFiles', () => {
     it('warns about empty archive', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [{ id: 'T001', title: 'Test', status: 'pending' }] })
+        JSON.stringify({ tasks: [{ id: 'T001', title: 'Test', status: 'pending' }] }),
       );
 
       await writeFile(
         join(cleoDir, 'todo-archive.json'),
-        JSON.stringify({ archivedTasks: [], _meta: { schemaVersion: '2.4.0' } })
+        JSON.stringify({ archivedTasks: [], _meta: { schemaVersion: '2.4.0' } }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -251,18 +241,12 @@ describe('validateSourceFiles', () => {
     it('reports multiple warnings', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } })
+        JSON.stringify({ tasks: [], _meta: { schemaVersion: '2.10.0' } }),
       );
 
-      await writeFile(
-        join(cleoDir, 'sessions.json'),
-        JSON.stringify({ sessions: [] })
-      );
+      await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify({ sessions: [] }));
 
-      await writeFile(
-        join(cleoDir, 'todo-archive.json'),
-        JSON.stringify({ archivedTasks: [] })
-      );
+      await writeFile(join(cleoDir, 'todo-archive.json'), JSON.stringify({ archivedTasks: [] }));
 
       const result = validateSourceFiles(cleoDir);
 
@@ -275,17 +259,14 @@ describe('validateSourceFiles', () => {
     it('fails if any file is corrupted', async () => {
       await writeFile(
         join(cleoDir, 'todo.json'),
-        JSON.stringify({ tasks: [{ id: 'T001', title: 'Valid', status: 'pending' }] })
+        JSON.stringify({ tasks: [{ id: 'T001', title: 'Valid', status: 'pending' }] }),
       );
 
-      await writeFile(
-        join(cleoDir, 'sessions.json'),
-        '{ invalid }'
-      );
+      await writeFile(join(cleoDir, 'sessions.json'), '{ invalid }');
 
       await writeFile(
         join(cleoDir, 'todo-archive.json'),
-        JSON.stringify({ archivedTasks: [{ id: 'T100', title: 'Archived', status: 'done' }] })
+        JSON.stringify({ archivedTasks: [{ id: 'T100', title: 'Archived', status: 'done' }] }),
       );
 
       const result = validateSourceFiles(cleoDir);
@@ -297,10 +278,7 @@ describe('validateSourceFiles', () => {
     });
 
     it('includes file paths in error messages', async () => {
-      await writeFile(
-        join(cleoDir, 'todo.json'),
-        '{ "tasks": [invalid] }'
-      );
+      await writeFile(join(cleoDir, 'todo.json'), '{ "tasks": [invalid] }');
 
       const result = validateSourceFiles(cleoDir);
 

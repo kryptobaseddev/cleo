@@ -8,12 +8,17 @@
  * @epic T5149
  */
 
-import { getBrainNativeDb, getBrainDb } from '../../store/brain-sqlite.js';
-import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { searchSimilar } from './brain-similarity.js';
-import type { SimilarityResult } from './brain-similarity.js';
 import type { DatabaseSync } from 'node:sqlite';
-import type { BrainDecisionRow, BrainPatternRow, BrainLearningRow, BrainObservationRow } from '../../store/brain-schema.js';
+import { getBrainAccessor } from '../../store/brain-accessor.js';
+import type {
+  BrainDecisionRow,
+  BrainLearningRow,
+  BrainObservationRow,
+  BrainPatternRow,
+} from '../../store/brain-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
+import type { SimilarityResult } from './brain-similarity.js';
+import { searchSimilar } from './brain-similarity.js';
 
 /** Search result with BM25 rank. */
 export interface BrainSearchResult {
@@ -44,8 +49,8 @@ function checkFts5Available(nativeDb: DatabaseSync): boolean {
   if (_fts5Available !== null) return _fts5Available;
   try {
     // Use run() to execute DDL statements
-    nativeDb.prepare("CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_check USING fts5(test)").run();
-    nativeDb.prepare("DROP TABLE IF EXISTS _fts5_check").run();
+    nativeDb.prepare('CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_check USING fts5(test)').run();
+    nativeDb.prepare('DROP TABLE IF EXISTS _fts5_check').run();
     _fts5Available = true;
   } catch {
     _fts5Available = false;
@@ -75,116 +80,164 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
   }
 
   // Decisions FTS
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE VIRTUAL TABLE IF NOT EXISTS brain_decisions_fts
     USING fts5(id, decision, rationale, content=brain_decisions, content_rowid=rowid)
-  `);
+  `,
+  );
 
   // Patterns FTS
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE VIRTUAL TABLE IF NOT EXISTS brain_patterns_fts
     USING fts5(id, pattern, context, content=brain_patterns, content_rowid=rowid)
-  `);
+  `,
+  );
 
   // Learnings FTS
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE VIRTUAL TABLE IF NOT EXISTS brain_learnings_fts
     USING fts5(id, insight, source, content=brain_learnings, content_rowid=rowid)
-  `);
+  `,
+  );
 
   // Content-sync triggers for decisions
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_decisions_ai AFTER INSERT ON brain_decisions BEGIN
       INSERT INTO brain_decisions_fts(rowid, id, decision, rationale)
       VALUES (new.rowid, new.id, new.decision, new.rationale);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_decisions_ad AFTER DELETE ON brain_decisions BEGIN
       INSERT INTO brain_decisions_fts(brain_decisions_fts, rowid, id, decision, rationale)
       VALUES('delete', old.rowid, old.id, old.decision, old.rationale);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_decisions_au AFTER UPDATE ON brain_decisions BEGIN
       INSERT INTO brain_decisions_fts(brain_decisions_fts, rowid, id, decision, rationale)
       VALUES('delete', old.rowid, old.id, old.decision, old.rationale);
       INSERT INTO brain_decisions_fts(rowid, id, decision, rationale)
       VALUES (new.rowid, new.id, new.decision, new.rationale);
     END
-  `);
+  `,
+  );
 
   // Content-sync triggers for patterns
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_patterns_ai AFTER INSERT ON brain_patterns BEGIN
       INSERT INTO brain_patterns_fts(rowid, id, pattern, context)
       VALUES (new.rowid, new.id, new.pattern, new.context);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_patterns_ad AFTER DELETE ON brain_patterns BEGIN
       INSERT INTO brain_patterns_fts(brain_patterns_fts, rowid, id, pattern, context)
       VALUES('delete', old.rowid, old.id, old.pattern, old.context);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_patterns_au AFTER UPDATE ON brain_patterns BEGIN
       INSERT INTO brain_patterns_fts(brain_patterns_fts, rowid, id, pattern, context)
       VALUES('delete', old.rowid, old.id, old.pattern, old.context);
       INSERT INTO brain_patterns_fts(rowid, id, pattern, context)
       VALUES (new.rowid, new.id, new.pattern, new.context);
     END
-  `);
+  `,
+  );
 
   // Content-sync triggers for learnings
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_learnings_ai AFTER INSERT ON brain_learnings BEGIN
       INSERT INTO brain_learnings_fts(rowid, id, insight, source)
       VALUES (new.rowid, new.id, new.insight, new.source);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_learnings_ad AFTER DELETE ON brain_learnings BEGIN
       INSERT INTO brain_learnings_fts(brain_learnings_fts, rowid, id, insight, source)
       VALUES('delete', old.rowid, old.id, old.insight, old.source);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_learnings_au AFTER UPDATE ON brain_learnings BEGIN
       INSERT INTO brain_learnings_fts(brain_learnings_fts, rowid, id, insight, source)
       VALUES('delete', old.rowid, old.id, old.insight, old.source);
       INSERT INTO brain_learnings_fts(rowid, id, insight, source)
       VALUES (new.rowid, new.id, new.insight, new.source);
     END
-  `);
+  `,
+  );
 
   // Observations FTS
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE VIRTUAL TABLE IF NOT EXISTS brain_observations_fts
     USING fts5(id, title, narrative, content=brain_observations, content_rowid=rowid)
-  `);
+  `,
+  );
 
   // Content-sync triggers for observations
-  execDDL(nativeDb, `
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_observations_ai AFTER INSERT ON brain_observations BEGIN
       INSERT INTO brain_observations_fts(rowid, id, title, narrative)
       VALUES (new.rowid, new.id, new.title, new.narrative);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_observations_ad AFTER DELETE ON brain_observations BEGIN
       INSERT INTO brain_observations_fts(brain_observations_fts, rowid, id, title, narrative)
       VALUES('delete', old.rowid, old.id, old.title, old.narrative);
     END
-  `);
-  execDDL(nativeDb, `
+  `,
+  );
+  execDDL(
+    nativeDb,
+    `
     CREATE TRIGGER IF NOT EXISTS brain_observations_au AFTER UPDATE ON brain_observations BEGIN
       INSERT INTO brain_observations_fts(brain_observations_fts, rowid, id, title, narrative)
       VALUES('delete', old.rowid, old.id, old.title, old.narrative);
       INSERT INTO brain_observations_fts(rowid, id, title, narrative)
       VALUES (new.rowid, new.id, new.title, new.narrative);
     END
-  `);
+  `,
+  );
 
   return true;
 }
@@ -206,7 +259,9 @@ export function rebuildFts5Index(nativeDb: DatabaseSync): void {
 
   // Observations FTS rebuild — table may not exist yet in older DBs
   try {
-    nativeDb.prepare("INSERT INTO brain_observations_fts(brain_observations_fts) VALUES('rebuild')").run();
+    nativeDb
+      .prepare("INSERT INTO brain_observations_fts(brain_observations_fts) VALUES('rebuild')")
+      .run();
   } catch {
     // brain_observations_fts not created yet — skip
   }
@@ -276,14 +331,16 @@ function searchWithFts5(
 
   if (tables.includes('decisions')) {
     try {
-      const rows = nativeDb.prepare(`
+      const rows = nativeDb
+        .prepare(`
         SELECT d.*
         FROM brain_decisions_fts fts
         JOIN brain_decisions d ON d.rowid = fts.rowid
         WHERE brain_decisions_fts MATCH ?
         ORDER BY bm25(brain_decisions_fts)
         LIMIT ?
-      `).all(safeQuery, limit) as unknown as BrainDecisionRow[];
+      `)
+        .all(safeQuery, limit) as unknown as BrainDecisionRow[];
       result.decisions = rows;
     } catch {
       // FTS query failed, fall back to LIKE for this table
@@ -293,14 +350,16 @@ function searchWithFts5(
 
   if (tables.includes('patterns')) {
     try {
-      const rows = nativeDb.prepare(`
+      const rows = nativeDb
+        .prepare(`
         SELECT p.*
         FROM brain_patterns_fts fts
         JOIN brain_patterns p ON p.rowid = fts.rowid
         WHERE brain_patterns_fts MATCH ?
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
-      `).all(safeQuery, limit) as unknown as BrainPatternRow[];
+      `)
+        .all(safeQuery, limit) as unknown as BrainPatternRow[];
       result.patterns = rows;
     } catch {
       result.patterns = likeSearchPatterns(nativeDb, query, limit);
@@ -309,14 +368,16 @@ function searchWithFts5(
 
   if (tables.includes('learnings')) {
     try {
-      const rows = nativeDb.prepare(`
+      const rows = nativeDb
+        .prepare(`
         SELECT l.*
         FROM brain_learnings_fts fts
         JOIN brain_learnings l ON l.rowid = fts.rowid
         WHERE brain_learnings_fts MATCH ?
         ORDER BY bm25(brain_learnings_fts)
         LIMIT ?
-      `).all(safeQuery, limit) as unknown as BrainLearningRow[];
+      `)
+        .all(safeQuery, limit) as unknown as BrainLearningRow[];
       result.learnings = rows;
     } catch {
       result.learnings = likeSearchLearnings(nativeDb, query, limit);
@@ -325,14 +386,16 @@ function searchWithFts5(
 
   if (tables.includes('observations')) {
     try {
-      const rows = nativeDb.prepare(`
+      const rows = nativeDb
+        .prepare(`
         SELECT o.*
         FROM brain_observations_fts fts
         JOIN brain_observations o ON o.rowid = fts.rowid
         WHERE brain_observations_fts MATCH ?
         ORDER BY bm25(brain_observations_fts)
         LIMIT ?
-      `).all(safeQuery, limit) as unknown as BrainObservationRow[];
+      `)
+        .all(safeQuery, limit) as unknown as BrainObservationRow[];
       result.observations = rows;
     } catch {
       result.observations = likeSearchObservations(nativeDb, query, limit);
@@ -377,44 +440,68 @@ function searchWithLike(
   return result;
 }
 
-function likeSearchDecisions(nativeDb: DatabaseSync, query: string, limit: number): BrainDecisionRow[] {
+function likeSearchDecisions(
+  nativeDb: DatabaseSync,
+  query: string,
+  limit: number,
+): BrainDecisionRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb.prepare(`
+  return nativeDb
+    .prepare(`
     SELECT * FROM brain_decisions
     WHERE decision LIKE ? OR rationale LIKE ?
     ORDER BY created_at DESC
     LIMIT ?
-  `).all(likePattern, likePattern, limit) as unknown as BrainDecisionRow[];
+  `)
+    .all(likePattern, likePattern, limit) as unknown as BrainDecisionRow[];
 }
 
-function likeSearchPatterns(nativeDb: DatabaseSync, query: string, limit: number): BrainPatternRow[] {
+function likeSearchPatterns(
+  nativeDb: DatabaseSync,
+  query: string,
+  limit: number,
+): BrainPatternRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb.prepare(`
+  return nativeDb
+    .prepare(`
     SELECT * FROM brain_patterns
     WHERE pattern LIKE ? OR context LIKE ?
     ORDER BY frequency DESC
     LIMIT ?
-  `).all(likePattern, likePattern, limit) as unknown as BrainPatternRow[];
+  `)
+    .all(likePattern, likePattern, limit) as unknown as BrainPatternRow[];
 }
 
-function likeSearchLearnings(nativeDb: DatabaseSync, query: string, limit: number): BrainLearningRow[] {
+function likeSearchLearnings(
+  nativeDb: DatabaseSync,
+  query: string,
+  limit: number,
+): BrainLearningRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb.prepare(`
+  return nativeDb
+    .prepare(`
     SELECT * FROM brain_learnings
     WHERE insight LIKE ? OR source LIKE ?
     ORDER BY confidence DESC
     LIMIT ?
-  `).all(likePattern, likePattern, limit) as unknown as BrainLearningRow[];
+  `)
+    .all(likePattern, likePattern, limit) as unknown as BrainLearningRow[];
 }
 
-function likeSearchObservations(nativeDb: DatabaseSync, query: string, limit: number): BrainObservationRow[] {
+function likeSearchObservations(
+  nativeDb: DatabaseSync,
+  query: string,
+  limit: number,
+): BrainObservationRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb.prepare(`
+  return nativeDb
+    .prepare(`
     SELECT * FROM brain_observations
     WHERE title LIKE ? OR narrative LIKE ?
     ORDER BY created_at DESC
     LIMIT ?
-  `).all(likePattern, likePattern, limit) as unknown as BrainObservationRow[];
+  `)
+    .all(likePattern, likePattern, limit) as unknown as BrainObservationRow[];
 }
 
 /**
@@ -490,13 +577,16 @@ export async function hybridSearch(
   const graphWeight = options?.graphWeight ?? 0.1;
 
   // Score accumulators: id -> { score, sources, type, title, text }
-  const scoreMap = new Map<string, {
-    score: number;
-    type: string;
-    title: string;
-    text: string;
-    sources: Set<'fts' | 'vec' | 'graph'>;
-  }>();
+  const scoreMap = new Map<
+    string,
+    {
+      score: number;
+      type: string;
+      title: string;
+      text: string;
+      sources: Set<'fts' | 'vec' | 'graph'>;
+    }
+  >();
 
   const addScore = (
     id: string,
@@ -529,13 +619,28 @@ export async function hybridSearch(
   const ftsHits: Array<{ id: string; type: string; title: string; text: string }> = [];
 
   for (const d of ftsResults.decisions) {
-    ftsHits.push({ id: d.id, type: 'decision', title: d.decision, text: `${d.decision} — ${d.rationale}` });
+    ftsHits.push({
+      id: d.id,
+      type: 'decision',
+      title: d.decision,
+      text: `${d.decision} — ${d.rationale}`,
+    });
   }
   for (const p of ftsResults.patterns) {
-    ftsHits.push({ id: p.id, type: 'pattern', title: p.pattern, text: `${p.pattern} — ${p.context}` });
+    ftsHits.push({
+      id: p.id,
+      type: 'pattern',
+      title: p.pattern,
+      text: `${p.pattern} — ${p.context}`,
+    });
   }
   for (const l of ftsResults.learnings) {
-    ftsHits.push({ id: l.id, type: 'learning', title: l.insight, text: `${l.insight} (source: ${l.source})` });
+    ftsHits.push({
+      id: l.id,
+      type: 'learning',
+      title: l.insight,
+      text: `${l.insight} (source: ${l.source})`,
+    });
   }
   for (const o of ftsResults.observations) {
     ftsHits.push({ id: o.id, type: 'observation', title: o.title, text: o.narrative ?? o.title });
@@ -544,9 +649,7 @@ export async function hybridSearch(
   // Normalize FTS: position-based (first result = 1.0, last = near 0)
   for (let i = 0; i < ftsHits.length; i++) {
     const hit = ftsHits[i]!;
-    const normalizedScore = ftsHits.length > 1
-      ? 1.0 - (i / (ftsHits.length - 1))
-      : 1.0;
+    const normalizedScore = ftsHits.length > 1 ? 1.0 - i / (ftsHits.length - 1) : 1.0;
     addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
   }
 
@@ -560,9 +663,9 @@ export async function hybridSearch(
 
   if (vecResults.length > 0) {
     // Normalize vector: distance-based (smaller distance = higher score)
-    const maxDist = Math.max(...vecResults.map(r => r.distance), 0.001);
+    const maxDist = Math.max(...vecResults.map((r) => r.distance), 0.001);
     for (const r of vecResults) {
-      const normalizedScore = 1.0 - (r.distance / maxDist);
+      const normalizedScore = 1.0 - r.distance / maxDist;
       addScore(r.id, normalizedScore, vecWeight, 'vec', r.type, r.title, r.text);
     }
   } else {
@@ -574,9 +677,7 @@ export async function hybridSearch(
     scoreMap.clear();
     for (let i = 0; i < ftsHits.length; i++) {
       const hit = ftsHits[i]!;
-      const normalizedScore = ftsHits.length > 1
-        ? 1.0 - (i / (ftsHits.length - 1))
-        : 1.0;
+      const normalizedScore = ftsHits.length > 1 ? 1.0 - i / (ftsHits.length - 1) : 1.0;
       addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
     }
   }
@@ -599,9 +700,7 @@ export async function hybridSearch(
       const neighbors = await accessor.getNeighbors(nodeId);
       for (let i = 0; i < neighbors.length; i++) {
         const neighbor = neighbors[i]!;
-        const normalizedScore = neighbors.length > 1
-          ? 1.0 - (i / (neighbors.length - 1))
-          : 1.0;
+        const normalizedScore = neighbors.length > 1 ? 1.0 - i / (neighbors.length - 1) : 1.0;
         addScore(
           neighbor.id,
           normalizedScore,

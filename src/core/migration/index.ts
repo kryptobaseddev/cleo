@@ -4,82 +4,77 @@
  * @epic T4454
  */
 
-// Re-export pre-flight check for CLI/MCP consumers (@task T4699)
-export { checkStorageMigration } from './preflight.js';
-export type { PreflightResult } from './preflight.js';
-
-// Re-export checksum utilities for backup verification (@task T4728)
-export {
-  computeChecksum,
-  verifyBackup,
-  compareChecksums,
-} from './checksum.js';
-export type { VerificationResult } from './checksum.js';
-
-// Re-export pre-migration validation (@task T4725)
-export {
-  validateSourceFiles,
-  formatValidationResult,
-  checkTaskCountMismatch,
-} from './validate.js';
-export type { 
-  JsonValidationResult, 
-  JsonFileValidation 
-} from './validate.js';
-
-// Re-export migration state tracking (@task T4726)
-export {
-  createMigrationState,
-  updateMigrationState,
-  updateMigrationPhase,
-  updateMigrationProgress,
-  addMigrationError,
-  addMigrationWarning,
-  loadMigrationState,
-  isMigrationInProgress,
-  canResumeMigration,
-  completeMigration,
-  failMigration,
-  clearMigrationState,
-  getMigrationSummary,
-  verifySourceIntegrity,
-} from './state.js';
 export type {
-  MigrationState,
-  MigrationPhase,
-  MigrationProgress,
-  SourceFileInfo
-} from './state.js';
-
+  AgentOutputsMigrationResult,
+  LegacyDetectionResult,
+} from './agent-outputs.js';
 // Re-export agent-outputs migration utility (@task T4700)
 export {
   detectLegacyAgentOutputs,
   migrateAgentOutputs,
 } from './agent-outputs.js';
-export type {
-  LegacyDetectionResult,
-  AgentOutputsMigrationResult,
-} from './agent-outputs.js';
-
-// Re-export migration logger (@task T4727)
+export type { VerificationResult } from './checksum.js';
+// Re-export checksum utilities for backup verification (@task T4728)
 export {
-  MigrationLogger,
-  createMigrationLogger,
-  readMigrationLog,
-  logFileExists,
-  getLatestMigrationLog,
-} from './logger.js';
+  compareChecksums,
+  computeChecksum,
+  verifyBackup,
+} from './checksum.js';
 export type {
-  MigrationLogEntry,
   LogLevel,
+  MigrationLogEntry,
   MigrationLoggerConfig,
 } from './logger.js';
+// Re-export migration logger (@task T4727)
+export {
+  createMigrationLogger,
+  getLatestMigrationLog,
+  logFileExists,
+  MigrationLogger,
+  readMigrationLog,
+} from './logger.js';
+export type { PreflightResult } from './preflight.js';
+// Re-export pre-flight check for CLI/MCP consumers (@task T4699)
+export { checkStorageMigration } from './preflight.js';
+export type {
+  MigrationPhase,
+  MigrationProgress,
+  MigrationState,
+  SourceFileInfo,
+} from './state.js';
+// Re-export migration state tracking (@task T4726)
+export {
+  addMigrationError,
+  addMigrationWarning,
+  canResumeMigration,
+  clearMigrationState,
+  completeMigration,
+  createMigrationState,
+  failMigration,
+  getMigrationSummary,
+  isMigrationInProgress,
+  loadMigrationState,
+  updateMigrationPhase,
+  updateMigrationProgress,
+  updateMigrationState,
+  verifySourceIntegrity,
+} from './state.js';
+export type {
+  JsonFileValidation,
+  JsonValidationResult,
+} from './validate.js';
+// Re-export pre-migration validation (@task T4725)
+export {
+  checkTaskCountMismatch,
+  formatValidationResult,
+  validateSourceFiles,
+} from './validate.js';
 
-import { readJson, saveJson } from '../../store/json.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getTaskPath, getBackupDir, getCleoDirAbsolute, getConfigPath } from '../paths.js';
 import { join } from 'node:path';
+import { readJson, saveJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { getBackupDir, getCleoDirAbsolute, getConfigPath, getTaskPath } from '../paths.js';
 
 /** Schema version info. */
 export interface SchemaVersion {
@@ -327,10 +322,13 @@ export async function runMigration(
   const migrations = MIGRATIONS[fileType] ?? [];
 
   // Find applicable migrations
-  const applicable = migrations.filter(m =>
-    compareSemver(m.fromVersion, currentVersion) >= 0 &&
-    compareSemver(m.toVersion, targetVersion) <= 0,
-  ).sort((a, b) => compareSemver(a.fromVersion, b.fromVersion));
+  const applicable = migrations
+    .filter(
+      (m) =>
+        compareSemver(m.fromVersion, currentVersion) >= 0 &&
+        compareSemver(m.toVersion, targetVersion) <= 0,
+    )
+    .sort((a, b) => compareSemver(a.fromVersion, b.fromVersion));
 
   if (applicable.length === 0) {
     return {

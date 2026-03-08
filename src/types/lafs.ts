@@ -16,16 +16,16 @@
 // ---------------------------------------------------------------------------
 
 export type {
-  LAFSMeta,
-  LAFSError,
-  LAFSErrorCategory,
-  LAFSPage,
-  LAFSPageOffset,
-  LAFSPageNone,
-  LAFSEnvelope,
-  LAFSTransport,
   ConformanceReport,
   FlagInput,
+  LAFSEnvelope,
+  LAFSError,
+  LAFSErrorCategory,
+  LAFSMeta,
+  LAFSPage,
+  LAFSPageNone,
+  LAFSPageOffset,
+  LAFSTransport,
   MVILevel,
   Warning,
 } from '@cleocode/lafs-protocol';
@@ -129,8 +129,6 @@ export function isLafsError<T>(envelope: LafsEnvelope<T>): envelope is LafsError
 }
 
 /** Type guard for MCP gateway responses (has _meta). */
-export function isGatewayEnvelope<T>(
-  envelope: CleoResponse<T>,
-): envelope is GatewayEnvelope<T> {
+export function isGatewayEnvelope<T>(envelope: CleoResponse<T>): envelope is GatewayEnvelope<T> {
   return '_meta' in envelope && envelope._meta !== undefined;
 }

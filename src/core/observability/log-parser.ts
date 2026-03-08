@@ -9,14 +9,21 @@
  * @epic T5186
  */
 
-import type { PinoLogEntry, PinoLevel } from './types.js';
+import type { PinoLevel, PinoLogEntry } from './types.js';
 import { PINO_LEVEL_VALUES } from './types.js';
 
 const VALID_LEVELS = new Set<string>(Object.keys(PINO_LEVEL_VALUES));
 
 /** Known fields that are extracted into typed PinoLogEntry properties. */
 const KNOWN_FIELDS = new Set([
-  'level', 'time', 'pid', 'hostname', 'msg', 'subsystem', 'code', 'exitCode',
+  'level',
+  'time',
+  'pid',
+  'hostname',
+  'msg',
+  'subsystem',
+  'code',
+  'exitCode',
 ]);
 
 /**

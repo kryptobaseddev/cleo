@@ -8,28 +8,32 @@
  * @task T4279
  */
 
-import { existsSync,mkdirSync,rmSync,writeFileSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
-import { releasePrepare,releasePush } from '../release-engine.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { releasePrepare, releasePush } from '../release-engine.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-release-push-guard');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');
 
 function writeConfig(config: Record<string, unknown>): void {
   mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'config.json'),
-    JSON.stringify(config, null, 2),
-    'utf-8',
-  );
+  writeFileSync(join(CLEO_DIR, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
 }
 
 const SAMPLE_TASKS = [
-  { id: 'T001', title: 'feat: Add feature', description: 'New feature task', status: 'done', priority: 'high', completedAt: '2026-02-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
+  {
+    id: 'T001',
+    title: 'feat: Add feature',
+    description: 'New feature task',
+    status: 'done',
+    priority: 'high',
+    completedAt: '2026-02-01T00:00:00Z',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
 async function setupTestDb(): Promise<void> {

@@ -7,6 +7,6 @@
  * @module @cleocode/cleo/hooks
  */
 
-export { hooks, HookRegistry } from './registry.js';
-export type * from './types.js';
 export * from './handlers/index.js';
+export { HookRegistry, hooks } from './registry.js';
+export type * from './types.js';

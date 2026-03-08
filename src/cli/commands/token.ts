@@ -7,12 +7,16 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { Command } from 'commander';
-import { cliOutput } from '../renderers/index.js';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { Command } from 'commander';
 import { measureTokenExchange, recordTokenExchange } from '../../core/metrics/token-service.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
-function readPayload(opts: Record<string, unknown>, textKey: string, fileKey: string): string | undefined {
+function readPayload(
+  opts: Record<string, unknown>,
+  textKey: string,
+  fileKey: string,
+): string | undefined {
   const text = opts[textKey] as string | undefined;
   const file = opts[fileKey] as string | undefined;
   if (file) return readFileSync(file, 'utf-8');
@@ -34,15 +38,21 @@ export function registerTokenCommand(program: Command): void {
     .option('--session <id>', 'Filter by session ID')
     .option('--task <id>', 'Filter by task ID')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'token', {
-        action: 'summary',
-        provider: opts['provider'] as string | undefined,
-        transport: opts['transport'] as string | undefined,
-        domain: opts['domain'] as string | undefined,
-        operationName: opts['operation'] as string | undefined,
-        sessionId: opts['session'] as string | undefined,
-        taskId: opts['task'] as string | undefined,
-      }, { command: 'token', operation: 'admin.token' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'token',
+        {
+          action: 'summary',
+          provider: opts['provider'] as string | undefined,
+          transport: opts['transport'] as string | undefined,
+          domain: opts['domain'] as string | undefined,
+          operationName: opts['operation'] as string | undefined,
+          sessionId: opts['session'] as string | undefined,
+          taskId: opts['task'] as string | undefined,
+        },
+        { command: 'token', operation: 'admin.token' },
+      );
     });
 
   token
@@ -57,31 +67,49 @@ export function registerTokenCommand(program: Command): void {
     .option('--limit <n>', 'Maximum records', parseInt)
     .option('--offset <n>', 'Skip records', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'token', {
-        action: 'list',
-        provider: opts['provider'] as string | undefined,
-        transport: opts['transport'] as string | undefined,
-        domain: opts['domain'] as string | undefined,
-        operationName: opts['operation'] as string | undefined,
-        sessionId: opts['session'] as string | undefined,
-        taskId: opts['task'] as string | undefined,
-        limit: opts['limit'] as number | undefined,
-        offset: opts['offset'] as number | undefined,
-      }, { command: 'token', operation: 'admin.token' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'token',
+        {
+          action: 'list',
+          provider: opts['provider'] as string | undefined,
+          transport: opts['transport'] as string | undefined,
+          domain: opts['domain'] as string | undefined,
+          operationName: opts['operation'] as string | undefined,
+          sessionId: opts['session'] as string | undefined,
+          taskId: opts['task'] as string | undefined,
+          limit: opts['limit'] as number | undefined,
+          offset: opts['offset'] as number | undefined,
+        },
+        { command: 'token', operation: 'admin.token' },
+      );
     });
 
   token
     .command('show <tokenId>')
     .description('Show a single token telemetry record')
     .action(async (tokenId: string) => {
-      await dispatchFromCli('query', 'admin', 'token', { action: 'show', tokenId }, { command: 'token', operation: 'admin.token' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'token',
+        { action: 'show', tokenId },
+        { command: 'token', operation: 'admin.token' },
+      );
     });
 
   token
     .command('delete <tokenId>')
     .description('Delete a token telemetry record')
     .action(async (tokenId: string) => {
-      await dispatchFromCli('mutate', 'admin', 'token', { action: 'delete', tokenId }, { command: 'token', operation: 'admin.token' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'token',
+        { action: 'delete', tokenId },
+        { command: 'token', operation: 'admin.token' },
+      );
     });
 
   token
@@ -94,15 +122,21 @@ export function registerTokenCommand(program: Command): void {
     .option('--session <id>', 'Filter by session ID')
     .option('--task <id>', 'Filter by task ID')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'token', {
-        action: 'clear',
-        provider: opts['provider'] as string | undefined,
-        transport: opts['transport'] as string | undefined,
-        domain: opts['domain'] as string | undefined,
-        operationName: opts['operation'] as string | undefined,
-        sessionId: opts['session'] as string | undefined,
-        taskId: opts['task'] as string | undefined,
-      }, { command: 'token', operation: 'admin.token' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'token',
+        {
+          action: 'clear',
+          provider: opts['provider'] as string | undefined,
+          transport: opts['transport'] as string | undefined,
+          domain: opts['domain'] as string | undefined,
+          operationName: opts['operation'] as string | undefined,
+          sessionId: opts['session'] as string | undefined,
+          taskId: opts['task'] as string | undefined,
+        },
+        { command: 'token', operation: 'admin.token' },
+      );
     });
 
   token
@@ -137,6 +171,9 @@ export function registerTokenCommand(program: Command): void {
         ? await recordTokenExchange(input)
         : await measureTokenExchange(input);
 
-      cliOutput(result, { command: 'token', operation: opts['record'] ? 'admin.token.record' : 'token.estimate' });
+      cliOutput(result, {
+        command: 'token',
+        operation: opts['record'] ? 'admin.token.record' : 'token.estimate',
+      });
     });
 }

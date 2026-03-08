@@ -3,10 +3,10 @@
  * @task T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerExistsCommand(program: Command): void {
   program

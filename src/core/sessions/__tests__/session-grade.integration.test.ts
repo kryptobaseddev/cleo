@@ -8,11 +8,11 @@
  * @task T4916
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditEntry } from '../../../../dispatch/middleware/audit.js';
 
 // Mock only the SQLite-dependent queryAudit; all other code is real
@@ -26,12 +26,10 @@ vi.mock('../../../dispatch/middleware/audit.js', () => ({
 }));
 
 vi.mock('../../paths.js', () => ({
-  getCleoDirAbsolute: (cwd?: string) =>
-    cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value,
+  getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
 }));
 
 import { gradeSession, readGrades } from '../session-grade.js';
-import type { GradeResult } from '../session-grade.js';
 
 // ---- Helpers ----
 
@@ -40,9 +38,7 @@ function ts(offsetMs: number): string {
   return new Date(new Date(BASE_TS).getTime() + offsetMs).toISOString();
 }
 
-function entry(
-  overrides: Partial<AuditEntry> & { domain: string; operation: string },
-): AuditEntry {
+function entry(overrides: Partial<AuditEntry> & { domain: string; operation: string }): AuditEntry {
   return {
     timestamp: overrides.timestamp ?? BASE_TS,
     sessionId: overrides.sessionId ?? 'integ-session',
@@ -61,21 +57,50 @@ function entry(
 function exemplarySession(): AuditEntry[] {
   return [
     // Check existing sessions first
-    entry({ domain: 'session', operation: 'list', timestamp: ts(0), metadata: { source: 'mcp', gateway: 'query' } }),
+    entry({
+      domain: 'session',
+      operation: 'list',
+      timestamp: ts(0),
+      metadata: { source: 'mcp', gateway: 'query' },
+    }),
     // Use admin.help for progressive disclosure
-    entry({ domain: 'admin', operation: 'help', timestamp: ts(1000), metadata: { source: 'mcp', gateway: 'query' } }),
+    entry({
+      domain: 'admin',
+      operation: 'help',
+      timestamp: ts(1000),
+      metadata: { source: 'mcp', gateway: 'query' },
+    }),
     // Discover tasks with find (not list)
-    entry({ domain: 'tasks', operation: 'find', timestamp: ts(2000), metadata: { source: 'mcp', gateway: 'query' } }),
+    entry({
+      domain: 'tasks',
+      operation: 'find',
+      timestamp: ts(2000),
+      metadata: { source: 'mcp', gateway: 'query' },
+    }),
     // Drill into specific task
-    entry({ domain: 'tasks', operation: 'show', timestamp: ts(3000), metadata: { source: 'mcp', gateway: 'query' } }),
+    entry({
+      domain: 'tasks',
+      operation: 'show',
+      timestamp: ts(3000),
+      metadata: { source: 'mcp', gateway: 'query' },
+    }),
     // Check parent exists before creating subtask
-    entry({ domain: 'tasks', operation: 'exists', timestamp: ts(4000), metadata: { source: 'mcp', gateway: 'query' } }),
+    entry({
+      domain: 'tasks',
+      operation: 'exists',
+      timestamp: ts(4000),
+      metadata: { source: 'mcp', gateway: 'query' },
+    }),
     // Create subtask with proper description
     entry({
       domain: 'tasks',
       operation: 'add',
       timestamp: ts(5000),
-      params: { title: 'Implement feature X', description: 'Build the X feature as described in spec', parent: 'T100' },
+      params: {
+        title: 'Implement feature X',
+        description: 'Build the X feature as described in spec',
+        parent: 'T100',
+      },
       result: { success: true, exitCode: 0, duration: 50 },
       metadata: { source: 'mcp', gateway: 'mutate' },
     }),
@@ -89,7 +114,12 @@ function exemplarySession(): AuditEntry[] {
       metadata: { source: 'mcp', gateway: 'mutate' },
     }),
     // End session properly
-    entry({ domain: 'session', operation: 'end', timestamp: ts(7000), metadata: { source: 'mcp', gateway: 'mutate' } }),
+    entry({
+      domain: 'session',
+      operation: 'end',
+      timestamp: ts(7000),
+      metadata: { source: 'mcp', gateway: 'mutate' },
+    }),
   ];
 }
 
@@ -168,9 +198,7 @@ describe('Session grade integration', () => {
     expect(result.dimensions.disclosureUse.score).toBe(20);
 
     // Minimal flags — none for a perfect session
-    const violationFlags = result.flags.filter(
-      f => !f.startsWith('No audit entries'),
-    );
+    const violationFlags = result.flags.filter((f) => !f.startsWith('No audit entries'));
     expect(violationFlags).toEqual([]);
   });
 
@@ -306,10 +334,7 @@ describe('Session grade integration', () => {
 
     const result = await gradeSession('sum-check', tempDir);
 
-    const dimensionSum = Object.values(result.dimensions).reduce(
-      (sum, d) => sum + d.score,
-      0,
-    );
+    const dimensionSum = Object.values(result.dimensions).reduce((sum, d) => sum + d.score, 0);
     expect(result.totalScore).toBe(dimensionSum);
   });
 });

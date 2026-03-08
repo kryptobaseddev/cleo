@@ -15,34 +15,38 @@
  * @task T5671
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { routeByParam } from './_routing.js';
-import { wrapResult, errorResult, unsupportedOp, handleErrorResult, getListParams } from './_base.js';
-
-import { collectDiagnostics } from '../../core/issue/diagnostics.js';
 import {
+  buildInjectionContent,
   catalog,
+  checkAllInjections,
+  checkAllSkillUpdates,
+  detectAllProviders,
   discoverSkill,
   discoverSkills,
+  getAllProviders,
   getCanonicalSkillsDir,
+  getInstalledProviders,
+  getTrackedSkills,
+  injectAll,
   installSkill,
   removeSkill,
-  getInstalledProviders,
-  getAllProviders,
-  detectAllProviders,
-  getTrackedSkills,
-  checkAllSkillUpdates,
-  checkAllInjections,
-  injectAll,
-  buildInjectionContent,
 } from '@cleocode/caamp';
-
-import { getSyncStatus, clearSyncState } from '../../core/admin/sync.js';
+import { clearSyncState, getSyncStatus } from '../../core/admin/sync.js';
+import { collectDiagnostics } from '../../core/issue/diagnostics.js';
+import { getLogger } from '../../core/logger.js';
+import { paginate } from '../../core/pagination.js';
+import { getProjectRoot } from '../../core/paths.js';
 import { systemSync } from '../engines/system-engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import {
+  errorResult,
+  getListParams,
+  handleErrorResult,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
+import { dispatchMeta } from './_meta.js';
+import { routeByParam } from './_routing.js';
 
 // ---------------------------------------------------------------------------
 // ToolsHandler
@@ -59,10 +63,7 @@ export class ToolsHandler implements DomainHandler {
   // DomainHandler interface
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -92,10 +93,7 @@ export class ToolsHandler implements DomainHandler {
     }
   }
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -131,21 +129,34 @@ export class ToolsHandler implements DomainHandler {
         // issue
         'issue.diagnostics',
         // skill
-        'skill.list', 'skill.show', 'skill.find',
-        'skill.dispatch', 'skill.verify', 'skill.dependencies', 'skill.spawn.providers',
-        'skill.catalog', 'skill.precedence',
+        'skill.list',
+        'skill.show',
+        'skill.find',
+        'skill.dispatch',
+        'skill.verify',
+        'skill.dependencies',
+        'skill.spawn.providers',
+        'skill.catalog',
+        'skill.precedence',
         // provider
-        'provider.list', 'provider.detect', 'provider.inject.status', 'provider.supports', 'provider.hooks',
+        'provider.list',
+        'provider.detect',
+        'provider.inject.status',
+        'provider.supports',
+        'provider.hooks',
         // todowrite
         'todowrite.status',
       ],
       mutate: [
         // skill
-        'skill.install', 'skill.uninstall', 'skill.refresh',
+        'skill.install',
+        'skill.uninstall',
+        'skill.refresh',
         // provider
         'provider.inject',
         // todowrite
-        'todowrite.sync', 'todowrite.clear',
+        'todowrite.sync',
+        'todowrite.clear',
       ],
     };
   }
@@ -175,7 +186,10 @@ export class ToolsHandler implements DomainHandler {
         return {
           _meta: dispatchMeta('query', 'tools', `issue.${sub}`, startTime),
           success: false,
-          error: { code: 'E_PLUGIN_EXTRACTED', message: 'This operation moved to the ct-github-issues plugin' },
+          error: {
+            code: 'E_PLUGIN_EXTRACTED',
+            message: 'This operation moved to the ct-github-issues plugin',
+          },
         };
 
       default:
@@ -201,7 +215,10 @@ export class ToolsHandler implements DomainHandler {
         return {
           _meta: dispatchMeta('mutate', 'tools', `issue.${sub}`, startTime),
           success: false,
-          error: { code: 'E_PLUGIN_EXTRACTED', message: 'This operation moved to the ct-github-issues plugin' },
+          error: {
+            code: 'E_PLUGIN_EXTRACTED',
+            message: 'This operation moved to the ct-github-issues plugin',
+          },
         };
 
       default:
@@ -238,13 +255,25 @@ export class ToolsHandler implements DomainHandler {
       case 'show': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('query', 'tools', 'skill.show', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'skill.show',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const skill = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
         if (!skill) {
-          return errorResult('query', 'tools', 'skill.show', 'E_SKILL_NOT_FOUND',
-            `Skill not found: ${name}`, startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'skill.show',
+            'E_SKILL_NOT_FOUND',
+            `Skill not found: ${name}`,
+            startTime,
+          );
         }
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.show', startTime),
@@ -256,9 +285,11 @@ export class ToolsHandler implements DomainHandler {
         const query = ((params?.query as string | undefined) ?? '').toLowerCase();
         const skills = await discoverSkills(getCanonicalSkillsDir());
         const filtered = query
-          ? skills.filter((s) =>
-              s.name.toLowerCase().includes(query)
-              || s.metadata.description.toLowerCase().includes(query))
+          ? skills.filter(
+              (s) =>
+                s.name.toLowerCase().includes(query) ||
+                s.metadata.description.toLowerCase().includes(query),
+            )
           : skills;
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.find', startTime),
@@ -269,14 +300,26 @@ export class ToolsHandler implements DomainHandler {
       case 'dispatch': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('query', 'tools', 'skill.dispatch', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'skill.dispatch',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const matrix = catalog.getDispatchMatrix();
         const entry = {
-          byTaskType: Object.entries(matrix.by_task_type).filter(([, skill]) => skill === name).map(([k]) => k),
-          byKeyword: Object.entries(matrix.by_keyword).filter(([, skill]) => skill === name).map(([k]) => k),
-          byProtocol: Object.entries(matrix.by_protocol).filter(([, skill]) => skill === name).map(([k]) => k),
+          byTaskType: Object.entries(matrix.by_task_type)
+            .filter(([, skill]) => skill === name)
+            .map(([k]) => k),
+          byKeyword: Object.entries(matrix.by_keyword)
+            .filter(([, skill]) => skill === name)
+            .map(([k]) => k),
+          byProtocol: Object.entries(matrix.by_protocol)
+            .filter(([, skill]) => skill === name)
+            .map(([k]) => k),
         };
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.dispatch', startTime),
@@ -287,8 +330,14 @@ export class ToolsHandler implements DomainHandler {
       case 'verify': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('query', 'tools', 'skill.verify', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'skill.verify',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const installed = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
         const catalogEntry = catalog.getSkill(name);
@@ -306,8 +355,14 @@ export class ToolsHandler implements DomainHandler {
       case 'dependencies': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('query', 'tools', 'skill.dependencies', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'skill.dependencies',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const direct = catalog.getSkillDependencies(name);
         const tree = catalog.resolveDependencyTree([name]);
@@ -319,7 +374,12 @@ export class ToolsHandler implements DomainHandler {
       }
 
       case 'spawn.providers': {
-        const capability = params?.capability as 'supportsSubagents' | 'supportsProgrammaticSpawn' | 'supportsInterAgentComms' | 'supportsParallelSpawn' | undefined;
+        const capability = params?.capability as
+          | 'supportsSubagents'
+          | 'supportsProgrammaticSpawn'
+          | 'supportsInterAgentComms'
+          | 'supportsParallelSpawn'
+          | undefined;
         const { getProvidersBySpawnCapability } = await import('@cleocode/caamp');
 
         if (capability) {
@@ -342,12 +402,17 @@ export class ToolsHandler implements DomainHandler {
 
       // Merged: skill.catalog (absorbs catalog.protocols/profiles/resources/info via type param)
       case 'catalog': {
-        return routeByParam(params, 'type', {
-          protocols: () => this.querySkillCatalogProtocols(params, startTime),
-          profiles: () => this.querySkillCatalogProfiles(params, startTime),
-          resources: () => this.querySkillCatalogResources(params, startTime),
-          info: () => this.querySkillCatalogInfo(startTime),
-        }, 'info');
+        return routeByParam(
+          params,
+          'type',
+          {
+            protocols: () => this.querySkillCatalogProtocols(params, startTime),
+            profiles: () => this.querySkillCatalogProfiles(params, startTime),
+            resources: () => this.querySkillCatalogResources(params, startTime),
+            info: () => this.querySkillCatalogInfo(startTime),
+          },
+          'info',
+        );
       }
 
       // Backward-compat aliases for old dotted catalog sub-ops
@@ -362,10 +427,15 @@ export class ToolsHandler implements DomainHandler {
 
       // Merged: skill.precedence (absorbs precedence.show/resolve via action param)
       case 'precedence': {
-        return routeByParam(params, 'action', {
-          show: () => this.querySkillPrecedenceShow(startTime),
-          resolve: () => this.querySkillPrecedenceResolve(params, startTime),
-        }, 'show');
+        return routeByParam(
+          params,
+          'action',
+          {
+            show: () => this.querySkillPrecedenceShow(startTime),
+            resolve: () => this.querySkillPrecedenceResolve(params, startTime),
+          },
+          'show',
+        );
       }
 
       // Backward-compat aliases for old dotted precedence sub-ops
@@ -488,7 +558,9 @@ export class ToolsHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private async querySkillPrecedenceShow(startTime: number): Promise<DispatchResponse> {
-    const { getSkillsMapWithPrecedence } = await import('../../core/skills/precedence-integration.js');
+    const { getSkillsMapWithPrecedence } = await import(
+      '../../core/skills/precedence-integration.js'
+    );
     const map = getSkillsMapWithPrecedence();
     return {
       _meta: dispatchMeta('query', 'tools', 'skill.precedence', startTime),
@@ -504,7 +576,9 @@ export class ToolsHandler implements DomainHandler {
     const providerId = params?.providerId as string;
     const scope = (params?.scope as 'global' | 'project') || 'global';
 
-    const { resolveSkillPathsForProvider } = await import('../../core/skills/precedence-integration.js');
+    const { resolveSkillPathsForProvider } = await import(
+      '../../core/skills/precedence-integration.js'
+    );
     const paths = await resolveSkillPathsForProvider(providerId, scope, this.projectRoot);
 
     return {
@@ -527,21 +601,35 @@ export class ToolsHandler implements DomainHandler {
     const isGlobal = params?.isGlobal !== false;
 
     if (providers.length === 0) {
-      return errorResult('mutate', 'tools', `skill.${sub}`,
-        'E_PROVIDER_NOT_FOUND', 'No installed providers available', startTime);
+      return errorResult(
+        'mutate',
+        'tools',
+        `skill.${sub}`,
+        'E_PROVIDER_NOT_FOUND',
+        'No installed providers available',
+        startTime,
+      );
     }
 
     switch (sub) {
       case 'install': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('mutate', 'tools', 'skill.install', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'mutate',
+            'tools',
+            'skill.install',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const source = (params?.source as string | undefined) ?? `library:${name}`;
         const providerIds = providers.map((p) => p.id);
 
-        const { determineInstallationTargets } = await import('../../core/skills/precedence-integration.js');
+        const { determineInstallationTargets } = await import(
+          '../../core/skills/precedence-integration.js'
+        );
         const targets = await determineInstallationTargets({
           skillName: name,
           source,
@@ -567,14 +655,22 @@ export class ToolsHandler implements DomainHandler {
           _meta: dispatchMeta('mutate', 'tools', 'skill.install', startTime),
           success: allSuccess,
           data: { results, targets: targets.map((t) => t.providerId) },
-          error: allSuccess ? undefined : { code: 'E_INSTALL_FAILED', message: errors.join('; ') || 'Skill install failed' },
+          error: allSuccess
+            ? undefined
+            : { code: 'E_INSTALL_FAILED', message: errors.join('; ') || 'Skill install failed' },
         };
       }
       case 'uninstall': {
         const name = params?.name as string | undefined;
         if (!name) {
-          return errorResult('mutate', 'tools', 'skill.uninstall', 'E_INVALID_INPUT',
-            'Missing required parameter: name', startTime);
+          return errorResult(
+            'mutate',
+            'tools',
+            'skill.uninstall',
+            'E_INVALID_INPUT',
+            'Missing required parameter: name',
+            startTime,
+          );
         }
         const result = await removeSkill(name, providers, isGlobal, this.projectRoot);
         const ok = result.removed.length > 0 && result.errors.length === 0;
@@ -582,7 +678,12 @@ export class ToolsHandler implements DomainHandler {
           _meta: dispatchMeta('mutate', 'tools', 'skill.uninstall', startTime),
           success: ok,
           data: { removed: result.removed, errors: result.errors },
-          error: ok ? undefined : { code: 'E_UNINSTALL_FAILED', message: result.errors.join('; ') || 'Skill uninstall failed' },
+          error: ok
+            ? undefined
+            : {
+                code: 'E_UNINSTALL_FAILED',
+                message: result.errors.join('; ') || 'Skill uninstall failed',
+              },
         };
       }
       case 'refresh': {
@@ -597,7 +698,13 @@ export class ToolsHandler implements DomainHandler {
           if (!entry) continue;
           const source = entry.sourceType === 'library' ? `library:${name}` : entry.source;
           try {
-            const result = await installSkill(source, name, providers, entry.isGlobal, entry.projectDir);
+            const result = await installSkill(
+              source,
+              name,
+              providers,
+              entry.isGlobal,
+              entry.projectDir,
+            );
             if (result.success) {
               updated.push(name);
             } else {
@@ -612,7 +719,10 @@ export class ToolsHandler implements DomainHandler {
           _meta: dispatchMeta('mutate', 'tools', 'skill.refresh', startTime),
           success: failed.length === 0,
           data: { updated, failed, checked: Object.keys(updates).length },
-          error: failed.length === 0 ? undefined : { code: 'E_REFRESH_FAILED', message: `${failed.length} skill refreshes failed` },
+          error:
+            failed.length === 0
+              ? undefined
+              : { code: 'E_REFRESH_FAILED', message: `${failed.length} skill refreshes failed` },
         };
       }
 
@@ -670,8 +780,14 @@ export class ToolsHandler implements DomainHandler {
         const providerId = params?.providerId as string | undefined;
         const capability = params?.capability as string | undefined;
         if (!providerId || !capability) {
-          return errorResult('query', 'tools', 'provider.supports',
-            'E_INVALID_INPUT', 'Missing required parameters: providerId and capability', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'provider.supports',
+            'E_INVALID_INPUT',
+            'Missing required parameters: providerId and capability',
+            startTime,
+          );
         }
         const { providerSupportsById } = await import('@cleocode/caamp');
         const supported = providerSupportsById(providerId, capability);
@@ -685,11 +801,19 @@ export class ToolsHandler implements DomainHandler {
       case 'hooks': {
         const event = params?.event as string | undefined;
         if (!event) {
-          return errorResult('query', 'tools', 'provider.hooks', 'E_INVALID_INPUT',
-            'Missing required parameter: event (HookEvent)', startTime);
+          return errorResult(
+            'query',
+            'tools',
+            'provider.hooks',
+            'E_INVALID_INPUT',
+            'Missing required parameter: event (HookEvent)',
+            startTime,
+          );
         }
         const { queryHookProviders } = await import('../engines/hooks-engine.js');
-        const result = await queryHookProviders(event as import('../../core/hooks/types.js').HookEvent);
+        const result = await queryHookProviders(
+          event as import('../../core/hooks/types.js').HookEvent,
+        );
         return wrapResult(result, 'query', 'tools', 'provider.hooks', startTime);
       }
 
@@ -711,12 +835,19 @@ export class ToolsHandler implements DomainHandler {
       case 'inject': {
         const providers = getInstalledProviders();
         if (providers.length === 0) {
-          return errorResult('mutate', 'tools', 'provider.inject',
-            'E_PROVIDER_NOT_FOUND', 'No installed providers available', startTime);
+          return errorResult(
+            'mutate',
+            'tools',
+            'provider.inject',
+            'E_PROVIDER_NOT_FOUND',
+            'No installed providers available',
+            startTime,
+          );
         }
         const scope = (params?.scope as 'project' | 'global' | undefined) ?? 'project';
         const references = (params?.references as string[] | undefined) ?? ['@AGENTS.md'];
-        const content = (params?.content as string | undefined) ?? buildInjectionContent({ references });
+        const content =
+          (params?.content as string | undefined) ?? buildInjectionContent({ references });
         const result = await injectAll(providers, this.projectRoot, scope, content);
         const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
         return {

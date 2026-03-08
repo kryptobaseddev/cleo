@@ -8,9 +8,9 @@
  * @epic T5277
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { OPERATIONS, getByDomain } from '../../registry.js';
+import { getByDomain, OPERATIONS } from '../../registry.js';
 import { CANONICAL_DOMAINS } from '../../types.js';
 
 describe('Sticky Domain (T5282)', () => {
@@ -69,7 +69,7 @@ describe('Sticky Domain (T5282)', () => {
   describe('sticky.add (mutate)', () => {
     it('should be registered as a mutate operation', () => {
       const addOp = OPERATIONS.find(
-        (o) => o.domain === 'sticky' && o.operation === 'add' && o.gateway === 'mutate'
+        (o) => o.domain === 'sticky' && o.operation === 'add' && o.gateway === 'mutate',
       );
       expect(addOp).toBeDefined();
     });
@@ -78,7 +78,7 @@ describe('Sticky Domain (T5282)', () => {
   describe('sticky.list (query)', () => {
     it('should be registered as a query operation', () => {
       const listOp = OPERATIONS.find(
-        (o) => o.domain === 'sticky' && o.operation === 'list' && o.gateway === 'query'
+        (o) => o.domain === 'sticky' && o.operation === 'list' && o.gateway === 'query',
       );
       expect(listOp).toBeDefined();
     });
@@ -87,7 +87,7 @@ describe('Sticky Domain (T5282)', () => {
   describe('sticky.show (query)', () => {
     it('should be registered as a query operation', () => {
       const showOp = OPERATIONS.find(
-        (o) => o.domain === 'sticky' && o.operation === 'show' && o.gateway === 'query'
+        (o) => o.domain === 'sticky' && o.operation === 'show' && o.gateway === 'query',
       );
       expect(showOp).toBeDefined();
     });
@@ -96,7 +96,7 @@ describe('Sticky Domain (T5282)', () => {
   describe('sticky.convert (mutate)', () => {
     it('should be registered as a mutate operation', () => {
       const convertOp = OPERATIONS.find(
-        (o) => o.domain === 'sticky' && o.operation === 'convert' && o.gateway === 'mutate'
+        (o) => o.domain === 'sticky' && o.operation === 'convert' && o.gateway === 'mutate',
       );
       expect(convertOp).toBeDefined();
     });
@@ -105,7 +105,7 @@ describe('Sticky Domain (T5282)', () => {
   describe('sticky.archive (mutate)', () => {
     it('should be registered as a mutate operation', () => {
       const archiveOp = OPERATIONS.find(
-        (o) => o.domain === 'sticky' && o.operation === 'archive' && o.gateway === 'mutate'
+        (o) => o.domain === 'sticky' && o.operation === 'archive' && o.gateway === 'mutate',
       );
       expect(archiveOp).toBeDefined();
     });

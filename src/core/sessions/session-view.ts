@@ -12,8 +12,8 @@
  * @epic T4454
  */
 
-import type { Session } from '../../store/validation-schemas.js';
 import type { SessionStatus } from '../../store/status-registry.js';
+import type { Session } from '../../store/validation-schemas.js';
 
 export class SessionView {
   private readonly _sessions: Session[];

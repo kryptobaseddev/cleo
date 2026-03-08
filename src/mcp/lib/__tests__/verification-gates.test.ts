@@ -5,23 +5,23 @@
  * @epic T2908
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VerificationGate,
-  GateLayer,
-  GateStatus,
-  OperationContext,
-  createVerificationGate,
-  GATE_SEQUENCE,
-  WorkflowGateName,
-  WorkflowGateTracker,
-  WORKFLOW_GATE_SEQUENCE,
-  WORKFLOW_GATE_DEFINITIONS,
-  isValidWorkflowGateName,
-  getWorkflowGateDefinition,
-} from '../verification-gates.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '../exit-codes.js';
 import { ProtocolType } from '../protocol-enforcement.js';
+import {
+  createVerificationGate,
+  GATE_SEQUENCE,
+  GateLayer,
+  GateStatus,
+  getWorkflowGateDefinition,
+  isValidWorkflowGateName,
+  type OperationContext,
+  VerificationGate,
+  WORKFLOW_GATE_DEFINITIONS,
+  WORKFLOW_GATE_SEQUENCE,
+  WorkflowGateName,
+  WorkflowGateTracker,
+} from '../verification-gates.js';
 
 describe('VerificationGate', () => {
   let gate: VerificationGate;
@@ -131,9 +131,7 @@ describe('VerificationGate', () => {
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
       expect(result.blockedAt).toBe(GateLayer.SEMANTIC);
-      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe(
-        'E_TITLE_DESCRIPTION_SAME'
-      );
+      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe('E_TITLE_DESCRIPTION_SAME');
     });
 
     it('should fail on circular dependency', async () => {
@@ -151,9 +149,7 @@ describe('VerificationGate', () => {
 
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
-      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe(
-        'E_CIRCULAR_DEPENDENCY'
-      );
+      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe('E_CIRCULAR_DEPENDENCY');
     });
 
     it('should fail on invalid session scope format', async () => {
@@ -185,9 +181,7 @@ describe('VerificationGate', () => {
       // Warnings don't block in strict mode
       expect(result.passed).toBe(true);
       expect(result.layers[GateLayer.SEMANTIC].violations).toHaveLength(1);
-      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe(
-        'E_NOTES_RECOMMENDED'
-      );
+      expect(result.layers[GateLayer.SEMANTIC].violations[0].code).toBe('E_NOTES_RECOMMENDED');
     });
   });
 
@@ -207,9 +201,7 @@ describe('VerificationGate', () => {
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
       expect(result.blockedAt).toBe(GateLayer.REFERENTIAL);
-      expect(result.layers[GateLayer.REFERENTIAL].violations[0].code).toBe(
-        'E_INVALID_PARENT_REF'
-      );
+      expect(result.layers[GateLayer.REFERENTIAL].violations[0].code).toBe('E_INVALID_PARENT_REF');
     });
 
     it('should fail on invalid dependency reference', async () => {
@@ -227,7 +219,7 @@ describe('VerificationGate', () => {
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
       expect(result.layers[GateLayer.REFERENTIAL].violations[0].code).toBe(
-        'E_INVALID_DEPENDENCY_REF'
+        'E_INVALID_DEPENDENCY_REF',
       );
     });
 
@@ -243,9 +235,7 @@ describe('VerificationGate', () => {
 
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
-      expect(result.layers[GateLayer.REFERENTIAL].violations[0].code).toBe(
-        'E_TASK_ID_REQUIRED'
-      );
+      expect(result.layers[GateLayer.REFERENTIAL].violations[0].code).toBe('E_TASK_ID_REQUIRED');
     });
   });
 
@@ -309,9 +299,11 @@ describe('VerificationGate', () => {
 
       const result = await gate.verifyOperation(context);
       expect(result.passed).toBe(false);
-      expect(result.layers[GateLayer.PROTOCOL].violations.some(
-        (v: any) => v.code === 'E_INVALID_MANIFEST_STATUS'
-      )).toBe(true);
+      expect(
+        result.layers[GateLayer.PROTOCOL].violations.some(
+          (v: any) => v.code === 'E_INVALID_MANIFEST_STATUS',
+        ),
+      ).toBe(true);
     });
   });
 
@@ -438,9 +430,7 @@ describe('VerificationGate', () => {
     it('should return human-readable layer names', () => {
       expect(VerificationGate.getLayerName(GateLayer.SCHEMA)).toBe('Schema Validation');
       expect(VerificationGate.getLayerName(GateLayer.SEMANTIC)).toBe('Semantic Validation');
-      expect(VerificationGate.getLayerName(GateLayer.REFERENTIAL)).toBe(
-        'Referential Validation'
-      );
+      expect(VerificationGate.getLayerName(GateLayer.REFERENTIAL)).toBe('Referential Validation');
       expect(VerificationGate.getLayerName(GateLayer.PROTOCOL)).toBe('Protocol Validation');
     });
   });

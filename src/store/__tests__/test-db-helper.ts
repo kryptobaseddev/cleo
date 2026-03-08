@@ -11,10 +11,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
-import { resetDbState } from '../sqlite.js';
-import type { DataAccessor } from '../data-accessor.js';
 import type { Task, TaskFile } from '../../types/task.js';
+import type { DataAccessor } from '../data-accessor.js';
+import { resetDbState } from '../sqlite.js';
+import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
 
 /** Result of creating a test database environment. */
 export interface TestDbEnv {
@@ -63,14 +63,17 @@ export async function createTestDb(): Promise<TestDbEnv> {
  * Useful for seeding test data via accessor.saveTaskFile().
  */
 export function makeTaskFile(tasks: Array<Partial<Task> & { id: string }>): TaskFile {
-  const fullTasks: Task[] = tasks.map(t => ({
-    title: t.title ?? `Task ${t.id}`,
-    description: t.description ?? undefined,
-    status: t.status ?? 'pending',
-    priority: t.priority ?? 'medium',
-    createdAt: t.createdAt ?? new Date().toISOString(),
-    ...t,
-  } as Task));
+  const fullTasks: Task[] = tasks.map(
+    (t) =>
+      ({
+        title: t.title ?? `Task ${t.id}`,
+        description: t.description ?? undefined,
+        status: t.status ?? 'pending',
+        priority: t.priority ?? 'medium',
+        createdAt: t.createdAt ?? new Date().toISOString(),
+        ...t,
+      }) as Task,
+  );
 
   return {
     version: '2.10.0',
@@ -103,11 +106,11 @@ export async function seedTasks(
   }
 
   // Pass 1: Insert all tasks without dependencies so FK targets exist
-  const tasksWithoutDeps = tasks.map(t => ({ ...t, depends: undefined }));
+  const tasksWithoutDeps = tasks.map((t) => ({ ...t, depends: undefined }));
   await accessor.saveTaskFile(makeTaskFile(tasksWithoutDeps));
 
   // Pass 2: Save again with full dependencies (all referenced tasks now exist)
-  const hasDeps = tasks.some(t => t.depends && t.depends.length > 0);
+  const hasDeps = tasks.some((t) => t.depends && t.depends.length > 0);
   if (hasDeps) {
     await accessor.saveTaskFile(makeTaskFile(tasks));
   }

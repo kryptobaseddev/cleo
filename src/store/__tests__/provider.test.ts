@@ -6,7 +6,7 @@
  * @epic T4638
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { StoreEngine } from '../provider.js';
 
 describe('StoreProvider', () => {

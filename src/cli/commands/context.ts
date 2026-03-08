@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerContextCommand(program: Command): void {
@@ -17,9 +17,16 @@ export function registerContextCommand(program: Command): void {
     .description('Show current context state (default)')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'context', {
-        action: 'status', session: opts['session'],
-      }, { command: 'context' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'context',
+        {
+          action: 'status',
+          session: opts['session'],
+        },
+        { command: 'context' },
+      );
     });
 
   context
@@ -27,17 +34,30 @@ export function registerContextCommand(program: Command): void {
     .description('Check threshold, return exit code for scripting')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'context', {
-        action: 'check', session: opts['session'],
-      }, { command: 'context' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'context',
+        {
+          action: 'check',
+          session: opts['session'],
+        },
+        { command: 'context' },
+      );
     });
 
   context
     .command('list')
     .description('List all context state files (multi-session)')
     .action(async () => {
-      await dispatchFromCli('query', 'admin', 'context', {
-        action: 'list',
-      }, { command: 'context' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'context',
+        {
+          action: 'list',
+        },
+        { command: 'context' },
+      );
     });
 }

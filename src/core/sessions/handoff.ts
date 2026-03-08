@@ -16,11 +16,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
-import type { TaskFileExt } from './types.js';
+import { CleoError } from '../errors.js';
 import { getDecisionLog } from './decisions.js';
+import type { TaskFileExt } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,10 +74,7 @@ export async function computeHandoff(
 
   const session = sessions.find((s) => s.id === options.sessionId);
   if (!session) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${options.sessionId}' not found`,
-    );
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${options.sessionId}' not found`);
   }
 
   // Load task data for scope analysis
@@ -114,10 +111,7 @@ export async function computeHandoff(
  * Compute top-3 next suggested tasks.
  * Prioritizes uncompleted tasks within the session scope.
  */
-function computeNextSuggested(
-  session: Session,
-  current: TaskFileExt,
-): string[] {
+function computeNextSuggested(session: Session, current: TaskFileExt): string[] {
   const suggestions: string[] = [];
 
   if (!current.tasks) return suggestions;
@@ -145,8 +139,7 @@ function computeNextSuggested(
 
   pendingTasks.sort((a, b) => {
     const priorityDiff =
-      (priorityOrder[a.priority as string] ?? 99) -
-      (priorityOrder[b.priority as string] ?? 99);
+      (priorityOrder[a.priority as string] ?? 99) - (priorityOrder[b.priority as string] ?? 99);
     if (priorityDiff !== 0) return priorityDiff;
     const aCreated = typeof a.createdAt === 'string' ? a.createdAt : '1970-01-01T00:00:00Z';
     const bCreated = typeof b.createdAt === 'string' ? b.createdAt : '1970-01-01T00:00:00Z';
@@ -160,10 +153,7 @@ function computeNextSuggested(
 /**
  * Find tasks with blockers in the session scope.
  */
-function findOpenBlockers(
-  current: TaskFileExt,
-  session: Session,
-): string[] {
+function findOpenBlockers(current: TaskFileExt, session: Session): string[] {
   const blockers: string[] = [];
 
   if (!current.tasks) return blockers;
@@ -181,10 +171,7 @@ function findOpenBlockers(
 /**
  * Find open bugs in the session scope.
  */
-function findOpenBugs(
-  current: TaskFileExt,
-  session: Session,
-): string[] {
+function findOpenBugs(current: TaskFileExt, session: Session): string[] {
   const bugs: string[] = [];
 
   if (!current.tasks) return bugs;
@@ -195,7 +182,8 @@ function findOpenBugs(
   const bugTasks = current.tasks.filter(
     (t) =>
       scopeTaskIds.has(t.id) &&
-      (t.type === 'bug' || (Array.isArray(t.labels) && t.labels.some((l: string) => l === 'bug'))) &&
+      (t.type === 'bug' ||
+        (Array.isArray(t.labels) && t.labels.some((l: string) => l === 'bug'))) &&
       t.status !== 'done' &&
       t.status !== 'completed' &&
       t.status !== 'archived' &&
@@ -208,24 +196,25 @@ function findOpenBugs(
 /**
  * Get set of task IDs within the session scope.
  */
-function getScopeTaskIds(
-  session: Session,
-  current: TaskFileExt,
-): Set<string> {
+function getScopeTaskIds(session: Session, current: TaskFileExt): Set<string> {
   const taskIds = new Set<string>();
 
   if (!current.tasks) return taskIds;
 
   if (session.scope.type === 'global') {
     // Global scope: all tasks
-    current.tasks.forEach((t) => taskIds.add(t.id));
+    for (const t of current.tasks) {
+      taskIds.add(t.id);
+    }
   } else {
     // Epic/task scope: root task and descendants
     // Prefer rootTaskId (engine-layer), fall back to epicId (core-layer)
     const rootId = session.scope.rootTaskId ?? session.scope.epicId;
     if (!rootId) {
       // No root ID, fall back to global
-      current.tasks.forEach((t) => taskIds.add(t.id));
+      for (const t of current.tasks) {
+        taskIds.add(t.id);
+      }
       return taskIds;
     }
 
@@ -243,7 +232,9 @@ function getScopeTaskIds(
     // Include explicitTaskIds if present in scope (runtime safe access for engine-layer sessions)
     const explicitIds = (session.scope as unknown as Record<string, unknown>).explicitTaskIds;
     if (Array.isArray(explicitIds)) {
-      explicitIds.forEach((id) => { if (typeof id === 'string') taskIds.add(id); });
+      explicitIds.forEach((id) => {
+        if (typeof id === 'string') taskIds.add(id);
+      });
     }
   }
 
@@ -265,10 +256,7 @@ export async function persistHandoff(
   const session = sessions.find((s) => s.id === sessionId);
 
   if (!session) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${sessionId}' not found`,
-    );
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${sessionId}' not found`);
   }
 
   // Store handoff data as JSON string on the typed Session field
@@ -332,10 +320,7 @@ export async function getLastHandoff(
   }
 
   // Sort by endedAt descending (most recent first)
-  endedSessions.sort(
-    (a, b) =>
-      new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
-  );
+  endedSessions.sort((a, b) => new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime());
 
   // Find first with handoff data (check handoffJson, then debriefJson fallback)
   for (const session of endedSessions) {
@@ -487,23 +472,23 @@ async function captureGitState(projectRoot: string): Promise<GitState | null> {
 
     // Get current branch
     const { stdout: branch } = await execFileAsync(
-      'git', ['rev-parse', '--abbrev-ref', 'HEAD'], execOpts,
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      execOpts,
     );
 
     // Get commit count on current branch
     const { stdout: countStr } = await execFileAsync(
-      'git', ['rev-list', '--count', 'HEAD'], execOpts,
+      'git',
+      ['rev-list', '--count', 'HEAD'],
+      execOpts,
     );
 
     // Get last commit hash
-    const { stdout: hash } = await execFileAsync(
-      'git', ['rev-parse', '--short', 'HEAD'], execOpts,
-    );
+    const { stdout: hash } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], execOpts);
 
     // Check for uncommitted changes
-    const { stdout: statusOut } = await execFileAsync(
-      'git', ['status', '--porcelain'], execOpts,
-    );
+    const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], execOpts);
 
     return {
       branch: branch.trim(),

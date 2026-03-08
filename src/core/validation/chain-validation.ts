@@ -7,7 +7,7 @@
  * @task T5401
  */
 
-import type { ChainShape, WarpChain, ChainValidation } from '../../types/warp-chain.js';
+import type { ChainShape, ChainValidation, WarpChain } from '../../types/warp-chain.js';
 import { VERIFICATION_GATE_ORDER } from './verification.js';
 
 /**
@@ -129,13 +129,17 @@ export function validateGateSatisfiability(chain: WarpChain): string[] {
 
     if (gate.check.type === 'stage_complete') {
       if (!stageIds.has(gate.check.stageId)) {
-        errors.push(`Gate "${gate.id}" stage_complete check references non-existent stage "${gate.check.stageId}"`);
+        errors.push(
+          `Gate "${gate.id}" stage_complete check references non-existent stage "${gate.check.stageId}"`,
+        );
       }
     }
 
     if (gate.check.type === 'verification_gate') {
       if (!validGateNames.has(gate.check.gateName)) {
-        errors.push(`Gate "${gate.id}" references invalid verification gate name "${gate.check.gateName as string}"`);
+        errors.push(
+          `Gate "${gate.id}" references invalid verification gate name "${gate.check.gateName as string}"`,
+        );
       }
     }
   }

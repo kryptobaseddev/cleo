@@ -30,8 +30,8 @@ vi.mock('../../../core/validation/chain-validation.js', () => ({
   validateChain: vi.fn(),
 }));
 
-import { CheckHandler } from '../check.js';
 import { validateChain } from '../../../core/validation/chain-validation.js';
+import { CheckHandler } from '../check.js';
 
 function makeForkJoinChain() {
   return {

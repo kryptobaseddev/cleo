@@ -6,7 +6,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnToolStartPayload, OnToolCompletePayload } from '../types.js';
+import type { OnToolCompletePayload, OnToolStartPayload } from '../types.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -19,7 +19,7 @@ function isMissingBrainSchemaError(err: unknown): boolean {
  */
 export async function handleToolStart(
   projectRoot: string,
-  payload: OnToolStartPayload
+  payload: OnToolStartPayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -40,7 +40,7 @@ export async function handleToolStart(
  */
 export async function handleToolComplete(
   projectRoot: string,
-  payload: OnToolCompletePayload
+  payload: OnToolCompletePayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 

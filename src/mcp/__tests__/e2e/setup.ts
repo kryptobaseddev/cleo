@@ -7,7 +7,11 @@
  * @task T2937
  */
 
-import { setupIntegrationTest, cleanupIntegrationTest, IntegrationTestContext } from '../integration-setup.js';
+import {
+  cleanupIntegrationTest,
+  type IntegrationTestContext,
+  setupIntegrationTest,
+} from '../integration-setup.js';
 
 /**
  * Extract data payload from an ExecutorResult, handling LAFS envelope.
@@ -82,10 +86,7 @@ export function extractTaskId(result: any): string {
   // - Multiple fields: data = {task: {id,...}, duplicate: true, ...}
   // - Direct taskId: data = {taskId: "T123"}
   const d = getResponseData(result);
-  const taskId =
-    d?.taskId ||
-    d?.id ||
-    d?.task?.id;
+  const taskId = d?.taskId || d?.id || d?.task?.id;
   if (!taskId) {
     throw new Error(`No task ID found in result`);
   }
@@ -105,11 +106,7 @@ export function extractSessionId(result: any): string {
   // - session start: data = {sessionId, scope, ...}
   // - session status: data = {session: {sessionId,...}}
   const sd = getResponseData(result);
-  const sessionId =
-    sd?.sessionId ||
-    sd?.id ||
-    sd?.session?.sessionId ||
-    sd?.session?.id;
+  const sessionId = sd?.sessionId || sd?.id || sd?.session?.sessionId || sd?.session?.id;
   if (!sessionId) {
     throw new Error('No session ID found in result');
   }
@@ -129,7 +126,7 @@ export function verifyResponseFormat(
   response: any,
   _expectedGateway: 'query' | 'mutate',
   _expectedDomain: string,
-  _expectedOperation: string
+  _expectedOperation: string,
 ): void {
   // Verify success field exists
   expect(typeof response.success).toBe('boolean');
@@ -154,7 +151,7 @@ export async function waitFor(
     timeout?: number;
     interval?: number;
     errorMessage?: string;
-  }
+  },
 ): Promise<void> {
   const timeout = options?.timeout || 10000;
   const interval = options?.interval || 500;

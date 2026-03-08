@@ -5,14 +5,14 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { readJson } from '../../store/json.js';
+import { formatError } from '../../core/output.js';
 import { getAgentOutputsAbsolute } from '../../core/paths.js';
+import { readJson } from '../../store/json.js';
+import { cliOutput } from '../renderers/index.js';
 
 /** Drift detection result. */
 interface DriftResult {
@@ -150,12 +150,21 @@ export function registerDocsCommand(program: Command): void {
         const projectRoot = process.cwd();
         const result = await detectDrift(projectRoot);
 
-        cliOutput({
-          status: result.status,
-          missingFromIndex: result.missingFromIndex,
-          missingFromScripts: result.missingFromScripts,
-          warnings: result.warnings,
-        }, { command: 'docs', message: result.status === 'clean' ? 'Documentation is in sync' : `Drift detected: ${result.warnings.join('; ')}` });
+        cliOutput(
+          {
+            status: result.status,
+            missingFromIndex: result.missingFromIndex,
+            missingFromScripts: result.missingFromScripts,
+            warnings: result.warnings,
+          },
+          {
+            command: 'docs',
+            message:
+              result.status === 'clean'
+                ? 'Documentation is in sync'
+                : `Drift detected: ${result.warnings.join('; ')}`,
+          },
+        );
 
         if (opts['strict'] && result.status !== 'clean') {
           process.exit(result.status === 'error' ? 2 : 1);
@@ -186,10 +195,13 @@ export function registerDocsCommand(program: Command): void {
             { command: 'docs', message: 'No documentation gaps found' },
           );
         } else {
-          cliOutput({
-            gapCount: gaps.length,
-            results: gaps,
-          }, { command: 'docs', message: `Found ${gaps.length} document(s) with gaps` });
+          cliOutput(
+            {
+              gapCount: gaps.length,
+              results: gaps,
+            },
+            { command: 'docs', message: `Found ${gaps.length} document(s) with gaps` },
+          );
         }
       } catch (err) {
         if (err instanceof CleoError) {

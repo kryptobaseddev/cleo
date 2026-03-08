@@ -3,11 +3,11 @@
  * @task T4783
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 export interface SafestopResult {
   stopped: boolean;
@@ -29,7 +29,13 @@ export interface UncancelResult {
 /** Safe stop: signal clean shutdown for agents. */
 export function safestop(
   projectRoot: string,
-  opts?: { reason?: string; commit?: boolean; handoff?: string; noSessionEnd?: boolean; dryRun?: boolean },
+  opts?: {
+    reason?: string;
+    commit?: boolean;
+    handoff?: string;
+    noSessionEnd?: boolean;
+    dryRun?: boolean;
+  },
 ): SafestopResult {
   const dryRun = opts?.dryRun ?? false;
   const reason = opts?.reason ?? 'Manual safestop';
@@ -77,20 +83,37 @@ export async function uncancelTask(
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.db found');
   }
 
-  let taskFile: { tasks: Array<{ id: string; status: string; parentId?: string | null; notes?: Array<{ text: string; timestamp: string }> }> };
+  let taskFile: {
+    tasks: Array<{
+      id: string;
+      status: string;
+      parentId?: string | null;
+      notes?: Array<{ text: string; timestamp: string }>;
+    }>;
+  };
   const accessor = await getAccessor(projectRoot);
   try {
-    taskFile = await accessor.loadTaskFile() as unknown as { tasks: Array<{ id: string; status: string; parentId?: string | null; notes?: Array<{ text: string; timestamp: string }> }> };
+    taskFile = (await accessor.loadTaskFile()) as unknown as {
+      tasks: Array<{
+        id: string;
+        status: string;
+        parentId?: string | null;
+        notes?: Array<{ text: string; timestamp: string }>;
+      }>;
+    };
   } catch {
     throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
   }
 
-  const task = taskFile.tasks.find(t => t.id === params.taskId);
+  const task = taskFile.tasks.find((t) => t.id === params.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${params.taskId}`);
   }
   if (task.status !== 'cancelled') {
-    throw new CleoError(ExitCode.INVALID_INPUT, `Task ${params.taskId} is not cancelled (status: ${task.status})`);
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `Task ${params.taskId} is not cancelled (status: ${task.status})`,
+    );
   }
 
   const dryRun = params.dryRun ?? false;
@@ -110,9 +133,13 @@ export async function uncancelTask(
         }
       }
     }
-    await accessor.saveTaskFile(taskFile as unknown as Awaited<ReturnType<typeof accessor.loadTaskFile>>);
+    await accessor.saveTaskFile(
+      taskFile as unknown as Awaited<ReturnType<typeof accessor.loadTaskFile>>,
+    );
   } else if (params.cascade) {
-    cascadeCount = taskFile.tasks.filter(t => t.parentId === params.taskId && t.status === 'cancelled').length;
+    cascadeCount = taskFile.tasks.filter(
+      (t) => t.parentId === params.taskId && t.status === 'cancelled',
+    ).length;
   }
 
   return {

@@ -1,14 +1,11 @@
 import {
-  getProvidersBySkillsPrecedence,
-  getEffectiveSkillsPaths,
   buildSkillsMap,
-  type SkillsPrecedence,
+  getEffectiveSkillsPaths,
+  getProvidersBySkillsPrecedence,
   type ProviderSkillsCapability,
+  type SkillsPrecedence,
 } from '@cleocode/caamp';
-import type {
-  ResolvedSkillPath,
-  SkillInstallationContext,
-} from './precedence-types.js';
+import type { ResolvedSkillPath, SkillInstallationContext } from './precedence-types.js';
 
 /**
  * Get effective skill paths for a provider considering precedence
@@ -21,7 +18,7 @@ import type {
 export async function resolveSkillPathsForProvider(
   providerId: string,
   scope: 'global' | 'project',
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<ResolvedSkillPath[]> {
   const { getProvider } = await import('@cleocode/caamp');
   const provider = getProvider(providerId);
@@ -47,9 +44,7 @@ export async function resolveSkillPathsForProvider(
  * @param precedence - The precedence mode to filter by
  * @returns Array of provider IDs using the specified precedence
  */
-export function getProvidersWithPrecedence(
-  precedence: SkillsPrecedence
-): string[] {
+export function getProvidersWithPrecedence(precedence: SkillsPrecedence): string[] {
   return getProvidersBySkillsPrecedence(precedence).map((p) => p.id);
 }
 
@@ -72,7 +67,7 @@ export function getSkillsMapWithPrecedence(): Array<{
  * @returns Array of installation targets with provider ID and path
  */
 export async function determineInstallationTargets(
-  context: SkillInstallationContext
+  context: SkillInstallationContext,
 ): Promise<Array<{ providerId: string; path: string }>> {
   const targets: Array<{ providerId: string; path: string }> = [];
 
@@ -80,7 +75,7 @@ export async function determineInstallationTargets(
     const paths = await resolveSkillPathsForProvider(
       providerId,
       context.projectRoot ? 'project' : 'global',
-      context.projectRoot
+      context.projectRoot,
     );
 
     // Take the first (highest precedence) path
@@ -100,9 +95,7 @@ export async function determineInstallationTargets(
  * @param providerId - The ID of the provider to check
  * @returns True if provider has agents path configuration
  */
-export async function supportsAgentsPath(
-  providerId: string
-): Promise<boolean> {
+export async function supportsAgentsPath(providerId: string): Promise<boolean> {
   const { getProviderCapabilities } = await import('@cleocode/caamp');
   const caps = getProviderCapabilities(providerId);
 

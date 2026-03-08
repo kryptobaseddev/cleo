@@ -8,9 +8,9 @@
  */
 
 import {
-  getProvidersByHookEvent,
-  getCommonHookEvents,
   type HookEvent as CAAMPHookEvent,
+  getCommonHookEvents,
+  getProvidersByHookEvent,
 } from '@cleocode/caamp';
 import { type HookEvent, isProviderHookEvent } from './types.js';
 

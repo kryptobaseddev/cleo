@@ -5,9 +5,9 @@
  * @epic T4798
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { CleoError } from '../../errors.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { CleoError } from '../../errors.js';
 import { getManifestPath } from '../../paths.js';
 
 interface ValidationResult {
@@ -51,7 +51,11 @@ export async function validateTestingTask(
   }
 
   // TEST-006: test summary must be present
-  if (!manifest.key_findings || !Array.isArray(manifest.key_findings) || manifest.key_findings.length === 0) {
+  if (
+    !manifest.key_findings ||
+    !Array.isArray(manifest.key_findings) ||
+    manifest.key_findings.length === 0
+  ) {
     violations.push({
       code: 'TEST-006',
       severity: 'high',

@@ -16,7 +16,7 @@
 import { getLogger } from '../../core/logger.js';
 import { getProjectInfoSync } from '../../core/project-info.js';
 import { getConfig } from '../lib/config.js';
-import type { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
+import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 const log = getLogger('audit');
 
@@ -124,7 +124,10 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
     // Validate payload before insert (T4848)
     const parsed = AuditLogInsertSchema.safeParse(payload);
     if (!parsed.success) {
-      log.warn({ issues: parsed.error.issues }, 'Audit payload failed Zod validation; skipping insert');
+      log.warn(
+        { issues: parsed.error.issues },
+        'Audit payload failed Zod validation; skipping insert',
+      );
       return;
     }
 
@@ -145,9 +148,8 @@ export function createAudit(): Middleware {
 
     // T4959: session-resolver middleware now populates req.sessionId before
     // audit runs. Fall back to legacy lookup only if resolver missed it.
-    const currentSessionId: string | null = req.sessionId
-      ?? (await getActiveSessionInfo())?.id
-      ?? null;
+    const currentSessionId: string | null =
+      req.sessionId ?? (await getActiveSessionInfo())?.id ?? null;
     const isGradeSession = isGradeMode();
 
     const response = await next();
@@ -199,7 +201,7 @@ export function createAudit(): Middleware {
     if (isGradeSession) {
       await writeToSqlite(entry, req.requestId);
     } else {
-      writeToSqlite(entry, req.requestId).catch(err => {
+      writeToSqlite(entry, req.requestId).catch((err) => {
         log.error({ err }, 'Failed to persist audit entry to SQLite');
       });
     }
@@ -235,7 +237,10 @@ export async function queryAudit(options?: {
     const conditions = [];
     if (options?.sessionId) conditions.push(eq(auditLog.sessionId, options.sessionId));
     if (options?.domain) conditions.push(eq(auditLog.domain, options.domain));
-    if (options?.operation) conditions.push(or(eq(auditLog.operation, options.operation), eq(auditLog.action, options.operation))!);
+    if (options?.operation)
+      conditions.push(
+        or(eq(auditLog.operation, options.operation), eq(auditLog.action, options.operation))!,
+      );
     if (options?.taskId) conditions.push(eq(auditLog.taskId, options.taskId));
     if (options?.since) conditions.push(gte(auditLog.timestamp, options.since));
 
@@ -248,7 +253,7 @@ export async function queryAudit(options?: {
       .orderBy(auditLog.timestamp)
       .limit(limit);
 
-    return rows.map(row => ({
+    return rows.map((row) => ({
       timestamp: row.timestamp,
       sessionId: row.sessionId,
       domain: row.domain ?? 'unknown',

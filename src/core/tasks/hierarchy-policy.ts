@@ -6,8 +6,8 @@
  * @task T5001
  */
 
-import type { Task } from '../../types/task.js';
 import type { CleoConfig } from '../../types/config.js';
+import type { Task } from '../../types/task.js';
 import { getChildren, getDepth, wouldCreateCircle } from './hierarchy.js';
 
 // ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ export interface HierarchyValidationResult {
 
 export const ENFORCEMENT_PROFILES = {
   'llm-agent-first': { maxSiblings: 0, maxActiveSiblings: 0, maxDepth: 3, countDoneInLimit: false },
-  'human-cognitive':  { maxSiblings: 7, maxActiveSiblings: 3,  maxDepth: 3, countDoneInLimit: false },
+  'human-cognitive': { maxSiblings: 7, maxActiveSiblings: 3, maxDepth: 3, countDoneInLimit: false },
 } as const;
 
 type ProfileName = keyof typeof ENFORCEMENT_PROFILES;
@@ -132,9 +132,7 @@ export function assertNoCycle(
  */
 export function countActiveChildren(parentId: string, tasks: Task[]): number {
   const activeStatuses = new Set(['pending', 'active', 'blocked']);
-  return tasks.filter(
-    (t) => t.parentId === parentId && activeStatuses.has(t.status),
-  ).length;
+  return tasks.filter((t) => t.parentId === parentId && activeStatuses.has(t.status)).length;
 }
 
 // ---------------------------------------------------------------------------

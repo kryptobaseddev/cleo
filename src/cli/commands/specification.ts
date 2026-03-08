@@ -5,7 +5,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -23,12 +23,18 @@ export function registerSpecificationCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--spec-file <file>', 'Path to specification file')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.specification', {
-        mode: 'task',
-        taskId,
-        strict: opts['strict'] as boolean | undefined,
-        specFile: opts['specFile'] as string | undefined,
-      }, { command: 'specification' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.specification',
+        {
+          mode: 'task',
+          taskId,
+          strict: opts['strict'] as boolean | undefined,
+          specFile: opts['specFile'] as string | undefined,
+        },
+        { command: 'specification' },
+      );
     });
 
   specification
@@ -37,11 +43,17 @@ export function registerSpecificationCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--spec-file <file>', 'Path to specification file')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.specification', {
-        mode: 'manifest',
-        manifestFile,
-        strict: opts['strict'] as boolean | undefined,
-        specFile: opts['specFile'] as string | undefined,
-      }, { command: 'specification' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.specification',
+        {
+          mode: 'manifest',
+          manifestFile,
+          strict: opts['strict'] as boolean | undefined,
+          specFile: opts['specFile'] as string | undefined,
+        },
+        { command: 'specification' },
+      );
     });
 }

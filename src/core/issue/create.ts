@@ -9,11 +9,11 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getTemplateForSubcommand } from './template-parser.js';
-import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';
 import { BUILD_CONFIG } from '../../config/build-config.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';
+import { getTemplateForSubcommand } from './template-parser.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
@@ -79,21 +79,23 @@ export function checkGhCli(): void {
  */
 function addGhIssue(title: string, body: string, labels: string): string {
   try {
-    const result = execFileSync('gh', [
-      'issue', 'create',
-      '--repo', CLEO_REPO,
-      '--title', title,
-      '--body', body,
-      '--label', labels,
-    ], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = execFileSync(
+      'gh',
+      ['issue', 'create', '--repo', CLEO_REPO, '--title', title, '--body', body, '--label', labels],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     return result.trim();
   } catch (err) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, `Failed to create issue: ${(err as Error).message}`, {
-      fix: 'Check gh auth status and network connectivity',
-    });
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `Failed to create issue: ${(err as Error).message}`,
+      {
+        fix: 'Check gh auth status and network connectivity',
+      },
+    );
   }
 }
 
@@ -120,7 +122,7 @@ export interface AddIssueResult {
 /**
  * Add a GitHub issue for a given type (bug, feature, help).
  * Returns structured result. Does not handle CLI output or process.exit.
- * 
+ *
  * Note: Named 'add' per VERB-STANDARDS.md (canonical verb for "Create new entity")
  */
 export function addIssue(params: AddIssueParams): AddIssueResult {

@@ -3,7 +3,7 @@
  * @task T4820
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { depsReady } from '../deps-ready.js';
 
 describe('depsReady', () => {
@@ -26,9 +26,7 @@ describe('depsReady', () => {
   });
 
   it('returns true when all deps are cancelled', () => {
-    const lookup = new Map<string, { status: string }>([
-      ['T001', { status: 'cancelled' }],
-    ]);
+    const lookup = new Map<string, { status: string }>([['T001', { status: 'cancelled' }]]);
     expect(depsReady(['T001'], lookup)).toBe(true);
   });
 
@@ -49,16 +47,12 @@ describe('depsReady', () => {
   });
 
   it('returns false when any dep is active', () => {
-    const lookup = new Map<string, { status: string }>([
-      ['T001', { status: 'active' }],
-    ]);
+    const lookup = new Map<string, { status: string }>([['T001', { status: 'active' }]]);
     expect(depsReady(['T001'], lookup)).toBe(false);
   });
 
   it('returns false when any dep is blocked', () => {
-    const lookup = new Map<string, { status: string }>([
-      ['T001', { status: 'blocked' }],
-    ]);
+    const lookup = new Map<string, { status: string }>([['T001', { status: 'blocked' }]]);
     expect(depsReady(['T001'], lookup)).toBe(false);
   });
 
@@ -68,23 +62,25 @@ describe('depsReady', () => {
   });
 
   it('returns false when dep is null in lookup', () => {
-    const lookup = new Map<string, unknown>([
-      ['T001', null],
-    ]);
-    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(false);
+    const lookup = new Map<string, unknown>([['T001', null]]);
+    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(
+      false,
+    );
   });
 
   it('returns false when dep has no status property', () => {
-    const lookup = new Map<string, unknown>([
-      ['T001', { title: 'no status' }],
-    ]);
-    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(false);
+    const lookup = new Map<string, unknown>([['T001', { title: 'no status' }]]);
+    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(
+      false,
+    );
   });
 
   it('accepts Map<string, unknown> without type errors', () => {
     const lookup = new Map<string, unknown>([
       ['T001', { status: 'done', title: 'task', extra: 42 }],
     ]);
-    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(true);
+    expect(depsReady(['T001'], lookup as ReadonlyMap<string, { status?: string } | unknown>)).toBe(
+      true,
+    );
   });
 });

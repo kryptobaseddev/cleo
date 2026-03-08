@@ -8,11 +8,11 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../../store/sqlite.js';
-import { warpChains, warpChainInstances } from '../../store/chain-schema.js';
 import { eq } from 'drizzle-orm';
+import { warpChainInstances, warpChains } from '../../store/chain-schema.js';
+import { getDb } from '../../store/sqlite.js';
+import type { GateResult, WarpChain, WarpChainInstance } from '../../types/warp-chain.js';
 import { validateChain } from '../validation/chain-validation.js';
-import type { WarpChain, WarpChainInstance, GateResult } from '../../types/warp-chain.js';
 
 export interface ChainFindCriteria {
   query?: string;
@@ -251,8 +251,14 @@ export async function advanceInstance(
     throw new Error(`Chain instance "${id}" not found`);
   }
 
-  if (instance.status === 'completed' || instance.status === 'failed' || instance.status === 'cancelled') {
-    throw new Error(`Chain instance "${id}" cannot advance from terminal status "${instance.status}"`);
+  if (
+    instance.status === 'completed' ||
+    instance.status === 'failed' ||
+    instance.status === 'cancelled'
+  ) {
+    throw new Error(
+      `Chain instance "${id}" cannot advance from terminal status "${instance.status}"`,
+    );
   }
 
   const chain = await showChain(instance.chainId, projectRoot);
@@ -262,13 +268,15 @@ export async function advanceInstance(
 
   const stageIds = new Set(chain.shape.stages.map((stage) => stage.id));
   if (!stageIds.has(nextStage)) {
-    throw new Error(`Invalid stage transition: stage "${nextStage}" is not defined in chain "${chain.id}"`);
+    throw new Error(
+      `Invalid stage transition: stage "${nextStage}" is not defined in chain "${chain.id}"`,
+    );
   }
 
   if (nextStage !== instance.currentStage) {
-    const isDirectTransition = chain.shape.links.some((link) => (
-      link.from === instance.currentStage && link.to === nextStage
-    ));
+    const isDirectTransition = chain.shape.links.some(
+      (link) => link.from === instance.currentStage && link.to === nextStage,
+    );
 
     if (!isDirectTransition) {
       throw new Error(
@@ -288,7 +296,8 @@ export async function advanceInstance(
   }
   const allResults = [...existingResults, ...gateResults];
 
-  await db.update(warpChainInstances)
+  await db
+    .update(warpChainInstances)
     .set({
       currentStage: nextStage,
       gateResults: JSON.stringify(allResults),

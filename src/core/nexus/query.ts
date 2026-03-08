@@ -11,17 +11,14 @@
  * @epic T4540
  */
 
-import { join, basename } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
-import { CleoError } from '../errors.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task } from '../../types/task.js';
-import { getAccessor } from '../../store/data-accessor.js';
-import {
-  readRegistry,
-  nexusGetProject,
-} from './registry.js';
+import { CleoError } from '../errors.js';
+import { nexusGetProject, readRegistry } from './registry.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -158,10 +155,7 @@ async function readProjectTasks(projectPath: string): Promise<Task[]> {
     const taskFile = await accessor.loadTaskFile();
     return taskFile.tasks ?? [];
   } catch {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project task data not found: ${tasksDbPath}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Project task data not found: ${tasksDbPath}`);
   }
 }
 
@@ -170,7 +164,10 @@ async function readProjectTasks(projectPath: string): Promise<Task[]> {
  * For wildcard queries, returns an array of matches from all projects.
  * For named projects, returns a single task with project context.
  */
-export async function resolveTask(query: string, currentProject?: string): Promise<NexusResolvedTask | NexusResolvedTask[]> {
+export async function resolveTask(
+  query: string,
+  currentProject?: string,
+): Promise<NexusResolvedTask | NexusResolvedTask[]> {
   const parsed = parseQuery(query, currentProject);
 
   if (parsed.wildcard) {
@@ -180,7 +177,7 @@ export async function resolveTask(query: string, currentProject?: string): Promi
   // Resolve project path
   const projectPath = await resolveProjectPath(parsed.project);
   const tasks = await readProjectTasks(projectPath);
-  const task = tasks.find(t => t.id === parsed.taskId);
+  const task = tasks.find((t) => t.id === parsed.taskId);
 
   if (!task) {
     throw new CleoError(
@@ -204,7 +201,7 @@ async function resolveWildcard(taskId: string): Promise<NexusResolvedTask[]> {
   for (const project of Object.values(registry.projects)) {
     try {
       const tasks = await readProjectTasks(project.path);
-      const match = tasks.find(t => t.id === taskId);
+      const match = tasks.find((t) => t.id === taskId);
       if (match) {
         results.push({ ...match, _project: project.name });
       }

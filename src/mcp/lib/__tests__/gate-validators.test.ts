@@ -6,11 +6,12 @@
  * @epic T2908
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   isFieldRequired,
   VALID_WORKFLOW_AGENTS,
   VALID_WORKFLOW_GATE_STATUSES,
+  VALIDATION_RULES,
   validateLayer1Schema,
   validateLayer2Semantic,
   validateLayer3Referential,
@@ -18,14 +19,13 @@ import {
   validateWorkflowGateName,
   validateWorkflowGateStatus,
   validateWorkflowGateUpdate,
-  VALIDATION_RULES,
 } from '../gate-validators.js';
-import { ProtocolEnforcer,ProtocolType } from '../protocol-enforcement.js';
+import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
 import {
   GateStatus,
-  OperationContext,
+  type OperationContext,
   WorkflowGateName,
-  WorkflowGateTracker
+  WorkflowGateTracker,
 } from '../verification-gates.js';
 
 describe('Gate Validators', () => {
@@ -138,7 +138,7 @@ describe('Gate Validators', () => {
 
       const result = await validateLayer1Schema(context);
       // No description violation
-      const descViolations = result.violations.filter(v => v.code === 'E_INVALID_DESCRIPTION');
+      const descViolations = result.violations.filter((v) => v.code === 'E_INVALID_DESCRIPTION');
       expect(descViolations).toHaveLength(0);
     });
 
@@ -150,14 +150,14 @@ describe('Gate Validators', () => {
         gateway: 'mutate',
         params: {
           manifestEntry: {
-            id: 'T12-short',  // Only 2 digits, needs 3+
+            id: 'T12-short', // Only 2 digits, needs 3+
           },
         },
       };
 
       const result = await validateLayer1Schema(context);
       expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_INVALID_MANIFEST_ID')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_INVALID_MANIFEST_ID')).toBe(true);
     });
 
     it('should pass valid manifest ID format', async () => {
@@ -173,7 +173,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer1Schema(context);
-      const idViolations = result.violations.filter(v => v.code === 'E_INVALID_MANIFEST_ID');
+      const idViolations = result.violations.filter((v) => v.code === 'E_INVALID_MANIFEST_ID');
       expect(idViolations).toHaveLength(0);
     });
 
@@ -190,7 +190,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer1Schema(context);
-      expect(result.violations.some(v => v.code === 'E_INVALID_MANIFEST_ID')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_INVALID_MANIFEST_ID')).toBe(true);
     });
 
     // Section 8.2: Date format ISO 8601 YYYY-MM-DD
@@ -207,7 +207,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer1Schema(context);
-      expect(result.violations.some(v => v.code === 'E_INVALID_DATE_FORMAT')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_INVALID_DATE_FORMAT')).toBe(true);
     });
 
     it('should pass valid ISO 8601 date in manifest', async () => {
@@ -223,7 +223,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer1Schema(context);
-      const dateViolations = result.violations.filter(v => v.code === 'E_INVALID_DATE_FORMAT');
+      const dateViolations = result.violations.filter((v) => v.code === 'E_INVALID_DATE_FORMAT');
       expect(dateViolations).toHaveLength(0);
     });
 
@@ -241,7 +241,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer1Schema(context);
-      expect(result.violations.some(v => v.code === 'E_INVALID_AGENT_TYPE')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_INVALID_AGENT_TYPE')).toBe(true);
     });
 
     it('should pass valid agent types in manifest', async () => {
@@ -258,7 +258,7 @@ describe('Gate Validators', () => {
         };
 
         const result = await validateLayer1Schema(context);
-        const agentViolations = result.violations.filter(v => v.code === 'E_INVALID_AGENT_TYPE');
+        const agentViolations = result.violations.filter((v) => v.code === 'E_INVALID_AGENT_TYPE');
         expect(agentViolations).toHaveLength(0);
       }
     });
@@ -267,7 +267,9 @@ describe('Gate Validators', () => {
   describe('status validation — domain-aware', () => {
     it('accepts in_progress for pipeline.stage.record', async () => {
       const result = await validateLayer1Schema({
-        domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+        domain: 'pipeline',
+        operation: 'stage.record',
+        gateway: 'mutate',
         params: { taskId: 'T1234', stage: 'research', status: 'in_progress' },
       });
       expect(result.passed).toBe(true);
@@ -276,7 +278,9 @@ describe('Gate Validators', () => {
     it('accepts all LIFECYCLE_STAGE_STATUSES for pipeline.stage.record', async () => {
       for (const s of ['not_started', 'in_progress', 'blocked', 'completed', 'skipped', 'failed']) {
         const r = await validateLayer1Schema({
-          domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+          domain: 'pipeline',
+          operation: 'stage.record',
+          gateway: 'mutate',
           params: { status: s },
         });
         expect(r.passed, `${s} should pass`).toBe(true);
@@ -285,7 +289,9 @@ describe('Gate Validators', () => {
 
     it('rejects task status for pipeline.stage.record', async () => {
       const result = await validateLayer1Schema({
-        domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+        domain: 'pipeline',
+        operation: 'stage.record',
+        gateway: 'mutate',
         params: { status: 'pending' },
       });
       expect(result.passed).toBe(false);
@@ -294,7 +300,9 @@ describe('Gate Validators', () => {
 
     it('accepts proposed for admin.adr.list', async () => {
       const result = await validateLayer1Schema({
-        domain: 'admin', operation: 'adr.list', gateway: 'query',
+        domain: 'admin',
+        operation: 'adr.list',
+        gateway: 'query',
         params: { status: 'proposed' },
       });
       expect(result.passed).toBe(true);
@@ -303,7 +311,9 @@ describe('Gate Validators', () => {
     it('accepts accepted/superseded/deprecated for admin.adr.find', async () => {
       for (const s of ['accepted', 'superseded', 'deprecated']) {
         const r = await validateLayer1Schema({
-          domain: 'admin', operation: 'adr.find', gateway: 'query',
+          domain: 'admin',
+          operation: 'adr.find',
+          gateway: 'query',
           params: { status: s },
         });
         expect(r.passed, `${s} should pass`).toBe(true);
@@ -313,7 +323,9 @@ describe('Gate Validators', () => {
     it('accepts orphaned/suspended/ended for session.find', async () => {
       for (const s of ['orphaned', 'suspended', 'ended']) {
         const r = await validateLayer1Schema({
-          domain: 'session', operation: 'find', gateway: 'query',
+          domain: 'session',
+          operation: 'find',
+          gateway: 'query',
           params: { status: s },
         });
         expect(r.passed, `${s} should pass`).toBe(true);
@@ -322,7 +334,9 @@ describe('Gate Validators', () => {
 
     it('accepts partial for pipeline.manifest.list', async () => {
       const result = await validateLayer1Schema({
-        domain: 'pipeline', operation: 'manifest.list', gateway: 'query',
+        domain: 'pipeline',
+        operation: 'manifest.list',
+        gateway: 'query',
         params: { status: 'partial' },
       });
       expect(result.passed).toBe(true);
@@ -330,7 +344,9 @@ describe('Gate Validators', () => {
 
     it('still rejects in_progress for tasks domain', async () => {
       const result = await validateLayer1Schema({
-        domain: 'tasks', operation: 'update', gateway: 'mutate',
+        domain: 'tasks',
+        operation: 'update',
+        gateway: 'mutate',
         params: { status: 'in_progress' },
       });
       expect(result.passed).toBe(false);
@@ -435,7 +451,7 @@ describe('Gate Validators', () => {
 
       const result = await validateLayer2Semantic(context);
       expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
     });
 
     it('should fail on future updated timestamp', async () => {
@@ -454,7 +470,7 @@ describe('Gate Validators', () => {
 
       const result = await validateLayer2Semantic(context);
       expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
     });
 
     it('should pass on past timestamps', async () => {
@@ -473,7 +489,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer2Semantic(context);
-      const timestampViolations = result.violations.filter(v => v.code === 'E_FUTURE_TIMESTAMP');
+      const timestampViolations = result.violations.filter((v) => v.code === 'E_FUTURE_TIMESTAMP');
       expect(timestampViolations).toHaveLength(0);
     });
 
@@ -495,7 +511,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer2Semantic(context);
-      expect(result.violations.some(v => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_FUTURE_TIMESTAMP')).toBe(true);
     });
   });
 
@@ -571,7 +587,7 @@ describe('Gate Validators', () => {
 
       const result = await validateLayer3Referential(context);
       expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_DEPTH_EXCEEDED')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_DEPTH_EXCEEDED')).toBe(true);
     });
 
     it('should pass when hierarchy depth is at max', async () => {
@@ -585,7 +601,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer3Referential(context);
-      const depthViolations = result.violations.filter(v => v.code === 'E_DEPTH_EXCEEDED');
+      const depthViolations = result.violations.filter((v) => v.code === 'E_DEPTH_EXCEEDED');
       expect(depthViolations).toHaveLength(0);
     });
 
@@ -601,7 +617,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer3Referential(context);
-      expect(result.violations.some(v => v.code === 'E_SIBLING_LIMIT')).toBe(false);
+      expect(result.violations.some((v) => v.code === 'E_SIBLING_LIMIT')).toBe(false);
     });
 
     it('should pass when under sibling limit', async () => {
@@ -615,7 +631,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer3Referential(context);
-      const siblingViolations = result.violations.filter(v => v.code === 'E_SIBLING_LIMIT');
+      const siblingViolations = result.violations.filter((v) => v.code === 'E_SIBLING_LIMIT');
       expect(siblingViolations).toHaveLength(0);
     });
 
@@ -634,7 +650,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer3Referential(context);
-      expect(result.violations.some(v => v.code === 'E_EMPTY_FILE_REF')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_EMPTY_FILE_REF')).toBe(true);
     });
   });
 
@@ -693,7 +709,7 @@ describe('Gate Validators', () => {
 
       const result = await validateLayer4Protocol(context, enforcer);
       expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_INVALID_MANIFEST_STATUS')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_INVALID_MANIFEST_STATUS')).toBe(true);
     });
 
     it('should warn on missing provenance tags', async () => {
@@ -728,7 +744,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer4Protocol(context, enforcer);
-      expect(result.violations.some(v => v.code === 'E_KEY_FINDINGS_COUNT')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_KEY_FINDINGS_COUNT')).toBe(true);
     });
 
     it('should fail on too many key findings for research', async () => {
@@ -746,7 +762,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer4Protocol(context, enforcer);
-      expect(result.violations.some(v => v.code === 'E_KEY_FINDINGS_COUNT')).toBe(true);
+      expect(result.violations.some((v) => v.code === 'E_KEY_FINDINGS_COUNT')).toBe(true);
     });
 
     it('should pass valid key findings count for research', async () => {
@@ -764,7 +780,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer4Protocol(context, enforcer);
-      const findingsViolations = result.violations.filter(v => v.code === 'E_KEY_FINDINGS_COUNT');
+      const findingsViolations = result.violations.filter((v) => v.code === 'E_KEY_FINDINGS_COUNT');
       expect(findingsViolations).toHaveLength(0);
     });
   });
@@ -775,7 +791,14 @@ describe('Gate Validators', () => {
       expect(VALIDATION_RULES.TITLE_MIN_LENGTH).toBe(5);
       expect(VALIDATION_RULES.TITLE_MAX_LENGTH).toBe(100);
       expect(VALIDATION_RULES.DESCRIPTION_MIN_LENGTH).toBe(10);
-      expect(VALIDATION_RULES.VALID_STATUSES).toEqual(['pending', 'active', 'blocked', 'done', 'cancelled', 'archived']);
+      expect(VALIDATION_RULES.VALID_STATUSES).toEqual([
+        'pending',
+        'active',
+        'blocked',
+        'done',
+        'cancelled',
+        'archived',
+      ]);
       expect(VALIDATION_RULES.VALID_PRIORITIES).toEqual(['critical', 'high', 'medium', 'low']);
       expect(VALIDATION_RULES.PRIORITY_NUMERIC_MIN).toBe(1);
       expect(VALIDATION_RULES.PRIORITY_NUMERIC_MAX).toBe(9);
@@ -787,7 +810,12 @@ describe('Gate Validators', () => {
       expect(VALIDATION_RULES.MANIFEST_ID_PATTERN).toEqual(/^T\d{3,}-[a-z0-9-]+$/);
       expect(VALIDATION_RULES.DATE_FORMAT_PATTERN).toEqual(/^\d{4}-\d{2}-\d{2}$/);
       expect(VALIDATION_RULES.DESCRIPTION_MAX_LENGTH).toBe(1000);
-      expect(VALIDATION_RULES.VALID_MANIFEST_STATUSES).toEqual(['completed', 'partial', 'blocked', 'archived']);
+      expect(VALIDATION_RULES.VALID_MANIFEST_STATUSES).toEqual([
+        'completed',
+        'partial',
+        'blocked',
+        'archived',
+      ]);
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('research');
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('implementation');
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('testing');
@@ -879,53 +907,40 @@ describe('Workflow Gate Validators', () => {
 
     it('should reject wrong agent when tracker provided', () => {
       const tracker = new WorkflowGateTracker();
-      const violations = validateWorkflowGateUpdate(
-        'implemented',
-        'passed',
-        'testing',
-        tracker
-      );
+      const violations = validateWorkflowGateUpdate('implemented', 'passed', 'testing', tracker);
       expect(violations.some((v) => v.code === 'E_INVALID_AGENT')).toBe(true);
     });
 
     it('should accept correct agent when tracker provided', () => {
       const tracker = new WorkflowGateTracker();
-      const violations = validateWorkflowGateUpdate(
-        'implemented',
-        'passed',
-        'coder',
-        tracker
-      );
+      const violations = validateWorkflowGateUpdate('implemented', 'passed', 'coder', tracker);
       expect(violations).toHaveLength(0);
     });
 
     it('should reject pass when dependencies not met', () => {
       const tracker = new WorkflowGateTracker();
-      const violations = validateWorkflowGateUpdate(
-        'testsPassed',
-        'passed',
-        undefined,
-        tracker
-      );
+      const violations = validateWorkflowGateUpdate('testsPassed', 'passed', undefined, tracker);
       expect(violations.some((v) => v.code === 'E_GATE_DEPENDENCY')).toBe(true);
     });
 
     it('should accept pass when dependencies met', () => {
       const tracker = new WorkflowGateTracker();
       tracker.passGate(WorkflowGateName.IMPLEMENTED);
-      const violations = validateWorkflowGateUpdate(
-        'testsPassed',
-        'passed',
-        'testing',
-        tracker
-      );
+      const violations = validateWorkflowGateUpdate('testsPassed', 'passed', 'testing', tracker);
       expect(violations).toHaveLength(0);
     });
   });
 
   describe('Constants', () => {
     it('should export valid workflow agents', () => {
-      expect(VALID_WORKFLOW_AGENTS).toEqual(['coder', 'testing', 'qa', 'cleanup', 'security', 'docs']);
+      expect(VALID_WORKFLOW_AGENTS).toEqual([
+        'coder',
+        'testing',
+        'qa',
+        'cleanup',
+        'security',
+        'docs',
+      ]);
     });
 
     it('should export valid workflow gate statuses', () => {

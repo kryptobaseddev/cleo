@@ -8,10 +8,9 @@
  * @epic T4454
  */
 
-import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { mkdir, appendFile } from 'node:fs/promises';
 import { getManifestPath as getConfigManifestPath } from '../paths.js';
 
 // ============================================================================
@@ -104,7 +103,7 @@ export async function findManifestEntry(
   if (!existsSync(manifestPath)) return null;
 
   const content = await readFile(manifestPath, 'utf-8');
-  const lines = content.split('\n').filter(l => l.trim());
+  const lines = content.split('\n').filter((l) => l.trim());
 
   // Search from end (most recent entries first)
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -115,9 +114,7 @@ export async function findManifestEntry(
         const entry = JSON.parse(line) as ManifestEntry;
         return entry;
       }
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   return null;
@@ -146,11 +143,13 @@ export async function validateManifestEntry(
       valid: false,
       score: 0,
       pass: false,
-      violations: [{
-        requirement: 'MANIFEST-001',
-        severity: 'error',
-        message: 'Subagent did not write manifest entry',
-      }],
+      violations: [
+        {
+          requirement: 'MANIFEST-001',
+          severity: 'error',
+          message: 'Subagent did not write manifest entry',
+        },
+      ],
     };
   }
 
@@ -270,10 +269,10 @@ export async function logRealCompliance(
   const violationCount = violations.length;
   let severity: 'none' | 'warning' | 'error' = 'none';
   if (violationCount > 0) {
-    severity = violations.some(v => v.severity === 'error') ? 'error' : 'warning';
+    severity = violations.some((v) => v.severity === 'error') ? 'error' : 'warning';
   }
 
-  const passRate = pass ? 1.0 : Math.round(score / 100 * 100) / 100;
+  const passRate = pass ? 1.0 : Math.round((score / 100) * 100) / 100;
 
   const entry: ComplianceEntry = {
     timestamp: new Date().toISOString(),
@@ -281,7 +280,7 @@ export async function logRealCompliance(
     source_type: 'subagent',
     compliance: {
       compliance_pass_rate: passRate,
-      rule_adherence_score: Math.round(score / 100 * 100) / 100,
+      rule_adherence_score: Math.round((score / 100) * 100) / 100,
       violation_count: violationCount,
       violation_severity: severity,
       manifest_integrity: violationCount === 0 ? 'valid' : 'violations_found',
@@ -322,11 +321,13 @@ export async function validateAndLog(
       valid: false,
       score: 0,
       pass: false,
-      violations: [{
-        requirement: 'MANIFEST-001',
-        severity: 'error',
-        message: 'No manifest entry found - subagent did not write output',
-      }],
+      violations: [
+        {
+          requirement: 'MANIFEST-001',
+          severity: 'error',
+          message: 'No manifest entry found - subagent did not write output',
+        },
+      ],
     };
     await logRealCompliance(taskId, noEntryResult, 'unknown', compliancePath);
     return noEntryResult;

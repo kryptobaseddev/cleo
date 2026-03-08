@@ -10,19 +10,19 @@
  */
 
 import {
-  listEpicsWithLifecycle,
-  getLifecycleStatus,
-  getLifecycleHistory,
-  getLifecycleGates,
-  getStagePrerequisites,
   checkStagePrerequisites,
-  recordStageProgress,
-  skipStageWithReason,
-  resetStage,
-  passGate,
   failGate,
+  getLifecycleGates,
+  getLifecycleHistory,
+  getLifecycleStatus,
+  getStagePrerequisites,
+  listEpicsWithLifecycle,
+  passGate,
+  recordStageProgress,
+  resetStage,
+  skipStageWithReason,
 } from '../../core/lifecycle/index.js';
-import { engineError, engineSuccess, type EngineResult } from './_error.js';
+import { type EngineResult, engineError, engineSuccess } from './_error.js';
 
 // ============================================================================
 // Exported engine functions (thin wrappers)
@@ -39,10 +39,7 @@ export async function listRcsdEpics(projectRoot?: string): Promise<string[]> {
  * lifecycle.check / lifecycle.status - Get lifecycle status for epic.
  * @task T4785
  */
-export async function lifecycleStatus(
-  epicId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function lifecycleStatus(epicId: string, projectRoot?: string): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
@@ -80,10 +77,7 @@ export async function lifecycleHistory(
  * lifecycle.gates - Get all gate statuses for an epic.
  * @task T4785
  */
-export async function lifecycleGates(
-  taskId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function lifecycleGates(taskId: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const data = await getLifecycleGates(taskId, projectRoot);
     return engineSuccess(data);

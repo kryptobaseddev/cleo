@@ -8,18 +8,18 @@
  * @epic T5517
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
 import {
-  listPhases as coreListPhases,
-  showPhase as coreShowPhase,
-  setPhase as coreSetPhase,
-  startPhase as coreStartPhase,
-  completePhase as coreCompletePhase,
   advancePhase as coreAdvancePhase,
-  renamePhase as coreRenamePhase,
+  completePhase as coreCompletePhase,
   deletePhase as coreDeletePhase,
+  listPhases as coreListPhases,
+  renamePhase as coreRenamePhase,
+  setPhase as coreSetPhase,
+  showPhase as coreShowPhase,
+  startPhase as coreStartPhase,
 } from '../../core/phases/index.js';
-import { engineError, type EngineResult } from './_error.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { type EngineResult, engineError } from './_error.js';
 
 // ============================================================================
 // Phase Operations
@@ -28,9 +28,7 @@ import { engineError, type EngineResult } from './_error.js';
 /**
  * phase.list - List all project phases
  */
-export async function phaseList(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function phaseList(projectRoot?: string): Promise<EngineResult> {
   try {
     const accessor = await getAccessor(projectRoot);
     const data = await coreListPhases(undefined, accessor);
@@ -44,19 +42,17 @@ export async function phaseList(
 /**
  * phase.show - Show details of a specific phase
  */
-export async function phaseShow(
-  phaseId?: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function phaseShow(phaseId?: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const accessor = await getAccessor(projectRoot);
     const data = await coreShowPhase(phaseId, undefined, accessor);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;
-    const code = message.includes('not found') || message.includes('does not exist')
-      ? 'E_NOT_FOUND'
-      : 'E_PHASE_SHOW';
+    const code =
+      message.includes('not found') || message.includes('does not exist')
+        ? 'E_NOT_FOUND'
+        : 'E_PHASE_SHOW';
     return engineError(code, message);
   }
 }
@@ -79,12 +75,16 @@ export async function phaseSet(
 
   try {
     const accessor = await getAccessor(projectRoot);
-    const data = await coreSetPhase({
-      slug: params.phaseId,
-      rollback: params.rollback,
-      force: params.force,
-      dryRun: params.dryRun,
-    }, undefined, accessor);
+    const data = await coreSetPhase(
+      {
+        slug: params.phaseId,
+        rollback: params.rollback,
+        force: params.force,
+        dryRun: params.dryRun,
+      },
+      undefined,
+      accessor,
+    );
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;
@@ -98,10 +98,7 @@ export async function phaseSet(
 /**
  * phase.start - Start a pending phase
  */
-export async function phaseStart(
-  phaseId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function phaseStart(phaseId: string, projectRoot?: string): Promise<EngineResult> {
   if (!phaseId) {
     return engineError('E_INVALID_INPUT', 'phaseId is required');
   }
@@ -122,10 +119,7 @@ export async function phaseStart(
 /**
  * phase.complete - Complete an active phase
  */
-export async function phaseComplete(
-  phaseId: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function phaseComplete(phaseId: string, projectRoot?: string): Promise<EngineResult> {
   if (!phaseId) {
     return engineError('E_INVALID_INPUT', 'phaseId is required');
   }
@@ -207,10 +201,15 @@ export async function phaseDelete(
 
   try {
     const accessor = await getAccessor(projectRoot);
-    const data = await coreDeletePhase(phaseId, {
-      reassignTo: params.reassignTo,
-      force: params.force,
-    }, undefined, accessor);
+    const data = await coreDeletePhase(
+      phaseId,
+      {
+        reassignTo: params.reassignTo,
+        force: params.force,
+      },
+      undefined,
+      accessor,
+    );
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;

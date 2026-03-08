@@ -9,8 +9,8 @@
  * @epic T4545
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -75,10 +75,7 @@ async function commandExists(cmd: string): Promise<boolean> {
  * Execute a shell command and return the result.
  * @task T4552
  */
-async function execCommand(
-  command: string,
-  dryRun: boolean,
-): Promise<ArtifactResult> {
+async function execCommand(command: string, dryRun: boolean): Promise<ArtifactResult> {
   if (dryRun) {
     return { success: true, output: `[DRY RUN] Would execute: ${command}`, dryRun: true };
   }
@@ -122,7 +119,11 @@ const genericTarballHandler: ArtifactHandler = {
 
   async publish(config, dryRun = false) {
     if (!config.publishCommand) {
-      return { success: true, output: 'No publish command specified. Skipping publish.', dryRun: false };
+      return {
+        success: true,
+        output: 'No publish command specified. Skipping publish.',
+        dryRun: false,
+      };
     }
     return execCommand(config.publishCommand, dryRun);
   },
@@ -136,7 +137,11 @@ const genericTarballHandler: ArtifactHandler = {
 const npmPackageHandler: ArtifactHandler = {
   async build(config, dryRun = false) {
     if (!config.buildCommand) {
-      return { success: true, output: 'No build command specified. Skipping build step.', dryRun: false };
+      return {
+        success: true,
+        output: 'No build command specified. Skipping build step.',
+        dryRun: false,
+      };
     }
     return execCommand(config.buildCommand, dryRun);
   },
@@ -275,7 +280,8 @@ const goModuleHandler: ArtifactHandler = {
     if (!config.publishCommand) {
       return {
         success: true,
-        output: 'Go modules are published via Git tags. Create a tag with: git tag v<version> && git push --tags',
+        output:
+          'Go modules are published via Git tags. Create a tag with: git tag v<version> && git push --tags',
         dryRun: false,
       };
     }
@@ -372,8 +378,7 @@ const rubyGemHandler: ArtifactHandler = {
 const dockerImageHandler: ArtifactHandler = {
   async build(config, dryRun = false) {
     const buildCommand =
-      config.buildCommand ??
-      `docker build -t ${config.registry ?? 'localhost'}:latest .`;
+      config.buildCommand ?? `docker build -t ${config.registry ?? 'localhost'}:latest .`;
     return execCommand(buildCommand, dryRun);
   },
 
@@ -393,8 +398,7 @@ const dockerImageHandler: ArtifactHandler = {
     if (!config.publishCommand && !config.registry) {
       return { success: false, output: 'Docker registry not specified', dryRun: false };
     }
-    const publishCommand =
-      config.publishCommand ?? `docker push ${config.registry}:latest`;
+    const publishCommand = config.publishCommand ?? `docker push ${config.registry}:latest`;
     return execCommand(publishCommand, dryRun);
   },
 };
@@ -407,7 +411,11 @@ const dockerImageHandler: ArtifactHandler = {
 const githubReleaseHandler: ArtifactHandler = {
   async build(config, dryRun = false) {
     if (!config.buildCommand) {
-      return { success: true, output: 'No build command for GitHub release. Skipping.', dryRun: false };
+      return {
+        success: true,
+        output: 'No build command for GitHub release. Skipping.',
+        dryRun: false,
+      };
     }
     return execCommand(config.buildCommand, dryRun);
   },
@@ -428,7 +436,11 @@ const githubReleaseHandler: ArtifactHandler = {
 
   async publish(config, dryRun = false) {
     if (!config.publishCommand) {
-      return { success: false, output: 'GitHub release publish command not specified', dryRun: false };
+      return {
+        success: false,
+        output: 'GitHub release publish command not specified',
+        dryRun: false,
+      };
     }
     return execCommand(config.publishCommand, dryRun);
   },
@@ -490,9 +502,7 @@ export async function buildArtifact(
  * Validate an artifact using the appropriate handler.
  * @task T4552
  */
-export async function validateArtifact(
-  config: ArtifactConfig,
-): Promise<ArtifactResult> {
+export async function validateArtifact(config: ArtifactConfig): Promise<ArtifactResult> {
   const handler = getArtifactHandler(config.type);
   if (!handler) {
     return {

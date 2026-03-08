@@ -23,7 +23,7 @@
  * @see schemas/adr-frontmatter.schema.json for validation schema
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerAdrCommand(program: Command): void {

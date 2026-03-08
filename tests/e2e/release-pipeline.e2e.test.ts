@@ -10,11 +10,11 @@
  * @epic T5576
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, existsSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // ============================================================================
 // Scenario 1: Custom block preservation
@@ -133,7 +133,12 @@ Existing entry.
 
     await writeFile(changelogPath, initialChangelog, 'utf8');
 
-    await writeChangelogSection('2.0.0', '### New Features\n- Brand new version', [], changelogPath);
+    await writeChangelogSection(
+      '2.0.0',
+      '### New Features\n- Brand new version',
+      [],
+      changelogPath,
+    );
 
     const result = readFileSync(changelogPath, 'utf8');
 
@@ -159,33 +164,36 @@ describe('E2E: release gate fail path', () => {
     try {
       const { closeAllDatabases } = await import('../../src/store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
   });
 
   it('returns allPassed=false when a task in the release is not done', async () => {
-    const { prepareRelease, runReleaseGates } = await import('../../src/core/release/release-manifest.js');
+    const { prepareRelease, runReleaseGates } = await import(
+      '../../src/core/release/release-manifest.js'
+    );
 
     const version = '1.2.3';
 
     // Active task — not done
     const tasks = [
-      { id: 'T100', title: 'Finished task', status: 'done', completedAt: '2026-03-01T00:00:00.000Z' },
+      {
+        id: 'T100',
+        title: 'Finished task',
+        status: 'done',
+        completedAt: '2026-03-01T00:00:00.000Z',
+      },
       { id: 'T101', title: 'Incomplete task', status: 'active', completedAt: null },
     ];
 
     const loadTasksFn = async () => tasks;
 
     // Prepare release with specific task IDs
-    await prepareRelease(
-      version,
-      ['T100', 'T101'],
-      undefined,
-      loadTasksFn,
-      testDir,
-    );
+    await prepareRelease(version, ['T100', 'T101'], undefined, loadTasksFn, testDir);
 
     // Run gates — tasks_complete gate should fail because T101 is 'active'
     const result = await runReleaseGates(version, loadTasksFn, testDir);
@@ -203,7 +211,9 @@ describe('E2E: release gate fail path', () => {
   });
 
   it('returns allPassed=false when has_changelog gate fails (no changelog generated)', async () => {
-    const { prepareRelease, runReleaseGates } = await import('../../src/core/release/release-manifest.js');
+    const { prepareRelease, runReleaseGates } = await import(
+      '../../src/core/release/release-manifest.js'
+    );
 
     const version = '1.2.4';
 
@@ -223,8 +233,9 @@ describe('E2E: release gate fail path', () => {
   });
 
   it('all gates pass when release is properly set up', async () => {
-    const { prepareRelease, generateReleaseChangelog, runReleaseGates } =
-      await import('../../src/core/release/release-manifest.js');
+    const { prepareRelease, generateReleaseChangelog, runReleaseGates } = await import(
+      '../../src/core/release/release-manifest.js'
+    );
 
     const version = '1.2.5';
 
@@ -259,17 +270,18 @@ describe('E2E: release.ship dry run', () => {
     try {
       const { closeAllDatabases } = await import('../../src/store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
   });
 
   it('returns dry run summary without executing git commands', async () => {
-    const {
-      prepareRelease,
-      generateReleaseChangelog,
-    } = await import('../../src/core/release/release-manifest.js');
+    const { prepareRelease, generateReleaseChangelog } = await import(
+      '../../src/core/release/release-manifest.js'
+    );
     const { releaseShip } = await import('../../src/dispatch/engines/release-engine.js');
 
     // prepareRelease normalizes versions by prepending 'v'
@@ -277,14 +289,32 @@ describe('E2E: release.ship dry run', () => {
     const epicId = 'T5576';
 
     const tasks = [
-      { id: 'T400', title: 'Done feature', status: 'done', completedAt: '2026-03-01T00:00:00.000Z', labels: ['feat'] },
-      { id: 'T401', title: 'Done fix', status: 'done', completedAt: '2026-03-02T00:00:00.000Z', labels: ['fix'] },
+      {
+        id: 'T400',
+        title: 'Done feature',
+        status: 'done',
+        completedAt: '2026-03-01T00:00:00.000Z',
+        labels: ['feat'],
+      },
+      {
+        id: 'T401',
+        title: 'Done fix',
+        status: 'done',
+        completedAt: '2026-03-02T00:00:00.000Z',
+        labels: ['fix'],
+      },
     ];
 
     const loadTasksFn = async () => tasks;
 
     // Step 1: Prepare release
-    const prepared = await prepareRelease(version, ['T400', 'T401'], undefined, loadTasksFn, testDir);
+    const prepared = await prepareRelease(
+      version,
+      ['T400', 'T401'],
+      undefined,
+      loadTasksFn,
+      testDir,
+    );
     expect(prepared.version).toBe(version);
     expect(prepared.taskCount).toBe(2);
 
@@ -294,10 +324,7 @@ describe('E2E: release.ship dry run', () => {
     expect(typeof changelogResult.changelog).toBe('string');
 
     // Step 3: Call releaseShip with dryRun=true — should not run git
-    const result = await releaseShip(
-      { version, epicId, dryRun: true },
-      testDir,
-    );
+    const result = await releaseShip({ version, epicId, dryRun: true }, testDir);
 
     // Should succeed
     expect(result.success).toBe(true);
@@ -328,9 +355,7 @@ describe('E2E: release.ship dry run', () => {
     const version = 'v3.0.1';
     const epicId = 'T5576';
 
-    const tasks = [
-      { id: 'T500', title: 'Blocked task', status: 'blocked', completedAt: null },
-    ];
+    const tasks = [{ id: 'T500', title: 'Blocked task', status: 'blocked', completedAt: null }];
 
     await prepareRelease(version, ['T500'], undefined, async () => tasks, testDir);
 

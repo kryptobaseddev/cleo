@@ -8,19 +8,22 @@
  * @task T5153
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  checkCaampMarkerIntegrity,
   checkAtReferenceTargetExists,
+  checkCaampMarkerIntegrity,
   checkTemplateFreshness,
   checkTierMarkersPresent,
 } from '../doctor/checks.js';
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `cleo-injection-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `cleo-injection-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -37,7 +40,11 @@ describe('checkCaampMarkerIntegrity', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('passes when both files have balanced markers', () => {
@@ -56,15 +63,12 @@ describe('checkCaampMarkerIntegrity', () => {
   });
 
   it('warns when CAAMP markers are unbalanced', () => {
-    writeFileSync(
-      join(tempDir, 'CLAUDE.md'),
-      '<!-- CAAMP:START -->\n@AGENTS.md\n',
-    );
+    writeFileSync(join(tempDir, 'CLAUDE.md'), '<!-- CAAMP:START -->\n@AGENTS.md\n');
 
     const result = checkCaampMarkerIntegrity(tempDir);
     expect(result.status).toBe('warning');
     expect(result.message).toContain('CAAMP marker issues');
-    expect((result.details.issues as string[])).toContainEqual(
+    expect(result.details.issues as string[]).toContainEqual(
       expect.stringContaining('1 CAAMP:START vs 0 CAAMP:END'),
     );
   });
@@ -74,7 +78,7 @@ describe('checkCaampMarkerIntegrity', () => {
 
     const result = checkCaampMarkerIntegrity(tempDir);
     expect(result.status).toBe('warning');
-    expect((result.details.issues as string[])).toContainEqual(
+    expect(result.details.issues as string[]).toContainEqual(
       expect.stringContaining('no CAAMP markers found'),
     );
   });
@@ -97,7 +101,11 @@ describe('checkAtReferenceTargetExists', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns info when AGENTS.md does not exist', () => {
@@ -137,7 +145,7 @@ describe('checkAtReferenceTargetExists', () => {
 
     const result = checkAtReferenceTargetExists(tempDir);
     expect(result.status).toBe('warning');
-    expect((result.details.missing as string[])).toContain('nonexistent/file.md');
+    expect(result.details.missing as string[]).toContain('nonexistent/file.md');
   });
 });
 
@@ -155,8 +163,16 @@ describe('checkTemplateFreshness', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    try { rmSync(fakeCleoHome, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    try {
+      rmSync(fakeCleoHome, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns info when source template does not exist', () => {
@@ -214,7 +230,11 @@ describe('checkTierMarkersPresent', () => {
   });
 
   afterEach(() => {
-    try { rmSync(fakeCleoHome, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(fakeCleoHome, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('warns when template does not exist', () => {
@@ -262,7 +282,7 @@ describe('checkTierMarkersPresent', () => {
     const result = checkTierMarkersPresent(fakeCleoHome);
     expect(result.status).toBe('warning');
     expect(result.message).toContain('missing: orchestrator');
-    expect((result.details.missing as string[])).toContain('orchestrator');
+    expect(result.details.missing as string[]).toContain('orchestrator');
   });
 
   it('warns when a tier marker is unclosed', () => {
@@ -282,6 +302,6 @@ describe('checkTierMarkersPresent', () => {
     const result = checkTierMarkersPresent(fakeCleoHome);
     expect(result.status).toBe('warning');
     expect(result.message).toContain('unclosed: standard');
-    expect((result.details.unclosed as string[])).toContain('standard');
+    expect(result.details.unclosed as string[]).toContain('standard');
   });
 });

@@ -3,10 +3,10 @@
  * @task T5579
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseChangelogBlocks, writeChangelogSection } from '../changelog-writer.js';
 
 // ── parseChangelogBlocks ──────────────────────────────────────────────
@@ -30,7 +30,8 @@ describe('parseChangelogBlocks', () => {
   });
 
   it('extracts multiple [custom-log] blocks into separate array items', () => {
-    const content = '[custom-log]\nBlock one\n[/custom-log]\nMiddle\n[custom-log]\nBlock two\n[/custom-log]';
+    const content =
+      '[custom-log]\nBlock one\n[/custom-log]\nMiddle\n[custom-log]\nBlock two\n[/custom-log]';
     const { customBlocks } = parseChangelogBlocks(content);
     expect(customBlocks).toHaveLength(2);
     expect(customBlocks[0]).toBe('Block one');

@@ -34,8 +34,8 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
   showChain: vi.fn(),
 }));
 
-import { OrchestrateHandler } from '../orchestrate.js';
 import { listTesseraTemplates } from '../../../core/lifecycle/tessera-engine.js';
+import { OrchestrateHandler } from '../orchestrate.js';
 
 describe('OrchestrateHandler operations', () => {
   let handler: OrchestrateHandler;

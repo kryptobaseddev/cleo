@@ -6,7 +6,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerReparentCommand(program: Command): void {
@@ -16,6 +16,12 @@ export function registerReparentCommand(program: Command): void {
     .requiredOption('--to <parent-id>', 'Target parent task ID (or "" to make root)')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       const newParentId = (opts['to'] as string) || null;
-      await dispatchFromCli('mutate', 'tasks', 'reparent', { taskId, newParentId }, { command: 'reparent' });
+      await dispatchFromCli(
+        'mutate',
+        'tasks',
+        'reparent',
+        { taskId, newParentId },
+        { command: 'reparent' },
+      );
     });
 }

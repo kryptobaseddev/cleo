@@ -40,7 +40,7 @@ export function bindSession(ctx: Omit<SessionContext, 'agentPid' | 'boundAt'>): 
   if (_context) {
     throw new Error(
       `Session already bound: ${_context.sessionId}. ` +
-      `Call unbindSession() before binding a new session.`,
+        `Call unbindSession() before binding a new session.`,
     );
   }
   _context = {

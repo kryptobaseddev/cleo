@@ -12,7 +12,7 @@
  * @epic T5149
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine functions — handler imports from dispatch/lib/engine.js
 vi.mock('../../lib/engine.js', () => ({
@@ -41,20 +41,20 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-import { MemoryHandler } from '../memory.js';
 import {
-  memoryFind,
-  memoryTimeline,
-  memoryFetch,
-  memoryObserve,
   memoryDecisionFind,
   memoryDecisionStore,
-  memoryPatternFind,
-  memoryPatternStore,
+  memoryFetch,
+  memoryFind,
   memoryLearningFind,
   memoryLearningStore,
   memoryLink,
+  memoryObserve,
+  memoryPatternFind,
+  memoryPatternStore,
+  memoryTimeline,
 } from '../../lib/engine.js';
+import { MemoryHandler } from '../memory.js';
 
 describe('MemoryHandler (brain.db backed)', () => {
   let handler: MemoryHandler;
@@ -131,7 +131,11 @@ describe('MemoryHandler (brain.db backed)', () => {
     it('should return brain.db FTS5 search results', async () => {
       vi.mocked(memoryFind).mockResolvedValue({
         success: true,
-        data: { results: [{ id: 'D001', type: 'decision', title: 'Test', date: '2026-03-01' }], total: 1, tokensEstimated: 50 },
+        data: {
+          results: [{ id: 'D001', type: 'decision', title: 'Test', date: '2026-03-01' }],
+          total: 1,
+          tokensEstimated: 50,
+        },
       });
 
       const result = await handler.query('find', { query: 'test search' });
@@ -144,7 +148,10 @@ describe('MemoryHandler (brain.db backed)', () => {
     });
 
     it('should pass optional filter params', async () => {
-      vi.mocked(memoryFind).mockResolvedValue({ success: true, data: { results: [], total: 0, tokensEstimated: 0 } });
+      vi.mocked(memoryFind).mockResolvedValue({
+        success: true,
+        data: { results: [], total: 0, tokensEstimated: 0 },
+      });
 
       await handler.query('find', {
         query: 'auth',
@@ -369,7 +376,12 @@ describe('MemoryHandler (brain.db backed)', () => {
     it('should save decision to brain.db', async () => {
       vi.mocked(memoryDecisionStore).mockResolvedValue({
         success: true,
-        data: { id: 'D-xyz', type: 'technical', decision: 'Use TypeScript', createdAt: '2026-03-03' },
+        data: {
+          id: 'D-xyz',
+          type: 'technical',
+          decision: 'Use TypeScript',
+          createdAt: '2026-03-03',
+        },
       });
 
       const result = await handler.mutate('decision.store', {

@@ -8,7 +8,7 @@
  * @epic T3125
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { getActiveDomains, getByDomain } from '../../../src/dispatch/registry.js';
 import type { CanonicalDomain } from '../../../src/dispatch/types.js';
 

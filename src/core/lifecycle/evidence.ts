@@ -8,12 +8,12 @@
  * @epic T4798
  */
 
+import { basename, relative } from 'node:path';
 import { eq, like } from 'drizzle-orm';
-import { relative, basename } from 'node:path';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
-import { getCleoDirAbsolute } from '../paths.js';
 import { getLogger } from '../logger.js';
+import { getCleoDirAbsolute } from '../paths.js';
 
 const log = getLogger('lifecycle:evidence');
 
@@ -112,7 +112,7 @@ export async function getEvidence(
   try {
     const db = await getDb(cwd);
 
-    let rows;
+    let rows: schema.LifecycleEvidenceRow[];
     if (stage) {
       const stageId = `stage-${epicId}-${stage}`;
       rows = await db
@@ -129,15 +129,17 @@ export async function getEvidence(
         .all();
     }
 
-    return rows.map((row): EvidenceRecord => ({
-      id: row.id,
-      stageId: row.stageId,
-      uri: row.uri,
-      type: row.type as EvidenceType,
-      recordedAt: row.recordedAt,
-      recordedBy: row.recordedBy ?? undefined,
-      description: row.description ?? undefined,
-    }));
+    return rows.map(
+      (row): EvidenceRecord => ({
+        id: row.id,
+        stageId: row.stageId,
+        uri: row.uri,
+        type: row.type as EvidenceType,
+        recordedAt: row.recordedAt,
+        recordedBy: row.recordedBy ?? undefined,
+        description: row.description ?? undefined,
+      }),
+    );
   } catch (err) {
     log.warn({ err }, 'Failed to query evidence');
     return [];

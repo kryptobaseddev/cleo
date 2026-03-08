@@ -62,5 +62,5 @@ export async function embedText(text: string): Promise<Float32Array | null> {
 
 /** Check whether embedding is currently available. */
 export function isEmbeddingAvailable(): boolean {
-  return currentProvider !== null && currentProvider.isAvailable();
+  return currentProvider?.isAvailable() ?? false;
 }

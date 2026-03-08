@@ -10,16 +10,11 @@
  * The pure-function tests (detectVersion, compareSemver) remain unchanged.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import {
-  detectVersion,
-  compareSemver,
-  getMigrationStatus,
-  runMigration,
-} from '../index.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { compareSemver, detectVersion, getMigrationStatus, runMigration } from '../index.js';
 
 let testDir: string;
 let cleoDir: string;

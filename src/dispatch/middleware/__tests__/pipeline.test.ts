@@ -1,5 +1,5 @@
-import { describe,expect,it,vi } from 'vitest';
-import { DispatchRequest,Middleware } from '../../types.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { DispatchRequest, Middleware } from '../../types.js';
 import { compose } from '../pipeline.js';
 
 describe('Middleware Pipeline (compose)', () => {
@@ -14,23 +14,31 @@ describe('Middleware Pipeline (compose)', () => {
   it('should pass through when empty', async () => {
     const pipeline = compose([]);
     const result = await pipeline(mockReq, async () => ({
-      _meta: { gateway: 'query', domain: 'tasks', operation: 'show', timestamp: '', duration_ms: 0, source: 'cli', requestId: '' },
+      _meta: {
+        gateway: 'query',
+        domain: 'tasks',
+        operation: 'show',
+        timestamp: '',
+        duration_ms: 0,
+        source: 'cli',
+        requestId: '',
+      },
       success: true,
-      data: 'final'
+      data: 'final',
     }));
     expect(result.data).toBe('final');
   });
 
   it('should execute middleware in order', async () => {
     const order: number[] = [];
-    
+
     const m1: Middleware = async (req, next) => {
       order.push(1);
       const res = await next();
       order.push(4);
       return res;
     };
-    
+
     const m2: Middleware = async (req, next) => {
       order.push(2);
       const res = await next();
@@ -48,9 +56,13 @@ describe('Middleware Pipeline (compose)', () => {
 
   it('should allow short-circuiting', async () => {
     const m1: Middleware = async (req, next) => {
-      return { _meta: {} as any, success: false, error: { code: 'SHORT_CIRCUIT', message: 'stopped' } };
+      return {
+        _meta: {} as any,
+        success: false,
+        error: { code: 'SHORT_CIRCUIT', message: 'stopped' },
+      };
     };
-    
+
     const m2: Middleware = async (req, next) => {
       // Should not be called
       return next();
@@ -58,9 +70,9 @@ describe('Middleware Pipeline (compose)', () => {
 
     const pipeline = compose([m1, m2]);
     const finalNext = vi.fn();
-    
+
     const res = await pipeline(mockReq, finalNext);
-    
+
     expect(res.success).toBe(false);
     expect(res.error?.code).toBe('SHORT_CIRCUIT');
     expect(finalNext).not.toHaveBeenCalled();

@@ -9,9 +9,9 @@
 
 import { eq, inArray } from 'drizzle-orm';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as schema from './tasks-schema.js';
-import type { NewTaskRow } from './tasks-schema.js';
 import type { Task } from '../types/task.js';
+import type { NewTaskRow } from './tasks-schema.js';
+import * as schema from './tasks-schema.js';
 import type { Session } from './validation-schemas.js';
 
 /** Drizzle database instance type. */
@@ -38,7 +38,8 @@ export async function upsertTask(
 ): Promise<void> {
   // Defensive: null out parentId if it references a non-existent task (T5034)
   if (row.parentId) {
-    const parent = await db.select({ id: schema.tasks.id })
+    const parent = await db
+      .select({ id: schema.tasks.id })
       .from(schema.tasks)
       .where(eq(schema.tasks.id, row.parentId))
       .limit(1)
@@ -82,7 +83,8 @@ export async function upsertTask(
     archiveReason: archiveFields?.archiveReason ?? null,
     cycleTimeDays: archiveFields?.cycleTimeDays ?? null,
   };
-  await db.insert(schema.tasks)
+  await db
+    .insert(schema.tasks)
     .values(values)
     .onConflictDoUpdate({ target: schema.tasks.id, set })
     .run();
@@ -120,7 +122,8 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     gradeMode: session.gradeMode ? 1 : null,
   };
   const { id: _id, ...setFields } = values;
-  await db.insert(schema.sessions)
+  await db
+    .insert(schema.sessions)
     .values(values)
     .onConflictDoUpdate({ target: schema.sessions.id, set: setFields })
     .run();
@@ -136,12 +139,11 @@ export async function updateDependencies(
   depends: string[],
   validIds?: Set<string>,
 ): Promise<void> {
-  await db.delete(schema.taskDependencies)
-    .where(eq(schema.taskDependencies.taskId, taskId))
-    .run();
+  await db.delete(schema.taskDependencies).where(eq(schema.taskDependencies.taskId, taskId)).run();
   for (const depId of depends) {
     if (!validIds || validIds.has(depId)) {
-      await db.insert(schema.taskDependencies)
+      await db
+        .insert(schema.taskDependencies)
         .values({ taskId, dependsOn: depId })
         .onConflictDoNothing()
         .run();
@@ -164,10 +166,11 @@ export async function batchUpdateDependencies(
 ): Promise<void> {
   if (tasks.length === 0) return;
 
-  const allTaskIds = tasks.map(t => t.taskId);
+  const allTaskIds = tasks.map((t) => t.taskId);
 
   // Single DELETE: remove all existing dependencies for these tasks
-  await db.delete(schema.taskDependencies)
+  await db
+    .delete(schema.taskDependencies)
     .where(inArray(schema.taskDependencies.taskId, allTaskIds))
     .run();
 
@@ -183,10 +186,7 @@ export async function batchUpdateDependencies(
 
   // Single INSERT for all dependency rows
   if (allDepRows.length > 0) {
-    await db.insert(schema.taskDependencies)
-      .values(allDepRows)
-      .onConflictDoNothing()
-      .run();
+    await db.insert(schema.taskDependencies).values(allDepRows).onConflictDoNothing().run();
   }
 }
 
@@ -200,10 +200,12 @@ export async function loadDependenciesForTasks(
   validationIds?: Set<string>,
 ): Promise<void> {
   if (tasks.length === 0) return;
-  const taskIds = tasks.map(t => t.id);
+  const taskIds = tasks.map((t) => t.id);
   const taskIdSet = validationIds ?? new Set(taskIds);
 
-  const allDeps = await db.select().from(schema.taskDependencies)
+  const allDeps = await db
+    .select()
+    .from(schema.taskDependencies)
     .where(inArray(schema.taskDependencies.taskId, taskIds))
     .all();
 
@@ -231,14 +233,13 @@ export async function loadDependenciesForTasks(
  * Batch-load relations for a list of tasks and apply them in-place.
  * Mirrors loadDependenciesForTasks pattern for task_relations table (T5168).
  */
-export async function loadRelationsForTasks(
-  db: DrizzleDb,
-  tasks: Task[],
-): Promise<void> {
+export async function loadRelationsForTasks(db: DrizzleDb, tasks: Task[]): Promise<void> {
   if (tasks.length === 0) return;
-  const taskIds = tasks.map(t => t.id);
+  const taskIds = tasks.map((t) => t.id);
 
-  const allRels = await db.select().from(schema.taskRelations)
+  const allRels = await db
+    .select()
+    .from(schema.taskRelations)
     .where(inArray(schema.taskRelations.taskId, taskIds))
     .all();
 

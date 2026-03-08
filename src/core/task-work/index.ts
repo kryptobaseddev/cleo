@@ -5,14 +5,14 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
+import { CleoError } from '../errors.js';
+import { getBackupDir, getTaskPath } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
@@ -43,7 +43,10 @@ export interface TaskWorkHistoryEntry {
  * @task T4462
  * @task T4750
  */
-export async function currentTask(cwd?: string, accessor?: DataAccessor): Promise<TaskCurrentResult> {
+export async function currentTask(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskCurrentResult> {
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));
@@ -63,7 +66,11 @@ export async function currentTask(cwd?: string, accessor?: DataAccessor): Promis
  * @task T4462
  * @task T4750
  */
-export async function startTask(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskStartResult> {
+export async function startTask(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskStartResult> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
@@ -76,13 +83,11 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     : await readJsonRequired<TaskFile>(taskPath);
 
   // Verify task exists
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Task not found: ${taskId}`,
-      { fix: `Use 'cleo find "${taskId}"' to search` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
+      fix: `Use 'cleo find "${taskId}"' to search`,
+    });
   }
 
   // Block starting a task with unresolved dependencies
@@ -91,7 +96,9 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     throw new CleoError(
       ExitCode.DEPENDENCY_ERROR,
       `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
-      { fix: `Complete blockers first: ${unresolvedDeps.map(d => `cleo complete ${d}`).join(', ')}` },
+      {
+        fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
+      },
     );
   }
 
@@ -125,18 +132,27 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation('task_start', taskId, {
-    previousTask,
-    title: task.title,
-  }, accessor);
+  await logOperation(
+    'task_start',
+    taskId,
+    {
+      previousTask,
+      title: task.title,
+    },
+    accessor,
+  );
 
   // Dispatch onToolStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
-  hooks.dispatch('onToolStart', cwd ?? process.cwd(), {
-    timestamp: new Date().toISOString(),
-    taskId,
-    taskTitle: task.title,
-  }).catch(() => { /* Hooks are best-effort */ });
+  hooks
+    .dispatch('onToolStart', cwd ?? process.cwd(), {
+      timestamp: new Date().toISOString(),
+      taskId,
+      taskTitle: task.title,
+    })
+    .catch(() => {
+      /* Hooks are best-effort */
+    });
 
   return {
     taskId,
@@ -150,7 +166,10 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
  * @task T4462
  * @task T4750
  */
-export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
+export async function stopTask(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{ previousTask: string | null }> {
   const taskPath = getTaskPath(cwd);
   const backupDir = getBackupDir(cwd);
 
@@ -166,7 +185,7 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
 
   // Get task info before clearing focus for hook dispatch
   const taskId = data.focus.currentTask;
-  const task = taskId ? data.tasks.find(t => t.id === taskId) : undefined;
+  const task = taskId ? data.tasks.find((t) => t.id === taskId) : undefined;
 
   data.focus.currentTask = null;
   data.focus.nextAction = null;
@@ -178,12 +197,16 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
   // Dispatch onToolComplete hook (best-effort, don't await)
   if (taskId && task) {
     const { hooks } = await import('../hooks/registry.js');
-    hooks.dispatch('onToolComplete', cwd ?? process.cwd(), {
-      timestamp: now,
-      taskId,
-      taskTitle: task.title,
-      status: 'done',
-    }).catch(() => { /* Hooks are best-effort */ });
+    hooks
+      .dispatch('onToolComplete', cwd ?? process.cwd(), {
+        timestamp: now,
+        taskId,
+        taskTitle: task.title,
+        status: 'done',
+      })
+      .catch(() => {
+        /* Hooks are best-effort */
+      });
   }
 
   if (accessor) {
@@ -192,9 +215,14 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation('task_stop', previousTask ?? 'none', {
-    previousTask,
-  }, accessor);
+  await logOperation(
+    'task_stop',
+    previousTask ?? 'none',
+    {
+      previousTask,
+    },
+    accessor,
+  );
 
   return { previousTask };
 }
@@ -204,7 +232,10 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
  * @task T4462
  * @task T4750
  */
-export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Promise<TaskWorkHistoryEntry[]> {
+export async function getWorkHistory(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskWorkHistoryEntry[]> {
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));

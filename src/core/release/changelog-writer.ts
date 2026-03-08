@@ -5,8 +5,8 @@
  * @epic T5576
  */
 
-import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { atomicWrite } from '../../store/atomic.js';
 
 // ── Custom-log block parsing ──────────────────────────────────────────
@@ -23,8 +23,7 @@ export function parseChangelogBlocks(content: string): {
   const customBlocks: string[] = [];
   const blockRe = /\[custom-log\]([\s\S]*?)\[\/custom-log\]/gi;
 
-  let match: RegExpExecArray | null;
-  while ((match = blockRe.exec(content)) !== null) {
+  for (const match of content.matchAll(blockRe)) {
     const inner = match[1].trim();
     if (inner.length > 0) {
       customBlocks.push(inner);
@@ -41,11 +40,7 @@ export function parseChangelogBlocks(content: string): {
 /**
  * Build the full section text for a given version.
  */
-function buildSection(
-  version: string,
-  generatedContent: string,
-  customBlocks: string[],
-): string {
+function buildSection(version: string, generatedContent: string, customBlocks: string[]): string {
   const date = new Date().toISOString().split('T')[0];
   const lines: string[] = [];
 

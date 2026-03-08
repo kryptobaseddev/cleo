@@ -9,14 +9,14 @@
  */
 
 import type {
-  TesseraTemplate,
   TesseraInstantiationInput,
+  TesseraTemplate,
   TesseraVariable,
 } from '../../types/tessera.js';
 import type { WarpChain, WarpChainInstance } from '../../types/warp-chain.js';
-import { buildDefaultChain } from './default-chain.js';
 import { validateChain } from '../validation/chain-validation.js';
-import { addChain, showChain, createInstance } from './chain-store.js';
+import { addChain, createInstance, showChain } from './chain-store.js';
+import { buildDefaultChain } from './default-chain.js';
 
 const DEFAULT_TESSERA_ID = 'tessera-rcasd';
 const TASK_ID_PATTERN = /^T\d+$/;
@@ -34,28 +34,34 @@ function valueType(value: unknown): string {
 }
 
 function hasOwn(obj: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key);
+  return Object.hasOwn(obj, key);
 }
 
 function validateVariableType(name: string, varDef: TesseraVariable, value: unknown): void {
   switch (varDef.type) {
     case 'string': {
       if (typeof value !== 'string') {
-        throw new Error(`Invalid variable type for "${name}": expected string, got ${valueType(value)}`);
+        throw new Error(
+          `Invalid variable type for "${name}": expected string, got ${valueType(value)}`,
+        );
       }
       return;
     }
 
     case 'number': {
       if (typeof value !== 'number' || !Number.isFinite(value)) {
-        throw new Error(`Invalid variable type for "${name}": expected finite number, got ${valueType(value)}`);
+        throw new Error(
+          `Invalid variable type for "${name}": expected finite number, got ${valueType(value)}`,
+        );
       }
       return;
     }
 
     case 'boolean': {
       if (typeof value !== 'boolean') {
-        throw new Error(`Invalid variable type for "${name}": expected boolean, got ${valueType(value)}`);
+        throw new Error(
+          `Invalid variable type for "${name}": expected boolean, got ${valueType(value)}`,
+        );
       }
       return;
     }
@@ -63,10 +69,14 @@ function validateVariableType(name: string, varDef: TesseraVariable, value: unkn
     case 'taskId':
     case 'epicId': {
       if (typeof value !== 'string') {
-        throw new Error(`Invalid variable type for "${name}": expected ${varDef.type}, got ${valueType(value)}`);
+        throw new Error(
+          `Invalid variable type for "${name}": expected ${varDef.type}, got ${valueType(value)}`,
+        );
       }
       if (!TASK_ID_PATTERN.test(value)) {
-        throw new Error(`Invalid variable format for "${name}": expected ${varDef.type} like "T1234", got "${value}"`);
+        throw new Error(
+          `Invalid variable format for "${name}": expected ${varDef.type} like "T1234", got "${value}"`,
+        );
       }
       return;
     }
@@ -101,7 +111,9 @@ function substituteTemplateValue(
   }
 
   if (Array.isArray(value)) {
-    return value.map((entry, index) => substituteTemplateValue(entry, variables, `${path}[${index}]`));
+    return value.map((entry, index) =>
+      substituteTemplateValue(entry, variables, `${path}[${index}]`),
+    );
   }
 
   if (value !== null && typeof value === 'object') {
@@ -124,9 +136,7 @@ function resolveVariables(
 
   for (const key of Object.keys(inputVariables).sort()) {
     if (!allowedVariables.has(key)) {
-      throw new Error(
-        `Unknown variable: ${key}. Allowed variables: ${variableKeys.join(', ')}`,
-      );
+      throw new Error(`Unknown variable: ${key}. Allowed variables: ${variableKeys.join(', ')}`);
     }
   }
 
@@ -238,9 +248,7 @@ export async function instantiateTessera(
 ): Promise<WarpChainInstance> {
   // 1. Resolve and validate input variables
   const inputVariables =
-    input.variables && typeof input.variables === 'object'
-      ? input.variables
-      : {};
+    input.variables && typeof input.variables === 'object' ? input.variables : {};
   const resolvedVariables = resolveVariables(template, inputVariables);
 
   // 2. Build chain from template with deep substitution

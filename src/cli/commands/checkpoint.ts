@@ -6,17 +6,17 @@
  */
 // CLI-only: git checkpoint has no dispatch route (git operations not suitable for MCP)
 
-import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import { formatError } from '../../core/output.js';
 import { getCleoDir } from '../../core/paths.js';
 import {
   gitCheckpoint,
   gitCheckpointStatus,
   isCleoGitInitialized,
 } from '../../store/git-checkpoint.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Check if inside a git repository.
@@ -52,22 +52,32 @@ export function registerCheckpointCommand(program: Command): void {
 
         if (opts['status']) {
           const status = await gitCheckpointStatus();
-          cliOutput({
-            config: status.config,
-            lastCheckpoint: status.status.lastCheckpoint,
-            pendingFiles: status.status.pendingChanges,
-            isGitRepo: status.status.isGitRepo,
-          }, { command: 'checkpoint' });
+          cliOutput(
+            {
+              config: status.config,
+              lastCheckpoint: status.status.lastCheckpoint,
+              pendingFiles: status.status.pendingChanges,
+              isGitRepo: status.status.isGitRepo,
+            },
+            { command: 'checkpoint' },
+          );
           return;
         }
 
         if (opts['dryRun']) {
           const status = await gitCheckpointStatus();
           const count = status.status.pendingChanges;
-          cliOutput({
-            dryRun: true,
-            fileCount: count,
-          }, { command: 'checkpoint', message: count === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${count} file(s)` });
+          cliOutput(
+            {
+              dryRun: true,
+              fileCount: count,
+            },
+            {
+              command: 'checkpoint',
+              message:
+                count === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${count} file(s)`,
+            },
+          );
           return;
         }
 
@@ -76,7 +86,11 @@ export function registerCheckpointCommand(program: Command): void {
         if (!before.config.enabled) {
           cliOutput(
             { enabled: false },
-            { command: 'checkpoint', message: 'Git checkpoint is disabled. Enable with: cleo config set gitCheckpoint.enabled true' },
+            {
+              command: 'checkpoint',
+              message:
+                'Git checkpoint is disabled. Enable with: cleo config set gitCheckpoint.enabled true',
+            },
           );
           return;
         }
@@ -91,9 +105,12 @@ export function registerCheckpointCommand(program: Command): void {
 
         await gitCheckpoint('manual');
 
-        cliOutput({
-          checkpointed: before.status.pendingChanges,
-        }, { command: 'checkpoint', message: 'Checkpoint complete' });
+        cliOutput(
+          {
+            checkpointed: before.status.pendingChanges,
+          },
+          { command: 'checkpoint', message: 'Checkpoint complete' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

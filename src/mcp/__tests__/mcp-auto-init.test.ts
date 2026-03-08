@@ -11,11 +11,11 @@
  * @epic T4663
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock @cleocode/caamp to avoid requiring actual provider installations
 vi.mock('@cleocode/caamp', () => ({
@@ -29,7 +29,10 @@ vi.mock('@cleocode/caamp', () => ({
   discoverSkill: vi.fn(async () => null),
   discoverSkills: vi.fn(async () => []),
   installBatchWithRollback: vi.fn(async () => ({ success: true, results: [], rolledBack: false })),
-  configureProviderGlobalAndProject: vi.fn(async () => ({ global: { success: true }, project: { success: true } })),
+  configureProviderGlobalAndProject: vi.fn(async () => ({
+    global: { success: true },
+    project: { success: true },
+  })),
 }));
 
 // Mock nexus to avoid side effects
@@ -78,7 +81,9 @@ describe('MCP auto-init: ensureInitialized() (T4694)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 

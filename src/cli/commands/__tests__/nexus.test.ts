@@ -6,20 +6,15 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import {
-  nexusGetProject,
-  nexusInit,
-  nexusList,
-  nexusRegister,
-} from '../../../core/nexus/index.js';
+import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '../../../core/nexus/index.js';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { closeAllDatabases, resetDbState } from '../../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
 import { registerNexusCommand } from '../nexus.js';
 
 let testDir: string;
@@ -30,7 +25,15 @@ let projectDirB: string;
 /** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProject(
   dir: string,
-  tasks: Array<{ id: string; title: string; status: string; description?: string; labels?: string[]; depends?: string[]; priority?: string }>,
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    description?: string;
+    labels?: string[];
+    depends?: string[];
+    priority?: string;
+  }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
   resetDbState();
@@ -50,15 +53,51 @@ beforeEach(async () => {
 
   // Create test project A
   await createTestProject(projectDirA, [
-    { id: 'T001', title: 'Auth module', status: 'pending', labels: ['auth', 'api'], description: 'Implement JWT authentication', priority: 'high' },
-    { id: 'T002', title: 'Database setup', status: 'done', labels: ['db'], description: 'Set up PostgreSQL database', priority: 'medium' },
-    { id: 'T003', title: 'API endpoints', status: 'pending', labels: ['api'], description: 'REST API endpoints', depends: ['T002'], priority: 'medium' },
+    {
+      id: 'T001',
+      title: 'Auth module',
+      status: 'pending',
+      labels: ['auth', 'api'],
+      description: 'Implement JWT authentication',
+      priority: 'high',
+    },
+    {
+      id: 'T002',
+      title: 'Database setup',
+      status: 'done',
+      labels: ['db'],
+      description: 'Set up PostgreSQL database',
+      priority: 'medium',
+    },
+    {
+      id: 'T003',
+      title: 'API endpoints',
+      status: 'pending',
+      labels: ['api'],
+      description: 'REST API endpoints',
+      depends: ['T002'],
+      priority: 'medium',
+    },
   ]);
 
   // Create test project B
   await createTestProject(projectDirB, [
-    { id: 'T001', title: 'Frontend auth', status: 'pending', labels: ['auth', 'ui'], description: 'Login and signup UI', priority: 'high' },
-    { id: 'T002', title: 'Dashboard', status: 'pending', labels: ['ui'], description: 'Main dashboard component', priority: 'medium' },
+    {
+      id: 'T001',
+      title: 'Frontend auth',
+      status: 'pending',
+      labels: ['auth', 'ui'],
+      description: 'Login and signup UI',
+      priority: 'high',
+    },
+    {
+      id: 'T002',
+      title: 'Dashboard',
+      status: 'pending',
+      labels: ['ui'],
+      description: 'Main dashboard component',
+      priority: 'medium',
+    },
   ]);
 
   // Set env vars
@@ -84,10 +123,10 @@ describe('registerNexusCommand', () => {
     const program = new Command();
     registerNexusCommand(program);
 
-    const nexusCmd = program.commands.find(c => c.name() === 'nexus');
+    const nexusCmd = program.commands.find((c) => c.name() === 'nexus');
     expect(nexusCmd).toBeDefined();
 
-    const subcommandNames = nexusCmd!.commands.map(c => c.name());
+    const subcommandNames = nexusCmd!.commands.map((c) => c.name());
     expect(subcommandNames).toContain('init');
     expect(subcommandNames).toContain('register');
     expect(subcommandNames).toContain('unregister');
@@ -134,7 +173,7 @@ describe('nexus register/unregister (core integration)', () => {
 
     const projects = await nexusList();
     expect(projects).toHaveLength(2);
-    const names = projects.map(p => p.name).sort();
+    const names = projects.map((p) => p.name).sort();
     expect(names).toEqual(['alpha', 'beta']);
   });
 });
@@ -178,7 +217,7 @@ describe('nexus query (core integration)', () => {
     expect(Array.isArray(results)).toBe(true);
     if (Array.isArray(results)) {
       expect(results.length).toBe(2);
-      const projects = results.map(r => r._project).sort();
+      const projects = results.map((r) => r._project).sort();
       expect(projects).toEqual(['alpha', 'beta']);
     }
   });
@@ -205,10 +244,34 @@ describe('nexus sync (core integration)', () => {
 
     // Modify project tasks
     await createTestProject(projectDirA, [
-      { id: 'T001', title: 'Auth module', status: 'done', labels: ['auth', 'api'], description: 'Implement JWT authentication' },
-      { id: 'T002', title: 'Database setup', status: 'done', labels: ['db'], description: 'Set up PostgreSQL database' },
-      { id: 'T003', title: 'API endpoints', status: 'done', labels: ['api'], description: 'REST API endpoints' },
-      { id: 'T004', title: 'New task', status: 'pending', labels: ['new'], description: 'A brand new feature task' },
+      {
+        id: 'T001',
+        title: 'Auth module',
+        status: 'done',
+        labels: ['auth', 'api'],
+        description: 'Implement JWT authentication',
+      },
+      {
+        id: 'T002',
+        title: 'Database setup',
+        status: 'done',
+        labels: ['db'],
+        description: 'Set up PostgreSQL database',
+      },
+      {
+        id: 'T003',
+        title: 'API endpoints',
+        status: 'done',
+        labels: ['api'],
+        description: 'REST API endpoints',
+      },
+      {
+        id: 'T004',
+        title: 'New task',
+        status: 'pending',
+        labels: ['new'],
+        description: 'A brand new feature task',
+      },
     ]);
 
     const { nexusSync } = await import('../../../core/nexus/index.js');

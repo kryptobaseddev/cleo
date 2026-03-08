@@ -1,5 +1,10 @@
 import { basename } from 'node:path';
-import { detectProjectProviders, getProvider, resolveAlias, type DetectionResult } from '@cleocode/caamp';
+import {
+  type DetectionResult,
+  detectProjectProviders,
+  getProvider,
+  resolveAlias,
+} from '@cleocode/caamp';
 
 export interface RuntimeProviderContext {
   runtimeProviderId?: string;
@@ -22,7 +27,8 @@ function inferProviderFromVendor(vendor?: string): string | undefined {
   const value = (vendor ?? '').trim().toLowerCase();
   if (!value) return undefined;
   if (value.includes('anthropic') || value.includes('claude')) return 'anthropic';
-  if (value.includes('openai') || value.includes('codex') || value.includes('chatgpt')) return 'openai';
+  if (value.includes('openai') || value.includes('codex') || value.includes('chatgpt'))
+    return 'openai';
   if (value.includes('google') || value.includes('gemini')) return 'google';
   if (value.includes('xai') || value.includes('grok')) return 'xai';
   return undefined;
@@ -50,16 +56,22 @@ function getRuntimeHints(snapshot: RuntimeProviderSnapshot): string[] {
   return Array.from(hints);
 }
 
-function pickDetectionByHint(detections: DetectionResult[], hints: string[]): DetectionResult | null {
+function pickDetectionByHint(
+  detections: DetectionResult[],
+  hints: string[],
+): DetectionResult | null {
   for (const hint of hints) {
     const resolved = resolveAlias(hint);
-    const direct = detections.find((entry) => entry.provider.id === resolved || entry.provider.id === hint);
+    const direct = detections.find(
+      (entry) => entry.provider.id === resolved || entry.provider.id === hint,
+    );
     if (direct) return direct;
 
-    const byAlias = detections.find((entry) =>
-      entry.provider.aliases.includes(hint)
-      || entry.provider.agentFlag === hint
-      || entry.provider.toolName.toLowerCase() === hint.toLowerCase()
+    const byAlias = detections.find(
+      (entry) =>
+        entry.provider.aliases.includes(hint) ||
+        entry.provider.agentFlag === hint ||
+        entry.provider.toolName.toLowerCase() === hint.toLowerCase(),
     );
     if (byAlias) return byAlias;
 
@@ -86,9 +98,10 @@ export function selectRuntimeProviderContext(
   const projectMatches = detections.filter((entry) => entry.projectDetected);
   const installed = detections.filter((entry) => entry.installed);
 
-  const selected = hinted
-    ?? (projectMatches.length === 1 ? projectMatches[0] : null)
-    ?? (installed.length === 1 ? installed[0] : null);
+  const selected =
+    hinted ??
+    (projectMatches.length === 1 ? projectMatches[0] : null) ??
+    (installed.length === 1 ? installed[0] : null);
 
   if (!selected) {
     return {
@@ -110,7 +123,9 @@ export function selectRuntimeProviderContext(
 
 let cachedRuntimeProvider: RuntimeProviderContext | null = null;
 
-export function detectRuntimeProviderContext(snapshot: RuntimeProviderSnapshot = {}): RuntimeProviderContext {
+export function detectRuntimeProviderContext(
+  snapshot: RuntimeProviderSnapshot = {},
+): RuntimeProviderContext {
   if (!snapshot.cwd && !snapshot.argv && !snapshot.env && cachedRuntimeProvider) {
     return cachedRuntimeProvider;
   }

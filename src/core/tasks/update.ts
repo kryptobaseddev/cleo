@@ -4,27 +4,31 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { safeAppendLog, safeSaveTaskData } from '../../store/data-safety-central.js';
+import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
+import type {
+  Task,
+  TaskFile,
+  TaskPriority,
+  TaskSize,
+  TaskStatus,
+  TaskType,
+} from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getBackupDir, getTaskPath } from '../paths.js';
 import {
-  validateStatus,
-  normalizePriority,
-  validateTaskType,
-  validateSize,
-  validateLabels,
-  validateTitle,
   logOperation,
+  normalizePriority,
+  validateLabels,
+  validateSize,
+  validateStatus,
+  validateTaskType,
+  validateTitle,
 } from './add.js';
 import { completeTask } from './complete.js';
 import { reparentTask } from './reparent.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
-import {
-  safeSaveTaskData,
-  safeAppendLog,
-} from '../../store/data-safety-central.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
   'title',
@@ -48,7 +52,7 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
-  return NON_STATUS_DONE_FIELDS.some(field => options[field] !== undefined);
+  return NON_STATUS_DONE_FIELDS.some((field) => options[field] !== undefined);
 }
 
 /** Options for updating a task. */
@@ -85,7 +89,11 @@ export interface UpdateTaskResult {
  * Update a task's fields.
  * @task T4461
  */
-export async function updateTask(options: UpdateTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<UpdateTaskResult> {
+export async function updateTask(
+  options: UpdateTaskOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<UpdateTaskResult> {
   const taskPath = getTaskPath(cwd);
   const backupDir = getBackupDir(cwd);
 
@@ -93,13 +101,11 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(taskPath);
 
-  const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
+  const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
   if (taskIdx === -1) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Task not found: ${options.taskId}`,
-      { fix: `Use 'cleo find "${options.taskId}"' to search` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+      fix: `Use 'cleo find "${options.taskId}"' to search`,
+    });
   }
 
   const task = data.tasks[taskIdx]!;
@@ -107,9 +113,7 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   const now = new Date().toISOString();
 
   const isStatusOnlyDoneTransition =
-    options.status === 'done' &&
-    task.status !== 'done' &&
-    !hasNonStatusDoneFields(options);
+    options.status === 'done' && task.status !== 'done' && !hasNonStatusDoneFields(options);
 
   if (isStatusOnlyDoneTransition) {
     const result = await completeTask({ taskId: options.taskId }, cwd, accessor);
@@ -189,8 +193,8 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   }
 
   if (options.removeLabels?.length) {
-    const toRemove = new Set(options.removeLabels.map(l => l.trim()));
-    task.labels = (task.labels ?? []).filter(l => !toRemove.has(l));
+    const toRemove = new Set(options.removeLabels.map((l) => l.trim()));
+    task.labels = (task.labels ?? []).filter((l) => !toRemove.has(l));
     changes.push('labels');
   }
 
@@ -207,13 +211,16 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   }
 
   if (options.removeDepends?.length) {
-    const toRemove = new Set(options.removeDepends.map(d => d.trim()));
-    task.depends = (task.depends ?? []).filter(d => !toRemove.has(d));
+    const toRemove = new Set(options.removeDepends.map((d) => d.trim()));
+    task.depends = (task.depends ?? []).filter((d) => !toRemove.has(d));
     changes.push('depends');
   }
 
   if (options.notes !== undefined) {
-    const timestampedNote = `${new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
+    const timestampedNote = `${new Date()
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
     if (!task.notes) task.notes = [];
     task.notes.push(timestampedNote);
     changes.push('notes');
@@ -276,16 +283,20 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
     } else {
       await safeSaveTaskData(accessor, data, cwd);
     }
-    await safeAppendLog(accessor, {
-      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      action: 'task_updated',
-      taskId: options.taskId,
-      actor: 'system',
-      details: { changes, title: task.title },
-      before: null,
-      after: { changes, title: task.title },
-    }, cwd);
+    await safeAppendLog(
+      accessor,
+      {
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'task_updated',
+        taskId: options.taskId,
+        actor: 'system',
+        details: { changes, title: task.title },
+        before: null,
+        after: { changes, title: task.title },
+      },
+      cwd,
+    );
   } else {
     await saveJson(taskPath, data, { backupDir });
     await logOperation('task_updated', options.taskId, {

@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   allEpicChildrenVerified,
   checkCircularValidation,
@@ -23,7 +23,7 @@ import {
   resetDownstreamGates,
   setVerificationPassed,
   shouldRequireVerification,
-  updateGate
+  updateGate,
 } from '../verification.js';
 
 // ============================================================================
@@ -288,15 +288,51 @@ describe('checkCircularValidation', () => {
 describe('allEpicChildrenVerified', () => {
   it('returns true when all done children are verified', () => {
     const tasks = [
-      { id: 'T1', status: 'done', parentId: 'E1', verification: { passed: true, round: 0, gates: {} as any, lastAgent: null, lastUpdated: '', failureLog: [] } },
-      { id: 'T2', status: 'done', parentId: 'E1', verification: { passed: true, round: 0, gates: {} as any, lastAgent: null, lastUpdated: '', failureLog: [] } },
+      {
+        id: 'T1',
+        status: 'done',
+        parentId: 'E1',
+        verification: {
+          passed: true,
+          round: 0,
+          gates: {} as any,
+          lastAgent: null,
+          lastUpdated: '',
+          failureLog: [],
+        },
+      },
+      {
+        id: 'T2',
+        status: 'done',
+        parentId: 'E1',
+        verification: {
+          passed: true,
+          round: 0,
+          gates: {} as any,
+          lastAgent: null,
+          lastUpdated: '',
+          failureLog: [],
+        },
+      },
     ];
     expect(allEpicChildrenVerified('E1', tasks)).toBe(true);
   });
 
   it('returns false when children are incomplete', () => {
     const tasks = [
-      { id: 'T1', status: 'done', parentId: 'E1', verification: { passed: true, round: 0, gates: {} as any, lastAgent: null, lastUpdated: '', failureLog: [] } },
+      {
+        id: 'T1',
+        status: 'done',
+        parentId: 'E1',
+        verification: {
+          passed: true,
+          round: 0,
+          gates: {} as any,
+          lastAgent: null,
+          lastUpdated: '',
+          failureLog: [],
+        },
+      },
       { id: 'T2', status: 'active', parentId: 'E1' },
     ];
     expect(allEpicChildrenVerified('E1', tasks)).toBe(false);

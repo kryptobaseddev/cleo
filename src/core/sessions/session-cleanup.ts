@@ -41,9 +41,8 @@ export async function cleanupSessions(
 
   // Read auto-end threshold from config
   const configDays = await getRawConfigValue('retention.autoEndActiveAfterDays', projectRoot);
-  const autoEndDays = typeof configDays === 'number' && configDays > 0
-    ? configDays
-    : DEFAULT_AUTO_END_DAYS;
+  const autoEndDays =
+    typeof configDays === 'number' && configDays > 0 ? configDays : DEFAULT_AUTO_END_DAYS;
   const autoEndMs = autoEndDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
 
@@ -55,9 +54,7 @@ export async function cleanupSessions(
         session.status = 'ended';
         session.endedAt = new Date().toISOString();
         if (!session.notes) session.notes = [];
-        session.notes.push(
-          `Auto-ended: session exceeded ${autoEndDays}-day inactivity threshold`,
-        );
+        session.notes.push(`Auto-ended: session exceeded ${autoEndDays}-day inactivity threshold`);
         autoEnded.push(session.id);
       }
     }

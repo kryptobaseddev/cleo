@@ -6,13 +6,13 @@
  * of silently losing data through the in-memory mutation path.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { addRelation, listRelations } from '../relates.js';
 import type { Task } from '../../../types/task.js';
+import { addRelation, listRelations } from '../relates.js';
 
 describe('relates.ts addRelation persistence (T5168)', () => {
   let testDir: string;
@@ -51,7 +51,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
 
     // Reload data from database to verify persistence
     const taskFile = await accessor.loadTaskFile();
-    const task = taskFile.tasks.find(t => t.id === 'T001');
+    const task = taskFile.tasks.find((t) => t.id === 'T001');
 
     expect(task?.relates).toHaveLength(1);
     expect(task?.relates?.[0]).toEqual({
@@ -69,7 +69,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
     accessor = await createSqliteDataAccessor(testDir);
 
     const taskFile = await accessor.loadTaskFile();
-    const task = taskFile.tasks.find(t => t.id === 'T001');
+    const task = taskFile.tasks.find((t) => t.id === 'T001');
 
     expect(task?.relates).toHaveLength(1);
     expect(task?.relates?.[0]).toEqual({
@@ -80,15 +80,15 @@ describe('relates.ts addRelation persistence (T5168)', () => {
   });
 
   it('should throw on non-existent source task', async () => {
-    await expect(
-      addRelation('T999', 'T002', 'blocks', 'test', testDir, accessor),
-    ).rejects.toThrow('T999 not found');
+    await expect(addRelation('T999', 'T002', 'blocks', 'test', testDir, accessor)).rejects.toThrow(
+      'T999 not found',
+    );
   });
 
   it('should throw on non-existent target task', async () => {
-    await expect(
-      addRelation('T001', 'T999', 'blocks', 'test', testDir, accessor),
-    ).rejects.toThrow('T999 not found');
+    await expect(addRelation('T001', 'T999', 'blocks', 'test', testDir, accessor)).rejects.toThrow(
+      'T999 not found',
+    );
   });
 
   it('listRelations should return relations from task_relations table', async () => {

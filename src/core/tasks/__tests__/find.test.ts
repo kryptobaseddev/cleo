@@ -4,10 +4,14 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { findTasks, fuzzyScore } from '../find.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import { findTasks, fuzzyScore } from '../find.js';
 
 describe('fuzzyScore', () => {
   it('returns 100 for exact match', () => {
@@ -48,9 +52,27 @@ describe('findTasks', () => {
 
   it('finds tasks by fuzzy query', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Implement authentication', status: 'pending', priority: 'high', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Fix database query', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T003', title: 'Update docs', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Implement authentication',
+        status: 'pending',
+        priority: 'high',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Fix database query',
+        status: 'done',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Update docs',
+        status: 'pending',
+        priority: 'low',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await findTasks({ query: 'auth' }, env.tempDir, accessor);
@@ -61,9 +83,27 @@ describe('findTasks', () => {
 
   it('finds tasks by ID prefix', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T010', title: 'Task 10', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T100', title: 'Task 100', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T010',
+        title: 'Task 10',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T100',
+        title: 'Task 100',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await findTasks({ id: 'T01' }, env.tempDir, accessor);
@@ -74,8 +114,20 @@ describe('findTasks', () => {
 
   it('finds tasks by exact title', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Not Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Exact Match',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Not Exact Match',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await findTasks({ query: 'Exact Match', exact: true }, env.tempDir, accessor);
@@ -112,8 +164,20 @@ describe('findTasks', () => {
 
   it('filters by status', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Done task', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Pending task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Done task',
+        status: 'done',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Pending task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await findTasks({ query: 'task', status: 'pending' }, env.tempDir, accessor);

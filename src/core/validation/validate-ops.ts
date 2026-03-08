@@ -9,25 +9,25 @@
  * @epic T4654
  */
 
-import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join, dirname, resolve } from 'node:path';
-import { getManifestPath as getCentralManifestPath } from '../paths.js';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import { TASK_STATUSES } from '../../store/status-registry.js';
+import type { Task } from '../../types/task.js';
+import { getManifestPath as getCentralManifestPath } from '../paths.js';
+import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
 import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
-  validateTitleDescription,
-  validateTimestamps,
-  validateIdUniqueness,
-  validateNoDuplicateDescription,
-  validateHierarchy,
   hasErrors,
   type RuleViolation,
+  validateHierarchy,
+  validateIdUniqueness,
+  validateNoDuplicateDescription,
+  validateTimestamps,
+  validateTitleDescription,
 } from './validation-rules.js';
-import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
-import { computeChecksum } from '../../store/json.js';
-import type { Task } from '../../types/task.js';
-import { TASK_STATUSES } from '../../store/status-registry.js';
 
 // ============================================================================
 // Types
@@ -102,9 +102,7 @@ export interface ValidateReportResult {
  * dependencies, checksums, data integrity, and schema compliance.
  * @task T4795
  */
-export async function coreValidateReport(
-  projectRoot: string,
-): Promise<ValidateReportResult> {
+export async function coreValidateReport(projectRoot: string): Promise<ValidateReportResult> {
   const accessor = await getAccessor(projectRoot);
   const data = await accessor.loadTaskFile();
 
@@ -134,7 +132,10 @@ export async function coreValidateReport(
   }
   const duplicateIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
   if (duplicateIds.length > 0) {
-    addError('duplicate_ids_todo', `Duplicate task IDs in tasks database: ${duplicateIds.join(', ')}`);
+    addError(
+      'duplicate_ids_todo',
+      `Duplicate task IDs in tasks database: ${duplicateIds.join(', ')}`,
+    );
   } else {
     addOk('duplicate_ids_todo', 'No duplicate task IDs in tasks database');
   }
@@ -146,7 +147,10 @@ export async function coreValidateReport(
     const todoIds = new Set(data.tasks.map((t) => t.id));
     const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
     if (crossDups.length > 0) {
-      addError('duplicate_ids_cross', `IDs exist in both tasks database and archive: ${crossDups.join(', ')}`);
+      addError(
+        'duplicate_ids_cross',
+        `IDs exist in both tasks database and archive: ${crossDups.join(', ')}`,
+      );
     } else {
       addOk('duplicate_ids_cross', 'No cross-file duplicate IDs');
     }
@@ -173,7 +177,10 @@ export async function coreValidateReport(
     }
   }
   if (missingDeps.length > 0) {
-    addError('dependencies', `Missing dependency references: ${[...new Set(missingDeps)].join(', ')}`);
+    addError(
+      'dependencies',
+      `Missing dependency references: ${[...new Set(missingDeps)].join(', ')}`,
+    );
   } else {
     addOk('dependencies', 'All dependencies exist');
   }
@@ -192,7 +199,10 @@ export async function coreValidateReport(
   // 6. Blocked tasks have blockedBy
   const blockedNoReason = data.tasks.filter((t) => t.status === 'blocked' && !t.blockedBy);
   if (blockedNoReason.length > 0) {
-    addError('blocked_reasons', `${blockedNoReason.length} blocked task(s) missing blockedBy reason`);
+    addError(
+      'blocked_reasons',
+      `${blockedNoReason.length} blocked task(s) missing blockedBy reason`,
+    );
   } else {
     addOk('blocked_reasons', 'All blocked tasks have reasons');
   }
@@ -214,8 +224,8 @@ export async function coreValidateReport(
   }
 
   // 9. Required fields
-  const missingFieldTasks = data.tasks.filter((t) =>
-    !t.id || !t.title || !t.status || !t.priority || !t.createdAt,
+  const missingFieldTasks = data.tasks.filter(
+    (t) => !t.id || !t.title || !t.status || !t.priority || !t.createdAt,
   );
   if (missingFieldTasks.length > 0) {
     for (const t of missingFieldTasks) {
@@ -235,7 +245,10 @@ export async function coreValidateReport(
   const focusTask = data.focus?.currentTask;
   const activeTaskId = activeTasks[0]?.id ?? null;
   if (focusTask && focusTask !== activeTaskId) {
-    addError('focus_match', `focus.currentTask (${focusTask}) doesn't match active task (${activeTaskId ?? 'none'})`);
+    addError(
+      'focus_match',
+      `focus.currentTask (${focusTask}) doesn't match active task (${activeTaskId ?? 'none'})`,
+    );
   } else {
     addOk('focus_match', 'Focus matches active task');
   }
@@ -265,7 +278,8 @@ export async function coreValidateReport(
   const staleDays = 30;
   const staleThreshold = Date.now() - staleDays * 86400 * 1000;
   const staleTasks = data.tasks.filter(
-    (t) => t.status === 'pending' && t.createdAt && new Date(t.createdAt).getTime() < staleThreshold,
+    (t) =>
+      t.status === 'pending' && t.createdAt && new Date(t.createdAt).getTime() < staleThreshold,
   );
   if (staleTasks.length > 0) {
     addWarn('stale_tasks', `${staleTasks.length} task(s) pending for >${staleDays} days`);
@@ -284,7 +298,7 @@ export async function coreValidateReport(
 // Validate and Fix
 // ============================================================================
 
-import { runAllRepairs, type RepairAction } from '../repair.js';
+import { type RepairAction, runAllRepairs } from '../repair.js';
 
 /** Result from validate + fix operation. */
 export interface ValidateAndFixResult extends ValidateReportResult {
@@ -370,7 +384,10 @@ export async function coreValidateSchema(
 
 /** Collect validation errors from a Zod safeParse result for a given row. */
 function collectZodErrors(
-  result: { success: boolean; error?: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code: string }> } },
+  result: {
+    success: boolean;
+    error?: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code: string }> };
+  },
   rowId: string,
 ): Array<{ path: string; message: string; keyword: string; rowId: string }> {
   if (result.success) return [];
@@ -399,14 +416,20 @@ async function validateSqliteRows(
 
   switch (type) {
     case 'todo': {
-      const rows = await db.select().from(schemaTable.tasks).where(ne(schemaTable.tasks.status, 'archived'));
+      const rows = await db
+        .select()
+        .from(schemaTable.tasks)
+        .where(ne(schemaTable.tasks.status, 'archived'));
       for (const row of rows) {
         errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
       }
       break;
     }
     case 'archive': {
-      const rows = await db.select().from(schemaTable.tasks).where(eq(schemaTable.tasks.status, 'archived'));
+      const rows = await db
+        .select()
+        .from(schemaTable.tasks)
+        .where(eq(schemaTable.tasks.status, 'archived'));
       for (const row of rows) {
         errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
       }
@@ -456,17 +479,14 @@ export async function coreValidateTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
-  const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
-  const allTasks = [
-    ...(taskData.tasks || []),
-    ...(archiveData?.tasks || []),
-  ];
+  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
 
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
@@ -481,9 +501,7 @@ export async function coreValidateTask(
   const allIds = new Set(allTasks.map((t) => t.id));
   violations.push(...validateIdUniqueness(task.id, allIds));
 
-  const allDescriptions = allTasks
-    .filter((t) => t.id !== task.id)
-    .map((t) => t.description);
+  const allDescriptions = allTasks.filter((t) => t.id !== task.id).map((t) => t.description);
   violations.push(...validateNoDuplicateDescription(task.description, allDescriptions));
 
   if (task.parentId) {
@@ -525,7 +543,7 @@ export async function coreValidateProtocol(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
@@ -539,13 +557,25 @@ export async function coreValidateProtocol(
   const violations: Array<{ code: string; message: string; severity: string }> = [];
 
   if (!task.title) {
-    violations.push({ code: 'P_MISSING_TITLE', message: 'Task title is missing', severity: 'error' });
+    violations.push({
+      code: 'P_MISSING_TITLE',
+      message: 'Task title is missing',
+      severity: 'error',
+    });
   }
   if (!task.description) {
-    violations.push({ code: 'P_MISSING_DESCRIPTION', message: 'Task description is missing', severity: 'error' });
+    violations.push({
+      code: 'P_MISSING_DESCRIPTION',
+      message: 'Task description is missing',
+      severity: 'error',
+    });
   }
   if (task.title === task.description) {
-    violations.push({ code: 'P_SAME_TITLE_DESC', message: 'Title and description must be different', severity: 'error' });
+    violations.push({
+      code: 'P_SAME_TITLE_DESC',
+      message: 'Title and description must be different',
+      severity: 'error',
+    });
   }
 
   if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
@@ -572,9 +602,7 @@ export async function coreValidateProtocol(
  * Validate manifest JSONL entries for required fields.
  * @task T4786
  */
-export function coreValidateManifest(
-  projectRoot: string,
-): {
+export function coreValidateManifest(projectRoot: string): {
   valid: boolean;
   totalEntries: number;
   validEntries: number;
@@ -670,15 +698,27 @@ export function coreValidateOutput(
   const issues: Array<{ code: string; message: string; severity: string }> = [];
 
   if (!content.includes('# ')) {
-    issues.push({ code: 'O_MISSING_TITLE', message: 'Output file should have a markdown title', severity: 'warning' });
+    issues.push({
+      code: 'O_MISSING_TITLE',
+      message: 'Output file should have a markdown title',
+      severity: 'warning',
+    });
   }
 
   if (taskId && !content.includes(taskId)) {
-    issues.push({ code: 'O_MISSING_TASK_REF', message: `Output file should reference task ${taskId}`, severity: 'warning' });
+    issues.push({
+      code: 'O_MISSING_TASK_REF',
+      message: `Output file should reference task ${taskId}`,
+      severity: 'warning',
+    });
   }
 
   if (!content.includes('## Summary') && !content.includes('## summary')) {
-    issues.push({ code: 'O_MISSING_SUMMARY', message: 'Output file should have a Summary section', severity: 'warning' });
+    issues.push({
+      code: 'O_MISSING_SUMMARY',
+      message: 'Output file should have a Summary section',
+      severity: 'warning',
+    });
   }
 
   return {
@@ -710,9 +750,7 @@ function parseComplianceEntries(projectRoot: string): ComplianceEntry[] {
     if (!trimmed) continue;
     try {
       entries.push(JSON.parse(trimmed));
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   return entries;
@@ -722,9 +760,7 @@ function parseComplianceEntries(projectRoot: string): ComplianceEntry[] {
  * Get aggregated compliance metrics.
  * @task T4786
  */
-export function coreComplianceSummary(
-  projectRoot: string,
-): {
+export function coreComplianceSummary(projectRoot: string): {
   total: number;
   pass: number;
   fail: number;
@@ -855,9 +891,7 @@ export function coreComplianceRecord(
  * Check test suite availability.
  * @task T4786
  */
-export function coreTestStatus(
-  projectRoot: string,
-): {
+export function coreTestStatus(projectRoot: string): {
   batsTests: { available: boolean; directory: string | null };
   mcpTests: { available: boolean; directory: string | null };
   message: string;
@@ -893,7 +927,7 @@ export async function coreCoherenceCheck(
   projectRoot: string,
 ): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
 
   if (!taskData || !taskData.tasks) {
     throw new Error('No task data found (SQLite store unavailable)');
@@ -1120,9 +1154,7 @@ export function coreTestRun(
  * Batch validate all tasks against schema and rules.
  * @task T4786
  */
-export async function coreBatchValidate(
-  projectRoot: string,
-): Promise<{
+export async function coreBatchValidate(projectRoot: string): Promise<{
   totalTasks: number;
   validTasks: number;
   invalidTasks: number;
@@ -1137,17 +1169,14 @@ export async function coreBatchValidate(
   }>;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
-  const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
-  const allTasks = [
-    ...(taskData.tasks || []),
-    ...(archiveData?.tasks || []),
-  ];
+  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
+  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
 
   const results: Array<{
     taskId: string;
@@ -1211,9 +1240,11 @@ export async function coreBatchValidate(
  * Get test coverage metrics.
  * @task T4786
  */
-export function coreTestCoverage(
-  projectRoot: string,
-): { available: boolean; message?: string; [key: string]: unknown } {
+export function coreTestCoverage(projectRoot: string): {
+  available: boolean;
+  message?: string;
+  [key: string]: unknown;
+} {
   const coveragePath = join(projectRoot, 'coverage', 'coverage-summary.json');
 
   if (!existsSync(coveragePath)) {

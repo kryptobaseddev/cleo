@@ -9,16 +9,13 @@
  * @epic T4454
  */
 
-import type { TaskFile } from '../../types/task.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import {
-  wouldCreateCircle,
-  getDepth,
-} from './hierarchy.js';
-import { resolveHierarchyPolicy, validateHierarchyPlacement } from './hierarchy-policy.js';
-import type { HierarchyPolicy } from './hierarchy-policy.js';
+import type { TaskFile } from '../../types/task.js';
 import { loadConfig } from '../config.js';
+import { CleoError } from '../errors.js';
+import { getDepth, wouldCreateCircle } from './hierarchy.js';
+import type { HierarchyPolicy } from './hierarchy-policy.js';
+import { resolveHierarchyPolicy, validateHierarchyPlacement } from './hierarchy-policy.js';
 
 /** Options for reparenting a task. */
 export interface ReparentOptions {
@@ -46,19 +43,14 @@ export interface ReparentResult {
  * @param opts  Reparent options (taskId, newParentId)
  * @returns     Result with old/new parent and new type
  */
-export async function reparentTask(
-  data: TaskFile,
-  opts: ReparentOptions,
-): Promise<ReparentResult> {
+export async function reparentTask(data: TaskFile, opts: ReparentOptions): Promise<ReparentResult> {
   const { taskId, newParentId } = opts;
 
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Task not found: ${taskId}`,
-      { fix: `Use 'cleo find "${taskId}"' to search` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
+      fix: `Use 'cleo find "${taskId}"' to search`,
+    });
   }
 
   const oldParent = task.parentId ?? null;
@@ -84,13 +76,14 @@ export async function reparentTask(
   const effectivePolicy = opts.policy ?? resolveHierarchyPolicy(await loadConfig());
   const validation = validateHierarchyPlacement(effectiveNewParent, data.tasks, effectivePolicy);
   if (!validation.valid) {
-    const code = validation.error?.code === 'E_PARENT_NOT_FOUND'
-      ? ExitCode.PARENT_NOT_FOUND
-      : validation.error?.code === 'E_DEPTH_EXCEEDED'
-        ? ExitCode.DEPTH_EXCEEDED
-        : validation.error?.code === 'E_SIBLING_LIMIT'
-          ? ExitCode.SIBLING_LIMIT
-          : ExitCode.INVALID_INPUT;
+    const code =
+      validation.error?.code === 'E_PARENT_NOT_FOUND'
+        ? ExitCode.PARENT_NOT_FOUND
+        : validation.error?.code === 'E_DEPTH_EXCEEDED'
+          ? ExitCode.DEPTH_EXCEEDED
+          : validation.error?.code === 'E_SIBLING_LIMIT'
+            ? ExitCode.SIBLING_LIMIT
+            : ExitCode.INVALID_INPUT;
 
     throw new CleoError(
       code,

@@ -102,9 +102,7 @@ describe('file hook handlers', () => {
   });
 
   it('swallows brain schema missing error', async () => {
-    observeBrainMock.mockRejectedValue(
-      new Error('no such table: brain_observations'),
-    );
+    observeBrainMock.mockRejectedValue(new Error('no such table: brain_observations'));
 
     const uniquePath = `src/swallow-test-${Date.now()}.ts`;
 

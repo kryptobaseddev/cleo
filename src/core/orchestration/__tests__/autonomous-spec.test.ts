@@ -6,20 +6,24 @@
  * @epic T4498
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  startOrchestration,
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Task } from '../../../types/task.js';
+import {
   analyzeEpic,
+  autoDispatch,
+  getOrchestratorContext,
   getReadyTasks,
   prepareSpawn,
-  validateSpawnOutput,
-  getOrchestratorContext,
-  autoDispatch,
   resolveTokens,
+  startOrchestration,
+  validateSpawnOutput,
 } from '../index.js';
-import type { Task } from '../../../types/task.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../../../store/data-accessor.js';
 
 let env: TestDbEnv;
 let accessor: DataAccessor;
@@ -44,8 +48,23 @@ async function writeTodo(tasks: Array<Partial<Task> & { id: string }>) {
 describe('AUTO-001: Orchestrator coordinates, does not implement', () => {
   it('startOrchestration returns session metadata, not code', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task', status: 'pending', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const session = await startOrchestration('T001', env.tempDir, accessor);
@@ -66,8 +85,23 @@ describe('AUTO-001: Orchestrator coordinates, does not implement', () => {
 describe('AUTO-002: All work delegated via spawn', () => {
   it('prepareSpawn generates spawn context for delegation', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Implement feature', status: 'pending', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Implement feature',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const spawn = await prepareSpawn('T002', env.tempDir, accessor);
@@ -85,10 +119,41 @@ describe('AUTO-002: All work delegated via spawn', () => {
 describe('AUTO-003: Manifest-only reads', () => {
   it('getOrchestratorContext returns summary counts only', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task A', status: 'done', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T003', title: 'Task B', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T004', title: 'Task C', status: 'blocked', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task A',
+        status: 'done',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T003',
+        title: 'Task B',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T004',
+        title: 'Task C',
+        status: 'blocked',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const ctx = await getOrchestratorContext('T001', env.tempDir, accessor);
@@ -109,11 +174,52 @@ describe('AUTO-003: Manifest-only reads', () => {
 describe('AUTO-004: Wave-order spawning', () => {
   it('analyzeEpic returns ordered waves', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Foundation', status: 'done', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T003', title: 'Build on foundation', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T004', title: 'Independent task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T005', title: 'Final task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T003', 'T004'], createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Foundation',
+        status: 'done',
+        priority: 'high',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T003',
+        title: 'Build on foundation',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        depends: ['T002'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T004',
+        title: 'Independent task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T005',
+        title: 'Final task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        depends: ['T003', 'T004'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const analysis = await analyzeEpic('T001', env.tempDir, accessor);
@@ -126,13 +232,37 @@ describe('AUTO-004: Wave-order spawning', () => {
 
   it('getReadyTasks only returns tasks with all deps met', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task A', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T003', title: 'Task B', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task A',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T003',
+        title: 'Task B',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        depends: ['T002'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const ready = await getReadyTasks('T001', env.tempDir, accessor);
-    const readyIds = ready.filter(r => r.ready).map(r => r.taskId);
+    const readyIds = ready.filter((r) => r.ready).map((r) => r.taskId);
 
     expect(readyIds).toContain('T002');
     expect(readyIds).not.toContain('T003');
@@ -146,8 +276,24 @@ describe('AUTO-004: Wave-order spawning', () => {
 describe('AUTO-005: Context budget compliance', () => {
   it('spawn prompt is reasonably sized', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', description: 'A moderate description', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        description: 'A moderate description',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const spawn = await prepareSpawn('T002', env.tempDir, accessor);
@@ -156,7 +302,14 @@ describe('AUTO-005: Context budget compliance', () => {
 
   it('orchestrator context summary is compact', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
       ...Array.from({ length: 20 }, (_, i) => ({
         id: `T${100 + i}`,
         title: `Task ${i}`,
@@ -181,8 +334,23 @@ describe('AUTO-005: Context budget compliance', () => {
 describe('AUTO-006: Scoped spawn per task', () => {
   it('spawn context is scoped to a single task', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const spawn = await prepareSpawn('T002', env.tempDir, accessor);
@@ -237,10 +405,9 @@ describe('CONT-001: Token resolution', () => {
   });
 
   it('resolveTokens reports unresolved tokens', () => {
-    const { resolved, unresolved } = resolveTokens(
-      'Task: {{TASK_ID}} Unknown: {{UNKNOWN_TOKEN}}',
-      { TASK_ID: 'T002' },
-    );
+    const { resolved, unresolved } = resolveTokens('Task: {{TASK_ID}} Unknown: {{UNKNOWN_TOKEN}}', {
+      TASK_ID: 'T002',
+    });
     expect(resolved).toContain('T002');
     expect(resolved).toContain('{{UNKNOWN_TOKEN}}');
     expect(unresolved).toContain('UNKNOWN_TOKEN');
@@ -248,8 +415,23 @@ describe('CONT-001: Token resolution', () => {
 
   it('prepareSpawn checks token resolution', async () => {
     await writeTodo([
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
 
     const spawn = await prepareSpawn('T002', env.tempDir, accessor);
@@ -263,7 +445,12 @@ describe('CONT-001: Token resolution', () => {
 // ============================================================
 
 describe('Auto-dispatch protocol selection', () => {
-  const dispatchCases: Array<{ title: string; labels?: string[]; type?: string; expected: string }> = [
+  const dispatchCases: Array<{
+    title: string;
+    labels?: string[];
+    type?: string;
+    expected: string;
+  }> = [
     { title: 'Research auth patterns', labels: ['research'], expected: 'research' },
     { title: 'Vote on approach', labels: ['consensus'], expected: 'consensus' },
     { title: 'Write RFC for API', labels: ['specification'], expected: 'specification' },

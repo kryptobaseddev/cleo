@@ -3,14 +3,13 @@
  * Verifies ecosystem detection, schema compliance, and LLM hint generation.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { afterEach, describe, expect, it } from 'vitest';
 import { detectProjectType } from '../project-detect.js';
 
 // ─── Schema validator setup ───────────────────────────────────────────────────
@@ -108,7 +107,7 @@ describe('Group 1: Ecosystem detection', () => {
   });
 
   it('Gemfile → projectTypes includes ruby, primaryType is ruby', () => {
-    dir = scaffold({ 'Gemfile': "source 'https://rubygems.org'\n" });
+    dir = scaffold({ Gemfile: "source 'https://rubygems.org'\n" });
     const result = detectProjectType(dir);
     expect(result.projectTypes).toContain('ruby');
     expect(result.primaryType).toBe('ruby');
@@ -216,7 +215,7 @@ describe('Group 3: Package manager detection', () => {
     const result = detectProjectType(dir);
     // With npm there are no package manager avoidPatterns
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
-    expect(avoidPatterns.some(p => p.includes('npm'))).toBe(false);
+    expect(avoidPatterns.some((p) => p.includes('npm'))).toBe(false);
     assertSchemaValid(result, 'npm default');
   });
 
@@ -224,7 +223,7 @@ describe('Group 3: Package manager detection', () => {
     dir = scaffold({ 'package.json': '{"name":"app"}', 'bun.lockb': '' });
     const result = detectProjectType(dir);
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
-    expect(avoidPatterns.some(p => p.includes('npm'))).toBe(true);
+    expect(avoidPatterns.some((p) => p.includes('npm'))).toBe(true);
     assertSchemaValid(result, 'bun.lockb');
   });
 
@@ -232,15 +231,18 @@ describe('Group 3: Package manager detection', () => {
     dir = scaffold({ 'package.json': '{"name":"app"}', 'bun.lock': '' });
     const result = detectProjectType(dir);
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
-    expect(avoidPatterns.some(p => p.includes('npm'))).toBe(true);
+    expect(avoidPatterns.some((p) => p.includes('npm'))).toBe(true);
     assertSchemaValid(result, 'bun.lock');
   });
 
   it('package.json + pnpm-lock.yaml → pnpm detected, avoid npm hint present', () => {
-    dir = scaffold({ 'package.json': '{"name":"app"}', 'pnpm-lock.yaml': 'lockfileVersion: "6.0"\n' });
+    dir = scaffold({
+      'package.json': '{"name":"app"}',
+      'pnpm-lock.yaml': 'lockfileVersion: "6.0"\n',
+    });
     const result = detectProjectType(dir);
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
-    expect(avoidPatterns.some(p => p.includes('npm'))).toBe(true);
+    expect(avoidPatterns.some((p) => p.includes('npm'))).toBe(true);
     assertSchemaValid(result, 'pnpm');
   });
 
@@ -248,7 +250,7 @@ describe('Group 3: Package manager detection', () => {
     dir = scaffold({ 'package.json': '{"name":"app"}', 'yarn.lock': '# yarn lockfile v1\n' });
     const result = detectProjectType(dir);
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
-    expect(avoidPatterns.some(p => p.includes('npm'))).toBe(true);
+    expect(avoidPatterns.some((p) => p.includes('npm'))).toBe(true);
     assertSchemaValid(result, 'yarn');
   });
 
@@ -260,7 +262,7 @@ describe('Group 3: Package manager detection', () => {
     });
     const result = detectProjectType(dir);
     const commonPatterns = result.llmHints?.commonPatterns ?? [];
-    expect(commonPatterns.some(p => p.toLowerCase().includes('bun'))).toBe(true);
+    expect(commonPatterns.some((p) => p.toLowerCase().includes('bun'))).toBe(true);
     assertSchemaValid(result, 'bun wins over npm');
   });
 });
@@ -282,14 +284,20 @@ describe('Group 4: Test framework detection', () => {
   });
 
   it('.mocharc.yml → testing.framework is mocha', () => {
-    dir = scaffold({ 'package.json': '{"name":"app"}', '.mocharc.yml': 'spec: test/**/*.spec.js\n' });
+    dir = scaffold({
+      'package.json': '{"name":"app"}',
+      '.mocharc.yml': 'spec: test/**/*.spec.js\n',
+    });
     const result = detectProjectType(dir);
     expect(result.testing?.framework).toBe('mocha');
     assertSchemaValid(result, 'mocha');
   });
 
   it('playwright.config.ts → testing.framework is playwright', () => {
-    dir = scaffold({ 'package.json': '{"name":"app"}', 'playwright.config.ts': 'export default {}' });
+    dir = scaffold({
+      'package.json': '{"name":"app"}',
+      'playwright.config.ts': 'export default {}',
+    });
     const result = detectProjectType(dir);
     expect(result.testing?.framework).toBe('playwright');
     assertSchemaValid(result, 'playwright');
@@ -385,7 +393,10 @@ describe('Group 6: LLM hints', () => {
   });
 
   it('pnpm project → avoidPatterns includes "Do not use npm"', () => {
-    dir = scaffold({ 'package.json': '{"name":"app"}', 'pnpm-lock.yaml': 'lockfileVersion: "6.0"\n' });
+    dir = scaffold({
+      'package.json': '{"name":"app"}',
+      'pnpm-lock.yaml': 'lockfileVersion: "6.0"\n',
+    });
     const result = detectProjectType(dir);
     const avoidPatterns = result.llmHints?.avoidPatterns ?? [];
     expect(avoidPatterns).toContain('Do not use npm — this project uses pnpm');

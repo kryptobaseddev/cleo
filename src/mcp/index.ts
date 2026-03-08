@@ -15,26 +15,23 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { registerQueryTool } from './gateways/query.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { hooks } from '../core/hooks/registry.js';
+import { handleMcpToolCall, initMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { registerMutateTool } from './gateways/mutate.js';
-import { QueryCache } from './lib/cache.js';
+import { registerQueryTool } from './gateways/query.js';
 import { BackgroundJobManager } from './lib/background-jobs.js';
 import { enforceBudget } from './lib/budget.js';
+import { QueryCache } from './lib/cache.js';
 import { loadConfig } from './lib/config.js';
-import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.js';
-import { hooks } from '../core/hooks/registry.js';
 import '../core/hooks/handlers/index.js';
-import { setJobManager } from './lib/job-manager-accessor.js';
-import { initLogger, getLogger, closeLogger } from '../core/logger.js';
+import { join } from 'node:path';
+import { pruneAuditLog } from '../core/audit-prune.js';
+import { closeLogger, getLogger, initLogger } from '../core/logger.js';
+import { autoRecordDispatchTokenUsage } from '../core/metrics/token-service.js';
 import { getProjectInfoSync } from '../core/project-info.js';
 import { getCleoVersion } from '../core/scaffold.js';
-import { pruneAuditLog } from '../core/audit-prune.js';
-import { autoRecordDispatchTokenUsage } from '../core/metrics/token-service.js';
-import { join } from 'node:path';
+import { setJobManager } from './lib/job-manager-accessor.js';
 
 /**
  * Server state for cleanup
@@ -53,13 +50,14 @@ let serverState: ServerState | null = null;
  */
 let startupLog = getLogger('mcp:startup');
 
-
 /**
  * Initialize and start MCP server
  */
 async function main(): Promise<void> {
   // Startup guard: fail fast if Node.js version is below minimum
-  const { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } = await import('../core/platform.js');
+  const { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } = await import(
+    '../core/platform.js'
+  );
   const nodeInfo = getNodeVersionInfo();
   if (!nodeInfo.meetsMinimum) {
     const upgrade = getNodeUpgradeInstructions();
@@ -105,7 +103,7 @@ async function main(): Promise<void> {
         );
       } else if (startupState === 'needs_upgrade') {
         startupLog.warn(
-          { state: startupState, failures: healthResult.failures.map(f => f.check) },
+          { state: startupState, failures: healthResult.failures.map((f) => f.check) },
           'Project health check detected issues — run: cleo upgrade',
         );
       } else {
@@ -129,10 +127,7 @@ async function main(): Promise<void> {
       startupLog.warn(
         {
           err: healthErr,
-          errorMessage:
-            healthErr instanceof Error
-              ? healthErr.message
-              : String(healthErr),
+          errorMessage: healthErr instanceof Error ? healthErr.message : String(healthErr),
         },
         'Startup health check warning (non-fatal)',
       );
@@ -144,12 +139,16 @@ async function main(): Promise<void> {
     // Initialize structured logger (after config, before request handling)
     const projectInfo = getProjectInfoSync();
     const cleoDir = join(process.cwd(), '.cleo');
-    initLogger(cleoDir, {
-      level: config.logLevel ?? 'info',
-      filePath: 'logs/cleo.log',
-      maxFileSize: 10 * 1024 * 1024,
-      maxFiles: 5,
-    }, projectInfo?.projectHash);
+    initLogger(
+      cleoDir,
+      {
+        level: config.logLevel ?? 'info',
+        filePath: 'logs/cleo.log',
+        maxFileSize: 10 * 1024 * 1024,
+        maxFiles: 5,
+      },
+      projectInfo?.projectHash,
+    );
 
     // Re-acquire startup logger now that initLogger has been called,
     // so all subsequent log calls go to the structured log file.
@@ -162,14 +161,17 @@ async function main(): Promise<void> {
       { version: cleoVersion, projectHash: projectInfo?.projectHash, logLevel: config.logLevel },
       'CLEO MCP server starting',
     );
-    log.info({ enableMetrics: config.enableMetrics }, `Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`);
+    log.info(
+      { enableMetrics: config.enableMetrics },
+      `Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`,
+    );
 
     // Fire-and-forget audit log pruning (T5339)
-    import('../core/config.js').then(({ loadConfig: loadCoreConfig }) =>
-      loadCoreConfig().then(coreConfig =>
-        pruneAuditLog(cleoDir, coreConfig.logging),
-      ),
-    ).catch(err => log.warn({ err }, 'audit log pruning failed'));
+    import('../core/config.js')
+      .then(({ loadConfig: loadCoreConfig }) =>
+        loadCoreConfig().then((coreConfig) => pruneAuditLog(cleoDir, coreConfig.logging)),
+      )
+      .catch((err) => log.warn({ err }, 'audit log pruning failed'));
 
     // Initialize dispatch layer (replaces DomainRouter + executor + mode detection)
     log.info('Initializing dispatch layer');
@@ -186,7 +188,10 @@ async function main(): Promise<void> {
 
     // Initialize query cache
     const cache = new QueryCache(config.queryCacheTtl, config.queryCache);
-    log.info({ enabled: config.queryCache, ttlMs: config.queryCacheTtl }, `Query cache: ${config.queryCache ? 'enabled' : 'disabled'}`);
+    log.info(
+      { enabled: config.queryCache, ttlMs: config.queryCacheTtl },
+      `Query cache: ${config.queryCache ? 'enabled' : 'disabled'}`,
+    );
 
     // Create MCP server
     const server = new Server(
@@ -198,16 +203,13 @@ async function main(): Promise<void> {
         capabilities: {
           tools: {},
         },
-      }
+      },
     );
 
     // Register tools (ListTools handler)
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: [
-          registerQueryTool(),
-          registerMutateTool(),
-        ],
+        tools: [registerQueryTool(), registerMutateTool()],
       };
     });
 
@@ -294,28 +296,36 @@ async function main(): Promise<void> {
         }
 
         // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
-        hooks.dispatch('onPromptSubmit', process.cwd(), {
-          timestamp: new Date().toISOString(),
-          gateway: name,
-          domain,
-          operation,
-          source: 'mcp',
-        }).catch(() => { /* hook errors are non-fatal */ });
+        hooks
+          .dispatch('onPromptSubmit', process.cwd(), {
+            timestamp: new Date().toISOString(),
+            gateway: name,
+            domain,
+            operation,
+            source: 'mcp',
+          })
+          .catch(() => {
+            /* hook errors are non-fatal */
+          });
 
         // Route through dispatch layer (handles domain alias resolution)
         const dispatchStart = Date.now();
         let result = await handleMcpToolCall(name, domain, operation, params);
 
         // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
-        hooks.dispatch('onResponseComplete', process.cwd(), {
-          timestamp: new Date().toISOString(),
-          gateway: name,
-          domain,
-          operation,
-          success: result.success,
-          durationMs: Date.now() - dispatchStart,
-          errorCode: result.error?.code,
-        }).catch(() => { /* hook errors are non-fatal */ });
+        hooks
+          .dispatch('onResponseComplete', process.cwd(), {
+            timestamp: new Date().toISOString(),
+            gateway: name,
+            domain,
+            operation,
+            success: result.success,
+            durationMs: Date.now() - dispatchStart,
+            errorCode: result.error?.code,
+          })
+          .catch(() => {
+            /* hook errors are non-fatal */
+          });
 
         reqLog.debug({ result }, 'Tool call result');
 
@@ -327,7 +337,14 @@ async function main(): Promise<void> {
             tokenBudget,
           );
           result = enforced as unknown as typeof result;
-          reqLog.debug({ estimatedTokens: enforcement.estimatedTokens, tokenBudget, truncated: enforcement.truncated }, `Budget enforcement: ${enforcement.estimatedTokens}/${tokenBudget} tokens`);
+          reqLog.debug(
+            {
+              estimatedTokens: enforcement.estimatedTokens,
+              tokenBudget,
+              truncated: enforcement.truncated,
+            },
+            `Budget enforcement: ${enforcement.estimatedTokens}/${tokenBudget} tokens`,
+          );
         }
 
         // Cache successful query results
@@ -351,7 +368,10 @@ async function main(): Promise<void> {
         if (name === 'mutate') {
           const invalidated = cache.invalidateDomain(domain);
           if (invalidated > 0) {
-            reqLog.debug({ domain, invalidated }, `Cache invalidated ${invalidated} entries for domain: ${domain}`);
+            reqLog.debug(
+              { domain, invalidated },
+              `Cache invalidated ${invalidated} entries for domain: ${domain}`,
+            );
           }
         }
 
@@ -366,19 +386,22 @@ async function main(): Promise<void> {
       } catch (error) {
         reqLog.error({ err: error }, 'Tool call error');
 
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
 
         // Dispatch onError hook (best-effort, fire-and-forget)
-        hooks.dispatch('onError', process.cwd(), {
-          timestamp: new Date().toISOString(),
-          errorCode: 'E_INTERNAL_ERROR',
-          message: errorMessage,
-          domain: args?.domain as string | undefined,
-          operation: args?.operation as string | undefined,
-          gateway: name,
-          stack: error instanceof Error ? error.stack : undefined,
-        }).catch(() => { /* hook errors are non-fatal */ });
+        hooks
+          .dispatch('onError', process.cwd(), {
+            timestamp: new Date().toISOString(),
+            errorCode: 'E_INTERNAL_ERROR',
+            message: errorMessage,
+            domain: args?.domain as string | undefined,
+            operation: args?.operation as string | undefined,
+            gateway: name,
+            stack: error instanceof Error ? error.stack : undefined,
+          })
+          .catch(() => {
+            /* hook errors are non-fatal */
+          });
 
         return {
           content: [
@@ -398,7 +421,7 @@ async function main(): Promise<void> {
                   },
                 },
                 null,
-                2
+                2,
               ),
             },
           ],
@@ -474,14 +497,12 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Register error handlers
-process.on('uncaughtException', (error) =>
-  handleUncaughtError(error, 'Uncaught Exception')
-);
+process.on('uncaughtException', (error) => handleUncaughtError(error, 'Uncaught Exception'));
 process.on('unhandledRejection', (reason) =>
   handleUncaughtError(
     reason instanceof Error ? reason : new Error(String(reason)),
-    'Unhandled Rejection'
-  )
+    'Unhandled Rejection',
+  ),
 );
 
 // Start server

@@ -4,33 +4,43 @@
  * @task T4723
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { acquireLock } from '../../store/lock.js';
 import { checkStorageMigration } from '../system/storage-preflight.js';
 import { runUpgrade } from '../upgrade.js';
-import { acquireLock } from '../../store/lock.js';
 
 describe('checkStorageMigration', () => {
   let tmpDir: string;
   let cleoDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `cleo-upgrade-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `cleo-upgrade-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     cleoDir = join(tmpDir, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
   });
 
   afterEach(() => {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   it('detects JSON data with no config (v1→v2 upgrade)', () => {
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
 
     const result = checkStorageMigration(tmpDir);
@@ -42,10 +52,13 @@ describe('checkStorageMigration', () => {
   it('flags migration for legacy explicit JSON engine config (ADR-006)', () => {
     // Per ADR-006, JSON is no longer a valid engine. Even if config says json,
     // migration is needed because the DB doesn't exist.
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'json' } }));
 
     const result = checkStorageMigration(tmpDir);
@@ -54,10 +67,13 @@ describe('checkStorageMigration', () => {
   });
 
   it('flags broken state: config says sqlite but no DB', () => {
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'sqlite' } }));
 
     const result = checkStorageMigration(tmpDir);
@@ -66,10 +82,13 @@ describe('checkStorageMigration', () => {
   });
 
   it('flags when config says sqlite and DB exists but legacy files exist', () => {
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'sqlite' } }));
     // Create a tiny DB file (simulating post-migration)
     writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
@@ -98,16 +117,22 @@ describe('checkStorageMigration', () => {
   });
 
   it('counts archive tasks in total', () => {
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
-    writeFileSync(join(cleoDir, 'todo-archive.json'), JSON.stringify({
-      tasks: [
-        { id: 'T1', title: 'Done', status: 'done' },
-        { id: 'T2', title: 'Done2', status: 'done' },
-      ],
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
+    writeFileSync(
+      join(cleoDir, 'todo-archive.json'),
+      JSON.stringify({
+        tasks: [
+          { id: 'T1', title: 'Done', status: 'done' },
+          { id: 'T2', title: 'Done2', status: 'done' },
+        ],
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
 
     const result = checkStorageMigration(tmpDir);
@@ -122,7 +147,10 @@ describe('runUpgrade locking (T4723)', () => {
   let cleoDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `cleo-upgrade-lock-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `cleo-upgrade-lock-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     cleoDir = join(tmpDir, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
   });
@@ -132,52 +160,70 @@ describe('runUpgrade locking (T4723)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* module may not be loaded */ }
+    } catch {
+      /* module may not be loaded */
+    }
     try {
       rmSync(tmpDir, { recursive: true, force: true });
     } catch {
       await new Promise((r) => setTimeout(r, 200));
-      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 
   it('should succeed when no concurrent migration', async () => {
     // Setup: Create valid JSON files that need migration
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ 
-        id: 'T1', 
-        title: 'Test Task', 
-        status: 'pending', 
-        createdAt: '2026-01-01',
-        size: 'medium'
-      }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Test Task',
+            status: 'pending',
+            createdAt: '2026-01-01',
+            size: 'medium',
+          },
+        ],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
     writeFileSync(join(cleoDir, '.gitignore'), 'tasks.db\ntodo.json\n');
 
     // Run upgrade with dryRun first to ensure it doesn't crash
     const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
-    
+
     // Should succeed and detect migration needed
     expect(result.success).toBe(true);
-    expect(result.actions.some(a => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
+    expect(
+      result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview'),
+    ).toBe(true);
   });
 
   it('should block concurrent migration when lock is held', async () => {
     // Setup: Create valid JSON files that indicate migration needed
     // When config has no engine specified and no tasks.db exists,
     // preflight returns migrationNeeded: true
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ 
-        id: 'T1', 
-        title: 'Test Task', 
-        status: 'pending', 
-        createdAt: '2026-01-01',
-        size: 'medium'
-      }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Test Task',
+            status: 'pending',
+            createdAt: '2026-01-01',
+            size: 'medium',
+          },
+        ],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     // Config with no engine specified - should trigger migration
     writeFileSync(join(cleoDir, 'config.json'), '{}');
     writeFileSync(join(cleoDir, '.gitignore'), 'tasks.db\ntodo.json\n');
@@ -197,8 +243,10 @@ describe('runUpgrade locking (T4723)', () => {
 
       // Should fail with lock error
       expect(result.success).toBe(false);
-      expect(result.errors.some(e => e.includes('Cannot acquire migration lock'))).toBe(true);
-      expect(result.actions.some(a => a.action === 'storage_migration' && a.status === 'error')).toBe(true);
+      expect(result.errors.some((e) => e.includes('Cannot acquire migration lock'))).toBe(true);
+      expect(
+        result.actions.some((a) => a.action === 'storage_migration' && a.status === 'error'),
+      ).toBe(true);
     } finally {
       // Release lock
       await release();
@@ -207,16 +255,21 @@ describe('runUpgrade locking (T4723)', () => {
 
   it('should provide clear error message on lock failure', async () => {
     // Setup: Create valid JSON files that indicate migration needed
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ 
-        id: 'T1', 
-        title: 'Test Task', 
-        status: 'pending', 
-        createdAt: '2026-01-01',
-        size: 'medium'
-      }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Test Task',
+            status: 'pending',
+            createdAt: '2026-01-01',
+            size: 'medium',
+          },
+        ],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     // Config with no engine specified - should trigger migration
     writeFileSync(join(cleoDir, 'config.json'), '{}');
     writeFileSync(join(cleoDir, '.gitignore'), 'tasks.db\ntodo.json\n');
@@ -233,7 +286,7 @@ describe('runUpgrade locking (T4723)', () => {
       const result = await runUpgrade({ cwd: tmpDir, autoMigrate: true });
 
       // Verify error message content
-      const migrationAction = result.actions.find(a => a.action === 'storage_migration');
+      const migrationAction = result.actions.find((a) => a.action === 'storage_migration');
       expect(migrationAction).toBeDefined();
       expect(migrationAction?.status).toBe('error');
       expect(migrationAction?.details).toContain('Cannot acquire migration lock');
@@ -246,16 +299,21 @@ describe('runUpgrade locking (T4723)', () => {
 
   it('should release lock after migration completes', async () => {
     // Setup: Create valid JSON files
-    writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
-      tasks: [{ 
-        id: 'T1', 
-        title: 'Test Task', 
-        status: 'pending', 
-        createdAt: '2026-01-01',
-        size: 'medium'
-      }],
-      _meta: { schemaVersion: '2.10.0' },
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Test Task',
+            status: 'pending',
+            createdAt: '2026-01-01',
+            size: 'medium',
+          },
+        ],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
     writeFileSync(join(cleoDir, '.gitignore'), 'tasks.db\ntodo.json\n');
 
@@ -274,7 +332,10 @@ describe('runUpgrade structural parity', () => {
   let cleoDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `cleo-upgrade-structure-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `cleo-upgrade-structure-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     cleoDir = join(tmpDir, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
   });
@@ -284,12 +345,18 @@ describe('runUpgrade structural parity', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* module may not be loaded */ }
+    } catch {
+      /* module may not be loaded */
+    }
     try {
       rmSync(tmpDir, { recursive: true, force: true });
     } catch {
       await new Promise((r) => setTimeout(r, 200));
-      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 
@@ -298,7 +365,9 @@ describe('runUpgrade structural parity', () => {
     const result = await runUpgrade({ cwd: tmpDir, dryRun: false });
 
     expect(existsSync(join(cleoDir, 'config.json'))).toBe(true);
-    expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(true);
+    expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(
+      true,
+    );
   });
 
   it('does not treat tasks.json as stale cleanup target', async () => {
@@ -313,26 +382,36 @@ describe('runUpgrade structural parity', () => {
   });
 
   it('detects migration from archive data without todo.json', async () => {
-    writeFileSync(join(cleoDir, 'todo-archive.json'), JSON.stringify({
-      tasks: [{ id: 'T2', title: 'Archived Task', status: 'done' }],
-    }));
+    writeFileSync(
+      join(cleoDir, 'todo-archive.json'),
+      JSON.stringify({
+        tasks: [{ id: 'T2', title: 'Archived Task', status: 'done' }],
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
 
     const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
 
     expect(result.success).toBe(true);
-    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
+    expect(
+      result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview'),
+    ).toBe(true);
   });
 
   it('detects migration from sessions data without todo.json', async () => {
-    writeFileSync(join(cleoDir, 'sessions.json'), JSON.stringify({
-      sessions: [{ id: 'S1', startedAt: '2026-01-01T00:00:00.000Z' }],
-    }));
+    writeFileSync(
+      join(cleoDir, 'sessions.json'),
+      JSON.stringify({
+        sessions: [{ id: 'S1', startedAt: '2026-01-01T00:00:00.000Z' }],
+      }),
+    );
     writeFileSync(join(cleoDir, 'config.json'), '{}');
 
     const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
 
     expect(result.success).toBe(true);
-    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
+    expect(
+      result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview'),
+    ).toBe(true);
   });
 });

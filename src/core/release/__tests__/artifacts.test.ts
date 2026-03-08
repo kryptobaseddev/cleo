@@ -4,13 +4,9 @@
  * @epic T4545
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  hasArtifactHandler,
-  getArtifactHandler,
-  getSupportedArtifactTypes,
-} from '../artifacts.js';
+import { describe, expect, it } from 'vitest';
 import type { ArtifactType } from '../artifacts.js';
+import { getArtifactHandler, getSupportedArtifactTypes, hasArtifactHandler } from '../artifacts.js';
 
 describe('hasArtifactHandler', () => {
   it('should return true for all supported artifact types', () => {

@@ -7,11 +7,11 @@
  * @task W1-T4
  */
 
-import { eq, and, desc, isNull } from 'drizzle-orm';
-import { getDb } from './sqlite.js';
-import * as schema from './tasks-schema.js';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { Session } from '../types/session.js';
 import { rowToSession } from './converters.js';
+import { getDb } from './sqlite.js';
+import * as schema from './tasks-schema.js';
 
 // === CRUD OPERATIONS ===
 
@@ -19,20 +19,22 @@ import { rowToSession } from './converters.js';
 export async function createSession(session: Session, cwd?: string): Promise<Session> {
   const db = await getDb(cwd);
   const tw = session.taskWork;
-  db.insert(schema.sessions).values({
-    id: session.id,
-    name: session.name,
-    status: session.status,
-    scopeJson: JSON.stringify(session.scope),
-    currentTask: tw?.taskId,
-    taskStartedAt: tw?.setAt,
-    agent: session.agent,
-    notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
-    tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
-    tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
-    startedAt: session.startedAt,
-    endedAt: session.endedAt,
-  }).run();
+  db.insert(schema.sessions)
+    .values({
+      id: session.id,
+      name: session.name,
+      status: session.status,
+      scopeJson: JSON.stringify(session.scope),
+      currentTask: tw?.taskId,
+      taskStartedAt: tw?.setAt,
+      agent: session.agent,
+      notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
+      tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
+      tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+    })
+    .run();
 
   return session;
 }
@@ -40,7 +42,9 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
 /** Get a session by ID. */
 export async function getSession(sessionId: string, cwd?: string): Promise<Session | null> {
   const db = await getDb(cwd);
-  const rows = await db.select().from(schema.sessions)
+  const rows = await db
+    .select()
+    .from(schema.sessions)
     .where(eq(schema.sessions.id, sessionId))
     .all();
 
@@ -66,14 +70,19 @@ export async function updateSession(
   if (updates.endedAt !== undefined) updateRow.endedAt = updates.endedAt;
   if (updates.agent !== undefined) updateRow.agent = updates.agent;
   if (updates.notes !== undefined) updateRow.notesJson = JSON.stringify(updates.notes);
-  if (updates.tasksCompleted !== undefined) updateRow.tasksCompletedJson = JSON.stringify(updates.tasksCompleted);
-  if (updates.tasksCreated !== undefined) updateRow.tasksCreatedJson = JSON.stringify(updates.tasksCreated);
+  if (updates.tasksCompleted !== undefined)
+    updateRow.tasksCompletedJson = JSON.stringify(updates.tasksCompleted);
+  if (updates.tasksCreated !== undefined)
+    updateRow.tasksCreatedJson = JSON.stringify(updates.tasksCreated);
   // Session chain fields (T4959)
-  if (updates.previousSessionId !== undefined) updateRow.previousSessionId = updates.previousSessionId;
+  if (updates.previousSessionId !== undefined)
+    updateRow.previousSessionId = updates.previousSessionId;
   if (updates.nextSessionId !== undefined) updateRow.nextSessionId = updates.nextSessionId;
   if (updates.agentIdentifier !== undefined) updateRow.agentIdentifier = updates.agentIdentifier;
-  if (updates.handoffConsumedAt !== undefined) updateRow.handoffConsumedAt = updates.handoffConsumedAt;
-  if (updates.handoffConsumedBy !== undefined) updateRow.handoffConsumedBy = updates.handoffConsumedBy;
+  if (updates.handoffConsumedAt !== undefined)
+    updateRow.handoffConsumedAt = updates.handoffConsumedAt;
+  if (updates.handoffConsumedBy !== undefined)
+    updateRow.handoffConsumedBy = updates.handoffConsumedBy;
   if (updates.debriefJson !== undefined) updateRow.debriefJson = updates.debriefJson;
   if (updates.handoffJson !== undefined) updateRow.handoffJson = updates.handoffJson;
 
@@ -97,7 +106,9 @@ export async function listSessions(
     conditions.push(eq(schema.sessions.status, 'active'));
   }
 
-  const query = db.select().from(schema.sessions)
+  const query = db
+    .select()
+    .from(schema.sessions)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.startedAt));
 
@@ -131,34 +142,29 @@ export async function endSession(
 // === TASK WORK OPERATIONS ===
 
 /** Start working on a task within a session. */
-export async function startTask(
-  sessionId: string,
-  taskId: string,
-  cwd?: string,
-): Promise<void> {
+export async function startTask(sessionId: string, taskId: string, cwd?: string): Promise<void> {
   const db = await getDb(cwd);
   const now = new Date().toISOString();
 
   // Clear previous work history entry (set clearedAt)
   db.update(schema.taskWorkHistory)
     .set({ clearedAt: now })
-    .where(and(
-      eq(schema.taskWorkHistory.sessionId, sessionId),
-      isNull(schema.taskWorkHistory.clearedAt),
-    ))
+    .where(
+      and(
+        eq(schema.taskWorkHistory.sessionId, sessionId),
+        isNull(schema.taskWorkHistory.clearedAt),
+      ),
+    )
     .run();
 
   // Record new task work in history
-  db.insert(schema.taskWorkHistory)
-    .values({ sessionId, taskId, setAt: now })
-    .run();
+  db.insert(schema.taskWorkHistory).values({ sessionId, taskId, setAt: now }).run();
 
   // Update session's current task
   db.update(schema.sessions)
     .set({ currentTask: taskId, taskStartedAt: now })
     .where(eq(schema.sessions.id, sessionId))
     .run();
-
 }
 
 /** Get current task for a session. */
@@ -167,10 +173,12 @@ export async function getCurrentTask(
   cwd?: string,
 ): Promise<{ taskId: string | null; since: string | null }> {
   const db = await getDb(cwd);
-  const rows = await db.select({
-    currentTask: schema.sessions.currentTask,
-    taskStartedAt: schema.sessions.taskStartedAt,
-  }).from(schema.sessions)
+  const rows = await db
+    .select({
+      currentTask: schema.sessions.currentTask,
+      taskStartedAt: schema.sessions.taskStartedAt,
+    })
+    .from(schema.sessions)
     .where(eq(schema.sessions.id, sessionId))
     .all();
 
@@ -186,10 +194,12 @@ export async function stopTask(sessionId: string, cwd?: string): Promise<void> {
   // Close current work history entry
   db.update(schema.taskWorkHistory)
     .set({ clearedAt: now })
-    .where(and(
-      eq(schema.taskWorkHistory.sessionId, sessionId),
-      isNull(schema.taskWorkHistory.clearedAt),
-    ))
+    .where(
+      and(
+        eq(schema.taskWorkHistory.sessionId, sessionId),
+        isNull(schema.taskWorkHistory.clearedAt),
+      ),
+    )
     .run();
 
   // Clear session's current task
@@ -197,7 +207,6 @@ export async function stopTask(sessionId: string, cwd?: string): Promise<void> {
     .set({ currentTask: null, taskStartedAt: null })
     .where(eq(schema.sessions.id, sessionId))
     .run();
-
 }
 
 /** Get work history for a session. */
@@ -207,13 +216,15 @@ export async function workHistory(
   cwd?: string,
 ): Promise<Array<{ taskId: string; setAt: string; clearedAt: string | null }>> {
   const db = await getDb(cwd);
-  const rows = await db.select().from(schema.taskWorkHistory)
+  const rows = await db
+    .select()
+    .from(schema.taskWorkHistory)
     .where(eq(schema.taskWorkHistory.sessionId, sessionId))
     .orderBy(desc(schema.taskWorkHistory.setAt), desc(schema.taskWorkHistory.id))
     .limit(limit)
     .all();
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     taskId: r.taskId,
     setAt: r.setAt,
     clearedAt: r.clearedAt,
@@ -223,19 +234,16 @@ export async function workHistory(
 // === SESSION LIFECYCLE ===
 
 /** Garbage collect old sessions (mark ended sessions as orphaned after threshold). */
-export async function gcSessions(
-  maxAgeDays: number = 30,
-  cwd?: string,
-): Promise<number> {
+export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise<number> {
   const db = await getDb(cwd);
   const threshold = new Date();
   threshold.setDate(threshold.getDate() - maxAgeDays);
 
   // Count how many will be affected
-  const before = await db.select({ id: schema.sessions.id }).from(schema.sessions)
-    .where(and(
-      eq(schema.sessions.status, 'ended'),
-    ))
+  const before = await db
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(and(eq(schema.sessions.status, 'ended')))
     .all();
 
   const toUpdate = before;
@@ -253,7 +261,9 @@ export async function gcSessions(
 /** Get the currently active session (if any). */
 export async function getActiveSession(cwd?: string): Promise<Session | null> {
   const db = await getDb(cwd);
-  const rows = await db.select().from(schema.sessions)
+  const rows = await db
+    .select()
+    .from(schema.sessions)
     .where(eq(schema.sessions.status, 'active'))
     .orderBy(desc(schema.sessions.startedAt))
     .limit(1)
@@ -262,4 +272,3 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
   if (rows.length === 0) return null;
   return rowToSession(rows[0]!);
 }
-

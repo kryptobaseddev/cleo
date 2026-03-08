@@ -1,4 +1,4 @@
-import { beforeEach,describe,expect,it,vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
@@ -30,8 +30,14 @@ vi.mock('../../../core/paths.js', () => ({
 
 // Mock scaffold for admin.detect
 vi.mock('../../../core/scaffold.js', () => ({
-  ensureProjectContext: vi.fn().mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
-  ensureContributorMcp: vi.fn().mockResolvedValue({ action: 'skipped', path: '/mock/project/.mcp.json', details: 'Not a contributor project' }),
+  ensureProjectContext: vi
+    .fn()
+    .mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
+  ensureContributorMcp: vi.fn().mockResolvedValue({
+    action: 'skipped',
+    path: '/mock/project/.mcp.json',
+    details: 'Not a contributor project',
+  }),
 }));
 
 vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
@@ -54,16 +60,81 @@ vi.mock('../../../core/sessions/session-grade.js', () => ({
 // Mock registry OPERATIONS for help tests
 vi.mock('../../registry.js', () => ({
   OPERATIONS: [
-    { gateway: 'query', domain: 'tasks', operation: 'show', description: 'Show task', tier: 0, idempotent: true, sessionRequired: false, requiredParams: ['taskId'] },
-    { gateway: 'query', domain: 'tasks', operation: 'list', description: 'List tasks', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
-    { gateway: 'query', domain: 'tasks', operation: 'find', description: 'Find tasks', tier: 0, idempotent: true, sessionRequired: false, requiredParams: ['query'] },
-    { gateway: 'query', domain: 'admin', operation: 'dash', description: 'Dashboard', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
-    { gateway: 'query', domain: 'admin', operation: 'health', description: 'Health check', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
-    { gateway: 'query', domain: 'memory', operation: 'show', description: 'Show research', tier: 1, idempotent: true, sessionRequired: false, requiredParams: ['id'] },
-    { gateway: 'query', domain: 'orchestrate', operation: 'status', description: 'Orch status', tier: 2, idempotent: true, sessionRequired: false, requiredParams: [] },
+    {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'show',
+      description: 'Show task',
+      tier: 0,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: ['taskId'],
+    },
+    {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'list',
+      description: 'List tasks',
+      tier: 0,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    },
+    {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'find',
+      description: 'Find tasks',
+      tier: 0,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: ['query'],
+    },
+    {
+      gateway: 'query',
+      domain: 'admin',
+      operation: 'dash',
+      description: 'Dashboard',
+      tier: 0,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    },
+    {
+      gateway: 'query',
+      domain: 'admin',
+      operation: 'health',
+      description: 'Health check',
+      tier: 0,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    },
+    {
+      gateway: 'query',
+      domain: 'memory',
+      operation: 'show',
+      description: 'Show research',
+      tier: 1,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: ['id'],
+    },
+    {
+      gateway: 'query',
+      domain: 'orchestrate',
+      operation: 'status',
+      description: 'Orch status',
+      tier: 2,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    },
   ],
 }));
 
+import { listAdrs } from '../../../core/adrs/index.js';
+import { getJobManager } from '../../../mcp/lib/job-manager-accessor.js';
 import {
   configSet,
   getVersion,
@@ -80,13 +151,9 @@ import {
   systemRuntime,
   systemSafestop,
   systemSequence,
-  systemSequenceRepair,
   systemStats,
-  systemSync
+  systemSync,
 } from '../../lib/engine.js';
-import { listAdrs } from '../../../core/adrs/index.js';
-import { getJobManager } from '../../../mcp/lib/job-manager-accessor.js';
-import { readGrades } from '../../../core/sessions/session-grade.js';
 import { AdminHandler } from '../admin.js';
 
 describe('AdminHandler', () => {
@@ -105,18 +172,42 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'config.show', 'stats', 'context',
-        'runtime', 'job', 'dash', 'log', 'sequence', 'help',
-        'adr.show', 'adr.find', 'token', 'export',
+        'version',
+        'health',
+        'config.show',
+        'stats',
+        'context',
+        'runtime',
+        'job',
+        'dash',
+        'log',
+        'sequence',
+        'help',
+        'adr.show',
+        'adr.find',
+        'token',
+        'export',
       ]);
     });
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'init', 'health', 'config.set', 'backup', 'migrate',
-        'cleanup', 'job.cancel', 'safestop', 'inject.generate',
-        'adr.sync', 'import', 'detect', 'token', 'context.inject', 'install.global',
+        'init',
+        'health',
+        'config.set',
+        'backup',
+        'migrate',
+        'cleanup',
+        'job.cancel',
+        'safestop',
+        'inject.generate',
+        'adr.sync',
+        'import',
+        'detect',
+        'token',
+        'context.inject',
+        'install.global',
       ]);
     });
   });
@@ -254,13 +345,13 @@ describe('AdminHandler', () => {
       const ops = data.operations as Array<{ domain: string; operation: string; costHint: string }>;
       expect(Array.isArray(ops)).toBe(true);
 
-      const listOp = ops.find(o => o.domain === 'tasks' && o.operation === 'list');
+      const listOp = ops.find((o) => o.domain === 'tasks' && o.operation === 'list');
       expect(listOp?.costHint).toBe('heavy');
 
-      const showOp = ops.find(o => o.domain === 'tasks' && o.operation === 'show');
+      const showOp = ops.find((o) => o.domain === 'tasks' && o.operation === 'show');
       expect(showOp?.costHint).toBe('moderate');
 
-      const findOp = ops.find(o => o.domain === 'tasks' && o.operation === 'find');
+      const findOp = ops.find((o) => o.domain === 'tasks' && o.operation === 'find');
       expect(findOp?.costHint).toBe('minimal');
     });
 
@@ -285,7 +376,9 @@ describe('AdminHandler', () => {
         { id: 'job-3', status: 'running' },
       ];
       const mockManager = {
-        listJobs: vi.fn((status?: string) => status ? jobs.filter((job) => job.status === status) : jobs),
+        listJobs: vi.fn((status?: string) =>
+          status ? jobs.filter((job) => job.status === status) : jobs,
+        ),
       };
       vi.mocked(getJobManager).mockReturnValue(mockManager as never);
 
@@ -310,7 +403,15 @@ describe('AdminHandler', () => {
 
     it('should return canonical paged envelope for adr.list', async () => {
       vi.mocked(listAdrs).mockResolvedValue({
-        adrs: [{ id: 'ADR-002', title: 'Second', status: 'accepted', date: '2026-02-02', filePath: '.cleo/adrs/ADR-002.md' }],
+        adrs: [
+          {
+            id: 'ADR-002',
+            title: 'Second',
+            status: 'accepted',
+            date: '2026-02-02',
+            filePath: '.cleo/adrs/ADR-002.md',
+          },
+        ],
         total: 3,
         filtered: 2,
       });
@@ -319,7 +420,15 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(res.data).toEqual({
-        adrs: [{ id: 'ADR-002', title: 'Second', status: 'accepted', date: '2026-02-02', filePath: '.cleo/adrs/ADR-002.md' }],
+        adrs: [
+          {
+            id: 'ADR-002',
+            title: 'Second',
+            status: 'accepted',
+            date: '2026-02-02',
+            filePath: '.cleo/adrs/ADR-002.md',
+          },
+        ],
         total: 3,
         filtered: 2,
       });
@@ -413,7 +522,10 @@ describe('AdminHandler', () => {
       const res = await handler.mutate('restore', { backupId: 'snap-1' });
 
       expect(res.success).toBe(true);
-      expect(systemRestore).toHaveBeenCalledWith('/mock/project', { backupId: 'snap-1', force: undefined });
+      expect(systemRestore).toHaveBeenCalledWith('/mock/project', {
+        backupId: 'snap-1',
+        force: undefined,
+      });
     });
 
     it('should return error for restore without backupId', async () => {
@@ -478,11 +590,17 @@ describe('AdminHandler', () => {
       const res = await handler.mutate('safestop', { reason: 'test', dryRun: true });
 
       expect(res.success).toBe(true);
-      expect(systemSafestop).toHaveBeenCalledWith('/mock/project', { reason: 'test', dryRun: true });
+      expect(systemSafestop).toHaveBeenCalledWith('/mock/project', {
+        reason: 'test',
+        dryRun: true,
+      });
     });
 
     it('should call systemInjectGenerate for inject.generate', async () => {
-      vi.mocked(systemInjectGenerate).mockResolvedValue({ success: true, data: { generated: true } });
+      vi.mocked(systemInjectGenerate).mockResolvedValue({
+        success: true,
+        data: { generated: true },
+      });
 
       const res = await handler.mutate('inject.generate');
 
@@ -514,7 +632,9 @@ describe('AdminHandler', () => {
     });
 
     it('should handle thrown exceptions in mutate', async () => {
-      vi.mocked(initProject).mockImplementation(() => { throw new Error('init failed'); });
+      vi.mocked(initProject).mockImplementation(() => {
+        throw new Error('init failed');
+      });
 
       const res = await handler.mutate('init');
 

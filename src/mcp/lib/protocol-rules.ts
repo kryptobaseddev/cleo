@@ -34,7 +34,7 @@ export interface ProtocolRule {
   /** Validation function */
   validate: (
     manifestEntry: Record<string, unknown>,
-    additionalData?: Record<string, unknown>
+    additionalData?: Record<string, unknown>,
   ) => Promise<boolean> | boolean;
 }
 
@@ -72,7 +72,7 @@ function arrayLengthInRange(
   obj: Record<string, unknown>,
   field: string,
   min: number,
-  max: number
+  max: number,
 ): boolean {
   const value = obj[field];
   if (!Array.isArray(value)) {
@@ -226,8 +226,10 @@ const CONSENSUS_RULES: ProtocolRule[] = [
     validate: (_entry, data) => {
       const votingMatrix = data?.votingMatrix as Record<string, unknown> | undefined;
       if (!votingMatrix) return true; // Optional: SHOULD level
-      return hasField(votingMatrix as Record<string, unknown>, 'dissent') ||
-        hasField(votingMatrix as Record<string, unknown>, 'notes');
+      return (
+        hasField(votingMatrix as Record<string, unknown>, 'dissent') ||
+        hasField(votingMatrix as Record<string, unknown>, 'notes')
+      );
     },
   },
   {
@@ -372,7 +374,7 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
     fix: 'Flatten hierarchy to configured max depth',
     validate: (_entry, data) => {
       const depth = data?.hierarchyDepth as number | undefined;
-      const maxDepth = data?.maxDepth as number | undefined ?? 3;
+      const maxDepth = (data?.maxDepth as number | undefined) ?? 3;
       return depth === undefined || depth <= maxDepth;
     },
   },
@@ -385,9 +387,11 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
       const isLeaf = data?.isLeafTask as boolean | undefined;
       if (!isLeaf) return true; // Not a leaf task, pass
       // Leaf tasks must have a clear description
-      return hasField(entry, 'description') &&
+      return (
+        hasField(entry, 'description') &&
         typeof entry.description === 'string' &&
-        (entry.description as string).length >= 10;
+        (entry.description as string).length >= 10
+      );
     },
   },
   {
@@ -410,7 +414,9 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
     validate: (entry) => {
       const desc = entry.description as string | undefined;
       if (!desc) return false;
-      return /\b(must|should|acceptance|criteria|verify|test|passes when|done when|complete when)\b/i.test(desc);
+      return /\b(must|should|acceptance|criteria|verify|test|passes when|done when|complete when)\b/i.test(
+        desc,
+      );
     },
   },
   {
@@ -420,7 +426,7 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
     fix: 'Reduce sibling count or adjust hierarchy.maxSiblings in .cleo/config.json',
     validate: (_entry, data) => {
       const siblingCount = data?.siblingCount as number | undefined;
-      const maxSiblings = data?.maxSiblings as number | undefined ?? 0;
+      const maxSiblings = (data?.maxSiblings as number | undefined) ?? 0;
       // maxSiblings === 0 means unlimited
       return siblingCount === undefined || maxSiblings === 0 || siblingCount <= maxSiblings;
     },
@@ -432,7 +438,7 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
     fix: 'Reduce hierarchy nesting depth or adjust hierarchy.maxDepth in .cleo/config.json',
     validate: (_entry, data) => {
       const depth = data?.hierarchyDepth as number | undefined;
-      const maxDepth = data?.maxDepth as number | undefined ?? 3;
+      const maxDepth = (data?.maxDepth as number | undefined) ?? 3;
       return depth === undefined || depth <= maxDepth;
     },
   },
@@ -704,9 +710,7 @@ const VALIDATION_RULES: ProtocolRule[] = [
     validate: (_entry, data) => {
       const violations = data?.violations as Array<{ severity?: string }> | undefined;
       if (!violations || violations.length === 0) return true; // No violations, pass
-      return violations.every(
-        (v) => v.severity === 'error' || v.severity === 'warning'
-      );
+      return violations.every((v) => v.severity === 'error' || v.severity === 'warning');
     },
   },
   {
@@ -744,9 +748,7 @@ const TESTING_RULES: ProtocolRule[] = [
     validate: (_entry, data) => {
       const testFiles = data?.testFiles as string[] | undefined;
       if (!testFiles || testFiles.length === 0) return true; // SHOULD level, pass
-      return testFiles.every((f) =>
-        /\.(test|spec)\.(ts|js|tsx|jsx)$/.test(f) || /\.bats$/.test(f)
-      );
+      return testFiles.every((f) => /\.(test|spec)\.(ts|js|tsx|jsx)$/.test(f) || /\.bats$/.test(f));
     },
   },
   {

@@ -4,19 +4,22 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 /** Get roadmap from pending epics and CHANGELOG history. */
-export async function getRoadmap(opts: {
-  includeHistory?: boolean;
-  upcomingOnly?: boolean;
-  cwd?: string;
-}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function getRoadmap(
+  opts: {
+    includeHistory?: boolean;
+    upcomingOnly?: boolean;
+    cwd?: string;
+  },
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJson<TaskFile>(getTaskPath(opts.cwd));
@@ -29,22 +32,21 @@ export async function getRoadmap(opts: {
     : 'unknown';
 
   // Find epics (tasks that are parents of other tasks)
-  const childParentIds = new Set(tasks.filter(t => t.parentId).map(t => t.parentId!));
-  const epics = tasks.filter(t => childParentIds.has(t.id));
+  const childParentIds = new Set(tasks.filter((t) => t.parentId).map((t) => t.parentId!));
+  const epics = tasks.filter((t) => childParentIds.has(t.id));
 
   // Group epics by status
-  const pending = epics.filter(e => e.status !== 'done');
-  const completed = epics.filter(e => e.status === 'done');
+  const pending = epics.filter((e) => e.status !== 'done');
+  const completed = epics.filter((e) => e.status === 'done');
 
   // Parse CHANGELOG if requested
-  let releaseHistory: Array<{ version: string; date: string }> = [];
+  const releaseHistory: Array<{ version: string; date: string }> = [];
   if (opts.includeHistory) {
     const changelogPath = join(opts.cwd ?? process.cwd(), 'CHANGELOG.md');
     if (existsSync(changelogPath)) {
       const content = readFileSync(changelogPath, 'utf-8');
-      const versionRegex = /^##\s+\[?v?(\d+\.\d+\.\d+[^\]]*)\]?\s*[-\(]?\s*(\d{4}-\d{2}-\d{2})?/gm;
-      let match;
-      while ((match = versionRegex.exec(content)) !== null) {
+      const versionRegex = /^##\s+\[?v?(\d+\.\d+\.\d+[^\]]*)\]?\s*[-(]?\s*(\d{4}-\d{2}-\d{2})?/gm;
+      for (const match of content.matchAll(versionRegex)) {
         releaseHistory.push({
           version: match[1]!,
           date: match[2] ?? 'unknown',
@@ -53,14 +55,14 @@ export async function getRoadmap(opts: {
     }
   }
 
-  const upcoming = pending.map(e => ({
+  const upcoming = pending.map((e) => ({
     id: e.id,
     title: e.title,
     status: e.status,
     priority: e.priority,
     phase: e.phase,
-    childCount: tasks.filter(t => t.parentId === e.id).length,
-    completedChildren: tasks.filter(t => t.parentId === e.id && t.status === 'done').length,
+    childCount: tasks.filter((t) => t.parentId === e.id).length,
+    completedChildren: tasks.filter((t) => t.parentId === e.id && t.status === 'done').length,
   }));
 
   return {

@@ -8,7 +8,7 @@
  * @epic T3125
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock engine imports for Test 1
@@ -33,7 +33,7 @@ describe('Error Response Format (Section 3.2)', () => {
     response: any,
     expectedGateway: string,
     expectedDomain: string,
-    expectedOperation: string
+    expectedOperation: string,
   ) {
     expect(response._meta).toBeDefined();
     expect(response._meta.gateway).toBe(expectedGateway);

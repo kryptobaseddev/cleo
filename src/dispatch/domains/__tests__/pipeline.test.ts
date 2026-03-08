@@ -53,18 +53,14 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
   advanceInstance: vi.fn(),
 }));
 
-import { PipelineHandler } from '../pipeline.js';
 import {
-  phaseList,
-  releaseList,
-} from '../../lib/engine.js';
-import {
-  showChain,
-  listChains,
   addChain,
   createInstance,
-  advanceInstance,
+  listChains,
+  showChain,
 } from '../../../core/lifecycle/chain-store.js';
+import { phaseList, releaseList } from '../../lib/engine.js';
+import { PipelineHandler } from '../pipeline.js';
 
 describe('PipelineHandler chain operations', () => {
   let handler: PipelineHandler;
@@ -111,8 +107,24 @@ describe('PipelineHandler chain operations', () => {
       data: {
         currentPhase: 'implementation',
         phases: [
-          { slug: 'research', name: 'Research', order: 1, status: 'completed', startedAt: null, completedAt: null, isCurrent: false },
-          { slug: 'implementation', name: 'Implementation', order: 2, status: 'active', startedAt: null, completedAt: null, isCurrent: true },
+          {
+            slug: 'research',
+            name: 'Research',
+            order: 1,
+            status: 'completed',
+            startedAt: null,
+            completedAt: null,
+            isCurrent: false,
+          },
+          {
+            slug: 'implementation',
+            name: 'Implementation',
+            order: 2,
+            status: 'active',
+            startedAt: null,
+            completedAt: null,
+            isCurrent: true,
+          },
         ],
         summary: {
           total: 2,
@@ -129,7 +141,15 @@ describe('PipelineHandler chain operations', () => {
     expect(result.data).toEqual({
       currentPhase: 'implementation',
       phases: [
-        { slug: 'implementation', name: 'Implementation', order: 2, status: 'active', startedAt: null, completedAt: null, isCurrent: true },
+        {
+          slug: 'implementation',
+          name: 'Implementation',
+          order: 2,
+          status: 'active',
+          startedAt: null,
+          completedAt: null,
+          isCurrent: true,
+        },
       ],
       summary: {
         total: 2,
@@ -159,7 +179,9 @@ describe('PipelineHandler chain operations', () => {
   });
 
   it('translates FK constraint errors for chain.instantiate', async () => {
-    vi.mocked(createInstance).mockRejectedValue(new Error('SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed'));
+    vi.mocked(createInstance).mockRejectedValue(
+      new Error('SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed'),
+    );
 
     const result = await handler.mutate('chain.instantiate', {
       chainId: 'chain-404',
@@ -188,7 +210,10 @@ describe('PipelineHandler chain operations', () => {
     const result = await handler.query('release.list', { status: 'prepared', limit: 1 });
 
     expect(result.success).toBe(true);
-    expect(releaseList).toHaveBeenCalledWith({ status: 'prepared', limit: 1, offset: undefined }, '/mock/project');
+    expect(releaseList).toHaveBeenCalledWith(
+      { status: 'prepared', limit: 1, offset: undefined },
+      '/mock/project',
+    );
     expect((result.data as { filtered: number }).filtered).toBe(1);
     expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
   });

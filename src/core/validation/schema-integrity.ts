@@ -13,9 +13,9 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
 import { checkSchema } from '../json-schema-validator.js';
-import { resolveSchemaPath, getSchemaVersion } from '../schema-management.js';
+import { getCleoDirAbsolute } from '../paths.js';
+import { getSchemaVersion, resolveSchemaPath } from '../schema-management.js';
 
 // ============================================================================
 // Types
@@ -196,10 +196,7 @@ async function readSqliteVersion(cwd?: string): Promise<string | null> {
     const { getDb } = await import('../../store/sqlite.js');
     const schemaTable = await import('../../store/tasks-schema.js');
     const db = await getDb(cwd);
-    const rows = await db
-      .select()
-      .from(schemaTable.schemaMeta)
-      .limit(10);
+    const rows = await db.select().from(schemaTable.schemaMeta).limit(10);
     const row = rows.find((r) => r.key === 'schemaVersion');
     return row?.value ?? null;
   } catch {
@@ -216,16 +213,12 @@ async function readSqliteVersion(cwd?: string): Promise<string | null> {
  *
  * @param cwd - Project root (defaults to process.cwd())
  */
-export async function checkSchemaIntegrity(
-  cwd?: string,
-): Promise<SchemaIntegrityReport> {
+export async function checkSchemaIntegrity(cwd?: string): Promise<SchemaIntegrityReport> {
   const cleoDir = getCleoDirAbsolute(cwd);
   const files = INTEGRITY_TARGETS.map((t) => checkFile(t, cleoDir));
   const sqliteVersion = await readSqliteVersion(cwd);
 
-  const allOk = files.every(
-    (f) => f.status === 'ok' || f.status === 'schema_not_found',
-  );
+  const allOk = files.every((f) => f.status === 'ok' || f.status === 'schema_not_found');
 
   return { files, sqliteVersion, allOk };
 }

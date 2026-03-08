@@ -15,17 +15,21 @@
  * @epic T4663
  */
 
-import { runEnvelopeConformance,validateEnvelope } from '@cleocode/lafs-protocol';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import { enforceBudget,isWithinBudget } from '../../mcp/lib/budget.js';
+import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs-protocol';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
-import { createTestDb,makeTaskFile,type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  createTestDb,
+  makeTaskFile,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { ExitCode,getExitCodeName,isErrorCode,isSuccessCode } from '../../types/exit-codes.js';
-import { getCleoErrorRegistry,getRegistryEntry,isCleoRegisteredCode } from '../error-registry.js';
+import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '../../types/exit-codes.js';
+import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode } from '../error-registry.js';
 import { CleoError } from '../errors.js';
-import { formatError,formatSuccess,pushWarning } from '../output.js';
-import { createPage,paginate } from '../pagination.js';
+import { formatError, formatSuccess, pushWarning } from '../output.js';
+import { createPage, paginate } from '../pagination.js';
 import { validateHierarchyPlacement } from '../tasks/hierarchy-policy.js';
 
 // ============================
@@ -218,8 +222,9 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
       // error_code_registered and transport_mapping_consistent are expected
       // to fail (CLEO has its own error code → exit code mapping).
       const knownExclusions = new Set(['error_code_registered', 'transport_mapping_consistent']);
-      const failedChecks = report.checks
-        .filter((c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name));
+      const failedChecks = report.checks.filter(
+        (c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name),
+      );
       expect(failedChecks).toHaveLength(0);
     });
 
@@ -313,7 +318,7 @@ describe('CleoError LAFS Shape', () => {
 describe('Exit Code Taxonomy', () => {
   it('all error codes are in range 1-99', () => {
     const errorCodes = Object.values(ExitCode).filter(
-      v => typeof v === 'number' && v >= 1 && v < 100,
+      (v) => typeof v === 'number' && v >= 1 && v < 100,
     );
     for (const code of errorCodes) {
       expect(isErrorCode(code as ExitCode)).toBe(true);
@@ -328,7 +333,7 @@ describe('Exit Code Taxonomy', () => {
   });
 
   it('all exit codes have names', () => {
-    const allCodes = Object.values(ExitCode).filter(v => typeof v === 'number') as ExitCode[];
+    const allCodes = Object.values(ExitCode).filter((v) => typeof v === 'number') as ExitCode[];
     for (const code of allCodes) {
       const name = getExitCodeName(code);
       expect(name).not.toBe('UNKNOWN');
@@ -350,7 +355,14 @@ describe('LAFS Integration with Core Modules', () => {
     accessor = env.accessor;
 
     const taskFile = makeTaskFile([
-      { id: 'T001', title: 'Test task', status: 'pending', priority: 'medium', phase: 'core', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Test task',
+        status: 'pending',
+        priority: 'medium',
+        phase: 'core',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
     taskFile.project = {
       name: 'Test',
@@ -613,7 +625,10 @@ describe('LAFS Budget Enforcement (T4701)', () => {
   });
 
   it('isWithinBudget returns false for large responses with tiny budget', () => {
-    const response = { success: true, data: { items: Array(100).fill({ id: 'T001', title: 'x'.repeat(200) }) } };
+    const response = {
+      success: true,
+      data: { items: Array(100).fill({ id: 'T001', title: 'x'.repeat(200) }) },
+    };
     expect(isWithinBudget(response, 10)).toBe(false);
   });
 
@@ -737,8 +752,9 @@ describe('runEnvelopeConformance() CI Suite (T4673)', () => {
       const json = formatError(err, 'test.error');
       const envelope = JSON.parse(json);
       const report = runEnvelopeConformance(envelope);
-      const nonRegistryFails = report.checks
-        .filter((c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name));
+      const nonRegistryFails = report.checks.filter(
+        (c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name),
+      );
       expect(nonRegistryFails).toHaveLength(0);
     }
   });
@@ -777,7 +793,13 @@ describe('runEnvelopeConformance() CI Suite (T4673)', () => {
 describe('hierarchy policy conformance', () => {
   it('validateHierarchyPlacement returns well-formed result with all required fields', () => {
     const tasks = [
-      { id: 'T001', title: 'Root', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Root',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ];
     const policy = {
       maxDepth: 3,
@@ -804,7 +826,13 @@ describe('hierarchy policy conformance', () => {
 
   it('hierarchy error codes follow E_ prefix convention', () => {
     const tasks = [
-      { id: 'T001', title: 'Root', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Root',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ];
     const policy = {
       maxDepth: 3,

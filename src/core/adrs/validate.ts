@@ -6,12 +6,14 @@
  * @task T4792
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv';
+
 // Handle ESM/CJS interop for Ajv
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const Ajv = (AjvModule as any).default ?? AjvModule;
+
 import { parseAdrFile } from './parse.js';
 
 export interface ValidationError {
@@ -40,7 +42,13 @@ export async function validateAllAdrs(projectRoot: string): Promise<ValidationRe
   if (!existsSync(schemaPath)) {
     return {
       valid: false,
-      errors: [{ file: 'schemas/adr-frontmatter.schema.json', field: 'schema', message: 'Schema file not found' }],
+      errors: [
+        {
+          file: 'schemas/adr-frontmatter.schema.json',
+          field: 'schema',
+          message: 'Schema file not found',
+        },
+      ],
       checked: 0,
     };
   }
@@ -54,8 +62,8 @@ export async function validateAllAdrs(projectRoot: string): Promise<ValidationRe
   const validate = ajv.compile(schema);
 
   const files = readdirSync(adrsDir)
-    .filter(f => f.endsWith('.md') && f.startsWith('ADR-'))
-    .map(f => join(adrsDir, f));
+    .filter((f) => f.endsWith('.md') && f.startsWith('ADR-'))
+    .map((f) => join(adrsDir, f));
 
   const errors: ValidationError[] = [];
 

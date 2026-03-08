@@ -9,12 +9,12 @@
  * @task T2922
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  setupIntegrationTest,
   cleanupIntegrationTest,
-  startTestSession,
   type IntegrationTestContext,
+  setupIntegrationTest,
+  startTestSession,
 } from '../../__tests__/integration-setup.js';
 
 describe('query Gateway Integration', () => {
@@ -84,7 +84,7 @@ describe('query Gateway Integration', () => {
       expect(result.success).toBe(true);
       const d = result.data as any;
       // CLEO find returns {query, matches} or {tasks: [...]}
-      const matches = Array.isArray(d) ? d : (d?.matches || d?.tasks || []);
+      const matches = Array.isArray(d) ? d : d?.matches || d?.tasks || [];
       expect(Array.isArray(matches)).toBe(true);
     });
 
@@ -181,7 +181,7 @@ describe('query Gateway Integration', () => {
       expect(result.success).toBe(true);
       // CLEO session list returns {filter, count, sessions: [...]}
       const d = result.data as any;
-      const sessions = Array.isArray(d) ? d : (d?.sessions || []);
+      const sessions = Array.isArray(d) ? d : d?.sessions || [];
       expect(Array.isArray(sessions)).toBe(true);
     });
 
@@ -239,7 +239,7 @@ describe('query Gateway Integration', () => {
       // {version: "x.y.z"}, {data: {version: "x.y.z"}}, {cleo: "x.y.z"},
       // or as a top-level string in stdout
       expect(
-        d?.version || d?.data?.version || d?.cleo || result.stdout?.match(/\d+\.\d+/)
+        d?.version || d?.data?.version || d?.cleo || result.stdout?.match(/\d+\.\d+/),
       ).toBeDefined();
     });
 

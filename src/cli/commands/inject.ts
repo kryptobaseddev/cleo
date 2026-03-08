@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerInjectCommand(program: Command): void {
@@ -18,13 +18,19 @@ export function registerInjectCommand(program: Command): void {
     .option('--save-state', 'Save session state for extraction', true)
     .option('--dry-run', 'Preview without writing')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'inject.generate', {
-        maxTasks: opts['maxTasks'] ? Number(opts['maxTasks']) : 8,
-        focusedOnly: opts['focusedOnly'],
-        phase: opts['phase'],
-        output: opts['output'],
-        saveState: opts['saveState'],
-        dryRun: opts['dryRun'],
-      }, { command: 'inject' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'inject.generate',
+        {
+          maxTasks: opts['maxTasks'] ? Number(opts['maxTasks']) : 8,
+          focusedOnly: opts['focusedOnly'],
+          phase: opts['phase'],
+          output: opts['output'],
+          saveState: opts['saveState'],
+          dryRun: opts['dryRun'],
+        },
+        { command: 'inject' },
+      );
     });
 }

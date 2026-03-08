@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJsonRequired } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
+import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { getTaskPath } from '../paths.js';
 
 /** Suggest related tasks based on shared attributes. */
 export async function suggestRelated(
@@ -20,7 +20,7 @@ export async function suggestRelated(
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(opts.cwd));
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }
@@ -33,7 +33,7 @@ export async function suggestRelated(
     const reasons: string[] = [];
 
     // Shared labels
-    const sharedLabels = (task.labels ?? []).filter(l => (other.labels ?? []).includes(l));
+    const sharedLabels = (task.labels ?? []).filter((l) => (other.labels ?? []).includes(l));
     if (sharedLabels.length > 0) {
       score += sharedLabels.length * 20;
       reasons.push(`Shared labels: ${sharedLabels.join(', ')}`);
@@ -82,12 +82,12 @@ export async function addRelation(
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));
 
-  const fromTask = data.tasks.find(t => t.id === from);
+  const fromTask = data.tasks.find((t) => t.id === from);
   if (!fromTask) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${from} not found`);
   }
 
-  const toTask = data.tasks.find(t => t.id === to);
+  const toTask = data.tasks.find((t) => t.id === to);
   if (!toTask) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`);
   }
@@ -122,7 +122,7 @@ export async function listRelations(
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }

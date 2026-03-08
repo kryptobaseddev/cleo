@@ -13,11 +13,11 @@
  */
 
 export {
+  ConfigValidationError,
   getConfig,
   loadConfig,
   resetConfig,
   validateConfig,
-  ConfigValidationError,
 } from '../../mcp/lib/config.js';
 
 export type { MCPConfig } from '../../mcp/lib/defaults.js';

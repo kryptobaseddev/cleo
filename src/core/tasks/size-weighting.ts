@@ -6,7 +6,7 @@
  * @task T4529
  */
 
-import type { Task, TaskSize, TaskPriority } from '../../types/task.js';
+import type { Task, TaskPriority, TaskSize } from '../../types/task.js';
 
 /** Size weight multipliers. */
 const SIZE_WEIGHTS: Record<TaskSize, number> = {

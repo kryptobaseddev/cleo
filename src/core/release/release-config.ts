@@ -77,19 +77,51 @@ export interface ReleaseGate {
 /** Load release configuration with defaults. */
 export function loadReleaseConfig(cwd?: string): ReleaseConfig {
   return {
-    versioningScheme: readConfigValueSync('release.versioning.scheme', DEFAULTS.versioningScheme, cwd) as string,
-    tagPrefix: readConfigValueSync('release.versioning.tagPrefix', DEFAULTS.tagPrefix, cwd) as string,
-    changelogFormat: readConfigValueSync('release.changelog.format', DEFAULTS.changelogFormat, cwd) as string,
-    changelogFile: readConfigValueSync('release.changelog.file', DEFAULTS.changelogFile, cwd) as string,
-    artifactType: readConfigValueSync('release.artifact.type', DEFAULTS.artifactType, cwd) as string,
+    versioningScheme: readConfigValueSync(
+      'release.versioning.scheme',
+      DEFAULTS.versioningScheme,
+      cwd,
+    ) as string,
+    tagPrefix: readConfigValueSync(
+      'release.versioning.tagPrefix',
+      DEFAULTS.tagPrefix,
+      cwd,
+    ) as string,
+    changelogFormat: readConfigValueSync(
+      'release.changelog.format',
+      DEFAULTS.changelogFormat,
+      cwd,
+    ) as string,
+    changelogFile: readConfigValueSync(
+      'release.changelog.file',
+      DEFAULTS.changelogFile,
+      cwd,
+    ) as string,
+    artifactType: readConfigValueSync(
+      'release.artifact.type',
+      DEFAULTS.artifactType,
+      cwd,
+    ) as string,
     gates: readConfigValueSync('release.gates', [], cwd) as ReleaseGate[],
     versionBump: {
-      files: readConfigValueSync('release.versionBump.files', [], cwd) as ReleaseConfig['versionBump']['files'],
+      files: readConfigValueSync(
+        'release.versionBump.files',
+        [],
+        cwd,
+      ) as ReleaseConfig['versionBump']['files'],
     },
     security: {
-      enableProvenance: readConfigValueSync('release.security.enableProvenance', false, cwd) as boolean,
+      enableProvenance: readConfigValueSync(
+        'release.security.enableProvenance',
+        false,
+        cwd,
+      ) as boolean,
       slsaLevel: readConfigValueSync('release.security.slsaLevel', 3, cwd) as number,
-      requireSignedCommits: readConfigValueSync('release.security.requireSignedCommits', false, cwd) as boolean,
+      requireSignedCommits: readConfigValueSync(
+        'release.security.requireSignedCommits',
+        false,
+        cwd,
+      ) as boolean,
     },
   };
 }

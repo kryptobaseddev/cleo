@@ -5,11 +5,11 @@
  * and session-store.ts.
  */
 
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '../types/task.js';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
-import type { TaskRow, NewTaskRow, SessionRow } from './tasks-schema.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
-import type { Session, SessionScope, SessionStats } from './validation-schemas.js';
 import type { SessionStatus } from './status-registry.js';
+import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
+import type { Session, SessionScope, SessionStats } from './validation-schemas.js';
 
 /** Convert a database TaskRow to a domain Task object. */
 export function rowToTask(row: TaskRow): Task {

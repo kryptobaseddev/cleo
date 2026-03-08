@@ -81,7 +81,7 @@ export function parseManifest(content: string): ManifestDoc[] {
  * @task T4524
  */
 export function findReviewDocs(entries: ManifestDoc[], filterId?: string): ManifestDoc[] {
-  return entries.filter(doc => {
+  return entries.filter((doc) => {
     if (doc.status !== 'review') return false;
     if (filterId && !doc.linked_tasks.includes(filterId)) return false;
     return true;
@@ -95,8 +95,8 @@ export function findReviewDocs(entries: ManifestDoc[], filterId?: string): Manif
 export function extractTopics(content: string): string[] {
   return content
     .split('\n')
-    .filter(line => /^##+ /.test(line))
-    .map(line => line.replace(/^##+ /, ''));
+    .filter((line) => /^##+ /.test(line))
+    .map((line) => line.replace(/^##+ /, ''));
 }
 
 /**

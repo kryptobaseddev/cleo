@@ -7,7 +7,7 @@
  * @module
  */
 
-import { providerSupports, providerSupportsById, type Provider } from '@cleocode/caamp';
+import { type Provider, providerSupports, providerSupportsById } from '@cleocode/caamp';
 
 /**
  * Check if provider supports a specific capability
@@ -24,7 +24,7 @@ import { providerSupports, providerSupportsById, type Provider } from '@cleocode
 
 export function checkProviderCapability(
   provider: Provider | string,
-  capabilityPath: string
+  capabilityPath: string,
 ): boolean {
   if (typeof provider === 'string') {
     return providerSupportsById(provider, capabilityPath);
@@ -37,7 +37,7 @@ export function checkProviderCapability(
  */
 export function checkProviderCapabilities(
   providerId: string,
-  capabilities: string[]
+  capabilities: string[],
 ): Record<string, boolean> {
   const results: Record<string, boolean> = {};
   for (const cap of capabilities) {

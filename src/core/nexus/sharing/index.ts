@@ -8,12 +8,12 @@
  * @task T4883
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import type { SharingConfig } from '../../../types/config.js';
 import { loadConfig } from '../../config.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../../paths.js';
-import type { SharingConfig } from '../../../types/config.js';
 
 /** Result of a sharing status check. */
 export interface SharingStatus {
@@ -172,19 +172,15 @@ function generateGitignoreEntries(sharing: SharingConfig): string[] {
  * Adds/updates a managed section between CLEO markers.
  * @task T4883
  */
-export async function syncGitignore(cwd?: string): Promise<{ updated: boolean; entriesCount: number }> {
+export async function syncGitignore(
+  cwd?: string,
+): Promise<{ updated: boolean; entriesCount: number }> {
   const config = await loadConfig(cwd);
   const projectRoot = getProjectRoot(cwd);
   const gitignorePath = join(projectRoot, '.gitignore');
 
   const entries = generateGitignoreEntries(config.sharing);
-  const managedSection = [
-    '',
-    GITIGNORE_START,
-    ...entries,
-    GITIGNORE_END,
-    '',
-  ].join('\n');
+  const managedSection = ['', GITIGNORE_START, ...entries, GITIGNORE_END, ''].join('\n');
 
   let content = '';
   if (existsSync(gitignorePath)) {

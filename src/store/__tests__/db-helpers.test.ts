@@ -4,11 +4,11 @@
  * @task T5034
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 
@@ -48,9 +48,7 @@ describe('upsertTask — orphan parent handling', () => {
     });
 
     // Verify the task was inserted with parentId = null
-    const rows = await db.select().from(schema.tasks)
-      .where(eq(schema.tasks.id, 'T100'))
-      .all();
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T100')).all();
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.parentId).toBeNull();
@@ -84,9 +82,7 @@ describe('upsertTask — orphan parent handling', () => {
     });
 
     // Verify parentId is preserved
-    const rows = await db.select().from(schema.tasks)
-      .where(eq(schema.tasks.id, 'T002'))
-      .all();
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T002')).all();
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.parentId).toBe('T001');
@@ -99,23 +95,25 @@ describe('upsertTask — orphan parent handling', () => {
     const db = await getDb();
 
     // Simulate re-upserting an archived task whose parent was deleted
-    await upsertTask(db, {
-      id: 'T200',
-      title: 'Archived child',
-      description: 'Parent was deleted',
-      status: 'pending',
-      priority: 'medium',
-      parentId: 'T2058', // deleted parent
-      createdAt: '2025-01-01T00:00:00Z',
-    }, {
-      archivedAt: '2025-06-01T00:00:00Z',
-      archiveReason: 'completed',
-    });
+    await upsertTask(
+      db,
+      {
+        id: 'T200',
+        title: 'Archived child',
+        description: 'Parent was deleted',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T2058', // deleted parent
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      {
+        archivedAt: '2025-06-01T00:00:00Z',
+        archiveReason: 'completed',
+      },
+    );
 
     // Should succeed (not throw) and null out the parentId
-    const rows = await db.select().from(schema.tasks)
-      .where(eq(schema.tasks.id, 'T200'))
-      .all();
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T200')).all();
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.parentId).toBeNull();

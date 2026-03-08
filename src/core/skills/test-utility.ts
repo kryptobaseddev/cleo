@@ -48,7 +48,7 @@ export function getCurrentTimestamp(): string {
  */
 export function isValidIsoDate(dateStr: string): boolean {
   const date = new Date(dateStr);
-  return !isNaN(date.getTime()) && date.toISOString().startsWith(dateStr.slice(0, 10));
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(dateStr.slice(0, 10));
 }
 
 /**

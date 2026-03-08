@@ -3,10 +3,10 @@
  * @task T4784
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 export interface ValidationIssue {
   code: string;
@@ -32,7 +32,7 @@ export async function validateSpawnReadiness(
     : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
-  const task = tasks.find(t => t.id === taskId);
+  const task = tasks.find((t) => t.id === taskId);
 
   if (!task) {
     return {
@@ -46,7 +46,11 @@ export async function validateSpawnReadiness(
   const issues: ValidationIssue[] = [];
 
   if (task.status === 'done') {
-    issues.push({ code: 'V_ALREADY_DONE', message: 'Task is already completed', severity: 'error' });
+    issues.push({
+      code: 'V_ALREADY_DONE',
+      message: 'Task is already completed',
+      severity: 'error',
+    });
   }
   if (task.status === 'cancelled') {
     issues.push({ code: 'V_CANCELLED', message: 'Task is cancelled', severity: 'error' });
@@ -54,9 +58,13 @@ export async function validateSpawnReadiness(
 
   if (task.depends) {
     for (const dep of task.depends) {
-      const depTask = tasks.find(t => t.id === dep);
+      const depTask = tasks.find((t) => t.id === dep);
       if (!depTask) {
-        issues.push({ code: 'V_MISSING_DEP', message: `Dependency ${dep} not found`, severity: 'error' });
+        issues.push({
+          code: 'V_MISSING_DEP',
+          message: `Dependency ${dep} not found`,
+          severity: 'error',
+        });
       } else if (depTask.status !== 'done') {
         issues.push({
           code: 'V_UNMET_DEP',
@@ -71,13 +79,17 @@ export async function validateSpawnReadiness(
     issues.push({ code: 'V_MISSING_TITLE', message: 'Task title is missing', severity: 'error' });
   }
   if (!task.description) {
-    issues.push({ code: 'V_MISSING_DESC', message: 'Task description is missing', severity: 'error' });
+    issues.push({
+      code: 'V_MISSING_DESC',
+      message: 'Task description is missing',
+      severity: 'error',
+    });
   }
 
   return {
     taskId,
     title: task.title,
-    ready: issues.filter(i => i.severity === 'error').length === 0,
+    ready: issues.filter((i) => i.severity === 'error').length === 0,
     issues,
   };
 }

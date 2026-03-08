@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { getSystemHealth, coreDoctorReport } from '../health.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { coreDoctorReport, getSystemHealth } from '../health.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
@@ -28,7 +28,7 @@ describe('system health audit_log checks', () => {
     closeDb();
 
     const result = getSystemHealth(projectRoot);
-    const auditLog = result.checks.find(c => c.name === 'audit_log');
+    const auditLog = result.checks.find((c) => c.name === 'audit_log');
 
     expect(auditLog).toBeDefined();
     expect(auditLog?.status).toBe('pass');
@@ -46,7 +46,7 @@ describe('system health audit_log checks', () => {
     expect(existsSync(dbPath)).toBe(true);
 
     const result = getSystemHealth(projectRoot);
-    const auditLog = result.checks.find(c => c.name === 'audit_log');
+    const auditLog = result.checks.find((c) => c.name === 'audit_log');
 
     expect(auditLog).toBeDefined();
     expect(auditLog?.status).toBe('fail');
@@ -59,7 +59,7 @@ describe('system health audit_log checks', () => {
     closeDb();
 
     const report = await coreDoctorReport(projectRoot);
-    const auditLog = report.checks.find(c => c.check === 'audit_log');
+    const auditLog = report.checks.find((c) => c.check === 'audit_log');
 
     expect(auditLog).toBeDefined();
     expect(auditLog?.status).toBe('ok');

@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJsonRequired } from '../../store/json.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
 import { getTaskPath } from '../paths.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Enriched task with hierarchy info. */
 export interface TaskDetail extends Task {
@@ -26,7 +26,11 @@ export interface TaskDetail extends Task {
  * Checks active tasks first, then archive if not found.
  * @task T4460
  */
-export async function showTask(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskDetail> {
+export async function showTask(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskDetail> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
@@ -37,14 +41,14 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
     : await readJsonRequired<TaskFile>(taskPath);
 
   // First, try to find in active tasks
-  let task = data.tasks.find(t => t.id === taskId);
+  let task = data.tasks.find((t) => t.id === taskId);
   let isArchived = false;
 
   // If not found in active tasks, check the archive
   if (!task && accessor) {
     const archive = await accessor.loadArchive();
     if (archive) {
-      task = archive.archivedTasks.find(t => t.id === taskId);
+      task = archive.archivedTasks.find((t) => t.id === taskId);
       if (task) {
         isArchived = true;
       }
@@ -52,32 +56,28 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
   }
 
   if (!task) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Task not found: ${taskId}`,
-      {
-        fix: `Use 'cleo find "${taskId}"' to search for similar IDs`,
-        alternatives: [
-          { action: 'Search for task', command: `cleo find "${taskId}"` },
-          { action: 'List all tasks', command: 'cleo list' },
-        ],
-      },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
+      fix: `Use 'cleo find "${taskId}"' to search for similar IDs`,
+      alternatives: [
+        { action: 'Search for task', command: `cleo find "${taskId}"` },
+        { action: 'List all tasks', command: 'cleo list' },
+      ],
+    });
   }
 
   const detail: TaskDetail = { ...task, isArchived };
 
   // Add children (only check active tasks, archived tasks don't have active children)
   if (!isArchived) {
-    const children = data.tasks.filter(t => t.parentId === taskId);
+    const children = data.tasks.filter((t) => t.parentId === taskId);
     if (children.length > 0) {
-      detail.children = children.map(c => c.id);
+      detail.children = children.map((c) => c.id);
     }
 
     // Add dependency status
     if (task.depends?.length) {
-      detail.dependencyStatus = task.depends.map(depId => {
-        const dep = data.tasks.find(t => t.id === depId);
+      detail.dependencyStatus = task.depends.map((depId) => {
+        const dep = data.tasks.find((t) => t.id === depId);
         return {
           id: depId,
           status: dep?.status ?? 'unknown',
@@ -87,7 +87,7 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
 
       // Add unresolvedDeps: only unresolved dependencies (not done/cancelled)
       const unresolved = detail.dependencyStatus.filter(
-        d => d.status !== 'done' && d.status !== 'cancelled',
+        (d) => d.status !== 'done' && d.status !== 'cancelled',
       );
       if (unresolved.length > 0) {
         detail.unresolvedDeps = unresolved;
@@ -95,9 +95,7 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
     }
 
     // Add dependents: tasks that depend on this one
-    const dependents = data.tasks
-      .filter(t => t.depends?.includes(taskId))
-      .map(t => t.id);
+    const dependents = data.tasks.filter((t) => t.depends?.includes(taskId)).map((t) => t.id);
     if (dependents.length > 0) {
       detail.dependents = dependents;
     }
@@ -109,7 +107,7 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
     while (currentId && !visited.has(currentId)) {
       visited.add(currentId);
       path.unshift(currentId);
-      const parent = data.tasks.find(t => t.id === currentId);
+      const parent = data.tasks.find((t) => t.id === currentId);
       currentId = parent?.parentId;
     }
     if (path.length > 1) {

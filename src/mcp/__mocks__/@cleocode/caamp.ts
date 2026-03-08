@@ -36,8 +36,15 @@ export const injectAll = vi.fn(async () => new Map());
 export const generateInjectionContent = vi.fn(() => '');
 
 // Batch / Orchestration
-export const installBatchWithRollback = vi.fn(async () => ({ success: true, results: [], rolledBack: false }));
-export const configureProviderGlobalAndProject = vi.fn(async () => ({ global: { success: true }, project: { success: true } }));
+export const installBatchWithRollback = vi.fn(async () => ({
+  success: true,
+  results: [],
+  rolledBack: false,
+}));
+export const configureProviderGlobalAndProject = vi.fn(async () => ({
+  global: { success: true },
+  project: { success: true },
+}));
 
 // Skills (catalog)
 export const getCanonicalSkillsDir = vi.fn(() => '/mock/.agents/skills');

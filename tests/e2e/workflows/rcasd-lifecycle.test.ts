@@ -9,7 +9,7 @@
  * @epic T5194
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock paths
@@ -36,10 +36,10 @@ vi.mock('../../../src/dispatch/engines/lifecycle-engine.js', () => ({
 }));
 
 import {
-  lifecycleStatus,
   lifecycleCheck,
-  lifecycleProgress,
   lifecycleGateFail,
+  lifecycleProgress,
+  lifecycleStatus,
 } from '../../../src/dispatch/engines/lifecycle-engine.js';
 
 describe('RCASD-IVTR+C Lifecycle Stage Transitions', () => {
@@ -55,7 +55,7 @@ describe('RCASD-IVTR+C Lifecycle Stage Transitions', () => {
   function assertResponseEnvelope(
     response: any,
     expectedGateway: string,
-    expectedOperation: string
+    expectedOperation: string,
   ) {
     expect(response._meta).toBeDefined();
     expect(response._meta.gateway).toBe(expectedGateway);

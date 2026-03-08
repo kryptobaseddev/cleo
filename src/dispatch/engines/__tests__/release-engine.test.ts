@@ -6,29 +6,52 @@
  * @task T4476
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync, existsSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
-import {
-  releasePrepare,
-  releaseChangelog,
-  releaseList,
-  releaseShow,
-  releaseCommit,
-  releaseTag,
-  releaseGatesRun,
-  releaseRollback,
-} from '../release-engine.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import {
+  releaseChangelog,
+  releaseCommit,
+  releaseGatesRun,
+  releaseList,
+  releasePrepare,
+  releaseRollback,
+  releaseShow,
+  releaseTag,
+} from '../release-engine.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-release-engine');
 
 const SAMPLE_TASKS = [
-  { id: 'T001', title: 'feat: Add new feature', description: 'New feature', status: 'done', priority: 'high', completedAt: '2026-02-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T002', title: 'fix: Bug fix', description: 'Fixed bug', status: 'done', priority: 'medium', completedAt: '2026-02-02T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T003', title: 'docs: Update docs', description: 'Documentation', status: 'pending', priority: 'low', createdAt: '2026-01-01T00:00:00Z' },
+  {
+    id: 'T001',
+    title: 'feat: Add new feature',
+    description: 'New feature',
+    status: 'done',
+    priority: 'high',
+    completedAt: '2026-02-01T00:00:00Z',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T002',
+    title: 'fix: Bug fix',
+    description: 'Fixed bug',
+    status: 'done',
+    priority: 'medium',
+    completedAt: '2026-02-02T00:00:00Z',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T003',
+    title: 'docs: Update docs',
+    description: 'Documentation',
+    status: 'pending',
+    priority: 'low',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
 async function setupTestDb(): Promise<void> {
@@ -131,7 +154,13 @@ describe('Release Engine', () => {
       expect((result.data as any).releases).toHaveLength(1);
       expect((result.data as any).total).toBe(2);
       expect((result.data as any).filtered).toBe(1);
-      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 1,
+        offset: 0,
+        hasMore: false,
+        total: 1,
+      });
     });
   });
 

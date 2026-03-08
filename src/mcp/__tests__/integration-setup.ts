@@ -16,9 +16,9 @@
  */
 
 import { exec } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
 import fs from 'fs/promises';
+import path from 'path';
+import { promisify } from 'util';
 import { expect } from 'vitest';
 import {
   createTestEnvironment,
@@ -130,15 +130,31 @@ class CLIExecutor {
    * Map domain+operation to the actual CLI command structure.
    * Replicates the mapping from the deleted command-builder.ts.
    */
-  private mapToCliCommand(domain: string, operation: string): { command: string; addOperationAsSubcommand: boolean } {
+  private mapToCliCommand(
+    domain: string,
+    operation: string,
+  ): { command: string; addOperationAsSubcommand: boolean } {
     // Tasks domain: operation IS the top-level CLI command
     const taskOps: Record<string, string> = {
-      show: 'show', list: 'list', find: 'find', add: 'add',
-      update: 'update', complete: 'complete', delete: 'delete',
-      archive: 'archive', restore: 'restore task', reopen: 'restore task',
-      exists: 'exists', next: 'next', current: 'current',
-      start: 'start', stop: 'stop', depends: 'deps show',
-      blockers: 'blockers', tree: 'tree', analyze: 'analyze',
+      show: 'show',
+      list: 'list',
+      find: 'find',
+      add: 'add',
+      update: 'update',
+      complete: 'complete',
+      delete: 'delete',
+      archive: 'archive',
+      restore: 'restore task',
+      reopen: 'restore task',
+      exists: 'exists',
+      next: 'next',
+      current: 'current',
+      start: 'start',
+      stop: 'stop',
+      depends: 'deps show',
+      blockers: 'blockers',
+      tree: 'tree',
+      analyze: 'analyze',
     };
     if (domain === 'tasks' && taskOps[operation]) {
       return { command: taskOps[operation], addOperationAsSubcommand: false };
@@ -152,14 +168,23 @@ class CLIExecutor {
 
     // Lifecycle domain: 'cleo lifecycle <subcommand>'
     const lifecycleOps: Record<string, string> = {
-      status: 'lifecycle show', show: 'lifecycle show', stages: 'lifecycle show',
-      validate: 'lifecycle gate', record: 'lifecycle complete',
-      start: 'lifecycle start', complete: 'lifecycle complete',
-      enforce: 'lifecycle gate', skip: 'lifecycle skip',
-      gate: 'lifecycle gate', gates: 'lifecycle show',
-      prerequisites: 'lifecycle show', history: 'lifecycle show',
-      reset: 'lifecycle start', report: 'lifecycle show',
-      'gate.pass': 'lifecycle gate', 'gate.fail': 'lifecycle gate',
+      status: 'lifecycle show',
+      show: 'lifecycle show',
+      stages: 'lifecycle show',
+      validate: 'lifecycle gate',
+      record: 'lifecycle complete',
+      start: 'lifecycle start',
+      complete: 'lifecycle complete',
+      enforce: 'lifecycle gate',
+      skip: 'lifecycle skip',
+      gate: 'lifecycle gate',
+      gates: 'lifecycle show',
+      prerequisites: 'lifecycle show',
+      history: 'lifecycle show',
+      reset: 'lifecycle start',
+      report: 'lifecycle show',
+      'gate.pass': 'lifecycle gate',
+      'gate.fail': 'lifecycle gate',
     };
     if (domain === 'lifecycle' && lifecycleOps[operation]) {
       return { command: lifecycleOps[operation], addOperationAsSubcommand: false };
@@ -170,8 +195,10 @@ class CLIExecutor {
 
     // Orchestrate domain: 'cleo orchestrate <operation>'
     const orchOps: Record<string, string> = {
-      status: 'orchestrate context', waves: 'orchestrate analyze',
-      parallel: 'orchestrate ready', check: 'orchestrate validate',
+      status: 'orchestrate context',
+      waves: 'orchestrate analyze',
+      parallel: 'orchestrate ready',
+      check: 'orchestrate validate',
     };
     if (domain === 'orchestrate' && orchOps[operation]) {
       return { command: orchOps[operation], addOperationAsSubcommand: false };
@@ -204,10 +231,15 @@ class CLIExecutor {
 
     // Admin domain (canonical) and system domain (legacy alias)
     const adminOps: Record<string, string> = {
-      version: 'version', config: 'config', 'config.show': 'config',
+      version: 'version',
+      config: 'config',
+      'config.show': 'config',
       'config.set': 'config',
-      backup: 'backup', cleanup: 'cleanup', health: 'doctor',
-      stats: 'stats', context: 'context',
+      backup: 'backup',
+      cleanup: 'cleanup',
+      health: 'doctor',
+      stats: 'stats',
+      context: 'context',
     };
     if ((domain === 'admin' || domain === 'system') && adminOps[operation]) {
       return { command: adminOps[operation], addOperationAsSubcommand: false };
@@ -299,8 +331,8 @@ class CLIExecutor {
         // Note: exec() is used here intentionally for test CLI execution
         // child_process errors: exit code may be in err.code (number)
         // or err.status; err.code can also be an error string like 'ERR_...'
-        const exitCode = typeof err.code === 'number' ? err.code
-          : (typeof err.status === 'number' ? err.status : 1);
+        const exitCode =
+          typeof err.code === 'number' ? err.code : typeof err.status === 'number' ? err.status : 1;
         const result = this.parseOutput<T>(stdout, stderr, exitCode);
         result.duration = Date.now() - startTime;
         if (attempt >= retries) return result;
@@ -356,7 +388,8 @@ class CLIExecutor {
   private parseOutput<T>(stdout: string, stderr: string, exitCode: number): ExecutorResult<T> {
     // Fall back to stderr when stdout is empty (some commands output JSON to stderr)
     // Extract JSON from mixed output (CLI may prepend warnings before JSON)
-    const rawOutput = this.extractJson(stdout) || this.extractJson(stderr) || (stdout.trim() || stderr.trim());
+    const rawOutput =
+      this.extractJson(stdout) || this.extractJson(stderr) || stdout.trim() || stderr.trim();
 
     if (!rawOutput) {
       if (exitCode === 0) {
@@ -396,9 +429,10 @@ class CLIExecutor {
           const name = parsed.error?.name || EXIT_CODE_NAMES[errorCode];
           errorCode = name ? `E_${name}` : `E_EXIT_${errorCode}`;
         }
-        const errorExitCode = typeof parsed.error?.code === 'number'
-          ? parsed.error.code
-          : (parsed.error?.exitCode || exitCode);
+        const errorExitCode =
+          typeof parsed.error?.code === 'number'
+            ? parsed.error.code
+            : parsed.error?.exitCode || exitCode;
 
         return {
           success: false,
@@ -450,14 +484,32 @@ class CLIExecutor {
     }
 
     const primaryFields = [
-      'task', 'tasks', 'session', 'sessions', 'matches', 'results',
-      'result', 'focus', 'entries', 'stages', 'summary',
+      'task',
+      'tasks',
+      'session',
+      'sessions',
+      'matches',
+      'results',
+      'result',
+      'focus',
+      'entries',
+      'stages',
+      'summary',
     ];
 
     const metaKeys = new Set([
-      'total', 'filtered', 'count', 'query', 'searchType',
-      'message', 'mode', 'initialized', 'directory', 'created',
-      'skipped', 'duplicate',
+      'total',
+      'filtered',
+      'count',
+      'query',
+      'searchType',
+      'message',
+      'mode',
+      'initialized',
+      'directory',
+      'created',
+      'skipped',
+      'duplicate',
     ]);
 
     const found = primaryFields.find((f) => payload[f] !== undefined);
@@ -467,9 +519,7 @@ class CLIExecutor {
       return payload[found];
     }
 
-    const companions = Object.keys(payload).filter(
-      (k) => k !== found && !metaKeys.has(k),
-    );
+    const companions = Object.keys(payload).filter((k) => k !== found && !metaKeys.has(k));
     if (companions.length === 0) {
       return payload[found];
     }
@@ -526,7 +576,13 @@ function createExecutor(cliPath: string, timeout?: number, maxRetries?: number):
  * `result` as the payload wrapper. This helper unwraps that case.
  */
 export function unwrapPayload<T = unknown>(data: any): T {
-  if (data && typeof data === 'object' && !Array.isArray(data) && 'result' in data && 'success' in data) {
+  if (
+    data &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    'result' in data &&
+    'success' in data
+  ) {
     // data is the full LAFS envelope — unwrap .result, then apply primary-field extraction
     const payload = data.result;
     return unwrapPrimaryField(payload) as T;
@@ -544,14 +600,32 @@ function unwrapPrimaryField(payload: any): any {
   }
 
   const primaryPayloadFields = [
-    'task', 'tasks', 'session', 'sessions', 'matches', 'results',
-    'result', 'focus', 'entries', 'stages', 'summary',
+    'task',
+    'tasks',
+    'session',
+    'sessions',
+    'matches',
+    'results',
+    'result',
+    'focus',
+    'entries',
+    'stages',
+    'summary',
   ];
 
   const metaKeys = new Set([
-    'total', 'filtered', 'count', 'query', 'searchType',
-    'message', 'mode', 'initialized', 'directory', 'created',
-    'skipped', 'duplicate',
+    'total',
+    'filtered',
+    'count',
+    'query',
+    'searchType',
+    'message',
+    'mode',
+    'initialized',
+    'directory',
+    'created',
+    'skipped',
+    'duplicate',
   ]);
 
   const found = primaryPayloadFields.find((f) => payload[f] !== undefined);
@@ -561,9 +635,7 @@ function unwrapPrimaryField(payload: any): any {
     return payload[found];
   }
 
-  const companions = Object.keys(payload).filter(
-    (k) => k !== found && !metaKeys.has(k),
-  );
+  const companions = Object.keys(payload).filter((k) => k !== found && !metaKeys.has(k));
   if (companions.length === 0) {
     return payload[found];
   }
@@ -578,7 +650,7 @@ function unwrapPrimaryField(payload: any): any {
 class WrappedExecutor {
   constructor(
     private executor: CLIExecutor,
-    private defaultCwd: string
+    private defaultCwd: string,
   ) {}
 
   async execute<T = unknown>(options: any): Promise<any> {
@@ -647,7 +719,7 @@ export async function setupIntegrationTest(): Promise<IntegrationTestContext> {
     throw new Error(
       `Cannot connect to CLEO CLI at ${cliPath}. ` +
         `Ensure CLEO is installed and the path is correct. ` +
-        `You can set CLEO_CLI_PATH environment variable to specify the CLI location.`
+        `You can set CLEO_CLI_PATH environment variable to specify the CLI location.`,
     );
   }
 
@@ -673,7 +745,9 @@ export async function setupIntegrationTest(): Promise<IntegrationTestContext> {
 /**
  * Cleanup integration test resources
  */
-export async function cleanupIntegrationTest(context: IntegrationTestContext | undefined | null): Promise<void> {
+export async function cleanupIntegrationTest(
+  context: IntegrationTestContext | undefined | null,
+): Promise<void> {
   if (!context) {
     return;
   }
@@ -709,7 +783,7 @@ export async function createTestTask(
     status?: string;
     priority?: string;
     labels?: string[];
-  }
+  },
 ): Promise<string> {
   const result = await context.executor.execute<any>({
     domain: 'tasks',
@@ -735,7 +809,7 @@ export async function createTestTask(
   if (!result.success || !taskId) {
     throw new Error(
       `Failed to create test task: ${result.error?.message || 'No task ID in response'}` +
-      (result.stdout ? ` (stdout: ${result.stdout.substring(0, 200)})` : '')
+        (result.stdout ? ` (stdout: ${result.stdout.substring(0, 200)})` : ''),
     );
   }
 
@@ -749,7 +823,7 @@ export async function createTestTask(
 export async function createTestEpic(
   context: IntegrationTestContext,
   title: string,
-  description: string
+  description: string,
 ): Promise<string> {
   const epicId = await createTestTask(context, title, description, {
     labels: ['epic'],
@@ -763,7 +837,7 @@ export async function createTestEpic(
  */
 export async function startTestSession(
   context: IntegrationTestContext,
-  epicId: string
+  epicId: string,
 ): Promise<void> {
   const result = await context.executor.execute({
     domain: 'session',
@@ -830,7 +904,7 @@ export async function getCleoVersion(executor: WrappedExecutor): Promise<string>
 export async function taskExists(
   executor: WrappedExecutor,
   taskId: string,
-  cwd?: string
+  cwd?: string,
 ): Promise<boolean> {
   const result = await executor.execute<{ exists: boolean }>({
     domain: 'tasks',
@@ -853,7 +927,7 @@ export async function waitForCondition(
     timeout?: number;
     interval?: number;
     errorMessage?: string;
-  }
+  },
 ): Promise<void> {
   const timeout = options?.timeout || 10000;
   const interval = options?.interval || 500;
@@ -866,9 +940,7 @@ export async function waitForCondition(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw new Error(
-    options?.errorMessage || `Condition not met within ${timeout}ms`
-  );
+  throw new Error(options?.errorMessage || `Condition not met within ${timeout}ms`);
 }
 
 /**
@@ -882,13 +954,10 @@ export async function getAuditLogEntries(
     operation?: string;
     sessionId?: string;
     action?: string;
-  }
+  },
 ): Promise<any[]> {
   // Try the given path directly, then try parent (in case testDataDir was passed).
-  const candidates = [
-    projectRootOrTestDataDir,
-    path.join(projectRootOrTestDataDir, '..'),
-  ];
+  const candidates = [projectRootOrTestDataDir, path.join(projectRootOrTestDataDir, '..')];
 
   for (const projectRoot of candidates) {
     try {
@@ -900,7 +969,7 @@ export async function getAuditLogEntries(
       const db = await getDb(projectRoot);
       const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
 
-      let entries = rows.map(r => ({
+      const entries = rows.map((r) => ({
         action: r.action,
         taskId: r.taskId,
         timestamp: r.timestamp,
@@ -926,9 +995,7 @@ export async function getAuditLogEntries(
         if (filter.sessionId && entry.sessionId !== filter.sessionId) return false;
         return true;
       });
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   return [];
@@ -969,7 +1036,7 @@ export function verifyResponseFormat(
   response: any,
   _expectedGateway: 'query' | 'mutate',
   _expectedDomain: string,
-  _expectedOperation: string
+  _expectedOperation: string,
 ): void {
   // Verify success field exists
   expect(typeof response.success).toBe('boolean');
@@ -984,4 +1051,3 @@ export function verifyResponseFormat(
     expect(response.error.message).toBeDefined();
   }
 }
-

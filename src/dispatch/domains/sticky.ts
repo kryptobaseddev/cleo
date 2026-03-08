@@ -9,23 +9,22 @@
  * @epic T5267
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { paginate } from '../../core/pagination.js';
-
+import { getProjectRoot } from '../../core/paths.js';
 import {
   stickyAdd,
-  stickyList,
-  stickyShow,
-  stickyConvertToTask,
-  stickyConvertToMemory,
-  stickyConvertToTaskNote,
-  stickyConvertToSessionNote,
   stickyArchive,
+  stickyConvertToMemory,
+  stickyConvertToSessionNote,
+  stickyConvertToTask,
+  stickyConvertToTaskNote,
+  stickyList,
   stickyPurge,
+  stickyShow,
 } from '../engines/sticky-engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // StickyHandler
@@ -42,10 +41,7 @@ export class StickyHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -62,7 +58,10 @@ export class StickyHandler implements DomainHandler {
           }
 
           const filteredStickies = result.data?.stickies ?? [];
-          const hasFilter = filters.status !== undefined || filters.color !== undefined || filters.priority !== undefined;
+          const hasFilter =
+            filters.status !== undefined ||
+            filters.color !== undefined ||
+            filters.priority !== undefined;
           const totalResult = hasFilter ? await stickyList(this.projectRoot, {}) : result;
           if (!totalResult.success) {
             return this.wrapEngineResult(totalResult, 'query', 'sticky', operation, startTime);
@@ -87,7 +86,14 @@ export class StickyHandler implements DomainHandler {
         case 'show': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse('query', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'stickyId is required',
+              startTime,
+            );
           }
           const result = await stickyShow(this.projectRoot, stickyId);
           return this.wrapEngineResult(result, 'query', 'sticky', operation, startTime);
@@ -105,10 +111,7 @@ export class StickyHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -116,7 +119,14 @@ export class StickyHandler implements DomainHandler {
         case 'add': {
           const content = params?.content as string;
           if (!content) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'content is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'content is required',
+              startTime,
+            );
           }
           const result = await stickyAdd(this.projectRoot, {
             content,
@@ -129,12 +139,31 @@ export class StickyHandler implements DomainHandler {
 
         case 'convert': {
           const stickyId = params?.stickyId as string;
-          const targetType = params?.targetType as 'task' | 'memory' | 'session_note' | 'task_note' | undefined;
+          const targetType = params?.targetType as
+            | 'task'
+            | 'memory'
+            | 'session_note'
+            | 'task_note'
+            | undefined;
           if (!stickyId) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'stickyId is required',
+              startTime,
+            );
           }
           if (!targetType) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'targetType is required (task, memory, session_note, or task_note)', startTime);
+            return this.errorResponse(
+              'mutate',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'targetType is required (task, memory, session_note, or task_note)',
+              startTime,
+            );
           }
 
           if (targetType === 'task') {
@@ -147,13 +176,16 @@ export class StickyHandler implements DomainHandler {
           } else if (targetType === 'task_note') {
             const taskId = params?.taskId as string | undefined;
             if (!taskId) {
-              return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'taskId is required for task_note conversion', startTime);
+              return this.errorResponse(
+                'mutate',
+                'sticky',
+                operation,
+                'E_INVALID_INPUT',
+                'taskId is required for task_note conversion',
+                startTime,
+              );
             }
-            const result = await stickyConvertToTaskNote(
-              this.projectRoot,
-              stickyId,
-              taskId,
-            );
+            const result = await stickyConvertToTaskNote(this.projectRoot, stickyId, taskId);
             return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
           } else if (targetType === 'session_note') {
             const result = await stickyConvertToSessionNote(
@@ -175,7 +207,14 @@ export class StickyHandler implements DomainHandler {
         case 'archive': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'stickyId is required',
+              startTime,
+            );
           }
           const result = await stickyArchive(this.projectRoot, stickyId);
           return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
@@ -184,7 +223,14 @@ export class StickyHandler implements DomainHandler {
         case 'purge': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'sticky',
+              operation,
+              'E_INVALID_INPUT',
+              'stickyId is required',
+              startTime,
+            );
           }
           const result = await stickyPurge(this.projectRoot, stickyId);
           return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
@@ -214,7 +260,17 @@ export class StickyHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -224,19 +280,26 @@ export class StickyHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? {
-        error: {
-          code: result.error.code,
-          message: result.error.message,
-          details: result.error.details as Record<string, unknown> | undefined,
-          fix: result.error.fix,
-          alternatives: result.error.alternatives,
-        }
-      } : {}),
+      ...(result.error
+        ? {
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+              details: result.error.details as Record<string, unknown> | undefined,
+              fix: result.error.fix,
+              alternatives: result.error.alternatives,
+            },
+          }
+        : {}),
     };
   }
 
-  private unsupported(gateway: string, domain: string, operation: string, startTime: number): DispatchResponse {
+  private unsupported(
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number,
+  ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
@@ -259,7 +322,13 @@ export class StickyHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:sticky').error({ gateway, domain, operation, err: error }, message);
     return {

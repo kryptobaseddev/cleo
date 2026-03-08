@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  getProvidersByHookEventMock,
-  getCommonHookEventsMock,
-} = vi.hoisted(() => ({
+const { getProvidersByHookEventMock, getCommonHookEventsMock } = vi.hoisted(() => ({
   getProvidersByHookEventMock: vi.fn(),
   getCommonHookEventsMock: vi.fn(),
 }));

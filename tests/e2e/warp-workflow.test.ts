@@ -13,11 +13,11 @@
  * @task T5412
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { WarpChain, WarpStage, GateResult } from '../../src/types/warp-chain.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { GateResult, WarpChain, WarpStage } from '../../src/types/warp-chain.js';
 
 let tempDir: string;
 
@@ -30,7 +30,12 @@ function makeSmallChain(id: string, stageIds: [string, string]): WarpChain {
     shape: {
       stages: [
         { id: stageIds[0], name: `Stage ${stageIds[0]}`, category: 'research', skippable: false },
-        { id: stageIds[1], name: `Stage ${stageIds[1]}`, category: 'implementation', skippable: false },
+        {
+          id: stageIds[1],
+          name: `Stage ${stageIds[1]}`,
+          category: 'implementation',
+          skippable: false,
+        },
       ],
       links: [{ from: stageIds[0], to: stageIds[1], type: 'linear' }],
       entryPoint: stageIds[0],
@@ -62,9 +67,7 @@ describe('Warp workflow E2E', () => {
       '../../src/core/lifecycle/tessera-engine.js'
     );
     const { OrchestrateHandler } = await import('../../src/dispatch/domains/orchestrate.js');
-    const { validateChain } = await import(
-      '../../src/core/validation/chain-validation.js'
-    );
+    const { validateChain } = await import('../../src/core/validation/chain-validation.js');
     const { advanceInstance, showInstance, listInstanceGateResults } = await import(
       '../../src/core/lifecycle/chain-store.js'
     );
@@ -113,8 +116,9 @@ describe('Warp workflow E2E', () => {
       totalStages: rcasd!.shape.stages.length,
     });
 
-    const waveStageIds = (planResponse.data as { waves: Array<{ stageIds: string[] }> }).waves
-      .flatMap((wave) => wave.stageIds);
+    const waveStageIds = (
+      planResponse.data as { waves: Array<{ stageIds: string[] }> }
+    ).waves.flatMap((wave) => wave.stageIds);
     expect(waveStageIds).toEqual(rcasd!.shape.stages.map((stage) => stage.id));
 
     // 5. Advance through first 3 stages with passing gate results
@@ -129,12 +133,7 @@ describe('Warp workflow E2E', () => {
       evaluatedAt: new Date().toISOString(),
     };
 
-    const advanced1 = await advanceInstance(
-      instance.id,
-      stages[1].id,
-      [gateResult1],
-      tempDir,
-    );
+    const advanced1 = await advanceInstance(instance.id, stages[1].id, [gateResult1], tempDir);
     expect(advanced1.currentStage).toBe(stages[1].id);
     expect(advanced1.status).toBe('active');
 
@@ -146,12 +145,7 @@ describe('Warp workflow E2E', () => {
       evaluatedAt: new Date().toISOString(),
     };
 
-    const advanced2 = await advanceInstance(
-      instance.id,
-      stages[2].id,
-      [gateResult2],
-      tempDir,
-    );
+    const advanced2 = await advanceInstance(instance.id, stages[2].id, [gateResult2], tempDir);
     expect(advanced2.currentStage).toBe(stages[2].id);
     expect(advanced2.status).toBe('active');
 
@@ -163,12 +157,7 @@ describe('Warp workflow E2E', () => {
       evaluatedAt: new Date().toISOString(),
     };
 
-    const advanced3 = await advanceInstance(
-      instance.id,
-      stages[3].id,
-      [gateResult3],
-      tempDir,
-    );
+    const advanced3 = await advanceInstance(instance.id, stages[3].id, [gateResult3], tempDir);
     expect(advanced3.currentStage).toBe(stages[3].id);
     expect(advanced3.status).toBe('active');
 

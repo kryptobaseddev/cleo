@@ -8,11 +8,11 @@
  * @task T5127
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -42,17 +42,21 @@ describe('brain.db schema', () => {
   });
 
   it('creates all required tables', async () => {
-    const { getBrainDb, getBrainNativeDb, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../brain-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
     expect(nativeDb).toBeTruthy();
 
-    const tables = nativeDb!.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
-    ).all() as Array<{ name: string }>;
+    const tables = nativeDb!
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all() as Array<{ name: string }>;
 
-    const tableNames = tables.map(t => t.name).sort();
+    const tableNames = tables.map((t) => t.name).sort();
 
     expect(tableNames).toContain('brain_decisions');
     expect(tableNames).toContain('brain_patterns');
@@ -62,17 +66,23 @@ describe('brain.db schema', () => {
   });
 
   it('creates expected indexes', async () => {
-    const { getBrainDb, getBrainNativeDb, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../brain-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
     expect(nativeDb).toBeTruthy();
 
-    const indexes = nativeDb!.prepare(
-      "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-    ).all() as Array<{ name: string }>;
+    const indexes = nativeDb!
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      )
+      .all() as Array<{ name: string }>;
 
-    const indexNames = indexes.map(i => i.name).sort();
+    const indexNames = indexes.map((i) => i.name).sort();
 
     expect(indexNames).toContain('idx_brain_decisions_type');
     expect(indexNames).toContain('idx_brain_decisions_confidence');
@@ -89,21 +99,29 @@ describe('brain.db schema', () => {
   });
 
   it('sets schema version to 1.0.0', async () => {
-    const { getBrainDb, getBrainNativeDb, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../brain-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
     expect(nativeDb).toBeTruthy();
 
-    const result = nativeDb!.prepare(
-      "SELECT value FROM brain_schema_meta WHERE key = 'schemaVersion'",
-    ).get() as { value: string } | undefined;
+    const result = nativeDb!
+      .prepare("SELECT value FROM brain_schema_meta WHERE key = 'schemaVersion'")
+      .get() as { value: string } | undefined;
 
     expect(result?.value).toBe('1.0.0');
   });
 
   it('uses WAL journal mode', async () => {
-    const { getBrainDb, getBrainNativeDb, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../brain-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
@@ -135,7 +153,11 @@ describe('brain.db schema', () => {
   });
 
   it('resetBrainDbState clears singleton and allows reinitialization', async () => {
-    const { getBrainDb, resetBrainDbState, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const {
+      getBrainDb,
+      resetBrainDbState,
+      closeBrainDb: close,
+    } = await import('../brain-sqlite.js');
     close();
 
     const db1 = await getBrainDb();

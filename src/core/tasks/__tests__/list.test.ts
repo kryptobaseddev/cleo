@@ -4,10 +4,14 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { listTasks } from '../list.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import { listTasks } from '../list.js';
 
 describe('listTasks', () => {
   let env: TestDbEnv;
@@ -24,8 +28,20 @@ describe('listTasks', () => {
 
   it('applies the default safe page size when no limit is specified', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Task 2',
+        status: 'done',
+        priority: 'high',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await listTasks({}, env.tempDir, accessor);
@@ -42,8 +58,20 @@ describe('listTasks', () => {
 
   it('filters by status', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Task 2',
+        status: 'done',
+        priority: 'high',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await listTasks({ status: 'pending' }, env.tempDir, accessor);
@@ -54,8 +82,20 @@ describe('listTasks', () => {
 
   it('filters by priority', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Task 1', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Task 2', status: 'pending', priority: 'critical', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        priority: 'low',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Task 2',
+        status: 'pending',
+        priority: 'critical',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await listTasks({ priority: 'critical' }, env.tempDir, accessor);
@@ -65,10 +105,37 @@ describe('listTasks', () => {
 
   it('filters by parent', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Child 1', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
-      { id: 'T003', title: 'Child 2', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
-      { id: 'T004', title: 'Other', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Epic',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Child 1',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T001',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Child 2',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T001',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T004',
+        title: 'Other',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await listTasks({ parentId: 'T001' }, env.tempDir, accessor);
@@ -77,8 +144,22 @@ describe('listTasks', () => {
 
   it('filters by label', async () => {
     await seedTasks(accessor, [
-      { id: 'T001', title: 'Bug fix', status: 'pending', priority: 'high', labels: ['bug', 'security'], createdAt: new Date().toISOString() },
-      { id: 'T002', title: 'Feature', status: 'pending', priority: 'medium', labels: ['feature'], createdAt: new Date().toISOString() },
+      {
+        id: 'T001',
+        title: 'Bug fix',
+        status: 'pending',
+        priority: 'high',
+        labels: ['bug', 'security'],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Feature',
+        status: 'pending',
+        priority: 'medium',
+        labels: ['feature'],
+        createdAt: new Date().toISOString(),
+      },
     ]);
 
     const result = await listTasks({ label: 'bug' }, env.tempDir, accessor);
@@ -122,15 +203,19 @@ describe('listTasks', () => {
       },
     ]);
 
-    const result = await listTasks({
-      status: 'pending',
-      priority: 'critical',
-      type: 'task',
-      parentId: 'T001',
-      phase: 'build',
-      label: 'bug',
-      children: true,
-    }, env.tempDir, accessor);
+    const result = await listTasks(
+      {
+        status: 'pending',
+        priority: 'critical',
+        type: 'task',
+        parentId: 'T001',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+      },
+      env.tempDir,
+      accessor,
+    );
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]!.id).toBe('T002');

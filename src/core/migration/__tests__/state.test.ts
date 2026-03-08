@@ -5,10 +5,10 @@
  * @epic T4454
  */
 
-import { existsSync,mkdirSync,mkdtempSync,writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addMigrationError,
   addMigrationWarning,
@@ -23,7 +23,7 @@ import {
   updateMigrationPhase,
   updateMigrationProgress,
   updateMigrationState,
-  verifySourceIntegrity
+  verifySourceIntegrity,
 } from '../state.js';
 
 describe('migration state tracking', () => {
@@ -49,18 +49,14 @@ describe('migration state tracking', () => {
     writeFileSync(
       join(cleoDir, 'sessions.json'),
       JSON.stringify({
-        sessions: [
-          { id: 's1', name: 'Session 1' },
-        ],
+        sessions: [{ id: 's1', name: 'Session 1' }],
       }),
     );
 
     writeFileSync(
       join(cleoDir, 'todo-archive.json'),
       JSON.stringify({
-        archivedTasks: [
-          { id: 'a1', title: 'Archived 1' },
-        ],
+        archivedTasks: [{ id: 'a1', title: 'Archived 1' }],
       }),
     );
   });
@@ -135,16 +131,16 @@ describe('migration state tracking', () => {
     });
 
     it('should throw if no state exists', async () => {
-      await expect(updateMigrationState(cleoDir, { phase: 'import' }))
-        .rejects
-        .toThrow('No migration state exists');
+      await expect(updateMigrationState(cleoDir, { phase: 'import' })).rejects.toThrow(
+        'No migration state exists',
+      );
     });
 
     it('should merge progress updates', async () => {
       await createMigrationState(cleoDir);
 
       const updated = await updateMigrationState(cleoDir, {
-        progress: { 
+        progress: {
           tasksImported: 5,
           archivedImported: 0,
           sessionsImported: 0,

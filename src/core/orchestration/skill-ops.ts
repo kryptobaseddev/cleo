@@ -3,11 +3,11 @@
  * @task T4784
  */
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import { getCanonicalSkillsDir } from '@cleocode/caamp';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 export interface SkillEntry {
   name: string;
@@ -34,8 +34,8 @@ export function listSkills(_projectRoot: string): { skills: SkillEntry[]; total:
   }
 
   const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
-    .filter(d => d.isDirectory() && !d.name.startsWith('_'))
-    .map(d => {
+    .filter((d) => d.isDirectory() && !d.name.startsWith('_'))
+    .map((d) => {
       const skillPath = join(skillsDir, d.name, 'SKILL.md');
       let description = '';
 
@@ -86,8 +86,8 @@ export function getSkillContent(skillName: string, _projectRoot: string): SkillC
   if (existsSync(refsDir)) {
     try {
       references = readdirSync(refsDir)
-        .filter(f => f.endsWith('.md') || f.endsWith('.txt'))
-        .map(f => ({
+        .filter((f) => f.endsWith('.md') || f.endsWith('.txt'))
+        .map((f) => ({
           name: f,
           path: join(skillDir, 'references', f),
         }));

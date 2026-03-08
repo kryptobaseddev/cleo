@@ -9,19 +9,19 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Gateway, DispatchRequest, DispatchResponse } from '../types.js';
-import { Dispatcher } from '../dispatcher.js';
-import { createDomainHandlers } from '../domains/index.js';
-import { createSessionResolver } from '../middleware/session-resolver.js';
-import { createSanitizer } from '../middleware/sanitizer.js';
-import { createFieldFilter } from '../middleware/field-filter.js';
-import { createRateLimiter } from '../middleware/rate-limiter.js';
-import { createVerificationGates } from '../middleware/verification-gates.js';
-import { createProtocolEnforcement } from '../middleware/protocol-enforcement.js';
-import { createAudit } from '../middleware/audit.js';
-import { createProjectionMiddleware } from '../middleware/projection.js';
 import { getProjectRoot } from '../../core/paths.js';
 import type { RateLimitingConfig } from '../../mcp/lib/rate-limiter.js';
+import { Dispatcher } from '../dispatcher.js';
+import { createDomainHandlers } from '../domains/index.js';
+import { createAudit } from '../middleware/audit.js';
+import { createFieldFilter } from '../middleware/field-filter.js';
+import { createProjectionMiddleware } from '../middleware/projection.js';
+import { createProtocolEnforcement } from '../middleware/protocol-enforcement.js';
+import { createRateLimiter } from '../middleware/rate-limiter.js';
+import { createSanitizer } from '../middleware/sanitizer.js';
+import { createSessionResolver } from '../middleware/session-resolver.js';
+import { createVerificationGates } from '../middleware/verification-gates.js';
+import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
 export interface McpDispatcherConfig {
   rateLimiting?: Partial<RateLimitingConfig>;
@@ -42,9 +42,9 @@ export function initMcpDispatcher(config: McpDispatcherConfig = {}): Dispatcher 
   _dispatcher = new Dispatcher({
     handlers,
     middlewares: [
-      createSessionResolver(),  // T4959: session identity first
+      createSessionResolver(), // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
-      createProjectionMiddleware(),  // T5096: MVI tier-based domain/field projection
+      createProjectionMiddleware(), // T5096: MVI tier-based domain/field projection
       createFieldFilter(),
       createRateLimiter(config.rateLimiting),
       createVerificationGates(strictMode),
@@ -85,12 +85,17 @@ export async function handleMcpToolCall(
   domain: string,
   operation: string,
   params?: Record<string, unknown>,
-  requestId?: string
+  requestId?: string,
 ): Promise<DispatchResponse> {
   const dispatcher = getMcpDispatcher();
 
   // Validate gateway
-  if (gateway !== 'query' && gateway !== 'mutate' && gateway !== 'cleo_query' && gateway !== 'cleo_mutate') {
+  if (
+    gateway !== 'query' &&
+    gateway !== 'mutate' &&
+    gateway !== 'cleo_query' &&
+    gateway !== 'cleo_mutate'
+  ) {
     return {
       _meta: {
         gateway: gateway as Gateway,
@@ -129,7 +134,8 @@ export async function handleMcpToolCall(
 
   // Normalize gateway: 'cleo_query' → 'query', 'cleo_mutate' → 'mutate'
   // The dispatch registry and router use canonical 'query'/'mutate' values.
-  const normalizedGateway: Gateway = (gateway === 'cleo_query' || gateway === 'query') ? 'query' : 'mutate';
+  const normalizedGateway: Gateway =
+    gateway === 'cleo_query' || gateway === 'query' ? 'query' : 'mutate';
 
   const req: DispatchRequest = {
     gateway: normalizedGateway,

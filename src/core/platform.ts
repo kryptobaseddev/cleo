@@ -9,10 +9,18 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { tmpdir, type as osType, release as osRelease, totalmem, freemem, hostname, homedir } from 'node:os';
-import { join } from 'node:path';
-import { existsSync, statSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, statSync } from 'node:fs';
+import {
+  freemem,
+  homedir,
+  hostname,
+  release as osRelease,
+  type as osType,
+  tmpdir,
+  totalmem,
+} from 'node:os';
+import { join } from 'node:path';
 
 /** Detected platform. */
 export type Platform = 'linux' | 'macos' | 'windows' | 'unknown';
@@ -20,10 +28,14 @@ export type Platform = 'linux' | 'macos' | 'windows' | 'unknown';
 /** Detect the current platform. */
 export function detectPlatform(): Platform {
   switch (process.platform) {
-    case 'linux': return 'linux';
-    case 'darwin': return 'macos';
-    case 'win32': return 'windows';
-    default: return 'unknown';
+    case 'linux':
+      return 'linux';
+    case 'darwin':
+      return 'macos';
+    case 'win32':
+      return 'windows';
+    default:
+      return 'unknown';
   }
 }
 
@@ -50,7 +62,10 @@ export function commandExists(command: string): boolean {
 }
 
 /** Require a tool to be available, returning an error message if missing. */
-export function requireTool(tool: string, installHint?: string): { available: boolean; error?: string } {
+export function requireTool(
+  tool: string,
+  installHint?: string,
+): { available: boolean; error?: string } {
   if (commandExists(tool)) {
     return { available: true };
   }
@@ -61,9 +76,10 @@ export function requireTool(tool: string, installHint?: string): { available: bo
 }
 
 /** Check all required tools. */
-export function checkRequiredTools(
-  tools: Array<{ name: string; installHint?: string }>,
-): { allAvailable: boolean; missing: string[] } {
+export function checkRequiredTools(tools: Array<{ name: string; installHint?: string }>): {
+  allAvailable: boolean;
+  missing: string[];
+} {
   const missing: string[] = [];
 
   for (const tool of tools) {
@@ -176,9 +192,13 @@ export function getNodeUpgradeInstructions(): {
   switch (platform) {
     case 'linux':
       if (commandExists('dnf')) {
-        instructions.push(`sudo dnf module enable nodejs:${MINIMUM_NODE_MAJOR} && sudo dnf install nodejs`);
+        instructions.push(
+          `sudo dnf module enable nodejs:${MINIMUM_NODE_MAJOR} && sudo dnf install nodejs`,
+        );
       } else if (commandExists('apt')) {
-        instructions.push(`curl -fsSL https://deb.nodesource.com/setup_${MINIMUM_NODE_MAJOR}.x | sudo -E bash - && sudo apt install -y nodejs`);
+        instructions.push(
+          `curl -fsSL https://deb.nodesource.com/setup_${MINIMUM_NODE_MAJOR}.x | sudo -E bash - && sudo apt install -y nodejs`,
+        );
       } else if (commandExists('pacman')) {
         instructions.push(`sudo pacman -S nodejs`);
       } else if (commandExists('apk')) {
@@ -197,7 +217,9 @@ export function getNodeUpgradeInstructions(): {
 
   // Universal fallback
   if (!hasFnm && !hasNvm && !hasVolta) {
-    instructions.push(`curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${MINIMUM_NODE_MAJOR}`);
+    instructions.push(
+      `curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${MINIMUM_NODE_MAJOR}`,
+    );
   }
   instructions.push(`https://nodejs.org/en/download/`);
 
@@ -268,8 +290,8 @@ export function getSystemInfo(): SystemInfo {
 // =============================================================================
 
 export {
-  resolveProjectRoot,
   getDataPath,
   readJsonFile,
+  resolveProjectRoot,
   writeJsonFileAtomic,
 } from '../store/file-utils.js';

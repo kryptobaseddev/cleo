@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { DispatchRequest, DispatchResponse } from '../../types.js';
 import {
-  isOperationAllowed,
   createProjectionContext,
   createProjectionMiddleware,
+  isOperationAllowed,
 } from '../projection.js';
-import type { DispatchRequest, DispatchResponse } from '../../types.js';
 
 describe('isOperationAllowed', () => {
   it('should allow tasks at all tiers', () => {

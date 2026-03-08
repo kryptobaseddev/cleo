@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock engine imports (all domain handlers need these)
@@ -12,9 +12,9 @@ vi.mock('../../../src/dispatch/lib/engine.js', () => ({
 // Import mocked functions
 import {
   releasePrepare,
-  releaseTag,
   releasePush,
   releaseRollback,
+  releaseTag,
 } from '../../../src/dispatch/lib/engine.js';
 
 // Mock paths
@@ -117,12 +117,9 @@ describe('Release Workflow E2E Tests', () => {
         version: '0.80.4',
         pushed: true,
       });
-      expect(releasePush).toHaveBeenCalledWith(
-        '0.80.4',
-        'origin',
-        expect.any(String),
-        { explicitPush: true },
-      );
+      expect(releasePush).toHaveBeenCalledWith('0.80.4', 'origin', expect.any(String), {
+        explicitPush: true,
+      });
     });
 
     it('should handle version validation failure during release', async () => {

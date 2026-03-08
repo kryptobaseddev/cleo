@@ -4,19 +4,19 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Phase, ProjectMeta, Task } from '../../../types/task.js';
 import {
-  getCurrentPhase,
-  getTasksByPhase,
-  calculatePhaseProgress,
-  getAllPhaseProgress,
-  validatePhaseTransition,
-  createPhaseTransition,
-  applyPhaseTransition,
-  getNextPhase,
   allPhasesComplete,
+  applyPhaseTransition,
+  calculatePhaseProgress,
+  createPhaseTransition,
+  getAllPhaseProgress,
+  getCurrentPhase,
+  getNextPhase,
+  getTasksByPhase,
+  validatePhaseTransition,
 } from '../phase-tracking.js';
-import type { Task, Phase, ProjectMeta } from '../../../types/task.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -73,7 +73,7 @@ describe('getTasksByPhase', () => {
     ];
     const result = getTasksByPhase('development', tasks);
     expect(result).toHaveLength(2);
-    expect(result.map(t => t.id).sort()).toEqual(['T001', 'T003']);
+    expect(result.map((t) => t.id).sort()).toEqual(['T001', 'T003']);
   });
 
   it('returns empty for phase with no tasks', () => {
@@ -118,9 +118,7 @@ describe('calculatePhaseProgress', () => {
   });
 
   it('reports active status when tasks are active', () => {
-    const tasks = [
-      makeTask({ id: 'T001', phase: 'dev', status: 'active' }),
-    ];
+    const tasks = [makeTask({ id: 'T001', phase: 'dev', status: 'active' })];
     const progress = calculatePhaseProgress('dev', tasks);
     expect(progress.status).toBe('active');
   });
@@ -174,7 +172,13 @@ describe('validatePhaseTransition', () => {
 
 describe('createPhaseTransition', () => {
   it('creates a transition record', () => {
-    const transition = createPhaseTransition('testing', 'started', 5, 'development', 'Ready for QA');
+    const transition = createPhaseTransition(
+      'testing',
+      'started',
+      5,
+      'development',
+      'Ready for QA',
+    );
     expect(transition.phase).toBe('testing');
     expect(transition.transitionType).toBe('started');
     expect(transition.taskCount).toBe(5);

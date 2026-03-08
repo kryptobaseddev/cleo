@@ -7,11 +7,11 @@
  * @task T5310
  */
 
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,describe,expect,it,vi } from 'vitest';
-import { closeLogger,getLogger,initLogger } from '../../core/logger.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { closeLogger, getLogger, initLogger } from '../../core/logger.js';
 
 describe('MCP startup logging (T5310)', () => {
   let tempDir: string;
@@ -41,12 +41,16 @@ describe('MCP startup logging (T5310)', () => {
 
   it('getLogger returns file-backed logger after initLogger', async () => {
     const cleoDir = await setup();
-    initLogger(cleoDir, {
-      level: 'info',
-      filePath: 'logs/cleo.log',
-      maxFileSize: 1024 * 1024,
-      maxFiles: 2,
-    }, 'abc123');
+    initLogger(
+      cleoDir,
+      {
+        level: 'info',
+        filePath: 'logs/cleo.log',
+        maxFileSize: 1024 * 1024,
+        maxFiles: 2,
+      },
+      'abc123',
+    );
 
     const post = getLogger('mcp:startup');
     expect(post).toBeDefined();
@@ -62,12 +66,16 @@ describe('MCP startup logging (T5310)', () => {
     expect(startupLog.bindings()).not.toHaveProperty('projectHash');
 
     // Init logger (as MCP main() does)
-    initLogger(cleoDir, {
-      level: 'info',
-      filePath: 'logs/cleo.log',
-      maxFileSize: 1024 * 1024,
-      maxFiles: 2,
-    }, 'proj-hash-42');
+    initLogger(
+      cleoDir,
+      {
+        level: 'info',
+        filePath: 'logs/cleo.log',
+        maxFileSize: 1024 * 1024,
+        maxFiles: 2,
+      },
+      'proj-hash-42',
+    );
 
     // Re-acquire after init (as MCP main() now does)
     startupLog = getLogger('mcp:startup');
@@ -76,12 +84,16 @@ describe('MCP startup logging (T5310)', () => {
 
   it('startup info log can include version and projectHash fields', async () => {
     const cleoDir = await setup();
-    initLogger(cleoDir, {
-      level: 'info',
-      filePath: 'logs/cleo.log',
-      maxFileSize: 1024 * 1024,
-      maxFiles: 2,
-    }, 'hash-for-version-test');
+    initLogger(
+      cleoDir,
+      {
+        level: 'info',
+        filePath: 'logs/cleo.log',
+        maxFileSize: 1024 * 1024,
+        maxFiles: 2,
+      },
+      'hash-for-version-test',
+    );
 
     const log = getLogger('mcp:startup');
     const infoSpy = vi.spyOn(log, 'info');

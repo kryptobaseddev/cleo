@@ -9,11 +9,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import type { Task } from '../../types/task.js';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { getAccessor } from '../../store/data-accessor.js';
+import type { Task } from '../../types/task.js';
 import { getCleoDirAbsolute } from '../paths.js';
 
 /** Snapshot format version. */
@@ -159,7 +159,9 @@ export async function readSnapshot(inputPath: string): Promise<Snapshot> {
   const parsed = JSON.parse(content) as Snapshot;
 
   if (parsed._meta?.format !== 'cleo-snapshot') {
-    throw new Error(`Invalid snapshot format: expected 'cleo-snapshot', got '${parsed._meta?.format}'`);
+    throw new Error(
+      `Invalid snapshot format: expected 'cleo-snapshot', got '${parsed._meta?.format}'`,
+    );
   }
 
   return parsed;

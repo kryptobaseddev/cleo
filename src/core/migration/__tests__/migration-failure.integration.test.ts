@@ -13,11 +13,12 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { acquireLock, isLocked, withLock } from '../../../store/lock.js';
+import { MigrationLogger, readMigrationLog } from '../logger.js';
 import {
   addMigrationError,
   canResumeMigration,
@@ -27,23 +28,12 @@ import {
   failMigration,
   isMigrationInProgress,
   loadMigrationState,
+  type MigrationPhase,
   updateMigrationPhase,
   updateMigrationProgress,
   verifySourceIntegrity,
-  type MigrationPhase,
 } from '../state.js';
-
-import {
-  checkTaskCountMismatch,
-  validateSourceFiles,
-} from '../validate.js';
-
-import {
-  MigrationLogger,
-  readMigrationLog,
-} from '../logger.js';
-
-import { acquireLock,isLocked,withLock } from '../../../store/lock.js';
+import { checkTaskCountMismatch, validateSourceFiles } from '../validate.js';
 
 describe('migration failure integration: state machine recovery', () => {
   let tempDir: string;
@@ -90,7 +80,13 @@ describe('migration failure integration: state machine recovery', () => {
   });
 
   const ORDERED_PHASES: MigrationPhase[] = [
-    'init', 'backup', 'validate', 'import', 'verify', 'cleanup', 'complete',
+    'init',
+    'backup',
+    'validate',
+    'import',
+    'verify',
+    'cleanup',
+    'complete',
   ];
 
   it('should track phase progression through the full lifecycle', async () => {
@@ -107,7 +103,12 @@ describe('migration failure integration: state machine recovery', () => {
 
   it('should allow resume from each interruptible phase', async () => {
     const interruptiblePhases: MigrationPhase[] = [
-      'init', 'backup', 'validate', 'import', 'verify', 'cleanup',
+      'init',
+      'backup',
+      'validate',
+      'import',
+      'verify',
+      'cleanup',
     ];
 
     for (const phase of interruptiblePhases) {
@@ -207,10 +208,7 @@ describe('migration failure integration: JSON validation before destructive ops'
   });
 
   it('should reject corrupted todo.json with trailing comma', async () => {
-    await writeFile(
-      join(cleoDir, 'todo.json'),
-      '{ "tasks": [ { "id": "T001" }, ] }',
-    );
+    await writeFile(join(cleoDir, 'todo.json'), '{ "tasks": [ { "id": "T001" }, ] }');
 
     const result = validateSourceFiles(cleoDir);
 
@@ -220,10 +218,7 @@ describe('migration failure integration: JSON validation before destructive ops'
   });
 
   it('should reject truncated JSON (simulating interrupted write)', async () => {
-    await writeFile(
-      join(cleoDir, 'todo.json'),
-      '{ "tasks": [ { "id": "T001", "title": "Test"',
-    );
+    await writeFile(join(cleoDir, 'todo.json'), '{ "tasks": [ { "id": "T001", "title": "Test"');
 
     const result = validateSourceFiles(cleoDir);
 
@@ -257,10 +252,7 @@ describe('migration failure integration: JSON validation before destructive ops'
       join(cleoDir, 'todo.json'),
       JSON.stringify({ tasks: [{ id: 'T001', title: 'Valid', status: 'pending' }] }),
     );
-    await writeFile(
-      join(cleoDir, 'sessions.json'),
-      'not valid json at all',
-    );
+    await writeFile(join(cleoDir, 'sessions.json'), 'not valid json at all');
 
     const result = validateSourceFiles(cleoDir);
 
@@ -413,9 +405,7 @@ describe('migration failure integration: logger captures failure events', () => 
   it('should capture validation failures with structured data', () => {
     const logger = new MigrationLogger(tempDir);
 
-    logger.logValidation('validate', 'todo.json', false, { size: 0 }, [
-      'File is empty (0 bytes)',
-    ]);
+    logger.logValidation('validate', 'todo.json', false, { size: 0 }, ['File is empty (0 bytes)']);
 
     const entries = logger.getEntries();
     expect(entries).toHaveLength(1);
@@ -444,9 +434,7 @@ describe('migration failure integration: logger captures failure events', () => 
     const diskEntries = readMigrationLog(logPath);
     expect(diskEntries).toHaveLength(3);
 
-    const errorEntry = diskEntries.find(
-      (e) => e.operation === 'file-copy',
-    );
+    const errorEntry = diskEntries.find((e) => e.operation === 'file-copy');
     expect(errorEntry).toBeDefined();
     expect(errorEntry!.level).toBe('error');
     expect(errorEntry!.data).toMatchObject({
@@ -481,9 +469,7 @@ describe('migration failure integration: logger captures failure events', () => 
     expect(summary.errors).toBe(2);
     expect(summary.warnings).toBe(1);
     expect(summary.info).toBe(2);
-    expect(summary.phases).toEqual(
-      expect.arrayContaining(['init', 'backup', 'import']),
-    );
+    expect(summary.phases).toEqual(expect.arrayContaining(['init', 'backup', 'import']));
   });
 });
 
@@ -512,9 +498,7 @@ describe('migration failure integration: concurrent lock prevention', () => {
       expect(locked).toBe(true);
 
       // Attempt second lock should fail
-      await expect(
-        acquireLock(lockFile, { retries: 0 }),
-      ).rejects.toThrow(/Failed to acquire lock/);
+      await expect(acquireLock(lockFile, { retries: 0 })).rejects.toThrow(/Failed to acquire lock/);
     } finally {
       await release();
     }
@@ -581,10 +565,7 @@ describe('migration failure integration: end-to-end failure workflow', () => {
   it('should orchestrate validate -> fail -> log -> state update correctly', async () => {
     // Step 1: Write a corrupted source file
     await writeFile(join(cleoDir, 'todo.json'), '{ broken json }');
-    await writeFile(
-      join(cleoDir, 'sessions.json'),
-      JSON.stringify({ sessions: [] }),
-    );
+    await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify({ sessions: [] }));
 
     // Step 2: Create migration state and logger
     const logger = new MigrationLogger(cleoDir);

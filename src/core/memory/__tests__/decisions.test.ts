@@ -5,10 +5,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -228,7 +228,9 @@ describe('Decision Memory', () => {
 
   describe('updateDecisionOutcome', () => {
     it('should update the outcome of a decision', async () => {
-      const { storeDecision, updateDecisionOutcome, recallDecision } = await import('../decisions.js');
+      const { storeDecision, updateDecisionOutcome, recallDecision } = await import(
+        '../decisions.js'
+      );
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       closeBrainDb();
 
@@ -252,9 +254,9 @@ describe('Decision Memory', () => {
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      await expect(
-        updateDecisionOutcome(tempDir, 'D999', 'failure'),
-      ).rejects.toThrow('Decision not found: D999');
+      await expect(updateDecisionOutcome(tempDir, 'D999', 'failure')).rejects.toThrow(
+        'Decision not found: D999',
+      );
     });
   });
 

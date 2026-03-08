@@ -4,26 +4,26 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  addTask,
-  validateTitle,
-  validateStatus,
-  validatePriority,
-  validateTaskType,
-  validateSize,
-  validateLabels,
-  validatePhaseFormat,
-  generateTaskId,
-  inferTaskType,
-  getTaskDepth,
-  getNextPosition,
-  findRecentDuplicate,
-  validateParent,
-} from '../add.js';
-import type { Task } from '../../../types/task.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Task } from '../../../types/task.js';
+import {
+  addTask,
+  findRecentDuplicate,
+  generateTaskId,
+  getNextPosition,
+  getTaskDepth,
+  inferTaskType,
+  validateLabels,
+  validateParent,
+  validatePhaseFormat,
+  validatePriority,
+  validateSize,
+  validateStatus,
+  validateTaskType,
+  validateTitle,
+} from '../add.js';
 
 describe('validateTitle', () => {
   it('accepts valid titles', () => {
@@ -117,10 +117,7 @@ describe('generateTaskId', () => {
   });
 
   it('generates next sequential ID', () => {
-    const tasks = [
-      { id: 'T001' },
-      { id: 'T003' },
-    ] as Task[];
+    const tasks = [{ id: 'T001' }, { id: 'T003' }] as Task[];
     expect(generateTaskId(tasks)).toBe('T004');
   });
 
@@ -232,15 +229,19 @@ describe('addTask (integration)', () => {
   });
 
   it('creates a task with all options', async () => {
-    const result = await addTask({
-      title: 'Full task',
-      status: 'active',
-      priority: 'high',
-      type: 'epic',
-      size: 'large',
-      description: 'A detailed description',
-      labels: ['bug', 'security'],
-    }, env.tempDir, accessor);
+    const result = await addTask(
+      {
+        title: 'Full task',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        size: 'large',
+        description: 'A detailed description',
+        labels: ['bug', 'security'],
+      },
+      env.tempDir,
+      accessor,
+    );
 
     expect(result.task.status).toBe('active');
     expect(result.task.priority).toBe('high');

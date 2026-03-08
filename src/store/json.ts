@@ -6,11 +6,11 @@
  */
 
 import { createHash } from 'node:crypto';
+import { CleoError } from '../core/errors.js';
+import { ExitCode } from '../types/exit-codes.js';
 import { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
 import { createBackup } from './backup.js';
 import { withLock } from './lock.js';
-import { CleoError } from '../core/errors.js';
-import { ExitCode } from '../types/exit-codes.js';
 
 /**
  * Read and parse a JSON file.
@@ -23,11 +23,7 @@ export async function readJson<T = unknown>(filePath: string): Promise<T | null>
   try {
     return JSON.parse(content) as T;
   } catch (err) {
-    throw new CleoError(
-      ExitCode.VALIDATION_ERROR,
-      `Invalid JSON in: ${filePath}`,
-      { cause: err },
-    );
+    throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid JSON in: ${filePath}`, { cause: err });
   }
 }
 
@@ -37,10 +33,7 @@ export async function readJson<T = unknown>(filePath: string): Promise<T | null>
 export async function readJsonRequired<T = unknown>(filePath: string): Promise<T> {
   const data = await readJson<T>(filePath);
   if (data === null) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Required file not found: ${filePath}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Required file not found: ${filePath}`);
   }
   return data;
 }
@@ -108,13 +101,17 @@ export async function saveJson(
     await atomicWriteJson(filePath, data, { indent: options?.indent });
 
     // Dispatch onFileChange hook (best-effort, fire-and-forget)
-    import('../core/hooks/registry.js').then(({ hooks: h }) =>
-      h.dispatch('onFileChange', process.cwd(), {
-        timestamp: new Date().toISOString(),
-        filePath,
-        changeType: 'write' as const,
-      }),
-    ).catch(() => { /* hook errors are non-fatal */ });
+    import('../core/hooks/registry.js')
+      .then(({ hooks: h }) =>
+        h.dispatch('onFileChange', process.cwd(), {
+          timestamp: new Date().toISOString(),
+          filePath,
+          changeType: 'write' as const,
+        }),
+      )
+      .catch(() => {
+        /* hook errors are non-fatal */
+      });
   });
 }
 
@@ -122,10 +119,7 @@ export async function saveJson(
  * Append a line to a JSONL file atomically.
  * Used for manifest entries and audit logs.
  */
-export async function appendJsonl(
-  filePath: string,
-  entry: unknown,
-): Promise<void> {
+export async function appendJsonl(filePath: string, entry: unknown): Promise<void> {
   const existing = await safeReadFile(filePath);
   const line = JSON.stringify(entry);
   const content = existing ? existing.trimEnd() + '\n' + line + '\n' : line + '\n';
@@ -173,14 +167,26 @@ export async function readLogEntries(filePath: string): Promise<Record<string, u
 
     for (let i = 0; i < trimmed.length; i++) {
       const ch = trimmed[i]!;
-      if (escaped) { escaped = false; continue; }
-      if (ch === '\\' && inString) { escaped = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
       if (inString) continue;
       if (ch === '{') depth++;
       else if (ch === '}') {
         depth--;
-        if (depth === 0) { jsonEnd = i + 1; break; }
+        if (depth === 0) {
+          jsonEnd = i + 1;
+          break;
+        }
       }
     }
 

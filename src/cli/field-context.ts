@@ -15,9 +15,9 @@
  */
 
 import {
-  resolveFieldExtraction,
   type FieldExtractionInput,
   type FieldExtractionResolution,
+  resolveFieldExtraction,
 } from '@cleocode/lafs-protocol';
 
 export type { FieldExtractionResolution as FieldContext };

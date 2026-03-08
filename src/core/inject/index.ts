@@ -11,12 +11,12 @@
  * @epic T4454
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile, Task } from '../../types/task.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { CleoError } from '../errors.js';
+import { getTaskPath } from '../paths.js';
 
 // CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 
@@ -34,17 +34,17 @@ function selectTasksForInjection(
   },
 ): Task[] {
   const maxTasks = opts.maxTasks ?? 8;
-  let tasks = data.tasks.filter(t => t.status !== 'done');
+  let tasks = data.tasks.filter((t) => t.status !== 'done');
 
   // Filter by focused task
   if (opts.focusedOnly && data.focus?.currentTask) {
-    tasks = tasks.filter(t => t.id === data.focus!.currentTask);
+    tasks = tasks.filter((t) => t.id === data.focus!.currentTask);
   }
 
   // Filter by phase
   const phase = opts.phase ?? data.project?.currentPhase ?? undefined;
   if (phase) {
-    const phaseTasks = tasks.filter(t => t.phase === phase);
+    const phaseTasks = tasks.filter((t) => t.phase === phase);
     if (phaseTasks.length > 0) tasks = phaseTasks;
   }
 
@@ -53,7 +53,9 @@ function selectTasksForInjection(
   tasks.sort((a, b) => {
     if (a.status === 'active' && b.status !== 'active') return -1;
     if (b.status === 'active' && a.status !== 'active') return 1;
-    return (priorityOrder[a.priority ?? 'medium'] ?? 2) - (priorityOrder[b.priority ?? 'medium'] ?? 2);
+    return (
+      (priorityOrder[a.priority ?? 'medium'] ?? 2) - (priorityOrder[b.priority ?? 'medium'] ?? 2)
+    );
   });
 
   return tasks.slice(0, maxTasks);
@@ -65,7 +67,7 @@ function selectTasksForInjection(
  * @task T4539
  */
 function formatForTodoWrite(tasks: Task[]): Array<{ id: string; text: string; status: string }> {
-  return tasks.map(t => {
+  return tasks.map((t) => {
     let prefix = `[${t.id}]`;
     if (t.priority === 'critical' || t.priority === 'high') prefix += ' [!]';
     if (t.status === 'blocked') prefix += ' [BLOCKED]';
@@ -74,15 +76,18 @@ function formatForTodoWrite(tasks: Task[]): Array<{ id: string; text: string; st
 }
 
 /** Inject tasks into TodoWrite format. */
-export async function injectTasks(opts: {
-  maxTasks?: number;
-  focusedOnly?: boolean;
-  phase?: string;
-  output?: string;
-  saveState?: boolean;
-  dryRun?: boolean;
-  cwd?: string;
-}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function injectTasks(
+  opts: {
+    maxTasks?: number;
+    focusedOnly?: boolean;
+    phase?: string;
+    output?: string;
+    saveState?: boolean;
+    dryRun?: boolean;
+    cwd?: string;
+  },
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
   const data = accessor
     ? await accessor.loadTaskFile()
     : await readJson<TaskFile>(getTaskPath(opts.cwd));

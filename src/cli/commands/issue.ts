@@ -6,11 +6,11 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
+import { execFileSync } from 'node:child_process';
+import type { Command } from 'commander';
+import { BUILD_CONFIG } from '../../config/build-config.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
-import { execFileSync } from 'node:child_process';
-import { BUILD_CONFIG } from '../../config/build-config.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
@@ -67,10 +67,16 @@ export function registerIssueCommand(program: Command): void {
     .command('diagnostics')
     .description('Show system diagnostics (no issue filed)')
     .action(async () => {
-      await dispatchFromCli('query', 'tools', 'issue.diagnostics', {}, {
-        command: 'issue',
-        operation: 'tools.issue.diagnostics',
-      });
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'issue.diagnostics',
+        {},
+        {
+          command: 'issue',
+          operation: 'tools.issue.diagnostics',
+        },
+      );
     });
 }
 
@@ -79,10 +85,7 @@ export function registerIssueCommand(program: Command): void {
  * Routes through dispatch for the mutation, with post-dispatch browser open.
  * @task T4555
  */
-async function handleIssueType(
-  issueType: string,
-  opts: Record<string, unknown>,
-): Promise<void> {
+async function handleIssueType(issueType: string, opts: Record<string, unknown>): Promise<void> {
   const params: Record<string, unknown> = {
     issueType,
     title: opts['title'],

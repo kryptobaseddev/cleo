@@ -11,7 +11,15 @@
  *   2. Package schemas/{name}  (bundled fallback via getPackageRoot)
  */
 
-import { existsSync, readFileSync, readdirSync, mkdirSync, copyFileSync, renameSync, statSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { getCleoSchemasDir } from './paths.js';
 import { getPackageRoot } from './scaffold.js';
@@ -124,7 +132,7 @@ function listBundledSchemas(): string[] {
   if (!existsSync(schemasDir)) return [];
 
   try {
-    return readdirSync(schemasDir).filter(f => f.endsWith('.schema.json'));
+    return readdirSync(schemasDir).filter((f) => f.endsWith('.schema.json'));
   } catch {
     return [];
   }
@@ -300,12 +308,12 @@ export function listInstalledSchemas(): InstalledSchema[] {
 
   let files: string[];
   try {
-    files = readdirSync(globalDir).filter(f => f.endsWith('.schema.json'));
+    files = readdirSync(globalDir).filter((f) => f.endsWith('.schema.json'));
   } catch {
     return [];
   }
 
-  return files.map(name => {
+  return files.map((name) => {
     const fullPath = join(globalDir, name);
     return {
       name,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   catalog: {
@@ -32,7 +32,9 @@ const mocks = vi.hoisted(() => ({
   getAllProviders: vi.fn(() => [{ id: 'claude-code' }]),
   getProvider: vi.fn(() => ({ id: 'claude-code' })),
   getProvidersBySkillsPrecedence: vi.fn(() => [{ id: 'claude-code' }]),
-  getEffectiveSkillsPaths: vi.fn(() => [{ path: '/tmp/skills', source: 'agents', scope: 'project' }]),
+  getEffectiveSkillsPaths: vi.fn(() => [
+    { path: '/tmp/skills', source: 'agents', scope: 'project' },
+  ]),
   buildSkillsMap: vi.fn(() => []),
   detectAllProviders: vi.fn(() => [{ id: 'claude-code', installed: true }]),
   getTrackedSkills: vi.fn(async () => ({})),

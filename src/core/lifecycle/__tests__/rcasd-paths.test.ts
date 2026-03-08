@@ -4,21 +4,21 @@
  * @epic T4798
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  normalizeEpicId,
+  ensureStagePath,
+  findEpicDir,
+  findManifestPath,
   getEpicDir,
+  getLooseResearchFiles,
+  getManifestPath,
   getRcasdBaseDir,
   getStagePath,
-  ensureStagePath,
-  getLooseResearchFiles,
   listEpicDirs,
-  findEpicDir,
-  getManifestPath,
-  findManifestPath,
+  normalizeEpicId,
 } from '../rcasd-paths.js';
 
 let testDir: string;

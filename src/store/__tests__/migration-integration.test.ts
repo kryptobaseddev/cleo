@@ -13,10 +13,10 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -130,10 +130,7 @@ describe('Migration integration', () => {
   describe('full migration: JSON -> SQLite', () => {
     it('migrates all data types and preserves record counts', async () => {
       // Write JSON fixtures
-      await writeFile(
-        join(cleoDir, 'todo.json'),
-        JSON.stringify(makeTodoJson(TEST_TASKS)),
-      );
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoJson(TEST_TASKS)));
       await writeFile(
         join(cleoDir, 'todo-archive.json'),
         JSON.stringify({ _meta: { schemaVersion: '2.10.0' }, archivedTasks: TEST_ARCHIVED }),
@@ -188,10 +185,7 @@ describe('Migration integration', () => {
     });
 
     it('preserves task hierarchy through migration', async () => {
-      await writeFile(
-        join(cleoDir, 'todo.json'),
-        JSON.stringify(makeTodoJson(TEST_TASKS)),
-      );
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoJson(TEST_TASKS)));
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
@@ -210,10 +204,7 @@ describe('Migration integration', () => {
   describe('roundtrip: JSON -> SQLite -> JSON', () => {
     it('produces equivalent JSON data after roundtrip', async () => {
       // Write initial JSON
-      await writeFile(
-        join(cleoDir, 'todo.json'),
-        JSON.stringify(makeTodoJson(TEST_TASKS)),
-      );
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoJson(TEST_TASKS)));
       await writeFile(
         join(cleoDir, 'todo-archive.json'),
         JSON.stringify({ _meta: { schemaVersion: '2.10.0' }, archivedTasks: TEST_ARCHIVED }),
@@ -240,16 +231,16 @@ describe('Migration integration', () => {
       expect(exported.sessions.length).toBe(TEST_SESSIONS.length);
 
       // Verify key fields survive roundtrip
-      const t1 = exported.tasks.find(t => t.id === 'T001');
+      const t1 = exported.tasks.find((t) => t.id === 'T001');
       expect(t1).toBeDefined();
       expect(t1!.title).toBe('First task');
 
-      const t2 = exported.tasks.find(t => t.id === 'T002');
+      const t2 = exported.tasks.find((t) => t.id === 'T002');
       expect(t2).toBeDefined();
       expect(t2!.parentId).toBe('T001');
 
       // Verify sessions survive roundtrip
-      const s1 = exported.sessions.find(s => s.id === 'sess-001');
+      const s1 = exported.sessions.find((s) => s.id === 'sess-001');
       expect(s1).toBeDefined();
       expect(s1!.name).toBe('Dev session');
     });

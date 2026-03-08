@@ -14,14 +14,9 @@
  * @task T2937
  */
 
-import { afterAll,beforeAll,describe,expect,it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { IntegrationTestContext } from '../integration-setup.js';
-import {
-  cleanupE2ETest,
-  extractTaskId,
-  setupE2ETest,
-  verifyResponseFormat
-} from './setup.js';
+import { cleanupE2ETest, extractTaskId, setupE2ETest, verifyResponseFormat } from './setup.js';
 
 describe('E2E: Task Management Workflow', () => {
   let context: IntegrationTestContext;
@@ -98,7 +93,11 @@ describe('E2E: Task Management Workflow', () => {
     expect((showResult.data as any).title).toBe('Updated E2E Test Task');
     // Notes include timestamps, so check that at least one note contains the text
     const notes = (showResult.data as any).notes;
-    expect(Array.isArray(notes) ? notes.some((n: string) => n.includes('Updated during workflow test')) : false).toBe(true);
+    expect(
+      Array.isArray(notes)
+        ? notes.some((n: string) => n.includes('Updated during workflow test'))
+        : false,
+    ).toBe(true);
 
     // Step 4: Complete task via mutate
     const completeResult = await context.executor.execute({
@@ -263,9 +262,7 @@ describe('E2E: Task Management Workflow', () => {
     // deps returns {task, upstream, downstream, blockedBy}
     const deps = depsResult.data as any;
     const upstream = deps.upstream_dependencies || deps.upstream || [];
-    const upstreamIds = upstream.map((d: any) =>
-      typeof d === 'string' ? d : d.id || d.taskId
-    );
+    const upstreamIds = upstream.map((d: any) => (typeof d === 'string' ? d : d.id || d.taskId));
     expect(upstreamIds).toContain(blockerId);
 
     // Verify the dependent task shows the blocker in its dependencies

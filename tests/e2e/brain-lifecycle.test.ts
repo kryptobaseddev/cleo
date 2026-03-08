@@ -15,10 +15,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // ============================================================================
 // 1. observe -> FTS5 search -> verify found
@@ -109,11 +109,9 @@ describe('E2E: observe -> hybrid search', () => {
 
     expect(obs.id).toMatch(/^O-/);
 
-    const results = await brainSearch.hybridSearch(
-      'atomic write corruption',
-      testDir,
-      { limit: 10 },
-    );
+    const results = await brainSearch.hybridSearch('atomic write corruption', testDir, {
+      limit: 10,
+    });
 
     expect(results.length).toBeGreaterThan(0);
     const found = results.find((r) => r.id === obs.id);
@@ -152,13 +150,29 @@ describe('E2E: PageIndex graph traversal', () => {
     const accessor = await brainAccessorMod.getBrainAccessor(testDir);
 
     // Add 3 concept nodes
-    await accessor.addPageNode({ id: 'concept:auth', nodeType: 'concept', label: 'Authentication' });
+    await accessor.addPageNode({
+      id: 'concept:auth',
+      nodeType: 'concept',
+      label: 'Authentication',
+    });
     await accessor.addPageNode({ id: 'concept:jwt', nodeType: 'concept', label: 'JWT Tokens' });
-    await accessor.addPageNode({ id: 'concept:oauth', nodeType: 'concept', label: 'OAuth2 Protocol' });
+    await accessor.addPageNode({
+      id: 'concept:oauth',
+      nodeType: 'concept',
+      label: 'OAuth2 Protocol',
+    });
 
     // Connect: auth -> jwt (related_to), auth -> oauth (related_to)
-    await accessor.addPageEdge({ fromId: 'concept:auth', toId: 'concept:jwt', edgeType: 'related_to' });
-    await accessor.addPageEdge({ fromId: 'concept:auth', toId: 'concept:oauth', edgeType: 'related_to' });
+    await accessor.addPageEdge({
+      fromId: 'concept:auth',
+      toId: 'concept:jwt',
+      edgeType: 'related_to',
+    });
+    await accessor.addPageEdge({
+      fromId: 'concept:auth',
+      toId: 'concept:oauth',
+      edgeType: 'related_to',
+    });
 
     // Query neighbors of auth
     const neighbors = await accessor.getNeighbors('concept:auth');
@@ -202,16 +216,32 @@ describe('E2E: reasonWhy causal trace', () => {
       lastUpdated: '2026-03-04T00:00:00.000Z',
       _meta: { schemaVersion: '2025.1.0' },
       tasks: [
-        { id: 'T1', title: 'Root blocker', description: 'The root cause', status: 'blocked', depends: [], blockedBy: 'External dependency' },
-        { id: 'T2', title: 'Middle task', description: 'Depends on T1', status: 'blocked', depends: ['T1'] },
-        { id: 'T3', title: 'Leaf task', description: 'Depends on T2', status: 'blocked', depends: ['T2'] },
+        {
+          id: 'T1',
+          title: 'Root blocker',
+          description: 'The root cause',
+          status: 'blocked',
+          depends: [],
+          blockedBy: 'External dependency',
+        },
+        {
+          id: 'T2',
+          title: 'Middle task',
+          description: 'Depends on T1',
+          status: 'blocked',
+          depends: ['T1'],
+        },
+        {
+          id: 'T3',
+          title: 'Leaf task',
+          description: 'Depends on T2',
+          status: 'blocked',
+          depends: ['T2'],
+        },
       ],
     };
 
-    await writeFile(
-      join(testDir, '.cleo', 'tasks.db'),
-      JSON.stringify(tasksFile, null, 2),
-    );
+    await writeFile(join(testDir, '.cleo', 'tasks.db'), JSON.stringify(tasksFile, null, 2));
   });
 
   afterEach(async () => {
@@ -288,9 +318,7 @@ describe('E2E: temporal decay', () => {
     expect(before).not.toBeNull();
     expect(before!.confidence).toBe(0.9);
 
-    const { applyTemporalDecay } = await import(
-      '../../src/core/memory/brain-lifecycle.js'
-    );
+    const { applyTemporalDecay } = await import('../../src/core/memory/brain-lifecycle.js');
 
     const result = await applyTemporalDecay(testDir, {
       decayRate: 0.99,
@@ -354,9 +382,7 @@ describe('E2E: memory consolidation', () => {
       });
     }
 
-    const { consolidateMemories } = await import(
-      '../../src/core/memory/brain-lifecycle.js'
-    );
+    const { consolidateMemories } = await import('../../src/core/memory/brain-lifecycle.js');
 
     const result = await consolidateMemories(testDir, {
       olderThanDays: 90,

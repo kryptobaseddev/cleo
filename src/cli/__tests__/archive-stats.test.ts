@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getArchiveStats } from '../commands/archive-stats.js';
 
 // Mock the data accessor used by getArchiveStats
@@ -20,8 +20,8 @@ vi.mock('../../store/data-accessor.js', () => ({
 
 vi.mock('../../core/paths.js', () => ({
   getArchivePath: (cwd?: string) => '.cleo/tasks-archive.json',
-  getCleoDirAbsolute: (cwd?: string) => cwd ? `${cwd}/.cleo` : '.cleo',
-  getTaskPath: (cwd?: string) => cwd ? `${cwd}/.cleo/tasks.json` : '.cleo/tasks.json',
+  getCleoDirAbsolute: (cwd?: string) => (cwd ? `${cwd}/.cleo` : '.cleo'),
+  getTaskPath: (cwd?: string) => (cwd ? `${cwd}/.cleo/tasks.json` : '.cleo/tasks.json'),
 }));
 
 const SAMPLE_ARCHIVE = {
@@ -97,7 +97,7 @@ describe('getArchiveStats', () => {
 
     const data = result.data as Array<Record<string, unknown>>;
     expect(data.length).toBe(2);
-    const alpha = data.find(d => d.phase === 'alpha');
+    const alpha = data.find((d) => d.phase === 'alpha');
     expect(alpha?.count).toBe(2);
   });
 
@@ -107,7 +107,7 @@ describe('getArchiveStats', () => {
     expect(result.report).toBe('by-label');
 
     const data = result.data as Array<{ label: string; count: number }>;
-    const feature = data.find(d => d.label === 'feature');
+    const feature = data.find((d) => d.label === 'feature');
     expect(feature?.count).toBe(1);
   });
 

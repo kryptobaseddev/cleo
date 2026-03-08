@@ -14,11 +14,11 @@
  * @see ADR-017 §5.3 for adr_task_links and adr_relations schemas
  */
 
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import { architectureDecisions, adrTaskLinks, adrRelations } from '../../store/tasks-schema.js';
+import { adrRelations, adrTaskLinks, architectureDecisions } from '../../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 
 export interface PipelineAdrLinkResult {
@@ -35,8 +35,8 @@ function parseTaskIds(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw
     .split(',')
-    .map(t => t.trim())
-    .filter(t => /^T\d{1,5}$/.test(t));
+    .map((t) => t.trim())
+    .filter((t) => /^T\d{1,5}$/.test(t));
 }
 
 /**
@@ -47,8 +47,8 @@ function findAdrsForTask(adrsDir: string, taskId: string): string[] {
   if (!existsSync(adrsDir)) return [];
 
   return readdirSync(adrsDir)
-    .filter(f => f.endsWith('.md') && /^ADR-\d+/.test(f))
-    .filter(file => {
+    .filter((f) => f.endsWith('.md') && /^ADR-\d+/.test(f))
+    .filter((file) => {
       try {
         const content = readFileSync(join(adrsDir, file), 'utf-8');
         // Quick check before parsing — look for task ID in Related Tasks line
@@ -60,7 +60,7 @@ function findAdrsForTask(adrsDir: string, taskId: string): string[] {
         return false;
       }
     })
-    .map(f => join(adrsDir, f));
+    .map((f) => join(adrsDir, f));
 }
 
 /**
@@ -130,9 +130,7 @@ export async function linkPipelineAdr(
           .set(rowBase)
           .where(eq(architectureDecisions.id, record.id));
       } else {
-        await db
-          .insert(architectureDecisions)
-          .values({ ...rowBase, createdAt: now });
+        await db.insert(architectureDecisions).values({ ...rowBase, createdAt: now });
       }
       result.synced++;
 
@@ -140,16 +138,9 @@ export async function linkPipelineAdr(
       // First remove any existing link between this ADR and task
       await db
         .delete(adrTaskLinks)
-        .where(
-          and(
-            eq(adrTaskLinks.adrId, record.id),
-            eq(adrTaskLinks.taskId, taskId),
-          ),
-        );
+        .where(and(eq(adrTaskLinks.adrId, record.id), eq(adrTaskLinks.taskId, taskId)));
 
-      await db
-        .insert(adrTaskLinks)
-        .values({ adrId: record.id, taskId, linkType: 'implements' });
+      await db.insert(adrTaskLinks).values({ adrId: record.id, taskId, linkType: 'implements' });
 
       result.linked.push({ adrId: record.id, taskId });
 
@@ -157,8 +148,8 @@ export async function linkPipelineAdr(
       if (fm['Related ADRs']) {
         const relatedIds = fm['Related ADRs']
           .split(',')
-          .map(r => r.trim())
-          .filter(r => /^ADR-\d+$/.test(r));
+          .map((r) => r.trim())
+          .filter((r) => /^ADR-\d+$/.test(r));
 
         for (const toId of relatedIds) {
           try {

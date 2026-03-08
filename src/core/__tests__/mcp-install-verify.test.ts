@@ -10,21 +10,21 @@
  * @epic T4663
  */
 
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../mcp/index.js';
+import { describe, expect, it } from 'vitest';
 import {
-  providerList,
+  caampResolveAlias,
+  mcpConfigPath,
   providerCount,
   providerDetect,
-  providerInstalled,
-  registryVersion,
-  mcpConfigPath,
   providerGet,
-  caampResolveAlias,
+  providerInstalled,
+  providerList,
+  registryVersion,
 } from '../caamp/index.js';
+import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../mcp/index.js';
 
 describe('MCP server auto-install verification (T4695)', () => {
   describe('Environment detection', () => {
@@ -39,7 +39,11 @@ describe('MCP server auto-install verification (T4695)', () => {
       const scriptPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli', 'index.js');
       const pkgPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'package.json');
       mkdirSync(join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli'), { recursive: true });
-      writeFileSync(pkgPath, JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10' }), 'utf-8');
+      writeFileSync(
+        pkgPath,
+        JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10' }),
+        'utf-8',
+      );
 
       const original = process.argv[1];
       process.argv[1] = scriptPath;
@@ -59,7 +63,11 @@ describe('MCP server auto-install verification (T4695)', () => {
       const scriptPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli', 'index.js');
       const pkgPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'package.json');
       mkdirSync(join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli'), { recursive: true });
-      writeFileSync(pkgPath, JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10-beta.1' }), 'utf-8');
+      writeFileSync(
+        pkgPath,
+        JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10-beta.1' }),
+        'utf-8',
+      );
 
       const original = process.argv[1];
       process.argv[1] = scriptPath;
@@ -75,9 +83,13 @@ describe('MCP server auto-install verification (T4695)', () => {
     });
 
     it('dev-ts mode generates node command with dist/mcp/index.js', () => {
-      const entry = generateMcpServerEntry({ mode: 'dev-ts', source: '/test/project', channel: 'dev' });
+      const entry = generateMcpServerEntry({
+        mode: 'dev-ts',
+        source: '/test/project',
+        channel: 'dev',
+      });
       expect(entry.command).toBe('node');
-      const argPath = ((entry.args as string[])![0]).replaceAll('\\', '/');
+      const argPath = (entry.args as string[])![0].replaceAll('\\', '/');
       expect(argPath).toContain('dist/mcp/index.js');
     });
 
@@ -100,8 +112,12 @@ describe('MCP server auto-install verification (T4695)', () => {
     });
 
     it('uses channel-specific server names to avoid collisions', () => {
-      expect(getMcpServerName({ mode: 'dev-ts', source: '/repo', channel: 'dev' })).toBe('cleo-dev');
-      expect(getMcpServerName({ mode: 'prod-npm', source: null, channel: 'beta' })).toBe('cleo-beta');
+      expect(getMcpServerName({ mode: 'dev-ts', source: '/repo', channel: 'dev' })).toBe(
+        'cleo-dev',
+      );
+      expect(getMcpServerName({ mode: 'prod-npm', source: null, channel: 'beta' })).toBe(
+        'cleo-beta',
+      );
       expect(getMcpServerName({ mode: 'prod-npm', source: null, channel: 'stable' })).toBe('cleo');
     });
   });

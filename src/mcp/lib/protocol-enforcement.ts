@@ -10,10 +10,14 @@
  * Reference: lib/protocol-validation.sh, docs/specs/MCP-SERVER-SPECIFICATION.md
  */
 
-import { ProtocolRule, ProtocolViolation, ProtocolValidationResult } from './protocol-rules.js';
-import { PROTOCOL_RULES } from './protocol-rules.js';
-import { DomainRequest, DomainResponse } from './router.js';
 import { ExitCode } from './exit-codes.js';
+import {
+  PROTOCOL_RULES,
+  type ProtocolRule,
+  type ProtocolValidationResult,
+  type ProtocolViolation,
+} from './protocol-rules.js';
+import type { DomainRequest, DomainResponse } from './router.js';
 
 /**
  * Protocol types aligned with RCASD-IVTR+C lifecycle
@@ -90,7 +94,7 @@ export class ProtocolEnforcer {
   async validateProtocol(
     protocol: ProtocolType,
     manifestEntry: Record<string, unknown>,
-    additionalData?: Record<string, unknown>
+    additionalData?: Record<string, unknown>,
   ): Promise<ProtocolValidationResult> {
     const rules = PROTOCOL_RULES[protocol];
     if (!rules) {
@@ -133,7 +137,7 @@ export class ProtocolEnforcer {
   private async validateRule(
     rule: ProtocolRule,
     manifestEntry: Record<string, unknown>,
-    additionalData?: Record<string, unknown>
+    additionalData?: Record<string, unknown>,
   ): Promise<ProtocolViolation | null> {
     try {
       const isValid = await rule.validate(manifestEntry, additionalData);
@@ -162,7 +166,7 @@ export class ProtocolEnforcer {
   async checkLifecycleGate(
     _taskId: string,
     targetStage: string,
-    lifecycleManifest?: Record<string, unknown>
+    lifecycleManifest?: Record<string, unknown>,
   ): Promise<{
     passed: boolean;
     missingPrerequisites: string[];
@@ -210,7 +214,7 @@ export class ProtocolEnforcer {
     protocol: ProtocolType,
     violations: ProtocolViolation[],
     score: number,
-    taskId?: string
+    taskId?: string,
   ): void {
     const entry: ViolationLogEntry = {
       timestamp: new Date().toISOString(),
@@ -250,7 +254,7 @@ export class ProtocolEnforcer {
    */
   async enforceProtocol(
     request: DomainRequest,
-    next: () => Promise<DomainResponse>
+    next: () => Promise<DomainResponse>,
   ): Promise<DomainResponse> {
     // Only enforce on mutate operations that may create outputs
     if (request.gateway !== 'mutate') {

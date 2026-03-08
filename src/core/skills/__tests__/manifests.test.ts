@@ -3,7 +3,7 @@
  * @task T4522
  */
 
-import { describe,expect,it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ContributionDecision } from '../manifests/contribution.js';
 import {
   computeConsensus,
@@ -30,7 +30,13 @@ describe('generateContributionId', () => {
 describe('detectConflicts', () => {
   it('should detect conflicting decisions', () => {
     const decisions1: ContributionDecision[] = [
-      { agentId: 'agent-1', taskId: 'T001', decision: 'approve', confidence: 0.9, rationale: 'Good' },
+      {
+        agentId: 'agent-1',
+        taskId: 'T001',
+        decision: 'approve',
+        confidence: 0.9,
+        rationale: 'Good',
+      },
     ];
     const decisions2: ContributionDecision[] = [
       { agentId: 'agent-2', taskId: 'T001', decision: 'reject', confidence: 0.4, rationale: 'Bad' },
@@ -46,10 +52,22 @@ describe('detectConflicts', () => {
 
   it('should not report conflicts for matching decisions', () => {
     const decisions1: ContributionDecision[] = [
-      { agentId: 'agent-1', taskId: 'T001', decision: 'approve', confidence: 0.9, rationale: 'Good' },
+      {
+        agentId: 'agent-1',
+        taskId: 'T001',
+        decision: 'approve',
+        confidence: 0.9,
+        rationale: 'Good',
+      },
     ];
     const decisions2: ContributionDecision[] = [
-      { agentId: 'agent-2', taskId: 'T001', decision: 'approve', confidence: 0.8, rationale: 'Also good' },
+      {
+        agentId: 'agent-2',
+        taskId: 'T001',
+        decision: 'approve',
+        confidence: 0.8,
+        rationale: 'Also good',
+      },
     ];
 
     const conflicts = detectConflicts(decisions1, decisions2);

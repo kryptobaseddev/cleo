@@ -11,10 +11,10 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import { getCleoDir, getProjectRoot } from '../paths.js';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { BUILD_CONFIG } from '../../config/build-config.js';
+import { getCleoDir, getProjectRoot } from '../paths.js';
 import { getPackageRoot } from '../scaffold.js';
 
 const TEMPLATE_DIR = '.github/ISSUE_TEMPLATE';
@@ -87,7 +87,7 @@ function extractYamlArray(content: string, field: string): string[] {
   if (inlineMatch) {
     return inlineMatch[1]!
       .split(',')
-      .map(s => s.trim().replace(/^["']|["']$/g, ''))
+      .map((s) => s.trim().replace(/^["']|["']$/g, ''))
       .filter(Boolean);
   }
 
@@ -208,12 +208,9 @@ export function getTemplateConfig(cwd?: string): IssueTemplate[] {
 /**
  * Get the template for a specific subcommand (bug, feature, etc.).
  */
-export function getTemplateForSubcommand(
-  subcommand: string,
-  cwd?: string,
-): IssueTemplate | null {
+export function getTemplateForSubcommand(subcommand: string, cwd?: string): IssueTemplate | null {
   const templates = getTemplateConfig(cwd);
-  return templates.find(t => t.subcommand === subcommand) ?? null;
+  return templates.find((t) => t.subcommand === subcommand) ?? null;
 }
 
 /**
@@ -232,9 +229,10 @@ export function cacheTemplates(templates: IssueTemplate[], cwd?: string): void {
 /**
  * Validate that required labels exist (informational).
  */
-export function validateLabelsExist(
-  _templates: IssueTemplate[],
-): { valid: boolean; missingLabels: string[] } {
+export function validateLabelsExist(_templates: IssueTemplate[]): {
+  valid: boolean;
+  missingLabels: string[];
+} {
   // Can't actually verify GitHub labels without API, just return the set
   return { valid: true, missingLabels: [] };
 }

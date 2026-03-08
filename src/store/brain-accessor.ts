@@ -9,29 +9,29 @@
  * @task T5128
  */
 
-import { eq, and, or, gte, desc, asc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { getBrainDb } from './brain-sqlite.js';
+import { and, asc, desc, eq, gte, or } from 'drizzle-orm';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as brainSchema from './brain-schema.js';
 import type {
   BrainDecisionRow,
-  NewBrainDecisionRow,
-  BrainPatternRow,
-  NewBrainPatternRow,
   BrainLearningRow,
-  NewBrainLearningRow,
-  BrainObservationRow,
-  NewBrainObservationRow,
   BrainMemoryLinkRow,
-  NewBrainMemoryLinkRow,
-  BrainStickyNoteRow,
-  NewBrainStickyNoteRow,
-  BrainPageNodeRow,
-  NewBrainPageNodeRow,
+  BrainObservationRow,
   BrainPageEdgeRow,
+  BrainPageNodeRow,
+  BrainPatternRow,
+  BrainStickyNoteRow,
+  NewBrainDecisionRow,
+  NewBrainLearningRow,
+  NewBrainMemoryLinkRow,
+  NewBrainObservationRow,
   NewBrainPageEdgeRow,
+  NewBrainPageNodeRow,
+  NewBrainPatternRow,
+  NewBrainStickyNoteRow,
 } from './brain-schema.js';
+import * as brainSchema from './brain-schema.js';
+import { getBrainDb } from './brain-sqlite.js';
 
 export class BrainDataAccessor {
   constructor(private db: SqliteRemoteDatabase<typeof brainSchema>) {}
@@ -57,13 +57,15 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findDecisions(params: {
-    type?: typeof brainSchema.BRAIN_DECISION_TYPES[number];
-    confidence?: typeof brainSchema.BRAIN_CONFIDENCE_LEVELS[number];
-    outcome?: typeof brainSchema.BRAIN_OUTCOME_TYPES[number];
-    contextTaskId?: string;
-    limit?: number;
-  } = {}): Promise<BrainDecisionRow[]> {
+  async findDecisions(
+    params: {
+      type?: (typeof brainSchema.BRAIN_DECISION_TYPES)[number];
+      confidence?: (typeof brainSchema.BRAIN_CONFIDENCE_LEVELS)[number];
+      outcome?: (typeof brainSchema.BRAIN_OUTCOME_TYPES)[number];
+      contextTaskId?: string;
+      limit?: number;
+    } = {},
+  ): Promise<BrainDecisionRow[]> {
     const conditions: SQL[] = [];
 
     if (params.type) {
@@ -123,12 +125,14 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findPatterns(params: {
-    type?: typeof brainSchema.BRAIN_PATTERN_TYPES[number];
-    impact?: typeof brainSchema.BRAIN_IMPACT_LEVELS[number];
-    minFrequency?: number;
-    limit?: number;
-  } = {}): Promise<BrainPatternRow[]> {
+  async findPatterns(
+    params: {
+      type?: (typeof brainSchema.BRAIN_PATTERN_TYPES)[number];
+      impact?: (typeof brainSchema.BRAIN_IMPACT_LEVELS)[number];
+      minFrequency?: number;
+      limit?: number;
+    } = {},
+  ): Promise<BrainPatternRow[]> {
     const conditions: SQL[] = [];
 
     if (params.type) {
@@ -185,11 +189,9 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findLearnings(params: {
-    minConfidence?: number;
-    actionable?: boolean;
-    limit?: number;
-  } = {}): Promise<BrainLearningRow[]> {
+  async findLearnings(
+    params: { minConfidence?: number; actionable?: boolean; limit?: number } = {},
+  ): Promise<BrainLearningRow[]> {
     const conditions: SQL[] = [];
 
     if (params.minConfidence !== undefined) {
@@ -243,13 +245,15 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findObservations(params: {
-    type?: typeof brainSchema.BRAIN_OBSERVATION_TYPES[number];
-    project?: string;
-    sourceType?: typeof brainSchema.BRAIN_OBSERVATION_SOURCE_TYPES[number];
-    sourceSessionId?: string;
-    limit?: number;
-  } = {}): Promise<BrainObservationRow[]> {
+  async findObservations(
+    params: {
+      type?: (typeof brainSchema.BRAIN_OBSERVATION_TYPES)[number];
+      project?: string;
+      sourceType?: (typeof brainSchema.BRAIN_OBSERVATION_SOURCE_TYPES)[number];
+      sourceSessionId?: string;
+      limit?: number;
+    } = {},
+  ): Promise<BrainObservationRow[]> {
     const conditions: SQL[] = [];
 
     if (params.type) {
@@ -297,7 +301,7 @@ export class BrainDataAccessor {
   }
 
   async getLinksForMemory(
-    memoryType: typeof brainSchema.BRAIN_MEMORY_TYPES[number],
+    memoryType: (typeof brainSchema.BRAIN_MEMORY_TYPES)[number],
     memoryId: string,
   ): Promise<BrainMemoryLinkRow[]> {
     return this.db
@@ -321,10 +325,10 @@ export class BrainDataAccessor {
   }
 
   async removeLink(
-    memoryType: typeof brainSchema.BRAIN_MEMORY_TYPES[number],
+    memoryType: (typeof brainSchema.BRAIN_MEMORY_TYPES)[number],
     memoryId: string,
     taskId: string,
-    linkType: typeof brainSchema.BRAIN_LINK_TYPES[number],
+    linkType: (typeof brainSchema.BRAIN_LINK_TYPES)[number],
   ): Promise<void> {
     await this.db
       .delete(brainSchema.brainMemoryLinks)
@@ -359,12 +363,14 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findStickyNotes(params: {
-    status?: typeof brainSchema.BRAIN_STICKY_STATUSES[number];
-    color?: typeof brainSchema.BRAIN_STICKY_COLORS[number];
-    priority?: typeof brainSchema.BRAIN_STICKY_PRIORITIES[number];
-    limit?: number;
-  } = {}): Promise<BrainStickyNoteRow[]> {
+  async findStickyNotes(
+    params: {
+      status?: (typeof brainSchema.BRAIN_STICKY_STATUSES)[number];
+      color?: (typeof brainSchema.BRAIN_STICKY_COLORS)[number];
+      priority?: (typeof brainSchema.BRAIN_STICKY_PRIORITIES)[number];
+      limit?: number;
+    } = {},
+  ): Promise<BrainStickyNoteRow[]> {
     const conditions: SQL[] = [];
 
     if (params.status) {
@@ -427,10 +433,9 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
-  async findPageNodes(params: {
-    nodeType?: typeof brainSchema.BRAIN_NODE_TYPES[number];
-    limit?: number;
-  } = {}): Promise<BrainPageNodeRow[]> {
+  async findPageNodes(
+    params: { nodeType?: (typeof brainSchema.BRAIN_NODE_TYPES)[number]; limit?: number } = {},
+  ): Promise<BrainPageNodeRow[]> {
     const conditions: SQL[] = [];
 
     if (params.nodeType) {
@@ -458,15 +463,10 @@ export class BrainDataAccessor {
     await this.db
       .delete(brainSchema.brainPageEdges)
       .where(
-        or(
-          eq(brainSchema.brainPageEdges.fromId, id),
-          eq(brainSchema.brainPageEdges.toId, id),
-        ),
+        or(eq(brainSchema.brainPageEdges.fromId, id), eq(brainSchema.brainPageEdges.toId, id)),
       );
     // Remove the node
-    await this.db
-      .delete(brainSchema.brainPageNodes)
-      .where(eq(brainSchema.brainPageNodes.id, id));
+    await this.db.delete(brainSchema.brainPageNodes).where(eq(brainSchema.brainPageNodes.id, id));
   }
 
   // =========================================================================
@@ -521,7 +521,7 @@ export class BrainDataAccessor {
 
   async getNeighbors(
     nodeId: string,
-    edgeType?: typeof brainSchema.BRAIN_EDGE_TYPES[number],
+    edgeType?: (typeof brainSchema.BRAIN_EDGE_TYPES)[number],
   ): Promise<BrainPageNodeRow[]> {
     // Get edges from this node
     const conditions: SQL[] = [eq(brainSchema.brainPageEdges.fromId, nodeId)];
@@ -536,7 +536,7 @@ export class BrainDataAccessor {
 
     if (edges.length === 0) return [];
 
-    const neighborIds = edges.map(e => e.toId);
+    const neighborIds = edges.map((e) => e.toId);
     const nodes: BrainPageNodeRow[] = [];
     for (const nid of neighborIds) {
       const node = await this.getPageNode(nid);
@@ -548,7 +548,7 @@ export class BrainDataAccessor {
   async removePageEdge(
     fromId: string,
     toId: string,
-    edgeType: typeof brainSchema.BRAIN_EDGE_TYPES[number],
+    edgeType: (typeof brainSchema.BRAIN_EDGE_TYPES)[number],
   ): Promise<void> {
     await this.db
       .delete(brainSchema.brainPageEdges)

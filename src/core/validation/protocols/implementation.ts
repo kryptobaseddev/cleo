@@ -4,9 +4,9 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { CleoError } from '../../errors.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { CleoError } from '../../errors.js';
 import { getManifestPath } from '../../paths.js';
 
 interface ValidationResult {

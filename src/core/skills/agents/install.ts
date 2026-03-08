@@ -8,8 +8,8 @@
  * @task T4518
  */
 
-import { existsSync, mkdirSync, symlinkSync, unlinkSync, readlinkSync, readdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { getClaudeAgentsDir } from '../../paths.js';
 import { getAgentsDir } from './config.js';
 
@@ -26,9 +26,11 @@ function getAgentInstallDir(): string {
  * Install a single agent via symlink.
  * @task T4518
  */
-export function installAgent(
-  agentDir: string,
-): { installed: boolean; path: string; error?: string } {
+export function installAgent(agentDir: string): {
+  installed: boolean;
+  path: string;
+  error?: string;
+} {
   const targetDir = getAgentInstallDir();
   const agentName = basename(agentDir);
   const targetPath = join(targetDir, agentName);
@@ -54,7 +56,11 @@ export function installAgent(
       unlinkSync(targetPath);
     } catch {
       // Not a symlink, skip
-      return { installed: false, path: targetPath, error: `Target exists and is not a symlink: ${targetPath}` };
+      return {
+        installed: false,
+        path: targetPath,
+        error: `Target exists and is not a symlink: ${targetPath}`,
+      };
     }
   }
 
@@ -70,7 +76,9 @@ export function installAgent(
  * Install all agents from the project agents/ directory.
  * @task T4518
  */
-export function installAllAgents(cwd?: string): Array<{ name: string; installed: boolean; error?: string }> {
+export function installAllAgents(
+  cwd?: string,
+): Array<{ name: string; installed: boolean; error?: string }> {
   const agentsDir = getAgentsDir(cwd);
   const results: Array<{ name: string; installed: boolean; error?: string }> = [];
 

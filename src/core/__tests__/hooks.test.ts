@@ -2,21 +2,17 @@
  * Tests for git hook management utilities.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../scaffold.js', () => ({
   getPackageRoot: vi.fn(),
 }));
 
+import { checkGitHooks, ensureGitHooks, MANAGED_HOOKS } from '../hooks.js';
 import { getPackageRoot } from '../scaffold.js';
-import {
-  MANAGED_HOOKS,
-  ensureGitHooks,
-  checkGitHooks,
-} from '../hooks.js';
 
 const mockedGetPackageRoot = vi.mocked(getPackageRoot);
 

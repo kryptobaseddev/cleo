@@ -4,7 +4,7 @@
  * @epic T4454, T5323
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -29,7 +29,13 @@ export function registerPhasesCommand(program: Command): void {
     .command('show <phase>')
     .description('Show phase details and task counts')
     .action(async (phase: string) => {
-      await dispatchFromCli('query', 'pipeline', 'phase.show', { phaseId: phase }, { command: 'phases' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'phase.show',
+        { phaseId: phase },
+        { command: 'phases' },
+      );
     });
 
   // T5326: Migrated to dispatch

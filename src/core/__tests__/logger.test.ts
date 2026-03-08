@@ -1,8 +1,8 @@
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,describe,expect,it } from 'vitest';
-import { closeLogger,getLogDir,getLogger,initLogger } from '../logger.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { closeLogger, getLogDir, getLogger, initLogger } from '../logger.js';
 
 describe('initLogger', () => {
   let tempDir: string;
@@ -36,12 +36,16 @@ describe('initLogger', () => {
 
   it('creates logger with projectHash bound to base context', async () => {
     await setup();
-    const logger = initLogger(cleoDir, {
-      level: 'info',
-      filePath: 'logs/test.log',
-      maxFileSize: 1024 * 1024,
-      maxFiles: 2,
-    }, 'test-project-hash-123');
+    const logger = initLogger(
+      cleoDir,
+      {
+        level: 'info',
+        filePath: 'logs/test.log',
+        maxFileSize: 1024 * 1024,
+        maxFiles: 2,
+      },
+      'test-project-hash-123',
+    );
 
     expect(logger).toBeDefined();
 
@@ -52,12 +56,16 @@ describe('initLogger', () => {
 
   it('child loggers inherit projectHash from root', async () => {
     await setup();
-    initLogger(cleoDir, {
-      level: 'info',
-      filePath: 'logs/test.log',
-      maxFileSize: 1024 * 1024,
-      maxFiles: 2,
-    }, 'inherited-hash');
+    initLogger(
+      cleoDir,
+      {
+        level: 'info',
+        filePath: 'logs/test.log',
+        maxFileSize: 1024 * 1024,
+        maxFiles: 2,
+      },
+      'inherited-hash',
+    );
 
     const child = getLogger('test-subsystem');
     const bindings = child.bindings();

@@ -9,11 +9,11 @@
  * @epic T5149
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getProjectRoot } from '../paths.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { getProjectRoot } from '../paths.js';
 
 /**
  * Resolve the project root, defaulting to getProjectRoot() if not specified.
@@ -65,16 +65,14 @@ export function injectContext(
         protocolContent = readFileSync(loc, 'utf-8');
         protocolPath = loc.replace(root + '/', '');
         break;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
 
   if (!protocolContent) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
-      `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`
+      `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`,
     );
   }
 

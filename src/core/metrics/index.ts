@@ -5,83 +5,78 @@
  * @epic T4454
  */
 
-// Enums
+export type { ABEventType, ABTestSummary, ABVariant } from './ab-test.js';
+// A/B testing
 export {
-  Severity,
-  ManifestIntegrity,
-  InstructionStability,
-  SessionDegradation,
-  AgentReliability,
-  MetricCategory,
-  MetricSource,
-  AggregationPeriod,
-  isValidEnumValue,
-} from './enums.js';
-
+  compareABTest,
+  endABTest,
+  getABTestResults,
+  getABTestStats,
+  listABTests,
+  logABEvent,
+  startABTest,
+} from './ab-test.js';
+// Metrics aggregation
+export {
+  getComplianceTrend,
+  getGlobalComplianceSummary,
+  getProjectComplianceSummary,
+  getSessionMetricsSummary,
+  getSkillReliability,
+  logSessionMetrics,
+  syncMetricsToGlobal,
+} from './aggregation.js';
+export type { ComplianceSummary } from './common.js';
 // Common utilities
 export {
   ensureMetricsDir,
   getCompliancePath,
-  getViolationsPath,
-  getSessionsMetricsPath,
-  isoTimestamp,
-  isoDate,
-  readJsonlFile,
   getComplianceSummaryBase,
+  getSessionsMetricsPath,
+  getViolationsPath,
+  isoDate,
+  isoTimestamp,
+  readJsonlFile,
 } from './common.js';
-export type { ComplianceSummary } from './common.js';
-
-// Token estimation
+// Enums
 export {
-  estimateTokens,
-  estimateTokensFromFile,
-  logTokenEvent,
-  trackFileRead,
-  trackManifestQuery,
-  trackSkillInjection,
-  trackPromptBuild,
-  trackSpawnOutput,
-  trackSpawnComplete,
-  startTokenSession,
-  endTokenSession,
-  getTokenSummary,
-  compareManifestVsFull,
-  getTrackingStatus,
-} from './token-estimation.js';
-export type { TokenEventType, TokenEvent, TokenSessionSummary } from './token-estimation.js';
-
+  AgentReliability,
+  AggregationPeriod,
+  InstructionStability,
+  isValidEnumValue,
+  ManifestIntegrity,
+  MetricCategory,
+  MetricSource,
+  SessionDegradation,
+  Severity,
+} from './enums.js';
+export type { AggregatedTokens, OtelCaptureMode, OtelTokenDataPoint } from './otel-integration.js';
 // OTel integration
 export {
-  isOtelEnabled,
-  getOtelSetupCommands,
-  parseTokenMetrics,
-  getSessionTokens,
-  recordSessionStart,
-  recordSessionEnd,
   compareSessions,
+  getOtelSetupCommands,
+  getSessionTokens,
   getTokenStats,
+  isOtelEnabled,
+  parseTokenMetrics,
+  recordSessionEnd,
+  recordSessionStart,
 } from './otel-integration.js';
-export type { OtelCaptureMode, OtelTokenDataPoint, AggregatedTokens } from './otel-integration.js';
-
-// Metrics aggregation
+export type { TokenEvent, TokenEventType, TokenSessionSummary } from './token-estimation.js';
+// Token estimation
 export {
-  syncMetricsToGlobal,
-  getProjectComplianceSummary,
-  getGlobalComplianceSummary,
-  getComplianceTrend,
-  getSkillReliability,
-  logSessionMetrics,
-  getSessionMetricsSummary,
-} from './aggregation.js';
-
-// A/B testing
-export {
-  startABTest,
-  endABTest,
-  logABEvent,
-  getABTestResults,
-  listABTests,
-  compareABTest,
-  getABTestStats,
-} from './ab-test.js';
-export type { ABVariant, ABEventType, ABTestSummary } from './ab-test.js';
+  compareManifestVsFull,
+  endTokenSession,
+  estimateTokens,
+  estimateTokensFromFile,
+  getTokenSummary,
+  getTrackingStatus,
+  logTokenEvent,
+  startTokenSession,
+  trackFileRead,
+  trackManifestQuery,
+  trackPromptBuild,
+  trackSkillInjection,
+  trackSpawnComplete,
+  trackSpawnOutput,
+} from './token-estimation.js';

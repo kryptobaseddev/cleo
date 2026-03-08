@@ -5,14 +5,14 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
 import { join } from 'node:path';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import { formatError } from '../../core/output.js';
 import { getCleoHome } from '../../core/paths.js';
 import { readJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /** Command index entry from COMMANDS-INDEX.json. */
 interface CommandEntry {
@@ -101,8 +101,8 @@ export function registerCommandsCommand(program: Command): void {
         // Deprecation notice: COMMANDS-INDEX.json is a Bash-era artifact
         console.error(
           '[DEPRECATED] cleo commands reads from COMMANDS-INDEX.json which is deprecated.\n' +
-          'The canonical operations reference is: docs/specs/CLEO-OPERATIONS-REFERENCE.md\n' +
-          'Use query/mutate MCP tools for programmatic access.\n',
+            'The canonical operations reference is: docs/specs/CLEO-OPERATIONS-REFERENCE.md\n' +
+            'Use query/mutate MCP tools for programmatic access.\n',
         );
 
         // Handle workflows
@@ -139,14 +139,17 @@ export function registerCommandsCommand(program: Command): void {
         }
 
         // List commands
-        cliOutput({
-          summary: {
-            totalCommands: commands.length,
-            categoryFilter: category ?? 'all',
-            relevanceFilter: relevance ?? 'all',
+        cliOutput(
+          {
+            summary: {
+              totalCommands: commands.length,
+              categoryFilter: category ?? 'all',
+              relevanceFilter: relevance ?? 'all',
+            },
+            commands,
           },
-          commands,
-        }, { command: 'commands' });
+          { command: 'commands' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

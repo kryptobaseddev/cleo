@@ -3,16 +3,19 @@
  * @task T4522
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { validateSkill, validateReturnMessage, validateSkills } from '../validation.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { validateReturnMessage, validateSkill, validateSkills } from '../validation.js';
 
 let testDir: string;
 
 function createTestDir(): string {
-  const dir = join(tmpdir(), `cleo-validate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `cleo-validate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -36,7 +39,11 @@ afterEach(() => {
 
 describe('validateSkill', () => {
   it('should validate a well-formed skill', () => {
-    const skillDir = createSkill(testDir, 'ct-good-skill', 'name: Good Skill\ndescription: A valid skill\nversion: 1.0.0');
+    const skillDir = createSkill(
+      testDir,
+      'ct-good-skill',
+      'name: Good Skill\ndescription: A valid skill\nversion: 1.0.0',
+    );
     const result = validateSkill(skillDir);
 
     expect(result.valid).toBe(true);
@@ -48,7 +55,7 @@ describe('validateSkill', () => {
     const result = validateSkill(join(testDir, 'ct-no-md'));
 
     expect(result.valid).toBe(false);
-    expect(result.issues.some(i => i.code === 'SKILL_MD_MISSING')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'SKILL_MD_MISSING')).toBe(true);
   });
 
   it('should report error for missing name', () => {
@@ -56,7 +63,7 @@ describe('validateSkill', () => {
     const result = validateSkill(skillDir);
 
     expect(result.valid).toBe(false);
-    expect(result.issues.some(i => i.code === 'FM_NAME_MISSING')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'FM_NAME_MISSING')).toBe(true);
   });
 
   it('should report error for missing description', () => {
@@ -64,30 +71,38 @@ describe('validateSkill', () => {
     const result = validateSkill(skillDir);
 
     expect(result.valid).toBe(false);
-    expect(result.issues.some(i => i.code === 'FM_DESCRIPTION_MISSING')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'FM_DESCRIPTION_MISSING')).toBe(true);
   });
 
   it('should warn about non-standard naming', () => {
-    const skillDir = createSkill(testDir, 'bad-naming', 'name: Bad Naming\ndescription: No ct- prefix');
+    const skillDir = createSkill(
+      testDir,
+      'bad-naming',
+      'name: Bad Naming\ndescription: No ct- prefix',
+    );
     const result = validateSkill(skillDir);
 
     expect(result.warningCount).toBeGreaterThan(0);
-    expect(result.issues.some(i => i.code === 'NAMING_CONVENTION')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'NAMING_CONVENTION')).toBe(true);
   });
 
   it('should report error for non-existent directory', () => {
     const result = validateSkill(join(testDir, 'nonexistent'));
 
     expect(result.valid).toBe(false);
-    expect(result.issues.some(i => i.code === 'SKILL_DIR_NOT_FOUND')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'SKILL_DIR_NOT_FOUND')).toBe(true);
   });
 
   it('should report error for invalid protocol', () => {
-    const skillDir = createSkill(testDir, 'ct-bad-protocol', 'name: Bad Proto\ndescription: Test\nprotocol: invalid');
+    const skillDir = createSkill(
+      testDir,
+      'ct-bad-protocol',
+      'name: Bad Proto\ndescription: Test\nprotocol: invalid',
+    );
     const result = validateSkill(skillDir);
 
     expect(result.valid).toBe(false);
-    expect(result.issues.some(i => i.code === 'FM_INVALID_PROTOCOL')).toBe(true);
+    expect(result.issues.some((i) => i.code === 'FM_INVALID_PROTOCOL')).toBe(true);
   });
 });
 
@@ -99,7 +114,7 @@ describe('validateSkills', () => {
     const results = validateSkills([dir1, dir2]);
 
     expect(results).toHaveLength(2);
-    expect(results.every(r => r.valid)).toBe(true);
+    expect(results.every((r) => r.valid)).toBe(true);
   });
 });
 
@@ -119,9 +134,15 @@ describe('validateReturnMessage', () => {
   });
 
   it('should accept bracket-prefixed messages', () => {
-    expect(validateReturnMessage('[Research] complete. See MANIFEST.jsonl for summary.').valid).toBe(true);
-    expect(validateReturnMessage('[Implementation] partial. See MANIFEST.jsonl for details.').valid).toBe(true);
-    expect(validateReturnMessage('[Release] blocked. See MANIFEST.jsonl for blocker details.').valid).toBe(true);
+    expect(
+      validateReturnMessage('[Research] complete. See MANIFEST.jsonl for summary.').valid,
+    ).toBe(true);
+    expect(
+      validateReturnMessage('[Implementation] partial. See MANIFEST.jsonl for details.').valid,
+    ).toBe(true);
+    expect(
+      validateReturnMessage('[Release] blocked. See MANIFEST.jsonl for blocker details.').valid,
+    ).toBe(true);
   });
 
   it('should reject empty messages', () => {

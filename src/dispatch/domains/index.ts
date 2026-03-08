@@ -9,20 +9,28 @@
  */
 
 import type { DomainHandler } from '../types.js';
-import { TasksHandler } from './tasks.js';
-import { SessionHandler } from './session.js';
-import { CheckHandler } from './check.js';
 import { AdminHandler } from './admin.js';
+import { CheckHandler } from './check.js';
 import { MemoryHandler } from './memory.js';
+import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
-import { ToolsHandler } from './tools.js';
-import { NexusHandler } from './nexus.js';
+import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
+import { TasksHandler } from './tasks.js';
+import { ToolsHandler } from './tools.js';
 
 export {
-  TasksHandler, SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
-  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler, StickyHandler,
+  TasksHandler,
+  SessionHandler,
+  CheckHandler,
+  AdminHandler,
+  MemoryHandler,
+  OrchestrateHandler,
+  PipelineHandler,
+  ToolsHandler,
+  NexusHandler,
+  StickyHandler,
 };
 
 /**

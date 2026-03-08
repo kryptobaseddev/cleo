@@ -12,16 +12,16 @@
  */
 // CLI-only: detect-drift runs local static analysis; session.context.drift is a different operation
 
-import { Command } from 'commander';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {
   const currentFile = fileURLToPath(import.meta.url);
   let currentDir = dirname(currentFile);
-  
+
   while (currentDir !== '/') {
     if (existsSync(join(currentDir, 'package.json'))) {
       return currentDir;
@@ -30,7 +30,7 @@ function findProjectRoot(): string {
     if (parent === currentDir) break;
     currentDir = parent;
   }
-  
+
   return process.cwd();
 }
 
@@ -67,7 +67,7 @@ export function registerDetectDriftCommand(program: Command): void {
     .description('Detect documentation drift against TypeScript source of truth')
     .action(async () => {
       const projectRoot = findProjectRoot();
-      
+
       const result: DriftResult = {
         summary: {
           totalChecks: 0,
@@ -80,7 +80,12 @@ export function registerDetectDriftCommand(program: Command): void {
         recommendations: [],
       };
 
-      const addCheck = (name: string, status: 'pass' | 'fail' | 'warn', message: string, issues: DriftIssue[] = []) => {
+      const addCheck = (
+        name: string,
+        status: 'pass' | 'fail' | 'warn',
+        message: string,
+        issues: DriftIssue[] = [],
+      ) => {
         result.checks.push({ name, status, message, issues });
         result.summary.totalChecks++;
         if (status === 'pass') result.summary.passed++;
@@ -107,46 +112,55 @@ export function registerDetectDriftCommand(program: Command): void {
         const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATIONS-REFERENCE.md');
         const queryPath = join(projectRoot, 'src', 'mcp', 'gateways', 'query.ts');
         const mutatePath = join(projectRoot, 'src', 'mcp', 'gateways', 'mutate.ts');
-        
+
         if (!existsSync(specPath)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATIONS-REFERENCE.md missing', [{
-            severity: 'error',
-            category: 'spec',
-            message: 'Operations reference specification not found',
-            file: specPath,
-            recommendation: 'Create docs/specs/CLEO-OPERATIONS-REFERENCE.md with canonical operation definitions',
-          }]);
+          addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATIONS-REFERENCE.md missing', [
+            {
+              severity: 'error',
+              category: 'spec',
+              message: 'Operations reference specification not found',
+              file: specPath,
+              recommendation:
+                'Create docs/specs/CLEO-OPERATIONS-REFERENCE.md with canonical operation definitions',
+            },
+          ]);
         } else if (!existsSync(queryPath) || !existsSync(mutatePath)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'MCP gateway files missing', [{
-            severity: 'error',
-            category: 'implementation',
-            message: 'MCP gateway files not found',
-            file: queryPath,
-            recommendation: 'Verify src/mcp/gateways/query.ts and mutate.ts exist',
-          }]);
+          addCheck('Gateway-to-spec sync', 'fail', 'MCP gateway files missing', [
+            {
+              severity: 'error',
+              category: 'implementation',
+              message: 'MCP gateway files not found',
+              file: queryPath,
+              recommendation: 'Verify src/mcp/gateways/query.ts and mutate.ts exist',
+            },
+          ]);
         } else {
           const specContent = safeRead(specPath);
           const queryContent = safeRead(queryPath);
           const mutateContent = safeRead(mutatePath);
-          
+
           // Extract operations from spec
           const specOpsMatch = specContent.match(/## `([a-z_]+)`/g) || [];
-          const specOps = specOpsMatch.map(m => m.replace(/## `|`/g, ''));
-          
+          const specOps = specOpsMatch.map((m) => m.replace(/## `|`/g, ''));
+
           // Extract operations from gateways
           const queryOpsMatch = queryContent.match(/case '([a-z_]+)':/g) || [];
           const mutateOpsMatch = mutateContent.match(/case '([a-z_]+)':/g) || [];
           const gatewayOps = [
-            ...queryOpsMatch.map(m => m.replace(/case '|':/g, '')),
-            ...mutateOpsMatch.map(m => m.replace(/case '|':/g, '')),
+            ...queryOpsMatch.map((m) => m.replace(/case '|':/g, '')),
+            ...mutateOpsMatch.map((m) => m.replace(/case '|':/g, '')),
           ];
-          
+
           // Find mismatches
-          const specOnly = specOps.filter(op => !gatewayOps.includes(op));
-          const gatewayOnly = gatewayOps.filter(op => !specOps.includes(op));
-          
+          const specOnly = specOps.filter((op) => !gatewayOps.includes(op));
+          const gatewayOnly = gatewayOps.filter((op) => !specOps.includes(op));
+
           if (specOnly.length === 0 && gatewayOnly.length === 0) {
-            addCheck('Gateway-to-spec sync', 'pass', `All ${specOps.length} operations synchronized`);
+            addCheck(
+              'Gateway-to-spec sync',
+              'pass',
+              `All ${specOps.length} operations synchronized`,
+            );
           } else {
             const issues: DriftIssue[] = [];
             if (specOnly.length > 0) {
@@ -154,7 +168,8 @@ export function registerDetectDriftCommand(program: Command): void {
                 severity: 'warning',
                 category: 'spec-coverage',
                 message: `${specOnly.length} operations in spec but not in gateways: ${specOnly.join(', ')}`,
-                recommendation: 'Add missing operation handlers to MCP gateways or remove from spec',
+                recommendation:
+                  'Add missing operation handlers to MCP gateways or remove from spec',
               });
             }
             if (gatewayOnly.length > 0) {
@@ -165,39 +180,52 @@ export function registerDetectDriftCommand(program: Command): void {
                 recommendation: 'Document missing operations in CLEO-OPERATIONS-REFERENCE.md',
               });
             }
-            addCheck('Gateway-to-spec sync', 'warn', `Found ${specOnly.length + gatewayOnly.length} operation mismatches`, issues);
+            addCheck(
+              'Gateway-to-spec sync',
+              'warn',
+              `Found ${specOnly.length + gatewayOnly.length} operation mismatches`,
+              issues,
+            );
           }
         }
       } catch (e: any) {
-        addCheck('Gateway-to-spec sync', 'fail', `Error: ${e.message}`, [{
-          severity: 'error',
-          category: 'system',
-          message: e.message,
-          recommendation: 'Check file permissions and paths',
-        }]);
+        addCheck('Gateway-to-spec sync', 'fail', `Error: ${e.message}`, [
+          {
+            severity: 'error',
+            category: 'system',
+            message: e.message,
+            recommendation: 'Check file permissions and paths',
+          },
+        ]);
       }
 
       // Check 2: CLI-to-core sync
       try {
         const cliDir = join(projectRoot, 'src', 'cli', 'commands');
         const coreDir = join(projectRoot, 'src', 'core');
-        
+
         if (!existsSync(cliDir)) {
-          addCheck('CLI-to-core sync', 'fail', 'CLI commands directory missing', [{
-            severity: 'error',
-            category: 'structure',
-            message: 'src/cli/commands/ directory not found',
-            recommendation: 'Verify TypeScript source structure is intact',
-          }]);
+          addCheck('CLI-to-core sync', 'fail', 'CLI commands directory missing', [
+            {
+              severity: 'error',
+              category: 'structure',
+              message: 'src/cli/commands/ directory not found',
+              recommendation: 'Verify TypeScript source structure is intact',
+            },
+          ]);
         } else if (!existsSync(coreDir)) {
-          addCheck('CLI-to-core sync', 'fail', 'Core directory missing', [{
-            severity: 'error',
-            category: 'structure',
-            message: 'src/core/ directory not found',
-            recommendation: 'Verify TypeScript source structure is intact',
-          }]);
+          addCheck('CLI-to-core sync', 'fail', 'Core directory missing', [
+            {
+              severity: 'error',
+              category: 'structure',
+              message: 'src/core/ directory not found',
+              recommendation: 'Verify TypeScript source structure is intact',
+            },
+          ]);
         } else {
-          const files = readdirSync(cliDir).filter(f => f.endsWith('.ts') && !f.includes('.test.'));
+          const files = readdirSync(cliDir).filter(
+            (f) => f.endsWith('.ts') && !f.includes('.test.'),
+          );
           addCheck('CLI-to-core sync', 'pass', `Found ${files.length} CLI command implementations`);
         }
       } catch (e: any) {
@@ -208,14 +236,16 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const domainsDir = join(projectRoot, 'src', 'mcp', 'domains');
         if (!existsSync(domainsDir)) {
-          addCheck('Domain handler coverage', 'fail', 'MCP domains directory missing', [{
-            severity: 'error',
-            category: 'structure',
-            message: 'src/mcp/domains/ not found',
-            recommendation: 'Verify MCP domain handlers are in place',
-          }]);
+          addCheck('Domain handler coverage', 'fail', 'MCP domains directory missing', [
+            {
+              severity: 'error',
+              category: 'structure',
+              message: 'src/mcp/domains/ not found',
+              recommendation: 'Verify MCP domain handlers are in place',
+            },
+          ]);
         } else {
-          const files = readdirSync(domainsDir).filter(f => f.endsWith('.ts'));
+          const files = readdirSync(domainsDir).filter((f) => f.endsWith('.ts'));
           addCheck('Domain handler coverage', 'pass', `Found ${files.length} domain handlers`);
         }
       } catch (e: any) {
@@ -226,12 +256,14 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const matrixPath = join(projectRoot, 'src', 'dispatch', 'lib', 'capability-matrix.ts');
         if (!existsSync(matrixPath)) {
-          addCheck('Capability matrix', 'fail', 'Capability matrix missing', [{
-            severity: 'error',
-            category: 'configuration',
-            message: 'src/dispatch/lib/capability-matrix.ts not found',
-            recommendation: 'Create capability matrix to document supported operations',
-          }]);
+          addCheck('Capability matrix', 'fail', 'Capability matrix missing', [
+            {
+              severity: 'error',
+              category: 'configuration',
+              message: 'src/dispatch/lib/capability-matrix.ts not found',
+              recommendation: 'Create capability matrix to document supported operations',
+            },
+          ]);
         } else {
           addCheck('Capability matrix', 'pass', 'Capability matrix exists');
         }
@@ -243,22 +275,31 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const schemaPath = join(projectRoot, 'src', 'store', 'schema.ts');
         if (!existsSync(schemaPath)) {
-          addCheck('Schema validation', 'fail', 'Schema definition missing', [{
-            severity: 'error',
-            category: 'data-model',
-            message: 'src/store/schema.ts not found',
-            recommendation: 'Create schema definition for database tables',
-          }]);
+          addCheck('Schema validation', 'fail', 'Schema definition missing', [
+            {
+              severity: 'error',
+              category: 'data-model',
+              message: 'src/store/schema.ts not found',
+              recommendation: 'Create schema definition for database tables',
+            },
+          ]);
         } else {
           const content = safeRead(schemaPath);
           const tableCount = (content.match(/CREATE TABLE/g) || []).length;
           if (tableCount === 0) {
-            addCheck('Schema validation', 'warn', 'Schema file exists but no CREATE TABLE statements', [{
-              severity: 'warning',
-              category: 'data-model',
-              message: 'No SQL table definitions found in schema.ts',
-              recommendation: 'Add CREATE TABLE statements for all database entities',
-            }]);
+            addCheck(
+              'Schema validation',
+              'warn',
+              'Schema file exists but no CREATE TABLE statements',
+              [
+                {
+                  severity: 'warning',
+                  category: 'data-model',
+                  message: 'No SQL table definitions found in schema.ts',
+                  recommendation: 'Add CREATE TABLE statements for all database entities',
+                },
+              ],
+            );
           } else {
             addCheck('Schema validation', 'pass', `Schema defines ${tableCount} tables`);
           }
@@ -271,9 +312,9 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
         const specPath = join(projectRoot, 'docs', 'specs', 'PORTABLE-BRAIN-SPEC.md');
-        
+
         const issues: DriftIssue[] = [];
-        
+
         if (!existsSync(visionPath)) {
           issues.push({
             severity: 'error',
@@ -283,7 +324,7 @@ export function registerDetectDriftCommand(program: Command): void {
             recommendation: 'Create docs/concepts/CLEO-VISION.md with project vision',
           });
         }
-        
+
         if (!existsSync(specPath)) {
           issues.push({
             severity: 'error',
@@ -293,7 +334,7 @@ export function registerDetectDriftCommand(program: Command): void {
             recommendation: 'Create docs/specs/PORTABLE-BRAIN-SPEC.md with canonical pillars',
           });
         }
-        
+
         if (issues.length > 0) {
           addCheck('Canonical identity', 'fail', 'Canonical documents missing', issues);
         } else {
@@ -305,17 +346,24 @@ export function registerDetectDriftCommand(program: Command): void {
             'Deterministic Safety',
             'Cognitive Retrieval',
           ];
-          
-          const missingPillars = requiredPillars.filter(p => !specContent.includes(p));
-          
+
+          const missingPillars = requiredPillars.filter((p) => !specContent.includes(p));
+
           if (missingPillars.length > 0) {
-            addCheck('Canonical identity', 'fail', `Missing ${missingPillars.length} canonical pillars`, [{
-              severity: 'error',
-              category: 'vision',
-              message: `Missing pillars: ${missingPillars.join(', ')}`,
-              file: specPath,
-              recommendation: 'Add all five canonical pillars to PORTABLE-BRAIN-SPEC.md',
-            }]);
+            addCheck(
+              'Canonical identity',
+              'fail',
+              `Missing ${missingPillars.length} canonical pillars`,
+              [
+                {
+                  severity: 'error',
+                  category: 'vision',
+                  message: `Missing pillars: ${missingPillars.join(', ')}`,
+                  file: specPath,
+                  recommendation: 'Add all five canonical pillars to PORTABLE-BRAIN-SPEC.md',
+                },
+              ],
+            );
           } else {
             addCheck('Canonical identity', 'pass', 'All canonical pillars documented');
           }
@@ -328,22 +376,26 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const injectionPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
         if (!existsSync(injectionPath)) {
-          addCheck('Agent injection', 'fail', 'Agent injection template missing', [{
-            severity: 'error',
-            category: 'agent-support',
-            message: 'CLEO-INJECTION.md not found',
-            file: injectionPath,
-            recommendation: 'Create agent injection template or run cleo init',
-          }]);
+          addCheck('Agent injection', 'fail', 'Agent injection template missing', [
+            {
+              severity: 'error',
+              category: 'agent-support',
+              message: 'CLEO-INJECTION.md not found',
+              file: injectionPath,
+              recommendation: 'Create agent injection template or run cleo init',
+            },
+          ]);
         } else {
           const content = safeRead(injectionPath);
           if (content.length < 100) {
-            addCheck('Agent injection', 'warn', 'Agent injection template appears incomplete', [{
-              severity: 'warning',
-              category: 'agent-support',
-              message: 'Template file is unusually short',
-              recommendation: 'Verify template contains required agent instructions',
-            }]);
+            addCheck('Agent injection', 'warn', 'Agent injection template appears incomplete', [
+              {
+                severity: 'warning',
+                category: 'agent-support',
+                message: 'Template file is unusually short',
+                recommendation: 'Verify template contains required agent instructions',
+              },
+            ]);
           } else {
             addCheck('Agent injection', 'pass', 'Agent injection template exists');
           }
@@ -356,12 +408,14 @@ export function registerDetectDriftCommand(program: Command): void {
       try {
         const exitCodesPath = join(projectRoot, 'src', 'types', 'exit-codes.ts');
         if (!existsSync(exitCodesPath)) {
-          addCheck('Exit codes', 'fail', 'Exit codes definition missing', [{
-            severity: 'error',
-            category: 'protocol',
-            message: 'src/types/exit-codes.ts not found',
-            recommendation: 'Create exit codes enum for CLI protocol compliance',
-          }]);
+          addCheck('Exit codes', 'fail', 'Exit codes definition missing', [
+            {
+              severity: 'error',
+              category: 'protocol',
+              message: 'src/types/exit-codes.ts not found',
+              recommendation: 'Create exit codes enum for CLI protocol compliance',
+            },
+          ]);
         } else {
           const content = safeRead(exitCodesPath);
           const codeCount = (content.match(/= \d+/g) || []).length;
@@ -385,7 +439,7 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Output via LAFS-compliant cliOutput
       cliOutput(result, { command: 'detect-drift' });
-      
+
       // Exit with appropriate code for scripting
       process.exit(result.summary.exitCode);
     });

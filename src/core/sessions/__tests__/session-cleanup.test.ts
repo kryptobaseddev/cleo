@@ -4,7 +4,7 @@
  * @task T2304
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '../../../types/session.js';
 
 // Mock data-accessor before importing cleanup module
@@ -17,9 +17,9 @@ vi.mock('../../config.js', () => ({
   getRawConfigValue: vi.fn(),
 }));
 
-import { cleanupSessions } from '../session-cleanup.js';
 import { getAccessor } from '../../../store/data-accessor.js';
 import { getRawConfigValue } from '../../config.js';
+import { cleanupSessions } from '../session-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,9 +98,7 @@ describe('cleanupSessions', () => {
       const ended = savedSessions.find((s) => s.id === 'session-stale')!;
       expect(ended.status).toBe('ended');
       expect(ended.endedAt).toBeDefined();
-      expect(ended.notes).toEqual(
-        expect.arrayContaining([expect.stringContaining('Auto-ended')]),
-      );
+      expect(ended.notes).toEqual(expect.arrayContaining([expect.stringContaining('Auto-ended')]));
     });
 
     it('does NOT auto-end recently active sessions', async () => {

@@ -9,14 +9,15 @@
  *
  * @task T4916
  */
-import { Command } from 'commander';
-import { cliOutput } from '../renderers/index.js';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
+
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCleoHome, getAgentsHome } from '../../core/paths.js';
+import type { Command } from 'commander';
+import { getAgentsHome, getCleoHome } from '../../core/paths.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerInstallGlobalCommand(program: Command): void {
   program
@@ -47,7 +48,9 @@ export function registerInstallGlobalCommand(program: Command): void {
             if (!isDryRun) {
               await writeFile(globalPath, content);
             }
-            created.push(`~/.cleo/templates/CLEO-INJECTION.md (${isDryRun ? 'would refresh' : 'refreshed'})`);
+            created.push(
+              `~/.cleo/templates/CLEO-INJECTION.md (${isDryRun ? 'would refresh' : 'refreshed'})`,
+            );
           }
         } catch {
           warnings.push('Could not refresh CLEO-INJECTION.md template');
@@ -58,7 +61,9 @@ export function registerInstallGlobalCommand(program: Command): void {
         const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
 
         try {
-          const { inject, getInstalledProviders, injectAll, buildInjectionContent } = await import('@cleocode/caamp');
+          const { inject, getInstalledProviders, injectAll, buildInjectionContent } = await import(
+            '@cleocode/caamp'
+          );
 
           if (!isDryRun) {
             await mkdir(globalAgentsDir, { recursive: true });
@@ -66,7 +71,10 @@ export function registerInstallGlobalCommand(program: Command): void {
             // Strip any legacy CLEO blocks first
             if (existsSync(globalAgentsMd)) {
               const content = await readFile(globalAgentsMd, 'utf8');
-              const stripped = content.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
+              const stripped = content.replace(
+                /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g,
+                '',
+              );
               if (stripped !== content) {
                 await writeFile(globalAgentsMd, stripped, 'utf8');
               }
@@ -84,7 +92,9 @@ export function registerInstallGlobalCommand(program: Command): void {
           if (providers.length === 0) {
             warnings.push('No AI provider installations detected');
           } else {
-            const injectionContent = buildInjectionContent({ references: ['@~/.agents/AGENTS.md'] });
+            const injectionContent = buildInjectionContent({
+              references: ['@~/.agents/AGENTS.md'],
+            });
 
             if (!isDryRun) {
               // Strip legacy CLEO blocks from global provider files first
@@ -92,7 +102,10 @@ export function registerInstallGlobalCommand(program: Command): void {
                 const instructFilePath = join(provider.pathGlobal, provider.instructFile);
                 if (existsSync(instructFilePath)) {
                   const fileContent = await readFile(instructFilePath, 'utf8');
-                  const stripped = fileContent.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
+                  const stripped = fileContent.replace(
+                    /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g,
+                    '',
+                  );
                   if (stripped !== fileContent) {
                     await writeFile(instructFilePath, stripped, 'utf8');
                   }
@@ -117,7 +130,9 @@ export function registerInstallGlobalCommand(program: Command): void {
 
         // Step 4: Update MCP server configs
         try {
-          const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import('../../core/mcp/index.js');
+          const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import(
+            '../../core/mcp/index.js'
+          );
           const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
           type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
 
@@ -128,10 +143,16 @@ export function registerInstallGlobalCommand(program: Command): void {
 
           if (providers.length > 0) {
             if (!isDryRun) {
-              const results = await installMcpServerToAll(providers, serverName, serverEntry, 'global', homedir());
-              const successes = results.filter(r => r.success);
+              const results = await installMcpServerToAll(
+                providers,
+                serverName,
+                serverEntry,
+                'global',
+                homedir(),
+              );
+              const successes = results.filter((r) => r.success);
               if (successes.length > 0) {
-                created.push(`MCP configs: ${successes.map(r => r.provider.id).join(', ')}`);
+                created.push(`MCP configs: ${successes.map((r) => r.provider.id).join(', ')}`);
               }
             } else {
               created.push('MCP configs (would update)');
@@ -150,7 +171,9 @@ export function registerInstallGlobalCommand(program: Command): void {
             created.push('core skills (would install/update)');
           }
         } catch (err) {
-          warnings.push(`Core skills installation failed: ${err instanceof Error ? err.message : String(err)}`);
+          warnings.push(
+            `Core skills installation failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
 
         cliOutput(

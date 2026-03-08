@@ -14,7 +14,7 @@
  * @epic T4914
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -24,7 +24,9 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 export function registerBriefingCommand(program: Command): void {
   program
     .command('briefing')
-    .description('Show composite session-start context (handoff, focus, next tasks, bugs, blockers, epics)')
+    .description(
+      'Show composite session-start context (handoff, focus, next tasks, bugs, blockers, epics)',
+    )
     .option('-s, --scope <scope>', 'Scope filter (global or epic:T###)')
     .option('--max-next <n>', 'Maximum next tasks to show', '5')
     .option('--max-bugs <n>', 'Maximum bugs to show', '10')

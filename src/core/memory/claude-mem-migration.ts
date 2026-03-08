@@ -10,12 +10,12 @@
 
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { getClaudeMemDbPath } from '../paths.js';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
-import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../../store/brain-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
+import { getClaudeMemDbPath } from '../paths.js';
+import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
 // Runtime-load node:sqlite via createRequire (same pattern as node-sqlite-adapter.ts)
 const _require = createRequire(import.meta.url);
@@ -73,16 +73,21 @@ interface ClaudeMemSessionSummary {
 
 /** Valid observation types in the BRAIN schema. */
 const VALID_OBSERVATION_TYPES = new Set<string>([
-  'discovery', 'change', 'feature', 'bugfix', 'decision', 'refactor',
+  'discovery',
+  'change',
+  'feature',
+  'bugfix',
+  'decision',
+  'refactor',
 ]);
 
 /**
  * Map a claude-mem observation type to a valid BRAIN observation type.
  * Falls back to 'discovery' for unrecognized types.
  */
-function mapObservationType(type: string): typeof BRAIN_OBSERVATION_TYPES[number] {
+function mapObservationType(type: string): (typeof BRAIN_OBSERVATION_TYPES)[number] {
   if (VALID_OBSERVATION_TYPES.has(type)) {
-    return type as typeof BRAIN_OBSERVATION_TYPES[number];
+    return type as (typeof BRAIN_OBSERVATION_TYPES)[number];
   }
   return 'discovery';
 }
@@ -141,9 +146,9 @@ export async function migrateClaudeMem(
   // Validate source database exists
   if (!existsSync(sourcePath)) {
     throw new Error(
-      `claude-mem database not found at: ${sourcePath}\n`
-      + `Expected location: ~/.claude-mem/claude-mem.db\n`
-      + `Use --source <path> to specify a custom location.`,
+      `claude-mem database not found at: ${sourcePath}\n` +
+        `Expected location: ~/.claude-mem/claude-mem.db\n` +
+        `Use --source <path> to specify a custom location.`,
     );
   }
 
@@ -171,9 +176,9 @@ export async function migrateClaudeMem(
     ensureFts5Tables(nativeDb);
 
     // --- Phase 1: Migrate observations ---
-    const observations = sourceDb.prepare(
-      'SELECT * FROM observations ORDER BY id',
-    ).all() as unknown as ClaudeMemObservation[];
+    const observations = sourceDb
+      .prepare('SELECT * FROM observations ORDER BY id')
+      .all() as unknown as ClaudeMemObservation[];
 
     // Process observations in batches
     for (let i = 0; i < observations.length; i += batchSize) {
@@ -188,9 +193,9 @@ export async function migrateClaudeMem(
           const obsId = `CM-${row.id}`;
 
           // Check if already imported (idempotent)
-          const existing = nativeDb.prepare(
-            'SELECT id FROM brain_observations WHERE id = ?',
-          ).get(obsId) as Record<string, unknown> | undefined;
+          const existing = nativeDb
+            .prepare('SELECT id FROM brain_observations WHERE id = ?')
+            .get(obsId) as Record<string, unknown> | undefined;
 
           if (existing) {
             result.observationsSkipped++;
@@ -209,50 +214,54 @@ export async function migrateClaudeMem(
           const mappedType = mapObservationType(row.type);
           const projectTag = options.project ?? row.project ?? null;
 
-          nativeDb.prepare(`
+          nativeDb
+            .prepare(`
             INSERT INTO brain_observations (
               id, type, title, subtitle, narrative,
               facts_json, concepts_json, project,
               files_read_json, files_modified_json,
               source_type, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            obsId,
-            mappedType,
-            row.title,
-            row.subtitle ?? null,
-            row.narrative ?? null,
-            row.facts ?? null,
-            row.concepts ?? null,
-            projectTag,
-            row.files_read ?? null,
-            row.files_modified ?? null,
-            'claude-mem',
-            row.created_at ?? null,
-            row.updated_at ?? null,
-          );
+          `)
+            .run(
+              obsId,
+              mappedType,
+              row.title,
+              row.subtitle ?? null,
+              row.narrative ?? null,
+              row.facts ?? null,
+              row.concepts ?? null,
+              projectTag,
+              row.files_read ?? null,
+              row.files_modified ?? null,
+              'claude-mem',
+              row.created_at ?? null,
+              row.updated_at ?? null,
+            );
           result.observationsImported++;
 
           // For decision-typed observations, also create a brain_decisions entry
           if (row.type === 'decision') {
             const decId = `CMD-${row.id}`;
-            const existingDec = nativeDb.prepare(
-              'SELECT id FROM brain_decisions WHERE id = ?',
-            ).get(decId) as Record<string, unknown> | undefined;
+            const existingDec = nativeDb
+              .prepare('SELECT id FROM brain_decisions WHERE id = ?')
+              .get(decId) as Record<string, unknown> | undefined;
 
             if (!existingDec) {
-              nativeDb.prepare(`
+              nativeDb
+                .prepare(`
                 INSERT INTO brain_decisions (
                   id, type, decision, rationale, confidence, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?)
-              `).run(
-                decId,
-                'tactical',
-                row.title,
-                row.narrative ?? 'Imported from claude-mem',
-                'medium',
-                row.created_at ?? null,
-              );
+              `)
+                .run(
+                  decId,
+                  'tactical',
+                  row.title,
+                  row.narrative ?? 'Imported from claude-mem',
+                  'medium',
+                  row.created_at ?? null,
+                );
               result.decisionsImported++;
             }
           }
@@ -270,8 +279,8 @@ export async function migrateClaudeMem(
           }
         }
         result.errors.push(
-          `Batch starting at observation ${batch[0]?.id ?? '?'}: `
-          + `${err instanceof Error ? err.message : String(err)}`,
+          `Batch starting at observation ${batch[0]?.id ?? '?'}: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -279,9 +288,9 @@ export async function migrateClaudeMem(
     // --- Phase 2: Migrate session_summaries (learned -> brain_learnings) ---
     let summaries: ClaudeMemSessionSummary[] = [];
     try {
-      summaries = sourceDb.prepare(
-        'SELECT * FROM session_summaries ORDER BY id',
-      ).all() as unknown as ClaudeMemSessionSummary[];
+      summaries = sourceDb
+        .prepare('SELECT * FROM session_summaries ORDER BY id')
+        .all() as unknown as ClaudeMemSessionSummary[];
     } catch {
       // session_summaries table may not exist in all claude-mem versions
       // This is not an error — just skip
@@ -303,9 +312,9 @@ export async function migrateClaudeMem(
           const learnId = `CML-${row.id}`;
 
           // Check if already imported
-          const existing = nativeDb.prepare(
-            'SELECT id FROM brain_learnings WHERE id = ?',
-          ).get(learnId) as Record<string, unknown> | undefined;
+          const existing = nativeDb
+            .prepare('SELECT id FROM brain_learnings WHERE id = ?')
+            .get(learnId) as Record<string, unknown> | undefined;
 
           if (existing) {
             // Don't count as skipped — these are separate from observations
@@ -326,18 +335,20 @@ export async function migrateClaudeMem(
             ? `claude-mem session ${row.session_id}`
             : 'claude-mem session';
 
-          nativeDb.prepare(`
+          nativeDb
+            .prepare(`
             INSERT INTO brain_learnings (
               id, insight, source, confidence, actionable, created_at
             ) VALUES (?, ?, ?, ?, ?, ?)
-          `).run(
-            learnId,
-            insight,
-            source,
-            0.5,
-            0,  // false
-            row.created_at ?? null,
-          );
+          `)
+            .run(
+              learnId,
+              insight,
+              source,
+              0.5,
+              0, // false
+              row.created_at ?? null,
+            );
           result.learningsImported++;
         }
 
@@ -353,14 +364,19 @@ export async function migrateClaudeMem(
           }
         }
         result.errors.push(
-          `Session summary batch starting at ${batch[0]?.id ?? '?'}: `
-          + `${err instanceof Error ? err.message : String(err)}`,
+          `Session summary batch starting at ${batch[0]?.id ?? '?'}: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
 
     // --- Phase 3: Rebuild FTS5 indexes ---
-    if (!dryRun && (result.observationsImported > 0 || result.learningsImported > 0 || result.decisionsImported > 0)) {
+    if (
+      !dryRun &&
+      (result.observationsImported > 0 ||
+        result.learningsImported > 0 ||
+        result.decisionsImported > 0)
+    ) {
       try {
         rebuildFts5Index(nativeDb);
       } catch (err) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core modules before importing task-engine
 vi.mock('../../../store/data-accessor.js', () => ({
@@ -61,11 +61,11 @@ vi.mock('../../../core/tasks/task-ops.js', () => ({
   coreTaskImport: vi.fn(),
 }));
 
-import { taskComplete } from '../task-engine.js';
+import { completeTask as coreCompleteTask } from '../../../core/tasks/complete.js';
 import { showTask } from '../../../core/tasks/show.js';
 import { updateTask } from '../../../core/tasks/update.js';
-import { completeTask as coreCompleteTask } from '../../../core/tasks/complete.js';
 import { getAccessor } from '../../../store/data-accessor.js';
+import { taskComplete } from '../task-engine.js';
 
 const mockShowTask = vi.mocked(showTask);
 const mockUpdateTask = vi.mocked(updateTask);
@@ -77,7 +77,9 @@ describe('taskComplete', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAccessor.mockResolvedValue({} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never);
+    mockGetAccessor.mockResolvedValue(
+      {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
   });
 
   it('returns E_TASK_COMPLETED (exitCode 104) when task is already done', async () => {
@@ -114,7 +116,7 @@ describe('taskComplete', () => {
   });
 
   it('returns E_NOT_FOUND with exitCode 4 when task does not exist', async () => {
-    const notFoundErr = new Error("Task not found: T999");
+    const notFoundErr = new Error('Task not found: T999');
     (notFoundErr as Error & { code: number }).code = 4;
     mockCompleteTask.mockRejectedValue(notFoundErr);
 

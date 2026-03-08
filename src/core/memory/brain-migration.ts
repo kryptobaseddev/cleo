@@ -9,10 +9,10 @@
  * @epic T5149
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import type { NewBrainPatternRow, NewBrainLearningRow } from '../../store/brain-schema.js';
+import type { NewBrainLearningRow, NewBrainPatternRow } from '../../store/brain-schema.js';
 
 /** Result from a migration run. */
 export interface BrainMigrationResult {
@@ -73,7 +73,7 @@ function readJsonlFile<T>(filePath: string): { entries: T[]; errors: string[] } 
     if (!trimmed) continue;
     try {
       entries.push(JSON.parse(trimmed) as T);
-    } catch (err) {
+    } catch (_err) {
       errors.push(`Failed to parse line: ${trimmed.slice(0, 80)}...`);
     }
   }
@@ -139,7 +139,8 @@ export async function migrateBrainData(projectRoot: string): Promise<BrainMigrat
 
   // Migrate learnings
   const learningsPath = join(projectRoot, '.cleo', 'memory', 'learnings.jsonl');
-  const { entries: learnings, errors: learningErrors } = readJsonlFile<JsonlLearning>(learningsPath);
+  const { entries: learnings, errors: learningErrors } =
+    readJsonlFile<JsonlLearning>(learningsPath);
   result.errors.push(...learningErrors);
 
   for (const l of learnings) {

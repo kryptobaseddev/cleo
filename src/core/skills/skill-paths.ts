@@ -13,8 +13,8 @@
  * @epic T4545
  */
 
-import { existsSync, lstatSync, realpathSync, readlinkSync } from 'node:fs';
-import { join, resolve, delimiter } from 'node:path';
+import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { delimiter, join, resolve } from 'node:path';
 import { getAgentsHome } from '../paths.js';
 
 /** Source type classification for a skill directory. */
@@ -109,7 +109,6 @@ export function getSkillSearchPaths(projectRoot?: string): SkillSearchPath[] {
         paths.push({ path: embeddedDir, origin: 'embedded' });
       }
       break;
-    case 'auto':
     default:
       // CAAMP first (external package takes precedence), then embedded
       if (existsSync(caampDir)) {
@@ -153,10 +152,7 @@ export function resolveSkillPath(skillName: string, projectRoot?: string): strin
  *
  * @task T4552
  */
-export function resolveProtocolPath(
-  protocolName: string,
-  projectRoot?: string,
-): string | null {
+export function resolveProtocolPath(protocolName: string, projectRoot?: string): string | null {
   const searchPaths = getSkillSearchPaths(projectRoot);
 
   // Search Strategy B shared directories in each base path
@@ -186,10 +182,7 @@ export function resolveProtocolPath(
  *
  * @task T4552
  */
-export function resolveSharedPath(
-  resourceName: string,
-  projectRoot?: string,
-): string | null {
+export function resolveSharedPath(resourceName: string, projectRoot?: string): string | null {
   const searchPaths = getSkillSearchPaths(projectRoot);
 
   for (const { path: searchPath } of searchPaths) {
@@ -220,10 +213,7 @@ export function resolveSharedPath(
  *
  * @task T4552
  */
-export function getSkillSourceType(
-  skillDir: string,
-  projectRoot?: string,
-): SkillSourceType | null {
+export function getSkillSourceType(skillDir: string, projectRoot?: string): SkillSourceType | null {
   const normalizedDir = safeRealpath(skillDir);
   const caampDir = safeRealpath(getCaampCanonical());
   const embeddedDir = getProjectEmbedded(projectRoot);
@@ -253,7 +243,10 @@ export function getSkillSourceType(
   }
 
   // Not a symlink - classify by containing directory
-  if (normalizedDir.startsWith(resolve(embeddedDir)) || normalizedDir.startsWith(join(root, 'skills'))) {
+  if (
+    normalizedDir.startsWith(resolve(embeddedDir)) ||
+    normalizedDir.startsWith(join(root, 'skills'))
+  ) {
     return 'embedded';
   }
 

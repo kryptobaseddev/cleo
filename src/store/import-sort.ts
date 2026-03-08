@@ -131,9 +131,7 @@ export function topologicalSortTasks(tasks: SortableTask[]): string[] {
   // Cycle detection
   if (result.length !== tasks.length) {
     const processed = new Set(result);
-    const unprocessed = tasks
-      .map((t) => t.id)
-      .filter((id) => !processed.has(id));
+    const unprocessed = tasks.map((t) => t.id).filter((id) => !processed.has(id));
 
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,

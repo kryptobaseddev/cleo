@@ -24,8 +24,8 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-import { OrchestrateHandler } from '../orchestrate.js';
 import { orchestrateHandoff } from '../../lib/engine.js';
+import { OrchestrateHandler } from '../orchestrate.js';
 
 describe('OrchestrateHandler handoff', () => {
   let handler: OrchestrateHandler;
@@ -57,15 +57,18 @@ describe('OrchestrateHandler handoff', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(orchestrateHandoff).toHaveBeenCalledWith({
-      taskId: 'T102',
-      protocolType: 'implementation',
-      note: 'handoff note',
-      nextAction: 'continue',
-      variant: 'compact',
-      tier: 1,
-      idempotencyKey: 'h1',
-    }, '/mock/project');
+    expect(orchestrateHandoff).toHaveBeenCalledWith(
+      {
+        taskId: 'T102',
+        protocolType: 'implementation',
+        note: 'handoff note',
+        nextAction: 'continue',
+        variant: 'compact',
+        tier: 1,
+        idempotencyKey: 'h1',
+      },
+      '/mock/project',
+    );
   });
 
   it('rejects handoff when protocolType is missing', async () => {

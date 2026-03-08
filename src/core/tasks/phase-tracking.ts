@@ -6,13 +6,7 @@
  * @task T4529
  */
 
-import type {
-  Task,
-  Phase,
-  PhaseStatus,
-  PhaseTransition,
-  ProjectMeta,
-} from '../../types/task.js';
+import type { Phase, PhaseStatus, PhaseTransition, ProjectMeta, Task } from '../../types/task.js';
 
 /** Phase progress information. */
 export interface PhaseProgress {
@@ -44,10 +38,7 @@ export function getTasksByPhase(phaseName: string, tasks: Task[]): Task[] {
 /**
  * Calculate progress for a phase.
  */
-export function calculatePhaseProgress(
-  phaseName: string,
-  tasks: Task[],
-): PhaseProgress {
+export function calculatePhaseProgress(phaseName: string, tasks: Task[]): PhaseProgress {
   const phaseTasks = getTasksByPhase(phaseName, tasks);
 
   const done = phaseTasks.filter((t) => t.status === 'done').length;
@@ -58,7 +49,8 @@ export function calculatePhaseProgress(
 
   return {
     name: phaseName,
-    status: total === 0 ? 'pending' : done === total ? 'completed' : active > 0 ? 'active' : 'pending',
+    status:
+      total === 0 ? 'pending' : done === total ? 'completed' : active > 0 ? 'active' : 'pending',
     total,
     done,
     active,
@@ -71,10 +63,7 @@ export function calculatePhaseProgress(
 /**
  * Get progress for all phases.
  */
-export function getAllPhaseProgress(
-  phases: Record<string, Phase>,
-  tasks: Task[],
-): PhaseProgress[] {
+export function getAllPhaseProgress(phases: Record<string, Phase>, tasks: Task[]): PhaseProgress[] {
   return Object.keys(phases)
     .sort((a, b) => (phases[a].order ?? 0) - (phases[b].order ?? 0))
     .map((name) => calculatePhaseProgress(name, tasks));
@@ -168,13 +157,7 @@ export function applyPhaseTransition(
     ...(transitionType === 'completed' ? { completedAt: timestamp } : {}),
   };
 
-  const transition = createPhaseTransition(
-    toPhase,
-    transitionType,
-    taskCount,
-    fromPhase,
-    reason,
-  );
+  const transition = createPhaseTransition(toPhase, transitionType, taskCount, fromPhase, reason);
 
   return {
     ...project,

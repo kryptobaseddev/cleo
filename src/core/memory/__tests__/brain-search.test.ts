@@ -5,10 +5,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -32,7 +32,9 @@ describe('Brain Search', () => {
 
   describe('ensureFts5Tables', () => {
     it('should create FTS5 virtual tables successfully', async () => {
-      const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
+        '../../../store/brain-sqlite.js'
+      );
       const { ensureFts5Tables, resetFts5Cache } = await import('../brain-search.js');
       closeBrainDb();
       resetFts5Cache();
@@ -45,9 +47,9 @@ describe('Brain Search', () => {
       expect(result).toBe(true);
 
       // Verify tables exist
-      const tables = nativeDb!.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts%'",
-      ).all() as Array<{ name: string }>;
+      const tables = nativeDb!
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts%'")
+        .all() as Array<{ name: string }>;
 
       const tableNames = tables.map((t) => t.name);
       expect(tableNames).toContain('brain_decisions_fts');
@@ -192,8 +194,12 @@ describe('Brain Search', () => {
 
   describe('rebuildFts5Index', () => {
     it('should rebuild FTS indexes without error', async () => {
-      const { ensureFts5Tables, rebuildFts5Index, resetFts5Cache } = await import('../brain-search.js');
-      const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      const { ensureFts5Tables, rebuildFts5Index, resetFts5Cache } = await import(
+        '../brain-search.js'
+      );
+      const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
+        '../../../store/brain-sqlite.js'
+      );
       closeBrainDb();
       resetFts5Cache();
 

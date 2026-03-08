@@ -12,17 +12,14 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { getDb } from './sqlite.js';
-import * as schema from './tasks-schema.js';
-import { gitCheckpoint } from './git-checkpoint.js';
-import { vacuumIntoBackup } from './sqlite-backup.js';
-import {
-  checkSequence,
-  repairSequence,
-} from '../core/sequence/index.js';
-import type { Task } from '../types/task.js';
-import type { Session } from '../types/session.js';
 import { getLogger } from '../core/logger.js';
+import { checkSequence, repairSequence } from '../core/sequence/index.js';
+import type { Session } from '../types/session.js';
+import type { Task } from '../types/task.js';
+import { gitCheckpoint } from './git-checkpoint.js';
+import { getDb } from './sqlite.js';
+import { vacuumIntoBackup } from './sqlite-backup.js';
+import * as schema from './tasks-schema.js';
 
 const log = getLogger('data-safety');
 
@@ -74,11 +71,7 @@ export async function checkTaskExists(
   if (!cfg.detectCollisions) return false;
 
   const db = await getDb(cwd);
-  const existing = await db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, taskId))
-    .all();
+  const existing = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
 
   const exists = existing.length > 0;
 
@@ -108,11 +101,7 @@ export async function verifyTaskWrite(
   if (!cfg.verifyWrites) return true;
 
   const db = await getDb(cwd);
-  const rows = await db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, taskId))
-    .all();
+  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
 
   if (rows.length === 0) {
     if (cfg.strictMode) {
@@ -168,7 +157,10 @@ export async function validateAndRepairSequence(
     const repair = await repairSequence(cwd);
 
     if (repair.repaired) {
-      log.warn({ oldCounter: repair.oldCounter, newCounter: repair.newCounter }, 'Sequence repaired');
+      log.warn(
+        { oldCounter: repair.oldCounter, newCounter: repair.newCounter },
+        'Sequence repaired',
+      );
       return {
         valid: true,
         repaired: true,
@@ -300,11 +292,7 @@ export async function safeDeleteTask(
   // 2. Verify the deletion (task should NOT exist)
   if (cfg.verifyWrites) {
     const db = await getDb(cwd);
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, taskId))
-      .all();
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
 
     if (rows.length > 0) {
       if (cfg.strictMode) {
@@ -421,7 +409,9 @@ export async function runDataIntegrityCheck(cwd?: string): Promise<{
   try {
     const seqCheck = await checkSequence(cwd);
     if (!seqCheck.valid) {
-      issues.push(`Sequence invalid: counter ${seqCheck.counter} < max ID T${seqCheck.maxIdInData}`);
+      issues.push(
+        `Sequence invalid: counter ${seqCheck.counter} < max ID T${seqCheck.maxIdInData}`,
+      );
 
       // Auto-repair
       const repair = await repairSequence(cwd);

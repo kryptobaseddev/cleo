@@ -5,11 +5,11 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import type { Command } from 'commander';
 import { createPage } from '../../core/pagination.js';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the list command.
@@ -52,9 +52,10 @@ export function registerListCommand(program: Command): void {
       }
 
       const rawData = response.data;
-      const data = (Array.isArray(rawData)
-        ? { tasks: rawData, total: rawData.length }
-        : rawData as Record<string, unknown>) ?? {};
+      const data =
+        (Array.isArray(rawData)
+          ? { tasks: rawData, total: rawData.length }
+          : (rawData as Record<string, unknown>)) ?? {};
       const tasks = (data?.tasks as unknown[]) ?? [];
 
       if (tasks.length === 0) {

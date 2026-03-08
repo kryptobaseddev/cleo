@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync, writeFileSync, copyFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 function getProjectRoot(): string {
@@ -24,7 +24,7 @@ function readJsonlFile(filePath: string): Record<string, unknown>[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, 'utf-8').trim();
   if (!content) return [];
-  return content.split('\n').map(line => JSON.parse(line));
+  return content.split('\n').map((line) => JSON.parse(line));
 }
 
 /** Get token tracking status. */
@@ -33,10 +33,10 @@ export async function getOtelStatus(): Promise<Record<string, unknown>> {
   const entries = readJsonlFile(tokenFile);
   const totalTokens = entries.reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
   const manifestTokens = entries
-    .filter(e => e.event_type === 'manifest_read' || e.event_type === 'manifest_query')
+    .filter((e) => e.event_type === 'manifest_read' || e.event_type === 'manifest_query')
     .reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
   const fullFileTokens = entries
-    .filter(e => e.event_type === 'full_file_read')
+    .filter((e) => e.event_type === 'full_file_read')
     .reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
 
   return {
@@ -61,8 +61,8 @@ export async function getOtelSummary(): Promise<Record<string, unknown>> {
   }
 
   const totalTokens = entries.reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
-  const sessions = entries.filter(e => e.event_type === 'session_start');
-  const spawns = entries.filter(e => e.event_type !== 'session_start');
+  const sessions = entries.filter((e) => e.event_type === 'session_start');
+  const spawns = entries.filter((e) => e.event_type !== 'session_start');
 
   const byType: Record<string, { count: number; tokens: number }> = {};
   for (const e of entries) {
@@ -94,16 +94,16 @@ export async function getOtelSessions(opts: {
   task?: string;
 }): Promise<Record<string, unknown>> {
   const entries = readJsonlFile(getTokenFilePath());
-  let sessions = entries.filter(e => e.event_type === 'session_start');
+  let sessions = entries.filter((e) => e.event_type === 'session_start');
 
   if (opts.session) {
-    sessions = sessions.filter(e => {
+    sessions = sessions.filter((e) => {
       const ctx = (e.context ?? {}) as Record<string, unknown>;
       return ctx.session_id === opts.session;
     });
   }
   if (opts.task) {
-    sessions = sessions.filter(e => e.task_id === opts.task);
+    sessions = sessions.filter((e) => e.task_id === opts.task);
   }
 
   return { sessions, count: sessions.length };
@@ -115,10 +115,10 @@ export async function getOtelSpawns(opts: {
   epic?: string;
 }): Promise<Record<string, unknown>> {
   const entries = readJsonlFile(getTokenFilePath());
-  let spawns = entries.filter(e => e.event_type !== 'session_start');
+  let spawns = entries.filter((e) => e.event_type !== 'session_start');
 
   if (opts.task) {
-    spawns = spawns.filter(e => e.task_id === opts.task);
+    spawns = spawns.filter((e) => e.task_id === opts.task);
   }
 
   return { spawns, count: spawns.length };

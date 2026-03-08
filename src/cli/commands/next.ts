@@ -5,7 +5,7 @@
  * @task T4795
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerNextCommand(program: Command): void {

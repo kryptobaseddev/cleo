@@ -51,10 +51,7 @@ export async function getSessionHistory(
   }
 
   // Sort by startedAt descending (most recent first)
-  filtered.sort(
-    (a, b) =>
-      new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-  );
+  filtered.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
   if (params?.limit && params.limit > 0) {
     filtered = filtered.slice(0, params.limit);

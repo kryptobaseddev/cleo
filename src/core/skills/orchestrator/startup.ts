@@ -11,17 +11,13 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  getCleoDirAbsolute,
-  getTaskPath,
-  getSessionsPath,
-} from '../../paths.js';
 import type { Task } from '../../../types/task.js';
+import { getCleoDirAbsolute, getSessionsPath, getTaskPath } from '../../paths.js';
 import type {
-  OrchestratorThresholds,
   DependencyAnalysis,
   DependencyWave,
   HitlSummary,
+  OrchestratorThresholds,
 } from '../types.js';
 
 // ============================================================================
@@ -36,7 +32,8 @@ const DEFAULT_THRESHOLDS: OrchestratorThresholds = { warning: 70, critical: 80 }
  * @task T4519
  */
 export function getThresholds(config?: Record<string, unknown>): OrchestratorThresholds {
-  const orc = (config as Record<string, Record<string, Record<string, unknown>>>)?.orchestrator?.contextThresholds;
+  const orc = (config as Record<string, Record<string, Record<string, unknown>>>)?.orchestrator
+    ?.contextThresholds;
   const warning = typeof orc?.warning === 'number' ? orc.warning : DEFAULT_THRESHOLDS.warning;
   const critical = typeof orc?.critical === 'number' ? orc.critical : DEFAULT_THRESHOLDS.critical;
 
@@ -295,9 +292,9 @@ export async function analyzeDependencies(
 
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
-  const epicTasks = tasks.filter(t => t.parentId === epicId);
-  const doneIds = new Set(tasks.filter(t => t.status === 'done').map(t => t.id));
-  const epicIds = new Set(epicTasks.map(t => t.id));
+  const epicTasks = tasks.filter((t) => t.parentId === epicId);
+  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const epicIds = new Set(epicTasks.map((t) => t.id));
 
   // Compute waves iteratively
   const waveMap = new Map<string, number>();
@@ -306,12 +303,12 @@ export async function analyzeDependencies(
     for (const task of epicTasks) {
       if (waveMap.has(task.id)) continue;
 
-      const depsInEpic = (task.depends ?? []).filter(d => epicIds.has(d));
+      const depsInEpic = (task.depends ?? []).filter((d) => epicIds.has(d));
 
       if (depsInEpic.length === 0) {
         waveMap.set(task.id, 0);
-      } else if (depsInEpic.every(d => waveMap.has(d))) {
-        const maxDepWave = Math.max(...depsInEpic.map(d => waveMap.get(d)!));
+      } else if (depsInEpic.every((d) => waveMap.has(d))) {
+        const maxDepWave = Math.max(...depsInEpic.map((d) => waveMap.get(d)!));
         waveMap.set(task.id, maxDepWave + 1);
       }
     }
@@ -339,13 +336,13 @@ export async function analyzeDependencies(
 
   // Find ready tasks (pending with all deps done or outside epic)
   const readyToSpawn = epicTasks
-    .filter(t => {
+    .filter((t) => {
       if (t.status !== 'pending') return false;
       const deps = t.depends ?? [];
-      return deps.length === 0 || deps.every(d => doneIds.has(d) || !epicIds.has(d));
+      return deps.length === 0 || deps.every((d) => doneIds.has(d) || !epicIds.has(d));
     })
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-    .map(t => ({
+    .map((t) => ({
       id: t.id,
       title: t.title,
       priority: t.priority,
@@ -354,12 +351,12 @@ export async function analyzeDependencies(
 
   // Find blocked tasks
   const blockedTasks = epicTasks
-    .filter(t => {
+    .filter((t) => {
       if (t.status !== 'pending') return false;
       const deps = t.depends ?? [];
-      return deps.some(d => epicIds.has(d) && !doneIds.has(d));
+      return deps.some((d) => epicIds.has(d) && !doneIds.has(d));
     })
-    .map(t => ({
+    .map((t) => ({
       id: t.id,
       title: t.title,
       depends: t.depends ?? [],
@@ -369,9 +366,9 @@ export async function analyzeDependencies(
   return {
     epicId,
     totalTasks: epicTasks.length,
-    completedTasks: epicTasks.filter(t => t.status === 'done').length,
-    pendingTasks: epicTasks.filter(t => t.status === 'pending').length,
-    activeTasks: epicTasks.filter(t => t.status === 'active').length,
+    completedTasks: epicTasks.filter((t) => t.status === 'done').length,
+    pendingTasks: epicTasks.filter((t) => t.status === 'pending').length,
+    activeTasks: epicTasks.filter((t) => t.status === 'active').length,
     waves,
     readyToSpawn,
     blockedTasks,
@@ -397,7 +394,7 @@ export async function getNextTask(
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const nextId = analysis.readyToSpawn[0].id;
-  const task = tasks.find(t => t.id === nextId) ?? null;
+  const task = tasks.find((t) => t.id === nextId) ?? null;
 
   return { task, readyCount: analysis.readyToSpawn.length };
 }
@@ -411,7 +408,7 @@ export async function getReadyTasks(
   cwd?: string,
 ): Promise<Array<{ id: string; title: string; priority?: string }>> {
   const analysis = await analyzeDependencies(epicId, cwd);
-  const readyIds = new Set(analysis.readyToSpawn.map(t => t.id));
+  const readyIds = new Set(analysis.readyToSpawn.map((t) => t.id));
 
   // Filter out tasks that depend on other ready tasks
   const taskPath = getTaskPath(cwd);
@@ -420,13 +417,15 @@ export async function getReadyTasks(
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
 
-  return analysis.readyToSpawn.filter(ready => {
-    const task = tasks.find(t => t.id === ready.id);
-    if (!task) return false;
-    const deps = task.depends ?? [];
-    // Only include if no deps are also in the ready set
-    return !deps.some(d => readyIds.has(d));
-  }).map(t => ({ id: t.id, title: t.title, priority: t.priority }));
+  return analysis.readyToSpawn
+    .filter((ready) => {
+      const task = tasks.find((t) => t.id === ready.id);
+      if (!task) return false;
+      const deps = task.depends ?? [];
+      // Only include if no deps are also in the ready set
+      return !deps.some((d) => readyIds.has(d));
+    })
+    .map((t) => ({ id: t.id, title: t.title, priority: t.priority }));
 }
 
 // ============================================================================
@@ -467,7 +466,10 @@ export async function generateHitlSummary(
   }
 
   // Task statistics
-  let completed = 0, pending = 0, active = 0, blocked = 0;
+  let completed = 0,
+    pending = 0,
+    active = 0,
+    blocked = 0;
   let completedTasks: Array<{ id: string; title: string }> = [];
   let remainingTasks: Array<{ id: string; title: string; status: string; priority?: string }> = [];
   let readyToSpawn: Array<{ id: string; title: string; priority?: string }> = [];
@@ -476,18 +478,18 @@ export async function generateHitlSummary(
     const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
     const tasks: Task[] = (data.tasks ?? []).filter((t: Task) => t.parentId === epicId);
 
-    completed = tasks.filter(t => t.status === 'done').length;
-    pending = tasks.filter(t => t.status === 'pending').length;
-    active = tasks.filter(t => t.status === 'active').length;
-    blocked = tasks.filter(t => t.status === 'blocked').length;
+    completed = tasks.filter((t) => t.status === 'done').length;
+    pending = tasks.filter((t) => t.status === 'pending').length;
+    active = tasks.filter((t) => t.status === 'active').length;
+    blocked = tasks.filter((t) => t.status === 'blocked').length;
 
     completedTasks = tasks
-      .filter(t => t.status === 'done')
-      .map(t => ({ id: t.id, title: t.title }));
+      .filter((t) => t.status === 'done')
+      .map((t) => ({ id: t.id, title: t.title }));
 
     remainingTasks = tasks
-      .filter(t => t.status !== 'done')
-      .map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
+      .filter((t) => t.status !== 'done')
+      .map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
 
     readyToSpawn = await getReadyTasks(epicId, cwd);
   }
@@ -544,9 +546,13 @@ export async function generateHitlSummary(
 
 function priorityRank(priority?: string): number {
   switch (priority) {
-    case 'critical': return 0;
-    case 'high': return 1;
-    case 'medium': return 2;
-    default: return 3;
+    case 'critical':
+      return 0;
+    case 'high':
+      return 1;
+    case 'medium':
+      return 2;
+    default:
+      return 3;
   }
 }

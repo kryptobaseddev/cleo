@@ -16,32 +16,39 @@
  * @see ADR-017 §5.4 for cognitive search spec
  */
 
-import { readdirSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAdrFile } from './parse.js';
 import type { AdrFindResult } from './types.js';
 
 /** Normalise a string for comparison: lowercase, strip punctuation */
 function normalise(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Split a comma-separated tag string into normalised tokens */
 function parseTags(raw: string | undefined): string[] {
   if (!raw) return [];
-  return raw.split(',').map(t => normalise(t)).filter(Boolean);
+  return raw
+    .split(',')
+    .map((t) => normalise(t))
+    .filter(Boolean);
 }
 
 /** Return true if any query term is found in the target string */
 function containsAny(target: string, terms: string[]): boolean {
   const t = normalise(target);
-  return terms.some(term => t.includes(term));
+  return terms.some((term) => t.includes(term));
 }
 
 /** Return matched query terms found in the target */
 function matchedTerms(target: string, terms: string[]): string[] {
   const t = normalise(target);
-  return terms.filter(term => t.includes(term));
+  return terms.filter((term) => t.includes(term));
 }
 
 export async function findAdrs(
@@ -56,10 +63,12 @@ export async function findAdrs(
   }
 
   const files = readdirSync(adrsDir)
-    .filter(f => f.endsWith('.md') && f.startsWith('ADR-'))
+    .filter((f) => f.endsWith('.md') && f.startsWith('ADR-'))
     .sort();
 
-  const queryTerms = normalise(query).split(' ').filter(t => t.length > 1);
+  const queryTerms = normalise(query)
+    .split(' ')
+    .filter((t) => t.length > 1);
   const filterTopics = opts?.topics ? parseTags(opts.topics) : null;
   const filterKeywords = opts?.keywords ? parseTags(opts.keywords) : null;
 
@@ -75,13 +84,13 @@ export async function findAdrs(
     // Topics filter (hard filter — must match all specified topics)
     if (filterTopics && filterTopics.length > 0) {
       const adrTopics = parseTags(fm.Topics);
-      if (!filterTopics.every(t => adrTopics.includes(t))) continue;
+      if (!filterTopics.every((t) => adrTopics.includes(t))) continue;
     }
 
     // Keywords filter (hard filter — must match all specified keywords)
     if (filterKeywords && filterKeywords.length > 0) {
       const adrKeywords = parseTags(fm.Keywords);
-      if (!filterKeywords.every(k => adrKeywords.includes(k))) continue;
+      if (!filterKeywords.every((k) => adrKeywords.includes(k))) continue;
     }
 
     // Scoring
@@ -91,7 +100,7 @@ export async function findAdrs(
     if (queryTerms.length > 0) {
       // Keywords exact match (highest signal)
       const adrKeywords = parseTags(fm.Keywords);
-      const kwMatches = queryTerms.filter(term => adrKeywords.some(kw => kw.includes(term)));
+      const kwMatches = queryTerms.filter((term) => adrKeywords.some((kw) => kw.includes(term)));
       if (kwMatches.length > 0) {
         score += 40 * kwMatches.length;
         matchedFields.push('keywords');
@@ -99,7 +108,7 @@ export async function findAdrs(
 
       // Topics match
       const adrTopics = parseTags(fm.Topics);
-      const topicMatches = queryTerms.filter(term => adrTopics.some(tp => tp.includes(term)));
+      const topicMatches = queryTerms.filter((term) => adrTopics.some((tp) => tp.includes(term)));
       if (topicMatches.length > 0) {
         score += 30 * topicMatches.length;
         matchedFields.push('topics');

@@ -14,25 +14,39 @@
  * @epic T4663
  */
 
-import { getFormatContext } from '../format-context.js';
-import { getFieldContext } from '../field-context.js';
-import { formatSuccess, type FormatOptions } from '../../core/output.js';
-import { normalizeForHuman } from './normalizer.js';
-import { extractFieldFromResult, applyFieldFilter } from '@cleocode/lafs-protocol';
 import type { LAFSEnvelope } from '@cleocode/lafs-protocol';
-
-// Task renderers
-import {
-  renderShow, renderList, renderFind, renderAdd,
-  renderUpdate, renderComplete, renderDelete, renderArchive, renderRestore,
-} from './tasks.js';
-
+import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs-protocol';
+import { type FormatOptions, formatSuccess } from '../../core/output.js';
+import { getFieldContext } from '../field-context.js';
+import { getFormatContext } from '../format-context.js';
+import { normalizeForHuman } from './normalizer.js';
 // System renderers
 import {
-  renderDoctor, renderStats, renderNext, renderBlockers,
-  renderTree, renderStart, renderStop, renderCurrent,
-  renderSession, renderVersion, renderPlan, renderGeneric,
+  renderBlockers,
+  renderCurrent,
+  renderDoctor,
+  renderGeneric,
+  renderNext,
+  renderPlan,
+  renderSession,
+  renderStart,
+  renderStats,
+  renderStop,
+  renderTree,
+  renderVersion,
 } from './system.js';
+// Task renderers
+import {
+  renderAdd,
+  renderArchive,
+  renderComplete,
+  renderDelete,
+  renderFind,
+  renderList,
+  renderRestore,
+  renderShow,
+  renderUpdate,
+} from './tasks.js';
 
 // ---------------------------------------------------------------------------
 // Renderer registry: maps command name to human renderer function
@@ -42,36 +56,36 @@ type HumanRenderer = (data: Record<string, unknown>, quiet: boolean) => string;
 
 const renderers: Record<string, HumanRenderer> = {
   // Task CRUD
-  'show': renderShow,
-  'list': renderList,
-  'ls': renderList,
-  'find': renderFind,
-  'search': renderFind,
-  'add': renderAdd,
-  'update': renderUpdate,
-  'complete': renderComplete,
-  'done': renderComplete,
-  'delete': renderDelete,
-  'rm': renderDelete,
-  'archive': renderArchive,
-  'restore': renderRestore,
+  show: renderShow,
+  list: renderList,
+  ls: renderList,
+  find: renderFind,
+  search: renderFind,
+  add: renderAdd,
+  update: renderUpdate,
+  complete: renderComplete,
+  done: renderComplete,
+  delete: renderDelete,
+  rm: renderDelete,
+  archive: renderArchive,
+  restore: renderRestore,
 
   // Task work
-  'start': renderStart,
-  'stop': renderStop,
-  'current': renderCurrent,
+  start: renderStart,
+  stop: renderStop,
+  current: renderCurrent,
 
   // System
-  'doctor': renderDoctor,
-  'stats': renderStats,
-  'next': renderNext,
-  'plan': renderPlan,
-  'blockers': renderBlockers,
-  'tree': renderTree,
-  'depends': renderTree,
-  'deps': renderTree,
-  'session': renderSession,
-  'version': renderVersion,
+  doctor: renderDoctor,
+  stats: renderStats,
+  next: renderNext,
+  plan: renderPlan,
+  blockers: renderBlockers,
+  tree: renderTree,
+  depends: renderTree,
+  deps: renderTree,
+  session: renderSession,
+  version: renderVersion,
 };
 
 // ---------------------------------------------------------------------------
@@ -117,10 +131,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     // §5.4.1 filter-then-render: apply --field extraction BEFORE human rendering
     let fieldExtracted = false;
     if (fieldCtx.field) {
-      const extracted = extractFieldFromResult(
-        data as LAFSEnvelope['result'],
-        fieldCtx.field,
-      );
+      const extracted = extractFieldFromResult(data as LAFSEnvelope['result'], fieldCtx.field);
       if (extracted === undefined) {
         cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
         process.exit(4);
@@ -142,9 +153,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const normalized = normalizeForHuman(opts.command, dataToRender);
     // After field extraction, use renderGeneric — command-specific renderers
     // expect the full data structure, not a filtered subset (§5.4.1)
-    const renderer = fieldExtracted
-      ? renderGeneric
-      : (renderers[opts.command] ?? renderGeneric);
+    const renderer = fieldExtracted ? renderGeneric : (renderers[opts.command] ?? renderGeneric);
     const text = renderer(normalized, ctx.quiet);
     if (text) {
       console.log(text);
@@ -160,7 +169,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
       process.exit(4);
     }
-    const out = (value !== null && typeof value === 'object') ? JSON.stringify(value) : String(value);
+    const out = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
     process.stdout.write(out + '\n');
     return;
   }
@@ -194,7 +203,13 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   if (opts.extensions) formatOpts.extensions = opts.extensions;
   if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
-  console.log(formatSuccess(filteredData, opts.message, Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation));
+  console.log(
+    formatSuccess(
+      filteredData,
+      opts.message,
+      Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation,
+    ),
+  );
 }
 
 /**
@@ -214,7 +229,11 @@ export interface CliErrorDetails {
  * @task T4666
  * @task T4813
  */
-export function cliError(message: string, code?: number | string, _details?: CliErrorDetails): void {
+export function cliError(
+  message: string,
+  code?: number | string,
+  _details?: CliErrorDetails,
+): void {
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {
@@ -223,8 +242,10 @@ export function cliError(message: string, code?: number | string, _details?: Cli
   }
 
   // JSON: caller already uses formatError, so this is a fallback
-  console.error(JSON.stringify({
-    success: false,
-    error: { code: code ?? 1, message },
-  }));
+  console.error(
+    JSON.stringify({
+      success: false,
+      error: { code: code ?? 1, message },
+    }),
+  );
 }

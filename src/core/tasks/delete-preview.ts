@@ -92,10 +92,7 @@ export function calculateAffectedTasks(
 /**
  * Calculate impact of deletion.
  */
-export function calculateImpact(
-  affected: AffectedTasks,
-  tasks: Task[],
-): DeleteImpact {
+export function calculateImpact(affected: AffectedTasks, tasks: Task[]): DeleteImpact {
   const allAffected = affected.primary
     ? [affected.primary, ...affected.children]
     : affected.children;

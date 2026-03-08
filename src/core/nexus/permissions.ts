@@ -14,9 +14,9 @@
  */
 
 import { z } from 'zod';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { nexusGetProject, nexusSetPermission, type NexusPermissionLevel } from './registry.js';
+import { CleoError } from '../errors.js';
+import { type NexusPermissionLevel, nexusGetProject, nexusSetPermission } from './registry.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
  * @task T5069
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
@@ -14,12 +14,15 @@ vi.mock('../handoff.js', () => ({
   getLastHandoff: vi.fn().mockResolvedValue(null),
 }));
 
-import { computeBriefing } from '../briefing.js';
 import { getAccessor } from '../../../store/data-accessor.js';
+import { computeBriefing } from '../briefing.js';
 
 function setupMockAccessor(
   tasks: unknown[],
-  focus: { currentTask: string | null; currentPhase: string | null } = { currentTask: null, currentPhase: null },
+  focus: { currentTask: string | null; currentPhase: string | null } = {
+    currentTask: null,
+    currentPhase: null,
+  },
 ) {
   const mockAccessor = {
     loadSessions: vi.fn().mockResolvedValue({
@@ -54,7 +57,13 @@ describe('briefing blocked-focus warnings', () => {
     setupMockAccessor(
       [
         { id: 'T001', title: 'Blocker', status: 'pending', priority: 'medium' },
-        { id: 'T002', title: 'Blocked task', status: 'pending', priority: 'medium', depends: ['T001'] },
+        {
+          id: 'T002',
+          title: 'Blocked task',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T001'],
+        },
       ],
       { currentTask: 'T002', currentPhase: null },
     );
@@ -73,7 +82,13 @@ describe('briefing blocked-focus warnings', () => {
     setupMockAccessor(
       [
         { id: 'T001', title: 'Done dep', status: 'done', priority: 'medium' },
-        { id: 'T002', title: 'Ready task', status: 'pending', priority: 'medium', depends: ['T001'] },
+        {
+          id: 'T002',
+          title: 'Ready task',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T001'],
+        },
       ],
       { currentTask: 'T002', currentPhase: null },
     );
@@ -86,12 +101,10 @@ describe('briefing blocked-focus warnings', () => {
   });
 
   it('does not warn when no task is focused', async () => {
-    setupMockAccessor(
-      [
-        { id: 'T001', title: 'Blocker', status: 'pending', priority: 'medium' },
-      ],
-      { currentTask: null, currentPhase: null },
-    );
+    setupMockAccessor([{ id: 'T001', title: 'Blocker', status: 'pending', priority: 'medium' }], {
+      currentTask: null,
+      currentPhase: null,
+    });
 
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
 
@@ -104,7 +117,13 @@ describe('briefing blocked-focus warnings', () => {
       [
         { id: 'T001', title: 'Blocker A', status: 'pending', priority: 'medium' },
         { id: 'T002', title: 'Blocker B', status: 'active', priority: 'medium' },
-        { id: 'T003', title: 'Blocked task', status: 'pending', priority: 'medium', depends: ['T001', 'T002'] },
+        {
+          id: 'T003',
+          title: 'Blocked task',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T001', 'T002'],
+        },
       ],
       { currentTask: 'T003', currentPhase: null },
     );
@@ -118,9 +137,7 @@ describe('briefing blocked-focus warnings', () => {
 
   it('does not warn when focused task has no dependencies', async () => {
     setupMockAccessor(
-      [
-        { id: 'T001', title: 'Simple task', status: 'pending', priority: 'medium' },
-      ],
+      [{ id: 'T001', title: 'Simple task', status: 'pending', priority: 'medium' }],
       { currentTask: 'T001', currentPhase: null },
     );
 

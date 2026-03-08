@@ -6,10 +6,7 @@
  * @task T4521
  */
 
-import {
-  installSkill as caampInstallSkill,
-  getInstalledProviders,
-} from '@cleocode/caamp';
+import { installSkill as caampInstallSkill, getInstalledProviders } from '@cleocode/caamp';
 
 /**
  * Install a single skill via CAAMP.

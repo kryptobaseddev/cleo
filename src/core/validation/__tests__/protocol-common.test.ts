@@ -4,33 +4,41 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  checkReturnMessageFormat,
+  checkAgentType,
+  checkKeyFindingsCount,
+  checkLinkedTasksPresent,
   checkManifestFieldPresent,
   checkManifestFieldType,
-  checkKeyFindingsCount,
+  checkReturnMessageFormat,
   checkStatusValid,
-  checkAgentType,
-  checkLinkedTasksPresent,
   validateCommonManifestRequirements,
 } from '../protocol-common.js';
 
 describe('checkReturnMessageFormat', () => {
   it('accepts valid research format', () => {
-    expect(checkReturnMessageFormat('Research completed. See MANIFEST.jsonl for summary.')).toBe(true);
+    expect(checkReturnMessageFormat('Research completed. See MANIFEST.jsonl for summary.')).toBe(
+      true,
+    );
   });
 
   it('accepts valid implementation format', () => {
-    expect(checkReturnMessageFormat('Implementation completed. See MANIFEST.jsonl for summary.')).toBe(true);
+    expect(
+      checkReturnMessageFormat('Implementation completed. See MANIFEST.jsonl for summary.'),
+    ).toBe(true);
   });
 
   it('accepts partial status', () => {
-    expect(checkReturnMessageFormat('Research partial. See MANIFEST.jsonl for details.')).toBe(true);
+    expect(checkReturnMessageFormat('Research partial. See MANIFEST.jsonl for details.')).toBe(
+      true,
+    );
   });
 
   it('accepts blocked status', () => {
-    expect(checkReturnMessageFormat('Implementation blocked. See MANIFEST.jsonl for blocker details.')).toBe(true);
+    expect(
+      checkReturnMessageFormat('Implementation blocked. See MANIFEST.jsonl for blocker details.'),
+    ).toBe(true);
   });
 
   it('rejects invalid format', () => {
@@ -86,7 +94,9 @@ describe('checkKeyFindingsCount', () => {
   });
 
   it('rejects too many', () => {
-    expect(checkKeyFindingsCount({ key_findings: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })).toBe(false);
+    expect(checkKeyFindingsCount({ key_findings: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })).toBe(
+      false,
+    );
   });
 });
 
@@ -114,17 +124,11 @@ describe('checkAgentType', () => {
 
 describe('checkLinkedTasksPresent', () => {
   it('passes when all required IDs present', () => {
-    expect(checkLinkedTasksPresent(
-      { linked_tasks: ['T1', 'T2', 'T3'] },
-      ['T1', 'T2'],
-    )).toBe(true);
+    expect(checkLinkedTasksPresent({ linked_tasks: ['T1', 'T2', 'T3'] }, ['T1', 'T2'])).toBe(true);
   });
 
   it('fails when IDs missing', () => {
-    expect(checkLinkedTasksPresent(
-      { linked_tasks: ['T1'] },
-      ['T1', 'T2'],
-    )).toBe(false);
+    expect(checkLinkedTasksPresent({ linked_tasks: ['T1'] }, ['T1', 'T2'])).toBe(false);
   });
 });
 

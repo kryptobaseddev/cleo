@@ -11,24 +11,24 @@
 
 import { createInsertSchema, createSelectSchema } from 'drizzle-orm/zod';
 import { z } from 'zod/v4';
+import { SESSION_STATUSES } from './status-registry.js';
 import {
-  tasks,
-  taskDependencies,
-  taskRelations,
-  sessions,
-  taskWorkHistory,
+  architectureDecisions,
+  auditLog,
+  lifecycleEvidence,
+  lifecycleGateResults,
   lifecyclePipelines,
   lifecycleStages,
-  lifecycleGateResults,
-  lifecycleEvidence,
   lifecycleTransitions,
-  schemaMeta,
-  auditLog,
-  tokenUsage,
-  architectureDecisions,
   manifestEntries,
+  schemaMeta,
+  sessions,
+  taskDependencies,
+  taskRelations,
+  tasks,
+  taskWorkHistory,
+  tokenUsage,
 } from './tasks-schema.js';
-import { SESSION_STATUSES } from './status-registry.js';
 
 // === TASKS ===
 
@@ -174,7 +174,8 @@ export const selectSchemaMetaSchema = createSelectSchema(schemaMeta);
  */
 export const insertAuditLogSchema = createInsertSchema(auditLog, {
   id: (s: z.ZodString) => s.uuid(),
-  timestamp: (s: z.ZodString) => s.datetime({ offset: true }).or(s.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
+  timestamp: (s: z.ZodString) =>
+    s.datetime({ offset: true }).or(s.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
   action: (s: z.ZodString) => s.min(1).max(100),
   taskId: (s: z.ZodString) => s.min(1).max(20),
   actor: (s: z.ZodString) => s.min(1).max(50),

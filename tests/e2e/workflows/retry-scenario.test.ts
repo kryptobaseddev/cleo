@@ -7,7 +7,7 @@
  * @epic T3125
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ExitCode, isRecoverableCode } from '../../../src/types/exit-codes.js';
 
 // CLIError interface for errors with exit codes
@@ -35,7 +35,7 @@ interface RetryResult<T> {
  */
 async function retryOperation<T>(
   operation: () => Promise<T>,
-  maxAttempts: number = 3
+  maxAttempts: number = 3,
 ): Promise<RetryResult<T>> {
   const retriedExitCodes: number[] = [];
 
@@ -113,7 +113,7 @@ describe('9.1 Retry Scenario', () => {
         const error = new Error('Lifecycle gate failed') as CLIError;
         error.exitCode = ExitCode.LIFECYCLE_GATE_FAILED; // 80 - non-recoverable
         throw error;
-      }, 3)
+      }, 3),
     ).rejects.toThrow('Lifecycle gate failed');
   });
 
@@ -123,7 +123,7 @@ describe('9.1 Retry Scenario', () => {
         const error = new Error('Task not found') as CLIError;
         error.exitCode = ExitCode.NOT_FOUND; // 4 - not retryable
         throw error;
-      }, 3)
+      }, 3),
     ).rejects.toThrow('Task not found');
   });
 
@@ -133,7 +133,7 @@ describe('9.1 Retry Scenario', () => {
         const error = new Error('Still locked') as CLIError;
         error.exitCode = ExitCode.LOCK_TIMEOUT; // 7 - retryable but persistent
         throw error;
-      }, 3)
+      }, 3),
     ).rejects.toThrow('Still locked');
   });
 });

@@ -7,10 +7,10 @@
  * @task T5410
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 
@@ -261,7 +261,9 @@ describe('Tessera engine', () => {
         },
         tempDir,
       ),
-    ).rejects.toThrow('Invalid variable format for "epicId": expected epicId like "T1234", got "epic-1"');
+    ).rejects.toThrow(
+      'Invalid variable format for "epicId": expected epicId like "T1234", got "epic-1"',
+    );
   });
 
   it('unknown input variable throws deterministic diagnostic', async () => {
@@ -279,7 +281,9 @@ describe('Tessera engine', () => {
         },
         tempDir,
       ),
-    ).rejects.toThrow('Unknown variable: notDeclared. Allowed variables: epicId, projectName, skipResearch');
+    ).rejects.toThrow(
+      'Unknown variable: notDeclared. Allowed variables: epicId, projectName, skipResearch',
+    );
   });
 
   it('treats undefined required variable as missing', async () => {

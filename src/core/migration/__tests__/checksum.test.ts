@@ -5,11 +5,11 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { computeChecksum, verifyBackup, compareChecksums } from '../checksum.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { compareChecksums, computeChecksum, verifyBackup } from '../checksum.js';
 
 describe('computeChecksum', () => {
   let tempDir: string;
@@ -99,7 +99,11 @@ describe('verifyBackup', () => {
       await rm(tempDir, { recursive: true, force: true });
     } catch {
       await new Promise((r) => setTimeout(r, 200));
-      try { await rm(tempDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        await rm(tempDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 

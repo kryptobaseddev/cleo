@@ -6,7 +6,7 @@ vi.mock('../../../../core/memory/brain-retrieval.js', () => ({
   observeBrain: observeBrainMock,
 }));
 
-import { handleToolStart, handleToolComplete } from '../task-hooks.js';
+import { handleToolComplete, handleToolStart } from '../task-hooks.js';
 
 describe('task hook handlers', () => {
   beforeEach(() => {
@@ -83,9 +83,7 @@ describe('task hook handlers', () => {
   });
 
   it('handleToolComplete swallows brain schema missing error', async () => {
-    observeBrainMock.mockRejectedValue(
-      new Error('no such table: brain_decisions'),
-    );
+    observeBrainMock.mockRejectedValue(new Error('no such table: brain_decisions'));
 
     await expect(
       handleToolComplete('/tmp/project', {

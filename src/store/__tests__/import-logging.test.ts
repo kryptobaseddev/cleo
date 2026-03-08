@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the dependencies before importing the module
 vi.mock('../json.js', () => ({
@@ -25,10 +25,10 @@ vi.mock('../../core/paths.js', () => ({
 
 import {
   extractPackageMeta,
+  logImportConflict,
+  logImportError,
   logImportStart,
   logImportSuccess,
-  logImportError,
-  logImportConflict,
 } from '../import-logging.js';
 import { appendJsonl } from '../json.js';
 
@@ -90,12 +90,7 @@ describe('logImportError', () => {
   });
 
   it('should log import error with diagnostic details', async () => {
-    await logImportError(
-      '/path/to/export.json',
-      'Invalid checksum',
-      '6',
-      'validation',
-    );
+    await logImportError('/path/to/export.json', 'Invalid checksum', '6', 'validation');
 
     expect(appendJsonl).toHaveBeenCalledTimes(1);
     const entry = vi.mocked(appendJsonl).mock.calls[0]![1] as Record<string, unknown>;

@@ -4,7 +4,7 @@
  * @task T3145
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { QueryCache } from '../cache.js';
 
 describe('QueryCache', () => {

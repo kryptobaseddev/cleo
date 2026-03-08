@@ -4,8 +4,8 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 function getCleoDir(cwd?: string): string {
   return join(cwd ?? process.cwd(), '.cleo');
@@ -59,7 +59,7 @@ export async function getContextStatus(opts: {
   // Check staleness
   const fileTime = new Date(timestamp).getTime();
   const now = Date.now();
-  if ((now - fileTime) > staleMs) {
+  if (now - fileTime > staleMs) {
     status = 'stale';
   }
 
@@ -91,7 +91,7 @@ export async function checkContextThreshold(opts: {
   let status = state.status ?? 'unknown';
 
   const fileTime = new Date(timestamp).getTime();
-  if ((Date.now() - fileTime) > staleMs) {
+  if (Date.now() - fileTime > staleMs) {
     status = 'stale';
   }
 
@@ -112,9 +112,7 @@ export async function checkContextThreshold(opts: {
 }
 
 /** List all context state files. */
-export async function listContextSessions(
-  cwd?: string,
-): Promise<Record<string, unknown>> {
+export async function listContextSessions(cwd?: string): Promise<Record<string, unknown>> {
   const cleoDir = getCleoDir(cwd);
   const sessions: Record<string, unknown>[] = [];
 

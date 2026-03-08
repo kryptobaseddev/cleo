@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock engine imports
@@ -18,15 +18,13 @@ vi.mock('../../../src/dispatch/lib/engine.js', () => ({
 }));
 
 import {
-  sessionStart,
   sessionEnd,
   sessionResume,
-  sessionStatus,
-  sessionSuspend,
+  sessionStart,
   taskComplete,
+  taskCurrentGet,
   taskStart,
   taskStop,
-  taskCurrentGet,
 } from '../../../src/dispatch/lib/engine.js';
 
 describe('Session Workflow E2E Tests', () => {

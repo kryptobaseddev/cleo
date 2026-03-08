@@ -8,7 +8,7 @@
  * Release operations now route through release-engine.ts via the dispatch layer.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { validateVersionFormat } from '../version-bump.js';
 
 describe('validateVersionFormat', () => {

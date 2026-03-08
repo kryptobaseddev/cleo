@@ -4,11 +4,11 @@
  * @epic T5186
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { queryLogs, streamLogs, getLogSummary } from '../index.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getLogSummary, queryLogs, streamLogs } from '../index.js';
 
 function makeLine(level: string, msg: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -37,9 +37,31 @@ describe('queryLogs', () => {
 
   it('queries log files and returns results', async () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:00:00Z', pid: 1, hostname: 'h', msg: 'Start', subsystem: 'mcp' }),
-      JSON.stringify({ level: 'WARN', time: '2026-02-28T10:01:00Z', pid: 2, hostname: 'h', msg: 'Warning', subsystem: 'engine' }),
-      JSON.stringify({ level: 'ERROR', time: '2026-02-28T10:02:00Z', pid: 3, hostname: 'h', msg: 'Error', subsystem: 'engine', code: 'E_NOT_FOUND' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'Start',
+        subsystem: 'mcp',
+      }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-02-28T10:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'Warning',
+        subsystem: 'engine',
+      }),
+      JSON.stringify({
+        level: 'ERROR',
+        time: '2026-02-28T10:02:00Z',
+        pid: 3,
+        hostname: 'h',
+        msg: 'Error',
+        subsystem: 'engine',
+        code: 'E_NOT_FOUND',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -52,9 +74,27 @@ describe('queryLogs', () => {
 
   it('applies filters', async () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:00:00Z', pid: 1, hostname: 'h', msg: 'Start' }),
-      JSON.stringify({ level: 'WARN', time: '2026-02-28T10:01:00Z', pid: 2, hostname: 'h', msg: 'Warning' }),
-      JSON.stringify({ level: 'ERROR', time: '2026-02-28T10:02:00Z', pid: 3, hostname: 'h', msg: 'Error' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'Start',
+      }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-02-28T10:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'Warning',
+      }),
+      JSON.stringify({
+        level: 'ERROR',
+        time: '2026-02-28T10:02:00Z',
+        pid: 3,
+        hostname: 'h',
+        msg: 'Error',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -66,7 +106,13 @@ describe('queryLogs', () => {
 
   it('applies pagination', async () => {
     const lines = Array.from({ length: 10 }, (_, i) =>
-      JSON.stringify({ level: 'INFO', time: `2026-02-28T10:0${i}:00Z`, pid: i, hostname: 'h', msg: `Entry ${i}` }),
+      JSON.stringify({
+        level: 'INFO',
+        time: `2026-02-28T10:0${i}:00Z`,
+        pid: i,
+        hostname: 'h',
+        msg: `Entry ${i}`,
+      }),
     );
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -85,10 +131,22 @@ describe('queryLogs', () => {
 
   it('reads across multiple log files', async () => {
     const lines1 = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-27T10:00:00Z', pid: 1, hostname: 'h', msg: 'Day1' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-27T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'Day1',
+      }),
     ];
     const lines2 = [
-      JSON.stringify({ level: 'WARN', time: '2026-02-28T10:00:00Z', pid: 2, hostname: 'h', msg: 'Day2' }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-02-28T10:00:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'Day2',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-27.1.log'), lines1.join('\n'));
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines2.join('\n'));
@@ -115,8 +173,20 @@ describe('streamLogs', () => {
 
   it('streams all entries', async () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:00:00Z', pid: 1, hostname: 'h', msg: 'a' }),
-      JSON.stringify({ level: 'WARN', time: '2026-02-28T10:01:00Z', pid: 2, hostname: 'h', msg: 'b' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'a',
+      }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-02-28T10:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'b',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -129,7 +199,13 @@ describe('streamLogs', () => {
 
   it('respects limit', async () => {
     const lines = Array.from({ length: 10 }, (_, i) =>
-      JSON.stringify({ level: 'INFO', time: `2026-02-28T10:0${i}:00Z`, pid: i, hostname: 'h', msg: `Entry ${i}` }),
+      JSON.stringify({
+        level: 'INFO',
+        time: `2026-02-28T10:0${i}:00Z`,
+        pid: i,
+        hostname: 'h',
+        msg: `Entry ${i}`,
+      }),
     );
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -142,9 +218,27 @@ describe('streamLogs', () => {
 
   it('applies filters while streaming', async () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:00:00Z', pid: 1, hostname: 'h', msg: 'skip' }),
-      JSON.stringify({ level: 'ERROR', time: '2026-02-28T10:01:00Z', pid: 2, hostname: 'h', msg: 'keep' }),
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:02:00Z', pid: 3, hostname: 'h', msg: 'skip' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'skip',
+      }),
+      JSON.stringify({
+        level: 'ERROR',
+        time: '2026-02-28T10:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'keep',
+      }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:02:00Z',
+        pid: 3,
+        hostname: 'h',
+        msg: 'skip',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 
@@ -173,10 +267,38 @@ describe('getLogSummary', () => {
 
   it('returns summary with counts by level and subsystem', async () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:00:00Z', pid: 1, hostname: 'h', msg: 'a', subsystem: 'mcp' }),
-      JSON.stringify({ level: 'INFO', time: '2026-02-28T10:01:00Z', pid: 2, hostname: 'h', msg: 'b', subsystem: 'mcp' }),
-      JSON.stringify({ level: 'WARN', time: '2026-02-28T10:02:00Z', pid: 3, hostname: 'h', msg: 'c', subsystem: 'engine' }),
-      JSON.stringify({ level: 'ERROR', time: '2026-02-28T10:03:00Z', pid: 4, hostname: 'h', msg: 'd', subsystem: 'engine' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'a',
+        subsystem: 'mcp',
+      }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-02-28T10:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'b',
+        subsystem: 'mcp',
+      }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-02-28T10:02:00Z',
+        pid: 3,
+        hostname: 'h',
+        msg: 'c',
+        subsystem: 'engine',
+      }),
+      JSON.stringify({
+        level: 'ERROR',
+        time: '2026-02-28T10:03:00Z',
+        pid: 4,
+        hostname: 'h',
+        msg: 'd',
+        subsystem: 'engine',
+      }),
     ];
     await writeFile(join(logsDir, 'cleo.2026-02-28.1.log'), lines.join('\n'));
 

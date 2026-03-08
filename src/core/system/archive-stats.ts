@@ -3,9 +3,9 @@
  * @task T4783
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJson } from '../../store/json.js';
 import { getArchivePath } from '../paths.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface ArchiveStatsResult {
   totalArchived: number;
@@ -43,7 +43,7 @@ export async function getArchiveStats(
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
   const archive = accessor
-    ? await accessor.loadArchive() as unknown as ArchiveFile | null
+    ? ((await accessor.loadArchive()) as unknown as ArchiveFile | null)
     : await readJson<ArchiveFile>(getArchivePath(opts.cwd));
 
   if (!archive?.archivedTasks) {
@@ -78,12 +78,11 @@ export async function getArchiveStats(
       }
     }
   }
-  const averageCycleTimeDays = samples > 0
-    ? Math.round((totalCycleDays / samples) * 100) / 100
-    : null;
+  const averageCycleTimeDays =
+    samples > 0 ? Math.round((totalCycleDays / samples) * 100) / 100 : null;
 
   // Archive rate
-  const archivedInPeriod = archived.filter(t => {
+  const archivedInPeriod = archived.filter((t) => {
     const archivedAt = t._archive?.archivedAt;
     return archivedAt && archivedAt >= cutoff;
   }).length;

@@ -10,11 +10,11 @@
  * @task T4492
  */
 
-import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join} from 'path';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
-import { writeJsonFileAtomic, getDataPath } from '../../core/platform.js';
-import { engineError, type EngineResult } from './_error.js';
+import { getDataPath, writeJsonFileAtomic } from '../../core/platform.js';
+import { type EngineResult, engineError } from './_error.js';
 
 /**
  * A single section/field within an issue template
@@ -24,7 +24,7 @@ export interface TemplateSection {
   type: 'textarea' | 'dropdown' | 'input' | 'markdown' | 'checkboxes';
   label: string;
   required: boolean;
-  options?: string[];  // For dropdown type
+  options?: string[]; // For dropdown type
   placeholder?: string;
 }
 
@@ -32,11 +32,11 @@ export interface TemplateSection {
  * A parsed issue template
  */
 export interface IssueTemplate {
-  filename: string;        // e.g., "bug_report.yml"
-  subcommand: string;      // e.g., "bug" (derived from filename)
-  name: string;            // e.g., "Bug Report"
-  titlePrefix: string;     // e.g., "[Bug]: "
-  labels: string[];        // e.g., ["bug", "triage"]
+  filename: string; // e.g., "bug_report.yml"
+  subcommand: string; // e.g., "bug" (derived from filename)
+  name: string; // e.g., "Bug Report"
+  titlePrefix: string; // e.g., "[Bug]: "
+  labels: string[]; // e.g., ["bug", "triage"]
   sections: TemplateSection[];
 }
 
@@ -45,8 +45,8 @@ export interface IssueTemplate {
  */
 export interface TemplateConfig {
   templates: IssueTemplate[];
-  generatedAt: string;     // ISO timestamp
-  sourceDir: string;       // Path to .github/ISSUE_TEMPLATE/
+  generatedAt: string; // ISO timestamp
+  sourceDir: string; // Path to .github/ISSUE_TEMPLATE/
 }
 
 /**
@@ -109,13 +109,19 @@ function parseTemplateFile(templateDir: string, filename: string): IssueTemplate
       const validations = (entry.validations || {}) as Record<string, unknown>;
 
       // For markdown type, use 'value' hash as a pseudo-id since they lack an id field
-      const id = typeof entry.id === 'string'
-        ? entry.id
-        : (type === 'markdown' ? `markdown-${sections.length}` : `section-${sections.length}`);
+      const id =
+        typeof entry.id === 'string'
+          ? entry.id
+          : type === 'markdown'
+            ? `markdown-${sections.length}`
+            : `section-${sections.length}`;
 
-      const label = typeof attributes.label === 'string'
-        ? attributes.label
-        : (type === 'markdown' ? 'Markdown' : '');
+      const label =
+        typeof attributes.label === 'string'
+          ? attributes.label
+          : type === 'markdown'
+            ? 'Markdown'
+            : '';
 
       const required = validations.required === true;
 
@@ -133,8 +139,8 @@ function parseTemplateFile(templateDir: string, filename: string): IssueTemplate
 
       // Add options for checkboxes type
       if (type === 'checkboxes' && Array.isArray(attributes.options)) {
-        section.options = (attributes.options as Array<Record<string, unknown>>).map(
-          (o) => typeof o.label === 'string' ? o.label : String(o)
+        section.options = (attributes.options as Array<Record<string, unknown>>).map((o) =>
+          typeof o.label === 'string' ? o.label : String(o),
         );
       }
 
@@ -172,10 +178,12 @@ export function parseIssueTemplates(projectRoot: string): EngineResult<TemplateC
 
   let files: string[];
   try {
-    files = readdirSync(templateDir)
-      .filter((f) => /\.ya?ml$/i.test(f) && f !== 'config.yml');
+    files = readdirSync(templateDir).filter((f) => /\.ya?ml$/i.test(f) && f !== 'config.yml');
   } catch (error: unknown) {
-    return engineError('E_FILE_ERROR', `Failed to read template directory: ${(error as Error).message}`);
+    return engineError(
+      'E_FILE_ERROR',
+      `Failed to read template directory: ${(error as Error).message}`,
+    );
   }
 
   if (files.length === 0) {
@@ -188,9 +196,13 @@ export function parseIssueTemplates(projectRoot: string): EngineResult<TemplateC
     try {
       templates.push(parseTemplateFile(templateDir, file));
     } catch (error: unknown) {
-      return engineError('E_PARSE_ERROR', `Failed to parse template ${file}: ${(error as Error).message}`, {
-        details: { filename: file },
-      });
+      return engineError(
+        'E_PARSE_ERROR',
+        `Failed to parse template ${file}: ${(error as Error).message}`,
+        {
+          details: { filename: file },
+        },
+      );
     }
   }
 
@@ -211,7 +223,7 @@ export function parseIssueTemplates(projectRoot: string): EngineResult<TemplateC
  */
 export function getTemplateForSubcommand(
   projectRoot: string,
-  subcommand: string
+  subcommand: string,
 ): EngineResult<IssueTemplate> {
   const result = parseIssueTemplates(projectRoot);
 
@@ -221,15 +233,17 @@ export function getTemplateForSubcommand(
       : engineError('E_PARSE_ERROR', 'Failed to parse issue templates');
   }
 
-  const template = result.data.templates.find(
-    (t) => t.subcommand === subcommand.toLowerCase()
-  );
+  const template = result.data.templates.find((t) => t.subcommand === subcommand.toLowerCase());
 
   if (!template) {
     const available = result.data.templates.map((t) => t.subcommand).join(', ');
-    return engineError('E_NOT_FOUND', `No template found for subcommand '${subcommand}'. Available: ${available}`, {
-      details: { available: result.data.templates.map((t) => t.subcommand) },
-    });
+    return engineError(
+      'E_NOT_FOUND',
+      `No template found for subcommand '${subcommand}'. Available: ${available}`,
+      {
+        details: { available: result.data.templates.map((t) => t.subcommand) },
+      },
+    );
   }
 
   return { success: true, data: template };
@@ -241,7 +255,7 @@ export function getTemplateForSubcommand(
  * Performs a live parse, then writes the result using writeJsonFileAtomic.
  */
 export async function generateTemplateConfig(
-  projectRoot: string
+  projectRoot: string,
 ): Promise<EngineResult<TemplateConfig>> {
   const result = parseIssueTemplates(projectRoot);
 
@@ -256,9 +270,13 @@ export async function generateTemplateConfig(
   try {
     writeJsonFileAtomic(outputPath, result.data);
   } catch (error: unknown) {
-    return engineError('E_FILE_ERROR', `Failed to write template config: ${(error as Error).message}`, {
-      details: { outputPath },
-    });
+    return engineError(
+      'E_FILE_ERROR',
+      `Failed to write template config: ${(error as Error).message}`,
+      {
+        details: { outputPath },
+      },
+    );
   }
 
   return { success: true, data: result.data };
@@ -272,7 +290,7 @@ export async function generateTemplateConfig(
  */
 export function validateLabels(
   labels: string[],
-  repoLabels: string[]
+  repoLabels: string[],
 ): EngineResult<{ existing: string[]; missing: string[] }> {
   const repoLabelSet = new Set(repoLabels.map((l) => l.toLowerCase()));
 

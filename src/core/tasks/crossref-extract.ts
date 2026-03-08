@@ -85,16 +85,11 @@ export function mergeRelatesArrays(
  * Validate that referenced task IDs exist.
  * Returns array of invalid (non-existent) task IDs.
  */
-export function validateRelatesRefs(
-  relates: RelatesEntry[],
-  validTaskIds: string[],
-): string[] {
+export function validateRelatesRefs(relates: RelatesEntry[], validTaskIds: string[]): string[] {
   if (!relates.length) return [];
 
   const validSet = new Set(validTaskIds);
-  return relates
-    .map((r) => r.taskId)
-    .filter((id) => !validSet.has(id));
+  return relates.map((r) => r.taskId).filter((id) => !validSet.has(id));
 }
 
 /**

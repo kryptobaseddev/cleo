@@ -6,7 +6,7 @@
  * @task T4792
  */
 
-import { readdirSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { paginate } from '../pagination.js';
 import { parseAdrFile } from './parse.js';
@@ -24,13 +24,13 @@ export async function listAdrs(
   }
 
   const files = readdirSync(adrsDir)
-    .filter(f => f.endsWith('.md') && f.startsWith('ADR-'))
+    .filter((f) => f.endsWith('.md') && f.startsWith('ADR-'))
     .sort();
 
-  const records = files.map(f => parseAdrFile(join(adrsDir, f), projectRoot));
+  const records = files.map((f) => parseAdrFile(join(adrsDir, f), projectRoot));
 
   const total = records.length;
-  const filtered = records.filter(r => {
+  const filtered = records.filter((r) => {
     if (opts?.status && r.frontmatter.Status !== opts.status) return false;
     if (opts?.since && r.frontmatter.Date < opts.since) return false;
     return true;
@@ -38,7 +38,7 @@ export async function listAdrs(
   const page = paginate(filtered, opts?.limit, opts?.offset);
 
   return {
-    adrs: page.items.map(r => ({
+    adrs: page.items.map((r) => ({
       id: r.id,
       title: r.title,
       status: r.frontmatter.Status,

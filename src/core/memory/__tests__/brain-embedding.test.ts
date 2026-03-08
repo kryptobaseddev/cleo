@@ -4,15 +4,15 @@
  * @epic T5149
  * @task T5386
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  embedText,
-  isEmbeddingAvailable,
-  setEmbeddingProvider,
-  getEmbeddingProvider,
   clearEmbeddingProvider,
   EMBEDDING_DIMENSIONS,
   type EmbeddingProvider,
+  embedText,
+  getEmbeddingProvider,
+  isEmbeddingAvailable,
+  setEmbeddingProvider,
 } from '../brain-embedding.js';
 
 /** Create a mock provider that returns a deterministic vector. */
@@ -70,7 +70,7 @@ describe('brain-embedding', () => {
       const result = await embedText('some text');
       expect(result).not.toBeNull();
       expect(result!.length).toBe(384);
-      expect(result!.every(v => Math.abs(v - 0.1) < 1e-6)).toBe(true);
+      expect(result!.every((v) => Math.abs(v - 0.1) < 1e-6)).toBe(true);
     });
 
     it('embedText returns null when provider reports unavailable', async () => {

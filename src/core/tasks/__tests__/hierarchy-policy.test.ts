@@ -2,18 +2,18 @@
  * Tests for hierarchy-policy module.
  * @task T5001
  */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { CleoConfig } from '../../../types/config.js';
+import type { Task } from '../../../types/task.js';
+import type { HierarchyPolicy } from '../hierarchy-policy.js';
 import {
+  assertNoCycle,
+  assertParentExists,
+  countActiveChildren,
+  ENFORCEMENT_PROFILES,
   resolveHierarchyPolicy,
   validateHierarchyPlacement,
-  countActiveChildren,
-  assertParentExists,
-  assertNoCycle,
-  ENFORCEMENT_PROFILES,
 } from '../hierarchy-policy.js';
-import type { Task } from '../../../types/task.js';
-import type { CleoConfig } from '../../../types/config.js';
-import type { HierarchyPolicy } from '../hierarchy-policy.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,7 +32,13 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 function makeConfig(hierarchy?: Partial<CleoConfig['hierarchy']>): CleoConfig {
   return {
     version: '2.0.0',
-    output: { defaultFormat: 'json', showColor: false, showUnicode: false, showProgressBars: false, dateFormat: 'iso' },
+    output: {
+      defaultFormat: 'json',
+      showColor: false,
+      showUnicode: false,
+      showProgressBars: false,
+      dateFormat: 'iso',
+    },
     backup: { maxOperationalBackups: 10, maxSafetyBackups: 5, compressionEnabled: false },
     hierarchy: {
       maxDepth: 3,
@@ -244,10 +250,7 @@ describe('validateHierarchyPlacement — depth enforcement', () => {
   it('succeeds when adding child within maxDepth', () => {
     // depth 0: T001, depth 1: T002
     // Adding child to T002 → depth 2, which is < maxDepth(3) → OK
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', parentId: 'T001' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', parentId: 'T001' })];
     const policy = llmPolicy(); // maxDepth=3
 
     const result = validateHierarchyPlacement('T002', tasks, policy);

@@ -14,22 +14,19 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq, and, like, or, desc, isNull, count, gte, lte, type SQL } from 'drizzle-orm';
-
+import { and, count, desc, eq, gte, isNull, like, lte, or, type SQL } from 'drizzle-orm';
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { pipelineManifest } from '../../store/tasks-schema.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { createPage } from '../pagination.js';
-
+import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import {
-  filterManifestEntries,
-  type ExtendedManifestEntry,
-  type ResearchFilter,
   type ContradictionDetail,
+  type ExtendedManifestEntry,
+  filterManifestEntries,
+  type ResearchFilter,
   type SupersededDetail,
 } from './index.js';
-
-import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
 export type ManifestEntry = ExtendedManifestEntry;
@@ -49,7 +46,10 @@ function normalizeOffset(offset: number | undefined): number | undefined {
   return typeof offset === 'number' && offset > 0 ? offset : undefined;
 }
 
-function effectivePageLimit(limit: number | undefined, offset: number | undefined): number | undefined {
+function effectivePageLimit(
+  limit: number | undefined,
+  offset: number | undefined,
+): number | undefined {
   return limit ?? (offset !== undefined ? 50 : undefined);
 }
 
@@ -78,9 +78,8 @@ function buildManifestSqlFilters(filter: ResearchFilter): {
 
   return {
     conditions,
-    requiresInMemoryFiltering: filter.taskId !== undefined
-      || filter.topic !== undefined
-      || filter.actionable !== undefined,
+    requiresInMemoryFiltering:
+      filter.taskId !== undefined || filter.topic !== undefined || filter.actionable !== undefined,
   };
 }
 
@@ -106,7 +105,10 @@ function now(): string {
 }
 
 function computeContentHash(content: string): string {
-  return createHash('sha256').update(content || '').digest('hex').slice(0, 16);
+  return createHash('sha256')
+    .update(content || '')
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /**
@@ -144,9 +146,7 @@ function rowToEntry(row: typeof pipelineManifest.$inferSelect): ExtendedManifest
 /**
  * Convert an ExtendedManifestEntry to a pipeline_manifest row for insertion.
  */
-function entryToRow(
-  entry: ExtendedManifestEntry,
-): typeof pipelineManifest.$inferInsert {
+function entryToRow(entry: ExtendedManifestEntry): typeof pipelineManifest.$inferInsert {
   const serializedContent = JSON.stringify(entry);
   const contentHash = computeContentHash(serializedContent);
 
@@ -196,7 +196,10 @@ export async function pipelineManifestShow(
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!researchId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'researchId is required' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'researchId is required' },
+    };
   }
 
   try {
@@ -232,7 +235,13 @@ export async function pipelineManifestShow(
       data: { ...entry, fileContent, fileExists: fileContent !== null },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_SHOW', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_SHOW',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -300,9 +309,10 @@ export async function pipelineManifestList(
     const filteredEntries = applyManifestMemoryOnlyFilters(rows.map(rowToEntry), filter);
     const filtered = filteredEntries.length;
     const start = offset ?? 0;
-    const pagedEntries = pageLimit !== undefined
-      ? filteredEntries.slice(start, start + pageLimit)
-      : filteredEntries.slice(start);
+    const pagedEntries =
+      pageLimit !== undefined
+        ? filteredEntries.slice(start, start + pageLimit)
+        : filteredEntries.slice(start);
 
     return {
       success: true,
@@ -310,7 +320,13 @@ export async function pipelineManifestList(
       page: createPage({ total: filtered, limit: pageLimit, offset }),
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_LIST', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_LIST',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -334,10 +350,7 @@ export async function pipelineManifestFind(
       .where(
         and(
           isNull(pipelineManifest.archivedAt),
-          or(
-            like(pipelineManifest.content, likePattern),
-            like(pipelineManifest.type, likePattern),
-          ),
+          or(like(pipelineManifest.content, likePattern), like(pipelineManifest.type, likePattern)),
         ),
       )
       .orderBy(desc(pipelineManifest.createdAt));
@@ -345,19 +358,17 @@ export async function pipelineManifestFind(
     const queryLower = query.toLowerCase();
     const entries = rows.map(rowToEntry);
 
-    const scored = entries.map(entry => {
+    const scored = entries.map((entry) => {
       let score = 0;
       if (entry.title.toLowerCase().includes(queryLower)) score += 0.5;
-      if (entry.topics.some(t => t.toLowerCase().includes(queryLower))) score += 0.3;
-      if (entry.key_findings?.some(f => f.toLowerCase().includes(queryLower))) score += 0.2;
+      if (entry.topics.some((t) => t.toLowerCase().includes(queryLower))) score += 0.3;
+      if (entry.key_findings?.some((f) => f.toLowerCase().includes(queryLower))) score += 0.2;
       if (entry.id.toLowerCase().includes(queryLower)) score += 0.1;
       return { entry, score };
     });
 
     const minConfidence = options?.confidence ?? 0.1;
-    let results = scored
-      .filter(s => s.score >= minConfidence)
-      .sort((a, b) => b.score - a.score);
+    let results = scored.filter((s) => s.score >= minConfidence).sort((a, b) => b.score - a.score);
 
     if (options?.limit && options.limit > 0) {
       results = results.slice(0, options.limit);
@@ -367,12 +378,21 @@ export async function pipelineManifestFind(
       success: true,
       data: {
         query,
-        results: results.map(r => ({ ...r.entry, relevanceScore: Math.round(r.score * 100) / 100 })),
+        results: results.map((r) => ({
+          ...r.entry,
+          relevanceScore: Math.round(r.score * 100) / 100,
+        })),
         total: results.length,
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_FIND', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_FIND',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -392,11 +412,14 @@ export async function pipelineManifestPending(
     const entries = rows.map(rowToEntry);
 
     let pending = entries.filter(
-      e => e.status === 'partial' || e.status === 'blocked' || (e.needs_followup && e.needs_followup.length > 0),
+      (e) =>
+        e.status === 'partial' ||
+        e.status === 'blocked' ||
+        (e.needs_followup && e.needs_followup.length > 0),
     );
 
     if (epicId) {
-      pending = pending.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
+      pending = pending.filter((e) => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
     }
 
     return {
@@ -405,14 +428,21 @@ export async function pipelineManifestPending(
         entries: pending,
         total: pending.length,
         byStatus: {
-          partial: pending.filter(e => e.status === 'partial').length,
-          blocked: pending.filter(e => e.status === 'blocked').length,
-          needsFollowup: pending.filter(e => e.needs_followup && e.needs_followup.length > 0).length,
+          partial: pending.filter((e) => e.status === 'partial').length,
+          blocked: pending.filter((e) => e.status === 'blocked').length,
+          needsFollowup: pending.filter((e) => e.needs_followup && e.needs_followup.length > 0)
+            .length,
         },
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_PENDING', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_PENDING',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -432,7 +462,7 @@ export async function pipelineManifestStats(
 
     let filtered = entries;
     if (epicId) {
-      filtered = entries.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
+      filtered = entries.filter((e) => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
     }
 
     const byStatus: Record<string, number> = {};
@@ -457,11 +487,18 @@ export async function pipelineManifestStats(
         byType,
         actionable,
         needsFollowup,
-        averageFindings: filtered.length > 0 ? Math.round((totalFindings / filtered.length) * 10) / 10 : 0,
+        averageFindings:
+          filtered.length > 0 ? Math.round((totalFindings / filtered.length) * 10) / 10 : 0,
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_STATS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_STATS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -486,7 +523,13 @@ export async function pipelineManifestRead(
       data: { entries: filtered, total: filtered.length, filter: filter || {} },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_READ', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_READ',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -510,28 +553,43 @@ export async function pipelineManifestAppend(
   if (entry.actionable === undefined) errors.push('actionable is required');
 
   if (errors.length > 0) {
-    return { success: false, error: { code: 'E_VALIDATION_FAILED', message: `Invalid manifest entry: ${errors.join(', ')}` } };
+    return {
+      success: false,
+      error: {
+        code: 'E_VALIDATION_FAILED',
+        message: `Invalid manifest entry: ${errors.join(', ')}`,
+      },
+    };
   }
 
   try {
     const db = await getDb(projectRoot);
     const row = entryToRow(entry);
 
-    await db.insert(pipelineManifest).values(row).onConflictDoUpdate({
-      target: pipelineManifest.id,
-      set: {
-        content: row.content,
-        contentHash: row.contentHash,
-        status: row.status,
-        metadataJson: row.metadataJson,
-        sourceFile: row.sourceFile,
-        taskId: row.taskId,
-      },
-    });
+    await db
+      .insert(pipelineManifest)
+      .values(row)
+      .onConflictDoUpdate({
+        target: pipelineManifest.id,
+        set: {
+          content: row.content,
+          contentHash: row.contentHash,
+          status: row.status,
+          metadataJson: row.metadataJson,
+          sourceFile: row.sourceFile,
+          taskId: row.taskId,
+        },
+      });
 
     return { success: true, data: { appended: true, entryId: entry.id } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_APPEND', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_APPEND',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -541,7 +599,13 @@ export async function pipelineManifestArchive(
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!beforeDate) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'beforeDate is required (ISO-8601 format: YYYY-MM-DD)' } };
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'beforeDate is required (ISO-8601 format: YYYY-MM-DD)',
+      },
+    };
   }
 
   try {
@@ -549,7 +613,10 @@ export async function pipelineManifestArchive(
     const nativeDb = getNativeDb();
 
     if (!nativeDb) {
-      return { success: false, error: { code: 'E_DB_NOT_INITIALIZED', message: 'Database not initialized' } };
+      return {
+        success: false,
+        error: { code: 'E_DB_NOT_INITIALIZED', message: 'Database not initialized' },
+      };
     }
 
     // Find entries to archive (before date, not already archived)
@@ -558,32 +625,36 @@ export async function pipelineManifestArchive(
       .from(pipelineManifest)
       .where(isNull(pipelineManifest.archivedAt));
 
-    const toArchive = rows.filter(r => r.createdAt.slice(0, 10) < beforeDate);
+    const toArchive = rows.filter((r) => r.createdAt.slice(0, 10) < beforeDate);
 
     if (toArchive.length === 0) {
       const remaining = rows.length;
-      return { success: true, data: { archived: 0, remaining, message: 'No entries found before the specified date' } };
+      return {
+        success: true,
+        data: { archived: 0, remaining, message: 'No entries found before the specified date' },
+      };
     }
 
     const archivedAt = now();
     for (const row of toArchive) {
-      await db
-        .update(pipelineManifest)
-        .set({ archivedAt })
-        .where(eq(pipelineManifest.id, row.id));
+      await db.update(pipelineManifest).set({ archivedAt }).where(eq(pipelineManifest.id, row.id));
     }
 
     const remaining = rows.length - toArchive.length;
     return { success: true, data: { archived: toArchive.length, remaining } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_ARCHIVE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_ARCHIVE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 /** pipeline.manifest.compact - Dedup by contentHash (keep newest by createdAt) */
-export async function pipelineManifestCompact(
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function pipelineManifestCompact(projectRoot?: string): Promise<EngineResult> {
   try {
     const db = await getDb(projectRoot);
 
@@ -628,7 +699,13 @@ export async function pipelineManifestCompact(
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_COMPACT_FAILED', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_COMPACT_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -651,38 +728,66 @@ export async function pipelineManifestValidate(
       .where(isNull(pipelineManifest.archivedAt));
 
     const entries = rows.map(rowToEntry);
-    const linked = entries.filter(e => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId));
+    const linked = entries.filter(
+      (e) => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId),
+    );
 
     if (linked.length === 0) {
       return {
         success: true,
-        data: { taskId, valid: true, entriesFound: 0, message: `No research entries found for task ${taskId}`, issues: [] },
+        data: {
+          taskId,
+          valid: true,
+          entriesFound: 0,
+          message: `No research entries found for task ${taskId}`,
+          issues: [],
+        },
       };
     }
 
     const issues: Array<{ entryId: string; issue: string; severity: 'error' | 'warning' }> = [];
 
     for (const entry of linked) {
-      if (!entry.id) issues.push({ entryId: entry.id || '(unknown)', issue: 'Missing id', severity: 'error' });
-      if (!entry.file) issues.push({ entryId: entry.id, issue: 'Missing file path', severity: 'error' });
-      if (!entry.title) issues.push({ entryId: entry.id, issue: 'Missing title', severity: 'error' });
+      if (!entry.id)
+        issues.push({ entryId: entry.id || '(unknown)', issue: 'Missing id', severity: 'error' });
+      if (!entry.file)
+        issues.push({ entryId: entry.id, issue: 'Missing file path', severity: 'error' });
+      if (!entry.title)
+        issues.push({ entryId: entry.id, issue: 'Missing title', severity: 'error' });
       if (!entry.date) issues.push({ entryId: entry.id, issue: 'Missing date', severity: 'error' });
-      if (!entry.status) issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
-      if (!entry.agent_type) issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
+      if (!entry.status)
+        issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
+      if (!entry.agent_type)
+        issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
 
       if (entry.status && !['completed', 'partial', 'blocked'].includes(entry.status)) {
-        issues.push({ entryId: entry.id, issue: `Invalid status: ${entry.status}`, severity: 'error' });
+        issues.push({
+          entryId: entry.id,
+          issue: `Invalid status: ${entry.status}`,
+          severity: 'error',
+        });
       }
 
       if (entry.file) {
         const filePath = join(root, entry.file);
         if (!existsSync(filePath)) {
-          issues.push({ entryId: entry.id, issue: `Output file not found: ${entry.file}`, severity: 'warning' });
+          issues.push({
+            entryId: entry.id,
+            issue: `Output file not found: ${entry.file}`,
+            severity: 'warning',
+          });
         }
       }
 
-      if (entry.agent_type === 'research' && (!entry.key_findings || entry.key_findings.length === 0)) {
-        issues.push({ entryId: entry.id, issue: 'Research entry missing key_findings', severity: 'warning' });
+      if (
+        entry.agent_type === 'research' &&
+        (!entry.key_findings || entry.key_findings.length === 0)
+      ) {
+        issues.push({
+          entryId: entry.id,
+          issue: 'Research entry missing key_findings',
+          severity: 'warning',
+        });
       }
     }
 
@@ -690,15 +795,21 @@ export async function pipelineManifestValidate(
       success: true,
       data: {
         taskId,
-        valid: issues.filter(i => i.severity === 'error').length === 0,
+        valid: issues.filter((i) => i.severity === 'error').length === 0,
         entriesFound: linked.length,
         issues,
-        errorCount: issues.filter(i => i.severity === 'error').length,
-        warningCount: issues.filter(i => i.severity === 'warning').length,
+        errorCount: issues.filter((i) => i.severity === 'error').length,
+        warningCount: issues.filter((i) => i.severity === 'warning').length,
       },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_VALIDATE', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_VALIDATE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -731,7 +842,10 @@ export async function pipelineManifestContradictions(
       [/\bdoes NOT\b/i, /\bdoes\b(?!.*\bnot\b)/i],
       [/\bcannot\b/i, /\bcan\b(?!.*\bnot\b)/i],
       [/\bno\s+\w+\s+required\b/i, /\brequired\b(?!.*\bno\b)/i],
-      [/\bnot\s+(?:available|supported|possible|recommended)\b/i, /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i],
+      [
+        /\bnot\s+(?:available|supported|possible|recommended)\b/i,
+        /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i,
+      ],
       [/\bwithout\b/i, /\brequires?\b/i],
       [/\bavoid\b/i, /\buse\b/i],
       [/\bdeprecated\b/i, /\brecommended\b/i],
@@ -764,7 +878,12 @@ export async function pipelineManifestContradictions(
           }
 
           if (conflicts.length > 0) {
-            contradictions.push({ entryA: a, entryB: b, topic, conflictDetails: conflicts.join('; ') });
+            contradictions.push({
+              entryA: a,
+              entryB: b,
+              topic,
+              conflictDetails: conflicts.join('; '),
+            });
           }
         }
       }
@@ -772,7 +891,13 @@ export async function pipelineManifestContradictions(
 
     return { success: true, data: { contradictions } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_CONTRADICTIONS', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_CONTRADICTIONS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -820,7 +945,13 @@ export async function pipelineManifestSuperseded(
 
     return { success: true, data: { superseded } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_SUPERSEDED', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_SUPERSEDED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -832,7 +963,10 @@ export async function pipelineManifestLink(
   projectRoot?: string,
 ): Promise<EngineResult> {
   if (!taskId || !researchId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and researchId are required' } };
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'taskId and researchId are required' },
+    };
   }
 
   try {
@@ -844,7 +978,10 @@ export async function pipelineManifestLink(
       .limit(1);
 
     if (rows.length === 0) {
-      return { success: false, error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` } };
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` },
+      };
     }
 
     const row = rows[0];
@@ -858,7 +995,7 @@ export async function pipelineManifestLink(
     const updatedLinkedTasks = [...(entry.linked_tasks ?? []), taskId];
     let meta: Record<string, unknown> = {};
     try {
-      meta = row.metadataJson ? JSON.parse(row.metadataJson) as Record<string, unknown> : {};
+      meta = row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {};
     } catch {
       // ignore
     }
@@ -874,7 +1011,13 @@ export async function pipelineManifestLink(
 
     return { success: true, data: { taskId, researchId, linked: true, notes: notes || null } };
   } catch (error) {
-    return { success: false, error: { code: 'E_MANIFEST_LINK', message: error instanceof Error ? error.message : String(error) } };
+    return {
+      success: false,
+      error: {
+        code: 'E_MANIFEST_LINK',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -903,7 +1046,10 @@ export async function readManifestEntries(projectRoot?: string): Promise<Extende
 /**
  * Filter manifest entries by criteria (alias for backward compatibility).
  */
-export function filterEntries(entries: ExtendedManifestEntry[], filter: ResearchFilter): ExtendedManifestEntry[] {
+export function filterEntries(
+  entries: ExtendedManifestEntry[],
+  filter: ResearchFilter,
+): ExtendedManifestEntry[] {
   return filterManifestEntries(entries, filter);
 }
 

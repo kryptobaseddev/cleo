@@ -4,17 +4,17 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ManifestEntry, ManifestValidationResult } from '../manifest.js';
 import {
   findManifestEntry,
-  validateManifestEntry,
   logRealCompliance,
   validateAndLog,
+  validateManifestEntry,
 } from '../manifest.js';
-import type { ManifestEntry, ManifestValidationResult } from '../manifest.js';
 
 // ============================================================================
 // Helpers
@@ -29,7 +29,7 @@ function makeRoot(): string {
 function makeManifestFile(dir: string, entries: ManifestEntry[]): string {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'MANIFEST.jsonl');
-  const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(path, content);
   return path;
 }
@@ -58,8 +58,12 @@ function makeEntry(overrides?: Partial<ManifestEntry>): ManifestEntry {
 describe('findManifestEntry', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('returns matching manifest entry by taskId', async () => {
     const manifestPath = makeManifestFile(root, [makeEntry()]);
@@ -94,10 +98,7 @@ describe('findManifestEntry', () => {
     const dir = join(root, 'agent-outputs');
     mkdirSync(dir, { recursive: true });
     const path = join(dir, 'MANIFEST.jsonl');
-    writeFileSync(path, [
-      'NOT VALID JSON',
-      JSON.stringify(makeEntry()),
-    ].join('\n'));
+    writeFileSync(path, ['NOT VALID JSON', JSON.stringify(makeEntry())].join('\n'));
     const result = await findManifestEntry('T001', path);
     expect(result).not.toBeNull();
   });
@@ -129,7 +130,7 @@ describe('validateManifestEntry', () => {
     const entry = makeEntry({ id: '' });
     const result = await validateManifestEntry('T001', entry);
     expect(result.valid).toBe(false);
-    expect(result.violations.some(v => v.requirement === 'BASIC-000')).toBe(true);
+    expect(result.violations.some((v) => v.requirement === 'BASIC-000')).toBe(true);
   });
 
   it('fails when entry missing required status field', async () => {
@@ -142,26 +143,26 @@ describe('validateManifestEntry', () => {
     const entry = makeEntry({ key_findings: ['Only one finding'] });
     const result = await validateManifestEntry('T001', entry);
     expect(result.score).toBeLessThan(70);
-    expect(result.violations.some(v => v.requirement === 'BASIC-001')).toBe(true);
+    expect(result.violations.some((v) => v.requirement === 'BASIC-001')).toBe(true);
   });
 
   it('deducts score for missing key_findings array', async () => {
     const entry = makeEntry({ key_findings: undefined });
     const result = await validateManifestEntry('T001', entry);
     expect(result.score).toBeLessThanOrEqual(50);
-    expect(result.violations.some(v => v.severity === 'error')).toBe(true);
+    expect(result.violations.some((v) => v.severity === 'error')).toBe(true);
   });
 
   it('deducts score for missing file field', async () => {
     const entry = makeEntry({ file: '' });
     const result = await validateManifestEntry('T001', entry);
-    expect(result.violations.some(v => v.requirement === 'BASIC-002')).toBe(true);
+    expect(result.violations.some((v) => v.requirement === 'BASIC-002')).toBe(true);
   });
 
   it('deducts score for missing linked_tasks', async () => {
     const entry = makeEntry({ linked_tasks: [] });
     const result = await validateManifestEntry('T001', entry);
-    expect(result.violations.some(v => v.requirement === 'BASIC-004')).toBe(true);
+    expect(result.violations.some((v) => v.requirement === 'BASIC-004')).toBe(true);
   });
 
   it('includes agent_type in result', async () => {
@@ -177,8 +178,12 @@ describe('validateManifestEntry', () => {
 describe('logRealCompliance', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('writes a compliance entry to the JSONL file', async () => {
     const compliancePath = join(root, 'metrics', 'COMPLIANCE.jsonl');
@@ -253,8 +258,12 @@ describe('logRealCompliance', () => {
 describe('validateAndLog', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('validates and logs a passing entry', async () => {
     const manifestPath = makeManifestFile(root, [makeEntry()]);

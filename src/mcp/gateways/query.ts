@@ -54,8 +54,16 @@ export interface DomainResponse {
  * with E_INVALID_DOMAIN.
  */
 type QueryDomain =
-  | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sticky';
+  | 'tasks'
+  | 'session'
+  | 'memory'
+  | 'check'
+  | 'pipeline'
+  | 'orchestrate'
+  | 'tools'
+  | 'admin'
+  | 'nexus'
+  | 'sticky';
 
 /**
  * Query request interface
@@ -179,7 +187,8 @@ export function registerQueryTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific read operation. Call admin.help to see the full operation matrix. Common: tasks.find, tasks.show, tasks.next, session.status, admin.dash',
+          description:
+            'Domain-specific read operation. Call admin.help to see the full operation matrix. Common: tasks.find, tasks.show, tasks.next, session.status, admin.dash',
         },
         params: {
           type: 'object',
@@ -199,9 +208,7 @@ export function registerQueryTool() {
  * @param request Query request with domain, operation, and params
  * @returns Promise resolving to query response
  */
-export async function handleQueryRequest(
-  request: QueryRequest
-): Promise<QueryResponse> {
+export async function handleQueryRequest(request: QueryRequest): Promise<QueryResponse> {
   // Validate request parameters
   const validation = validateQueryParams(request);
   if (!validation.valid) {

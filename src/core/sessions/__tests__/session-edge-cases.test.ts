@@ -6,10 +6,10 @@
  * @epic T4498
  */
 
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   endSession,
   gcSessions,
@@ -34,7 +34,9 @@ afterEach(async () => {
   try {
     const { closeAllDatabases } = await import('../../../store/sqlite.js');
     await closeAllDatabases();
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -44,7 +46,11 @@ afterEach(async () => {
 
 describe('Scope parsing edge cases', () => {
   it('parses epic scope with multi-digit IDs', () => {
-    expect(parseScope('epic:T9999')).toEqual({ type: 'epic', epicId: 'T9999', rootTaskId: 'T9999' });
+    expect(parseScope('epic:T9999')).toEqual({
+      type: 'epic',
+      epicId: 'T9999',
+      rootTaskId: 'T9999',
+    });
   });
 
   it('rejects scope without colon separator', () => {
@@ -90,9 +96,9 @@ describe('Concurrent session handling', () => {
   it('prevents same-scope epic session duplicate', async () => {
     await startSession({ name: 'First', scope: 'epic:T001' }, tempDir);
 
-    await expect(
-      startSession({ name: 'Duplicate', scope: 'epic:T001' }, tempDir),
-    ).rejects.toThrow('Active session already exists');
+    await expect(startSession({ name: 'Duplicate', scope: 'epic:T001' }, tempDir)).rejects.toThrow(
+      'Active session already exists',
+    );
   });
 
   it('allows new session after ending previous with same scope', async () => {
@@ -105,9 +111,9 @@ describe('Concurrent session handling', () => {
 
   it('multiple global sessions are blocked', async () => {
     await startSession({ name: 'Global 1', scope: 'global' }, tempDir);
-    await expect(
-      startSession({ name: 'Global 2', scope: 'global' }, tempDir),
-    ).rejects.toThrow('Active session already exists');
+    await expect(startSession({ name: 'Global 2', scope: 'global' }, tempDir)).rejects.toThrow(
+      'Active session already exists',
+    );
   });
 
   it('global and epic sessions can coexist', async () => {
@@ -133,9 +139,9 @@ describe('Session resume edge cases', () => {
   });
 
   it('resume non-existent session throws', async () => {
-    await expect(
-      resumeSession('session-nonexistent', tempDir),
-    ).rejects.toThrow('Session not found');
+    await expect(resumeSession('session-nonexistent', tempDir)).rejects.toThrow(
+      'Session not found',
+    );
   });
 
   it('resume ended session reactivates it', async () => {
@@ -207,21 +213,27 @@ describe('Session GC edge cases', () => {
 
 describe('Session focus and notes', () => {
   it('session can start with focus task', async () => {
-    const session = await startSession({
-      name: 'Focused',
-      scope: 'epic:T001',
-      startTask: 'T002',
-    }, tempDir);
+    const session = await startSession(
+      {
+        name: 'Focused',
+        scope: 'epic:T001',
+        startTask: 'T002',
+      },
+      tempDir,
+    );
 
     expect(session.taskWork.taskId).toBe('T002');
     expect(session.taskWork.setAt).toBeDefined();
   });
 
   it('session without focus has null taskId', async () => {
-    const session = await startSession({
-      name: 'Unfocused',
-      scope: 'global',
-    }, tempDir);
+    const session = await startSession(
+      {
+        name: 'Unfocused',
+        scope: 'global',
+      },
+      tempDir,
+    );
 
     expect(session.taskWork.taskId).toBeNull();
   });

@@ -95,7 +95,8 @@ function handleBlock(taskId: string, tasks: Task[]): { tasks: Task[]; result: St
           message: `Task ${taskId} has ${children.length} child task(s) and cannot be deleted`,
           childCount: children.length,
           childIds: children.map((c) => c.id),
-          suggestion: 'Use --children=cascade to cancel children or --children=orphan to make them root tasks',
+          suggestion:
+            'Use --children=cascade to cancel children or --children=orphan to make them root tasks',
         },
       },
     };

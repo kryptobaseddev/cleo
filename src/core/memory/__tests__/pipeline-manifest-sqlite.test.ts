@@ -10,29 +10,29 @@
  * @epic T5576
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ExtendedManifestEntry } from '../index.js';
 import {
-  pipelineManifestShow,
-  pipelineManifestList,
-  pipelineManifestFind,
-  pipelineManifestPending,
-  pipelineManifestStats,
-  pipelineManifestRead,
+  distillManifestEntry,
+  migrateManifestJsonlToSqlite,
   pipelineManifestAppend,
   pipelineManifestArchive,
   pipelineManifestCompact,
-  pipelineManifestValidate,
   pipelineManifestContradictions,
-  pipelineManifestSuperseded,
+  pipelineManifestFind,
   pipelineManifestLink,
-  distillManifestEntry,
+  pipelineManifestList,
+  pipelineManifestPending,
+  pipelineManifestRead,
+  pipelineManifestShow,
+  pipelineManifestStats,
+  pipelineManifestSuperseded,
+  pipelineManifestValidate,
   readManifestEntries,
-  migrateManifestJsonlToSqlite,
 } from '../pipeline-manifest-sqlite.js';
-import type { ExtendedManifestEntry } from '../index.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -257,7 +257,13 @@ describe('pipeline-manifest-sqlite', () => {
       expect((result.data as any).entries[0].id).toBe('T001-research');
       expect((result.data as any).total).toBe(3);
       expect((result.data as any).filtered).toBe(2);
-      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 1,
+        offset: 1,
+        hasMore: false,
+        total: 2,
+      });
     });
   });
 
@@ -422,7 +428,7 @@ describe('pipeline-manifest-sqlite', () => {
       const result = await pipelineManifestValidate('T001-research', testRoot);
       expect(result.success).toBe(true);
       const issues = (result.data as any).issues as any[];
-      const fileWarning = issues.find(i => i.issue.includes('Output file not found'));
+      const fileWarning = issues.find((i) => i.issue.includes('Output file not found'));
       expect(fileWarning).toBeDefined();
       expect(fileWarning.severity).toBe('warning');
     });
@@ -577,7 +583,7 @@ describe('pipeline-manifest-sqlite', () => {
 
     it('should import entries from MANIFEST.jsonl', async () => {
       const manifestPath = join(testRoot, '.cleo', 'MANIFEST.jsonl');
-      const content = [ENTRY_A, ENTRY_B].map(e => JSON.stringify(e)).join('\n') + '\n';
+      const content = [ENTRY_A, ENTRY_B].map((e) => JSON.stringify(e)).join('\n') + '\n';
       writeFileSync(manifestPath, content, 'utf-8');
 
       const result = await migrateManifestJsonlToSqlite(testRoot);
@@ -594,7 +600,7 @@ describe('pipeline-manifest-sqlite', () => {
       await pipelineManifestAppend(ENTRY_A, testRoot);
 
       const manifestPath = join(testRoot, '.cleo', 'MANIFEST.jsonl');
-      const content = [ENTRY_A, ENTRY_B].map(e => JSON.stringify(e)).join('\n') + '\n';
+      const content = [ENTRY_A, ENTRY_B].map((e) => JSON.stringify(e)).join('\n') + '\n';
       writeFileSync(manifestPath, content, 'utf-8');
 
       const result = await migrateManifestJsonlToSqlite(testRoot);

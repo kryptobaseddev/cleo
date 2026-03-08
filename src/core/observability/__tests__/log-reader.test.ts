@@ -4,12 +4,11 @@
  * @epic T5186
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { discoverLogFiles, readLogFileLines, streamLogFileLines } from '../log-reader.js';
-import type { LogFileInfo } from '../types.js';
 
 describe('readLogFileLines', () => {
   let tmpDir: string;
@@ -47,7 +46,8 @@ describe('readLogFileLines', () => {
   });
 
   it('skips blank lines', async () => {
-    const content = '{"level":"INFO","time":"2026-01-01T00:00:00Z","pid":1,"hostname":"h","msg":"a"}\n\n\n{"level":"WARN","time":"2026-01-01T00:01:00Z","pid":2,"hostname":"h","msg":"b"}\n';
+    const content =
+      '{"level":"INFO","time":"2026-01-01T00:00:00Z","pid":1,"hostname":"h","msg":"a"}\n\n\n{"level":"WARN","time":"2026-01-01T00:01:00Z","pid":2,"hostname":"h","msg":"b"}\n';
     const filePath = join(tmpDir, 'gaps.log');
     await writeFile(filePath, content);
 
@@ -92,7 +92,8 @@ describe('streamLogFileLines', () => {
   });
 
   it('skips empty lines', async () => {
-    const content = '{"level":"INFO","time":"2026-01-01T00:00:00Z","pid":1,"hostname":"h","msg":"a"}\n\n\n';
+    const content =
+      '{"level":"INFO","time":"2026-01-01T00:00:00Z","pid":1,"hostname":"h","msg":"a"}\n\n\n';
     const filePath = join(tmpDir, 'blanks.log');
     await writeFile(filePath, content);
 
@@ -121,7 +122,7 @@ describe('discoverLogFiles', () => {
   it('discovers cleo log files sorted by mtime', async () => {
     await writeFile(join(logsDir, 'cleo.2026-01-01.1.log'), 'line1\n');
     // Small delay to ensure different mtime
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
     await writeFile(join(logsDir, 'cleo.2026-01-02.1.log'), 'line2\n');
 
     // Override getProjectLogDir by passing cwd
@@ -129,7 +130,7 @@ describe('discoverLogFiles', () => {
     expect(files.length).toBeGreaterThanOrEqual(2);
 
     // Newest first
-    const cleoFiles = files.filter(f => f.name.startsWith('cleo.'));
+    const cleoFiles = files.filter((f) => f.name.startsWith('cleo.'));
     expect(cleoFiles[0]!.name).toBe('cleo.2026-01-02.1.log');
     expect(cleoFiles[0]!.date).toBe('2026-01-02');
     expect(cleoFiles[0]!.isActive).toBe(true);
@@ -139,7 +140,7 @@ describe('discoverLogFiles', () => {
     await writeFile(join(logsDir, 'cleo.2026-03-15.1.log'), 'data\n');
 
     const files = discoverLogFiles({ scope: 'project' }, tmpDir);
-    const cleoFiles = files.filter(f => f.name.startsWith('cleo.'));
+    const cleoFiles = files.filter((f) => f.name.startsWith('cleo.'));
     expect(cleoFiles).toHaveLength(1);
     expect(cleoFiles[0]!.date).toBe('2026-03-15');
   });

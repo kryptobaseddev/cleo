@@ -6,12 +6,12 @@
  * @task T4475
  */
 
-import { existsSync,mkdirSync,mkdtempSync,rmSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import { closeLogger,initLogger } from '../../../core/logger.js';
-import { closeDb,resetDbState } from '../../../store/sqlite.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { closeLogger, initLogger } from '../../../core/logger.js';
+import { closeDb, resetDbState } from '../../../store/sqlite.js';
 import {
   lifecycleCheck,
   lifecycleGateFail,
@@ -21,7 +21,7 @@ import {
   lifecycleProgress,
   lifecycleReset,
   lifecycleSkip,
-  lifecycleStatus
+  lifecycleStatus,
 } from '../lifecycle-engine.js';
 
 let TEST_ROOT = '';
@@ -72,7 +72,6 @@ describe('Lifecycle Engine', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
-
   });
 
   describe('lifecyclePrerequisites', () => {
@@ -139,7 +138,12 @@ describe('Lifecycle Engine', () => {
 
   describe('lifecycleSkip', () => {
     it('should skip a stage with reason', async () => {
-      const result = await lifecycleSkip('T300', 'consensus', 'Not needed for this project', TEST_ROOT);
+      const result = await lifecycleSkip(
+        'T300',
+        'consensus',
+        'Not needed for this project',
+        TEST_ROOT,
+      );
       expect(result.success).toBe(true);
       expect((result.data as any).skipped).toBe(true);
 
@@ -170,7 +174,13 @@ describe('Lifecycle Engine', () => {
 
   describe('lifecycleGatePass', () => {
     it('should mark gate as passed', async () => {
-      const result = await lifecycleGatePass('T500', 'research-review', 'agent-1', 'Looks good', TEST_ROOT);
+      const result = await lifecycleGatePass(
+        'T500',
+        'research-review',
+        'agent-1',
+        'Looks good',
+        TEST_ROOT,
+      );
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('passed');
     });
@@ -178,7 +188,12 @@ describe('Lifecycle Engine', () => {
 
   describe('lifecycleGateFail', () => {
     it('should mark gate as failed', async () => {
-      const result = await lifecycleGateFail('T500', 'research-review', 'Missing findings', TEST_ROOT);
+      const result = await lifecycleGateFail(
+        'T500',
+        'research-review',
+        'Missing findings',
+        TEST_ROOT,
+      );
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('failed');
     });

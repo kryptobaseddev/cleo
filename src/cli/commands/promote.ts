@@ -3,7 +3,7 @@
  * @task T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerPromoteCommand(program: Command): void {

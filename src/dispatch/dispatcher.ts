@@ -10,10 +10,10 @@
  * @epic T4820
  */
 
-import type { DispatchRequest, DispatchResponse, DomainHandler, Middleware } from './types.js';
-import { resolve, validateRequiredParams } from './registry.js';
 import { createDispatchMeta } from './lib/meta.js';
 import { compose } from './middleware/pipeline.js';
+import { resolve, validateRequiredParams } from './registry.js';
+import type { DispatchRequest, DispatchResponse, DomainHandler, Middleware } from './types.js';
 
 export interface DispatcherConfig {
   handlers: Map<string, DomainHandler>;
@@ -39,8 +39,12 @@ export class Dispatcher {
     if (!resolved) {
       return {
         _meta: createDispatchMeta(
-          request.gateway, request.domain, request.operation,
-          startTime, request.source, request.requestId,
+          request.gateway,
+          request.domain,
+          request.operation,
+          startTime,
+          request.source,
+          request.requestId,
         ),
         success: false,
         error: {
@@ -55,8 +59,12 @@ export class Dispatcher {
     if (missing.length > 0) {
       return {
         _meta: createDispatchMeta(
-          request.gateway, resolved.domain, resolved.operation,
-          startTime, request.source, request.requestId,
+          request.gateway,
+          resolved.domain,
+          resolved.operation,
+          startTime,
+          request.source,
+          request.requestId,
         ),
         success: false,
         error: {
@@ -72,8 +80,12 @@ export class Dispatcher {
     if (!handler) {
       return {
         _meta: createDispatchMeta(
-          request.gateway, resolved.domain, resolved.operation,
-          startTime, request.source, request.requestId,
+          request.gateway,
+          resolved.domain,
+          resolved.operation,
+          startTime,
+          request.source,
+          request.requestId,
         ),
         success: false,
         error: {

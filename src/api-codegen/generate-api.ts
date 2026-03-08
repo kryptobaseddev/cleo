@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * CLEO API Specification Generator
- * 
+ *
  * Dynamically generates API specifications from the OperationRegistry.
  * Supports multiple output formats: OpenAPI 3.1, TypeScript client, Markdown docs.
- * 
+ *
  * Usage:
  *   npm run generate:api -- --format openapi --domain nexus --output docs/specs/cleo-nexus-openapi.json
  *   npm run generate:api -- --format typescript --domain nexus --output src/clients/nexus-client.ts
  *   npm run generate:api -- --format markdown --domain nexus --output docs/specs/CLEO-NEXUS-API-GENERATED.md
- * 
+ *
  * @task API-GEN-001
  */
 
@@ -113,7 +113,7 @@ function generateOpenApi(operations: OperationDef[], version: string): object {
 
     const method = 'post';
     const operationId = `${op.domain}.${op.operation}`;
-    
+
     paths[pathKey][method] = {
       operationId,
       summary: op.description,
@@ -205,8 +205,8 @@ function generateOpenApi(operations: OperationDef[], version: string): object {
     type: 'object',
     required: ['$schema', '_meta', 'success'],
     properties: {
-      '$schema': { type: 'string' },
-      '_meta': { $ref: '#/components/schemas/Meta' },
+      $schema: { type: 'string' },
+      _meta: { $ref: '#/components/schemas/Meta' },
       success: { type: 'boolean' },
       result: { type: 'object' },
       error: { $ref: '#/components/schemas/Error' },
@@ -283,10 +283,7 @@ function generateRequestSchema(operation: OperationDef): object {
 
 function generateResponseSchema(_operation: OperationDef): object {
   return {
-    oneOf: [
-      { type: 'object' },
-      { $ref: '#/components/schemas/Error' },
-    ],
+    oneOf: [{ type: 'object' }, { $ref: '#/components/schemas/Error' }],
   };
 }
 
@@ -299,7 +296,7 @@ function generateLafsResponseSchema(_operation: OperationDef): object {
 // TypeScript Client Generator
 function generateTypeScript(operations: OperationDef[], version: string): string {
   const domains = groupByDomain(operations);
-  
+
   let code = `/**
  * CLEO API Client - Auto-generated
  * 
@@ -425,30 +422,30 @@ export class CleoClient {
   // Generate domain methods
   for (const [domainName, domainOps] of Object.entries(domains)) {
     code += `  ${domainName} = {\n`;
-    
+
     for (const op of domainOps) {
       const methodName = op.operation.replace(/\./g, '_');
       const gateway = op.gateway;
       const hasRequiredParams = op.requiredParams && op.requiredParams.length > 0;
-      
+
       code += `    /**
      * ${op.description}
      * Gateway: ${gateway}
      */
     ${methodName}: async (params${hasRequiredParams ? '' : '?'}: {
 `;
-      
+
       if (op.requiredParams) {
         for (const paramName of op.requiredParams) {
           code += `      ${paramName}: string;\n`;
         }
       }
-      
+
       code += `    }): Promise<unknown> => {\n`;
       code += `      return this.request('${gateway}', '${domainName}', '${op.operation}', params);\n`;
       code += `    },\n\n`;
     }
-    
+
     code += `  };\n\n`;
   }
 
@@ -480,31 +477,31 @@ function generateMarkdown(operations: OperationDef[], version: string): string {
   md += `**Version**: ${version}  \n`;
   md += `**Generated**: ${new Date().toISOString()}  \n`;
   md += `**Total Operations**: ${operations.length}  \n\n`;
-  
+
   const domains = groupByDomain(operations);
-  
+
   for (const [domainName, domainOps] of Object.entries(domains)) {
     md += `## Domain: ${domainName}\n\n`;
-    
+
     for (const op of domainOps) {
       md += `### ${domainName}.${op.operation} (${op.gateway})\n\n`;
       md += `${op.description}\n\n`;
-      
+
       if (op.requiredParams && op.requiredParams.length > 0) {
         md += `**Required Parameters**: ${op.requiredParams.join(', ')}\n\n`;
       }
-      
+
       md += `| Property | Value |\n`;
       md += `|----------|-------|\n`;
       md += `| Gateway | ${op.gateway} |\n`;
       md += `| Tier | ${op.tier} |\n`;
       md += `| Idempotent | ${op.idempotent ? 'Yes' : 'No'} |\n`;
       md += `| Session Required | ${op.sessionRequired ? 'Yes' : 'No'} |\n\n`;
-      
+
       md += `---\n\n`;
     }
   }
-  
+
   return md;
 }
 
@@ -525,11 +522,13 @@ async function main(): Promise<void> {
   // Filter operations
   let operations = OperationRegistry;
   if (options.domain) {
-    operations = operations.filter(op => op.domain === options.domain);
+    operations = operations.filter((op) => op.domain === options.domain);
   }
 
   if (operations.length === 0) {
-    console.error(`Error: No operations found${options.domain ? ` for domain '${options.domain}'` : ''}`);
+    console.error(
+      `Error: No operations found${options.domain ? ` for domain '${options.domain}'` : ''}`,
+    );
     process.exit(1);
   }
 
@@ -550,7 +549,9 @@ async function main(): Promise<void> {
       output = generateMarkdown(operations, options.version);
       break;
     default:
-      console.error(`Error: Unknown format '${options.format}'. Use: openapi, typescript, or markdown`);
+      console.error(
+        `Error: Unknown format '${options.format}'. Use: openapi, typescript, or markdown`,
+      );
       process.exit(1);
   }
 
@@ -563,13 +564,15 @@ async function main(): Promise<void> {
     }
     fs.writeFileSync(outputPath, output, 'utf-8');
     console.log(`Generated ${options.format} specification: ${outputPath}`);
-    console.log(`  Operations: ${operations.length}${options.domain ? ` (${options.domain} domain)` : ''}`);
+    console.log(
+      `  Operations: ${operations.length}${options.domain ? ` (${options.domain} domain)` : ''}`,
+    );
   } else {
     console.log(output);
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Error:', err);
   process.exit(1);
 });

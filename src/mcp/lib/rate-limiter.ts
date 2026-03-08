@@ -145,9 +145,10 @@ export class RateLimiter {
       allowed: true,
       remaining,
       limit: limitConfig.maxRequests,
-      resetMs: bucket.timestamps.length > 0
-        ? bucket.timestamps[0] + limitConfig.windowMs - now
-        : limitConfig.windowMs,
+      resetMs:
+        bucket.timestamps.length > 0
+          ? bucket.timestamps[0] + limitConfig.windowMs - now
+          : limitConfig.windowMs,
       category,
     };
   }
@@ -189,9 +190,10 @@ export class RateLimiter {
       allowed: remaining > 0,
       remaining: Math.max(0, remaining),
       limit: limitConfig.maxRequests,
-      resetMs: activeTimestamps.length > 0
-        ? activeTimestamps[0] + limitConfig.windowMs - now
-        : limitConfig.windowMs,
+      resetMs:
+        activeTimestamps.length > 0
+          ? activeTimestamps[0] + limitConfig.windowMs - now
+          : limitConfig.windowMs,
       category,
     };
   }

@@ -11,10 +11,10 @@
  * @epic T4663
  */
 
-import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
 
 const thisFile = fileURLToPath(import.meta.url);
 const packageRoot = resolve(dirname(thisFile), '..', '..', '..');
@@ -115,10 +115,16 @@ describe('CAAMP skill install + integrity (T4718)', () => {
     it('getSkillSearchPaths includes expected scopes', async () => {
       const { getSkillSearchPaths } = await import('../skills/discovery.js');
       const paths = getSkillSearchPaths();
-      const scopes = paths.map(p => p.scope);
+      const scopes = paths.map((p) => p.scope);
       // Search paths only include entries that exist on disk.
       // Verify all returned scopes are valid known scope values.
-      const knownScopes = ['cleo-home', 'agent-skills', 'app-embedded', 'project-custom', 'marketplace'];
+      const knownScopes = [
+        'cleo-home',
+        'agent-skills',
+        'app-embedded',
+        'project-custom',
+        'marketplace',
+      ];
       for (const scope of scopes) {
         expect(knownScopes).toContain(scope);
       }
@@ -165,9 +171,7 @@ describe('CAAMP skill install + integrity (T4718)', () => {
   describe('CAAMP server config generation', () => {
     it('caampBuildServerConfig creates valid config for package source', async () => {
       const { caampBuildServerConfig } = await import('../caamp/index.js');
-      const config = caampBuildServerConfig(
-        { type: 'package', value: '@cleocode/cleo' },
-      );
+      const config = caampBuildServerConfig({ type: 'package', value: '@cleocode/cleo' });
       expect(config).toBeDefined();
       expect(config.command).toBeDefined();
     });

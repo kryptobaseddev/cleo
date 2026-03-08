@@ -6,10 +6,10 @@
  * @epic T4498
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '../../types/exit-codes.js';
 import { CleoError } from '../errors.js';
-import { formatSuccess, formatError } from '../output.js';
+import { formatError, formatSuccess } from '../output.js';
 
 // ============================================================
 // CLI Command Parity Tracking
@@ -26,23 +26,37 @@ const TS_COMMANDS = [
   'update',
   'delete',
   'archive',
-  'focus',        // subcommands: show, set, clear, history
-  'session',      // subcommands: start, end, status, resume, list, gc
-  'phase',        // subcommands: list, show, set, start, complete, advance, rename, delete
-  'deps',         // subcommands: overview, show, waves, critical, impact, cycles, graph
+  'focus', // subcommands: show, set, clear, history
+  'session', // subcommands: start, end, status, resume, list, gc
+  'phase', // subcommands: list, show, set, start, complete, advance, rename, delete
+  'deps', // subcommands: overview, show, waves, critical, impact, cycles, graph
   'tree',
-  'research',     // subcommands: add, show, list, pending, link, update, manifest
-  'orchestrate',  // subcommands: start, analyze, ready, next, spawn, context
-  'lifecycle',    // subcommands: state, start, complete, skip, gate
-  'release',      // subcommands: create, plan, ship, list, show, changelog
-  'migrate',      // subcommands: status, run
+  'research', // subcommands: add, show, list, pending, link, update, manifest
+  'orchestrate', // subcommands: start, analyze, ready, next, spawn, context
+  'lifecycle', // subcommands: state, start, complete, skip, gate
+  'release', // subcommands: create, plan, ship, list, show, changelog
+  'migrate', // subcommands: status, run
 ] as const;
 
 /** Critical Bash CLI commands that MUST have parity. */
 const CRITICAL_BASH_COMMANDS = [
-  'add', 'list', 'show', 'find', 'complete', 'update', 'delete', 'archive',
-  'focus', 'session', 'phase', 'deps', 'research', 'release', 'lifecycle',
-  'migrate', 'orchestrator',
+  'add',
+  'list',
+  'show',
+  'find',
+  'complete',
+  'update',
+  'delete',
+  'archive',
+  'focus',
+  'session',
+  'phase',
+  'deps',
+  'research',
+  'release',
+  'lifecycle',
+  'migrate',
+  'orchestrator',
 ] as const;
 
 describe('CLI Command Parity', () => {
@@ -52,7 +66,7 @@ describe('CLI Command Parity', () => {
 
     for (const cmd of CRITICAL_BASH_COMMANDS) {
       const normalizedCmd = cmd === 'orchestrator' ? 'orchestrate' : cmd;
-      if (!tsCommandSet.has(normalizedCmd as typeof TS_COMMANDS[number])) {
+      if (!tsCommandSet.has(normalizedCmd as (typeof TS_COMMANDS)[number])) {
         missing.push(cmd);
       }
     }
@@ -88,33 +102,33 @@ describe('Exit Code Parity', () => {
 
   it('has all exit code ranges defined', () => {
     // Check that all expected exit code values exist
-    const allCodes = Object.values(ExitCode).filter(v => typeof v === 'number') as number[];
+    const allCodes = Object.values(ExitCode).filter((v) => typeof v === 'number') as number[];
     const codeSet = new Set(allCodes);
 
     // Verify key codes exist
-    expect(codeSet.has(0)).toBe(true);     // SUCCESS
-    expect(codeSet.has(1)).toBe(true);     // GENERAL_ERROR
-    expect(codeSet.has(4)).toBe(true);     // NOT_FOUND
-    expect(codeSet.has(6)).toBe(true);     // VALIDATION_ERROR
-    expect(codeSet.has(10)).toBe(true);    // PARENT_NOT_FOUND
-    expect(codeSet.has(11)).toBe(true);    // DEPTH_EXCEEDED
-    expect(codeSet.has(12)).toBe(true);    // SIBLING_LIMIT
-    expect(codeSet.has(20)).toBe(true);    // CHECKSUM_MISMATCH
-    expect(codeSet.has(30)).toBe(true);    // SESSION_EXISTS
-    expect(codeSet.has(38)).toBe(true);    // ACTIVE_TASK_REQUIRED
-    expect(codeSet.has(60)).toBe(true);    // PROTOCOL_MISSING
-    expect(codeSet.has(80)).toBe(true);    // LIFECYCLE_GATE_FAILED
-    expect(codeSet.has(100)).toBe(true);   // NO_DATA
+    expect(codeSet.has(0)).toBe(true); // SUCCESS
+    expect(codeSet.has(1)).toBe(true); // GENERAL_ERROR
+    expect(codeSet.has(4)).toBe(true); // NOT_FOUND
+    expect(codeSet.has(6)).toBe(true); // VALIDATION_ERROR
+    expect(codeSet.has(10)).toBe(true); // PARENT_NOT_FOUND
+    expect(codeSet.has(11)).toBe(true); // DEPTH_EXCEEDED
+    expect(codeSet.has(12)).toBe(true); // SIBLING_LIMIT
+    expect(codeSet.has(20)).toBe(true); // CHECKSUM_MISMATCH
+    expect(codeSet.has(30)).toBe(true); // SESSION_EXISTS
+    expect(codeSet.has(38)).toBe(true); // ACTIVE_TASK_REQUIRED
+    expect(codeSet.has(60)).toBe(true); // PROTOCOL_MISSING
+    expect(codeSet.has(80)).toBe(true); // LIFECYCLE_GATE_FAILED
+    expect(codeSet.has(100)).toBe(true); // NO_DATA
   });
 
   it('has exactly the right count of exit codes', () => {
-    const allCodes = Object.values(ExitCode).filter(v => typeof v === 'number');
+    const allCodes = Object.values(ExitCode).filter((v) => typeof v === 'number');
     // 72 total exit codes from the Bash CLI + provenance/artifact ranges
     expect(allCodes.length).toBeGreaterThanOrEqual(72);
   });
 
   it('all exit codes have human-readable names', () => {
-    const allCodes = Object.values(ExitCode).filter(v => typeof v === 'number') as ExitCode[];
+    const allCodes = Object.values(ExitCode).filter((v) => typeof v === 'number') as ExitCode[];
     for (const code of allCodes) {
       const name = getExitCodeName(code);
       expect(name).not.toBe('UNKNOWN');

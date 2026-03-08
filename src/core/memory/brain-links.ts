@@ -9,13 +9,14 @@
  */
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import type { BrainMemoryLinkRow } from '../../store/brain-schema.js';
 import type {
+  BRAIN_LINK_TYPES,
+  BRAIN_MEMORY_TYPES,
   BrainDecisionRow,
-  BrainPatternRow,
   BrainLearningRow,
+  BrainMemoryLinkRow,
+  BrainPatternRow,
 } from '../../store/brain-schema.js';
-import { BRAIN_MEMORY_TYPES, BRAIN_LINK_TYPES } from '../../store/brain-schema.js';
 
 type MemoryType = (typeof BRAIN_MEMORY_TYPES)[number];
 type LinkType = (typeof BRAIN_LINK_TYPES)[number];
@@ -48,9 +49,7 @@ export async function linkMemoryToTask(
 
   // Check if link already exists
   const existingLinks = await accessor.getLinksForMemory(memoryType, memoryId);
-  const duplicate = existingLinks.find(
-    (l) => l.taskId === taskId && l.linkType === linkType,
-  );
+  const duplicate = existingLinks.find((l) => l.taskId === taskId && l.linkType === linkType);
 
   if (duplicate) {
     return duplicate;
@@ -65,9 +64,7 @@ export async function linkMemoryToTask(
 
   // Return the created link
   const links = await accessor.getLinksForMemory(memoryType, memoryId);
-  return links.find(
-    (l) => l.taskId === taskId && l.linkType === linkType,
-  )!;
+  return links.find((l) => l.taskId === taskId && l.linkType === linkType)!;
 }
 
 /**

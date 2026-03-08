@@ -9,11 +9,11 @@
  * @epic T4663
  */
 
-import { describe, it, expect } from 'vitest';
-import { parseCommonFlags, resolveFormat, isJsonOutput, defaultFlags } from '../ui/flags.js';
-import { formatSuccess, formatError } from '../output.js';
-import { CleoError } from '../errors.js';
+import { describe, expect, it } from 'vitest';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { formatError, formatSuccess } from '../output.js';
+import { defaultFlags, isJsonOutput, parseCommonFlags, resolveFormat } from '../ui/flags.js';
 
 describe('--human output verification (T4696)', () => {
   describe('Flag parsing', () => {
@@ -83,9 +83,13 @@ describe('--human output verification (T4696)', () => {
 
   describe('LAFS envelopes are valid regardless of format flags', () => {
     it('formatSuccess produces valid JSON for show operation', () => {
-      const json = formatSuccess({
-        task: { id: 'T4663', title: 'Wave 8: Full System Integration', status: 'active' },
-      }, undefined, 'tasks.show');
+      const json = formatSuccess(
+        {
+          task: { id: 'T4663', title: 'Wave 8: Full System Integration', status: 'active' },
+        },
+        undefined,
+        'tasks.show',
+      );
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);
@@ -95,13 +99,17 @@ describe('--human output verification (T4696)', () => {
     });
 
     it('formatSuccess produces valid JSON for list operation', () => {
-      const json = formatSuccess({
-        tasks: [
-          { id: 'T001', title: 'Task 1', status: 'pending' },
-          { id: 'T002', title: 'Task 2', status: 'done' },
-        ],
-        total: 2,
-      }, undefined, 'tasks.list');
+      const json = formatSuccess(
+        {
+          tasks: [
+            { id: 'T001', title: 'Task 1', status: 'pending' },
+            { id: 'T002', title: 'Task 2', status: 'done' },
+          ],
+          total: 2,
+        },
+        undefined,
+        'tasks.list',
+      );
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);
@@ -110,10 +118,14 @@ describe('--human output verification (T4696)', () => {
     });
 
     it('formatSuccess produces valid JSON for dash operation', () => {
-      const json = formatSuccess({
-        project: { name: 'cleo' },
-        stats: { total: 50, pending: 10, active: 5, done: 35 },
-      }, undefined, 'system.dash');
+      const json = formatSuccess(
+        {
+          project: { name: 'cleo' },
+          stats: { total: 50, pending: 10, active: 5, done: 35 },
+        },
+        undefined,
+        'system.dash',
+      );
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);

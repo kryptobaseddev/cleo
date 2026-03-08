@@ -22,9 +22,7 @@ import { randomBytes } from 'node:crypto';
  */
 export function generateSessionId(): string {
   const now = new Date();
-  const ts = now.toISOString()
-    .replace(/[-:T]/g, '')
-    .substring(0, 14); // YYYYMMDDHHmmss
+  const ts = now.toISOString().replace(/[-:T]/g, '').substring(0, 14); // YYYYMMDDHHmmss
   const hex = randomBytes(3).toString('hex');
   return `ses_${ts}_${hex}`;
 }
@@ -89,5 +87,5 @@ function parseCompactTimestamp(ts: string): Date | null {
   const min = ts.substring(10, 12);
   const sec = ts.substring(12, 14);
   const d = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`);
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }

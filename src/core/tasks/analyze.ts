@@ -4,13 +4,11 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import {
-  safeSaveTaskFile,
-} from '../../store/data-safety-central.js';
+import { safeSaveTaskFile } from '../../store/data-safety-central.js';
+import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
+import type { TaskFile } from '../../types/task.js';
+import { getBackupDir, getTaskPath } from '../paths.js';
 
 export interface AnalysisResult {
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
@@ -30,10 +28,13 @@ export interface AnalysisResult {
 }
 
 /** Analyze task priority with leverage scoring. */
-export async function analyzeTaskPriority(opts: {
-  autoStart?: boolean;
-  cwd?: string;
-}, accessor?: DataAccessor): Promise<AnalysisResult> {
+export async function analyzeTaskPriority(
+  opts: {
+    autoStart?: boolean;
+    cwd?: string;
+  },
+  accessor?: DataAccessor,
+): Promise<AnalysisResult> {
   const taskPath = getTaskPath(opts.cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
@@ -58,21 +59,19 @@ export async function analyzeTaskPriority(opts: {
   }
 
   // Find actionable tasks (pending/active, not blocked)
-  const actionable = tasks.filter(t =>
-    t.status === 'pending' || t.status === 'active',
-  );
+  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
 
-  const blocked = tasks.filter(t => t.status === 'blocked');
+  const blocked = tasks.filter((t) => t.status === 'blocked');
 
   // Bottlenecks (tasks that block the most others)
   const bottlenecks = tasks
-    .filter(t => (blocksMap[t.id]?.length ?? 0) > 0 && t.status !== 'done')
-    .map(t => ({ id: t.id, title: t.title, blocksCount: blocksMap[t.id]!.length }))
+    .filter((t) => (blocksMap[t.id]?.length ?? 0) > 0 && t.status !== 'done')
+    .map((t) => ({ id: t.id, title: t.title, blocksCount: blocksMap[t.id]!.length }))
     .sort((a, b) => b.blocksCount - a.blocksCount)
     .slice(0, 5);
 
   // Tier tasks
-  const scored = actionable.map(t => ({
+  const scored = actionable.map((t) => ({
     id: t.id,
     title: t.title,
     leverage: leverageMap[t.id] ?? 0,
@@ -86,18 +85,22 @@ export async function analyzeTaskPriority(opts: {
     return bScore - aScore;
   });
 
-  const critical = scored.filter(t => t.priority === 'critical');
-  const high = scored.filter(t => t.priority === 'high');
-  const normal = scored.filter(t => t.priority !== 'critical' && t.priority !== 'high');
+  const critical = scored.filter((t) => t.priority === 'critical');
+  const high = scored.filter((t) => t.priority === 'high');
+  const normal = scored.filter((t) => t.priority !== 'critical' && t.priority !== 'high');
 
-  const recommended = scored.length > 0
-    ? { id: scored[0]!.id, title: scored[0]!.title, leverage: scored[0]!.leverage, reason: 'Highest combined priority and leverage score' }
-    : null;
+  const recommended =
+    scored.length > 0
+      ? {
+          id: scored[0]!.id,
+          title: scored[0]!.title,
+          leverage: scored[0]!.leverage,
+          reason: 'Highest combined priority and leverage score',
+        }
+      : null;
 
   const totalLeverage = Object.values(leverageMap).reduce((s, v) => s + v, 0);
-  const avgLeverage = tasks.length > 0
-    ? Math.round((totalLeverage / tasks.length) * 100) / 100
-    : 0;
+  const avgLeverage = tasks.length > 0 ? Math.round((totalLeverage / tasks.length) * 100) / 100 : 0;
 
   let autoStarted = false;
   if (opts.autoStart && recommended) {

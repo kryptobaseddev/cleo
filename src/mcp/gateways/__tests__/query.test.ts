@@ -10,24 +10,21 @@
  * @task T2915
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { resolve } from '../../../dispatch/registry.js';
 import {
-  validateQueryParams,
-  handleQueryRequest,
-  registerQueryTool,
-  getQueryOperationCount,
-  isQueryOperation,
   getQueryDomains,
+  getQueryOperationCount,
   getQueryOperations,
+  handleQueryRequest,
+  isQueryOperation,
   QUERY_OPERATIONS,
   type QueryRequest,
+  registerQueryTool,
+  validateQueryParams,
 } from '../query.js';
-import { resolve } from '../../../dispatch/registry.js';
 
-const ADVANCED_MEMORY_QUERY_OPS = [
-  'pattern.find',
-  'learning.find',
-] as const;
+const ADVANCED_MEMORY_QUERY_OPS = ['pattern.find', 'learning.find'] as const;
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
@@ -187,8 +184,15 @@ describe('Query Gateway', () => {
 
     it('should reject all legacy domain aliases with E_INVALID_DOMAIN', () => {
       const legacyDomains = [
-        'research', 'validate', 'lifecycle',
-        'release', 'system', 'issues', 'skills', 'providers', 'brain',
+        'research',
+        'validate',
+        'lifecycle',
+        'release',
+        'system',
+        'issues',
+        'skills',
+        'providers',
+        'brain',
       ];
 
       for (const domain of legacyDomains) {
@@ -354,7 +358,6 @@ describe('Query Gateway', () => {
     it('should support tessera.list operation', () => {
       expect(orchOps).toContain('tessera.list');
     });
-
   });
 
   describe('Memory Domain Operations', () => {

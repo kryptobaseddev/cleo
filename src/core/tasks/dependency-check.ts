@@ -34,10 +34,7 @@ export interface DependencyWarning {
  * Detect circular dependencies using DFS.
  * Returns the cycle path if found, empty array otherwise.
  */
-export function detectCircularDeps(
-  taskId: string,
-  tasks: Task[],
-): string[] {
+export function detectCircularDeps(taskId: string, tasks: Task[]): string[] {
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   const visited = new Set<string>();
@@ -74,11 +71,7 @@ export function detectCircularDeps(
 /**
  * Check if adding a dependency would create a cycle.
  */
-export function wouldCreateCycle(
-  fromId: string,
-  toId: string,
-  tasks: Task[],
-): boolean {
+export function wouldCreateCycle(fromId: string, toId: string, tasks: Task[]): boolean {
   // Temporarily add the dependency and check
   const modified = tasks.map((t) => {
     if (t.id === fromId) {
@@ -196,7 +189,9 @@ export function validateDependencies(tasks: Task[]): DependencyCheckResult {
         relatedIds: cycle,
       });
       // Mark all in cycle as visited to avoid duplicate reports
-      cycle.forEach((id) => visited.add(id));
+      for (const id of cycle) {
+        visited.add(id);
+      }
     }
   }
 

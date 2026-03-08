@@ -17,18 +17,14 @@ import type { OnErrorPayload } from '../types.js';
  * Additionally, ALL observeBrain errors are silently suppressed to prevent
  * re-entrant hook firing.
  */
-export async function handleError(
-  projectRoot: string,
-  payload: OnErrorPayload,
-): Promise<void> {
+export async function handleError(projectRoot: string, payload: OnErrorPayload): Promise<void> {
   // Infinite-loop guard: skip if this error originated from a hook
   if (payload.metadata?.['_fromHook']) return;
 
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
-  const domainOp = payload.domain && payload.operation
-    ? `${payload.domain}.${payload.operation}`
-    : 'unknown';
+  const domainOp =
+    payload.domain && payload.operation ? `${payload.domain}.${payload.operation}` : 'unknown';
 
   try {
     await observeBrain(projectRoot, {

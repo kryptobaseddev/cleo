@@ -10,11 +10,11 @@
  * @ref schemas/rcasd-index.schema.json (compat: rcsd-index.schema.json)
  */
 
-import { existsSync, readdirSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
 import { readJsonFile, writeJsonFileAtomic } from '../../store/file-utils.js';
-import type { RcasdManifest, ManifestStageData } from './index.js';
+import { getCleoDirAbsolute } from '../paths.js';
+import type { ManifestStageData, RcasdManifest } from './index.js';
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -180,7 +180,10 @@ export function buildIndex(cwd?: string): RcasdIndex {
         if (researchStatus && researchStatus !== 'completed' && researchStatus !== 'skipped') {
           activeResearch++;
         }
-        if (researchStatus === 'completed' && (!consensusStatus || consensusStatus === 'not_started' || consensusStatus === 'pending')) {
+        if (
+          researchStatus === 'completed' &&
+          (!consensusStatus || consensusStatus === 'not_started' || consensusStatus === 'pending')
+        ) {
           pendingConsensus++;
         }
 
@@ -200,9 +203,11 @@ export function buildIndex(cwd?: string): RcasdIndex {
 
       // Scan for spec and report files
       if (!existsSync(taskDir)) continue;
-      const files = readdirSync(taskDir).filter(f => f.endsWith('.md'));
-      const specFile = files.find(f => f.includes('-SPEC.md') || f.includes('_spec'));
-      const reportFile = files.find(f => f.includes('-REPORT.md') || f.includes('_report') || f.includes('_research'));
+      const files = readdirSync(taskDir).filter((f) => f.endsWith('.md'));
+      const specFile = files.find((f) => f.includes('-SPEC.md') || f.includes('_spec'));
+      const reportFile = files.find(
+        (f) => f.includes('-REPORT.md') || f.includes('_report') || f.includes('_research'),
+      );
 
       // Derive short name from directory name
       const shortName = deriveShortName(taskId, manifest?.title);
@@ -351,8 +356,7 @@ export function findByStage(stage: string, cwd?: string): Array<[string, TaskAnc
   const index = readIndex(cwd);
   if (!index) return [];
 
-  return Object.entries(index.taskAnchored)
-    .filter(([, anchor]) => anchor.pipelineStage === stage);
+  return Object.entries(index.taskAnchored).filter(([, anchor]) => anchor.pipelineStage === stage);
 }
 
 /**
@@ -370,8 +374,7 @@ export function findByStatus(
   const index = readIndex(cwd);
   if (!index) return [];
 
-  return Object.entries(index.taskAnchored)
-    .filter(([, anchor]) => anchor.status === status);
+  return Object.entries(index.taskAnchored).filter(([, anchor]) => anchor.status === status);
 }
 
 /**
@@ -404,12 +407,18 @@ function determinePipelineState(manifest: RcasdManifest | null): {
 
   // Walk stages in reverse order to find the most advanced completed stage
   const stageOrder = [
-    'release', 'testing', 'validation', 'implementation',
-    'decomposition', 'specification', 'consensus', 'research',
+    'release',
+    'testing',
+    'validation',
+    'implementation',
+    'decomposition',
+    'specification',
+    'consensus',
+    'research',
   ];
 
   let mostAdvancedCompleted: string | null = null;
-  let hasFailed = false;
+  const hasFailed = false;
   let hasBlocked = false;
 
   for (const stageName of stageOrder) {

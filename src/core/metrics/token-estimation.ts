@@ -195,7 +195,14 @@ export async function trackSpawnOutput(
   if (!isTrackingEnabled()) return 0;
 
   const tokens = estimateTokens(outputText);
-  await logTokenEvent('spawn_output', tokens, 'subagent_response', taskId, { session_id: sessionId ?? '' }, cwd);
+  await logTokenEvent(
+    'spawn_output',
+    tokens,
+    'subagent_response',
+    taskId,
+    { session_id: sessionId ?? '' },
+    cwd,
+  );
   return tokens;
 }
 
@@ -214,15 +221,22 @@ export async function trackSpawnComplete(
   const savedTokens = baselineTokens - totalTokens;
   const savingsPercent = baselineTokens > 0 ? Math.floor((savedTokens * 100) / baselineTokens) : 0;
 
-  await logTokenEvent('spawn_complete', totalTokens, 'spawn_cycle', taskId, {
-    prompt_tokens: promptTokens,
-    output_tokens: outputTokens,
-    total_tokens: totalTokens,
-    baseline_tokens: baselineTokens,
-    saved_tokens: savedTokens,
-    savings_percent: savingsPercent,
-    session_id: sessionId ?? '',
-  }, cwd);
+  await logTokenEvent(
+    'spawn_complete',
+    totalTokens,
+    'spawn_cycle',
+    taskId,
+    {
+      prompt_tokens: promptTokens,
+      output_tokens: outputTokens,
+      total_tokens: totalTokens,
+      baseline_tokens: baselineTokens,
+      saved_tokens: savedTokens,
+      savings_percent: savingsPercent,
+      session_id: sessionId ?? '',
+    },
+    cwd,
+  );
   return totalTokens;
 }
 
@@ -265,7 +279,8 @@ export async function endTokenSession(cwd?: string): Promise<TokenSessionSummary
   const total = manifestTokens + fullFileTokens + skillTokens + promptTokens;
 
   const avoidedTokens = manifestTokens * 9;
-  const savingsPercent = total > 0 ? Math.floor((avoidedTokens * 100) / (total + avoidedTokens)) : 0;
+  const savingsPercent =
+    total > 0 ? Math.floor((avoidedTokens * 100) / (total + avoidedTokens)) : 0;
 
   const summary: TokenSessionSummary = {
     session_id: currentSession.sessionId,
@@ -284,17 +299,21 @@ export async function endTokenSession(cwd?: string): Promise<TokenSessionSummary
     },
   };
 
-  await logTokenEvent('session_end', total, 'session', undefined, summary as unknown as Record<string, unknown>, cwd);
+  await logTokenEvent(
+    'session_end',
+    total,
+    'session',
+    undefined,
+    summary as unknown as Record<string, unknown>,
+    cwd,
+  );
 
   currentSession = null;
   return summary;
 }
 
 /** Get token usage summary for a time period. */
-export function getTokenSummary(
-  days: number = 7,
-  cwd?: string,
-): Record<string, unknown> {
+export function getTokenSummary(days: number = 7, cwd?: string): Record<string, unknown> {
   const tokenFile = getTokenFilePath(cwd);
   if (!existsSync(tokenFile)) {
     return { error: 'No token data', manifest_tokens: 0, full_file_tokens: 0, savings_percent: 0 };

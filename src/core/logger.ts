@@ -9,9 +9,9 @@
  * for the MCP protocol. Fallback stderr logger if not yet initialized.
  */
 
-import pino from 'pino';
-import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import pino from 'pino';
 
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;

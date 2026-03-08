@@ -38,22 +38,17 @@ export type UserJourneyStage =
 // Temp Project Detection
 // ============================================================================
 
-const TEMP_PATTERNS = [
-  '/.temp/',
-  '/tmp/',
-  '/bats-run-',
-  '/.tmp/',
-  '/tmp.',
-  '/bats.',
-];
+const TEMP_PATTERNS = ['/.temp/', '/tmp/', '/bats-run-', '/.tmp/', '/tmp.', '/bats.'];
 
 /**
  * Check if a project path is a temporary/test directory.
  * @task T4525
  */
 export function isTempProject(path: string): boolean {
-  return TEMP_PATTERNS.some(pattern => path.includes(pattern)) ||
-    (path.includes('/test/') && (path.includes('bats-run-') || path.includes('test-')));
+  return (
+    TEMP_PATTERNS.some((pattern) => path.includes(pattern)) ||
+    (path.includes('/test/') && (path.includes('bats-run-') || path.includes('test-')))
+  );
 }
 
 // ============================================================================
@@ -86,13 +81,14 @@ export function categorizeProjects(projects: ProjectDetail[]): CategorizedProjec
  * Get human-readable project category name.
  * @task T4525
  */
-export function getProjectCategoryName(
-  category: 'active' | 'temp' | 'orphaned',
-): string {
+export function getProjectCategoryName(category: 'active' | 'temp' | 'orphaned'): string {
   switch (category) {
-    case 'active': return 'Active Projects';
-    case 'temp': return 'Temporary/Test Projects';
-    case 'orphaned': return 'Orphaned Projects';
+    case 'active':
+      return 'Active Projects';
+    case 'temp':
+      return 'Temporary/Test Projects';
+    case 'orphaned':
+      return 'Orphaned Projects';
   }
 }
 
@@ -153,7 +149,9 @@ export function getProjectGuidance(
   const guidance: string[] = [];
 
   if (activeFailed > 0) {
-    guidance.push(`${activeFailed} active project(s) failed validation - run 'cleo upgrade' in affected projects`);
+    guidance.push(
+      `${activeFailed} active project(s) failed validation - run 'cleo upgrade' in affected projects`,
+    );
   }
 
   if (activeWarnings > 0) {
@@ -220,9 +218,6 @@ export function getJourneyGuidance(stage: UserJourneyStage): string[] {
         "  Run 'cleo setup-agents' to inject task management docs",
       ];
     case 'maintenance-mode':
-      return [
-        'MAINTENANCE MODE:',
-        '  System is healthy - check individual project issues above',
-      ];
+      return ['MAINTENANCE MODE:', '  System is healthy - check individual project issues above'];
   }
 }

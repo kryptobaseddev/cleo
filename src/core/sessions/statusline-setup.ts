@@ -8,9 +8,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { getCleoHome, getClaudeSettingsPath } from '../paths.js';
+import { join } from 'node:path';
+import { getClaudeSettingsPath, getCleoHome } from '../paths.js';
 
 /** Statusline integration status. */
 export type StatuslineStatus = 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
@@ -44,15 +44,15 @@ export function checkStatuslineIntegration(): StatuslineStatus {
     }
 
     // Check if the script writes to CLEO state file
-    const scriptPath = cmd.startsWith('~')
-      ? cmd.replace('~', homedir())
-      : cmd;
+    const scriptPath = cmd.startsWith('~') ? cmd.replace('~', homedir()) : cmd;
 
     if (existsSync(scriptPath)) {
       try {
         const content = readFileSync(scriptPath, 'utf-8');
         if (content.includes('context-state.json')) return 'configured';
-      } catch { /* unreadable */ }
+      } catch {
+        /* unreadable */
+      }
     }
 
     return 'custom_no_cleo';

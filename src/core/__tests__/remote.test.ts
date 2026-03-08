@@ -3,18 +3,18 @@
  * @task T4884
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addRemote,
-  removeRemote,
-  listRemotes,
   getCurrentBranch,
-  push,
+  listRemotes,
   pull,
+  push,
+  removeRemote,
 } from '../remote/index.js';
 
 describe('remote', () => {
@@ -149,7 +149,10 @@ describe('remote', () => {
         GIT_WORK_TREE: cleoDir,
       };
       execFileSync('git', ['add', 'config.json'], { cwd: cleoDir, env: gitEnv });
-      execFileSync('git', ['commit', '-m', 'update config', '--no-verify'], { cwd: cleoDir, env: gitEnv });
+      execFileSync('git', ['commit', '-m', 'update config', '--no-verify'], {
+        cwd: cleoDir,
+        env: gitEnv,
+      });
 
       // Push again
       const pushResult2 = await push('origin', {}, tempDir);

@@ -11,12 +11,12 @@
  */
 
 import {
-  initProject as coreInitProject,
-  isAutoInitEnabled as coreIsAutoInitEnabled,
   ensureInitialized as coreEnsureInitialized,
   getVersion as coreGetVersion,
+  initProject as coreInitProject,
+  isAutoInitEnabled as coreIsAutoInitEnabled,
 } from '../../core/init.js';
-import { engineError, type EngineResult } from './_error.js';
+import { type EngineResult, engineError } from './_error.js';
 
 /**
  * Initialize a CLEO project directory.
@@ -29,12 +29,14 @@ export async function initProject(
   options?: {
     projectName?: string;
     force?: boolean;
-  }
-): Promise<EngineResult<{
-  initialized: boolean;
-  projectRoot: string;
-  filesCreated: string[];
-}>> {
+  },
+): Promise<
+  EngineResult<{
+    initialized: boolean;
+    projectRoot: string;
+    filesCreated: string[];
+  }>
+> {
   try {
     const result = await coreInitProject({
       name: options?.projectName,
@@ -52,7 +54,10 @@ export async function initProject(
   } catch (err: unknown) {
     const message = (err as Error).message;
     if (message.includes('already initialized')) {
-      return engineError('E_ALREADY_INITIALIZED', 'CLEO project already initialized. Use force=true to reinitialize.');
+      return engineError(
+        'E_ALREADY_INITIALIZED',
+        'CLEO project already initialized. Use force=true to reinitialize.',
+      );
     }
     return engineError('E_INIT_FAILED', message);
   }
@@ -69,7 +74,7 @@ export function isAutoInitEnabled(): boolean {
  * Check initialization status and auto-init if configured
  */
 export async function ensureInitialized(
-  projectRoot: string
+  projectRoot: string,
 ): Promise<EngineResult<{ initialized: boolean }>> {
   try {
     const result = await coreEnsureInitialized(projectRoot);
@@ -82,9 +87,7 @@ export async function ensureInitialized(
 /**
  * Get current version (native implementation)
  */
-export async function getVersion(
-  projectRoot: string
-): Promise<EngineResult<{ version: string }>> {
+export async function getVersion(projectRoot: string): Promise<EngineResult<{ version: string }>> {
   try {
     const result = await coreGetVersion(projectRoot);
     return { success: true, data: result };

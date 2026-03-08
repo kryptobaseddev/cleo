@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -35,7 +35,13 @@ export function registerRelatesCommand(program: Command): void {
     .command('add <from> <to> <type> <reason>')
     .description('Add a relates entry to a task')
     .action(async (from: string, to: string, type: string, reason: string) => {
-      await dispatchFromCli('mutate', 'tasks', 'relates.add', { taskId: from, relatedId: to, type, reason }, { command: 'relates' });
+      await dispatchFromCli(
+        'mutate',
+        'tasks',
+        'relates.add',
+        { taskId: from, relatedId: to, type, reason },
+        { command: 'relates' },
+      );
     });
 
   relates

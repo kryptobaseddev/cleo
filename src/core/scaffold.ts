@@ -10,16 +10,16 @@
  *   - Uses imports from ./paths.js for path resolution
  */
 
-import { mkdir, access, writeFile, readFile } from 'node:fs/promises';
-import { constants as fsConstants, existsSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { saveJson } from '../store/json.js';
-import { getCleoDirAbsolute, getConfigPath, getCleoHome, getCleoTemplatesDir } from './paths.js';
 import { generateProjectHash } from './nexus/hash.js';
+import { getCleoDirAbsolute, getCleoHome, getCleoTemplatesDir, getConfigPath } from './paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -120,9 +120,7 @@ export async function fileExists(path: string): Promise<boolean> {
 export async function stripCLEOBlocks(filePath: string): Promise<void> {
   if (!existsSync(filePath)) return;
   const content = await readFile(filePath, 'utf8');
-  const stripped = content.replace(
-    /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, ''
-  );
+  const stripped = content.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
   if (stripped !== content) await writeFile(filePath, stripped, 'utf8');
 }
 
@@ -138,7 +136,7 @@ export async function removeCleoFromRootGitignore(
   }
   const content = await readFile(rootGitignorePath, 'utf-8');
   const lines = content.split('\n');
-  const filtered = lines.filter(line => {
+  const filtered = lines.filter((line) => {
     const trimmed = line.trim();
     return !/^\/?\.cleo\/?(\*)?$/.test(trimmed);
   });
@@ -205,7 +203,9 @@ function isCleoContributorProject(projectRoot: string): boolean {
   if (!exists('src/mcp') || !exists('src/dispatch') || !exists('src/core')) return false;
   // Must have package.json identifying as @cleocode/cleo
   try {
-    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as { name?: string };
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as {
+      name?: string;
+    };
     return pkg.name === '@cleocode/cleo';
   } catch {
     return false;
@@ -245,9 +245,7 @@ export function createDefaultConfig(): Record<string, unknown> {
  * Create .cleo/ directory and all required subdirectories.
  * Idempotent: skips directories that already exist.
  */
-export async function ensureCleoStructure(
-  projectRoot: string,
-): Promise<ScaffoldResult> {
+export async function ensureCleoStructure(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
 
   const alreadyExists = existsSync(cleoDir);
@@ -270,9 +268,7 @@ export async function ensureCleoStructure(
  * Create or repair .cleo/.gitignore from template.
  * Idempotent: skips if file already exists with correct content.
  */
-export async function ensureGitignore(
-  projectRoot: string,
-): Promise<ScaffoldResult> {
+export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
@@ -312,9 +308,15 @@ export async function ensureConfig(
           verifiedAt: new Date().toISOString(),
         };
         await writeFile(configPath, JSON.stringify(existing, null, 2));
-        return { action: 'repaired', path: configPath, details: 'Added contributor block (ADR-029)' };
+        return {
+          action: 'repaired',
+          path: configPath,
+          details: 'Added contributor block (ADR-029)',
+        };
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
     return { action: 'skipped', path: configPath, details: 'Config already exists' };
   }
 
@@ -367,7 +369,8 @@ export async function ensureProjectInfo(
   const { readSchemaVersionFromFile } = await import('./validation/schema-integrity.js');
   const { SQLITE_SCHEMA_VERSION } = await import('../store/sqlite.js');
   const configSchemaVersion = readSchemaVersionFromFile('config.schema.json') ?? cleoVersion;
-  const projectContextSchemaVersion = readSchemaVersionFromFile('project-context.schema.json') ?? '1.0.0';
+  const projectContextSchemaVersion =
+    readSchemaVersionFromFile('project-context.schema.json') ?? '1.0.0';
 
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
@@ -412,11 +415,13 @@ export async function ensureProjectInfo(
  * This ensures Claude Code loads the LOCAL dev build MCP server for this project,
  * not the published @cleocode/cleo@latest. Idempotent: preserves other entries.
  */
-export async function ensureContributorMcp(
-  projectRoot: string,
-): Promise<ScaffoldResult> {
+export async function ensureContributorMcp(projectRoot: string): Promise<ScaffoldResult> {
   if (!isCleoContributorProject(projectRoot)) {
-    return { action: 'skipped', path: join(projectRoot, '.mcp.json'), details: 'Not a contributor project' };
+    return {
+      action: 'skipped',
+      path: join(projectRoot, '.mcp.json'),
+      details: 'Not a contributor project',
+    };
   }
 
   const mcpJsonPath = join(projectRoot, '.mcp.json');
@@ -430,7 +435,9 @@ export async function ensureContributorMcp(
   if (existsSync(mcpJsonPath)) {
     try {
       config = JSON.parse(readFileSync(mcpJsonPath, 'utf-8')) as Record<string, unknown>;
-    } catch { /* start fresh */ }
+    } catch {
+      /* start fresh */
+    }
   }
 
   const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
@@ -486,7 +493,11 @@ export async function ensureProjectContext(
         const ageMs = Date.now() - detectedAt.getTime();
         const ageDays = ageMs / (1000 * 60 * 60 * 24);
         if (ageDays < staleDays) {
-          return { action: 'skipped', path: contextPath, details: `Fresh (${Math.floor(ageDays)}d old)` };
+          return {
+            action: 'skipped',
+            path: contextPath,
+            details: `Fresh (${Math.floor(ageDays)}d old)`,
+          };
         }
       }
     } catch {
@@ -499,7 +510,10 @@ export async function ensureProjectContext(
 
   // Validate against schema before writing (best-effort, never blocks write)
   try {
-    const schemaPath = join(dirname(fileURLToPath(import.meta.url)), '../../schemas/project-context.schema.json');
+    const schemaPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../schemas/project-context.schema.json',
+    );
     if (existsSync(schemaPath)) {
       const AjvModule = await import('ajv');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -528,9 +542,7 @@ export async function ensureProjectContext(
  * Initialize isolated .cleo/.git checkpoint repository.
  * Idempotent: skips if .cleo/.git already exists.
  */
-export async function ensureCleoGitRepo(
-  projectRoot: string,
-): Promise<ScaffoldResult> {
+export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const cleoGitDir = join(cleoDir, '.git');
 
@@ -555,9 +567,7 @@ export async function ensureCleoGitRepo(
  * Create SQLite database if missing.
  * Idempotent: skips if tasks.db already exists.
  */
-export async function ensureSqliteDb(
-  projectRoot: string,
-): Promise<ScaffoldResult> {
+export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const dbPath = join(cleoDir, 'tasks.db');
 
@@ -721,7 +731,7 @@ export function checkProjectInfo(projectRoot: string): CheckResult {
   try {
     const content = JSON.parse(readFileSync(infoPath, 'utf-8'));
     const requiredFields = ['projectHash', 'cleoVersion', 'lastUpdated'];
-    const missing = requiredFields.filter(f => !(f in content));
+    const missing = requiredFields.filter((f) => !(f in content));
 
     if (missing.length > 0) {
       return {
@@ -757,10 +767,7 @@ export function checkProjectInfo(projectRoot: string): CheckResult {
 /**
  * Verify project-context.json exists and is not stale (default: 30 days).
  */
-export function checkProjectContext(
-  projectRoot: string,
-  staleDays: number = 30,
-): CheckResult {
+export function checkProjectContext(projectRoot: string, staleDays: number = 30): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const contextPath = join(cleoDir, 'project-context.json');
 
@@ -899,10 +906,7 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
  * These are infrastructure directories managed by CLEO itself,
  * not project-specific data.
  */
-export const REQUIRED_GLOBAL_SUBDIRS = [
-  'schemas',
-  'templates',
-] as const;
+export const REQUIRED_GLOBAL_SUBDIRS = ['schemas', 'templates'] as const;
 
 /**
  * Ensure the global ~/.cleo/ home directory and its required
@@ -963,7 +967,11 @@ export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
     }
     // Content differs — repair
     await writeFile(injectionPath, templateContent, 'utf-8');
-    return { action: 'repaired', path: injectionPath, details: 'Updated injection template to match bundled version' };
+    return {
+      action: 'repaired',
+      path: injectionPath,
+      details: 'Updated injection template to match bundled version',
+    };
   }
 
   await writeFile(injectionPath, templateContent, 'utf-8');
@@ -1015,9 +1023,7 @@ export function checkGlobalHome(): CheckResult {
     };
   }
 
-  const missingDirs = REQUIRED_GLOBAL_SUBDIRS.filter(
-    dir => !existsSync(join(cleoHome, dir)),
-  );
+  const missingDirs = REQUIRED_GLOBAL_SUBDIRS.filter((dir) => !existsSync(join(cleoHome, dir)));
 
   if (missingDirs.length > 0) {
     return {

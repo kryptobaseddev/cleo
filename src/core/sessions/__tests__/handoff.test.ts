@@ -8,7 +8,7 @@
  * @epic T4914
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '../../../types/session.js';
 
 // Mock data-accessor before importing handoff module
@@ -22,8 +22,8 @@ vi.mock('../decisions.js', () => ({
   getDecisionLog: vi.fn().mockResolvedValue([]),
 }));
 
-import { computeHandoff, getLastHandoff } from '../handoff.js';
 import { getAccessor } from '../../../store/data-accessor.js';
+import { computeHandoff, getLastHandoff } from '../handoff.js';
 
 // ---------------------------------------------------------------------------
 // Shared test data
@@ -31,12 +31,57 @@ import { getAccessor } from '../../../store/data-accessor.js';
 
 function makeMockTasks() {
   return [
-    { id: 'T100', status: 'active', parentId: undefined, title: 'Epic', description: 'Epic task', type: 'epic', priority: 'high' },
-    { id: 'T101', status: 'pending', parentId: 'T100', title: 'Child 1', description: 'Child task 1', priority: 'medium' },
-    { id: 'T102', status: 'blocked', parentId: 'T100', title: 'Child 2 (blocked)', description: 'Blocked child', priority: 'medium' },
-    { id: 'T103', status: 'pending', parentId: 'T101', title: 'Grandchild', description: 'Grandchild task', priority: 'low' },
-    { id: 'T200', status: 'pending', parentId: undefined, title: 'Outside epic', description: 'Not in scope', priority: 'medium' },
-    { id: 'T300', status: 'active', parentId: undefined, title: 'Bug', description: 'Bug task', type: 'bug', labels: ['bug'], priority: 'high' },
+    {
+      id: 'T100',
+      status: 'active',
+      parentId: undefined,
+      title: 'Epic',
+      description: 'Epic task',
+      type: 'epic',
+      priority: 'high',
+    },
+    {
+      id: 'T101',
+      status: 'pending',
+      parentId: 'T100',
+      title: 'Child 1',
+      description: 'Child task 1',
+      priority: 'medium',
+    },
+    {
+      id: 'T102',
+      status: 'blocked',
+      parentId: 'T100',
+      title: 'Child 2 (blocked)',
+      description: 'Blocked child',
+      priority: 'medium',
+    },
+    {
+      id: 'T103',
+      status: 'pending',
+      parentId: 'T101',
+      title: 'Grandchild',
+      description: 'Grandchild task',
+      priority: 'low',
+    },
+    {
+      id: 'T200',
+      status: 'pending',
+      parentId: undefined,
+      title: 'Outside epic',
+      description: 'Not in scope',
+      priority: 'medium',
+    },
+    {
+      id: 'T300',
+      status: 'active',
+      parentId: undefined,
+      title: 'Bug',
+      description: 'Bug task',
+      type: 'bug',
+      labels: ['bug'],
+      priority: 'high',
+    },
   ];
 }
 

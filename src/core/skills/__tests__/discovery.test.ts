@@ -3,10 +3,10 @@
  * @task T4522
  */
 
-import { existsSync,mkdirSync,rmSync,writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   discoverSkill,
   discoverSkillsInDir,
@@ -14,14 +14,17 @@ import {
   listCanonicalSkillNames,
   mapSkillName,
   parseFrontmatter,
-  toSkillSummary
+  toSkillSummary,
 } from '../discovery.js';
 
 // Test helpers
 let testDir: string;
 
 function createTestDir(): string {
-  const dir = join(tmpdir(), `cleo-skills-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `cleo-skills-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -45,7 +48,8 @@ afterEach(() => {
 
 describe('parseFrontmatter', () => {
   it('should parse basic key-value pairs', () => {
-    const content = '---\nname: test-skill\ndescription: A test skill\nversion: 1.0.0\n---\nBody content';
+    const content =
+      '---\nname: test-skill\ndescription: A test skill\nversion: 1.0.0\n---\nBody content';
     const fm = parseFrontmatter(content);
 
     expect(fm.name).toBe('test-skill');
@@ -124,7 +128,7 @@ describe('discoverSkillsInDir', () => {
     const skills = discoverSkillsInDir(testDir);
 
     expect(skills).toHaveLength(2);
-    expect(skills.map(s => s.dirName).sort()).toEqual(['ct-skill-a', 'ct-skill-b']);
+    expect(skills.map((s) => s.dirName).sort()).toEqual(['ct-skill-a', 'ct-skill-b']);
   });
 
   it('should skip hidden directories', () => {
@@ -155,7 +159,10 @@ describe('discoverSkillsInDir', () => {
 
 describe('mapSkillName', () => {
   it('should map canonical names', () => {
-    expect(mapSkillName('ct-task-executor')).toEqual({ canonical: 'ct-task-executor', mapped: true });
+    expect(mapSkillName('ct-task-executor')).toEqual({
+      canonical: 'ct-task-executor',
+      mapped: true,
+    });
   });
 
   it('should map user-friendly names', () => {
@@ -168,7 +175,10 @@ describe('mapSkillName', () => {
   });
 
   it('should not double-prefix', () => {
-    expect(mapSkillName('ct-already-prefixed')).toEqual({ canonical: 'ct-already-prefixed', mapped: false });
+    expect(mapSkillName('ct-already-prefixed')).toEqual({
+      canonical: 'ct-already-prefixed',
+      mapped: false,
+    });
   });
 
   it('should handle uppercase variants', () => {
@@ -189,7 +199,11 @@ describe('listCanonicalSkillNames', () => {
 
 describe('toSkillSummary', () => {
   it('should convert skill to summary', () => {
-    createSkill(testDir, 'ct-test', 'name: Test\ndescription: Test desc\nversion: 1.2.3\ntags:\n  - research');
+    createSkill(
+      testDir,
+      'ct-test',
+      'name: Test\ndescription: Test desc\nversion: 1.2.3\ntags:\n  - research',
+    );
     const skill = discoverSkill(join(testDir, 'ct-test'))!;
     const summary = toSkillSummary(skill);
 

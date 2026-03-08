@@ -2,9 +2,9 @@
  * Tests for atomicity module.
  * @task T5001
  */
-import { describe, it, expect } from 'vitest';
-import { checkAtomicity, ATOMICITY_CRITERIA } from '../atomicity.js';
+import { describe, expect, it } from 'vitest';
 import type { Task } from '../../../types/task.js';
+import { ATOMICITY_CRITERIA, checkAtomicity } from '../atomicity.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,7 +54,8 @@ describe('checkAtomicity — perfect task (6/6)', () => {
     const task = makeTask({
       id: 'T001',
       title: 'Add login endpoint',
-      description: 'Must validate JWT token. Test passes when /api/login returns 200 with valid credentials.',
+      description:
+        'Must validate JWT token. Test passes when /api/login returns 200 with valid credentials.',
     });
     const result = checkAtomicity(task);
     expect(result.score).toBe(6);
@@ -71,7 +72,8 @@ describe('checkAtomicity — poor task (low score)', () => {
   it('scores low with multi-concern title and vague description', () => {
     const task = makeTask({
       id: 'T002',
-      title: 'Add and update and fix and refactor multiple files across frontend, backend, database, api',
+      title:
+        'Add and update and fix and refactor multiple files across frontend, backend, database, api',
       description: 'TBD - figure out later',
     });
     const result = checkAtomicity(task);

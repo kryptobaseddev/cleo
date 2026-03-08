@@ -9,47 +9,47 @@
  */
 
 export {
-  // Types
-  type EngineResult,
-  type CaampProvider,
-  type CaampMcpServerConfig,
-  type CaampDetectionResult,
-  type CaampInstallResult,
-  type CaampInjectionStatus,
+  // Batch / Orchestration Operations
+  batchInstallWithRollback,
   type CaampBatchInstallOptions,
   type CaampBatchInstallResult,
+  type CaampDetectionResult,
   type CaampDualScopeConfigureOptions,
   type CaampDualScopeConfigureResult,
-  // Provider Operations
-  providerList,
-  providerGet,
-  providerDetect,
-  providerInstalled,
-  providerCount,
-  registryVersion,
-  // MCP Config Operations
-  mcpList,
-  mcpListAll,
-  mcpInstall,
-  mcpRemove,
-  mcpConfigPath,
+  type CaampInjectionStatus,
+  type CaampInstallResult,
+  type CaampMcpServerConfig,
+  type CaampProvider,
+  caampBuildServerConfig,
+  caampGenerateInjectionContent,
+  caampGetInstructionFiles,
+  // Utility Re-exports
+  caampResolveAlias,
+  dualScopeConfigure,
+  // Types
+  type EngineResult,
   // Injection Operations
   injectionCheck,
   injectionCheckAll,
   injectionUpdate,
   injectionUpdateAll,
-  // Batch / Orchestration Operations
-  batchInstallWithRollback,
-  dualScopeConfigure,
-  // Utility Re-exports
-  caampResolveAlias,
-  caampBuildServerConfig,
-  caampGenerateInjectionContent,
-  caampGetInstructionFiles,
+  mcpConfigPath,
+  mcpInstall,
+  // MCP Config Operations
+  mcpList,
+  mcpListAll,
+  mcpRemove,
+  providerCount,
+  providerDetect,
+  providerGet,
+  providerInstalled,
+  // Provider Operations
+  providerList,
+  registryVersion,
 } from './adapter.js';
 
 // Capability Checking
 export {
-  checkProviderCapability,
   checkProviderCapabilities,
+  checkProviderCapability,
 } from './capability-check.js';

@@ -8,7 +8,7 @@
  * @epic T5237
  */
 
-import type { ProviderHookEvent, HookEvent } from '../../core/hooks/types.js';
+import type { HookEvent, ProviderHookEvent } from '../../core/hooks/types.js';
 import { isProviderHookEvent } from '../../core/hooks/types.js';
 import { type EngineResult, engineSuccess } from './_error.js';
 
@@ -48,7 +48,9 @@ export async function queryHookProviders(
     providers: providers.map((p) => ({
       id: (p as { id: string }).id,
       name: (p as { name?: string }).name,
-      supportedHooks: ((p as { capabilities?: { hooks?: { supported?: ProviderHookEvent[] } } }).capabilities?.hooks?.supported) ?? [],
+      supportedHooks:
+        (p as { capabilities?: { hooks?: { supported?: ProviderHookEvent[] } } }).capabilities
+          ?.hooks?.supported ?? [],
     })),
   });
 }

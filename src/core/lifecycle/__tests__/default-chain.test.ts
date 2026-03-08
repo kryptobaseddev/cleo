@@ -4,16 +4,16 @@
  * @task T5400
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { PROTOCOL_TYPES } from '../../orchestration/protocol-validators.js';
+import { validateChain } from '../../validation/chain-validation.js';
+import { VERIFICATION_GATE_ORDER } from '../../validation/verification.js';
 import {
   buildDefaultChain,
   DEFAULT_CHAIN_ID,
   DEFAULT_PROTOCOL_STAGE_MAP,
 } from '../default-chain.js';
 import { PIPELINE_STAGES, STAGE_PREREQUISITES } from '../stages.js';
-import { VERIFICATION_GATE_ORDER } from '../../validation/verification.js';
-import { PROTOCOL_TYPES } from '../../orchestration/protocol-validators.js';
-import { validateChain } from '../../validation/chain-validation.js';
 
 describe('buildDefaultChain', () => {
   const chain = buildDefaultChain();
@@ -46,11 +46,12 @@ describe('buildDefaultChain', () => {
       for (const prereq of prereqs) {
         const match = entryGates.find(
           (g) =>
-            g.stageId === stage &&
-            g.check.type === 'stage_complete' &&
-            g.check.stageId === prereq,
+            g.stageId === stage && g.check.type === 'stage_complete' && g.check.stageId === prereq,
         );
-        expect(match, `Missing entry gate for prereq "${prereq}" on stage "${stage}"`).toBeDefined();
+        expect(
+          match,
+          `Missing entry gate for prereq "${prereq}" on stage "${stage}"`,
+        ).toBeDefined();
       }
     }
   });
@@ -60,9 +61,7 @@ describe('buildDefaultChain', () => {
 
     for (const gateName of VERIFICATION_GATE_ORDER) {
       const match = exitGates.find(
-        (g) =>
-          g.check.type === 'verification_gate' &&
-          g.check.gateName === gateName,
+        (g) => g.check.type === 'verification_gate' && g.check.gateName === gateName,
       );
       expect(match, `Missing exit gate for verification gate "${gateName}"`).toBeDefined();
     }
@@ -82,7 +81,9 @@ describe('buildDefaultChain', () => {
 
   it('orders protocol_valid gates by pipeline stage sequence', () => {
     const protocolGates = chain.gates.filter((g) => g.check.type === 'protocol_valid');
-    const stageOrder = new Map<string, number>(PIPELINE_STAGES.map((stage, index) => [stage, index]));
+    const stageOrder = new Map<string, number>(
+      PIPELINE_STAGES.map((stage, index) => [stage, index]),
+    );
     const protocolStageIndexes = protocolGates.map((gate) => stageOrder.get(gate.stageId) ?? -1);
 
     for (let i = 1; i < protocolStageIndexes.length; i++) {

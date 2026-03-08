@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock dependencies
 vi.mock('../json.js', () => ({
@@ -17,14 +17,24 @@ vi.mock('../../core/paths.js', () => ({
 }));
 
 vi.mock('node:child_process', () => ({
-  execFile: vi.fn((cmd: string, args: string[], opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
-    // Default: return failure (not in git repo)
-    if (typeof opts === 'function') {
-      (opts as Function)(new Error('not a git repo'), { stdout: '', stderr: '' });
-      return;
-    }
-    cb(new Error('not a git repo'), { stdout: '', stderr: '' });
-  }),
+  execFile: vi.fn(
+    (
+      cmd: string,
+      args: string[],
+      opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string }) => void,
+    ) => {
+      // Default: return failure (not in git repo)
+      if (typeof opts === 'function') {
+        (opts as (err: Error | null, result: { stdout: string; stderr: string }) => void)(
+          new Error('not a git repo'),
+          { stdout: '', stderr: '' },
+        );
+        return;
+      }
+      cb(new Error('not a git repo'), { stdout: '', stderr: '' });
+    },
+  ),
 }));
 
 import { loadCheckpointConfig, loadStateFileAllowlist } from '../git-checkpoint.js';

@@ -9,15 +9,11 @@
  * @task T5236
  */
 
-import { spawn as spawnProcess, exec as execProcess } from 'node:child_process';
+import { exec as execProcess, spawn as spawnProcess } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type {
-  CLEOSpawnAdapter,
-  CLEOSpawnContext,
-  CLEOSpawnResult,
-} from '../../../types/spawn.js';
+import type { CLEOSpawnAdapter, CLEOSpawnContext, CLEOSpawnResult } from '../../../types/spawn.js';
 import { getSubagentConfig } from '../../skills/agents/config.js';
 
 const execAsync = promisify(execProcess);

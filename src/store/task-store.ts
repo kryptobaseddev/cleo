@@ -8,17 +8,17 @@
  * @task W1-T3
  */
 
-import { eq, and, sql, inArray, asc, isNull, ne, count } from 'drizzle-orm';
-import { getDb, getNativeDb } from './sqlite.js';
-import * as schema from './tasks-schema.js';
-import type { TaskRow, NewTaskRow } from './tasks-schema.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
+import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '../types/task.js';
 import {
-  safeCreateTask,
-  safeUpdateTask,
-  safeDeleteTask,
   type SafetyConfig,
+  safeCreateTask,
+  safeDeleteTask,
+  safeUpdateTask,
 } from './data-safety.js';
+import { getDb, getNativeDb } from './sqlite.js';
+import type { NewTaskRow, TaskRow } from './tasks-schema.js';
+import * as schema from './tasks-schema.js';
 
 // === ROW <-> DOMAIN CONVERSION ===
 
@@ -51,11 +51,14 @@ function rowToTask(row: TaskRow): Task {
     cancelledAt: row.cancelledAt ?? undefined,
     cancellationReason: row.cancellationReason ?? undefined,
     verification: row.verificationJson ? parseJson(row.verificationJson) : undefined,
-    provenance: (row.createdBy || row.modifiedBy || row.sessionId) ? {
-      createdBy: row.createdBy,
-      modifiedBy: row.modifiedBy,
-      sessionId: row.sessionId,
-    } : undefined,
+    provenance:
+      row.createdBy || row.modifiedBy || row.sessionId
+        ? {
+            createdBy: row.createdBy,
+            modifiedBy: row.modifiedBy,
+            sessionId: row.sessionId,
+          }
+        : undefined,
   };
 }
 
@@ -114,9 +117,7 @@ export async function createTask(task: Task, cwd?: string): Promise<Task> {
   // Insert dependencies
   if (task.depends && task.depends.length > 0) {
     for (const depId of task.depends) {
-      db.insert(schema.taskDependencies)
-        .values({ taskId: task.id, dependsOn: depId })
-        .run();
+      db.insert(schema.taskDependencies).values({ taskId: task.id, dependsOn: depId }).run();
     }
   }
 
@@ -132,10 +133,13 @@ export async function getTask(taskId: string, cwd?: string): Promise<Task | null
   const task = rowToTask(rows[0]!);
 
   // Load dependencies
-  const deps = await db.select().from(schema.taskDependencies)
-    .where(eq(schema.taskDependencies.taskId, taskId)).all();
+  const deps = await db
+    .select()
+    .from(schema.taskDependencies)
+    .where(eq(schema.taskDependencies.taskId, taskId))
+    .all();
   if (deps.length > 0) {
-    task.depends = deps.map(d => d.dependsOn);
+    task.depends = deps.map((d) => d.dependsOn);
   }
 
   return task;
@@ -167,15 +171,18 @@ export async function updateTask(
   if (updates.position !== undefined) updateRow.position = updates.position;
   if (updates.labels !== undefined) updateRow.labelsJson = JSON.stringify(updates.labels);
   if (updates.notes !== undefined) updateRow.notesJson = JSON.stringify(updates.notes);
-  if (updates.acceptance !== undefined) updateRow.acceptanceJson = JSON.stringify(updates.acceptance);
+  if (updates.acceptance !== undefined)
+    updateRow.acceptanceJson = JSON.stringify(updates.acceptance);
   if (updates.files !== undefined) updateRow.filesJson = JSON.stringify(updates.files);
   if (updates.origin !== undefined) updateRow.origin = updates.origin;
   if (updates.blockedBy !== undefined) updateRow.blockedBy = updates.blockedBy;
   if (updates.epicLifecycle !== undefined) updateRow.epicLifecycle = updates.epicLifecycle;
   if (updates.completedAt !== undefined) updateRow.completedAt = updates.completedAt;
   if (updates.cancelledAt !== undefined) updateRow.cancelledAt = updates.cancelledAt;
-  if (updates.cancellationReason !== undefined) updateRow.cancellationReason = updates.cancellationReason;
-  if (updates.verification !== undefined) updateRow.verificationJson = JSON.stringify(updates.verification);
+  if (updates.cancellationReason !== undefined)
+    updateRow.cancellationReason = updates.cancellationReason;
+  if (updates.verification !== undefined)
+    updateRow.verificationJson = JSON.stringify(updates.verification);
 
   db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run();
 
@@ -183,9 +190,7 @@ export async function updateTask(
   if (updates.depends !== undefined) {
     db.delete(schema.taskDependencies).where(eq(schema.taskDependencies.taskId, taskId)).run();
     for (const depId of updates.depends) {
-      db.insert(schema.taskDependencies)
-        .values({ taskId, dependsOn: depId })
-        .run();
+      db.insert(schema.taskDependencies).values({ taskId, dependsOn: depId }).run();
     }
   }
 
@@ -195,8 +200,11 @@ export async function updateTask(
 /** Delete a task by ID. */
 export async function deleteTask(taskId: string, cwd?: string): Promise<boolean> {
   const db = await getDb(cwd);
-  const existing = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-    .where(eq(schema.tasks.id, taskId)).all();
+  const existing = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskId))
+    .all();
   if (existing.length === 0) return false;
 
   db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
@@ -231,13 +239,13 @@ export async function listTasks(
   if (filters?.type) conditions.push(eq(schema.tasks.type, filters.type));
   if (filters?.phase) conditions.push(eq(schema.tasks.phase, filters.phase));
 
-  let query = db.select().from(schema.tasks)
+  const query = db
+    .select()
+    .from(schema.tasks)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt));
 
-  const rows = filters?.limit
-    ? await query.limit(filters.limit).all()
-    : await query.all();
+  const rows = filters?.limit ? await query.limit(filters.limit).all() : await query.all();
 
   // Load dependencies for all tasks
   const tasks = rows.map(rowToTask);
@@ -246,15 +254,13 @@ export async function listTasks(
 }
 
 /** Find tasks by fuzzy text search. */
-export async function findTasks(
-  query: string,
-  limit: number = 20,
-  cwd?: string,
-): Promise<Task[]> {
+export async function findTasks(query: string, limit: number = 20, cwd?: string): Promise<Task[]> {
   const db = await getDb(cwd);
   const pattern = `%${query}%`;
 
-  const rows = await db.select().from(schema.tasks)
+  const rows = await db
+    .select()
+    .from(schema.tasks)
     .where(
       and(
         ne(schema.tasks.status, 'archived'),
@@ -268,11 +274,7 @@ export async function findTasks(
 }
 
 /** Archive a task (sets status to 'archived' with metadata). */
-export async function archiveTask(
-  taskId: string,
-  reason?: string,
-  cwd?: string,
-): Promise<boolean> {
+export async function archiveTask(taskId: string, reason?: string, cwd?: string): Promise<boolean> {
   const db = await getDb(cwd);
   const task = await getTask(taskId, cwd);
   if (!task) return false;
@@ -282,13 +284,16 @@ export async function archiveTask(
     ? Math.floor((Date.now() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
-  db.update(schema.tasks).set({
-    status: 'archived',
-    archivedAt: now,
-    archiveReason: reason ?? 'completed',
-    cycleTimeDays: cycleTime,
-    updatedAt: now,
-  }).where(eq(schema.tasks.id, taskId)).run();
+  db.update(schema.tasks)
+    .set({
+      status: 'archived',
+      archivedAt: now,
+      archiveReason: reason ?? 'completed',
+      cycleTimeDays: cycleTime,
+      updatedAt: now,
+    })
+    .where(eq(schema.tasks.id, taskId))
+    .run();
 
   return true;
 }
@@ -299,9 +304,11 @@ export async function archiveTask(
 async function loadDependencies(tasks: Task[], cwd?: string): Promise<void> {
   if (tasks.length === 0) return;
   const db = await getDb(cwd);
-  const taskIds = tasks.map(t => t.id);
+  const taskIds = tasks.map((t) => t.id);
 
-  const deps = await db.select().from(schema.taskDependencies)
+  const deps = await db
+    .select()
+    .from(schema.taskDependencies)
     .where(inArray(schema.taskDependencies.taskId, taskIds))
     .all();
 
@@ -320,22 +327,29 @@ async function loadDependencies(tasks: Task[], cwd?: string): Promise<void> {
 }
 
 /** Add a dependency between tasks. */
-export async function addDependency(taskId: string, dependsOn: string, cwd?: string): Promise<void> {
+export async function addDependency(
+  taskId: string,
+  dependsOn: string,
+  cwd?: string,
+): Promise<void> {
   const db = await getDb(cwd);
-  db.insert(schema.taskDependencies)
-    .values({ taskId, dependsOn })
-    .onConflictDoNothing()
-    .run();
+  db.insert(schema.taskDependencies).values({ taskId, dependsOn }).onConflictDoNothing().run();
 }
 
 /** Remove a dependency. */
-export async function removeDependency(taskId: string, dependsOn: string, cwd?: string): Promise<void> {
+export async function removeDependency(
+  taskId: string,
+  dependsOn: string,
+  cwd?: string,
+): Promise<void> {
   const db = await getDb(cwd);
   db.delete(schema.taskDependencies)
-    .where(and(
-      eq(schema.taskDependencies.taskId, taskId),
-      eq(schema.taskDependencies.dependsOn, dependsOn),
-    ))
+    .where(
+      and(
+        eq(schema.taskDependencies.taskId, taskId),
+        eq(schema.taskDependencies.dependsOn, dependsOn),
+      ),
+    )
     .run();
 }
 
@@ -343,24 +357,41 @@ export async function removeDependency(taskId: string, dependsOn: string, cwd?: 
 export async function addRelation(
   taskId: string,
   relatedTo: string,
-  relationType: 'related' | 'blocks' | 'duplicates' | 'absorbs' | 'fixes' | 'extends' | 'supersedes' = 'related',
+  relationType:
+    | 'related'
+    | 'blocks'
+    | 'duplicates'
+    | 'absorbs'
+    | 'fixes'
+    | 'extends'
+    | 'supersedes' = 'related',
   cwd?: string,
   reason?: string,
 ): Promise<void> {
   const db = await getDb(cwd);
-  await db.insert(schema.taskRelations)
+  await db
+    .insert(schema.taskRelations)
     .values({ taskId, relatedTo, relationType, reason: reason ?? null })
     .onConflictDoNothing()
     .run();
 }
 
 /** Get relations for a task. */
-export async function getRelations(taskId: string, cwd?: string): Promise<Array<{ relatedTo: string; type: string; reason?: string }>> {
+export async function getRelations(
+  taskId: string,
+  cwd?: string,
+): Promise<Array<{ relatedTo: string; type: string; reason?: string }>> {
   const db = await getDb(cwd);
-  const rows = await db.select().from(schema.taskRelations)
+  const rows = await db
+    .select()
+    .from(schema.taskRelations)
     .where(eq(schema.taskRelations.taskId, taskId))
     .all();
-  return rows.map(r => ({ relatedTo: r.relatedTo, type: r.relationType, reason: r.reason ?? undefined }));
+  return rows.map((r) => ({
+    relatedTo: r.relatedTo,
+    type: r.relationType,
+    reason: r.reason ?? undefined,
+  }));
 }
 
 // === GRAPH OPERATIONS ===
@@ -370,7 +401,8 @@ export async function getBlockerChain(taskId: string, cwd?: string): Promise<str
   await getDb(cwd);
   const nativeDb = getNativeDb();
   if (!nativeDb) return [];
-  const result = nativeDb.prepare(`
+  const result = nativeDb
+    .prepare(`
     WITH RECURSIVE blocker_chain(id) AS (
       SELECT depends_on FROM task_dependencies WHERE task_id = ?
       UNION
@@ -378,14 +410,17 @@ export async function getBlockerChain(taskId: string, cwd?: string): Promise<str
       JOIN blocker_chain bc ON td.task_id = bc.id
     )
     SELECT id FROM blocker_chain
-  `).all(taskId) as { id: string }[];
-  return result.map(r => r.id);
+  `)
+    .all(taskId) as { id: string }[];
+  return result.map((r) => r.id);
 }
 
 /** Get children of a task (hierarchy). */
 export async function getChildren(parentId: string, cwd?: string): Promise<Task[]> {
   const db = await getDb(cwd);
-  const rows = await db.select().from(schema.tasks)
+  const rows = await db
+    .select()
+    .from(schema.tasks)
     .where(eq(schema.tasks.parentId, parentId))
     .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt))
     .all();
@@ -397,7 +432,8 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
   await getDb(cwd);
   const nativeDb = getNativeDb();
   if (!nativeDb) return [];
-  const rows = nativeDb.prepare(`
+  const rows = nativeDb
+    .prepare(`
     WITH RECURSIVE subtree AS (
       SELECT * FROM tasks WHERE id = ?
       UNION ALL
@@ -405,17 +441,20 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
       JOIN subtree s ON t.parent_id = s.id
     )
     SELECT * FROM subtree
-  `).all(rootId) as TaskRow[];
+  `)
+    .all(rootId) as TaskRow[];
   return rows.map(rowToTask);
 }
 
 /** Count tasks by status. */
 export async function countByStatus(cwd?: string): Promise<Record<string, number>> {
   const db = await getDb(cwd);
-  const rows = await db.select({
-    status: schema.tasks.status,
-    count: count(),
-  }).from(schema.tasks)
+  const rows = await db
+    .select({
+      status: schema.tasks.status,
+      count: count(),
+    })
+    .from(schema.tasks)
     .where(ne(schema.tasks.status, 'archived'))
     .groupBy(schema.tasks.status)
     .all();
@@ -430,7 +469,8 @@ export async function countByStatus(cwd?: string): Promise<Record<string, number
 /** Get total task count (excluding archived). */
 export async function countTasks(cwd?: string): Promise<number> {
   const db = await getDb(cwd);
-  const result = await db.select({ count: count() })
+  const result = await db
+    .select({ count: count() })
     .from(schema.tasks)
     .where(ne(schema.tasks.status, 'archived'))
     .get();
@@ -440,7 +480,7 @@ export async function countTasks(cwd?: string): Promise<number> {
 // === SAFE WRAPPER FUNCTIONS (with collision detection, write verification, auto-checkpoint) ===
 
 /** Configuration for safe operations. */
-export { type SafetyConfig } from './data-safety.js';
+export type { SafetyConfig } from './data-safety.js';
 
 /**
  * Create a task with full safety protections.
@@ -451,12 +491,7 @@ export async function createTaskSafe(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<Task> {
-  return safeCreateTask(
-    () => createTask(task, cwd),
-    task,
-    cwd,
-    config,
-  );
+  return safeCreateTask(() => createTask(task, cwd), task, cwd, config);
 }
 
 /**
@@ -469,13 +504,7 @@ export async function updateTaskSafe(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<Task | null> {
-  return safeUpdateTask(
-    () => updateTask(taskId, updates, cwd),
-    taskId,
-    updates,
-    cwd,
-    config,
-  );
+  return safeUpdateTask(() => updateTask(taskId, updates, cwd), taskId, updates, cwd, config);
 }
 
 /**
@@ -487,10 +516,5 @@ export async function deleteTaskSafe(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<boolean> {
-  return safeDeleteTask(
-    () => deleteTask(taskId, cwd),
-    taskId,
-    cwd,
-    config,
-  );
+  return safeDeleteTask(() => deleteTask(taskId, cwd), taskId, cwd, config);
 }

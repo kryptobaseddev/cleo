@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-08T03:31:32Z",
+  "staleAfterMs": 5000,
+  "contextWindow": {
+    "maxTokens": 1000000,
+    "currentTokens": 176633,
+    "percentage": 17
+  },
+  "status": "ok",
+  "sessionId": "",
+  "workspace": "/mnt/projects/claude-todo/packages/ct-skills/skills/ct-skill-creator"
+}

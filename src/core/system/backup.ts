@@ -3,10 +3,10 @@
  * @task T4783
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 export interface BackupResult {
   backupId: string;
@@ -58,13 +58,21 @@ export function createBackup(
   // Write metadata
   const metaPath = join(backupDir, `${backupId}.meta.json`);
   try {
-    writeFileSync(metaPath, JSON.stringify({
-      backupId,
-      type: btype,
-      timestamp,
-      note: opts?.note,
-      files: backedUp,
-    }, null, 2), 'utf-8');
+    writeFileSync(
+      metaPath,
+      JSON.stringify(
+        {
+          backupId,
+          type: btype,
+          timestamp,
+          note: opts?.note,
+          files: backedUp,
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
   } catch {
     // non-fatal
   }

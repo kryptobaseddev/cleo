@@ -54,8 +54,16 @@ export interface DomainResponse {
  */
 type MutateDomain =
   // Canonical domains
-  | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sticky';
+  | 'tasks'
+  | 'session'
+  | 'memory'
+  | 'check'
+  | 'pipeline'
+  | 'orchestrate'
+  | 'tools'
+  | 'admin'
+  | 'nexus'
+  | 'sticky';
 
 /**
  * Mutate request interface
@@ -90,7 +98,12 @@ if (actualMutateCount < 1) {
 }
 
 function buildOperationFlagMatrix(
-  predicate: (operation: { domain: string; operation: string; idempotent: boolean; sessionRequired: boolean }) => boolean,
+  predicate: (operation: {
+    domain: string;
+    operation: string;
+    idempotent: boolean;
+    sessionRequired: boolean;
+  }) => boolean,
 ): Record<string, string[]> {
   const matrix: Record<string, string[]> = {};
   for (const op of getByGateway('mutate')) {
@@ -108,12 +121,16 @@ function buildOperationFlagMatrix(
 /**
  * Idempotent operations derived from registry metadata.
  */
-const IDEMPOTENT_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.idempotent);
+const IDEMPOTENT_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(
+  (op) => op.idempotent,
+);
 
 /**
  * Session-required operations derived from registry metadata.
  */
-const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.sessionRequired);
+const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(
+  (op) => op.sessionRequired,
+);
 
 /**
  * Validate mutate request parameters
@@ -196,7 +213,7 @@ export function validateMutateParams(request: MutateRequest): {
 function validateOperationParams(
   domain: string,
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): {
   valid: boolean;
   error?: DomainResponse;
@@ -229,7 +246,7 @@ function validateOperationParams(
  */
 function validateTasksParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'add':
@@ -348,7 +365,7 @@ function validateTasksParams(
  */
 function validateSessionParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'start':
@@ -460,7 +477,7 @@ function validateSessionParams(
  */
 function validateOrchestrateParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'start':
@@ -574,7 +591,7 @@ function validateOrchestrateParams(
  */
 function validateMemoryParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'inject':
@@ -661,7 +678,7 @@ function validateMemoryParams(
  */
 function validateStageParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'record':
@@ -750,7 +767,7 @@ function validateStageParams(
  */
 function validateCheckParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'compliance.record':
@@ -787,7 +804,7 @@ function validateCheckParams(
  */
 function validateReleaseParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'prepare':
@@ -830,7 +847,7 @@ function validateReleaseParams(
  */
 function validateChainParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'gate.pass':
@@ -868,7 +885,7 @@ function validateChainParams(
  */
 function validateAdminParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'config.set':
@@ -970,7 +987,6 @@ function validateAdminParams(
         };
       }
       break;
-
   }
 
   return { valid: true };
@@ -981,7 +997,7 @@ function validateAdminParams(
  */
 function validateSkillSubParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
     case 'install':
@@ -1025,7 +1041,7 @@ function validateSkillSubParams(
  */
 function validatePipelineParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   // Stage operations (lifecycle alias)
   if (operation.startsWith('stage.')) {
@@ -1053,7 +1069,7 @@ function validatePipelineParams(
  */
 function validateToolsParams(
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): { valid: boolean; error?: DomainResponse } {
   // Skill operations
   if (operation.startsWith('skill.')) {
@@ -1085,7 +1101,8 @@ export function registerMutateTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific write operation. Call query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
+          description:
+            'Domain-specific write operation. Call query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
         },
         params: {
           type: 'object',
@@ -1106,9 +1123,7 @@ export function registerMutateTool() {
  * @param request Mutate request with domain, operation, and params
  * @returns Promise resolving to mutate response
  */
-export async function handleMutateRequest(
-  request: MutateRequest
-): Promise<MutateResponse> {
+export async function handleMutateRequest(request: MutateRequest): Promise<MutateResponse> {
   const startTime = Date.now();
 
   // Validate request parameters

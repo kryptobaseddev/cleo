@@ -7,7 +7,7 @@
  * @task T5243
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { createDoctorProgress } from '../progress.js';
 
@@ -22,23 +22,41 @@ export function registerDoctorCommand(program: Command): void {
       const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
       const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
       const progress = createDoctorProgress(isHuman);
-      
+
       progress.start();
-      
+
       try {
         if (opts['fix']) {
           progress.step(4, 'Applying fixes');
-          await dispatchFromCli('mutate', 'admin', 'health', { mode: 'repair' }, { command: 'doctor', operation: 'admin.health' });
+          await dispatchFromCli(
+            'mutate',
+            'admin',
+            'health',
+            { mode: 'repair' },
+            { command: 'doctor', operation: 'admin.health' },
+          );
           progress.complete('Fixes applied');
         } else if (opts['comprehensive']) {
           progress.step(0, 'Checking CLEO directory');
-          await dispatchFromCli('query', 'admin', 'health', { mode: 'diagnose' }, { command: 'doctor', operation: 'admin.health' });
+          await dispatchFromCli(
+            'query',
+            'admin',
+            'health',
+            { mode: 'diagnose' },
+            { command: 'doctor', operation: 'admin.health' },
+          );
           progress.complete('Comprehensive diagnostics complete');
         } else {
           progress.step(0, 'Checking CLEO directory');
-          await dispatchFromCli('query', 'admin', 'health', {
-            detailed: opts['detailed'] as boolean | undefined,
-          }, { command: 'doctor', operation: 'admin.health' });
+          await dispatchFromCli(
+            'query',
+            'admin',
+            'health',
+            {
+              detailed: opts['detailed'] as boolean | undefined,
+            },
+            { command: 'doctor', operation: 'admin.health' },
+          );
           progress.complete('Health check complete');
         }
       } catch (err) {

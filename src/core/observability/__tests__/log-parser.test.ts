@@ -4,8 +4,8 @@
  * @epic T5186
  */
 
-import { describe, it, expect } from 'vitest';
-import { parseLogLine, parseLogLines, isValidLevel } from '../log-parser.js';
+import { describe, expect, it } from 'vitest';
+import { isValidLevel, parseLogLine, parseLogLines } from '../log-parser.js';
 
 describe('isValidLevel', () => {
   it('accepts all valid pino levels', () => {
@@ -135,8 +135,20 @@ describe('parseLogLine', () => {
 describe('parseLogLines', () => {
   it('parses multiple valid lines', () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-01-01T00:00:00Z', pid: 1, hostname: 'h', msg: 'a' }),
-      JSON.stringify({ level: 'WARN', time: '2026-01-01T00:01:00Z', pid: 2, hostname: 'h', msg: 'b' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-01-01T00:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'a',
+      }),
+      JSON.stringify({
+        level: 'WARN',
+        time: '2026-01-01T00:01:00Z',
+        pid: 2,
+        hostname: 'h',
+        msg: 'b',
+      }),
     ];
     const entries = parseLogLines(lines);
     expect(entries).toHaveLength(2);
@@ -146,10 +158,22 @@ describe('parseLogLines', () => {
 
   it('skips malformed lines', () => {
     const lines = [
-      JSON.stringify({ level: 'INFO', time: '2026-01-01T00:00:00Z', pid: 1, hostname: 'h', msg: 'good' }),
+      JSON.stringify({
+        level: 'INFO',
+        time: '2026-01-01T00:00:00Z',
+        pid: 1,
+        hostname: 'h',
+        msg: 'good',
+      }),
       'not json',
       '',
-      JSON.stringify({ level: 'ERROR', time: '2026-01-01T00:02:00Z', pid: 3, hostname: 'h', msg: 'also good' }),
+      JSON.stringify({
+        level: 'ERROR',
+        time: '2026-01-01T00:02:00Z',
+        pid: 3,
+        hostname: 'h',
+        msg: 'also good',
+      }),
     ];
     const entries = parseLogLines(lines);
     expect(entries).toHaveLength(2);

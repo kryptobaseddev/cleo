@@ -9,8 +9,8 @@
  * @epic T4798
  */
 
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { getRcasdBaseDir } from './rcasd-paths.js';
 
 // =============================================================================
@@ -418,7 +418,7 @@ function scanDirectory(
   stage: string,
   results: Array<{ file: string; link: RelatedLink }>,
 ): void {
-  let entries;
+  let entries: import('node:fs').Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
@@ -435,7 +435,7 @@ function scanDirectory(
 
     if (!entry.name.endsWith('.md')) continue;
 
-    let content;
+    let content: string;
     try {
       content = readFileSync(fullPath, 'utf-8');
     } catch {
@@ -446,10 +446,9 @@ function scanDirectory(
     if (!parsed.frontmatter?.related) continue;
 
     for (const link of parsed.frontmatter.related) {
-      const matchesPath = link.path && link.path.includes(targetPattern);
+      const matchesPath = link.path?.includes(targetPattern);
       const matchesId = link.id === epicId && link.type === stage;
-      const matchesEpicStage =
-        parsed.frontmatter.epic === epicId && link.type === stage;
+      const matchesEpicStage = parsed.frontmatter.epic === epicId && link.type === stage;
 
       if (matchesPath || matchesId || matchesEpicStage) {
         const relPath = relative(baseDir, fullPath);

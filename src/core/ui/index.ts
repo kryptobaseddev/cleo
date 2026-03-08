@@ -5,53 +5,50 @@
  * @epic T4454
  */
 
-// CLI flags
-export {
-  parseCommonFlags,
-  defaultFlags,
-  resolveFormat,
-  isJsonOutput,
-} from './flags.js';
-export type { ParsedFlags } from './flags.js';
-
-// Changelog generation
-export {
-  discoverReleaseTasks,
-  groupTasksIntoSections,
-  generateChangelogMarkdown,
-  formatChangelogJson,
-  writeChangelogFile,
-  appendToChangelog,
-  generateChangelog,
-} from './changelog.js';
-export type { ChangelogSection } from './changelog.js';
-
-// Command registry
-export {
-  parseCommandHeader,
-  scanAllCommands,
-  validateHeader,
-  getCommandScriptMap,
-  getCommandsByCategory,
-  getCommandsByRelevance,
-} from './command-registry.js';
-export type { CommandMeta } from './command-registry.js';
-
+export type { ShellType } from './aliases.js';
 // Alias management
 export {
-  getCurrentShell,
-  getRcFilePath,
+  ALIASES_VERSION,
+  checkAliasesStatus,
   detectAvailableShells,
   generateBashAliases,
   generatePowershellAliases,
-  hasAliasBlock,
+  getCurrentShell,
   getInstalledVersion,
+  getRcFilePath,
+  hasAliasBlock,
   injectAliases,
   removeAliases,
-  checkAliasesStatus,
-  ALIASES_VERSION,
 } from './aliases.js';
-export type { ShellType } from './aliases.js';
+export type { ChangelogSection } from './changelog.js';
+// Changelog generation
+export {
+  appendToChangelog,
+  discoverReleaseTasks,
+  formatChangelogJson,
+  generateChangelog,
+  generateChangelogMarkdown,
+  groupTasksIntoSections,
+  writeChangelogFile,
+} from './changelog.js';
+export type { CommandMeta } from './command-registry.js';
+// Command registry
+export {
+  getCommandScriptMap,
+  getCommandsByCategory,
+  getCommandsByRelevance,
+  parseCommandHeader,
+  scanAllCommands,
+  validateHeader,
+} from './command-registry.js';
+export type { ParsedFlags } from './flags.js';
+// CLI flags
+export {
+  defaultFlags,
+  isJsonOutput,
+  parseCommonFlags,
+  resolveFormat,
+} from './flags.js';
 
 // Injection & MCP config: DELETED (T4674, T4675, T4677)
 // All injection, provider detection, and MCP config management is now
@@ -68,4 +65,3 @@ export {
   getValidationKey,
   INJECTION_VALIDATION_KEYS,
 } from './injection-legacy.js';
-

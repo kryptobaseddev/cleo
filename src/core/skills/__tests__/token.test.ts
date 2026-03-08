@@ -3,14 +3,14 @@
  * @task T4522
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  injectTokens,
+  buildDefaults,
   hasUnresolvedTokens,
+  injectTokens,
+  validateAllTokens,
   validateRequired,
   validateTokenValue,
-  validateAllTokens,
-  buildDefaults,
 } from '../injection/token.js';
 
 describe('injectTokens', () => {

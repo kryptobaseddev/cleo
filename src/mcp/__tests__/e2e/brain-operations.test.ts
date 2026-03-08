@@ -9,35 +9,25 @@
  * @task T4478
  */
 
-import { existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   orchestrateBootstrap,
   orchestrateCriticalPath,
   orchestrateUnblockOpportunities,
 } from '../../../dispatch/engines/orchestrate-engine.js';
-
-import {
-  taskComplexityEstimate,
-} from '../../../dispatch/engines/task-engine.js';
-
-import {
-  validateCoherenceCheck,
-} from '../../../dispatch/engines/validate-engine.js';
-
 import {
   sessionContextDrift,
   sessionDecisionLog,
   sessionRecordAssumption,
   sessionRecordDecision,
 } from '../../../dispatch/engines/session-engine.js';
-
-import {
-  systemInjectGenerate,
-} from '../../../dispatch/engines/system-engine.js';
+import { systemInjectGenerate } from '../../../dispatch/engines/system-engine.js';
+import { taskComplexityEstimate } from '../../../dispatch/engines/task-engine.js';
+import { validateCoherenceCheck } from '../../../dispatch/engines/validate-engine.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -63,28 +53,31 @@ async function writeTodoJson(
   const { getDb } = await import('../../../store/sqlite.js');
   const { tasks: tasksTable, taskDependencies } = await import('../../../store/tasks-schema.js');
   const db = await getDb(TEST_ROOT);
-  const taskIds = new Set(tasks.map(t => t.id));
+  const taskIds = new Set(tasks.map((t) => t.id));
 
   // Insert tasks without dependencies first
   for (const task of tasks) {
-    await db.insert(tasksTable).values({
-      id: task.id,
-      title: task.title,
-      description: task.description ?? null,
-      status: task.status ?? 'pending',
-      priority: task.priority ?? 'medium',
-      type: task.type ?? 'task',
-      parentId: task.parentId ?? null,
-      phase: task.phase ?? null,
-      size: task.size ?? null,
-      labelsJson: task.labels ? JSON.stringify(task.labels) : null,
-      acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : null,
-      filesJson: task.files ? JSON.stringify(task.files) : null,
-      notesJson: task.notes ? JSON.stringify(task.notes) : null,
-      createdAt: task.createdAt ?? new Date().toISOString(),
-      updatedAt: task.updatedAt ?? null,
-      completedAt: task.completedAt ?? null,
-    }).run();
+    await db
+      .insert(tasksTable)
+      .values({
+        id: task.id,
+        title: task.title,
+        description: task.description ?? null,
+        status: task.status ?? 'pending',
+        priority: task.priority ?? 'medium',
+        type: task.type ?? 'task',
+        parentId: task.parentId ?? null,
+        phase: task.phase ?? null,
+        size: task.size ?? null,
+        labelsJson: task.labels ? JSON.stringify(task.labels) : null,
+        acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : null,
+        filesJson: task.files ? JSON.stringify(task.files) : null,
+        notesJson: task.notes ? JSON.stringify(task.notes) : null,
+        createdAt: task.createdAt ?? new Date().toISOString(),
+        updatedAt: task.updatedAt ?? null,
+        completedAt: task.completedAt ?? null,
+      })
+      .run();
   }
 
   // Insert dependencies — temporarily disable FK checks for orphaned dep tests
@@ -96,10 +89,13 @@ async function writeTodoJson(
   for (const task of tasks) {
     if (task.depends && task.depends.length > 0) {
       for (const depId of task.depends) {
-        await db.insert(taskDependencies).values({
-          taskId: task.id,
-          dependsOn: depId,
-        }).run();
+        await db
+          .insert(taskDependencies)
+          .values({
+            taskId: task.id,
+            dependsOn: depId,
+          })
+          .run();
       }
     }
   }
@@ -334,7 +330,10 @@ const SAMPLE_MANIFEST_ENTRIES = [
     status: 'completed',
     agent_type: 'research',
     topics: ['deployment', 'staging', 'infrastructure'],
-    key_findings: ['Blue-green deployment strategy', 'Contradicts containerized approach from T101'],
+    key_findings: [
+      'Blue-green deployment strategy',
+      'Contradicts containerized approach from T101',
+    ],
     actionable: false,
     needs_followup: ['T101'],
     linked_tasks: ['T100', 'T104'],
@@ -391,7 +390,9 @@ describe('E2E: Brain Operations', () => {
     try {
       const { closeDb } = await import('../../../store/sqlite.js');
       closeDb();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (existsSync(TEST_ROOT)) {
       rmSync(TEST_ROOT, { recursive: true, force: true });
     }
@@ -573,9 +574,7 @@ describe('E2E: Brain Operations', () => {
       expect(data.coherent).toBe(false);
       expect(data.issues.length).toBeGreaterThan(0);
 
-      const doneWithIncomplete = data.issues.find(
-        (i) => i.type === 'done_with_incomplete_subtask',
-      );
+      const doneWithIncomplete = data.issues.find((i) => i.type === 'done_with_incomplete_subtask');
       expect(doneWithIncomplete).toBeDefined();
       expect(doneWithIncomplete!.taskId).toBe('T200');
       expect(doneWithIncomplete!.severity).toBe('error');
@@ -603,9 +602,7 @@ describe('E2E: Brain Operations', () => {
       const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
-      const orphaned = data.issues.find(
-        (i) => i.type === 'orphaned_dependency',
-      );
+      const orphaned = data.issues.find((i) => i.type === 'orphaned_dependency');
       expect(orphaned).toBeDefined();
       expect(orphaned!.taskId).toBe('T300');
     });
@@ -642,9 +639,7 @@ describe('E2E: Brain Operations', () => {
       const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
-      const inconsistency = data.issues.find(
-        (i) => i.type === 'status_inconsistency',
-      );
+      const inconsistency = data.issues.find((i) => i.type === 'status_inconsistency');
       expect(inconsistency).toBeDefined();
       expect(inconsistency!.taskId).toBe('T401');
     });
@@ -747,9 +742,7 @@ describe('E2E: Brain Operations', () => {
       const singleBlockers = data.singleBlocker;
       expect(Array.isArray(singleBlockers)).toBe(true);
 
-      const t106entry = singleBlockers.find(
-        (sb: any) => sb.taskId === 'T106',
-      );
+      const t106entry = singleBlockers.find((sb: any) => sb.taskId === 'T106');
       expect(t106entry).toBeDefined();
       expect(t106entry.remainingBlocker.id).toBe('T105');
     });
@@ -856,9 +849,7 @@ describe('E2E: Brain Operations', () => {
       const decisions = ((result as any).result ?? result.data)!;
       expect(decisions.length).toBe(1);
       expect(decisions[0].taskId).toBe('T102');
-      expect(decisions[0].decision).toBe(
-        'Adopt plugin architecture for core module',
-      );
+      expect(decisions[0].decision).toBe('Adopt plugin architecture for core module');
     });
 
     it('should return all decisions when no filters applied', async () => {
@@ -899,9 +890,7 @@ describe('E2E: Brain Operations', () => {
       expect(data.id).toMatch(/^asm-/);
       expect(data.sessionId).toBe('test-session-001');
       expect(data.taskId).toBe('T102');
-      expect(data.assumption).toBe(
-        'Database schema will remain stable during development',
-      );
+      expect(data.assumption).toBe('Database schema will remain stable during development');
       expect(data.confidence).toBe('medium');
       expect(data.timestamp).toBeDefined();
 
@@ -914,9 +903,7 @@ describe('E2E: Brain Operations', () => {
       expect(lines.length).toBe(1);
 
       const parsed = JSON.parse(lines[0]);
-      expect(parsed.assumption).toBe(
-        'Database schema will remain stable during development',
-      );
+      expect(parsed.assumption).toBe('Database schema will remain stable during development');
       expect(parsed.confidence).toBe('medium');
     });
 
@@ -1036,11 +1023,7 @@ describe('E2E: Brain Operations', () => {
       });
 
       // Write a package.json so version is picked up
-      writeFileSync(
-        join(TEST_ROOT, 'package.json'),
-        JSON.stringify({ version: '1.2.3' }),
-        'utf-8',
-      );
+      writeFileSync(join(TEST_ROOT, 'package.json'), JSON.stringify({ version: '1.2.3' }), 'utf-8');
 
       const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -1076,11 +1059,7 @@ describe('E2E: Brain Operations', () => {
         },
       });
       await writeSessionsJson([SAMPLE_SESSION]);
-      writeFileSync(
-        join(TEST_ROOT, 'package.json'),
-        JSON.stringify({ version: '2.0.0' }),
-        'utf-8',
-      );
+      writeFileSync(join(TEST_ROOT, 'package.json'), JSON.stringify({ version: '2.0.0' }), 'utf-8');
 
       const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);

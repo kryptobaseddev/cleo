@@ -5,7 +5,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -23,12 +23,18 @@ export function registerConsensusCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.consensus', {
-        mode: 'task',
-        taskId,
-        strict: opts['strict'] as boolean | undefined,
-        votingMatrixFile: opts['votingMatrix'] as string | undefined,
-      }, { command: 'consensus' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.consensus',
+        {
+          mode: 'task',
+          taskId,
+          strict: opts['strict'] as boolean | undefined,
+          votingMatrixFile: opts['votingMatrix'] as string | undefined,
+        },
+        { command: 'consensus' },
+      );
     });
 
   consensus
@@ -37,11 +43,17 @@ export function registerConsensusCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.consensus', {
-        mode: 'manifest',
-        manifestFile,
-        strict: opts['strict'] as boolean | undefined,
-        votingMatrixFile: opts['votingMatrix'] as string | undefined,
-      }, { command: 'consensus' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.consensus',
+        {
+          mode: 'manifest',
+          manifestFile,
+          strict: opts['strict'] as boolean | undefined,
+          votingMatrixFile: opts['votingMatrix'] as string | undefined,
+        },
+        { command: 'consensus' },
+      );
     });
 }

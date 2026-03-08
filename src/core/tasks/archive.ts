@@ -4,16 +4,16 @@
  * @epic T4454
  */
 
-import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../store/json.js';
-import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath, getBackupDir } from '../paths.js';
-import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
-  safeSaveTaskFile,
-  safeSaveArchive,
   safeAppendLog,
+  safeSaveArchive,
+  safeSaveTaskFile,
 } from '../../store/data-safety-central.js';
+import { computeChecksum, readJson, readJsonRequired, saveJson } from '../../store/json.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getArchivePath, getBackupDir, getTaskPath } from '../paths.js';
+import { logOperation } from './add.js';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
@@ -40,7 +40,11 @@ export interface ArchiveTasksResult {
  * Moves them from active task data to archive.
  * @task T4461
  */
-export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
+export async function archiveTasks(
+  options: ArchiveTasksOptions = {},
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ArchiveTasksResult> {
   const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
   const backupDir = getBackupDir(cwd);
@@ -54,9 +58,9 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   let candidates: Task[];
 
   if (options.taskIds?.length) {
-    candidates = data.tasks.filter(t => options.taskIds!.includes(t.id));
+    candidates = data.tasks.filter((t) => options.taskIds!.includes(t.id));
   } else {
-    candidates = data.tasks.filter(t => {
+    candidates = data.tasks.filter((t) => {
       if (t.status === 'done') return true;
       if (includeCancelled && t.status === 'cancelled') return true;
       return false;
@@ -66,7 +70,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   // Apply date filter
   if (options.before) {
     const beforeDate = new Date(options.before).getTime();
-    candidates = candidates.filter(t => {
+    candidates = candidates.filter((t) => {
       const completedAt = t.completedAt ?? t.cancelledAt ?? t.updatedAt;
       if (!completedAt) return false;
       return new Date(completedAt).getTime() < beforeDate;
@@ -87,7 +91,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
     // Skip epics that have non-archived children
     if (task.type === 'epic') {
       const activeChildren = data.tasks.filter(
-        t => t.parentId === task.id && t.status !== 'done' && t.status !== 'cancelled',
+        (t) => t.parentId === task.id && t.status !== 'done' && t.status !== 'cancelled',
       );
       if (activeChildren.length > 0) {
         skipped.push(task.id);
@@ -113,8 +117,8 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
 
   // Move tasks to archive
   const archivedSet = new Set(archived);
-  const tasksToArchive = data.tasks.filter(t => archivedSet.has(t.id));
-  const remainingTasks = data.tasks.filter(t => !archivedSet.has(t.id));
+  const tasksToArchive = data.tasks.filter((t) => archivedSet.has(t.id));
+  const remainingTasks = data.tasks.filter((t) => !archivedSet.has(t.id));
 
   // Read/create archive file
   let archiveData: { archivedTasks: Task[]; version?: string } | null;
@@ -151,16 +155,20 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
       await safeSaveTaskFile(accessor, data, cwd);
       await safeSaveArchive(accessor, archiveData, cwd);
     }
-    await safeAppendLog(accessor, {
-      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      action: 'tasks_archived',
-      taskId: archived.join(','),
-      actor: 'system',
-      details: { count: archived.length, ids: archived },
-      before: null,
-      after: { count: archived.length, ids: archived },
-    }, cwd);
+    await safeAppendLog(
+      accessor,
+      {
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'tasks_archived',
+        taskId: archived.join(','),
+        actor: 'system',
+        details: { count: archived.length, ids: archived },
+        before: null,
+        after: { count: archived.length, ids: archived },
+      },
+      cwd,
+    );
   } else {
     await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archiveData, { backupDir });

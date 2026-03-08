@@ -56,7 +56,9 @@ export function detectEnvMode(): McpEnvMode {
     const pkgRoot = scriptPath.slice(0, markerIdx + marker.length);
     let channel: McpEnvMode['channel'] = 'stable';
     try {
-      const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf-8')) as { version?: string };
+      const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf-8')) as {
+        version?: string;
+      };
       channel = (pkg.version ?? '').includes('-beta') ? 'beta' : 'stable';
     } catch {
       channel = 'stable';
@@ -67,11 +69,7 @@ export function detectEnvMode(): McpEnvMode {
   // ADR-016 §2.3: probe ~/.cleo-dev/VERSION first.
   // When the dev installer runs, it writes mode=dev-ts + source=<repo> to ~/.cleo-dev/VERSION.
   // If the current script path matches that source directory, we are running as cleo-dev.
-  const devVersionPath = join(
-    process.env['HOME'] ?? '',
-    '.cleo-dev',
-    'VERSION',
-  );
+  const devVersionPath = join(process.env['HOME'] ?? '', '.cleo-dev', 'VERSION');
   try {
     const devContent = readFileSync(devVersionPath, 'utf-8');
     const devKv: Record<string, string> = {};
@@ -91,10 +89,7 @@ export function detectEnvMode(): McpEnvMode {
     // ~/.cleo-dev/VERSION not present — not in dev mode via this path
   }
 
-  const versionPath = join(
-    getCleoHome(),
-    'VERSION',
-  );
+  const versionPath = join(getCleoHome(), 'VERSION');
 
   let content: string;
   try {
@@ -114,17 +109,16 @@ export function detectEnvMode(): McpEnvMode {
   }
 
   const rawMode = kvPairs['mode'] ?? 'unknown';
-  const mode = rawMode === 'dev-ts' ? 'dev-ts'
-    : rawMode === 'prod-npm' ? 'prod-npm'
-    : 'unknown';
+  const mode = rawMode === 'dev-ts' ? 'dev-ts' : rawMode === 'prod-npm' ? 'prod-npm' : 'unknown';
 
-  const channel = mode === 'dev-ts'
-    ? 'dev'
-    : installedVersion.includes('-beta')
-      ? 'beta'
-      : mode === 'prod-npm'
-        ? 'stable'
-        : 'unknown';
+  const channel =
+    mode === 'dev-ts'
+      ? 'dev'
+      : installedVersion.includes('-beta')
+        ? 'beta'
+        : mode === 'prod-npm'
+          ? 'stable'
+          : 'unknown';
 
   return {
     mode,

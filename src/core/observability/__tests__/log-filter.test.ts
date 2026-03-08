@@ -4,8 +4,8 @@
  * @epic T5186
  */
 
-import { describe, it, expect } from 'vitest';
-import { matchesFilter, filterEntries, paginate, compareLevels } from '../log-filter.js';
+import { describe, expect, it } from 'vitest';
+import { compareLevels, filterEntries, matchesFilter, paginate } from '../log-filter.js';
 import type { PinoLogEntry } from '../types.js';
 
 function makeEntry(overrides: Partial<PinoLogEntry> = {}): PinoLogEntry {
@@ -147,9 +147,7 @@ describe('filterEntries', () => {
 });
 
 describe('paginate', () => {
-  const entries = Array.from({ length: 10 }, (_, i) =>
-    makeEntry({ msg: `Entry ${i}` }),
-  );
+  const entries = Array.from({ length: 10 }, (_, i) => makeEntry({ msg: `Entry ${i}` }));
 
   it('returns all entries when no limit or offset', () => {
     expect(paginate(entries)).toHaveLength(10);

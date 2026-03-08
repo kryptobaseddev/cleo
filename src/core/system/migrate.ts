@@ -5,9 +5,9 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 export interface MigrateResult {
   from: string;
@@ -41,9 +41,10 @@ export async function getMigrationStatus(
   return {
     from: currentVersion,
     to: targetVersion,
-    migrations: currentVersion === targetVersion
-      ? []
-      : [{ name: `${currentVersion} -> ${targetVersion}`, applied: false }],
+    migrations:
+      currentVersion === targetVersion
+        ? []
+        : [{ name: `${currentVersion} -> ${targetVersion}`, applied: false }],
     dryRun: opts?.dryRun ?? false,
   };
 }

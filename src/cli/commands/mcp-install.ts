@@ -9,20 +9,20 @@
  * @epic T4663
  */
 
-// CLI-only: mcp-install requires CAAMP provider detection and config file writes
-import { Command } from 'commander';
-import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../../core/mcp/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
 import {
   getInstalledProviders,
-  installMcpServerToAll,
-  installMcpServer,
   getProvider,
+  installMcpServer,
+  installMcpServerToAll,
   type McpServerConfig,
   type Provider,
 } from '@cleocode/caamp';
+// CLI-only: mcp-install requires CAAMP provider detection and config file writes
+import type { Command } from 'commander';
+import { CleoError } from '../../core/errors.js';
+import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../../core/mcp/index.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the mcp-install command.
@@ -32,7 +32,10 @@ export function registerMcpInstallCommand(program: Command): void {
   program
     .command('mcp-install')
     .description('Configure CLEO MCP server integration (env-aware, global by default, via CAAMP)')
-    .option('--tool <name>', 'Configure a single tool/provider (claude-code, cursor, windsurf, etc.)')
+    .option(
+      '--tool <name>',
+      'Configure a single tool/provider (claude-code, cursor, windsurf, etc.)',
+    )
     .option('--global', 'Use global/user config scope (default)')
     .option('--project', 'Use project-level config scope (opt-in)')
     .option('--all', 'Configure all detected providers')
@@ -44,7 +47,7 @@ export function registerMcpInstallCommand(program: Command): void {
         if (opts['listTools']) {
           const providers = getInstalledProviders();
           const result = {
-            providers: providers.map(p => ({
+            providers: providers.map((p) => ({
               id: p.id,
               name: p.toolName,
               vendor: p.vendor,
@@ -63,44 +66,60 @@ export function registerMcpInstallCommand(program: Command): void {
         const serverName = getMcpServerName(env);
         // Default to global scope for system-level MCP tool management.
         // Use --project only when explicit project-local provider config is desired.
-        const scope = opts['project'] ? 'project' as const : 'global' as const;
+        const scope = opts['project'] ? ('project' as const) : ('global' as const);
         const projectDir = process.cwd();
 
         // If a specific tool is requested, install only to that provider
         if (opts['tool']) {
           const provider = getProvider(opts['tool'] as string);
           if (!provider) {
-            console.error(formatError(new CleoError(
-              4,
-              `Unknown provider: ${opts['tool']}. Use --list-tools to see available providers.`,
-            )));
+            console.error(
+              formatError(
+                new CleoError(
+                  4,
+                  `Unknown provider: ${opts['tool']}. Use --list-tools to see available providers.`,
+                ),
+              ),
+            );
             process.exit(4);
             return;
           }
 
           if (opts['dryRun']) {
-            cliOutput({
-              env: { mode: env.mode, source: env.source },
-              serverEntry,
-              results: [{ target: provider.id, action: 'would_write' }],
-              dryRun: true,
-            }, { command: 'mcp-install' });
+            cliOutput(
+              {
+                env: { mode: env.mode, source: env.source },
+                serverEntry,
+                results: [{ target: provider.id, action: 'would_write' }],
+                dryRun: true,
+              },
+              { command: 'mcp-install' },
+            );
             return;
           }
 
           const result = await installMcpServer(
-            provider, serverName, serverEntry, scope, projectDir,
-          );
-          cliOutput({
-            env: { mode: env.mode, source: env.source },
+            provider,
+            serverName,
             serverEntry,
-            results: [{
-              target: result.provider.id,
-              action: result.success ? 'wrote' : 'error',
-              path: result.configPath,
-              error: result.error,
-            }],
-          }, { command: 'mcp-install' });
+            scope,
+            projectDir,
+          );
+          cliOutput(
+            {
+              env: { mode: env.mode, source: env.source },
+              serverEntry,
+              results: [
+                {
+                  target: result.provider.id,
+                  action: result.success ? 'wrote' : 'error',
+                  path: result.configPath,
+                  error: result.error,
+                },
+              ],
+            },
+            { command: 'mcp-install' },
+          );
           return;
         }
 
@@ -110,36 +129,48 @@ export function registerMcpInstallCommand(program: Command): void {
           providers = getInstalledProviders();
         } else {
           // Default: install to high-priority detected providers
-          providers = getInstalledProviders()
-            .filter(p => p.priority === 'high' || p.priority === 'medium');
+          providers = getInstalledProviders().filter(
+            (p) => p.priority === 'high' || p.priority === 'medium',
+          );
         }
 
         if (opts['dryRun']) {
-          cliOutput({
-            env: { mode: env.mode, source: env.source },
-            serverEntry,
-            results: providers.map(p => ({
-              target: p.id, action: 'would_write',
-            })),
-            dryRun: true,
-          }, { command: 'mcp-install' });
+          cliOutput(
+            {
+              env: { mode: env.mode, source: env.source },
+              serverEntry,
+              results: providers.map((p) => ({
+                target: p.id,
+                action: 'would_write',
+              })),
+              dryRun: true,
+            },
+            { command: 'mcp-install' },
+          );
           return;
         }
 
         const results = await installMcpServerToAll(
-          providers, serverName, serverEntry, scope, projectDir,
+          providers,
+          serverName,
+          serverEntry,
+          scope,
+          projectDir,
         );
 
-        cliOutput({
-          env: { mode: env.mode, source: env.source },
-          serverEntry,
-          results: results.map(r => ({
-            target: r.provider.id,
-            action: r.success ? 'wrote' : 'error',
-            path: r.configPath,
-            error: r.error,
-          })),
-        }, { command: 'mcp-install' });
+        cliOutput(
+          {
+            env: { mode: env.mode, source: env.source },
+            serverEntry,
+            results: results.map((r) => ({
+              target: r.provider.id,
+              action: r.success ? 'wrote' : 'error',
+              path: r.configPath,
+              error: r.error,
+            })),
+          },
+          { command: 'mcp-install' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

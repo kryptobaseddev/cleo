@@ -6,7 +6,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnSessionStartPayload, OnSessionEndPayload } from '../types.js';
+import type { OnSessionEndPayload, OnSessionStartPayload } from '../types.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -19,7 +19,7 @@ function isMissingBrainSchemaError(err: unknown): boolean {
  */
 export async function handleSessionStart(
   projectRoot: string,
-  payload: OnSessionStartPayload
+  payload: OnSessionStartPayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -41,7 +41,7 @@ export async function handleSessionStart(
  */
 export async function handleSessionEnd(
   projectRoot: string,
-  payload: OnSessionEndPayload
+  payload: OnSessionEndPayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 

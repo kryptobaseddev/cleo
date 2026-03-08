@@ -11,37 +11,36 @@
  * @epic T5149
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
-
+import { getProjectRoot } from '../../core/paths.js';
 import {
-  // Brain.db cognitive memory operations
-  memoryFind,
-  memoryTimeline,
-  memoryFetch,
-  memoryObserve,
   memoryDecisionFind,
   memoryDecisionStore,
-  // Pattern operations
-  memoryPatternFind,
-  memoryPatternStore,
+  memoryFetch,
+  // Brain.db cognitive memory operations
+  memoryFind,
+  // PageIndex graph operations (T5385)
+  memoryGraphAdd,
+  memoryGraphNeighbors,
+  memoryGraphRemove,
+  memoryGraphShow,
   // Learning operations
   memoryLearningFind,
   memoryLearningStore,
   // Brain memory linking
   memoryLink,
-  // PageIndex graph operations (T5385)
-  memoryGraphAdd,
-  memoryGraphShow,
-  memoryGraphNeighbors,
-  memoryGraphRemove,
+  memoryObserve,
+  // Pattern operations
+  memoryPatternFind,
+  memoryPatternStore,
+  memoryReasonSimilar,
   // Reasoning & hybrid search (T5388-T5393)
   memoryReasonWhy,
-  memoryReasonSimilar,
   memorySearchHybrid,
+  memoryTimeline,
 } from '../lib/engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // Memory Handler Class
@@ -60,10 +59,7 @@ export class MemoryHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -71,7 +67,14 @@ export class MemoryHandler implements DomainHandler {
         case 'find': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           const result = await memoryFind(
             {
@@ -89,7 +92,14 @@ export class MemoryHandler implements DomainHandler {
         case 'timeline': {
           const anchor = params?.anchor as string;
           if (!anchor) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'anchor is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'anchor is required',
+              startTime,
+            );
           }
           const result = await memoryTimeline(
             {
@@ -105,7 +115,14 @@ export class MemoryHandler implements DomainHandler {
         case 'fetch': {
           const ids = params?.ids as string[] | undefined;
           if (!ids || !Array.isArray(ids) || ids.length === 0) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'ids is required (non-empty array)', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'ids is required (non-empty array)',
+              startTime,
+            );
           }
           const result = await memoryFetch({ ids }, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
@@ -154,7 +171,14 @@ export class MemoryHandler implements DomainHandler {
         case 'graph.show': {
           const nodeId = params?.nodeId as string;
           if (!nodeId) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'nodeId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'nodeId is required',
+              startTime,
+            );
           }
           const result = await memoryGraphShow({ nodeId }, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
@@ -163,7 +187,14 @@ export class MemoryHandler implements DomainHandler {
         case 'graph.neighbors': {
           const nodeId = params?.nodeId as string;
           if (!nodeId) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'nodeId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'nodeId is required',
+              startTime,
+            );
           }
           const result = await memoryGraphNeighbors(
             { nodeId, edgeType: params?.edgeType as string | undefined },
@@ -175,7 +206,14 @@ export class MemoryHandler implements DomainHandler {
         case 'reason.why': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await memoryReasonWhy({ taskId }, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
@@ -184,7 +222,14 @@ export class MemoryHandler implements DomainHandler {
         case 'reason.similar': {
           const entryId = params?.entryId as string;
           if (!entryId) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'entryId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'entryId is required',
+              startTime,
+            );
           }
           const result = await memoryReasonSimilar(
             { entryId, limit: params?.limit as number | undefined },
@@ -196,7 +241,14 @@ export class MemoryHandler implements DomainHandler {
         case 'search.hybrid': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           const result = await memorySearchHybrid(
             {
@@ -223,10 +275,7 @@ export class MemoryHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -234,7 +283,14 @@ export class MemoryHandler implements DomainHandler {
         case 'observe': {
           const text = params?.text as string;
           if (!text) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'text is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'text is required',
+              startTime,
+            );
           }
           const result = await memoryObserve(
             {
@@ -254,7 +310,14 @@ export class MemoryHandler implements DomainHandler {
           const decision = params?.decision as string;
           const rationale = params?.rationale as string;
           if (!decision || !rationale) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'decision and rationale are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'decision and rationale are required',
+              startTime,
+            );
           }
           const result = await memoryDecisionStore(
             {
@@ -273,11 +336,19 @@ export class MemoryHandler implements DomainHandler {
           const patternText = params?.pattern as string;
           const context = params?.context as string;
           if (!patternText || !context) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'pattern and context are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'pattern and context are required',
+              startTime,
+            );
           }
           const result = await memoryPatternStore(
             {
-              type: (params?.type as Parameters<typeof memoryPatternStore>[0]['type']) || 'workflow',
+              type:
+                (params?.type as Parameters<typeof memoryPatternStore>[0]['type']) || 'workflow',
               pattern: patternText,
               context,
               impact: params?.impact as Parameters<typeof memoryPatternStore>[0]['impact'],
@@ -295,7 +366,14 @@ export class MemoryHandler implements DomainHandler {
           const insight = params?.insight as string;
           const source = params?.source as string;
           if (!insight || !source) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'insight and source are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'insight and source are required',
+              startTime,
+            );
           }
           const result = await memoryLearningStore(
             {
@@ -315,12 +393,16 @@ export class MemoryHandler implements DomainHandler {
           const taskId = params?.taskId as string;
           const entryId = params?.entryId as string;
           if (!taskId || !entryId) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId and entryId are required',
+              startTime,
+            );
           }
-          const result = await memoryLink(
-            { taskId, entryId },
-            this.projectRoot,
-          );
+          const result = await memoryLink({ taskId, entryId }, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
@@ -369,14 +451,26 @@ export class MemoryHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'find', 'timeline', 'fetch',
-        'decision.find', 'pattern.find', 'learning.find',
-        'graph.show', 'graph.neighbors',
-        'reason.why', 'reason.similar', 'search.hybrid',
+        'find',
+        'timeline',
+        'fetch',
+        'decision.find',
+        'pattern.find',
+        'learning.find',
+        'graph.show',
+        'graph.neighbors',
+        'reason.why',
+        'reason.similar',
+        'search.hybrid',
       ],
       mutate: [
-        'observe', 'decision.store', 'pattern.store', 'learning.store',
-        'link', 'graph.add', 'graph.remove',
+        'observe',
+        'decision.store',
+        'pattern.store',
+        'learning.store',
+        'link',
+        'graph.add',
+        'graph.remove',
       ],
     };
   }
@@ -386,7 +480,17 @@ export class MemoryHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -396,19 +500,26 @@ export class MemoryHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? {
-        error: {
-          code: result.error.code,
-          message: result.error.message,
-          details: result.error.details as Record<string, unknown> | undefined,
-          fix: result.error.fix,
-          alternatives: result.error.alternatives,
-        }
-      } : {}),
+      ...(result.error
+        ? {
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+              details: result.error.details as Record<string, unknown> | undefined,
+              fix: result.error.fix,
+              alternatives: result.error.alternatives,
+            },
+          }
+        : {}),
     };
   }
 
-  private unsupported(gateway: string, domain: string, operation: string, startTime: number): DispatchResponse {
+  private unsupported(
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number,
+  ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
@@ -431,7 +542,13 @@ export class MemoryHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:memory').error({ gateway, domain, operation, err: error }, message);
     return {

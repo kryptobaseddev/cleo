@@ -5,23 +5,22 @@
  * @epic T4454
  */
 
+export type { AddIssueParams, AddIssueResult } from './create.js';
 export {
-  parseIssueTemplates,
-  getTemplateConfig,
-  getTemplateForSubcommand,
-  cacheTemplates,
-  validateLabelsExist,
-} from './template-parser.js';
-export type { IssueTemplate } from './template-parser.js';
+  addIssue,
+  buildIssueBody,
+  checkGhCli,
+} from './create.js';
 
 export {
   collectDiagnostics,
   formatDiagnosticsTable,
 } from './diagnostics.js';
-
+export type { IssueTemplate } from './template-parser.js';
 export {
-  buildIssueBody,
-  checkGhCli,
-  addIssue,
-} from './create.js';
-export type { AddIssueParams, AddIssueResult } from './create.js';
+  cacheTemplates,
+  getTemplateConfig,
+  getTemplateForSubcommand,
+  parseIssueTemplates,
+  validateLabelsExist,
+} from './template-parser.js';

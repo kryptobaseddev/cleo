@@ -1,14 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { CONTRIBUTION_STAGE, PIPELINE_STAGES } from '../../core/lifecycle/stages.js';
 import {
-  LIFECYCLE_STAGE_NAMES,
-  LIFECYCLE_PIPELINE_STATUSES,
-  LIFECYCLE_STAGE_STATUSES,
-  LIFECYCLE_GATE_RESULTS,
   LIFECYCLE_EVIDENCE_TYPES,
+  LIFECYCLE_GATE_RESULTS,
+  LIFECYCLE_PIPELINE_STATUSES,
+  LIFECYCLE_STAGE_NAMES,
+  LIFECYCLE_STAGE_STATUSES,
 } from '../tasks-schema.js';
-import { PIPELINE_STAGES, CONTRIBUTION_STAGE } from '../../core/lifecycle/stages.js';
 
 function getMigrationSqlFiles(): Array<{ name: string; sql: string }> {
   const projectRoot = process.cwd();
@@ -30,8 +30,9 @@ function getMigrationSqlFiles(): Array<{ name: string; sql: string }> {
 
 function getLatestPipelineMigrationSql(): string {
   const migrations = getMigrationSqlFiles();
-  const pipelineMigrations = migrations.filter(({ sql }) =>
-    sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines'),
+  const pipelineMigrations = migrations.filter(
+    ({ sql }) =>
+      sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines'),
   );
   const latest = pipelineMigrations[pipelineMigrations.length - 1];
   if (!latest) {
@@ -42,8 +43,9 @@ function getLatestPipelineMigrationSql(): string {
 
 function getLatestStageMigrationSql(): string {
   const migrations = getMigrationSqlFiles();
-  const stageMigrations = migrations.filter(({ sql }) =>
-    sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages'),
+  const stageMigrations = migrations.filter(
+    ({ sql }) =>
+      sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages'),
   );
   const latest = stageMigrations[stageMigrations.length - 1];
   if (!latest) {
@@ -60,7 +62,9 @@ describe('lifecycle schema parity guardrails', () => {
   it('ensures latest pipeline migration contains all LIFECYCLE_PIPELINE_STATUSES', () => {
     const sql = getLatestPipelineMigrationSql();
     for (const status of LIFECYCLE_PIPELINE_STATUSES) {
-      expect(sql, `Missing pipeline status '${status}' in latest pipeline migration`).toContain(`'${status}'`);
+      expect(sql, `Missing pipeline status '${status}' in latest pipeline migration`).toContain(
+        `'${status}'`,
+      );
     }
   });
 
@@ -68,11 +72,15 @@ describe('lifecycle schema parity guardrails', () => {
     const sql = getLatestStageMigrationSql();
 
     for (const stageName of LIFECYCLE_STAGE_NAMES) {
-      expect(sql, `Missing stage name '${stageName}' in latest stage migration`).toContain(`'${stageName}'`);
+      expect(sql, `Missing stage name '${stageName}' in latest stage migration`).toContain(
+        `'${stageName}'`,
+      );
     }
 
     for (const status of LIFECYCLE_STAGE_STATUSES) {
-      expect(sql, `Missing stage status '${status}' in latest stage migration`).toContain(`'${status}'`);
+      expect(sql, `Missing stage status '${status}' in latest stage migration`).toContain(
+        `'${status}'`,
+      );
     }
 
     if (sql.includes('chk_lifecycle_gate_results_result')) {

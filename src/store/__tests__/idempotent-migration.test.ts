@@ -2,15 +2,12 @@
  * Tests for idempotent migration functionality (T4724)
  */
 
-import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import {
-  countJsonRecords,
-  migrateJsonToSqlite
-} from '../migration-sqlite.js';
-import { closeDb,dbExists } from '../sqlite.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { countJsonRecords, migrateJsonToSqlite } from '../migration-sqlite.js';
+import { closeDb, dbExists } from '../sqlite.js';
 
 describe('Idempotent Migration (T4724)', () => {
   let tempDir: string;
@@ -19,18 +16,30 @@ describe('Idempotent Migration (T4724)', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'cleo-test-'));
     cleoDir = join(tempDir, '.cleo');
-    
+
     // Create .cleo directory
     mkdirSync(cleoDir, { recursive: true });
-    
+
     // Create minimal todo.json
     writeFileSync(
       join(cleoDir, 'todo.json'),
       JSON.stringify({
         version: '2.10.0',
         tasks: [
-          { id: 'T001', title: 'Test Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T002', title: 'Test Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Test Task 1',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T002',
+            title: 'Test Task 2',
+            status: 'done',
+            priority: 'high',
+            createdAt: new Date().toISOString(),
+          },
         ],
       }),
     );
@@ -78,7 +87,9 @@ describe('Idempotent Migration (T4724)', () => {
 
     expect(result.success).toBe(true);
     expect(result.tasksImported).toBe(0);
-    expect(result.warnings).toContain('Database already contains migrated data. Use --force to re-import.');
+    expect(result.warnings).toContain(
+      'Database already contains migrated data. Use --force to re-import.',
+    );
   });
 
   it('should re-import with force flag', async () => {
@@ -102,9 +113,27 @@ describe('Idempotent Migration (T4724)', () => {
       JSON.stringify({
         version: '2.10.0',
         tasks: [
-          { id: 'T001', title: 'Test Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T002', title: 'Test Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
-          { id: 'T003', title: 'Extra Task', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Test Task 1',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T002',
+            title: 'Test Task 2',
+            status: 'done',
+            priority: 'high',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T003',
+            title: 'Extra Task',
+            status: 'pending',
+            priority: 'low',
+            createdAt: new Date().toISOString(),
+          },
         ],
       }),
     );
@@ -113,7 +142,7 @@ describe('Idempotent Migration (T4724)', () => {
     const result = await migrateJsonToSqlite(tempDir);
 
     expect(result.success).toBe(true);
-    expect(result.warnings.some(w => w.includes('Data mismatch detected'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Data mismatch detected'))).toBe(true);
     expect(result.jsonCounts?.tasks).toBe(3);
     expect(result.existingCounts?.tasks).toBe(2);
   });
@@ -128,9 +157,27 @@ describe('Idempotent Migration (T4724)', () => {
       JSON.stringify({
         version: '2.10.0',
         tasks: [
-          { id: 'T001', title: 'Test Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T002', title: 'Test Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
-          { id: 'T003', title: 'Extra Task', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Test Task 1',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T002',
+            title: 'Test Task 2',
+            status: 'done',
+            priority: 'high',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T003',
+            title: 'Extra Task',
+            status: 'pending',
+            priority: 'low',
+            createdAt: new Date().toISOString(),
+          },
         ],
       }),
     );
@@ -140,7 +187,7 @@ describe('Idempotent Migration (T4724)', () => {
 
     expect(result.success).toBe(true);
     expect(result.tasksImported).toBe(0);
-    expect(result.warnings.some(w => w.includes('Dry-run'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Dry-run'))).toBe(true);
   });
 
   it('should show what would be imported in dry-run on fresh database', async () => {
@@ -148,7 +195,7 @@ describe('Idempotent Migration (T4724)', () => {
 
     expect(result.success).toBe(true);
     expect(result.tasksImported).toBe(0);
-    expect(result.warnings.some(w => w.includes('Would import'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Would import'))).toBe(true);
     expect(dbExists(tempDir)).toBe(false);
   });
 

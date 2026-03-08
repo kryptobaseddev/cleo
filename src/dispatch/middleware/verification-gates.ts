@@ -1,5 +1,5 @@
-import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
 import { createVerificationGate as legacyCreateGate } from '../../mcp/lib/verification-gates.js';
+import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 export function createVerificationGates(strictMode: boolean = true): Middleware {
   const gate = legacyCreateGate(strictMode);
@@ -9,7 +9,7 @@ export function createVerificationGates(strictMode: boolean = true): Middleware 
     const context = {
       domain: req.domain,
       operation: req.operation,
-      gateway: req.gateway === 'query' ? 'query' as const : 'mutate' as const,
+      gateway: req.gateway === 'query' ? ('query' as const) : ('mutate' as const),
       params: req.params,
       taskId: (req.params?.taskId as string) || (req.params?.parent as string),
     };
@@ -34,7 +34,7 @@ export function createVerificationGates(strictMode: boolean = true): Middleware 
           exitCode: 80, // LIFECYCLE_GATE_FAILED
           message: `Verification gate failed at layer ${result.blockedAt}: ${result.summary}`,
           details: { verification: result },
-        }
+        },
       };
     }
 

@@ -6,10 +6,10 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
 import type { DecisionRecord } from './types.js';
 
 export interface RecordDecisionParams {
@@ -34,12 +34,7 @@ export async function recordDecision(
   projectRoot: string,
   params: RecordDecisionParams,
 ): Promise<DecisionRecord> {
-  if (
-    !params.sessionId ||
-    !params.taskId ||
-    !params.decision ||
-    !params.rationale
-  ) {
+  if (!params.sessionId || !params.taskId || !params.decision || !params.rationale) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       'sessionId, taskId, decision, and rationale are required',

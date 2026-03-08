@@ -9,14 +9,11 @@
  * @epic T5149
  */
 
-import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getBrainDb } from '../../store/brain-sqlite.js';
-import { brainDecisions } from '../../store/brain-schema.js';
-import type {
-  BrainDecisionRow,
-  NewBrainDecisionRow,
-} from '../../store/brain-schema.js';
 import { desc } from 'drizzle-orm';
+import { getBrainAccessor } from '../../store/brain-accessor.js';
+import type { BrainDecisionRow, NewBrainDecisionRow } from '../../store/brain-schema.js';
+import { brainDecisions } from '../../store/brain-schema.js';
+import { getBrainDb } from '../../store/brain-sqlite.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -64,7 +61,7 @@ async function nextDecisionId(projectRoot: string): Promise<string> {
 
   const lastId = rows[0].id;
   const num = parseInt(lastId.slice(1), 10);
-  if (isNaN(num)) {
+  if (Number.isNaN(num)) {
     return 'D001';
   }
   return `D${String(num + 1).padStart(3, '0')}`;
@@ -166,9 +163,7 @@ export async function searchDecisions(
   if (params.query) {
     const q = params.query.toLowerCase();
     results = results.filter(
-      (d) =>
-        d.decision.toLowerCase().includes(q) ||
-        d.rationale.toLowerCase().includes(q),
+      (d) => d.decision.toLowerCase().includes(q) || d.rationale.toLowerCase().includes(q),
     );
   }
 

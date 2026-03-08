@@ -100,11 +100,7 @@ export function getRootAncestor(taskId: string, tasks: Task[]): Task | null {
 /**
  * Check if a task is an ancestor of another.
  */
-export function isAncestorOf(
-  ancestorId: string,
-  descendantId: string,
-  tasks: Task[],
-): boolean {
+export function isAncestorOf(ancestorId: string, descendantId: string, tasks: Task[]): boolean {
   const chain = getParentChainIds(descendantId, tasks);
   return chain.includes(ancestorId);
 }
@@ -112,11 +108,7 @@ export function isAncestorOf(
 /**
  * Check if a task is a descendant of another.
  */
-export function isDescendantOf(
-  descendantId: string,
-  ancestorId: string,
-  tasks: Task[],
-): boolean {
+export function isDescendantOf(descendantId: string, ancestorId: string, tasks: Task[]): boolean {
   return isAncestorOf(ancestorId, descendantId, tasks);
 }
 
@@ -193,11 +185,7 @@ export function validateHierarchy(
 /**
  * Detect circular reference if parentId were set.
  */
-export function wouldCreateCircle(
-  taskId: string,
-  newParentId: string,
-  tasks: Task[],
-): boolean {
+export function wouldCreateCircle(taskId: string, newParentId: string, tasks: Task[]): boolean {
   if (taskId === newParentId) return true;
   const descendants = getDescendantIds(taskId, tasks);
   return descendants.includes(newParentId);

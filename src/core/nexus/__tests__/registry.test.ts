@@ -4,31 +4,39 @@
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { generateProjectHash } from '../hash.js';
 import {
-  nexusInit,
-  nexusRegister,
-  nexusUnregister,
-  nexusList,
   nexusGetProject,
+  nexusInit,
+  nexusList,
   nexusProjectExists,
+  nexusRegister,
   nexusSync,
   nexusSyncAll,
+  nexusUnregister,
   readRegistry,
   resetNexusDbState,
 } from '../registry.js';
-import { generateProjectHash } from '../hash.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
-import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 /** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProjectDb(
   dir: string,
-  tasks: Array<{ id: string; title: string; status: string; description?: string; labels?: string[]; depends?: string[]; priority?: string }>,
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    description?: string;
+    labels?: string[];
+    depends?: string[];
+    priority?: string;
+  }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
   resetDbState();
@@ -52,8 +60,20 @@ beforeEach(async () => {
 
   // Create a fake project with tasks.db
   await createTestProjectDb(projectDir, [
-    { id: 'T001', title: 'Test task', status: 'pending', labels: ['auth', 'api'], description: 'Test task description' },
-    { id: 'T002', title: 'Another task', status: 'done', labels: ['api'], description: 'Another task description' },
+    {
+      id: 'T001',
+      title: 'Test task',
+      status: 'pending',
+      labels: ['auth', 'api'],
+      description: 'Test task description',
+    },
+    {
+      id: 'T002',
+      title: 'Another task',
+      status: 'done',
+      labels: ['api'],
+      description: 'Another task description',
+    },
   ]);
 
   // Point env vars to test dirs — CLEO_HOME controls nexus.db location
@@ -135,9 +155,9 @@ describe('nexusRegister', () => {
   it('throws on duplicate registration', async () => {
     await nexusRegister(projectDir, 'test-proj', 'read');
 
-    await expect(
-      nexusRegister(projectDir, 'test-proj', 'read'),
-    ).rejects.toThrow(/already registered/);
+    await expect(nexusRegister(projectDir, 'test-proj', 'read')).rejects.toThrow(
+      /already registered/,
+    );
   });
 
   it('registers empty project when directory has no pre-existing tasks.db', async () => {
@@ -159,9 +179,7 @@ describe('nexusRegister', () => {
     const secondDir = join(testDir, 'second-project');
     await mkdir(join(secondDir, '.cleo'), { recursive: true });
 
-    await expect(
-      nexusRegister(secondDir, 'test-proj', 'read'),
-    ).rejects.toThrow(/already exists/);
+    await expect(nexusRegister(secondDir, 'test-proj', 'read')).rejects.toThrow(/already exists/);
   });
 });
 
@@ -185,9 +203,7 @@ describe('nexusUnregister', () => {
   it('throws for non-existent project', async () => {
     await nexusInit();
 
-    await expect(
-      nexusUnregister('nonexistent'),
-    ).rejects.toThrow(/not found/i);
+    await expect(nexusUnregister('nonexistent')).rejects.toThrow(/not found/i);
   });
 });
 
@@ -249,8 +265,20 @@ describe('nexusSync', () => {
 
     // Update project with new tasks via SQLite
     await createTestProjectDb(projectDir, [
-      { id: 'T001', title: 'Task 1', status: 'pending', labels: ['new-label'], description: 'First task' },
-      { id: 'T002', title: 'Task 2', status: 'done', labels: ['new-label'], description: 'Second task' },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        labels: ['new-label'],
+        description: 'First task',
+      },
+      {
+        id: 'T002',
+        title: 'Task 2',
+        status: 'done',
+        labels: ['new-label'],
+        description: 'Second task',
+      },
       { id: 'T003', title: 'Task 3', status: 'active', labels: [], description: 'Third task' },
     ]);
 

@@ -14,41 +14,41 @@
  */
 
 import {
-  // Provider Registry
-  getAllProviders,
-  getProvider,
-  resolveAlias,
-  detectAllProviders,
-  getInstalledProviders,
-  getProviderCount,
-  getRegistryVersion,
-  getInstructionFiles,
-  // MCP Config
-  installMcpServer,
-  listMcpServers,
-  listAllMcpServers,
-  removeMcpServer,
-  resolveConfigPath,
-  buildServerConfig,
-  // Instructions
-  inject,
-  checkInjection,
-  checkAllInjections,
-  injectAll,
-  generateInjectionContent,
-  // Batch / Orchestration
-  installBatchWithRollback,
-  configureProviderGlobalAndProject,
-  // Types
-  type Provider,
-  type McpServerConfig,
-  type DetectionResult,
-  type InstallResult,
-  type InjectionStatus,
   type BatchInstallOptions,
   type BatchInstallResult,
+  buildServerConfig,
+  checkAllInjections,
+  checkInjection,
+  configureProviderGlobalAndProject,
+  type DetectionResult,
   type DualScopeConfigureOptions,
   type DualScopeConfigureResult,
+  detectAllProviders,
+  generateInjectionContent,
+  // Provider Registry
+  getAllProviders,
+  getInstalledProviders,
+  getInstructionFiles,
+  getProvider,
+  getProviderCount,
+  getRegistryVersion,
+  type InjectionStatus,
+  type InstallResult,
+  // Instructions
+  inject,
+  injectAll,
+  // Batch / Orchestration
+  installBatchWithRollback,
+  // MCP Config
+  installMcpServer,
+  listAllMcpServers,
+  listMcpServers,
+  type McpServerConfig,
+  // Types
+  type Provider,
+  removeMcpServer,
+  resolveAlias,
+  resolveConfigPath,
 } from '@cleocode/caamp';
 
 // ============================================================
@@ -56,6 +56,7 @@ import {
 // ============================================================
 
 export type { EngineResult } from '../../dispatch/engines/_error.js';
+
 import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 // ============================================================
@@ -196,7 +197,7 @@ export function registryVersion(): EngineResult<{ version: string }> {
 export async function mcpList(
   providerId: string,
   scope: 'project' | 'global',
-  projectDir?: string
+  projectDir?: string,
 ): Promise<EngineResult<{ servers: unknown[] }>> {
   try {
     const provider = getProvider(providerId);
@@ -228,7 +229,7 @@ export async function mcpList(
  */
 export async function mcpListAll(
   scope: 'project' | 'global',
-  projectDir?: string
+  projectDir?: string,
 ): Promise<EngineResult<{ servers: unknown[] }>> {
   try {
     const providers = getInstalledProviders();
@@ -254,7 +255,7 @@ export async function mcpInstall(
   serverName: string,
   config: McpServerConfig,
   scope?: 'project' | 'global',
-  projectDir?: string
+  projectDir?: string,
 ): Promise<EngineResult<InstallResult>> {
   try {
     const provider = getProvider(providerId);
@@ -288,7 +289,7 @@ export async function mcpRemove(
   providerId: string,
   serverName: string,
   scope: 'project' | 'global',
-  projectDir?: string
+  projectDir?: string,
 ): Promise<EngineResult<{ removed: boolean }>> {
   try {
     const provider = getProvider(providerId);
@@ -321,7 +322,7 @@ export async function mcpRemove(
 export function mcpConfigPath(
   providerId: string,
   scope: 'project' | 'global',
-  projectDir?: string
+  projectDir?: string,
 ): EngineResult<{ path: string | null }> {
   try {
     const provider = getProvider(providerId);
@@ -357,7 +358,7 @@ export function mcpConfigPath(
  */
 export async function injectionCheck(
   filePath: string,
-  expectedContent?: string
+  expectedContent?: string,
 ): Promise<EngineResult<InjectionStatus>> {
   try {
     const status = await checkInjection(filePath, expectedContent);
@@ -380,7 +381,7 @@ export async function injectionCheck(
 export async function injectionCheckAll(
   projectDir: string,
   scope: 'project' | 'global',
-  expectedContent?: string
+  expectedContent?: string,
 ): Promise<EngineResult<{ results: unknown[] }>> {
   try {
     const providers = getInstalledProviders();
@@ -403,7 +404,7 @@ export async function injectionCheckAll(
  */
 export async function injectionUpdate(
   filePath: string,
-  content: string
+  content: string,
 ): Promise<EngineResult<{ action: string }>> {
   try {
     const action = await inject(filePath, content);
@@ -426,7 +427,7 @@ export async function injectionUpdate(
 export async function injectionUpdateAll(
   projectDir: string,
   scope: 'project' | 'global',
-  content: string
+  content: string,
 ): Promise<EngineResult<{ results: Record<string, string> }>> {
   try {
     const providers = getInstalledProviders();
@@ -461,7 +462,7 @@ export async function injectionUpdateAll(
  * @epic T4663
  */
 export async function batchInstallWithRollback(
-  options: BatchInstallOptions
+  options: BatchInstallOptions,
 ): Promise<EngineResult<BatchInstallResult>> {
   try {
     const result = await installBatchWithRollback(options);
@@ -486,7 +487,7 @@ export async function batchInstallWithRollback(
  */
 export async function dualScopeConfigure(
   providerId: string,
-  options: DualScopeConfigureOptions
+  options: DualScopeConfigureOptions,
 ): Promise<EngineResult<DualScopeConfigureResult>> {
   try {
     const provider = getProvider(providerId);

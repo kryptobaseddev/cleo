@@ -12,8 +12,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 
 /** Result from applying temporal decay. */
 export interface DecayResult {
@@ -88,17 +88,99 @@ export interface ConsolidationResult {
 
 /** Stop words excluded from keyword extraction. */
 const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
-  'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-  'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
-  'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
-  'once', 'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both',
-  'either', 'neither', 'each', 'every', 'all', 'any', 'few', 'more',
-  'most', 'other', 'some', 'such', 'no', 'only', 'own', 'same', 'than',
-  'too', 'very', 'just', 'because', 'until', 'while', 'about', 'against',
-  'this', 'that', 'these', 'those', 'it', 'its',
+  'the',
+  'a',
+  'an',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'shall',
+  'can',
+  'need',
+  'dare',
+  'ought',
+  'used',
+  'to',
+  'of',
+  'in',
+  'for',
+  'on',
+  'with',
+  'at',
+  'by',
+  'from',
+  'as',
+  'into',
+  'through',
+  'during',
+  'before',
+  'after',
+  'above',
+  'below',
+  'between',
+  'out',
+  'off',
+  'over',
+  'under',
+  'again',
+  'further',
+  'then',
+  'once',
+  'and',
+  'but',
+  'or',
+  'nor',
+  'not',
+  'so',
+  'yet',
+  'both',
+  'either',
+  'neither',
+  'each',
+  'every',
+  'all',
+  'any',
+  'few',
+  'more',
+  'most',
+  'other',
+  'some',
+  'such',
+  'no',
+  'only',
+  'own',
+  'same',
+  'than',
+  'too',
+  'very',
+  'just',
+  'because',
+  'until',
+  'while',
+  'about',
+  'against',
+  'this',
+  'that',
+  'these',
+  'those',
+  'it',
+  'its',
 ]);
 
 /**
@@ -106,7 +188,10 @@ const STOP_WORDS = new Set([
  * Filters stop words and short tokens, returns lowercase words.
  */
 function extractKeywords(text: string): Set<string> {
-  const words = text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').split(/\s+/);
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .split(/\s+/);
   const keywords = new Set<string>();
   for (const w of words) {
     if (w.length >= 4 && !STOP_WORDS.has(w)) {
@@ -162,13 +247,15 @@ export async function consolidateMemories(
     .slice(0, 19);
 
   // Fetch old observations that are not already archived
-  const oldObservations = nativeDb.prepare(`
+  const oldObservations = nativeDb
+    .prepare(`
     SELECT id, type, title, narrative, project, created_at
     FROM brain_observations
     WHERE created_at < ?
       AND narrative NOT LIKE '[ARCHIVED]%'
     ORDER BY created_at DESC
-  `).all(cutoffDate) as Array<{
+  `)
+    .all(cutoffDate) as Array<{
     id: string;
     type: string;
     title: string;
@@ -182,7 +269,7 @@ export async function consolidateMemories(
   }
 
   // Extract keywords for each observation
-  const entries = oldObservations.map(obs => ({
+  const entries = oldObservations.map((obs) => ({
     ...obs,
     keywords: extractKeywords(`${obs.title} ${obs.narrative ?? ''}`),
     clustered: false,
@@ -224,15 +311,19 @@ export async function consolidateMemories(
     grouped += cluster.length;
 
     // Create summary observation from cluster
-    const titles = cluster.map(c => c.title).join('; ');
+    const titles = cluster.map((c) => c.title).join('; ');
     const summaryTitle = `Consolidated: ${cluster[0]!.type} observations (${cluster.length} entries)`;
     const summaryNarrative = `Merged from ${cluster.length} observations: ${titles.slice(0, 500)}`;
-    const contentHash = createHash('sha256').update(summaryTitle + summaryNarrative).digest('hex').slice(0, 16);
+    const contentHash = createHash('sha256')
+      .update(summaryTitle + summaryNarrative)
+      .digest('hex')
+      .slice(0, 16);
     const id = `O-${Date.now().toString(36)}`;
 
     await accessor.addObservation({
       id,
-      type: cluster[0]!.type as typeof import('../../store/brain-schema.js').BRAIN_OBSERVATION_TYPES[number],
+      type: cluster[0]!
+        .type as typeof import('../../store/brain-schema.js').BRAIN_OBSERVATION_TYPES[number],
       title: summaryTitle,
       narrative: summaryNarrative,
       contentHash,
@@ -244,12 +335,14 @@ export async function consolidateMemories(
 
     // Archive originals by prefixing narrative
     for (const obs of cluster) {
-      nativeDb.prepare(`
+      nativeDb
+        .prepare(`
         UPDATE brain_observations
         SET narrative = '[ARCHIVED] ' || COALESCE(narrative, ''),
             updated_at = ?
         WHERE id = ?
-      `).run(now, obs.id);
+      `)
+        .run(now, obs.id);
       archived++;
     }
   }

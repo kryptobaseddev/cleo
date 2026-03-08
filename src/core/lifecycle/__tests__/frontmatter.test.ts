@@ -4,14 +4,14 @@
  * @epic T4798
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FrontmatterMetadata } from '../frontmatter.js';
 import {
-  parseFrontmatter,
-  serializeFrontmatter,
   addFrontmatter,
   buildFrontmatter,
+  parseFrontmatter,
+  serializeFrontmatter,
 } from '../frontmatter.js';
-import type { FrontmatterMetadata } from '../frontmatter.js';
 
 describe('parseFrontmatter', () => {
   it('parses valid frontmatter with all fields', () => {

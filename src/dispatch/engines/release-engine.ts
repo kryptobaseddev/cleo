@@ -12,49 +12,39 @@
 
 import { execFileSync } from 'node:child_process';
 import { resolveProjectRoot } from '../../core/platform.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { channelToDistTag, resolveChannelFromBranch } from '../../core/release/channel.js';
 import {
-  prepareRelease,
-  generateReleaseChangelog,
-  listManifestReleases,
-  showManifestRelease,
-  commitRelease,
-  tagRelease,
-  runReleaseGates,
-  rollbackRelease,
-  cancelRelease,
-  pushRelease,
-  markReleasePushed,
-  type ReleaseListOptions,
-  type ReleaseTaskRecord,
-} from '../../core/release/release-manifest.js';
-
-import { checkEpicCompleteness, checkDoubleListing } from '../../core/release/guards.js';
-
-import {
+  buildPRBody,
   createPullRequest,
   isGhCliAvailable,
-  buildPRBody,
   type PRResult,
 } from '../../core/release/github-pr.js';
 
+import { checkDoubleListing, checkEpicCompleteness } from '../../core/release/guards.js';
 import {
-  resolveChannelFromBranch,
-  channelToDistTag,
-} from '../../core/release/channel.js';
-
-import {
-  loadReleaseConfig,
-  getPushMode,
   getGitFlowConfig,
+  getPushMode,
+  loadReleaseConfig,
 } from '../../core/release/release-config.js';
-
 import {
-  bumpVersionFromConfig,
-  getVersionBumpConfig,
-} from '../../core/release/version-bump.js';
+  cancelRelease,
+  commitRelease,
+  generateReleaseChangelog,
+  listManifestReleases,
+  markReleasePushed,
+  prepareRelease,
+  pushRelease,
+  type ReleaseListOptions,
+  type ReleaseTaskRecord,
+  rollbackRelease,
+  runReleaseGates,
+  showManifestRelease,
+  tagRelease,
+} from '../../core/release/release-manifest.js';
+import { bumpVersionFromConfig, getVersionBumpConfig } from '../../core/release/version-bump.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
-import { engineError, type EngineResult } from './_error.js';
+import { type EngineResult, engineError } from './_error.js';
 
 /**
  * Detect whether the current execution context is an AI agent.
@@ -102,7 +92,7 @@ export async function releasePrepare(
   version: string,
   tasks?: string[],
   notes?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const data = await prepareRelease(
@@ -129,14 +119,10 @@ export async function releasePrepare(
  */
 export async function releaseChangelog(
   version: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const data = await generateReleaseChangelog(
-      version,
-      () => loadTasks(projectRoot),
-      projectRoot,
-    );
+    const data = await generateReleaseChangelog(version, () => loadTasks(projectRoot), projectRoot);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;
@@ -153,17 +139,26 @@ export async function releaseChangelog(
  */
 export async function releaseList(
   optionsOrProjectRoot?: ReleaseListOptions | string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const options = typeof optionsOrProjectRoot === 'string' || optionsOrProjectRoot === undefined
-      ? {}
-      : optionsOrProjectRoot;
-    const effectiveProjectRoot = typeof optionsOrProjectRoot === 'string'
-      ? optionsOrProjectRoot
-      : projectRoot;
+    const options =
+      typeof optionsOrProjectRoot === 'string' || optionsOrProjectRoot === undefined
+        ? {}
+        : optionsOrProjectRoot;
+    const effectiveProjectRoot =
+      typeof optionsOrProjectRoot === 'string' ? optionsOrProjectRoot : projectRoot;
     const data = await listManifestReleases(options, effectiveProjectRoot);
-    return { success: true, data: { releases: data.releases, total: data.total, filtered: data.filtered, latest: data.latest }, page: data.page };
+    return {
+      success: true,
+      data: {
+        releases: data.releases,
+        total: data.total,
+        filtered: data.filtered,
+        latest: data.latest,
+      },
+      page: data.page,
+    };
   } catch (err: unknown) {
     return engineError('E_LIST_FAILED', (err as Error).message);
   }
@@ -173,10 +168,7 @@ export async function releaseList(
  * release.show - Show release details (query operation via data read)
  * @task T4788
  */
-export async function releaseShow(
-  version: string,
-  projectRoot?: string
-): Promise<EngineResult> {
+export async function releaseShow(version: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const data = await showManifestRelease(version, projectRoot);
     return { success: true, data };
@@ -191,10 +183,7 @@ export async function releaseShow(
  * release.commit - Mark release as committed (metadata only)
  * @task T4788
  */
-export async function releaseCommit(
-  version: string,
-  projectRoot?: string
-): Promise<EngineResult> {
+export async function releaseCommit(version: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const data = await commitRelease(version, projectRoot);
     return { success: true, data };
@@ -211,10 +200,7 @@ export async function releaseCommit(
  * release.tag - Mark release as tagged (metadata only)
  * @task T4788
  */
-export async function releaseTag(
-  version: string,
-  projectRoot?: string
-): Promise<EngineResult> {
+export async function releaseTag(version: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const data = await tagRelease(version, projectRoot);
     return { success: true, data };
@@ -231,14 +217,10 @@ export async function releaseTag(
  */
 export async function releaseGatesRun(
   version: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const data = await runReleaseGates(
-      version,
-      () => loadTasks(projectRoot),
-      projectRoot,
-    );
+    const data = await runReleaseGates(version, () => loadTasks(projectRoot), projectRoot);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;
@@ -254,7 +236,7 @@ export async function releaseGatesRun(
 export async function releaseRollback(
   version: string,
   reason?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const data = await rollbackRelease(version, reason, projectRoot);
@@ -270,10 +252,7 @@ export async function releaseRollback(
  * release.cancel - Cancel and remove a release in draft or prepared state
  * @task T5602
  */
-export async function releaseCancel(
-  version: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
+export async function releaseCancel(version: string, projectRoot?: string): Promise<EngineResult> {
   if (!version) {
     return engineError('E_INVALID_INPUT', 'version is required');
   }
@@ -316,14 +295,18 @@ export async function releasePush(
   if (isAgentContext()) {
     const hasEntry = await hasManifestEntry(version, projectRoot);
     if (!hasEntry) {
-      return engineError('E_PROTOCOL_RELEASE',
+      return engineError(
+        'E_PROTOCOL_RELEASE',
         `Agent protocol violation: no release manifest entry for '${version}'. ` +
-        'Use the full release.ship workflow to ensure provenance tracking. ' +
-        'Direct release.push is not allowed in agent context without a manifest entry.',
+          'Use the full release.ship workflow to ensure provenance tracking. ' +
+          'Direct release.push is not allowed in agent context without a manifest entry.',
         {
           fix: `ct release ship ${version} --epic T####`,
           alternatives: [
-            { action: 'Use full ship workflow', command: `ct release ship ${version} --epic T####` },
+            {
+              action: 'Use full ship workflow',
+              command: `ct release ship ${version} --epic T####`,
+            },
           ],
         },
       );
@@ -339,7 +322,9 @@ export async function releasePush(
         cwd: projectRoot ?? process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',
-      }).toString().trim();
+      })
+        .toString()
+        .trim();
     } catch {
       // Non-fatal: provenance capture is best-effort
     }
@@ -350,7 +335,11 @@ export async function releasePush(
     const execError = err as { status?: number; stderr?: string; message?: string };
     const message = (execError.stderr ?? execError.message ?? '').slice(0, 500);
     // Distinguish config policy errors from git errors
-    if (execError.message?.includes('disabled by config') || execError.message?.includes('not in allowed branches') || execError.message?.includes('not clean')) {
+    if (
+      execError.message?.includes('disabled by config') ||
+      execError.message?.includes('not in allowed branches') ||
+      execError.message?.includes('not clean')
+    ) {
       return engineError('E_VALIDATION', message);
     }
     return engineError('E_GENERAL', `Git push failed: ${message}`, {
@@ -394,7 +383,13 @@ export async function releaseShip(
   const steps: string[] = [];
 
   /** Emit a step line for each release stage. Pushes to steps[] and console.log for CLI. */
-  const logStep = (n: number, total: number, label: string, done?: boolean, error?: string): void => {
+  const logStep = (
+    n: number,
+    total: number,
+    label: string,
+    done?: boolean,
+    error?: string,
+  ): void => {
     let msg: string;
     if (done === undefined) {
       msg = `[Step ${n}/${total}] ${label}...`;
@@ -417,7 +412,7 @@ export async function releaseShip(
       if (!dryRun) {
         const bumpResults = bumpVersionFromConfig(version, { dryRun: false }, cwd);
         if (!bumpResults.allSuccess) {
-          const failed = bumpResults.results.filter(r => !r.success).map(r => r.file);
+          const failed = bumpResults.results.filter((r) => !r.success).map((r) => r.file);
           steps.push(`  ! Version bump partial: failed for ${failed.join(', ')}`);
         } else {
           logStep(0, 8, 'Bump version files', true);
@@ -429,21 +424,22 @@ export async function releaseShip(
 
     // Step 1: Run release gates
     logStep(1, 8, 'Validate release gates');
-    const gatesResult = await runReleaseGates(
-      version,
-      () => loadTasks(projectRoot),
-      projectRoot,
-      { dryRun },
-    );
+    const gatesResult = await runReleaseGates(version, () => loadTasks(projectRoot), projectRoot, {
+      dryRun,
+    });
 
     if (gatesResult && !gatesResult.allPassed) {
       const failedGates = gatesResult.gates.filter((g) => g.status === 'failed');
-      logStep(1, 8,'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
-      return engineError('E_LIFECYCLE_GATE_FAILED', `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`, {
-        details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
-      });
+      logStep(1, 8, 'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
+      return engineError(
+        'E_LIFECYCLE_GATE_FAILED',
+        `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`,
+        {
+          details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
+        },
+      );
     }
-    logStep(1, 8,'Validate release gates', true);
+    logStep(1, 8, 'Validate release gates', true);
 
     // Resolve release channel from current branch (after gates, which read the branch)
     let resolvedChannel: string = 'latest';
@@ -462,7 +458,16 @@ export async function releaseShip(
     }
 
     // Prefer metadata from gates result if available (B4 populates this)
-    const gateMetadata = (gatesResult as unknown as { metadata?: { requiresPR?: boolean; targetBranch?: string; currentBranch?: string; channel?: string } }).metadata;
+    const gateMetadata = (
+      gatesResult as unknown as {
+        metadata?: {
+          requiresPR?: boolean;
+          targetBranch?: string;
+          currentBranch?: string;
+          channel?: string;
+        };
+      }
+    ).metadata;
     const requiresPRFromGates = gateMetadata?.requiresPR ?? false;
     const targetBranchFromGates = gateMetadata?.targetBranch;
     if (gateMetadata?.currentBranch) {
@@ -470,7 +475,7 @@ export async function releaseShip(
     }
 
     // Step 2: Check epic completeness — load release tasks from manifest
-    logStep(2, 8,'Check epic completeness');
+    logStep(2, 8, 'Check epic completeness');
     let releaseTaskIds: string[] = [];
     try {
       const manifest = await showManifestRelease(version, projectRoot);
@@ -486,15 +491,19 @@ export async function releaseShip(
         .filter((e) => e.missingChildren.length > 0)
         .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
         .join('; ');
-      logStep(2, 8,'Check epic completeness', false, incomplete);
-      return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, {
-        details: { epics: epicCheck.epics },
-      });
+      logStep(2, 8, 'Check epic completeness', false, incomplete);
+      return engineError(
+        'E_LIFECYCLE_GATE_FAILED',
+        `Epic completeness check failed: ${incomplete}`,
+        {
+          details: { epics: epicCheck.epics },
+        },
+      );
     }
-    logStep(2, 8,'Check epic completeness', true);
+    logStep(2, 8, 'Check epic completeness', true);
 
     // Step 3: Check for double-listing
-    logStep(3, 8,'Check task double-listing');
+    logStep(3, 8, 'Check task double-listing');
     const allReleases = await listManifestReleases(projectRoot);
     const existingReleases = (
       (allReleases as { releases?: Array<{ version: string; tasks?: string[] }> }).releases ?? []
@@ -508,12 +517,12 @@ export async function releaseShip(
       const dupes = doubleCheck.duplicates
         .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
         .join('; ');
-      logStep(3, 8,'Check task double-listing', false, dupes);
+      logStep(3, 8, 'Check task double-listing', false, dupes);
       return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
         details: { duplicates: doubleCheck.duplicates },
       });
     }
-    logStep(3, 8,'Check task double-listing', true);
+    logStep(3, 8, 'Check task double-listing', true);
 
     // Resolve push mode for dry-run and PR logic
     const loadedConfig = loadReleaseConfig(cwd);
@@ -523,14 +532,19 @@ export async function releaseShip(
 
     if (dryRun) {
       // Step 4 (dry-run): Preview CHANGELOG generation without writing to disk
-      logStep(4, 8,'Generate CHANGELOG');
-      logStep(4, 8,'Generate CHANGELOG', true);
+      logStep(4, 8, 'Generate CHANGELOG');
+      logStep(4, 8, 'Generate CHANGELOG', true);
 
       const wouldCreatePR = requiresPRFromGates || pushMode === 'pr';
-      const filesToStagePreview = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map(t => t.file) : [])];
+      const filesToStagePreview = [
+        'CHANGELOG.md',
+        ...(shouldBump ? bumpTargets.map((t) => t.file) : []),
+      ];
       const wouldDo: string[] = [];
       if (shouldBump) {
-        wouldDo.push(`bump version files: ${bumpTargets.map(t => t.file).join(', ')} → ${version}`);
+        wouldDo.push(
+          `bump version files: ${bumpTargets.map((t) => t.file).join(', ')} → ${version}`,
+        );
       }
       wouldDo.push(
         `write CHANGELOG.md: ## [${version}] - ${new Date().toISOString().split('T')[0]} (preview only, not written in dry-run)`,
@@ -558,9 +572,7 @@ export async function releaseShip(
         dryRunOutput['prTitle'] = `release: ship v${version}`;
         dryRunOutput['prTargetBranch'] = targetBranch;
       } else {
-        (dryRunOutput['wouldDo'] as string[]).push(
-          `git push ${remote ?? 'origin'} --follow-tags`,
-        );
+        (dryRunOutput['wouldDo'] as string[]).push(`git push ${remote ?? 'origin'} --follow-tags`);
         dryRunOutput['wouldCreatePR'] = false;
       }
 
@@ -570,42 +582,35 @@ export async function releaseShip(
     }
 
     // Step 4: Write CHANGELOG section (non-dry-run only)
-    logStep(4, 8,'Generate CHANGELOG');
-    await generateReleaseChangelog(
-      version,
-      () => loadTasks(projectRoot),
-      projectRoot,
-    );
+    logStep(4, 8, 'Generate CHANGELOG');
+    await generateReleaseChangelog(version, () => loadTasks(projectRoot), projectRoot);
     const changelogPath = `${cwd}/CHANGELOG.md`;
-    logStep(4, 8,'Generate CHANGELOG', true);
+    logStep(4, 8, 'Generate CHANGELOG', true);
 
     // Step 5: Git commit
-    logStep(5, 8,'Commit release');
+    logStep(5, 8, 'Commit release');
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
 
-    const filesToStage = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map(t => t.file) : [])];
+    const filesToStage = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map((t) => t.file) : [])];
     try {
       execFileSync('git', ['add', ...filesToStage], gitCwd);
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
-      logStep(5, 8,'Commit release', false, `git add failed: ${msg}`);
+      logStep(5, 8, 'Commit release', false, `git add failed: ${msg}`);
       return engineError('E_GENERAL', `git add failed: ${msg}`);
     }
 
     try {
-      execFileSync(
-        'git',
-        ['commit', '-m', `release: ship v${version} (${epicId})`],
-        gitCwd,
-      );
+      execFileSync('git', ['commit', '-m', `release: ship v${version} (${epicId})`], gitCwd);
     } catch (err: unknown) {
-      const msg = (err as { stderr?: string; message?: string }).stderr
-        ?? (err as { message?: string }).message
-        ?? String(err);
-      logStep(5, 8,'Commit release', false, `git commit failed: ${msg}`);
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        String(err);
+      logStep(5, 8, 'Commit release', false, `git commit failed: ${msg}`);
       return engineError('E_GENERAL', `git commit failed: ${msg}`);
     }
-    logStep(5, 8,'Commit release', true);
+    logStep(5, 8, 'Commit release', true);
 
     let commitSha: string | undefined;
     try {
@@ -615,21 +620,22 @@ export async function releaseShip(
     }
 
     // Step 6: Tag release
-    logStep(6, 8,'Tag release');
+    logStep(6, 8, 'Tag release');
     const gitTag = `v${version.replace(/^v/, '')}`;
     try {
       execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
     } catch (err: unknown) {
-      const msg = (err as { stderr?: string; message?: string }).stderr
-        ?? (err as { message?: string }).message
-        ?? String(err);
-      logStep(6, 8,'Tag release', false, `git tag failed: ${msg}`);
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        String(err);
+      logStep(6, 8, 'Tag release', false, `git tag failed: ${msg}`);
       return engineError('E_GENERAL', `git tag failed: ${msg}`);
     }
-    logStep(6, 8,'Tag release', true);
+    logStep(6, 8, 'Tag release', true);
 
     // Step 7: Push or create PR
-    logStep(7, 8,'Push / create PR');
+    logStep(7, 8, 'Push / create PR');
     let prResult: PRResult | null = null;
 
     // First attempt the core pushRelease (which may signal requiresPR)
@@ -687,11 +693,11 @@ export async function releaseShip(
       // when requiresPR is false — so we do the git push here directly)
       try {
         execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
-        logStep(7, 8,'Push / create PR', true);
+        logStep(7, 8, 'Push / create PR', true);
       } catch (err: unknown) {
         const execError = err as { status?: number; stderr?: string; message?: string };
         const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
-        logStep(7, 8,'Push / create PR', false, `git push failed: ${msg}`);
+        logStep(7, 8, 'Push / create PR', false, `git push failed: ${msg}`);
         return engineError('E_GENERAL', `git push failed: ${msg}`, {
           details: { exitCode: execError.status },
         });

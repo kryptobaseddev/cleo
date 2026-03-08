@@ -8,7 +8,7 @@
  * @epic T4663
  */
 
-import { resolveOutputFormat, type FlagInput, type FlagResolution } from '@cleocode/lafs-protocol';
+import { type FlagInput, type FlagResolution, resolveOutputFormat } from '@cleocode/lafs-protocol';
 
 export type { FlagResolution };
 

@@ -7,18 +7,18 @@
  * @epic T4545
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
-import { computeChecksum } from '../../store/json.js';
-import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
-import type { Task, TaskStatus } from '../../types/task.js';
+import { access, readFile } from 'node:fs/promises';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { ExportPackage } from '../../store/export.js';
 import {
+  detectDuplicateTitles,
   generateRemapTable,
   remapTaskReferences,
-  detectDuplicateTitles,
   resolveDuplicateTitle,
 } from '../../store/import-remap.js';
-import type { ExportPackage } from '../../store/export.js';
+import { computeChecksum } from '../../store/json.js';
+import type { Task, TaskStatus } from '../../types/task.js';
 
 type OnConflict = 'duplicate' | 'rename' | 'skip' | 'fail';
 type OnMissingDep = 'strip' | 'placeholder' | 'fail';
@@ -95,7 +95,9 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
   }
 
   if (exportPkg._meta?.format !== 'cleo-export') {
-    throw new Error(`Invalid export format (expected 'cleo-export', got '${exportPkg._meta?.format}')`);
+    throw new Error(
+      `Invalid export format (expected 'cleo-export', got '${exportPkg._meta?.format}')`,
+    );
   }
 
   if (!exportPkg.tasks?.length) {
@@ -127,7 +129,9 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
   if (!force && onConflict === 'fail') {
     const duplicates = detectDuplicateTitles(exportPkg.tasks, taskData.tasks);
     if (duplicates.length > 0) {
-      throw new Error(`${duplicates.length} duplicate title(s) detected. Use onConflict to resolve.`);
+      throw new Error(
+        `${duplicates.length} duplicate title(s) detected. Use onConflict to resolve.`,
+      );
     }
   }
 

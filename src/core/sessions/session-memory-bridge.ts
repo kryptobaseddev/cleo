@@ -33,9 +33,8 @@ export async function bridgeSessionToMemory(
   sessionData: SessionBridgeData,
 ): Promise<void> {
   try {
-    const taskList = sessionData.tasksCompleted.length > 0
-      ? sessionData.tasksCompleted.join(', ')
-      : 'none';
+    const taskList =
+      sessionData.tasksCompleted.length > 0 ? sessionData.tasksCompleted.join(', ') : 'none';
 
     const durationMinutes = Math.round(sessionData.duration / 60);
 

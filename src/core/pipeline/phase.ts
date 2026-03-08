@@ -8,13 +8,13 @@
  * @epic T5323
  */
 
+import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   listPhases as coreListPhases,
   showPhase as coreShowPhase,
   type ListPhasesResult,
   type ShowPhaseResult,
 } from '../phases/index.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 /**
  * List all phases with status summaries.
@@ -23,7 +23,11 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 export async function listPhases(
   projectRoot: string,
   accessor?: DataAccessor,
-): Promise<{ success: boolean; data?: ListPhasesResult; error?: { code: string; message: string } }> {
+): Promise<{
+  success: boolean;
+  data?: ListPhasesResult;
+  error?: { code: string; message: string };
+}> {
   try {
     const result = await coreListPhases(projectRoot, accessor);
     return { success: true, data: result };
@@ -44,7 +48,11 @@ export async function showPhase(
   projectRoot: string,
   phaseId?: string,
   accessor?: DataAccessor,
-): Promise<{ success: boolean; data?: ShowPhaseResult; error?: { code: string; message: string } }> {
+): Promise<{
+  success: boolean;
+  data?: ShowPhaseResult;
+  error?: { code: string; message: string };
+}> {
   try {
     const result = await coreShowPhase(phaseId, projectRoot, accessor);
     return { success: true, data: result };

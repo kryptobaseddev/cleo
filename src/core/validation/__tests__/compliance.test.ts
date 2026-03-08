@@ -4,13 +4,13 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  calculateOrchestrationOverhead,
+  calculateTokenEfficiency,
   checkManifestEntry,
   checkReturnFormat,
   scoreSubagentCompliance,
-  calculateTokenEfficiency,
-  calculateOrchestrationOverhead,
 } from '../compliance.js';
 
 describe('checkManifestEntry', () => {

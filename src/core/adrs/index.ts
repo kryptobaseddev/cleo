@@ -6,13 +6,19 @@
  * @task T4792
  */
 
-export { parseAdrFile, parseFrontmatter, extractAdrId, extractTitle } from './parse.js';
-export { validateAllAdrs } from './validate.js';
-export type { AdrValidationError, AdrValidationResult } from './validate.js';
-export { syncAdrsToDb } from './sync.js';
-export { listAdrs } from './list.js';
-export { showAdr } from './show.js';
 export { findAdrs } from './find.js';
-export { linkPipelineAdr } from './link-pipeline.js';
 export type { PipelineAdrLinkResult } from './link-pipeline.js';
-export type { AdrFrontmatter, AdrRecord, AdrSyncResult, AdrListResult, AdrFindResult } from './types.js';
+export { linkPipelineAdr } from './link-pipeline.js';
+export { listAdrs } from './list.js';
+export { extractAdrId, extractTitle, parseAdrFile, parseFrontmatter } from './parse.js';
+export { showAdr } from './show.js';
+export { syncAdrsToDb } from './sync.js';
+export type {
+  AdrFindResult,
+  AdrFrontmatter,
+  AdrListResult,
+  AdrRecord,
+  AdrSyncResult,
+} from './types.js';
+export type { AdrValidationError, AdrValidationResult } from './validate.js';
+export { validateAllAdrs } from './validate.js';

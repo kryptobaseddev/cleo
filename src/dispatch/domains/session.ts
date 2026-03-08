@@ -11,35 +11,34 @@
  * @task T5671
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { getProjectRoot } from '../../core/paths.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
-
 import {
-  sessionStatus,
+  sessionBriefing,
+  sessionChainShow,
+  sessionComputeDebrief,
+  sessionComputeHandoff,
+  sessionContextDrift,
+  sessionContextInject,
+  sessionDebriefShow,
+  sessionDecisionLog,
+  sessionEnd,
+  sessionFind,
+  sessionGc,
+  sessionHandoff,
+  sessionHistory,
   sessionList,
+  sessionRecordAssumption,
+  sessionRecordDecision,
+  sessionResume,
   sessionShow,
   sessionStart,
-  sessionEnd,
-  sessionResume,
+  sessionStatus,
   sessionSuspend,
-  sessionGc,
-  sessionHistory,
-  sessionRecordDecision,
-  sessionDecisionLog,
-  sessionContextDrift,
-  sessionRecordAssumption,
-  sessionHandoff,
-  sessionComputeHandoff,
-  sessionBriefing,
-  sessionComputeDebrief,
-  sessionDebriefShow,
-  sessionChainShow,
-  sessionFind,
-  sessionContextInject,
 } from '../lib/engine.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // SessionHandler
@@ -56,10 +55,7 @@ export class SessionHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -70,12 +66,15 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'list': {
-          const result = await sessionList(this.projectRoot, params as {
-            active?: boolean;
-            status?: string;
-            limit?: number;
-            offset?: number;
-          });
+          const result = await sessionList(
+            this.projectRoot,
+            params as {
+              active?: boolean;
+              status?: string;
+              limit?: number;
+              offset?: number;
+            },
+          );
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -83,7 +82,14 @@ export class SessionHandler implements DomainHandler {
         case 'show': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'sessionId is required',
+              startTime,
+            );
           }
           const include = params?.include as string | undefined;
           if (include === 'debrief') {
@@ -101,7 +107,10 @@ export class SessionHandler implements DomainHandler {
 
         // backward-compat alias — history not in registry but kept for existing callers
         case 'history': {
-          const result = await sessionHistory(this.projectRoot, params as { sessionId?: string; limit?: number });
+          const result = await sessionHistory(
+            this.projectRoot,
+            params as { sessionId?: string; limit?: number },
+          );
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -109,19 +118,32 @@ export class SessionHandler implements DomainHandler {
         case 'chain.show': {
           const chainSessionId = params?.sessionId as string;
           if (!chainSessionId) {
-            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'sessionId is required',
+              startTime,
+            );
           }
           const result = await sessionChainShow(this.projectRoot, chainSessionId);
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'decision.log': {
-          const result = await sessionDecisionLog(this.projectRoot, params as { sessionId?: string; taskId?: string });
+          const result = await sessionDecisionLog(
+            this.projectRoot,
+            params as { sessionId?: string; taskId?: string },
+          );
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'context.drift': {
-          const result = await sessionContextDrift(this.projectRoot, params as { sessionId?: string });
+          const result = await sessionContextDrift(
+            this.projectRoot,
+            params as { sessionId?: string },
+          );
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -151,12 +173,15 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'find': {
-          const result = await sessionFind(this.projectRoot, params as {
-            status?: string;
-            scope?: string;
-            query?: string;
-            limit?: number;
-          });
+          const result = await sessionFind(
+            this.projectRoot,
+            params as {
+              status?: string;
+              scope?: string;
+              query?: string;
+              limit?: number;
+            },
+          );
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -172,10 +197,7 @@ export class SessionHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -183,7 +205,14 @@ export class SessionHandler implements DomainHandler {
         case 'start': {
           const scope = params?.scope as string;
           if (!scope) {
-            return this.errorResponse('mutate', 'session', operation, 'E_INVALID_INPUT', 'scope is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'scope is required',
+              startTime,
+            );
           }
           const result = await sessionStart(this.projectRoot, {
             scope,
@@ -210,7 +239,10 @@ export class SessionHandler implements DomainHandler {
               });
             } catch {
               // Already bound — log and continue (session was still created)
-              getLogger('domain:session').warn({ sessionId: session.id }, 'Session context already bound, skipping bindSession');
+              getLogger('domain:session').warn(
+                { sessionId: session.id },
+                'Session context already bound, skipping bindSession',
+              );
             }
           }
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
@@ -225,7 +257,10 @@ export class SessionHandler implements DomainHandler {
             const sessionId = (endResult.data as { sessionId: string }).sessionId;
             if (sessionId) {
               // T4959: Compute rich debrief (superset of handoff)
-              let debriefResult: { success: boolean; data?: import('../../core/sessions/handoff.js').DebriefData } | null = null;
+              let debriefResult: {
+                success: boolean;
+                data?: import('../../core/sessions/handoff.js').DebriefData;
+              } | null = null;
               try {
                 debriefResult = await sessionComputeDebrief(this.projectRoot, sessionId, {
                   note: params?.note as string | undefined,
@@ -246,7 +281,9 @@ export class SessionHandler implements DomainHandler {
               // Wave 3A: Persist session memory to brain.db (best-effort)
               if (debriefResult?.success && debriefResult.data) {
                 try {
-                  const { persistSessionMemory } = await import('../../core/memory/session-memory.js');
+                  const { persistSessionMemory } = await import(
+                    '../../core/memory/session-memory.js'
+                  );
                   await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
                 } catch {
                   // Memory persistence failure should not fail session end
@@ -264,7 +301,14 @@ export class SessionHandler implements DomainHandler {
         case 'resume': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse('mutate', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'sessionId is required',
+              startTime,
+            );
           }
           const result = await sessionResume(this.projectRoot, sessionId);
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
@@ -273,14 +317,28 @@ export class SessionHandler implements DomainHandler {
         case 'suspend': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse('mutate', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'sessionId is required',
+              startTime,
+            );
           }
-          const result = await sessionSuspend(this.projectRoot, sessionId, params?.reason as string | undefined);
+          const result = await sessionSuspend(
+            this.projectRoot,
+            sessionId,
+            params?.reason as string | undefined,
+          );
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'gc': {
-          const result = await sessionGc(this.projectRoot, params?.maxAgeDays as number | undefined);
+          const result = await sessionGc(
+            this.projectRoot,
+            params?.maxAgeDays as number | undefined,
+          );
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
 
@@ -309,11 +367,21 @@ export class SessionHandler implements DomainHandler {
         case 'context.inject': {
           const protocolType = params?.protocolType as string;
           if (!protocolType) {
-            return this.errorResponse('mutate', 'session', operation, 'E_INVALID_INPUT', 'protocolType is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'session',
+              operation,
+              'E_INVALID_INPUT',
+              'protocolType is required',
+              startTime,
+            );
           }
           const result = sessionContextInject(
             protocolType,
-            { taskId: params?.taskId as string | undefined, variant: params?.variant as string | undefined },
+            {
+              taskId: params?.taskId as string | undefined,
+              variant: params?.variant as string | undefined,
+            },
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
@@ -333,7 +401,16 @@ export class SessionHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'find', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show'],
+      query: [
+        'status',
+        'list',
+        'show',
+        'find',
+        'decision.log',
+        'context.drift',
+        'handoff.show',
+        'briefing.show',
+      ],
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
@@ -347,7 +424,13 @@ export class SessionHandler implements DomainHandler {
       success: boolean;
       data?: unknown;
       page?: import('@cleocode/lafs-protocol').LAFSPage;
-      error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> };
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
     },
     gateway: string,
     domain: string,
@@ -359,19 +442,26 @@ export class SessionHandler implements DomainHandler {
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
       ...(result.page ? { page: result.page } : {}),
-      ...(result.error ? {
-        error: {
-          code: result.error.code,
-          message: result.error.message,
-          details: result.error.details as Record<string, unknown> | undefined,
-          fix: result.error.fix,
-          alternatives: result.error.alternatives,
-        }
-      } : {}),
+      ...(result.error
+        ? {
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+              details: result.error.details as Record<string, unknown> | undefined,
+              fix: result.error.fix,
+              alternatives: result.error.alternatives,
+            },
+          }
+        : {}),
     };
   }
 
-  private unsupported(gateway: string, domain: string, operation: string, startTime: number): DispatchResponse {
+  private unsupported(
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number,
+  ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
@@ -394,7 +484,13 @@ export class SessionHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:session').error({ gateway, domain, operation, err: error }, message);
     return {

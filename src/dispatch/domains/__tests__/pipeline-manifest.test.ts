@@ -12,7 +12,7 @@
  * @epic T5149
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine functions — handler imports everything from dispatch/lib/engine.js
 vi.mock('../../lib/engine.js', () => ({
@@ -66,15 +66,15 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
   advanceInstance: vi.fn(),
 }));
 
-import { PipelineHandler } from '../pipeline.js';
 import {
-  pipelineManifestShow,
-  pipelineManifestList,
-  pipelineManifestFind,
-  pipelineManifestStats,
   pipelineManifestAppend,
   pipelineManifestArchive,
+  pipelineManifestFind,
+  pipelineManifestList,
+  pipelineManifestShow,
+  pipelineManifestStats,
 } from '../../lib/engine.js';
+import { PipelineHandler } from '../pipeline.js';
 
 describe('PipelineHandler manifest operations', () => {
   let handler: PipelineHandler;
@@ -112,7 +112,12 @@ describe('PipelineHandler manifest operations', () => {
     it('should return manifest entry by ID', async () => {
       vi.mocked(pipelineManifestShow).mockResolvedValue({
         success: true,
-        data: { id: 'R001', title: 'Auth Research', file: '.cleo/research/auth.md', fileExists: true },
+        data: {
+          id: 'R001',
+          title: 'Auth Research',
+          file: '.cleo/research/auth.md',
+          fileExists: true,
+        },
       });
 
       const result = await handler.query('manifest.show', { entryId: 'R001' });
@@ -145,7 +150,13 @@ describe('PipelineHandler manifest operations', () => {
       expect(result.success).toBe(true);
       expect((result.data as { total: number }).total).toBe(3);
       expect((result.data as { filtered: number }).filtered).toBe(2);
-      expect(result.page).toEqual({ mode: 'offset', limit: 2, offset: 0, hasMore: false, total: 2 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 2,
+        offset: 0,
+        hasMore: false,
+        total: 2,
+      });
       expect(pipelineManifestList).toHaveBeenCalled();
     });
 
@@ -217,7 +228,13 @@ describe('PipelineHandler manifest operations', () => {
     it('should return manifest statistics', async () => {
       vi.mocked(pipelineManifestStats).mockResolvedValue({
         success: true,
-        data: { total: 25, byStatus: { completed: 20, partial: 5 }, actionable: 8, needsFollowup: 3, averageFindings: 2.5 },
+        data: {
+          total: 25,
+          byStatus: { completed: 20, partial: 5 },
+          actionable: 8,
+          needsFollowup: 3,
+          averageFindings: 2.5,
+        },
       });
 
       const result = await handler.query('manifest.stats', {});

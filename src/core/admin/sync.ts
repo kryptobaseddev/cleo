@@ -7,8 +7,8 @@
  * @epic T5323
  */
 
-import { join } from 'node:path';
 import { rm, rmdir, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
 import { getCleoDir } from '../paths.js';
 
@@ -45,9 +45,11 @@ export interface SyncClearResult {
  * Get current sync status.
  * @task T5326
  */
-export async function getSyncStatus(
-  projectRoot: string,
-): Promise<{ success: boolean; data?: SyncStatusResult; error?: { code: string; message: string } }> {
+export async function getSyncStatus(projectRoot: string): Promise<{
+  success: boolean;
+  data?: SyncStatusResult;
+  error?: { code: string; message: string };
+}> {
   try {
     const cleoDir = getCleoDir(projectRoot);
     const stateFile = join(cleoDir, 'sync', 'todowrite-session.json');
@@ -103,7 +105,11 @@ export async function getSyncStatus(
 export async function clearSyncState(
   projectRoot: string,
   dryRun?: boolean,
-): Promise<{ success: boolean; data?: SyncClearResult; error?: { code: string; message: string } }> {
+): Promise<{
+  success: boolean;
+  data?: SyncClearResult;
+  error?: { code: string; message: string };
+}> {
   try {
     const cleoDir = getCleoDir(projectRoot);
     const syncDir = join(cleoDir, 'sync');

@@ -26,16 +26,26 @@ export const VERIFICATION_GATE_ORDER = [
   'documented',
 ] as const;
 
-export type GateName = typeof VERIFICATION_GATE_ORDER[number];
+export type GateName = (typeof VERIFICATION_GATE_ORDER)[number];
 
 export const VERIFICATION_VALID_AGENTS = [
-  'planner', 'coder', 'testing', 'qa', 'cleanup', 'security', 'docs',
+  'planner',
+  'coder',
+  'testing',
+  'qa',
+  'cleanup',
+  'security',
+  'docs',
 ] as const;
 
-export type AgentName = typeof VERIFICATION_VALID_AGENTS[number];
+export type AgentName = (typeof VERIFICATION_VALID_AGENTS)[number];
 
 const DEFAULT_REQUIRED_GATES: GateName[] = [
-  'implemented', 'testsPassed', 'qaPassed', 'securityPassed', 'documented',
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'securityPassed',
+  'documented',
 ];
 
 // ============================================================================
@@ -142,17 +152,14 @@ export function computePassed(
   verification: Verification,
   requiredGates: GateName[] = DEFAULT_REQUIRED_GATES,
 ): boolean {
-  return requiredGates.every(gate => verification.gates[gate] === true);
+  return requiredGates.every((gate) => verification.gates[gate] === true);
 }
 
 /**
  * Update the passed field on a verification object.
  * @task T4526
  */
-export function setVerificationPassed(
-  verification: Verification,
-  passed: boolean,
-): Verification {
+export function setVerificationPassed(verification: Verification, passed: boolean): Verification {
   return {
     ...verification,
     passed,
@@ -193,10 +200,7 @@ export function updateGate(
  * Reset all downstream gates to null after a gate failure.
  * @task T4526
  */
-export function resetDownstreamGates(
-  verification: Verification,
-  fromGate: GateName,
-): Verification {
+export function resetDownstreamGates(verification: Verification, fromGate: GateName): Verification {
   if (!isValidGateName(fromGate)) {
     throw new Error(`Invalid gate name: ${fromGate}`);
   }
@@ -302,7 +306,7 @@ export function getVerificationStatus(verification: Verification | null): Verifi
 
   if (verification.failureLog.length > 0) return 'failed';
 
-  const gatesSet = Object.values(verification.gates).filter(v => v !== null).length;
+  const gatesSet = Object.values(verification.gates).filter((v) => v !== null).length;
   if (gatesSet > 0) return 'in-progress';
 
   return 'pending';
@@ -332,7 +336,7 @@ export function getMissingGates(
   verification: Verification,
   requiredGates: GateName[] = DEFAULT_REQUIRED_GATES,
 ): GateName[] {
-  return requiredGates.filter(gate => verification.gates[gate] !== true);
+  return requiredGates.filter((gate) => verification.gates[gate] !== true);
 }
 
 /**
@@ -427,18 +431,15 @@ export interface TaskForVerification {
  * Check if all children of an epic have verification.passed = true.
  * @task T4526
  */
-export function allEpicChildrenVerified(
-  epicId: string,
-  tasks: TaskForVerification[],
-): boolean {
-  const children = tasks.filter(t => t.parentId === epicId);
+export function allEpicChildrenVerified(epicId: string, tasks: TaskForVerification[]): boolean {
+  const children = tasks.filter((t) => t.parentId === epicId);
   if (children.length === 0) return false;
 
-  const incomplete = children.filter(t => t.status !== 'done');
+  const incomplete = children.filter((t) => t.status !== 'done');
   if (incomplete.length > 0) return false;
 
-  const unverified = children.filter(t =>
-    t.status === 'done' && (!t.verification || !t.verification.passed),
+  const unverified = children.filter(
+    (t) => t.status === 'done' && (!t.verification || !t.verification.passed),
   );
   return unverified.length === 0;
 }
@@ -447,18 +448,15 @@ export function allEpicChildrenVerified(
  * Check if all siblings of a task are verified.
  * @task T4526
  */
-export function allSiblingsVerified(
-  parentId: string,
-  tasks: TaskForVerification[],
-): boolean {
-  const siblings = tasks.filter(t => t.parentId === parentId);
+export function allSiblingsVerified(parentId: string, tasks: TaskForVerification[]): boolean {
+  const siblings = tasks.filter((t) => t.parentId === parentId);
 
-  const unverifiedDone = siblings.filter(t =>
-    t.status === 'done' && (!t.verification || !t.verification.passed),
+  const unverifiedDone = siblings.filter(
+    (t) => t.status === 'done' && (!t.verification || !t.verification.passed),
   );
 
-  const incomplete = siblings.filter(t =>
-    t.status === 'pending' || t.status === 'active' || t.status === 'blocked',
+  const incomplete = siblings.filter(
+    (t) => t.status === 'pending' || t.status === 'active' || t.status === 'blocked',
   );
 
   return unverifiedDone.length === 0 && incomplete.length === 0;

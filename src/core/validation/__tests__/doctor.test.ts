@@ -4,10 +4,10 @@
  * @epic T4454
  */
 
-import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   calculateHealthStatus,
   checkCliInstallation,
@@ -18,7 +18,7 @@ import {
   CACHE_VERSION,
   clearEntireCache,
   initCacheFile,
-  loadCache
+  loadCache,
 } from '../doctor/project-cache.js';
 import {
   categorizeProjects,
@@ -52,7 +52,13 @@ describe('categorizeProjects', () => {
     const projects = [
       { name: 'active', path: '/home/user/project', status: 'healthy' as const, isTemp: false },
       { name: 'temp', path: '/tmp/test', status: 'healthy' as const, isTemp: true },
-      { name: 'orphaned', path: '/missing/path', status: 'orphaned' as const, isTemp: false, isOrphaned: true },
+      {
+        name: 'orphaned',
+        path: '/missing/path',
+        status: 'orphaned' as const,
+        isTemp: false,
+        isOrphaned: true,
+      },
     ];
 
     const result = categorizeProjects(projects);
@@ -94,7 +100,7 @@ describe('getProjectGuidance', () => {
 
   it('includes cleanup suggestion for many temp projects', () => {
     const guidance = getProjectGuidance(0, 0, 15, 0);
-    expect(guidance.some(g => g.includes('clean-temp'))).toBe(true);
+    expect(guidance.some((g) => g.includes('clean-temp'))).toBe(true);
   });
 });
 

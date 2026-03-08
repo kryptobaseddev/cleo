@@ -8,23 +8,28 @@
  * @task T4788
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { eq, desc, count, and } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
+import { readJson } from '../../store/json.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
-import { readJson } from '../../store/json.js';
-import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
-import { detectBranchProtection } from './github-pr.js';
-import type { BranchProtectionResult } from './github-pr.js';
-import { resolveChannelFromBranch } from './channel.js';
-import type { ReleaseChannel } from './channel.js';
-import { loadReleaseConfig, getGitFlowConfig, getChannelConfig, getPushMode } from './release-config.js';
-import type { PushMode } from './release-config.js';
 import { createPage } from '../pagination.js';
+import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
+import type { ReleaseChannel } from './channel.js';
+import { resolveChannelFromBranch } from './channel.js';
+import type { BranchProtectionResult } from './github-pr.js';
+import { detectBranchProtection } from './github-pr.js';
+import type { PushMode } from './release-config.js';
+import {
+  getChannelConfig,
+  getGitFlowConfig,
+  getPushMode,
+  loadReleaseConfig,
+} from './release-config.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -59,7 +64,10 @@ function normalizeOffset(offset: number | undefined): number | undefined {
   return typeof offset === 'number' && offset > 0 ? offset : undefined;
 }
 
-function effectivePageLimit(limit: number | undefined, offset: number | undefined): number | undefined {
+function effectivePageLimit(
+  limit: number | undefined,
+  offset: number | undefined,
+): number | undefined {
   return limit ?? (offset !== undefined ? 50 : undefined);
 }
 
@@ -159,9 +167,7 @@ export async function prepareRelease(
   let releaseTasks = tasks ?? [];
   if (releaseTasks.length === 0) {
     const allTasks = await loadTasksFn();
-    releaseTasks = allTasks
-      .filter((t) => t.status === 'done' && t.completedAt)
-      .map((t) => t.id);
+    releaseTasks = allTasks.filter((t) => t.status === 'done' && t.completedAt).map((t) => t.id);
   }
 
   // Filter out epic IDs
@@ -175,16 +181,19 @@ export async function prepareRelease(
   const now = new Date().toISOString();
   const id = `rel-${normalizedVersion.replace(/[^a-z0-9]/gi, '-')}`;
 
-  await db.insert(schema.releaseManifests).values({
-    id,
-    version: normalizedVersion,
-    status: 'prepared',
-    tasksJson: JSON.stringify(releaseTasks),
-    notes: notes ?? null,
-    previousVersion: previousVersion ?? null,
-    createdAt: now,
-    preparedAt: now,
-  }).run();
+  await db
+    .insert(schema.releaseManifests)
+    .values({
+      id,
+      version: normalizedVersion,
+      status: 'prepared',
+      tasksJson: JSON.stringify(releaseTasks),
+      notes: notes ?? null,
+      previousVersion: previousVersion ?? null,
+      createdAt: now,
+      preparedAt: now,
+    })
+    .run();
 
   return {
     version: normalizedVersion,
@@ -243,7 +252,10 @@ export async function generateReleaseChangelog(
    * e.g. "feat: add auth" → "Add auth", "fix(ui): button" → "Button"
    */
   function stripConventionalPrefix(title: string): string {
-    return title.replace(/^(feat|fix|docs?|test|chore|refactor|style|ci|build|perf)(\([^)]+\))?:\s*/i, '');
+    return title.replace(
+      /^(feat|fix|docs?|test|chore|refactor|style|ci|build|perf)(\([^)]+\))?:\s*/i,
+      '',
+    );
   }
 
   /**
@@ -260,15 +272,24 @@ export async function generateReleaseChangelog(
   function buildEntry(task: ReleaseTaskRecord): string {
     const cleanTitle = capitalize(stripConventionalPrefix(task.title));
     // Strip newlines and collapse whitespace in description
-    const safeDesc = task.description?.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    const safeDesc = task.description
+      ?.replace(/\r?\n/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     const desc = safeDesc;
 
     // Include description only when it's non-trivial and adds information beyond the title.
     // Skip if: description is empty, identical to title, or a minor rephrasing (≤10% longer, no new words).
     const shouldIncludeDesc = ((): boolean => {
       if (!desc || desc.length === 0) return false;
-      const titleNorm = cleanTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-      const descNorm = desc.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+      const titleNorm = cleanTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim();
+      const descNorm = desc
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim();
       if (titleNorm === descNorm) return false;
       if (descNorm.startsWith(titleNorm) && descNorm.length < titleNorm.length * 1.3) return false;
       // Require description to be at least 20 chars and contain different content
@@ -291,7 +312,9 @@ export async function generateReleaseChangelog(
    *   2. task.labels array
    *   3. Title keyword scan (with conventional prefix stripped)
    */
-  function categorizeTask(task: ReleaseTaskRecord): 'features' | 'fixes' | 'docs' | 'tests' | 'chores' | 'changes' {
+  function categorizeTask(
+    task: ReleaseTaskRecord,
+  ): 'features' | 'fixes' | 'docs' | 'tests' | 'chores' | 'changes' {
     // Fix A: Skip epics entirely — they are parent containers, not deliverables
     if (task.type === 'epic') return 'changes'; // Will be filtered out by the caller
 
@@ -308,24 +331,61 @@ export async function generateReleaseChangelog(
     if (/^fix(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'fixes';
     if (/^docs?(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'docs';
     if (/^test(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'tests';
-    if (/^(chore|refactor|style|ci|build|perf)(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'chores';
+    if (/^(chore|refactor|style|ci|build|perf)(\([^)]+\))?:/.test(task.title.toLowerCase()))
+      return 'chores';
 
     // Priority 3: labels for strong category signals
     const labels = task.labels ?? [];
     if (labels.some((l) => ['test', 'testing'].includes(l.toLowerCase()))) return 'tests';
-    if (labels.some((l) => ['fix', 'bug', 'bugfix', 'regression'].includes(l.toLowerCase()))) return 'fixes';
-    if (labels.some((l) => ['feat', 'feature', 'enhancement', 'add'].includes(l.toLowerCase()))) return 'features';
+    if (labels.some((l) => ['fix', 'bug', 'bugfix', 'regression'].includes(l.toLowerCase())))
+      return 'fixes';
+    if (labels.some((l) => ['feat', 'feature', 'enhancement', 'add'].includes(l.toLowerCase())))
+      return 'features';
     if (labels.some((l) => ['docs', 'documentation'].includes(l.toLowerCase()))) return 'docs';
-    if (labels.some((l) => ['chore', 'refactor', 'cleanup', 'maintenance'].includes(l.toLowerCase()))) return 'chores';
+    if (
+      labels.some((l) => ['chore', 'refactor', 'cleanup', 'maintenance'].includes(l.toLowerCase()))
+    )
+      return 'chores';
 
     // Priority 4: keyword scan on the cleaned title
     const titleLower = stripConventionalPrefix(task.title).toLowerCase();
     const rawTitleLower = task.title.toLowerCase();
-    if (titleLower.startsWith('test') || (titleLower.includes('test') && titleLower.includes('add'))) return 'tests';
-    if (titleLower.includes('bug') || titleLower.startsWith('fix') || titleLower.includes('regression') || titleLower.includes('broken')) return 'fixes';
-    if (titleLower.startsWith('add ') || titleLower.includes('implement') || titleLower.startsWith('create ') || titleLower.startsWith('introduce ')) return 'features';
-    if (titleLower.startsWith('doc') || titleLower.includes('documentation') || titleLower.includes('readme') || titleLower.includes('changelog')) return 'docs';
-    if (titleLower.startsWith('chore') || titleLower.includes('refactor') || titleLower.includes('cleanup') || titleLower.includes('migrate') || titleLower.includes('upgrade') || titleLower.includes('remove ') || titleLower.startsWith('audit')) return 'chores';
+    if (
+      titleLower.startsWith('test') ||
+      (titleLower.includes('test') && titleLower.includes('add'))
+    )
+      return 'tests';
+    if (
+      titleLower.includes('bug') ||
+      titleLower.startsWith('fix') ||
+      titleLower.includes('regression') ||
+      titleLower.includes('broken')
+    )
+      return 'fixes';
+    if (
+      titleLower.startsWith('add ') ||
+      titleLower.includes('implement') ||
+      titleLower.startsWith('create ') ||
+      titleLower.startsWith('introduce ')
+    )
+      return 'features';
+    if (
+      titleLower.startsWith('doc') ||
+      titleLower.includes('documentation') ||
+      titleLower.includes('readme') ||
+      titleLower.includes('changelog')
+    )
+      return 'docs';
+    if (
+      titleLower.startsWith('chore') ||
+      titleLower.includes('refactor') ||
+      titleLower.includes('cleanup') ||
+      titleLower.includes('migrate') ||
+      titleLower.includes('upgrade') ||
+      titleLower.includes('remove ') ||
+      titleLower.startsWith('audit')
+    )
+      return 'chores';
 
     // Raw title scan for backward compat
     if (rawTitleLower.startsWith('feat')) return 'features';
@@ -422,7 +482,12 @@ export async function generateReleaseChangelog(
 
   // Build the changelog body (content after the ## header line)
   const changelogBody = sections.slice(2).join('\n'); // skip header + blank line
-  await writeChangelogSection(normalizedVersion.replace(/^v/, ''), changelogBody, customBlocks, changelogPath);
+  await writeChangelogSection(
+    normalizedVersion.replace(/^v/, ''),
+    changelogBody,
+    customBlocks,
+    changelogPath,
+  );
 
   return {
     version: normalizedVersion,
@@ -453,24 +518,18 @@ export async function listManifestReleases(
   latest?: string;
   page: ReturnType<typeof createPage>;
 }> {
-  const options = typeof optionsOrCwd === 'string' || optionsOrCwd === undefined
-    ? {}
-    : optionsOrCwd;
+  const options =
+    typeof optionsOrCwd === 'string' || optionsOrCwd === undefined ? {} : optionsOrCwd;
   const effectiveCwd = typeof optionsOrCwd === 'string' ? optionsOrCwd : cwd;
   const limit = normalizeLimit(options.limit);
   const offset = normalizeOffset(options.offset);
   const pageLimit = effectivePageLimit(limit, offset);
 
   const db = await getDb(effectiveCwd);
-  const totalRow = await db
-    .select({ count: count() })
-    .from(schema.releaseManifests)
-    .get();
+  const totalRow = await db.select({ count: count() }).from(schema.releaseManifests).get();
   const total = totalRow?.count ?? 0;
 
-  const conditions = options.status
-    ? [eq(schema.releaseManifests.status, options.status)]
-    : [];
+  const conditions = options.status ? [eq(schema.releaseManifests.status, options.status)] : [];
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const filteredRow = await db
@@ -515,10 +574,7 @@ export async function listManifestReleases(
  * Show release details.
  * @task T4788
  */
-export async function showManifestRelease(
-  version: string,
-  cwd?: string,
-): Promise<ReleaseManifest> {
+export async function showManifestRelease(version: string, cwd?: string): Promise<ReleaseManifest> {
   if (!version) {
     throw new Error('version is required');
   }
@@ -565,7 +621,9 @@ export async function commitRelease(
   }
 
   if (rows[0]!.status !== 'prepared') {
-    throw new Error(`Release ${normalizedVersion} is in state '${rows[0]!.status}', expected 'prepared'`);
+    throw new Error(
+      `Release ${normalizedVersion} is in state '${rows[0]!.status}', expected 'prepared'`,
+    );
   }
 
   const committedAt = new Date().toISOString();
@@ -656,19 +714,24 @@ export async function runReleaseGates(
   gates.push({
     name: 'version_valid',
     status: isValidVersion(normalizedVersion) ? 'passed' : 'failed',
-    message: isValidVersion(normalizedVersion) ? 'Version format is valid' : 'Invalid version format',
+    message: isValidVersion(normalizedVersion)
+      ? 'Version format is valid'
+      : 'Invalid version format',
   });
 
   gates.push({
     name: 'has_tasks',
     status: releaseTasks.length > 0 ? 'passed' : 'failed',
-    message: releaseTasks.length > 0 ? `${releaseTasks.length} tasks included` : 'No tasks in release',
+    message:
+      releaseTasks.length > 0 ? `${releaseTasks.length} tasks included` : 'No tasks in release',
   });
 
   gates.push({
     name: 'has_changelog',
     status: row.changelog ? 'passed' : 'failed',
-    message: row.changelog ? 'Changelog generated' : 'No changelog generated. Run release.changelog first.',
+    message: row.changelog
+      ? 'Changelog generated'
+      : 'No changelog generated. Run release.changelog first.',
   });
 
   const allTasks = await loadTasksFn();
@@ -680,9 +743,10 @@ export async function runReleaseGates(
   gates.push({
     name: 'tasks_complete',
     status: incompleteTasks.length === 0 ? 'passed' : 'failed',
-    message: incompleteTasks.length === 0
-      ? 'All tasks completed'
-      : `${incompleteTasks.length} tasks not completed: ${incompleteTasks.join(', ')}`,
+    message:
+      incompleteTasks.length === 0
+        ? 'All tasks completed'
+        : `${incompleteTasks.length} tasks not completed: ${incompleteTasks.join(', ')}`,
   });
 
   // G2: Build artifact — dist/cli/index.js must exist (Node projects only)
@@ -693,7 +757,9 @@ export async function runReleaseGates(
     gates.push({
       name: 'build_artifact',
       status: existsSync(distPath) ? 'passed' : 'failed',
-      message: existsSync(distPath) ? 'dist/cli/index.js present' : 'dist/ not built — run: npm run build',
+      message: existsSync(distPath)
+        ? 'dist/cli/index.js present'
+        : 'dist/ not built — run: npm run build',
     });
   }
 
@@ -712,16 +778,21 @@ export async function runReleaseGates(
     let dirtyFiles: string[] = [];
     try {
       const porcelain = execFileSync('git', ['status', '--porcelain'], {
-        cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: 'pipe',
       });
-      dirtyFiles = porcelain.split('\n')
-        .filter(l => l.trim())
+      dirtyFiles = porcelain
+        .split('\n')
+        .filter((l) => l.trim())
         // Exclude untracked files (?? prefix) — they don't affect commits or tags
-        .filter(l => !l.startsWith('?? '))
-        .map(l => l.slice(3).trim())
-        .filter(f => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
+        .filter((l) => !l.startsWith('?? '))
+        .map((l) => l.slice(3).trim())
+        .filter((f) => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
       workingTreeClean = dirtyFiles.length === 0;
-    } catch { /* git not available — skip */ }
+    } catch {
+      /* git not available — skip */
+    }
     gates.push({
       name: 'clean_working_tree',
       status: workingTreeClean ? 'passed' : 'failed',
@@ -736,31 +807,37 @@ export async function runReleaseGates(
   let currentBranch = '';
   try {
     currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
     }).trim();
-  } catch { /* git not available — skip */ }
+  } catch {
+    /* git not available — skip */
+  }
 
   const releaseConfig = loadReleaseConfig(cwd);
   const gitFlowCfg = getGitFlowConfig(releaseConfig);
   const channelCfg = getChannelConfig(releaseConfig);
 
-  const expectedBranch = isPreRelease
-    ? gitFlowCfg.branches.develop
-    : gitFlowCfg.branches.main;
+  const expectedBranch = isPreRelease ? gitFlowCfg.branches.develop : gitFlowCfg.branches.main;
 
-  const isFeatureBranch = currentBranch.startsWith(gitFlowCfg.branches.featurePrefix)
-    || currentBranch.startsWith(gitFlowCfg.branches.hotfixPrefix)
-    || currentBranch.startsWith(gitFlowCfg.branches.releasePrefix);
+  const isFeatureBranch =
+    currentBranch.startsWith(gitFlowCfg.branches.featurePrefix) ||
+    currentBranch.startsWith(gitFlowCfg.branches.hotfixPrefix) ||
+    currentBranch.startsWith(gitFlowCfg.branches.releasePrefix);
 
-  const branchOk = !currentBranch                         // git unavailable → pass
-    || currentBranch === 'HEAD'                           // detached HEAD → pass
-    || currentBranch === expectedBranch                   // exactly right branch → pass
-    || (isPreRelease && isFeatureBranch);                // feature/hotfix/release branch with pre-release → pass
+  const branchOk =
+    !currentBranch || // git unavailable → pass
+    currentBranch === 'HEAD' || // detached HEAD → pass
+    currentBranch === expectedBranch || // exactly right branch → pass
+    (isPreRelease && isFeatureBranch); // feature/hotfix/release branch with pre-release → pass
 
   // Resolve channel from current branch
   const detectedChannel: ReleaseChannel = currentBranch
     ? resolveChannelFromBranch(currentBranch, channelCfg)
-    : (isPreRelease ? 'beta' : 'latest');
+    : isPreRelease
+      ? 'beta'
+      : 'latest';
 
   gates.push({
     name: 'branch_target',
@@ -840,7 +917,11 @@ export async function cancelRelease(
     .all();
 
   if (rows.length === 0) {
-    return { success: false, message: `Release ${normalizedVersion} not found`, version: normalizedVersion };
+    return {
+      success: false,
+      message: `Release ${normalizedVersion} not found`,
+      version: normalizedVersion,
+    };
   }
 
   const status = rows[0]!.status;
@@ -859,7 +940,11 @@ export async function cancelRelease(
     .where(eq(schema.releaseManifests.version, normalizedVersion))
     .run();
 
-  return { success: true, message: `Release ${normalizedVersion} cancelled and removed`, version: normalizedVersion };
+  return {
+    success: true,
+    message: `Release ${normalizedVersion} cancelled and removed`,
+    version: normalizedVersion,
+  };
 }
 
 /**
@@ -1021,7 +1106,7 @@ export async function pushRelease(
   // If push policy says disabled and caller didn't explicitly pass --push, skip
   if (pushPolicy && pushPolicy.enabled === false && !opts?.explicitPush) {
     throw new Error(
-      'Push is disabled by config (release.push.enabled=false). Use --push to override.'
+      'Push is disabled by config (release.push.enabled=false). Use --push to override.',
     );
   }
 
@@ -1039,11 +1124,11 @@ export async function pushRelease(
     });
     const trackedDirty = statusOutput
       .split('\n')
-      .filter(l => l.trim() && !l.startsWith('?? '))
+      .filter((l) => l.trim() && !l.startsWith('?? '))
       .join('\n');
     if (trackedDirty.trim().length > 0) {
       throw new Error(
-        'Git working tree is not clean. Commit or stash changes before pushing (config: release.push.requireCleanTree=true).'
+        'Git working tree is not clean. Commit or stash changes before pushing (config: release.push.requireCleanTree=true).',
       );
     }
   }
@@ -1058,7 +1143,7 @@ export async function pushRelease(
     }).trim();
     if (!pushPolicy.allowedBranches.includes(currentBranch)) {
       throw new Error(
-        `Current branch '${currentBranch}' is not in allowed branches: ${pushPolicy.allowedBranches.join(', ')} (config: release.push.allowedBranches).`
+        `Current branch '${currentBranch}' is not in allowed branches: ${pushPolicy.allowedBranches.join(', ')} (config: release.push.allowedBranches).`,
       );
     }
   }
@@ -1155,20 +1240,23 @@ export async function migrateReleasesJsonToSqlite(
     if (existing.length > 0) continue;
 
     const id = `rel-${r.version.replace(/[^a-z0-9]/gi, '-')}`;
-    await db.insert(schema.releaseManifests).values({
-      id,
-      version: r.version,
-      status: r.status,
-      tasksJson: JSON.stringify(r.tasks ?? []),
-      notes: r.notes ?? null,
-      changelog: r.changelog ?? null,
-      previousVersion: r.previousVersion ?? null,
-      createdAt: r.createdAt,
-      preparedAt: r.preparedAt ?? null,
-      committedAt: r.committedAt ?? null,
-      taggedAt: r.taggedAt ?? null,
-      pushedAt: r.pushedAt ?? null,
-    }).run();
+    await db
+      .insert(schema.releaseManifests)
+      .values({
+        id,
+        version: r.version,
+        status: r.status,
+        tasksJson: JSON.stringify(r.tasks ?? []),
+        notes: r.notes ?? null,
+        changelog: r.changelog ?? null,
+        previousVersion: r.previousVersion ?? null,
+        createdAt: r.createdAt,
+        preparedAt: r.preparedAt ?? null,
+        committedAt: r.committedAt ?? null,
+        taggedAt: r.taggedAt ?? null,
+        pushedAt: r.pushedAt ?? null,
+      })
+      .run();
 
     migrated++;
   }

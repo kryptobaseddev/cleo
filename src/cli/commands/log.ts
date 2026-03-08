@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -21,12 +21,18 @@ export function registerLogCommand(program: Command): void {
     .option('--task <id>', 'Filter by task ID')
     .option('--since <date>', 'Filter entries since date')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'log', {
-        limit: opts['limit'] ? Number(opts['limit']) : 20,
-        offset: opts['offset'] ? Number(opts['offset']) : 0,
-        operation: opts['operation'] as string | undefined,
-        taskId: opts['task'] as string | undefined,
-        since: opts['since'] as string | undefined,
-      }, { command: 'log', operation: 'admin.log' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'log',
+        {
+          limit: opts['limit'] ? Number(opts['limit']) : 20,
+          offset: opts['offset'] ? Number(opts['offset']) : 0,
+          operation: opts['operation'] as string | undefined,
+          taskId: opts['task'] as string | undefined,
+          since: opts['since'] as string | undefined,
+        },
+        { command: 'log', operation: 'admin.log' },
+      );
     });
 }

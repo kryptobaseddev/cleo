@@ -6,12 +6,12 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import type { ValidateFunction } from 'ajv';
 import AjvModule from 'ajv';
 import addFormatsModule from 'ajv-formats';
-import type { ValidateFunction } from 'ajv';
 import { readJson } from '../store/json.js';
-import { CleoError } from './errors.js';
 import { ExitCode } from '../types/exit-codes.js';
+import { CleoError } from './errors.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
 const Ajv = (AjvModule as any).default ?? AjvModule;
@@ -55,8 +55,9 @@ export function validateAgainstSchema(
 
   if (!validate(data)) {
     const errors = validate.errors
-      ?.map((e: { instancePath?: string; message?: string }) =>
-        `${e.instancePath || '/'}: ${e.message}`,
+      ?.map(
+        (e: { instancePath?: string; message?: string }) =>
+          `${e.instancePath || '/'}: ${e.message}`,
       )
       .join('; ');
     throw new CleoError(
@@ -69,16 +70,10 @@ export function validateAgainstSchema(
 /**
  * Load a JSON Schema file and validate data against it.
  */
-export async function validateAgainstSchemaFile(
-  data: unknown,
-  schemaPath: string,
-): Promise<void> {
+export async function validateAgainstSchemaFile(data: unknown, schemaPath: string): Promise<void> {
   const schema = await readJson<Record<string, unknown>>(schemaPath);
   if (!schema) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Schema file not found: ${schemaPath}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Schema file not found: ${schemaPath}`);
   }
   validateAgainstSchema(data, schema, schemaPath);
 }
@@ -87,10 +82,7 @@ export async function validateAgainstSchemaFile(
  * Check if data is valid against a schema without throwing.
  * Returns an array of error messages (empty if valid).
  */
-export function checkSchema(
-  data: unknown,
-  schema: Record<string, unknown>,
-): string[] {
+export function checkSchema(data: unknown, schema: Record<string, unknown>): string[] {
   try {
     validateAgainstSchema(data, schema);
     return [];

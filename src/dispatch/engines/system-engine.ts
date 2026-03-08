@@ -13,42 +13,47 @@
  * @task T4783
  */
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import { getAccessor } from '../../store/data-accessor.js';
-import type { TaskRecord } from './task-engine.js';
-import { engineError, type EngineResult } from './_error.js';
-
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { getRoadmap } from '../../core/roadmap/index.js';
+import { repairSequence } from '../../core/sequence/index.js';
 // Core module imports
 import { getDashboard, getProjectStats } from '../../core/stats/index.js';
-import { getLabels } from '../../core/system/labels.js';
 import { getArchiveStats } from '../../core/system/archive-stats.js';
-import { generateInjection } from '../../core/system/inject-generate.js';
-import { getSystemMetrics } from '../../core/system/metrics.js';
-import { getSystemHealth, getSystemDiagnostics } from '../../core/system/health.js';
-import { getRoadmap } from '../../core/roadmap/index.js';
-import { createBackup, restoreBackup } from '../../core/system/backup.js';
-import { getMigrationStatus } from '../../core/system/migrate.js';
-import { cleanupSystem } from '../../core/system/cleanup.js';
 import { auditData } from '../../core/system/audit.js';
-import { safestop, uncancelTask } from '../../core/system/safestop.js';
-import { repairSequence } from '../../core/sequence/index.js';
+import { createBackup, restoreBackup } from '../../core/system/backup.js';
+import { cleanupSystem } from '../../core/system/cleanup.js';
+import { getSystemDiagnostics, getSystemHealth } from '../../core/system/health.js';
+import { generateInjection } from '../../core/system/inject-generate.js';
+import { getLabels } from '../../core/system/labels.js';
+import { getSystemMetrics } from '../../core/system/metrics.js';
+import { getMigrationStatus } from '../../core/system/migrate.js';
 import { getRuntimeDiagnostics, type RuntimeDiagnostics } from '../../core/system/runtime.js';
+import { safestop, uncancelTask } from '../../core/system/safestop.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { type EngineResult, engineError } from './_error.js';
+import type { TaskRecord } from './task-engine.js';
 
+export type { ArchiveStatsResult as ArchiveStatsData } from '../../core/system/archive-stats.js';
+export type { AuditResult as AuditData } from '../../core/system/audit.js';
+export type {
+  BackupResult as BackupData,
+  RestoreResult as RestoreData,
+} from '../../core/system/backup.js';
+export type { CleanupResult as CleanupData } from '../../core/system/cleanup.js';
+export type {
+  DiagnosticsResult as DiagnosticsData,
+  HealthResult as HealthData,
+} from '../../core/system/health.js';
+export type { InjectGenerateResult as InjectGenerateData } from '../../core/system/inject-generate.js';
 // Re-export types for downstream consumers
 export type { LabelsResult as LabelsData } from '../../core/system/labels.js';
-export type { ArchiveStatsResult as ArchiveStatsData } from '../../core/system/archive-stats.js';
-export type { HealthResult as HealthData } from '../../core/system/health.js';
-export type { DiagnosticsResult as DiagnosticsData } from '../../core/system/health.js';
-export type { BackupResult as BackupData } from '../../core/system/backup.js';
-export type { RestoreResult as RestoreData } from '../../core/system/backup.js';
-export type { CleanupResult as CleanupData } from '../../core/system/cleanup.js';
-export type { AuditResult as AuditData } from '../../core/system/audit.js';
-export type { SafestopResult as SafestopData } from '../../core/system/safestop.js';
-export type { UncancelResult as UncancelData } from '../../core/system/safestop.js';
-export type { MigrateResult as MigrateData } from '../../core/system/migrate.js';
 export type { SystemMetricsResult as MetricsData } from '../../core/system/metrics.js';
-export type { InjectGenerateResult as InjectGenerateData } from '../../core/system/inject-generate.js';
+export type { MigrateResult as MigrateData } from '../../core/system/migrate.js';
+export type {
+  SafestopResult as SafestopData,
+  UncancelResult as UncancelData,
+} from '../../core/system/safestop.js';
 export type RuntimeData = RuntimeDiagnostics;
 
 // ===== Dashboard Data type (re-exported for consumers) =====
@@ -274,7 +279,10 @@ export async function systemDash(
 ): Promise<EngineResult<DashboardData>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await getDashboard({ cwd: projectRoot, blockedTasksLimit: params?.blockedTasksLimit }, accessor);
+    const result = await getDashboard(
+      { cwd: projectRoot, blockedTasksLimit: params?.blockedTasksLimit },
+      accessor,
+    );
     // Add missing fields that core doesn't produce
     const data = result as Record<string, unknown>;
     const summary = data.summary as Record<string, number>;
@@ -294,7 +302,7 @@ export async function systemDash(
           grandTotal: summary.grandTotal ?? summary.total,
         },
         taskWork: (data.focus ?? data.taskWork) as DashboardData['taskWork'],
-        activeSession: (data as Record<string, unknown>).activeSession as string | null ?? null,
+        activeSession: ((data as Record<string, unknown>).activeSession as string | null) ?? null,
         highPriority: data.highPriority as DashboardData['highPriority'],
         blockedTasks: data.blockedTasks as DashboardData['blockedTasks'],
         recentCompletions: (data.recentCompletions ?? []) as TaskRecord[],
@@ -318,13 +326,16 @@ export async function systemStats(
 ): Promise<EngineResult<StatsData>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await getProjectStats({ period: String(params?.period ?? 30), cwd: projectRoot }, accessor);
+    const result = await getProjectStats(
+      { period: String(params?.period ?? 30), cwd: projectRoot },
+      accessor,
+    );
     // Core stats lacks byPriority, byType, byPhase, cycleTimes — fill from accessor
     const taskData = await accessor.loadTaskFile();
     const tasks = (taskData as { tasks: TaskRecord[] })?.tasks ?? [];
 
     // Distribution breakdowns: active tasks only (exclude cancelled — not actionable work)
-    const activeTasks = tasks.filter(t => t.status !== 'cancelled');
+    const activeTasks = tasks.filter((t) => t.status !== 'cancelled');
     const byPriority: Record<string, number> = {};
     for (const t of activeTasks) {
       byPriority[t.priority] = (byPriority[t.priority] ?? 0) + 1;
@@ -341,7 +352,7 @@ export async function systemStats(
     }
 
     // Cycle times
-    const completedTasks = tasks.filter(t => t.status === 'done' && t.completedAt && t.createdAt);
+    const completedTasks = tasks.filter((t) => t.status === 'done' && t.completedAt && t.createdAt);
     let totalCycleDays = 0;
     let samples = 0;
     for (const t of completedTasks) {
@@ -368,7 +379,7 @@ export async function systemStats(
           active: currentState.active,
           done: currentState.done,
           blocked: currentState.blocked,
-          cancelled: tasks.filter(t => t.status === 'cancelled').length,
+          cancelled: tasks.filter((t) => t.status === 'cancelled').length,
           totalActive: currentState.totalActive,
           archived: currentState.archived ?? 0,
           grandTotal: currentState.grandTotal ?? currentState.totalActive,
@@ -494,7 +505,9 @@ async function queryAuditLogSqlite(
       const conditions: ReturnType<typeof sql>[] = [];
       if (filters?.operation) {
         // Match against both legacy 'action' column and new 'operation' column
-        conditions.push(sql`(${auditLog.action} = ${filters.operation} OR ${auditLog.operation} = ${filters.operation})`);
+        conditions.push(
+          sql`(${auditLog.action} = ${filters.operation} OR ${auditLog.operation} = ${filters.operation})`,
+        );
       }
       if (filters?.taskId) {
         conditions.push(sql`${auditLog.taskId} = ${filters.taskId}`);
@@ -506,9 +519,7 @@ async function queryAuditLogSqlite(
         conditions.push(sql`${auditLog.timestamp} <= ${filters.until}`);
       }
 
-      const whereClause = conditions.length > 0
-        ? sql.join(conditions, sql` AND `)
-        : sql`1=1`;
+      const whereClause = conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`;
 
       // Count total matching entries
       const countResult = await db.all<{ cnt: number }>(
@@ -519,7 +530,12 @@ async function queryAuditLogSqlite(
       if (total === 0) {
         return {
           entries: [],
-          pagination: { total: 0, offset: filters?.offset ?? 0, limit: filters?.limit ?? 20, hasMore: false },
+          pagination: {
+            total: 0,
+            offset: filters?.offset ?? 0,
+            limit: filters?.limit ?? 20,
+            hasMore: false,
+          },
         };
       }
 
@@ -552,7 +568,7 @@ async function queryAuditLogSqlite(
             LIMIT ${limit} OFFSET ${offset}`,
       );
 
-      const entries = rows.map(row => ({
+      const entries = rows.map((row) => ({
         operation: row.operation ?? row.action,
         taskId: row.task_id,
         timestamp: row.timestamp,
@@ -617,7 +633,11 @@ export function systemContext(
       if (existsSync(currentSessionPath)) {
         const currentSession = readFileSync(currentSessionPath, 'utf-8').trim();
         if (currentSession) {
-          const sessionFile = join(cleoDir, 'context-states', `context-state-${currentSession}.json`);
+          const sessionFile = join(
+            cleoDir,
+            'context-states',
+            `context-state-${currentSession}.json`,
+          );
           stateFile = existsSync(sessionFile) ? sessionFile : join(cleoDir, '.context-state.json');
         } else {
           stateFile = join(cleoDir, '.context-state.json');
@@ -691,7 +711,7 @@ export function systemContext(
       let status = state.status ?? 'unknown';
 
       const fileTime = new Date(timestamp).getTime();
-      if ((Date.now() - fileTime) > staleMs) {
+      if (Date.now() - fileTime > staleMs) {
         status = 'stale';
       }
 
@@ -852,7 +872,10 @@ export function systemHelp(
     if (topicHelp) {
       return { success: true, data: topicHelp };
     }
-    return engineError('E_NOT_FOUND', `Unknown help topic: ${topic}. Available topics: ${Object.keys(HELP_TOPICS).join(', ')}`);
+    return engineError(
+      'E_NOT_FOUND',
+      `Unknown help topic: ${topic}. Available topics: ${Object.keys(HELP_TOPICS).join(', ')}`,
+    );
   }
 
   return {
@@ -890,7 +913,11 @@ export async function systemRoadmap(
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await getRoadmap(
-      { includeHistory: params?.includeHistory, upcomingOnly: params?.upcomingOnly, cwd: projectRoot },
+      {
+        includeHistory: params?.includeHistory,
+        upcomingOnly: params?.upcomingOnly,
+        cwd: projectRoot,
+      },
       accessor,
     );
     return { success: true, data: result as unknown as RoadmapData };
@@ -917,31 +944,45 @@ export function systemCompliance(
       if (existsSync(compliancePath)) {
         const content = readFileSync(compliancePath, 'utf-8').trim();
         if (content) {
-          entries = content.split('\n').filter((l: string) => l.trim()).map((l: string) => JSON.parse(l));
+          entries = content
+            .split('\n')
+            .filter((l: string) => l.trim())
+            .map((l: string) => JSON.parse(l));
         }
       }
 
       if (params.epic) {
-        entries = entries.filter(e => {
+        entries = entries.filter((e) => {
           const ctx = (e._context ?? {}) as Record<string, unknown>;
           return ctx.epic_id === params.epic || ctx.task_id === params.epic;
         });
       }
       if (params.days) {
         const cutoff = new Date(Date.now() - params.days * 86400000).toISOString();
-        entries = entries.filter(e => (e.timestamp as string) >= cutoff);
+        entries = entries.filter((e) => (e.timestamp as string) >= cutoff);
       }
 
       const totalEntries = entries.length;
-      const compliance = entries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
-      const avgPassRate = totalEntries > 0
-        ? Math.round(compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) / totalEntries * 1000) / 1000
-        : 0;
-      const avgAdherence = totalEntries > 0
-        ? Math.round(compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) / totalEntries * 1000) / 1000
-        : 0;
+      const compliance = entries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+      const avgPassRate =
+        totalEntries > 0
+          ? Math.round(
+              (compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) /
+                totalEntries) *
+                1000,
+            ) / 1000
+          : 0;
+      const avgAdherence =
+        totalEntries > 0
+          ? Math.round(
+              (compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) /
+                totalEntries) *
+                1000,
+            ) / 1000
+          : 0;
       const totalViolations = compliance.reduce(
-        (sum, c) => sum + ((c.violation_count as number) ?? 0), 0,
+        (sum, c) => sum + ((c.violation_count as number) ?? 0),
+        0,
       );
 
       const byDate: Record<string, Record<string, unknown>[]> = {};
@@ -954,11 +995,15 @@ export function systemCompliance(
       const dataPoints = Object.entries(byDate)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, dayEntries]) => {
-          const dayCompliance = dayEntries.map(de => (de.compliance ?? {}) as Record<string, unknown>);
+          const dayCompliance = dayEntries.map(
+            (de) => (de.compliance ?? {}) as Record<string, unknown>,
+          );
           return {
             date,
             entries: dayEntries.length,
-            avgPassRate: dayCompliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) / dayEntries.length,
+            avgPassRate:
+              dayCompliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) /
+              dayEntries.length,
             violations: dayCompliance.reduce((s, c) => s + ((c.violation_count as number) ?? 0), 0),
           };
         });
@@ -974,7 +1019,14 @@ export function systemCompliance(
 
       return {
         success: true,
-        data: { totalEntries, averagePassRate: avgPassRate, averageAdherence: avgAdherence, totalViolations, trend, dataPoints },
+        data: {
+          totalEntries,
+          averagePassRate: avgPassRate,
+          averageAdherence: avgAdherence,
+          totalViolations,
+          trend,
+          dataPoints,
+        },
       };
     }
 
@@ -985,36 +1037,55 @@ export function systemCompliance(
     if (existsSync(compliancePath)) {
       const content = readFileSync(compliancePath, 'utf-8').trim();
       if (content) {
-        entries = content.split('\n').filter((l: string) => l.trim()).map((l: string) => JSON.parse(l));
+        entries = content
+          .split('\n')
+          .filter((l: string) => l.trim())
+          .map((l: string) => JSON.parse(l));
       }
     }
 
     if (params?.epic) {
-      entries = entries.filter(e => {
+      entries = entries.filter((e) => {
         const ctx = (e._context ?? {}) as Record<string, unknown>;
         return ctx.epic_id === params.epic || ctx.task_id === params.epic;
       });
     }
     if (params?.days) {
       const cutoff = new Date(Date.now() - params.days * 86400000).toISOString();
-      entries = entries.filter(e => (e.timestamp as string) >= cutoff);
+      entries = entries.filter((e) => (e.timestamp as string) >= cutoff);
     }
 
     const totalEntries = entries.length;
-    const compliance = entries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
-    const avgPassRate = totalEntries > 0
-      ? Math.round(compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) / totalEntries * 1000) / 1000
-      : 0;
-    const avgAdherence = totalEntries > 0
-      ? Math.round(compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) / totalEntries * 1000) / 1000
-      : 0;
+    const compliance = entries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+    const avgPassRate =
+      totalEntries > 0
+        ? Math.round(
+            (compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) /
+              totalEntries) *
+              1000,
+          ) / 1000
+        : 0;
+    const avgAdherence =
+      totalEntries > 0
+        ? Math.round(
+            (compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) /
+              totalEntries) *
+              1000,
+          ) / 1000
+        : 0;
     const totalViolations = compliance.reduce(
-      (sum, c) => sum + ((c.violation_count as number) ?? 0), 0,
+      (sum, c) => sum + ((c.violation_count as number) ?? 0),
+      0,
     );
 
     return {
       success: true,
-      data: { totalEntries, averagePassRate: avgPassRate, averageAdherence: avgAdherence, totalViolations },
+      data: {
+        totalEntries,
+        averagePassRate: avgPassRate,
+        averageAdherence: avgAdherence,
+        totalViolations,
+      },
     };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
@@ -1066,7 +1137,15 @@ export async function backupRestore(
   projectRoot: string,
   fileName: string,
   options?: { dryRun?: boolean },
-): Promise<EngineResult<{ restored: boolean; file: string; from: string; targetPath: string; dryRun?: boolean }>> {
+): Promise<
+  EngineResult<{
+    restored: boolean;
+    file: string;
+    from: string;
+    targetPath: string;
+    dryRun?: boolean;
+  }>
+> {
   try {
     const { getBackupDir, getTaskPath, getConfigPath } = await import('../../core/paths.js');
     const { restoreFromBackup, listBackups } = await import('../../store/backup.js');
@@ -1080,7 +1159,10 @@ export async function backupRestore(
 
     const pathGetter = targetPathMap[fileName];
     if (!pathGetter) {
-      return engineError('E_INVALID_INPUT', `Unknown file: ${fileName}. Valid files: tasks.db, config.json`);
+      return engineError(
+        'E_INVALID_INPUT',
+        `Unknown file: ${fileName}. Valid files: tasks.db, config.json`,
+      );
     }
 
     const targetPath = pathGetter();
@@ -1215,7 +1297,13 @@ export function systemSync(
  */
 export function systemSafestop(
   projectRoot: string,
-  params?: { reason?: string; commit?: boolean; handoff?: string; noSessionEnd?: boolean; dryRun?: boolean },
+  params?: {
+    reason?: string;
+    commit?: boolean;
+    handoff?: string;
+    noSessionEnd?: boolean;
+    dryRun?: boolean;
+  },
 ): EngineResult<import('../../core/system/safestop.js').SafestopResult> {
   try {
     const result = safestop(projectRoot, params);

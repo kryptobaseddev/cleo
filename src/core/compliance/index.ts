@@ -6,9 +6,9 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
 import { atomicWriteJson } from '../../store/atomic.js';
-import { readComplianceJsonl, getComplianceJsonlPath } from './store.js';
+import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
+import { getComplianceJsonlPath, readComplianceJsonl } from './store.js';
 // CleoError and ExitCode available if needed for future error cases
 
 /** Get compliance summary. */
@@ -20,22 +20,27 @@ export async function getComplianceSummary(opts: {
   let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
   if (opts.since) {
-    entries = entries.filter(e => (e.timestamp as string) >= opts.since!);
+    entries = entries.filter((e) => (e.timestamp as string) >= opts.since!);
   }
   if (opts.agent) {
-    entries = entries.filter(e => e.source_id === opts.agent);
+    entries = entries.filter((e) => e.source_id === opts.agent);
   }
 
   const totalEntries = entries.length;
-  const compliance = entries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
-  const avgPassRate = totalEntries > 0
-    ? compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) / totalEntries
-    : 0;
-  const avgAdherence = totalEntries > 0
-    ? compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) / totalEntries
-    : 0;
+  const compliance = entries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+  const avgPassRate =
+    totalEntries > 0
+      ? compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) /
+        totalEntries
+      : 0;
+  const avgAdherence =
+    totalEntries > 0
+      ? compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) /
+        totalEntries
+      : 0;
   const totalViolations = compliance.reduce(
-    (sum, c) => sum + ((c.violation_count as number) ?? 0), 0,
+    (sum, c) => sum + ((c.violation_count as number) ?? 0),
+    0,
   );
 
   return {
@@ -55,25 +60,25 @@ export async function listComplianceViolations(opts: {
 }): Promise<Record<string, unknown>> {
   let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
-  entries = entries.filter(e => {
+  entries = entries.filter((e) => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;
     return ((c.violation_count as number) ?? 0) > 0;
   });
 
   if (opts.severity) {
-    entries = entries.filter(e => {
+    entries = entries.filter((e) => {
       const c = (e.compliance ?? {}) as Record<string, unknown>;
       return c.violation_severity === opts.severity;
     });
   }
   if (opts.since) {
-    entries = entries.filter(e => (e.timestamp as string) >= opts.since!);
+    entries = entries.filter((e) => (e.timestamp as string) >= opts.since!);
   }
   if (opts.agent) {
-    entries = entries.filter(e => e.source_id === opts.agent);
+    entries = entries.filter((e) => e.source_id === opts.agent);
   }
 
-  const violations = entries.map(e => {
+  const violations = entries.map((e) => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;
     const ctx = (e._context ?? {}) as Record<string, unknown>;
     return {
@@ -97,7 +102,7 @@ export async function getComplianceTrend(
   const entries = readComplianceJsonl(cwd ?? process.cwd());
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
 
-  const filtered = entries.filter(e => (e.timestamp as string) >= cutoff);
+  const filtered = entries.filter((e) => (e.timestamp as string) >= cutoff);
 
   // Group by date
   const byDate: Record<string, Record<string, unknown>[]> = {};
@@ -110,12 +115,16 @@ export async function getComplianceTrend(
   const dataPoints = Object.entries(byDate)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, dayEntries]) => {
-      const compliance = dayEntries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
+      const compliance = dayEntries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
       return {
         date,
         entries: dayEntries.length,
-        avgPassRate: compliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) / dayEntries.length,
-        avgAdherence: compliance.reduce((s, c) => s + ((c.rule_adherence_score as number) ?? 0), 0) / dayEntries.length,
+        avgPassRate:
+          compliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) /
+          dayEntries.length,
+        avgAdherence:
+          compliance.reduce((s, c) => s + ((c.rule_adherence_score as number) ?? 0), 0) /
+          dayEntries.length,
         violations: compliance.reduce((s, c) => s + ((c.violation_count as number) ?? 0), 0),
       };
     });
@@ -137,23 +146,27 @@ export async function auditEpicCompliance(
 ): Promise<Record<string, unknown>> {
   const entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
-  const epicEntries = entries.filter(e => {
+  const epicEntries = entries.filter((e) => {
     const ctx = (e._context ?? {}) as Record<string, unknown>;
     return ctx.epic_id === epicId || ctx.task_id === epicId;
   });
 
-  const taskIds = [...new Set(epicEntries.map(e => {
-    const ctx = (e._context ?? {}) as Record<string, unknown>;
-    return ctx.task_id as string;
-  }))];
+  const taskIds = [
+    ...new Set(
+      epicEntries.map((e) => {
+        const ctx = (e._context ?? {}) as Record<string, unknown>;
+        return ctx.task_id as string;
+      }),
+    ),
+  ];
 
-  const compliance = epicEntries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
-  const avgPassRate = epicEntries.length > 0
-    ? compliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) / epicEntries.length
-    : 0;
-  const totalViolations = compliance.reduce(
-    (s, c) => s + ((c.violation_count as number) ?? 0), 0,
-  );
+  const compliance = epicEntries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+  const avgPassRate =
+    epicEntries.length > 0
+      ? compliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) /
+        epicEntries.length
+      : 0;
+  const totalViolations = compliance.reduce((s, c) => s + ((c.violation_count as number) ?? 0), 0);
 
   return {
     epicId,
@@ -175,7 +188,12 @@ export async function syncComplianceMetrics(opts: {
 
   // If JSONL doesn't exist, nothing to sync
   if (!existsSync(jsonlPath)) {
-    return { synced: 0, skipped: 0, message: 'No compliance data found', timestamp: new Date().toISOString() };
+    return {
+      synced: 0,
+      skipped: 0,
+      message: 'No compliance data found',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   // Skip re-syncing if summary is newer than JSONL (unless forced)
@@ -211,10 +229,17 @@ export async function syncComplianceMetrics(opts: {
   }
 
   // Compute aggregate statistics
-  const compliance = entries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
-  const avgPassRate = compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) / totalEntries;
-  const avgAdherence = compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) / totalEntries;
-  const totalViolations = compliance.reduce((sum, c) => sum + ((c.violation_count as number) ?? 0), 0);
+  const compliance = entries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+  const avgPassRate =
+    compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) /
+    totalEntries;
+  const avgAdherence =
+    compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) /
+    totalEntries;
+  const totalViolations = compliance.reduce(
+    (sum, c) => sum + ((c.violation_count as number) ?? 0),
+    0,
+  );
 
   // Group entries by source_type
   const entriesByType: Record<string, number> = {};
@@ -288,9 +313,7 @@ export async function getValueMetrics(
   const manifestTokens = manifestEntries * 200;
   const fullFileTokens = manifestEntries * 2000;
   const tokenSavings = fullFileTokens - manifestTokens;
-  const savingsPercent = fullFileTokens > 0
-    ? Math.round((tokenSavings / fullFileTokens) * 100)
-    : 0;
+  const savingsPercent = fullFileTokens > 0 ? Math.round((tokenSavings / fullFileTokens) * 100) : 0;
 
   let totalValidations = 0;
   let violationsCaught = 0;
@@ -298,18 +321,17 @@ export async function getValueMetrics(
 
   const entries = readComplianceJsonl(cwd ?? process.cwd());
   totalValidations = entries.length;
-  violationsCaught = entries.filter(e => {
+  violationsCaught = entries.filter((e) => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;
     return ((c.violation_count as number) ?? 0) > 0;
   }).length;
-  realValidations = entries.filter(e => {
+  realValidations = entries.filter((e) => {
     const ctx = (e._context ?? {}) as Record<string, unknown>;
     return ctx.validation_score !== undefined;
   }).length;
 
-  const violationRate = totalValidations > 0
-    ? Math.round((violationsCaught / totalValidations) * 100)
-    : 0;
+  const violationRate =
+    totalValidations > 0 ? Math.round((violationsCaught / totalValidations) * 100) : 0;
 
   const otelEnabled = process.env.CLAUDE_CODE_ENABLE_TELEMETRY === '1';
 
@@ -321,10 +343,14 @@ export async function getValueMetrics(
       fullFileEquivalent: fullFileTokens,
       tokensSaved: tokenSavings,
       savingsPercent,
-      verdict: savingsPercent >= 80 ? 'Excellent'
-        : savingsPercent >= 50 ? 'Good'
-        : savingsPercent >= 20 ? 'Moderate'
-        : 'Low',
+      verdict:
+        savingsPercent >= 80
+          ? 'Excellent'
+          : savingsPercent >= 50
+            ? 'Good'
+            : savingsPercent >= 20
+              ? 'Moderate'
+              : 'Low',
     },
     validationImpact: {
       totalValidations,

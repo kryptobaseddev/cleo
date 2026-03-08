@@ -4,13 +4,13 @@
  * @epic T4540
  */
 
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { closeAllDatabases, resetDbState } from '../../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
 import {
   canExecute,
   canRead,
@@ -18,7 +18,7 @@ import {
   checkPermission,
   checkPermissionDetail,
   permissionLevel,
-  requirePermission
+  requirePermission,
 } from '../permissions.js';
 import { nexusRegister } from '../registry.js';
 
@@ -102,16 +102,14 @@ describe('checkPermission', () => {
 describe('requirePermission', () => {
   it('does not throw when permission is sufficient', async () => {
     await nexusRegister(projectDir, 'write-proj', 'write');
-    await expect(
-      requirePermission('write-proj', 'read', 'test'),
-    ).resolves.toBeUndefined();
+    await expect(requirePermission('write-proj', 'read', 'test')).resolves.toBeUndefined();
   });
 
   it('throws CleoError when permission is insufficient', async () => {
     await nexusRegister(projectDir, 'read-proj', 'read');
-    await expect(
-      requirePermission('read-proj', 'write', 'update task'),
-    ).rejects.toThrow(/Permission denied/);
+    await expect(requirePermission('read-proj', 'write', 'update task')).rejects.toThrow(
+      /Permission denied/,
+    );
   });
 });
 

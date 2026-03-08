@@ -7,7 +7,7 @@
  * @task T5185
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { isSqliteBusy } from '../sqlite.js';
 
 describe('isSqliteBusy', () => {
@@ -135,7 +135,9 @@ describe('migration retry+backoff (T5185)', () => {
       expect(attempts).toBe(2); // First attempt BUSY, second succeeds
 
       // Verify the write actually persisted
-      const row = db2.prepare('SELECT id FROM retry_test WHERE id = 1').get() as Record<string, unknown> | undefined;
+      const row = db2.prepare('SELECT id FROM retry_test WHERE id = 1').get() as
+        | Record<string, unknown>
+        | undefined;
       expect(row).toBeDefined();
       expect(row?.id).toBe(1);
 

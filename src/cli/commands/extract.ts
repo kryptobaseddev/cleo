@@ -5,18 +5,18 @@
  * @epic T4545
  */
 
-// CLI-only: extract implements TodoWrite state merge logic not suitable for dispatch
-import { Command } from 'commander';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
+// CLI-only: extract implements TodoWrite state merge logic not suitable for dispatch
+import type { Command } from 'commander';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import { formatError } from '../../core/output.js';
 import { getCleoDir } from '../../core/paths.js';
-import { readJson, computeChecksum } from '../../store/json.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum, readJson } from '../../store/json.js';
+import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 /** TodoWrite item as exported by Claude. */
 interface TodoWriteItem {
@@ -69,10 +69,7 @@ function stripPrefixes(content: string): string {
  * Analyze TodoWrite state and detect changes.
  * @task T4551
  */
-function analyzeChanges(
-  todowriteState: TodoWriteState,
-  injectedIds: string[],
-): ChangeSet {
+function analyzeChanges(todowriteState: TodoWriteState, injectedIds: string[]): ChangeSet {
   const foundIds: string[] = [];
   const completed: string[] = [];
   const progressed: string[] = [];
@@ -114,7 +111,7 @@ export function registerExtractCommand(program: Command): void {
     .option('--default-phase <phase>', 'Override default phase for new tasks')
     .action(async (file: string, opts: Record<string, unknown>) => {
       try {
-        const dryRun = opts['dryRun'] as boolean ?? false;
+        const dryRun = (opts['dryRun'] as boolean) ?? false;
         const defaultPhase = opts['defaultPhase'] as string | undefined;
 
         // Validate input file
@@ -155,18 +152,22 @@ export function registerExtractCommand(program: Command): void {
         // Analyze changes
         const changes = analyzeChanges(todowriteState, injectedIds);
 
-        const totalChanges = changes.completed.length + changes.progressed.length + changes.newTasks.length;
+        const totalChanges =
+          changes.completed.length + changes.progressed.length + changes.newTasks.length;
 
         if (totalChanges === 0) {
-          cliOutput({
-            changes: {
-              completed: 0,
-              progressed: 0,
-              new: 0,
-              removed: changes.removed.length,
-              applied: 0,
+          cliOutput(
+            {
+              changes: {
+                completed: 0,
+                progressed: 0,
+                new: 0,
+                removed: changes.removed.length,
+                applied: 0,
+              },
             },
-          }, { command: 'extract', message: 'No changes to apply' });
+            { command: 'extract', message: 'No changes to apply' },
+          );
           return;
         }
 
@@ -204,7 +205,7 @@ export function registerExtractCommand(program: Command): void {
           for (const title of changes.newTasks) {
             const maxNum = taskData.tasks.reduce((max, t) => {
               const num = parseInt(t.id.replace('T', ''), 10);
-              return isNaN(num) ? max : Math.max(max, num);
+              return Number.isNaN(num) ? max : Math.max(max, num);
             }, 0);
 
             const newTask: Task = {
@@ -236,17 +237,23 @@ export function registerExtractCommand(program: Command): void {
           }
         }
 
-        cliOutput({
-          dryRun,
-          changes: {
-            completed: changes.completed.length,
-            progressed: changes.progressed.length,
-            new: changes.newTasks.length,
-            removed: changes.removed.length,
-            applied: dryRun ? 0 : appliedCount,
+        cliOutput(
+          {
+            dryRun,
+            changes: {
+              completed: changes.completed.length,
+              progressed: changes.progressed.length,
+              new: changes.newTasks.length,
+              removed: changes.removed.length,
+              applied: dryRun ? 0 : appliedCount,
+            },
+            sessionCleared: !dryRun,
           },
-          sessionCleared: !dryRun,
-        }, { command: 'extract', message: dryRun ? 'Dry run complete' : `Applied ${appliedCount} changes` });
+          {
+            command: 'extract',
+            message: dryRun ? 'Dry run complete' : `Applied ${appliedCount} changes`,
+          },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

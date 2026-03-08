@@ -7,22 +7,26 @@
  * @epic T5267
  */
 
+export { archiveSticky } from './archive.js';
+export {
+  convertStickyToMemory,
+  convertStickyToSessionNote,
+  convertStickyToTask,
+  convertStickyToTaskNote,
+} from './convert.js';
+export { addSticky } from './create.js';
+export { generateStickyId } from './id.js';
+export { listStickies } from './list.js';
+export { purgeSticky } from './purge.js';
+export { getSticky } from './show.js';
 export type {
-  StickyNote,
-  StickyNoteStatus,
-  StickyNoteColor,
-  StickyNotePriority,
-  CreateStickyParams,
-  ListStickiesParams,
-  ConvertStickyParams,
   ConvertedTarget,
   ConvertedTargetType,
+  ConvertStickyParams,
+  CreateStickyParams,
+  ListStickiesParams,
+  StickyNote,
+  StickyNoteColor,
+  StickyNotePriority,
+  StickyNoteStatus,
 } from './types.js';
-
-export { addSticky } from './create.js';
-export { listStickies } from './list.js';
-export { getSticky } from './show.js';
-export { convertStickyToTask, convertStickyToMemory, convertStickyToTaskNote, convertStickyToSessionNote } from './convert.js';
-export { archiveSticky } from './archive.js';
-export { purgeSticky } from './purge.js';
-export { generateStickyId } from './id.js';

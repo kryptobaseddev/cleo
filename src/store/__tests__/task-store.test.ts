@@ -8,10 +8,10 @@
  * @epic T4638
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Task } from '../../types/task.js';
 
 let tempDir: string;
@@ -288,7 +288,7 @@ describe('SQLite task-store', () => {
 
       const pending = await listTasks({ status: 'pending' });
       expect(pending).toHaveLength(2);
-      expect(pending.every(t => t.status === 'pending')).toBe(true);
+      expect(pending.every((t) => t.status === 'pending')).toBe(true);
     });
 
     it('filters by parentId', async () => {
@@ -300,7 +300,7 @@ describe('SQLite task-store', () => {
 
       const children = await listTasks({ parentId: 'T001' });
       expect(children).toHaveLength(2);
-      expect(children.map(t => t.id).sort()).toEqual(['T002', 'T003']);
+      expect(children.map((t) => t.id).sort()).toEqual(['T002', 'T003']);
     });
 
     it('filters by null parentId (root tasks)', async () => {
@@ -349,7 +349,7 @@ describe('SQLite task-store', () => {
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
 
       const tasks = await listTasks();
-      const t002 = tasks.find(t => t.id === 'T002');
+      const t002 = tasks.find((t) => t.id === 'T002');
       expect(t002!.depends).toEqual(['T001']);
     });
   });
@@ -379,11 +379,13 @@ describe('SQLite task-store', () => {
 
     it('finds tasks by description substring', async () => {
       const { createTask, findTasks } = await import('../task-store.js');
-      await createTask(makeTask({
-        id: 'T001',
-        title: 'Some task',
-        description: 'This involves database migration',
-      }));
+      await createTask(
+        makeTask({
+          id: 'T001',
+          title: 'Some task',
+          description: 'This involves database migration',
+        }),
+      );
 
       const results = await findTasks('migration');
       expect(results).toHaveLength(1);
@@ -424,7 +426,8 @@ describe('SQLite task-store', () => {
       const { eq } = await import('drizzle-orm');
       const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
-      const rows = await db.select({ status: taskSchema.status, archivedAt: taskSchema.archivedAt })
+      const rows = await db
+        .select({ status: taskSchema.status, archivedAt: taskSchema.archivedAt })
         .from(taskSchema)
         .where(eq(taskSchema.id, 'T001'))
         .all();
@@ -442,7 +445,8 @@ describe('SQLite task-store', () => {
       const { eq } = await import('drizzle-orm');
       const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
-      const rows = await db.select({ archiveReason: taskSchema.archiveReason })
+      const rows = await db
+        .select({ archiveReason: taskSchema.archiveReason })
         .from(taskSchema)
         .where(eq(taskSchema.id, 'T001'))
         .all();
@@ -460,7 +464,8 @@ describe('SQLite task-store', () => {
       const { eq } = await import('drizzle-orm');
       const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
-      const rows = await db.select({ cycleTimeDays: taskSchema.cycleTimeDays })
+      const rows = await db
+        .select({ cycleTimeDays: taskSchema.cycleTimeDays })
         .from(taskSchema)
         .where(eq(taskSchema.id, 'T001'))
         .all();
@@ -489,7 +494,9 @@ describe('SQLite task-store', () => {
     });
 
     it('removeDependency removes a dependency link', async () => {
-      const { createTask, addDependency, removeDependency, getTask } = await import('../task-store.js');
+      const { createTask, addDependency, removeDependency, getTask } = await import(
+        '../task-store.js'
+      );
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
 
@@ -554,7 +561,7 @@ describe('SQLite task-store', () => {
 
       const children = await getChildren('T001');
       expect(children).toHaveLength(2);
-      expect(children.map(c => c.id).sort()).toEqual(['T002', 'T003']);
+      expect(children.map((c) => c.id).sort()).toEqual(['T002', 'T003']);
     });
 
     it('getSubtree returns full descendant tree', async () => {
@@ -566,7 +573,7 @@ describe('SQLite task-store', () => {
 
       const subtree = await getSubtree('T001');
       expect(subtree).toHaveLength(3);
-      expect(subtree.map(t => t.id).sort()).toEqual(['T001', 'T002', 'T003']);
+      expect(subtree.map((t) => t.id).sort()).toEqual(['T001', 'T002', 'T003']);
     });
 
     it('getBlockerChain returns recursive blocker IDs', async () => {

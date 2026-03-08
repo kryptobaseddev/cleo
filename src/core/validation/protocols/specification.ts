@@ -4,9 +4,9 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { CleoError } from '../../errors.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { CleoError } from '../../errors.js';
 import { getManifestPath } from '../../paths.js';
 
 interface ValidationResult {
@@ -53,7 +53,7 @@ export async function validateSpecificationTask(
   if (opts.specFile && existsSync(opts.specFile)) {
     const specContent = readFileSync(opts.specFile, 'utf-8');
     const rfc2119Keywords = ['MUST', 'SHOULD', 'MAY', 'MUST NOT', 'SHOULD NOT'];
-    const hasKeywords = rfc2119Keywords.some(kw => specContent.includes(kw));
+    const hasKeywords = rfc2119Keywords.some((kw) => specContent.includes(kw));
     if (!hasKeywords) {
       violations.push({
         code: 'SPEC-001',

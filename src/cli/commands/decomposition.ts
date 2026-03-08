@@ -5,7 +5,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -23,12 +23,18 @@ export function registerDecompositionCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--epic <id>', 'Specify parent epic ID')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.decomposition', {
-        mode: 'task',
-        taskId,
-        strict: opts['strict'] as boolean | undefined,
-        epicId: opts['epic'] as string | undefined,
-      }, { command: 'decomposition' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.decomposition',
+        {
+          mode: 'task',
+          taskId,
+          strict: opts['strict'] as boolean | undefined,
+          epicId: opts['epic'] as string | undefined,
+        },
+        { command: 'decomposition' },
+      );
     });
 
   decomposition
@@ -37,11 +43,17 @@ export function registerDecompositionCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--epic <id>', 'Specify parent epic ID')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'check', 'protocol.decomposition', {
-        mode: 'manifest',
-        manifestFile,
-        strict: opts['strict'] as boolean | undefined,
-        epicId: opts['epic'] as string | undefined,
-      }, { command: 'decomposition' });
+      await dispatchFromCli(
+        'query',
+        'check',
+        'protocol.decomposition',
+        {
+          mode: 'manifest',
+          manifestFile,
+          strict: opts['strict'] as boolean | undefined,
+          epicId: opts['epic'] as string | undefined,
+        },
+        { command: 'decomposition' },
+      );
     });
 }

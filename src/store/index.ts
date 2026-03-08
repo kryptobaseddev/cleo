@@ -8,52 +8,59 @@
 
 export { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
 export { createBackup, listBackups, restoreFromBackup } from './backup.js';
-export { acquireLock, isLocked, withLock } from './lock.js';
-export type { ReleaseFn } from './lock.js';
-export {
-  readJson,
-  readJsonRequired,
-  saveJson,
-  appendJsonl,
-  computeChecksum,
-} from './json.js';
-export type { SaveJsonOptions } from './json.js';
-export {
-  createStoreProvider,
-} from './provider.js';
-export type {
-  StoreProvider,
-  StoreEngine,
-  TaskFilters,
-  SessionFilters,
-  AddTaskOptions, AddTaskResult,
-  CompleteTaskOptions, CompleteTaskResult,
-  UpdateTaskOptions, UpdateTaskResult,
-  DeleteTaskOptions, DeleteTaskResult,
-  FindTasksOptions, FindTasksResult,
-  ListTasksOptions, ListTasksResult,
-  ArchiveTasksOptions, ArchiveTasksResult,
-  TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
-  AnalysisResult,
-} from './provider.js';
-// Safety-enabled DataAccessor exports (@task T4745)
-export {
-  SafetyDataAccessor,
-  wrapWithSafety,
-  isSafetyEnabled,
-  getSafetyStatus,
-} from './safety-data-accessor.js';
+export { forceCheckpointBeforeOperation } from './data-safety.js';
 export type { SafetyOptions } from './data-safety-central.js';
 export {
   DataSafetyError,
+  disableSafety,
+  enableSafety,
+  forceSafetyCheckpoint,
   getSafetyStats,
   resetSafetyStats,
   runDataIntegrityCheck,
-  forceSafetyCheckpoint,
-  disableSafety,
-  enableSafety,
 } from './data-safety-central.js';
-export { forceCheckpointBeforeOperation } from './data-safety.js';
+export type { SaveJsonOptions } from './json.js';
+export {
+  appendJsonl,
+  computeChecksum,
+  readJson,
+  readJsonRequired,
+  saveJson,
+} from './json.js';
+export type { ReleaseFn } from './lock.js';
+export { acquireLock, isLocked, withLock } from './lock.js';
+export type {
+  AddTaskOptions,
+  AddTaskResult,
+  AnalysisResult,
+  ArchiveTasksOptions,
+  ArchiveTasksResult,
+  CompleteTaskOptions,
+  CompleteTaskResult,
+  DeleteTaskOptions,
+  DeleteTaskResult,
+  FindTasksOptions,
+  FindTasksResult,
+  ListTasksOptions,
+  ListTasksResult,
+  SessionFilters,
+  StoreEngine,
+  StoreProvider,
+  TaskCurrentResult,
+  TaskFilters,
+  TaskStartResult,
+  TaskWorkHistoryEntry,
+  UpdateTaskOptions,
+  UpdateTaskResult,
+} from './provider.js';
+export { createStoreProvider } from './provider.js';
+// Safety-enabled DataAccessor exports (@task T4745)
+export {
+  getSafetyStatus,
+  isSafetyEnabled,
+  SafetyDataAccessor,
+  wrapWithSafety,
+} from './safety-data-accessor.js';
 
 /**
  * Get a StoreProvider instance for the given working directory.

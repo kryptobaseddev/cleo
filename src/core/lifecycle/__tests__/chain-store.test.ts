@@ -7,12 +7,12 @@
  * @task T5404
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import type { WarpChain, GateResult } from '../../../types/warp-chain.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { GateResult, WarpChain } from '../../../types/warp-chain.js';
 
 let tempDir: string;
 
@@ -92,9 +92,7 @@ describe('WarpChain chain-store', () => {
     const { addChain } = await import('../chain-store.js');
     const chain = makeMinimalChain({
       shape: {
-        stages: [
-          { id: 'stage-a', name: 'Stage A', category: 'research', skippable: false },
-        ],
+        stages: [{ id: 'stage-a', name: 'Stage A', category: 'research', skippable: false }],
         links: [],
         entryPoint: 'nonexistent',
         exitPoints: ['stage-a'],
@@ -125,29 +123,33 @@ describe('WarpChain chain-store', () => {
   it('findChains filters by query, category, tessera, and archetype', async () => {
     const { addChain, findChains } = await import('../chain-store.js');
 
-    await addChain(makeMinimalChain({
-      id: 'alpha-chain',
-      name: 'Alpha Build Chain',
-      description: 'Research and implementation workflow',
-      tessera: 'tessera-alpha',
-      metadata: { archetypes: ['lifecycle', 'alpha'] },
-    }), tempDir);
+    await addChain(
+      makeMinimalChain({
+        id: 'alpha-chain',
+        name: 'Alpha Build Chain',
+        description: 'Research and implementation workflow',
+        tessera: 'tessera-alpha',
+        metadata: { archetypes: ['lifecycle', 'alpha'] },
+      }),
+      tempDir,
+    );
 
-    await addChain(makeMinimalChain({
-      id: 'beta-chain',
-      name: 'Beta Release Chain',
-      description: 'Release-first workflow',
-      shape: {
-        stages: [
-          { id: 'release', name: 'Release', category: 'release', skippable: false },
-        ],
-        links: [],
-        entryPoint: 'release',
-        exitPoints: ['release'],
-      },
-      tessera: 'tessera-beta',
-      metadata: { archetype: 'release' },
-    }), tempDir);
+    await addChain(
+      makeMinimalChain({
+        id: 'beta-chain',
+        name: 'Beta Release Chain',
+        description: 'Release-first workflow',
+        shape: {
+          stages: [{ id: 'release', name: 'Release', category: 'release', skippable: false }],
+          links: [],
+          entryPoint: 'release',
+          exitPoints: ['release'],
+        },
+        tessera: 'tessera-beta',
+        metadata: { archetype: 'release' },
+      }),
+      tempDir,
+    );
 
     const byQuery = await findChains({ query: 'alpha' }, tempDir);
     expect(byQuery.map((chain) => chain.id)).toEqual(['alpha-chain']);
@@ -211,10 +213,7 @@ describe('WarpChain chain-store', () => {
     const chain = makeMinimalChain();
     await addChain(chain, tempDir);
 
-    const instance = await createInstance(
-      { chainId: 'test-chain', epicId: 'T9999' },
-      tempDir,
-    );
+    const instance = await createInstance({ chainId: 'test-chain', epicId: 'T9999' }, tempDir);
 
     const gateResult: GateResult = {
       gateId: 'gate-1',
@@ -224,26 +223,20 @@ describe('WarpChain chain-store', () => {
       evaluatedAt: new Date().toISOString(),
     };
 
-    const advanced = await advanceInstance(
-      instance.id,
-      'stage-b',
-      [gateResult],
-      tempDir,
-    );
+    const advanced = await advanceInstance(instance.id, 'stage-b', [gateResult], tempDir);
 
     expect(advanced.currentStage).toBe('stage-b');
     expect(advanced.status).toBe('active');
   });
 
   it('showInstance returns full state with gate results', async () => {
-    const { addChain, createInstance, advanceInstance, showInstance } = await import('../chain-store.js');
+    const { addChain, createInstance, advanceInstance, showInstance } = await import(
+      '../chain-store.js'
+    );
     const chain = makeMinimalChain();
     await addChain(chain, tempDir);
 
-    const instance = await createInstance(
-      { chainId: 'test-chain', epicId: 'T9999' },
-      tempDir,
-    );
+    const instance = await createInstance({ chainId: 'test-chain', epicId: 'T9999' }, tempDir);
 
     const gateResult: GateResult = {
       gateId: 'gate-1',
@@ -263,7 +256,8 @@ describe('WarpChain chain-store', () => {
   });
 
   it('rejects illegal transition and preserves instance state', async () => {
-    const { addChain, createInstance, advanceInstance, showInstance, listInstanceGateResults } = await import('../chain-store.js');
+    const { addChain, createInstance, advanceInstance, showInstance, listInstanceGateResults } =
+      await import('../chain-store.js');
     const chain = makeThreeStageChain();
     await addChain(chain, tempDir);
 
@@ -277,9 +271,9 @@ describe('WarpChain chain-store', () => {
     expect(initialState!.currentStage).toBe('stage-a');
     expect(initialState!.status).toBe('pending');
 
-    await expect(
-      advanceInstance(instance.id, 'stage-c', [], tempDir),
-    ).rejects.toThrow('Invalid stage transition: "stage-a" -> "stage-c" is not allowed in chain "three-stage-chain"');
+    await expect(advanceInstance(instance.id, 'stage-c', [], tempDir)).rejects.toThrow(
+      'Invalid stage transition: "stage-a" -> "stage-c" is not allowed in chain "three-stage-chain"',
+    );
 
     const afterFailedAdvance = await showInstance(instance.id, tempDir);
     expect(afterFailedAdvance).not.toBeNull();
@@ -289,20 +283,19 @@ describe('WarpChain chain-store', () => {
   });
 
   it('rejects terminal-state transitions and unknown stage transitions', async () => {
-    const { addChain, createInstance, advanceInstance, showInstance } = await import('../chain-store.js');
+    const { addChain, createInstance, advanceInstance, showInstance } = await import(
+      '../chain-store.js'
+    );
     const { getDb } = await import('../../../store/sqlite.js');
     const { warpChainInstances } = await import('../../../store/chain-schema.js');
     const chain = makeMinimalChain();
     await addChain(chain, tempDir);
 
-    const instance = await createInstance(
-      { chainId: 'test-chain', epicId: 'T9999' },
-      tempDir,
-    );
+    const instance = await createInstance({ chainId: 'test-chain', epicId: 'T9999' }, tempDir);
 
-    await expect(
-      advanceInstance(instance.id, 'stage-z', [], tempDir),
-    ).rejects.toThrow('Invalid stage transition: stage "stage-z" is not defined in chain "test-chain"');
+    await expect(advanceInstance(instance.id, 'stage-z', [], tempDir)).rejects.toThrow(
+      'Invalid stage transition: stage "stage-z" is not defined in chain "test-chain"',
+    );
 
     const db = await getDb(tempDir);
     await db
@@ -310,9 +303,9 @@ describe('WarpChain chain-store', () => {
       .set({ status: 'completed' })
       .where(eq(warpChainInstances.id, instance.id));
 
-    await expect(
-      advanceInstance(instance.id, 'stage-b', [], tempDir),
-    ).rejects.toThrow(`Chain instance "${instance.id}" cannot advance from terminal status "completed"`);
+    await expect(advanceInstance(instance.id, 'stage-b', [], tempDir)).rejects.toThrow(
+      `Chain instance "${instance.id}" cannot advance from terminal status "completed"`,
+    );
 
     const persisted = await showInstance(instance.id, tempDir);
     expect(persisted).not.toBeNull();

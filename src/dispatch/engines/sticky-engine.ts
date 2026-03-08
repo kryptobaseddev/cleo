@@ -10,13 +10,13 @@
 
 import {
   addSticky,
-  listStickies,
-  getSticky,
-  convertStickyToTask,
-  convertStickyToMemory,
-  convertStickyToTaskNote,
-  convertStickyToSessionNote,
   archiveSticky,
+  convertStickyToMemory,
+  convertStickyToSessionNote,
+  convertStickyToTask,
+  convertStickyToTaskNote,
+  getSticky,
+  listStickies,
   purgeSticky,
 } from '../../core/sticky/index.js';
 import type {
@@ -24,7 +24,7 @@ import type {
   ListStickiesParams,
   StickyNote,
 } from '../../core/sticky/types.js';
-import { engineError, type EngineResult } from './_error.js';
+import { type EngineResult, engineError } from './_error.js';
 
 // Re-export EngineResult for consumers
 export type { EngineResult };

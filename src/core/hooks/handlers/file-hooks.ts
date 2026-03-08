@@ -6,7 +6,7 @@
  * Auto-registers on module load.
  */
 
-import { relative, isAbsolute } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
 import { hooks } from '../registry.js';
 import type { OnFileChangePayload } from '../types.js';
 
@@ -39,9 +39,9 @@ export async function handleFileChange(
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
   // Convert absolute paths to relative, normalize to forward slashes
-  const relativePath = (isAbsolute(payload.filePath)
-    ? relative(projectRoot, payload.filePath)
-    : payload.filePath).replaceAll('\\', '/');
+  const relativePath = (
+    isAbsolute(payload.filePath) ? relative(projectRoot, payload.filePath) : payload.filePath
+  ).replaceAll('\\', '/');
 
   try {
     await observeBrain(projectRoot, {

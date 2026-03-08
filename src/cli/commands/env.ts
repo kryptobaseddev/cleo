@@ -5,9 +5,9 @@
  */
 // CLI-only: no dispatch equivalent for environment diagnostics
 
-import { Command } from 'commander';
-import { cliOutput } from '../renderers/index.js';
+import type { Command } from 'commander';
 import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Build the env status response.
@@ -30,9 +30,7 @@ async function getEnvInfo(): Promise<unknown> {
  * @task T4581
  */
 export function registerEnvCommand(program: Command): void {
-  const env = program
-    .command('env')
-    .description('Environment and mode inspection');
+  const env = program.command('env').description('Environment and mode inspection');
 
   env
     .command('status', { isDefault: true })

@@ -30,7 +30,14 @@ export type TaskOrigin =
   | 'regression';
 
 /** Verification agent types. */
-export type VerificationAgent = 'planner' | 'coder' | 'testing' | 'qa' | 'cleanup' | 'security' | 'docs';
+export type VerificationAgent =
+  | 'planner'
+  | 'coder'
+  | 'testing'
+  | 'qa'
+  | 'cleanup'
+  | 'security'
+  | 'docs';
 
 /** Verification gate names. */
 export type VerificationGate =

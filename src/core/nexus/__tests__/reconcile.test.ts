@@ -4,32 +4,29 @@
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { projectRegistry } from '../../../store/nexus-schema.js';
+import { getNexusDb } from '../../../store/nexus-sqlite.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { CleoError } from '../../errors.js';
+import { generateProjectHash } from '../hash.js';
 import {
-  nexusInit,
-  nexusRegister,
-  nexusReconcile,
   nexusGetProject,
+  nexusInit,
+  nexusReconcile,
+  nexusRegister,
   resetNexusDbState,
 } from '../registry.js';
-import { generateProjectHash } from '../hash.js';
-import { getNexusDb } from '../../../store/nexus-sqlite.js';
-import { projectRegistry } from '../../../store/nexus-schema.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
-import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
-import { CleoError } from '../../errors.js';
 
 /** Create a test project with tasks in SQLite (tasks.db) and project-info.json. */
-async function createTestProject(
-  dir: string,
-  projectId?: string,
-): Promise<string> {
+async function createTestProject(dir: string, projectId?: string): Promise<string> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
 
   // Create project-info.json with projectId
@@ -88,12 +85,14 @@ describe('nexusReconcile', () => {
 
     // Record the lastSeen before reconcile
     const db = await getNexusDb();
-    const beforeRows = await db.select().from(projectRegistry)
+    const beforeRows = await db
+      .select()
+      .from(projectRegistry)
       .where(eq(projectRegistry.projectId, projectId));
     const beforeLastSeen = beforeRows[0].lastSeen;
 
     // Small delay to ensure timestamp differs
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
 
     const result = await nexusReconcile(projectDir);
 
@@ -102,7 +101,9 @@ describe('nexusReconcile', () => {
     expect(result.newPath).toBeUndefined();
 
     // Verify lastSeen was updated
-    const afterRows = await db.select().from(projectRegistry)
+    const afterRows = await db
+      .select()
+      .from(projectRegistry)
       .where(eq(projectRegistry.projectId, projectId));
     expect(afterRows[0].lastSeen >= beforeLastSeen).toBe(true);
   });

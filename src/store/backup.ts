@@ -5,8 +5,8 @@
  * @task T4457
  */
 
-import { copyFile, rename as fsRename, readdir, unlink, stat, mkdir } from 'node:fs/promises';
-import { join, basename } from 'node:path';
+import { copyFile, rename as fsRename, mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { CleoError } from '../core/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
 
@@ -30,10 +30,7 @@ export async function createBackup(
     try {
       await stat(filePath);
     } catch {
-      throw new CleoError(
-        ExitCode.FILE_ERROR,
-        `Cannot backup: source file not found: ${filePath}`,
-      );
+      throw new CleoError(ExitCode.FILE_ERROR, `Cannot backup: source file not found: ${filePath}`);
     }
 
     // Rotate existing backups (shift numbers up)
@@ -63,21 +60,14 @@ export async function createBackup(
     return backupPath;
   } catch (err) {
     if (err instanceof CleoError) throw err;
-    throw new CleoError(
-      ExitCode.FILE_ERROR,
-      `Backup failed for: ${filePath}`,
-      { cause: err },
-    );
+    throw new CleoError(ExitCode.FILE_ERROR, `Backup failed for: ${filePath}`, { cause: err });
   }
 }
 
 /**
  * List existing backups for a file, sorted by number (newest first).
  */
-export async function listBackups(
-  fileName: string,
-  backupDir: string,
-): Promise<string[]> {
+export async function listBackups(fileName: string, backupDir: string): Promise<string[]> {
   try {
     const entries = await readdir(backupDir);
     const prefix = `${fileName}.`;
@@ -105,10 +95,7 @@ export async function restoreFromBackup(
 ): Promise<string> {
   const backups = await listBackups(fileName, backupDir);
   if (backups.length === 0) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `No backups found for: ${fileName}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `No backups found for: ${fileName}`);
   }
   const newest = backups[0]!;
   await copyFile(newest, targetPath);

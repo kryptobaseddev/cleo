@@ -8,11 +8,11 @@
  */
 
 import type {
-  WarpChain,
-  WarpStage,
-  WarpLink,
-  GateContract,
   ChainShape,
+  GateContract,
+  WarpChain,
+  WarpLink,
+  WarpStage,
 } from '../../types/warp-chain.js';
 import { validateChain } from '../validation/chain-validation.js';
 
@@ -44,7 +44,10 @@ function prefixChain(chain: WarpChain, prefix: string): WarpChain {
       check: { ...g.check },
     };
     if (prefixed.check.type === 'stage_complete') {
-      prefixed.check = { type: 'stage_complete', stageId: pfx(g.check.type === 'stage_complete' ? g.check.stageId : '') };
+      prefixed.check = {
+        type: 'stage_complete',
+        stageId: pfx(g.check.type === 'stage_complete' ? g.check.stageId : ''),
+      };
     }
     return prefixed;
   });

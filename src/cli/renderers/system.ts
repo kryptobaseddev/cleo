@@ -9,8 +9,15 @@
 
 import type { Task } from '../../types/task.js';
 import {
-  BOLD, DIM, NC, RED, GREEN, YELLOW,
-  statusSymbol, statusColor, priorityColor,
+  BOLD,
+  DIM,
+  GREEN,
+  NC,
+  priorityColor,
+  RED,
+  statusColor,
+  statusSymbol,
+  YELLOW,
 } from './colors.js';
 
 // ---------------------------------------------------------------------------
@@ -28,9 +35,7 @@ export function renderDoctor(data: Record<string, unknown>, quiet: boolean): str
   }
 
   const lines: string[] = [];
-  const statusText = healthy
-    ? `${GREEN}${BOLD}HEALTHY${NC}`
-    : `${RED}${BOLD}UNHEALTHY${NC}`;
+  const statusText = healthy ? `${GREEN}${BOLD}HEALTHY${NC}` : `${RED}${BOLD}UNHEALTHY${NC}`;
 
   lines.push(`System Status: ${statusText}`);
   if ((errors ?? 0) > 0) lines.push(`  ${RED}Errors: ${errors}${NC}`);
@@ -41,7 +46,12 @@ export function renderDoctor(data: Record<string, unknown>, quiet: boolean): str
     for (const check of checks) {
       const status = check['status'] as string;
       const message = check['message'] as string;
-      const icon = status === 'ok' ? `${GREEN}\u2713${NC}` : status === 'warning' ? `${YELLOW}\u26A0${NC}` : `${RED}\u2717${NC}`;
+      const icon =
+        status === 'ok'
+          ? `${GREEN}\u2713${NC}`
+          : status === 'warning'
+            ? `${YELLOW}\u26A0${NC}`
+            : `${RED}\u2717${NC}`;
       lines.push(`  ${icon} ${message}`);
     }
   }
@@ -107,12 +117,14 @@ export function renderNext(data: Record<string, unknown>, quiet: boolean): strin
 
   // Multiple suggestions
   if (suggestions) {
-    if (quiet) return suggestions.map(s => String(s['id'])).join('\n');
+    if (quiet) return suggestions.map((s) => String(s['id'])).join('\n');
     const lines: string[] = [];
     lines.push(`${BOLD}Top suggestions:${NC}  ${DIM}(${totalCandidates} candidates)${NC}`);
     for (const s of suggestions) {
       const pCol = priorityColor(String(s['priority'] ?? ''));
-      lines.push(`  ${BOLD}${s['id']}${NC} ${pCol}[${s['priority']}]${NC} ${s['title']}  ${DIM}score: ${s['score']}${NC}`);
+      lines.push(
+        `  ${BOLD}${s['id']}${NC} ${pCol}[${s['priority']}]${NC} ${s['title']}  ${DIM}score: ${s['score']}${NC}`,
+      );
     }
     return lines.join('\n');
   }
@@ -134,7 +146,9 @@ export function renderBlockers(data: Record<string, unknown>, quiet: boolean): s
   }
 
   if (quiet) {
-    return items.map(b => String((b as Record<string, unknown>)['id'] ?? (b as Task).id)).join('\n');
+    return items
+      .map((b) => String((b as Record<string, unknown>)['id'] ?? (b as Task).id))
+      .join('\n');
   }
 
   const lines: string[] = [];
@@ -167,17 +181,23 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
 
   // Fallback: flat task list rendered as indented tree
   if (tasks) {
-    if (quiet) return tasks.map(t => t.id).join('\n');
-    return tasks.map(t => {
-      const sSym = statusSymbol(t.status);
-      return `  ${sSym} ${BOLD}${t.id}${NC} ${t.title}`;
-    }).join('\n');
+    if (quiet) return tasks.map((t) => t.id).join('\n');
+    return tasks
+      .map((t) => {
+        const sSym = statusSymbol(t.status);
+        return `  ${sSym} ${BOLD}${t.id}${NC} ${t.title}`;
+      })
+      .join('\n');
   }
 
   return quiet ? '' : 'No tree data.';
 }
 
-function renderTreeNodes(nodes: Array<Record<string, unknown>>, prefix: string, quiet: boolean): string {
+function renderTreeNodes(
+  nodes: Array<Record<string, unknown>>,
+  prefix: string,
+  quiet: boolean,
+): string {
   const lines: string[] = [];
 
   for (let i = 0; i < nodes.length; i++) {
@@ -260,7 +280,7 @@ export function renderSession(data: Record<string, unknown>, quiet: boolean): st
 
   // Session list
   if (sessions) {
-    if (quiet) return sessions.map(s => String(s['id'])).join('\n');
+    if (quiet) return sessions.map((s) => String(s['id'])).join('\n');
     const lines: string[] = [];
     lines.push(`${BOLD}Sessions (${sessions.length})${NC}`);
     for (const s of sessions) {
@@ -337,7 +357,9 @@ export function renderPlan(data: Record<string, unknown>, quiet: boolean): strin
     for (const task of ready.slice(0, 10)) {
       const pCol = priorityColor(String(task['priority'] ?? 'medium'));
       lines.push(`  ${BOLD}${task['id']}${NC} ${pCol}[${task['priority']}]${NC} ${task['title']}`);
-      lines.push(`    ${DIM}leverage:${NC} ${task['leverage']}  ${DIM}score:${NC} ${task['score']}`);
+      lines.push(
+        `    ${DIM}leverage:${NC} ${task['leverage']}  ${DIM}score:${NC} ${task['score']}`,
+      );
       const reasons = task['reasons'] as string[] | undefined;
       if (reasons && reasons.length > 0) {
         lines.push(`    ${DIM}${reasons.join(', ')}${NC}`);
@@ -375,7 +397,9 @@ export function renderPlan(data: Record<string, unknown>, quiet: boolean): strin
     lines.push(`${RED}${BOLD}Open Bugs (${openBugs.length})${NC}`);
     for (const bug of openBugs.slice(0, 10)) {
       const pCol = priorityColor(String(bug['priority'] ?? 'medium'));
-      lines.push(`  ${RED}●${NC} ${BOLD}${bug['id']}${NC} ${pCol}[${bug['priority']}]${NC} ${bug['title']}`);
+      lines.push(
+        `  ${RED}●${NC} ${BOLD}${bug['id']}${NC} ${pCol}[${bug['priority']}]${NC} ${bug['title']}`,
+      );
     }
     if (openBugs.length > 10) {
       lines.push(`  ${DIM}... and ${openBugs.length - 10} more${NC}`);
@@ -387,9 +411,13 @@ export function renderPlan(data: Record<string, unknown>, quiet: boolean): strin
   const metrics = data['metrics'] as Record<string, number> | undefined;
   if (metrics) {
     lines.push(`${BOLD}Metrics${NC}`);
-    lines.push(`  ${DIM}Total Epics:${NC} ${metrics['totalEpics']} (${metrics['activeEpics']} active)`);
+    lines.push(
+      `  ${DIM}Total Epics:${NC} ${metrics['totalEpics']} (${metrics['activeEpics']} active)`,
+    );
     lines.push(`  ${DIM}Total Tasks:${NC} ${metrics['totalTasks']}`);
-    lines.push(`  ${DIM}Actionable:${NC} ${metrics['actionable']}  ${DIM}Blocked:${NC} ${metrics['blocked']}  ${DIM}Open Bugs:${NC} ${metrics['openBugs']}`);
+    lines.push(
+      `  ${DIM}Actionable:${NC} ${metrics['actionable']}  ${DIM}Blocked:${NC} ${metrics['blocked']}  ${DIM}Open Bugs:${NC} ${metrics['openBugs']}`,
+    );
     lines.push(`  ${DIM}Avg Leverage:${NC} ${metrics['avgLeverage']}`);
   }
 
@@ -457,6 +485,6 @@ export function renderGeneric(data: Record<string, unknown>, quiet: boolean): st
 function formatLabel(key: string): string {
   return key
     .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, s => s.toUpperCase())
+    .replace(/^./, (s) => s.toUpperCase())
     .trim();
 }

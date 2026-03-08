@@ -15,48 +15,48 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../../store/data-accessor.js';
-import type { Task } from '../../types/task.js';
-import { engineError, type EngineResult } from './_error.js';
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import { addTask as coreAddTask } from '../../core/tasks/add.js';
-import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
 import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
 import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
-import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
-import { showTask as coreShowTask } from '../../core/tasks/show.js';
-import { listTasks as coreListTasks, toCompact, type CompactTask } from '../../core/tasks/list.js';
 import { findTasks as coreFindTasks } from '../../core/tasks/find.js';
+import { type CompactTask, listTasks as coreListTasks, toCompact } from '../../core/tasks/list.js';
+import { showTask as coreShowTask } from '../../core/tasks/show.js';
 // Non-CRUD core operations
 import {
-  coreTaskNext,
-  coreTaskBlockers,
-  coreTaskTree,
-  coreTaskDeps,
-  coreTaskRelates,
-  coreTaskRelatesAdd,
+  type ComplexityFactor,
   coreTaskAnalyze,
-  coreTaskRestore,
-  coreTaskUnarchive,
-  coreTaskReorder,
-  coreTaskReparent,
-  coreTaskPromote,
-  coreTaskReopen,
+  coreTaskBatchValidate,
+  coreTaskBlockers,
   coreTaskCancel,
   coreTaskComplexityEstimate,
   coreTaskDepends,
-  coreTaskDepsOverview,
+  coreTaskDeps,
   coreTaskDepsCycles,
-  coreTaskStats,
+  coreTaskDepsOverview,
   coreTaskExport,
   coreTaskHistory,
-  coreTaskLint,
-  coreTaskBatchValidate,
   coreTaskImport,
+  coreTaskLint,
+  coreTaskNext,
+  coreTaskPromote,
+  coreTaskRelates,
+  coreTaskRelatesAdd,
+  coreTaskReopen,
+  coreTaskReorder,
+  coreTaskReparent,
+  coreTaskRestore,
+  coreTaskStats,
+  coreTaskTree,
+  coreTaskUnarchive,
   type TaskTreeNode,
-  type ComplexityFactor,
 } from '../../core/tasks/task-ops.js';
+import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { Task } from '../../types/task.js';
+import { type EngineResult, engineError } from './_error.js';
 
 const TASK_COMPLETE_EXIT_TO_ENGINE_CODE: Record<number, string> = {
   4: 'E_NOT_FOUND',
@@ -167,7 +167,7 @@ export type { EngineResult } from './_error.js';
  */
 export async function taskShow(
   projectRoot: string,
-  taskId: string
+  taskId: string,
 ): Promise<EngineResult<{ task: TaskRecord }>> {
   try {
     const accessor = await getAccessor(projectRoot);
@@ -181,7 +181,10 @@ export async function taskShow(
     if (code === 2 /* INVALID_INPUT */) {
       return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
     }
-    return engineError('E_NOT_INITIALIZED', (err as Error).message || 'Task database not initialized');
+    return engineError(
+      'E_NOT_INITIALIZED',
+      (err as Error).message || 'Task database not initialized',
+    );
   }
 }
 
@@ -203,23 +206,27 @@ export async function taskList(
     limit?: number;
     offset?: number;
     compact?: boolean;
-  }
+  },
 ): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number; filtered: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreListTasks({
-      parentId: params?.parent ?? undefined,
-      status: params?.status as import('../../types/task.js').TaskStatus | undefined,
-      priority: params?.priority as import('../../types/task.js').TaskPriority | undefined,
-      type: params?.type as import('../../types/task.js').TaskType | undefined,
-      phase: params?.phase,
-      label: params?.label,
-      children: params?.children,
-      limit: params?.limit,
-      offset: params?.offset,
-    }, projectRoot, accessor);
+    const result = await coreListTasks(
+      {
+        parentId: params?.parent ?? undefined,
+        status: params?.status as import('../../types/task.js').TaskStatus | undefined,
+        priority: params?.priority as import('../../types/task.js').TaskPriority | undefined,
+        type: params?.type as import('../../types/task.js').TaskType | undefined,
+        phase: params?.phase,
+        label: params?.label,
+        children: params?.children,
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+      projectRoot,
+      accessor,
+    );
     const tasks = params?.compact
-      ? result.tasks.map(t => toCompact(t))
+      ? result.tasks.map((t) => toCompact(t))
       : tasksToRecords(result.tasks);
     if (params?.compact) {
       return {
@@ -253,19 +260,23 @@ export async function taskFind(
     status?: string;
     includeArchive?: boolean;
     offset?: number;
-  }
+  },
 ): Promise<EngineResult<{ results: MinimalTaskRecord[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const findResult = await coreFindTasks({
-      query,
-      id: options?.id,
-      exact: options?.exact,
-      status: options?.status as import('../../types/task.js').TaskStatus | undefined,
-      includeArchive: options?.includeArchive,
-      limit: limit ?? 20,
-      offset: options?.offset,
-    }, projectRoot, accessor);
+    const findResult = await coreFindTasks(
+      {
+        query,
+        id: options?.id,
+        exact: options?.exact,
+        status: options?.status as import('../../types/task.js').TaskStatus | undefined,
+        includeArchive: options?.includeArchive,
+        limit: limit ?? 20,
+        offset: options?.offset,
+      },
+      projectRoot,
+      accessor,
+    );
 
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
       id: r.id,
@@ -288,7 +299,7 @@ export async function taskFind(
  */
 export async function taskExists(
   projectRoot: string,
-  taskId: string
+  taskId: string,
 ): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
   try {
     const accessor = await getAccessor(projectRoot);
@@ -315,19 +326,23 @@ export async function taskCreate(
     priority?: string;
     labels?: string[];
     type?: string;
-  }
+  },
 ): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreAddTask({
-      title: params.title,
-      description: params.description,
-      parentId: params.parent || null,
-      depends: params.depends,
-      priority: (params.priority as import('../../types/task.js').TaskPriority) || 'medium',
-      labels: params.labels,
-      type: (params.type as import('../../types/task.js').TaskType) || undefined,
-    }, projectRoot, accessor);
+    const result = await coreAddTask(
+      {
+        title: params.title,
+        description: params.description,
+        parentId: params.parent || null,
+        depends: params.depends,
+        priority: (params.priority as import('../../types/task.js').TaskPriority) || 'medium',
+        labels: params.labels,
+        type: (params.type as import('../../types/task.js').TaskType) || undefined,
+      },
+      projectRoot,
+      accessor,
+    );
 
     return {
       success: true,
@@ -383,28 +398,32 @@ export async function taskUpdate(
     parent?: string | null;
     type?: string;
     size?: string;
-  }
+  },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreUpdateTask({
-      taskId,
-      title: updates.title,
-      description: updates.description,
-      status: updates.status as import('../../types/task.js').TaskStatus | undefined,
-      priority: updates.priority as import('../../types/task.js').TaskPriority | undefined,
-      notes: updates.notes,
-      labels: updates.labels,
-      addLabels: updates.addLabels,
-      removeLabels: updates.removeLabels,
-      depends: updates.depends,
-      addDepends: updates.addDepends,
-      removeDepends: updates.removeDepends,
-      acceptance: updates.acceptance,
-      parentId: updates.parent,
-      type: updates.type as import('../../types/task.js').TaskType | undefined,
-      size: updates.size as import('../../types/task.js').TaskSize | undefined,
-    }, projectRoot, accessor);
+    const result = await coreUpdateTask(
+      {
+        taskId,
+        title: updates.title,
+        description: updates.description,
+        status: updates.status as import('../../types/task.js').TaskStatus | undefined,
+        priority: updates.priority as import('../../types/task.js').TaskPriority | undefined,
+        notes: updates.notes,
+        labels: updates.labels,
+        addLabels: updates.addLabels,
+        removeLabels: updates.removeLabels,
+        depends: updates.depends,
+        addDepends: updates.addDepends,
+        removeDepends: updates.removeDepends,
+        acceptance: updates.acceptance,
+        parentId: updates.parent,
+        type: updates.type as import('../../types/task.js').TaskType | undefined,
+        size: updates.size as import('../../types/task.js').TaskSize | undefined,
+      },
+      projectRoot,
+      accessor,
+    );
 
     return { success: true, data: { task: taskToRecord(result.task), changes: result.changes } };
   } catch (err: unknown) {
@@ -428,8 +447,14 @@ export async function taskUpdate(
 export async function taskComplete(
   projectRoot: string,
   taskId: string,
-  notes?: string
-): Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[]; unblockedTasks?: Array<{ id: string; title: string }> }>> {
+  notes?: string,
+): Promise<
+  EngineResult<{
+    task: TaskRecord;
+    autoCompleted?: string[];
+    unblockedTasks?: Array<{ id: string; title: string }>;
+  }>
+> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreCompleteTask({ taskId, notes }, projectRoot, accessor);
@@ -460,15 +485,19 @@ export async function taskComplete(
 export async function taskDelete(
   projectRoot: string,
   taskId: string,
-  force?: boolean
+  force?: boolean,
 ): Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreDeleteTask({
-      taskId,
-      force: force ?? false,
-      cascade: force ?? false,
-    }, projectRoot, accessor);
+    const result = await coreDeleteTask(
+      {
+        taskId,
+        force: force ?? false,
+        cascade: force ?? false,
+      },
+      projectRoot,
+      accessor,
+    );
 
     return {
       success: true,
@@ -497,14 +526,18 @@ export async function taskDelete(
 export async function taskArchive(
   projectRoot: string,
   taskId?: string,
-  before?: string
+  before?: string,
 ): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreArchiveTasks({
-      taskIds: taskId ? [taskId] : undefined,
-      before,
-    }, projectRoot, accessor);
+    const result = await coreArchiveTasks(
+      {
+        taskIds: taskId ? [taskId] : undefined,
+        before,
+      },
+      projectRoot,
+      accessor,
+    );
 
     return {
       success: true,
@@ -535,18 +568,20 @@ export async function taskNext(
   params?: {
     count?: number;
     explain?: boolean;
-  }
-): Promise<EngineResult<{
-  suggestions: Array<{
-    id: string;
-    title: string;
-    priority: string;
-    phase: string | null;
-    score: number;
-    reasons?: string[];
-  }>;
-  totalCandidates: number;
-}>> {
+  },
+): Promise<
+  EngineResult<{
+    suggestions: Array<{
+      id: string;
+      title: string;
+      priority: string;
+      phase: string | null;
+      score: number;
+      reasons?: string[];
+    }>;
+    totalCandidates: number;
+  }>
+> {
   try {
     const result = await coreTaskNext(projectRoot, params);
     return { success: true, data: result };
@@ -563,24 +598,26 @@ export async function taskNext(
  */
 export async function taskBlockers(
   projectRoot: string,
-  params?: { analyze?: boolean; limit?: number }
-): Promise<EngineResult<{
-  blockedTasks: Array<{
-    id: string;
-    title: string;
-    status: string;
-    depends?: string[];
-    blockingChain: string[];
-  }>;
-  criticalBlockers: Array<{
-    id: string;
-    title: string;
-    blocksCount: number;
-  }>;
-  summary: string;
-  total: number;
-  limit: number;
-}>> {
+  params?: { analyze?: boolean; limit?: number },
+): Promise<
+  EngineResult<{
+    blockedTasks: Array<{
+      id: string;
+      title: string;
+      status: string;
+      depends?: string[];
+      blockingChain: string[];
+    }>;
+    criticalBlockers: Array<{
+      id: string;
+      title: string;
+      blocksCount: number;
+    }>;
+    summary: string;
+    total: number;
+    limit: number;
+  }>
+> {
   try {
     const result = await coreTaskBlockers(projectRoot, params);
     return { success: true, data: result };
@@ -597,7 +634,7 @@ export async function taskBlockers(
  */
 export async function taskTree(
   projectRoot: string,
-  taskId?: string
+  taskId?: string,
 ): Promise<EngineResult<{ tree: TaskTreeNode[]; totalNodes: number }>> {
   try {
     const result = await coreTaskTree(projectRoot, taskId);
@@ -619,14 +656,16 @@ export async function taskTree(
  */
 export async function taskDeps(
   projectRoot: string,
-  taskId: string
-): Promise<EngineResult<{
-  taskId: string;
-  dependsOn: Array<{ id: string; title: string; status: string }>;
-  dependedOnBy: Array<{ id: string; title: string; status: string }>;
-  unresolvedDeps: string[];
-  allDepsReady: boolean;
-}>> {
+  taskId: string,
+): Promise<
+  EngineResult<{
+    taskId: string;
+    dependsOn: Array<{ id: string; title: string; status: string }>;
+    dependedOnBy: Array<{ id: string; title: string; status: string }>;
+    unresolvedDeps: string[];
+    allDepsReady: boolean;
+  }>
+> {
   try {
     const result = await coreTaskDeps(projectRoot, taskId);
     return { success: true, data: result };
@@ -647,16 +686,18 @@ export async function taskDeps(
  */
 export async function taskRelates(
   projectRoot: string,
-  taskId: string
-): Promise<EngineResult<{
-  taskId: string;
-  relations: Array<{
+  taskId: string,
+): Promise<
+  EngineResult<{
     taskId: string;
-    type: string;
-    reason?: string;
-  }>;
-  count: number;
-}>> {
+    relations: Array<{
+      taskId: string;
+      type: string;
+      reason?: string;
+    }>;
+    count: number;
+  }>
+> {
   try {
     const result = await coreTaskRelates(projectRoot, taskId);
     return { success: true, data: result };
@@ -678,7 +719,7 @@ export async function taskRelatesAdd(
   taskId: string,
   relatedId: string,
   type: string,
-  reason?: string
+  reason?: string,
 ): Promise<EngineResult<{ from: string; to: string; type: string; added: boolean }>> {
   try {
     const result = await coreTaskRelatesAdd(projectRoot, taskId, relatedId, type, reason);
@@ -706,23 +747,25 @@ export async function taskRelatesAdd(
 export async function taskAnalyze(
   projectRoot: string,
   taskId?: string,
-  params?: { tierLimit?: number }
-): Promise<EngineResult<{
-  recommended: { id: string; title: string; leverage: number; reason: string } | null;
-  bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
-  tiers: {
-    critical: Array<{ id: string; title: string; leverage: number }>;
-    high: Array<{ id: string; title: string; leverage: number }>;
-    normal: Array<{ id: string; title: string; leverage: number }>;
-  };
-  metrics: {
-    totalTasks: number;
-    actionable: number;
-    blocked: number;
-    avgLeverage: number;
-  };
-  tierLimit: number;
-}>> {
+  params?: { tierLimit?: number },
+): Promise<
+  EngineResult<{
+    recommended: { id: string; title: string; leverage: number; reason: string } | null;
+    bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
+    tiers: {
+      critical: Array<{ id: string; title: string; leverage: number }>;
+      high: Array<{ id: string; title: string; leverage: number }>;
+      normal: Array<{ id: string; title: string; leverage: number }>;
+    };
+    metrics: {
+      totalTasks: number;
+      actionable: number;
+      blocked: number;
+      avgLeverage: number;
+    };
+    tierLimit: number;
+  }>
+> {
   try {
     const result = await coreTaskAnalyze(projectRoot, taskId, params);
     return { success: true, data: result };
@@ -742,7 +785,7 @@ export async function taskAnalyze(
 export async function taskRestore(
   projectRoot: string,
   taskId: string,
-  params?: { cascade?: boolean; notes?: string }
+  params?: { cascade?: boolean; notes?: string },
 ): Promise<EngineResult<{ task: string; restored: string[]; count: number }>> {
   try {
     const result = await coreTaskRestore(projectRoot, taskId, params);
@@ -766,7 +809,7 @@ export async function taskRestore(
 export async function taskUnarchive(
   projectRoot: string,
   taskId: string,
-  params?: { status?: string; preserveStatus?: boolean }
+  params?: { status?: string; preserveStatus?: boolean },
 ): Promise<EngineResult<{ task: string; unarchived: boolean; title: string; status: string }>> {
   try {
     const result = await coreTaskUnarchive(projectRoot, taskId, params);
@@ -790,8 +833,10 @@ export async function taskUnarchive(
 export async function taskReorder(
   projectRoot: string,
   taskId: string,
-  position: number
-): Promise<EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>> {
+  position: number,
+): Promise<
+  EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>
+> {
   try {
     const result = await coreTaskReorder(projectRoot, taskId, position);
     return { success: true, data: result };
@@ -811,14 +856,16 @@ export async function taskReorder(
 export async function taskReparent(
   projectRoot: string,
   taskId: string,
-  newParentId: string | null
-): Promise<EngineResult<{
-  task: string;
-  reparented: boolean;
-  oldParent: string | null;
-  newParent: string | null;
-  newType?: string;
-}>> {
+  newParentId: string | null,
+): Promise<
+  EngineResult<{
+    task: string;
+    reparented: boolean;
+    oldParent: string | null;
+    newParent: string | null;
+    newType?: string;
+  }>
+> {
   try {
     const result = await coreTaskReparent(projectRoot, taskId, newParentId);
     return { success: true, data: result };
@@ -850,8 +897,15 @@ export async function taskReparent(
  */
 export async function taskPromote(
   projectRoot: string,
-  taskId: string
-): Promise<EngineResult<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }>> {
+  taskId: string,
+): Promise<
+  EngineResult<{
+    task: string;
+    promoted: boolean;
+    previousParent: string | null;
+    typeChanged: boolean;
+  }>
+> {
   try {
     const result = await coreTaskPromote(projectRoot, taskId);
     return { success: true, data: result };
@@ -871,8 +925,10 @@ export async function taskPromote(
 export async function taskReopen(
   projectRoot: string,
   taskId: string,
-  params?: { status?: string; reason?: string }
-): Promise<EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>> {
+  params?: { status?: string; reason?: string },
+): Promise<
+  EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>
+> {
   try {
     const result = await coreTaskReopen(projectRoot, taskId, params);
     return { success: true, data: result };
@@ -899,14 +955,17 @@ export async function taskCancel(
   projectRoot: string,
   taskId: string,
   reason?: string,
-): Promise<EngineResult<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }>> {
+): Promise<
+  EngineResult<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }>
+> {
   try {
     const result = await coreTaskCancel(projectRoot, taskId, { reason });
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
-    if (message.includes('already cancelled') || message.includes('completed')) return engineError('E_INVALID_INPUT', message);
+    if (message.includes('already cancelled') || message.includes('completed'))
+      return engineError('E_INVALID_INPUT', message);
     return engineError('E_INTERNAL', message);
   }
 }
@@ -919,15 +978,17 @@ export async function taskCancel(
  */
 export async function taskComplexityEstimate(
   projectRoot: string,
-  params: { taskId: string }
-): Promise<EngineResult<{
-  size: 'small' | 'medium' | 'large';
-  score: number;
-  factors: ComplexityFactor[];
-  dependencyDepth: number;
-  subtaskCount: number;
-  fileCount: number;
-}>> {
+  params: { taskId: string },
+): Promise<
+  EngineResult<{
+    size: 'small' | 'medium' | 'large';
+    score: number;
+    factors: ComplexityFactor[];
+    dependencyDepth: number;
+    subtaskCount: number;
+    fileCount: number;
+  }>
+> {
   try {
     const result = await coreTaskComplexityEstimate(projectRoot, params);
     return { success: true, data: result };
@@ -951,19 +1012,26 @@ export async function taskDepends(
   taskId: string,
   direction: 'upstream' | 'downstream' | 'both' = 'both',
   tree?: boolean,
-): Promise<EngineResult<{
-  taskId: string;
-  direction: string;
-  upstream: Array<{ id: string; title: string; status: string }>;
-  downstream: Array<{ id: string; title: string; status: string }>;
-  unresolvedChain: number;
-  leafBlockers: Array<{ id: string; title: string; status: string }>;
-  allDepsReady: boolean;
-  hint?: string;
-  upstreamTree?: TaskTreeNode[];
-}>> {
+): Promise<
+  EngineResult<{
+    taskId: string;
+    direction: string;
+    upstream: Array<{ id: string; title: string; status: string }>;
+    downstream: Array<{ id: string; title: string; status: string }>;
+    unresolvedChain: number;
+    leafBlockers: Array<{ id: string; title: string; status: string }>;
+    allDepsReady: boolean;
+    hint?: string;
+    upstreamTree?: TaskTreeNode[];
+  }>
+> {
   try {
-    const result = await coreTaskDepends(projectRoot, taskId, direction, tree ? { tree } : undefined);
+    const result = await coreTaskDepends(
+      projectRoot,
+      taskId,
+      direction,
+      tree ? { tree } : undefined,
+    );
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -978,15 +1046,15 @@ export async function taskDepends(
  * Overview of all dependencies across the project.
  * @task T5157
  */
-export async function taskDepsOverview(
-  projectRoot: string,
-): Promise<EngineResult<{
-  totalTasks: number;
-  tasksWithDeps: number;
-  blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
-  readyTasks: Array<{ id: string; title: string; status: string }>;
-  validation: { valid: boolean; errorCount: number; warningCount: number };
-}>> {
+export async function taskDepsOverview(projectRoot: string): Promise<
+  EngineResult<{
+    totalTasks: number;
+    tasksWithDeps: number;
+    blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
+    readyTasks: Array<{ id: string; title: string; status: string }>;
+    validation: { valid: boolean; errorCount: number; warningCount: number };
+  }>
+> {
   try {
     const result = await coreTaskDepsOverview(projectRoot);
     return { success: true, data: result };
@@ -1000,12 +1068,12 @@ export async function taskDepsOverview(
  * Detect circular dependencies across the project.
  * @task T5157
  */
-export async function taskDepsCycles(
-  projectRoot: string,
-): Promise<EngineResult<{
-  hasCycles: boolean;
-  cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
-}>> {
+export async function taskDepsCycles(projectRoot: string): Promise<
+  EngineResult<{
+    hasCycles: boolean;
+    cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+  }>
+> {
   try {
     const result = await coreTaskDepsCycles(projectRoot);
     return { success: true, data: result };
@@ -1023,17 +1091,19 @@ export async function taskDepsCycles(
  */
 export async function taskStats(
   projectRoot: string,
-  epicId?: string
-): Promise<EngineResult<{
-  total: number;
-  pending: number;
-  active: number;
-  blocked: number;
-  done: number;
-  cancelled: number;
-  byPriority: Record<string, number>;
-  byType: Record<string, number>;
-}>> {
+  epicId?: string,
+): Promise<
+  EngineResult<{
+    total: number;
+    pending: number;
+    active: number;
+    blocked: number;
+    done: number;
+    cancelled: number;
+    byPriority: Record<string, number>;
+    byType: Record<string, number>;
+  }>
+> {
   try {
     const result = await coreTaskStats(projectRoot, epicId);
     return { success: true, data: result };
@@ -1054,7 +1124,7 @@ export async function taskExport(
     format?: 'json' | 'csv';
     status?: string;
     parent?: string;
-  }
+  },
 ): Promise<EngineResult<unknown>> {
   try {
     const result = await coreTaskExport(projectRoot, params);
@@ -1073,7 +1143,7 @@ export async function taskExport(
 export async function taskHistory(
   projectRoot: string,
   taskId: string,
-  limit?: number
+  limit?: number,
 ): Promise<EngineResult<Array<Record<string, unknown>>>> {
   try {
     const result = await coreTaskHistory(projectRoot, taskId, limit);
@@ -1091,13 +1161,17 @@ export async function taskHistory(
  */
 export async function taskLint(
   projectRoot: string,
-  taskId?: string
-): Promise<EngineResult<Array<{
-  taskId: string;
-  severity: 'error' | 'warning';
-  rule: string;
-  message: string;
-}>>> {
+  taskId?: string,
+): Promise<
+  EngineResult<
+    Array<{
+      taskId: string;
+      severity: 'error' | 'warning';
+      rule: string;
+      message: string;
+    }>
+  >
+> {
   try {
     const result = await coreTaskLint(projectRoot, taskId);
     return { success: true, data: result };
@@ -1119,22 +1193,27 @@ export async function taskLint(
 export async function taskBatchValidate(
   projectRoot: string,
   taskIds: string[],
-  checkMode: 'full' | 'quick' = 'full'
-): Promise<EngineResult<{
-  results: Record<string, Array<{
-    severity: 'error' | 'warning';
-    rule: string;
-    message: string;
-  }>>;
-  summary: {
-    totalTasks: number;
-    validTasks: number;
-    invalidTasks: number;
-    totalIssues: number;
-    errors: number;
-    warnings: number;
-  };
-}>> {
+  checkMode: 'full' | 'quick' = 'full',
+): Promise<
+  EngineResult<{
+    results: Record<
+      string,
+      Array<{
+        severity: 'error' | 'warning';
+        rule: string;
+        message: string;
+      }>
+    >;
+    summary: {
+      totalTasks: number;
+      validTasks: number;
+      invalidTasks: number;
+      totalIssues: number;
+      errors: number;
+      warnings: number;
+    };
+  }>
+> {
   try {
     const result = await coreTaskBatchValidate(projectRoot, taskIds, checkMode);
     return { success: true, data: result };
@@ -1150,8 +1229,15 @@ export async function taskBatchValidate(
 export async function taskImport(
   projectRoot: string,
   source: string,
-  overwrite?: boolean
-): Promise<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>> {
+  overwrite?: boolean,
+): Promise<
+  EngineResult<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+    remapTable?: Record<string, string>;
+  }>
+> {
   try {
     const result = await coreTaskImport(projectRoot, source, overwrite);
     return { success: true, data: result };
@@ -1169,9 +1255,7 @@ export async function taskImport(
  * @task T4815
  */
 
-export async function taskPlan(
-  projectRoot: string
-): Promise<EngineResult> {
+export async function taskPlan(projectRoot: string): Promise<EngineResult> {
   const { coreTaskPlan } = await import('../../core/tasks/plan.js');
   try {
     const result = await coreTaskPlan(projectRoot);
@@ -1191,13 +1275,13 @@ export async function taskRelatesFind(
   params?: {
     mode?: 'suggest' | 'discover';
     threshold?: number;
-  }
+  },
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
     const { suggestRelated, discoverRelated } = await import('../../core/tasks/relates.js');
     const accessor = await getAccessor(projectRoot);
     const mode = params?.mode ?? 'suggest';
-    
+
     let result: Record<string, unknown>;
     if (mode === 'discover') {
       result = await discoverRelated(taskId, undefined, accessor);
@@ -1205,7 +1289,7 @@ export async function taskRelatesFind(
       const threshold = params?.threshold ?? 50;
       result = await suggestRelated(taskId, { threshold }, accessor);
     }
-    
+
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1221,7 +1305,7 @@ export async function taskRelatesFind(
  * @task T5672
  */
 export async function taskLabelList(
-  projectRoot: string
+  projectRoot: string,
 ): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
   try {
     const { listLabels } = await import('../../core/tasks/labels.js');
@@ -1239,7 +1323,7 @@ export async function taskLabelList(
  */
 export async function taskLabelShow(
   projectRoot: string,
-  label: string
+  label: string,
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
     const { showLabelTasks } = await import('../../core/tasks/labels.js');
@@ -1251,4 +1335,3 @@ export async function taskLabelShow(
     return engineError('E_INTERNAL', message);
   }
 }
-

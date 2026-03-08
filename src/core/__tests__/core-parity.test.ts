@@ -14,11 +14,11 @@
  * @epic T4654
  */
 
-import { mkdir,mkdtemp,readFile,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
-import { closeLogger,initLogger } from '../logger.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { closeLogger, initLogger } from '../logger.js';
 
 // ============================================================================
 // Section 1: Import Graph Verification
@@ -43,12 +43,7 @@ describe('Import Graph Verification (T4796)', () => {
     // validate-engine.ts deleted — moved to src/dispatch/engines/validate-engine.ts (T5109-T5111)
   ];
 
-  const ENGINE_DIR = join(
-    process.cwd(),
-    'src',
-    'mcp',
-    'engine',
-  );
+  const ENGINE_DIR = join(process.cwd(), 'src', 'mcp', 'engine');
 
   for (const file of ENGINE_FILES) {
     describe(`${file}`, () => {
@@ -57,14 +52,10 @@ describe('Import Graph Verification (T4796)', () => {
         const content = await readFile(filePath, 'utf-8');
 
         // Match `from '../../core/...'` lines (handles multi-line imports)
-        const fromLines = content
-          .split('\n')
-          .filter((line) => line.match(/from\s+['"]/));
+        const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
 
         const coreImports = fromLines.filter(
-          (line) =>
-            line.includes('../../core/') ||
-            line.includes('../../store/'),
+          (line) => line.includes('../../core/') || line.includes('../../store/'),
         );
 
         // Every engine file should have at least one core/store import
@@ -85,9 +76,7 @@ describe('Import Graph Verification (T4796)', () => {
 
         // Count core + store imports
         const coreImports = fromLines.filter(
-          (line) =>
-            line.includes('../../core/') ||
-            line.includes('../../store/'),
+          (line) => line.includes('../../core/') || line.includes('../../store/'),
         );
 
         // Core imports should exist
@@ -101,10 +90,7 @@ describe('Import Graph Verification (T4796)', () => {
   it('task-engine.ts imports specific core CRUD functions', async () => {
     // task-engine.ts moved to src/dispatch/engines/task-engine.ts (T5100)
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'task-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'task-engine.ts'), 'utf-8');
 
     // These core imports should exist for the shared-core pattern
     expect(content).toContain("from '../../core/tasks/add.js'");
@@ -118,10 +104,7 @@ describe('Import Graph Verification (T4796)', () => {
 
   it('dispatch session-engine.ts imports from core/sessions/ and core/task-work/', async () => {
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'session-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'session-engine.ts'), 'utf-8');
 
     expect(content).toContain("from '../../core/sessions/index.js'");
     expect(content).toContain("from '../../core/task-work/index.js'");
@@ -130,30 +113,21 @@ describe('Import Graph Verification (T4796)', () => {
   it('lifecycle-engine.ts imports from core/lifecycle/', async () => {
     // lifecycle-engine.ts moved to src/dispatch/engines/lifecycle-engine.ts
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'lifecycle-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'lifecycle-engine.ts'), 'utf-8');
 
     expect(content).toContain("from '../../core/lifecycle/index.js'");
   });
 
   it('validate-engine.ts imports from core/validation/', async () => {
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'validate-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'validate-engine.ts'), 'utf-8');
 
     expect(content).toContain("from '../../core/validation/validate-ops.js'");
   });
 
   it('system-engine.ts imports from core/stats/ and core/system/', async () => {
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'system-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'system-engine.ts'), 'utf-8');
 
     expect(content).toContain("from '../../core/stats/index.js'");
     expect(content).toContain("from '../../core/system/");
@@ -161,10 +135,7 @@ describe('Import Graph Verification (T4796)', () => {
 
   it('orchestrate-engine.ts imports from core/orchestration/', async () => {
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
-    const content = await readFile(
-      join(dispatchEngineDir, 'orchestrate-engine.ts'),
-      'utf-8',
-    );
+    const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
 
     expect(content).toContain("from '../../core/orchestration/index.js'");
   });
@@ -289,7 +260,9 @@ describe('Task CRUD Data Parity (T4796)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -368,11 +341,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
     const accessor = await getAccessor(testDir);
 
     // Filter pending tasks
-    const coreResult = await listTasks(
-      { status: 'pending' },
-      testDir,
-      accessor,
-    );
+    const coreResult = await listTasks({ status: 'pending' }, testDir, accessor);
 
     const engineResult = await taskList(testDir, { status: 'pending' });
 
@@ -391,11 +360,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
     const accessor = await getAccessor(testDir);
 
     // Search for "alpha"
-    const coreResult = await findTasks(
-      { query: 'alpha', limit: 20 },
-      testDir,
-      accessor,
-    );
+    const coreResult = await findTasks({ query: 'alpha', limit: 20 }, testDir, accessor);
 
     const engineResult = await taskFind(testDir, 'alpha');
 
@@ -491,14 +456,14 @@ describe('Session Engine Delegation (T4796)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 
   it('sessionStatus returns valid EngineResult', async () => {
-    const { sessionStatus } = await import(
-      '../../dispatch/engines/session-engine.js'
-    );
+    const { sessionStatus } = await import('../../dispatch/engines/session-engine.js');
 
     const result = await sessionStatus(testDir);
 
@@ -508,9 +473,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   it('sessionList returns valid EngineResult with canonical list metadata', async () => {
-    const { sessionList } = await import(
-      '../../dispatch/engines/session-engine.js'
-    );
+    const { sessionList } = await import('../../dispatch/engines/session-engine.js');
 
     const result = await sessionList(testDir);
 
@@ -526,9 +489,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   it('sessionStart creates session and returns EngineResult', async () => {
-    const { sessionStart } = await import(
-      '../../dispatch/engines/session-engine.js'
-    );
+    const { sessionStart } = await import('../../dispatch/engines/session-engine.js');
 
     const result = await sessionStart(testDir, {
       scope: 'epic:T010',
@@ -620,7 +581,9 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -637,9 +600,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   it('lifecycleStatus returns valid result for uninitialized epic', async () => {
-    const { lifecycleStatus } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
-    );
+    const { lifecycleStatus } = await import('../../dispatch/engines/lifecycle-engine.js');
 
     const result = await lifecycleStatus('T100', testDir);
 
@@ -681,9 +642,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   it('lifecyclePrerequisites returns valid data', async () => {
-    const { lifecyclePrerequisites } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
-    );
+    const { lifecyclePrerequisites } = await import('../../dispatch/engines/lifecycle-engine.js');
 
     const result = await lifecyclePrerequisites('specification', testDir);
 
@@ -705,9 +664,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     const checkData = checkResult.data as Record<string, unknown>;
     // specification requires research (at minimum), so should not be valid
     expect(checkData.valid).toBe(false);
-    expect(
-      (checkData.missingPrerequisites as string[]).length,
-    ).toBeGreaterThan(0);
+    expect((checkData.missingPrerequisites as string[]).length).toBeGreaterThan(0);
 
     // Complete research
     await lifecycleProgress('T100', 'research', 'completed', 'Done', testDir);
@@ -788,9 +745,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   });
 
   it('session engine error results have E_ prefixed codes', async () => {
-    const { sessionStatus } = await import(
-      '../../dispatch/engines/session-engine.js'
-    );
+    const { sessionStatus } = await import('../../dispatch/engines/session-engine.js');
 
     const result = await sessionStatus('/nonexistent');
     assertEngineResult(result);
@@ -800,9 +755,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   });
 
   it('lifecycle engine error results have E_ prefixed codes', async () => {
-    const { lifecycleStatus } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
-    );
+    const { lifecycleStatus } = await import('../../dispatch/engines/lifecycle-engine.js');
 
     // Empty epicId should fail
     const result = await lifecycleStatus('');

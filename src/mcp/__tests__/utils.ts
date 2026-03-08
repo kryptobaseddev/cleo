@@ -82,7 +82,7 @@ export function createMockExecutor(): Mocked<CLIExecutor> {
  */
 export function createSuccessResult<T = any>(
   data: T,
-  overrides?: Partial<ExecutorResult<T>>
+  overrides?: Partial<ExecutorResult<T>>,
 ): ExecutorResult<T> {
   return {
     success: true,
@@ -102,7 +102,7 @@ export function createErrorResult(
   code: string,
   message: string,
   exitCode: number = 1,
-  overrides?: Partial<ExecutorResult<never>>
+  overrides?: Partial<ExecutorResult<never>>,
 ): ExecutorResult<never> {
   return {
     success: false,
@@ -214,24 +214,18 @@ export const mocks = {
   /**
    * Mock successful task creation
    */
-  taskCreation: (taskId: string = 'T2921') =>
-    createSuccessResult(fixtures.task({ id: taskId })),
+  taskCreation: (taskId: string = 'T2921') => createSuccessResult(fixtures.task({ id: taskId })),
 
   /**
    * Mock task not found error
    */
-  taskNotFound: (taskId: string) =>
-    createErrorResult('E_NOT_FOUND', `Task ${taskId} not found`, 4),
+  taskNotFound: (taskId: string) => createErrorResult('E_NOT_FOUND', `Task ${taskId} not found`, 4),
 
   /**
    * Mock validation error
    */
   validationError: (field: string) =>
-    createErrorResult(
-      'E_INVALID_INPUT',
-      `${field} is required`,
-      6
-    ),
+    createErrorResult('E_INVALID_INPUT', `${field} is required`, 6),
 
   /**
    * Mock session start
@@ -247,6 +241,5 @@ export const mocks = {
   /**
    * Mock internal error
    */
-  internalError: () =>
-    createErrorResult('E_INTERNAL_ERROR', 'Internal server error', 1),
+  internalError: () => createErrorResult('E_INTERNAL_ERROR', 'Internal server error', 1),
 };

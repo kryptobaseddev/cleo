@@ -9,7 +9,7 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { getAccessor } from '../../store/data-accessor.js';
 
@@ -62,15 +62,23 @@ export async function discoverReleaseTasks(
 
   if (accessor) {
     const taskData = await accessor.loadTaskFile();
-    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
+    if (taskData?.tasks)
+      dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
     const archiveData = await accessor.loadArchive();
-    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
+    if (archiveData?.archivedTasks)
+      dataSources.push({
+        tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>>,
+      });
   } else {
     const dataAccessor = await getAccessor(cwd);
     const taskData = await dataAccessor.loadTaskFile();
-    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
+    if (taskData?.tasks)
+      dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
     const archiveData = await dataAccessor.loadArchive();
-    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
+    if (archiveData?.archivedTasks)
+      dataSources.push({
+        tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>>,
+      });
   }
 
   for (const data of dataSources) {
@@ -142,8 +150,8 @@ export function groupTasksIntoSections(tasks: ChangelogTask[]): ChangelogSection
   ];
 
   return sectionOrder
-    .filter(title => groups.has(title))
-    .map(title => ({ title, entries: groups.get(title)! }));
+    .filter((title) => groups.has(title))
+    .map((title) => ({ title, entries: groups.get(title)! }));
 }
 
 /** Generate changelog markdown for a version. */
@@ -177,7 +185,7 @@ export function formatChangelogJson(
   return {
     version,
     date,
-    sections: sections.map(s => ({
+    sections: sections.map((s) => ({
       title: s.title,
       entries: s.entries,
     })),
@@ -186,18 +194,12 @@ export function formatChangelogJson(
 }
 
 /** Write changelog content to a file. */
-export function writeChangelogFile(
-  filePath: string,
-  content: string,
-): void {
+export function writeChangelogFile(filePath: string, content: string): void {
   writeFileSync(filePath, content, 'utf-8');
 }
 
 /** Append a new release section to an existing CHANGELOG.md. */
-export function appendToChangelog(
-  filePath: string,
-  newContent: string,
-): void {
+export function appendToChangelog(filePath: string, newContent: string): void {
   if (!existsSync(filePath)) {
     writeFileSync(filePath, `# Changelog\n\n${newContent}`, 'utf-8');
     return;
@@ -238,7 +240,10 @@ export async function generateChangelog(
   );
 
   if (tasks.length === 0) {
-    return { success: true, result: { version, date, sections: [], totalEntries: 0, message: 'No tasks found' } };
+    return {
+      success: true,
+      result: { version, date, sections: [], totalEntries: 0, message: 'No tasks found' },
+    };
   }
 
   const sections = groupTasksIntoSections(tasks);

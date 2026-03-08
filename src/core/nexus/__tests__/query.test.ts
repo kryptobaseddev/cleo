@@ -4,21 +4,21 @@
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { closeAllDatabases, resetDbState } from '../../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import {
-  validateSyntax,
-  parseQuery,
   getCurrentProject,
-  resolveTask,
   getProjectFromQuery,
+  parseQuery,
+  resolveTask,
+  validateSyntax,
 } from '../query.js';
 import { nexusRegister } from '../registry.js';
-import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
-import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 let testDir: string;
 let projectDir: string;
@@ -171,9 +171,7 @@ describe('resolveTask', () => {
   it('throws for non-existent task', async () => {
     await nexusRegister(projectDir, 'test-proj');
 
-    await expect(
-      resolveTask('test-proj:T999'),
-    ).rejects.toThrow(/not found/i);
+    await expect(resolveTask('test-proj:T999')).rejects.toThrow(/not found/i);
   });
 
   it('resolves wildcard across projects', async () => {

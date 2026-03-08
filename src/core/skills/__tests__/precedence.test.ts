@@ -3,12 +3,12 @@
  * @task T5238
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  resolveSkillPathsForProvider,
+  determineInstallationTargets,
   getProvidersWithPrecedence,
   getSkillsMapWithPrecedence,
-  determineInstallationTargets,
+  resolveSkillPathsForProvider,
   supportsAgentsPath,
 } from '../precedence-integration.js';
 
@@ -29,19 +29,19 @@ describe('Skills Precedence Integration', () => {
   describe('resolveSkillPathsForProvider', () => {
     it('should resolve paths for vendor-only provider', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'claude-code',
         name: 'Claude Code',
         skills: { precedence: 'vendor-only', agentsGlobalPath: null, agentsProjectPath: null },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '/home/user/.claude/skills', source: 'vendor', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('claude-code', 'global');
-      
+
       expect(paths).toHaveLength(1);
       expect(paths[0].path).toBe('/home/user/.claude/skills');
       expect(paths[0].source).toBe('vendor');
@@ -52,19 +52,23 @@ describe('Skills Precedence Integration', () => {
 
     it('should resolve paths for agents-canonical provider', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'codex',
         name: 'Codex CLI',
-        skills: { precedence: 'agents-canonical', agentsGlobalPath: '~/.agents/skills', agentsProjectPath: '.agents/skills' },
+        skills: {
+          precedence: 'agents-canonical',
+          agentsGlobalPath: '~/.agents/skills',
+          agentsProjectPath: '.agents/skills',
+        },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '~/.agents/skills', source: 'agents', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('codex', 'global');
-      
+
       expect(paths).toHaveLength(1);
       expect(paths[0].path).toBe('~/.agents/skills');
       expect(paths[0].source).toBe('agents');
@@ -73,20 +77,24 @@ describe('Skills Precedence Integration', () => {
 
     it('should resolve paths for agents-supported provider', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'opencode',
         name: 'OpenCode',
-        skills: { precedence: 'agents-supported', agentsGlobalPath: '~/.opencode/skills', agentsProjectPath: '.opencode/skills' },
+        skills: {
+          precedence: 'agents-supported',
+          agentsGlobalPath: '~/.opencode/skills',
+          agentsProjectPath: '.opencode/skills',
+        },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '/home/user/.opencode/skills', source: 'agents', scope: 'global' },
         { path: '~/.opencode/skills', source: 'agents', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('opencode', 'global');
-      
+
       expect(paths).toHaveLength(2);
       expect(paths[0].precedence).toBe('agents-supported');
       expect(paths[1].precedence).toBe('agents-supported');
@@ -94,39 +102,47 @@ describe('Skills Precedence Integration', () => {
 
     it('should resolve paths for agents-paths-only provider', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'custom-agent',
         name: 'Custom Agent CLI',
-        skills: { precedence: 'agents-paths-only', agentsGlobalPath: '~/.custom/skills', agentsProjectPath: '.custom/skills' },
+        skills: {
+          precedence: 'agents-paths-only',
+          agentsGlobalPath: '~/.custom/skills',
+          agentsProjectPath: '.custom/skills',
+        },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '~/.custom/skills', source: 'agents', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('custom-agent', 'global');
-      
+
       expect(paths).toHaveLength(1);
       expect(paths[0].precedence).toBe('agents-paths-only');
     });
 
     it('should resolve paths for agents-preferred provider', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'hybrid-agent',
         name: 'Hybrid Agent',
-        skills: { precedence: 'agents-preferred', agentsGlobalPath: '~/.hybrid/skills', agentsProjectPath: '.hybrid/skills' },
+        skills: {
+          precedence: 'agents-preferred',
+          agentsGlobalPath: '~/.hybrid/skills',
+          agentsProjectPath: '.hybrid/skills',
+        },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '~/.hybrid/skills', source: 'agents', scope: 'global' },
         { path: '/vendor/skills', source: 'vendor', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('hybrid-agent', 'global');
-      
+
       expect(paths).toHaveLength(2);
       expect(paths[0].precedence).toBe('agents-preferred');
       expect(paths[1].precedence).toBe('agents-preferred');
@@ -134,19 +150,19 @@ describe('Skills Precedence Integration', () => {
 
     it('should resolve project-scoped paths', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'claude-code',
         name: 'Claude Code',
         skills: { precedence: 'vendor-only', agentsGlobalPath: null, agentsProjectPath: null },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '/project/.claude/skills', source: 'vendor', scope: 'project' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('claude-code', 'project', '/project');
-      
+
       expect(paths).toHaveLength(1);
       expect(paths[0].scope).toBe('project');
       expect(paths[0].path).toBe('/project/.claude/skills');
@@ -156,25 +172,26 @@ describe('Skills Precedence Integration', () => {
       const { getProvider } = await import('@cleocode/caamp');
       vi.mocked(getProvider).mockReturnValue(undefined);
 
-      await expect(resolveSkillPathsForProvider('unknown', 'global'))
-        .rejects.toThrow('Provider unknown not found');
+      await expect(resolveSkillPathsForProvider('unknown', 'global')).rejects.toThrow(
+        'Provider unknown not found',
+      );
     });
 
     it('should default to vendor-only when precedence is not specified', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'legacy-provider',
         name: 'Legacy Provider',
         skills: { agentsGlobalPath: null, agentsProjectPath: null },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '/legacy/skills', source: 'vendor', scope: 'global' },
       ]);
 
       const paths = await resolveSkillPathsForProvider('legacy-provider', 'global');
-      
+
       expect(paths[0].precedence).toBe('vendor-only');
     });
   });
@@ -182,37 +199,37 @@ describe('Skills Precedence Integration', () => {
   describe('getProvidersWithPrecedence', () => {
     it('should return providers for vendor-only precedence', async () => {
       const { getProvidersBySkillsPrecedence } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvidersBySkillsPrecedence).mockReturnValue([
         { id: 'claude-code', name: 'Claude Code' },
         { id: 'legacy', name: 'Legacy' },
       ] as any);
 
       const providers = getProvidersWithPrecedence('vendor-only');
-      
+
       expect(providers).toEqual(['claude-code', 'legacy']);
       expect(getProvidersBySkillsPrecedence).toHaveBeenCalledWith('vendor-only');
     });
 
     it('should return providers for agents-canonical precedence', async () => {
       const { getProvidersBySkillsPrecedence } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvidersBySkillsPrecedence).mockReturnValue([
         { id: 'codex', name: 'Codex CLI' },
       ] as any);
 
       const providers = getProvidersWithPrecedence('agents-canonical');
-      
+
       expect(providers).toEqual(['codex']);
     });
 
     it('should return empty array when no providers match', async () => {
       const { getProvidersBySkillsPrecedence } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvidersBySkillsPrecedence).mockReturnValue([]);
 
       const providers = getProvidersWithPrecedence('agents-supported');
-      
+
       expect(providers).toEqual([]);
     });
   });
@@ -220,7 +237,7 @@ describe('Skills Precedence Integration', () => {
   describe('getSkillsMapWithPrecedence', () => {
     it('should return skills map from CAAMP', async () => {
       const { buildSkillsMap } = await import('@cleocode/caamp');
-      
+
       const mockMap = [
         {
           providerId: 'claude-code',
@@ -235,22 +252,22 @@ describe('Skills Precedence Integration', () => {
           paths: { global: '~/.agents/skills', project: '.agents/skills' },
         },
       ];
-      
+
       vi.mocked(buildSkillsMap).mockReturnValue(mockMap as any);
 
       const result = getSkillsMapWithPrecedence();
-      
+
       expect(result).toEqual(mockMap);
       expect(buildSkillsMap).toHaveBeenCalled();
     });
 
     it('should return empty array when no providers configured', async () => {
       const { buildSkillsMap } = await import('@cleocode/caamp');
-      
+
       vi.mocked(buildSkillsMap).mockReturnValue([]);
 
       const result = getSkillsMapWithPrecedence();
-      
+
       expect(result).toEqual([]);
     });
   });
@@ -258,13 +275,16 @@ describe('Skills Precedence Integration', () => {
   describe('determineInstallationTargets', () => {
     it('should determine targets for multiple providers', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
-      vi.mocked(getProvider).mockImplementation((id) => ({
-        id,
-        name: `Provider ${id}`,
-        skills: { precedence: 'agents-supported' },
-      } as any));
-      
+
+      vi.mocked(getProvider).mockImplementation(
+        (id) =>
+          ({
+            id,
+            name: `Provider ${id}`,
+            skills: { precedence: 'agents-supported' },
+          }) as any,
+      );
+
       vi.mocked(getEffectiveSkillsPaths).mockImplementation((provider) => [
         { path: `/skills/${provider.id}`, source: 'agents', scope: 'global' },
       ]);
@@ -284,13 +304,13 @@ describe('Skills Precedence Integration', () => {
 
     it('should use project scope when projectRoot is provided', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProvider).mockReturnValue({
         id: 'claude-code',
         name: 'Claude Code',
         skills: { precedence: 'vendor-only' },
       } as any);
-      
+
       vi.mocked(getEffectiveSkillsPaths).mockReturnValue([
         { path: '/my-project/.claude/skills', source: 'vendor', scope: 'project' },
       ]);
@@ -308,13 +328,16 @@ describe('Skills Precedence Integration', () => {
 
     it('should skip providers with no paths', async () => {
       const { getProvider, getEffectiveSkillsPaths } = await import('@cleocode/caamp');
-      
-      vi.mocked(getProvider).mockImplementation((id) => ({
-        id,
-        name: `Provider ${id}`,
-        skills: { precedence: 'vendor-only' },
-      } as any));
-      
+
+      vi.mocked(getProvider).mockImplementation(
+        (id) =>
+          ({
+            id,
+            name: `Provider ${id}`,
+            skills: { precedence: 'vendor-only' },
+          }) as any,
+      );
+
       vi.mocked(getEffectiveSkillsPaths).mockImplementation((provider) => {
         if (provider.id === 'codex') {
           return []; // No paths for codex
@@ -346,71 +369,71 @@ describe('Skills Precedence Integration', () => {
   describe('supportsAgentsPath', () => {
     it('should return true for provider with agents global path', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue({
         skills: { agentsGlobalPath: '~/.agents/skills', agentsProjectPath: null },
       } as any);
 
       const result = await supportsAgentsPath('codex');
-      
+
       expect(result).toBe(true);
     });
 
     it('should return true for provider with agents project path', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue({
         skills: { agentsGlobalPath: null, agentsProjectPath: '.agents/skills' },
       } as any);
 
       const result = await supportsAgentsPath('codex');
-      
+
       expect(result).toBe(true);
     });
 
     it('should return true for provider with both paths', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue({
         skills: { agentsGlobalPath: '~/.agents/skills', agentsProjectPath: '.agents/skills' },
       } as any);
 
       const result = await supportsAgentsPath('codex');
-      
+
       expect(result).toBe(true);
     });
 
     it('should return false for vendor-only provider', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue({
         skills: { agentsGlobalPath: null, agentsProjectPath: null },
       } as any);
 
       const result = await supportsAgentsPath('claude-code');
-      
+
       expect(result).toBe(false);
     });
 
     it('should return false when provider has no skills capability', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue({
         tools: true,
       } as any);
 
       const result = await supportsAgentsPath('some-provider');
-      
+
       expect(result).toBe(false);
     });
 
     it('should return false when provider has no capabilities', async () => {
       const { getProviderCapabilities } = await import('@cleocode/caamp');
-      
+
       vi.mocked(getProviderCapabilities).mockReturnValue(undefined);
 
       const result = await supportsAgentsPath('unknown');
-      
+
       expect(result).toBe(false);
     });
   });

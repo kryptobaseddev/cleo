@@ -15,8 +15,8 @@
  * @epic T4959
  */
 
-import type { Middleware, DispatchRequest, DispatchNext, DispatchResponse } from '../types.js';
 import { getBoundSession } from '../context/session-context.js';
+import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**
  * Creates the session resolver middleware.
@@ -25,9 +25,7 @@ import { getBoundSession } from '../context/session-context.js';
  *   session ID from SQLite for CLI commands. If not provided, the resolver
  *   falls through to env var / null.
  */
-export function createSessionResolver(
-  cliSessionLookup?: () => Promise<string | null>,
-): Middleware {
+export function createSessionResolver(cliSessionLookup?: () => Promise<string | null>): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
     // Tier 1: Explicit — already populated by adapter
     if (req.sessionId) {

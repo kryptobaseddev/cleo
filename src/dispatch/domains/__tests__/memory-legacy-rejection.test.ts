@@ -10,7 +10,7 @@
  * @epic T5149
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock engine-compat brain.db functions (required by import)
 vi.mock('../../../core/memory/engine-compat.js', () => ({

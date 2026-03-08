@@ -8,13 +8,8 @@
  * @module @cleocode/cleo/hooks/registry
  */
 
-import type {
-  HookEvent,
-  HookPayload,
-  HookRegistration,
-  HookConfig
-} from './types.js';
 import { getLogger } from '../logger.js';
+import type { HookConfig, HookEvent, HookPayload, HookRegistration } from './types.js';
 
 /**
  * Default configuration for the hook system.
@@ -23,19 +18,19 @@ import { getLogger } from '../logger.js';
 const DEFAULT_HOOK_CONFIG: HookConfig = {
   enabled: true,
   events: {
-    'onSessionStart': true,
-    'onSessionEnd': true,
-    'onToolStart': true,
-    'onToolComplete': true,
-    'onFileChange': true,
-    'onError': true,
-    'onPromptSubmit': true,
-    'onResponseComplete': true,
-    'onWorkAvailable': true,
-    'onAgentSpawn': true,
-    'onAgentComplete': true,
-    'onCascadeStart': true,
-    'onPatrol': true,
+    onSessionStart: true,
+    onSessionEnd: true,
+    onToolStart: true,
+    onToolComplete: true,
+    onFileChange: true,
+    onError: true,
+    onPromptSubmit: true,
+    onResponseComplete: true,
+    onWorkAvailable: true,
+    onAgentSpawn: true,
+    onAgentComplete: true,
+    onCascadeStart: true,
+    onPatrol: true,
   } as Record<HookEvent, boolean>,
 };
 
@@ -71,9 +66,7 @@ export class HookRegistry {
    * // Later: unregister()
    * ```
    */
-  register<T extends HookPayload>(
-    registration: HookRegistration<T>
-  ): () => void {
+  register<T extends HookPayload>(registration: HookRegistration<T>): () => void {
     const list = this.handlers.get(registration.event) || [];
     list.push(registration as HookRegistration);
     // Sort by priority (highest first)
@@ -84,7 +77,7 @@ export class HookRegistry {
     return () => {
       const handlers = this.handlers.get(registration.event);
       if (handlers) {
-        const idx = handlers.findIndex(h => h.id === registration.id);
+        const idx = handlers.findIndex((h) => h.id === registration.id);
         if (idx !== -1) handlers.splice(idx, 1);
       }
     };
@@ -115,7 +108,7 @@ export class HookRegistry {
   async dispatch<T extends HookPayload>(
     event: HookEvent,
     projectRoot: string,
-    payload: T
+    payload: T,
   ): Promise<void> {
     // Check if hooks enabled globally
     if (!this.config.enabled) return;
@@ -135,7 +128,7 @@ export class HookRegistry {
           // Hooks are best-effort - log but don't throw
           getLogger('hooks').warn({ err: error, hookId: reg.id, event }, 'Hook handler failed');
         }
-      })
+      }),
     );
   }
 

@@ -16,11 +16,16 @@ import { ExitCode, getExitCodeName, isRecoverableCode } from '../types/exit-code
 function exitCodeToCategory(code: ExitCode): LAFSErrorCategory {
   if (code >= 1 && code <= 9) {
     switch (code) {
-      case ExitCode.NOT_FOUND: return 'NOT_FOUND';
-      case ExitCode.VALIDATION_ERROR: return 'VALIDATION';
-      case ExitCode.CONFIG_ERROR: return 'VALIDATION';
-      case ExitCode.LOCK_TIMEOUT: return 'CONFLICT';
-      default: return 'INTERNAL';
+      case ExitCode.NOT_FOUND:
+        return 'NOT_FOUND';
+      case ExitCode.VALIDATION_ERROR:
+        return 'VALIDATION';
+      case ExitCode.CONFIG_ERROR:
+        return 'VALIDATION';
+      case ExitCode.LOCK_TIMEOUT:
+        return 'CONFLICT';
+      default:
+        return 'INTERNAL';
     }
   }
   if (code >= 10 && code <= 19) return 'VALIDATION'; // hierarchy

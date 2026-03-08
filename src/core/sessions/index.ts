@@ -5,12 +5,12 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { readJson, saveJson } from '../../store/json.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session, SessionScope } from '../../types/session.js';
-import { getSessionsPath, getBackupDir } from '../paths.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { CleoError } from '../errors.js';
+import { getBackupDir, getSessionsPath } from '../paths.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
@@ -83,7 +83,11 @@ export async function readSessions(cwd?: string, accessor?: DataAccessor): Promi
  * Save sessions via accessor or JSON file.
  * @task T4463
  */
-export async function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void> {
+export async function saveSessions(
+  sessions: Session[],
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<void> {
   if (accessor) {
     await accessor.saveSessions(sessions);
     return;
@@ -91,28 +95,33 @@ export async function saveSessions(sessions: Session[], cwd?: string, accessor?:
   // JSON file fallback (legacy — used when no accessor is provided, e.g. session-enforcement)
   const sessionsPath = getSessionsPath(cwd);
   const backupDir = getBackupDir(cwd);
-  await saveJson(sessionsPath, {
-    version: '1.0.0',
-    sessions,
-    _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-  }, { backupDir });
+  await saveJson(
+    sessionsPath,
+    {
+      version: '1.0.0',
+      sessions,
+      _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
+    },
+    { backupDir },
+  );
 }
 
 /**
  * Start a new session.
  * @task T4463
  */
-export async function startSession(options: StartSessionOptions, cwd?: string, accessor?: DataAccessor): Promise<Session> {
+export async function startSession(
+  options: StartSessionOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Session> {
   const scope = parseScope(options.scope);
   const sessions = await readSessions(cwd, accessor);
 
   // Check for conflicting active sessions
   const activeSessions = sessions.filter((s: Session) => s.status === 'active');
   for (const active of activeSessions) {
-    if (
-      active.scope.type === scope.type &&
-      active.scope.epicId === scope.epicId
-    ) {
+    if (active.scope.type === scope.type && active.scope.epicId === scope.epicId) {
       throw new CleoError(
         ExitCode.SCOPE_CONFLICT,
         `Active session already exists for scope ${options.scope}: ${active.id}`,
@@ -156,13 +165,17 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
 
   // Dispatch onSessionStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
-  hooks.dispatch('onSessionStart', cwd ?? process.cwd(), {
-    timestamp: new Date().toISOString(),
-    sessionId: session.id,
-    name: options.name,
-    scope,
-    agent: options.agent,
-  }).catch(() => { /* Hooks are best-effort */ });
+  hooks
+    .dispatch('onSessionStart', cwd ?? process.cwd(), {
+      timestamp: new Date().toISOString(),
+      sessionId: session.id,
+      name: options.name,
+      scope,
+      agent: options.agent,
+    })
+    .catch(() => {
+      /* Hooks are best-effort */
+    });
 
   return session;
 }
@@ -171,7 +184,11 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
  * End a session.
  * @task T4463
  */
-export async function endSession(options: EndSessionOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<Session> {
+export async function endSession(
+  options: EndSessionOptions = {},
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Session> {
   const sessions = await readSessions(cwd, accessor);
 
   let session: Session | undefined;
@@ -182,15 +199,16 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
     // Find most recent active session
     session = sessions
       .filter((s: Session) => s.status === 'active')
-      .sort((a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+      .sort(
+        (a: Session, b: Session) =>
+          new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+      )[0];
   }
 
   if (!session) {
     throw new CleoError(
       ExitCode.SESSION_NOT_FOUND,
-      options.sessionId
-        ? `Session not found: ${options.sessionId}`
-        : 'No active session found',
+      options.sessionId ? `Session not found: ${options.sessionId}` : 'No active session found',
       { fix: "Use 'cleo session list' to see available sessions" },
     );
   }
@@ -209,21 +227,31 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
 
   // Dispatch onSessionEnd hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
-  hooks.dispatch('onSessionEnd', cwd ?? process.cwd(), {
-    timestamp: new Date().toISOString(),
-    sessionId: session.id,
-    duration,
-    tasksCompleted: session.tasksCompleted || [],
-  }).catch(() => { /* Hooks are best-effort */ });
+  hooks
+    .dispatch('onSessionEnd', cwd ?? process.cwd(), {
+      timestamp: new Date().toISOString(),
+      sessionId: session.id,
+      duration,
+      tasksCompleted: session.tasksCompleted || [],
+    })
+    .catch(() => {
+      /* Hooks are best-effort */
+    });
 
   // Bridge session data to brain.db as an observation (best-effort)
   const { bridgeSessionToMemory } = await import('./session-memory-bridge.js');
   bridgeSessionToMemory(cwd ?? process.cwd(), {
     sessionId: session.id,
-    scope: options.sessionId ? session.scope.type : (session.scope.epicId ? `epic:${session.scope.epicId}` : session.scope.type),
+    scope: options.sessionId
+      ? session.scope.type
+      : session.scope.epicId
+        ? `epic:${session.scope.epicId}`
+        : session.scope.type,
     tasksCompleted: session.tasksCompleted || [],
     duration,
-  }).catch(() => { /* Memory bridge is best-effort */ });
+  }).catch(() => {
+    /* Memory bridge is best-effort */
+  });
 
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler
@@ -243,12 +271,17 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
  * Get current session status.
  * @task T4463
  */
-export async function sessionStatus(cwd?: string, accessor?: DataAccessor): Promise<Session | null> {
+export async function sessionStatus(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Session | null> {
   const sessions = await readSessions(cwd, accessor);
 
   const active = sessions
     .filter((s: Session) => s.status === 'active')
-    .sort((a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+    .sort(
+      (a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    )[0];
 
   return active ?? null;
 }
@@ -257,16 +290,18 @@ export async function sessionStatus(cwd?: string, accessor?: DataAccessor): Prom
  * Resume an existing session.
  * @task T4463
  */
-export async function resumeSession(sessionId: string, cwd?: string, accessor?: DataAccessor): Promise<Session> {
+export async function resumeSession(
+  sessionId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Session> {
   const sessions = await readSessions(cwd, accessor);
 
   const session = sessions.find((s: Session) => s.id === sessionId);
   if (!session) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session not found: ${sessionId}`,
-      { fix: "Use 'cleo session list' to see available sessions" },
-    );
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session not found: ${sessionId}`, {
+      fix: "Use 'cleo session list' to see available sessions",
+    });
   }
 
   if (session.status === 'active') {
@@ -289,7 +324,11 @@ export async function resumeSession(sessionId: string, cwd?: string, accessor?: 
  * List sessions with optional filtering.
  * @task T4463
  */
-export async function listSessions(options: ListSessionsOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
+export async function listSessions(
+  options: ListSessionsOptions = {},
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Session[]> {
   let sessions = await readSessions(cwd, accessor);
 
   if (options.status) {
@@ -297,7 +336,9 @@ export async function listSessions(options: ListSessionsOptions = {}, cwd?: stri
   }
 
   // Sort by start time, most recent first
-  sessions.sort((a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  sessions.sort(
+    (a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  );
 
   if (options.limit) {
     sessions = sessions.slice(0, options.limit);
@@ -311,7 +352,11 @@ export async function listSessions(options: ListSessionsOptions = {}, cwd?: stri
  * Marks orphaned sessions that have been active too long.
  * @task T4463
  */
-export async function gcSessions(maxAgeHours: number = 24, cwd?: string, accessor?: DataAccessor): Promise<{ orphaned: string[]; removed: string[] }> {
+export async function gcSessions(
+  maxAgeHours: number = 24,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{ orphaned: string[]; removed: string[] }> {
   let sessions = await readSessions(cwd, accessor);
   const now = Date.now();
   const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
@@ -349,31 +394,53 @@ export async function gcSessions(maxAgeHours: number = 24, cwd?: string, accesso
   return { orphaned, removed };
 }
 
+export type { Session as SessionRecord } from '../../types/session.js';
+export type { RecordAssumptionParams } from './assumptions.js';
+export { recordAssumption } from './assumptions.js';
+export type {
+  BriefingBlockedTask,
+  BriefingBug,
+  BriefingEpic,
+  BriefingOptions,
+  BriefingTask,
+  CurrentTaskInfo,
+  LastSessionInfo,
+  PipelineStageInfo,
+  SessionBriefing,
+} from './briefing.js';
+export { computeBriefing } from './briefing.js';
+export type { DecisionLogParams, RecordDecisionParams } from './decisions.js';
+export { getDecisionLog, recordDecision } from './decisions.js';
+export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
+export { findSessions } from './find.js';
+export type {
+  ComputeDebriefOptions,
+  ComputeHandoffOptions,
+  DebriefData,
+  DebriefDecision,
+  GitState,
+  HandoffData,
+} from './handoff.js';
+export {
+  computeDebrief,
+  computeHandoff,
+  getHandoff,
+  getLastHandoff,
+  persistHandoff,
+} from './handoff.js';
+export { archiveSessions } from './session-archive.js';
+export { cleanupSessions } from './session-cleanup.js';
+export type { ContextDriftResult } from './session-drift.js';
+export { getContextDrift } from './session-drift.js';
+export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
+export { getSessionHistory } from './session-history.js';
+export type { SessionBridgeData } from './session-memory-bridge.js';
+export { bridgeSessionToMemory } from './session-memory-bridge.js';
 // Re-export extended session modules (engine-compatible)
 export { showSession } from './session-show.js';
-export { suspendSession } from './session-suspend.js';
-export { getSessionHistory } from './session-history.js';
-export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
-export { cleanupSessions } from './session-cleanup.js';
-export { getSessionStats } from './session-stats.js';
 export type { SessionStatsResult } from './session-stats.js';
+export { getSessionStats } from './session-stats.js';
+export { suspendSession } from './session-suspend.js';
 export { switchSession } from './session-switch.js';
-export { archiveSessions } from './session-archive.js';
-export { getContextDrift } from './session-drift.js';
-export type { ContextDriftResult } from './session-drift.js';
-export { recordDecision, getDecisionLog } from './decisions.js';
-export type { RecordDecisionParams, DecisionLogParams } from './decisions.js';
-export { recordAssumption } from './assumptions.js';
-export type { RecordAssumptionParams } from './assumptions.js';
-export { computeHandoff, persistHandoff, getHandoff, getLastHandoff, computeDebrief } from './handoff.js';
-export type { HandoffData, ComputeHandoffOptions, DebriefData, ComputeDebriefOptions, GitState, DebriefDecision } from './handoff.js';
-export { computeBriefing } from './briefing.js';
-export type { SessionBriefing, BriefingOptions, BriefingTask, BriefingBug, BriefingBlockedTask, BriefingEpic, CurrentTaskInfo, LastSessionInfo, PipelineStageInfo } from './briefing.js';
-export type { TaskWorkStateExt, TaskFileExt, DecisionRecord, AssumptionRecord } from './types.js';
-export type { Session as SessionRecord } from '../../types/session.js';
 export { SessionView } from './session-view.js';
-export { findSessions } from './find.js';
-export type { MinimalSessionRecord, FindSessionsParams } from './find.js';
-export { bridgeSessionToMemory } from './session-memory-bridge.js';
-export type { SessionBridgeData } from './session-memory-bridge.js';
-
+export type { AssumptionRecord, DecisionRecord, TaskFileExt, TaskWorkStateExt } from './types.js';

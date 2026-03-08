@@ -7,10 +7,10 @@
  * @task T5128
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -429,7 +429,7 @@ describe('BrainDataAccessor', () => {
 
       const links = await accessor.getLinksForTask('T5000');
       expect(links).toHaveLength(2);
-      const memoryIds = links.map(l => l.memoryId).sort();
+      const memoryIds = links.map((l) => l.memoryId).sort();
       expect(memoryIds).toEqual(['D200', 'P200']);
     });
 

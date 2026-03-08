@@ -6,19 +6,16 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
+import { CleoError } from '../errors.js';
 
 /**
  * Show a specific session.
  * Looks in active sessions first, then session history.
  * Throws CleoError if not found.
  */
-export async function showSession(
-  projectRoot: string,
-  sessionId: string,
-): Promise<Session> {
+export async function showSession(projectRoot: string, sessionId: string): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
@@ -27,8 +24,5 @@ export async function showSession(
     return session;
   }
 
-  throw new CleoError(
-    ExitCode.SESSION_NOT_FOUND,
-    `Session '${sessionId}' not found`,
-  );
+  throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${sessionId}' not found`);
 }

@@ -8,8 +8,8 @@
  * from the package's templates/git-hooks/ directory.
  */
 
-import { chmod, mkdir, copyFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { chmod, copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPackageRoot } from './scaffold.js';
 
@@ -100,7 +100,9 @@ export async function ensureGitHooks(
       await chmod(destPath, 0o755);
       installedCount++;
     } catch (err) {
-      errors.push(`Failed to install git hook ${hook}: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(
+        `Failed to install git hook ${hook}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

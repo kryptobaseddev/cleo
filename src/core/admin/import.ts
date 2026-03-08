@@ -6,11 +6,11 @@
  * @task T5323, T5328
  */
 
+import { constants as fsConstants } from 'node:fs';
+import { access, readFile } from 'node:fs/promises';
 import { getAccessor } from '../../store/data-accessor.js';
 import { computeChecksum } from '../../store/json.js';
-import { readFile, access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
-import type { Task, TaskStatus, TaskPriority } from '../../types/task.js';
+import type { Task, TaskPriority, TaskStatus } from '../../types/task.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
 
@@ -18,7 +18,7 @@ function generateTaskId(existingIds: Set<string>): string {
   let maxNum = 0;
   for (const id of existingIds) {
     const num = parseInt(id.replace('T', ''), 10);
-    if (!isNaN(num) && num > maxNum) maxNum = num;
+    if (!Number.isNaN(num) && num > maxNum) maxNum = num;
   }
   const newId = `T${String(maxNum + 1).padStart(4, '0')}`;
   existingIds.add(newId);

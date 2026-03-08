@@ -4,12 +4,12 @@
  * @task T4457
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readJson, readJsonRequired, computeChecksum, appendJsonl } from '../json.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { atomicWrite } from '../atomic.js';
+import { appendJsonl, computeChecksum, readJson, readJsonRequired } from '../json.js';
 
 describe('readJson', () => {
   let tempDir: string;
@@ -60,9 +60,9 @@ describe('readJsonRequired', () => {
   });
 
   it('throws for missing files', async () => {
-    await expect(
-      readJsonRequired(join(tempDir, 'missing.json')),
-    ).rejects.toThrow('Required file not found');
+    await expect(readJsonRequired(join(tempDir, 'missing.json'))).rejects.toThrow(
+      'Required file not found',
+    );
   });
 });
 

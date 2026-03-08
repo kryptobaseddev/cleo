@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import * as api from '../../index.js';
 
 describe('package-root migration API compatibility', () => {

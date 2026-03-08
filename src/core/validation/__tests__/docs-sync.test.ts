@@ -4,17 +4,17 @@
  * @epic T4454
  */
 
-import { mkdirSync,rmSync,writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   checkCommandsSync,
   detectDrift,
   getIndexCommands,
   getIndexScripts,
   getScriptCommands,
-  shouldRunDriftDetection
+  shouldRunDriftDetection,
 } from '../docs-sync.js';
 
 // ============================================================================
@@ -36,7 +36,15 @@ function makeScriptsDir(root: string, scripts: string[]): string {
   return dir;
 }
 
-function makeCommandsIndex(root: string, commands: Array<{ name: string; script?: string; aliasFor?: string | null; note?: string | null }>): string {
+function makeCommandsIndex(
+  root: string,
+  commands: Array<{
+    name: string;
+    script?: string;
+    aliasFor?: string | null;
+    note?: string | null;
+  }>,
+): string {
   const indexPath = join(root, 'docs', 'commands', 'COMMANDS-INDEX.json');
   mkdirSync(join(root, 'docs', 'commands'), { recursive: true });
   writeFileSync(indexPath, JSON.stringify({ commands }, null, 2));
@@ -50,8 +58,12 @@ function makeCommandsIndex(root: string, commands: Array<{ name: string; script?
 describe('getScriptCommands', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('returns sorted list of script names without .sh extension', () => {
     makeScriptsDir(root, ['zebra', 'add', 'list']);
@@ -88,8 +100,12 @@ describe('getScriptCommands', () => {
 describe('getIndexScripts', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('extracts script names from index', () => {
     const indexPath = makeCommandsIndex(root, [
@@ -131,8 +147,12 @@ describe('getIndexScripts', () => {
 describe('getIndexCommands', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('returns command names sorted', () => {
     const indexPath = makeCommandsIndex(root, [
@@ -156,8 +176,12 @@ describe('getIndexCommands', () => {
 describe('checkCommandsSync', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('returns no issues when scripts and index are in sync', () => {
     makeScriptsDir(root, ['add', 'list', 'find']);
@@ -172,11 +196,9 @@ describe('checkCommandsSync', () => {
 
   it('reports script missing from index as error', () => {
     makeScriptsDir(root, ['add', 'orphaned-script']);
-    const indexPath = makeCommandsIndex(root, [
-      { name: 'add', script: 'add.sh' },
-    ]);
+    const indexPath = makeCommandsIndex(root, [{ name: 'add', script: 'add.sh' }]);
     const issues = checkCommandsSync(join(root, 'scripts'), indexPath);
-    const missingFromIndex = issues.filter(i => i.type === 'missing_from_index');
+    const missingFromIndex = issues.filter((i) => i.type === 'missing_from_index');
     expect(missingFromIndex).toHaveLength(1);
     expect(missingFromIndex[0].item).toBe('orphaned-script.sh');
     expect(missingFromIndex[0].severity).toBe('error');
@@ -189,7 +211,7 @@ describe('checkCommandsSync', () => {
       { name: 'ghost', script: 'ghost.sh' },
     ]);
     const issues = checkCommandsSync(join(root, 'scripts'), indexPath);
-    const orphaned = issues.filter(i => i.type === 'orphaned_index');
+    const orphaned = issues.filter((i) => i.type === 'orphaned_index');
     expect(orphaned).toHaveLength(1);
     expect(orphaned[0].item).toBe('ghost.sh');
     expect(orphaned[0].severity).toBe('error');
@@ -199,7 +221,7 @@ describe('checkCommandsSync', () => {
     const indexPath = makeCommandsIndex(root, [{ name: 'add', script: 'add.sh' }]);
     const issues = checkCommandsSync(join(root, 'nonexistent'), indexPath);
     // Should report orphaned entries for all index scripts
-    expect(issues.every(i => i.type === 'orphaned_index')).toBe(true);
+    expect(issues.every((i) => i.type === 'orphaned_index')).toBe(true);
   });
 });
 
@@ -240,8 +262,12 @@ describe('shouldRunDriftDetection', () => {
 describe('detectDrift', () => {
   let root: string;
 
-  beforeEach(() => { root = makeRoot(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    root = makeRoot();
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
 
   it('returns exitCode 0 with no issues when scripts and index match', () => {
     makeScriptsDir(root, ['add', 'list']);
@@ -259,7 +285,7 @@ describe('detectDrift', () => {
     makeCommandsIndex(root, [{ name: 'add', script: 'add.sh' }]);
     const report = detectDrift('quick', root);
     expect(report.exitCode).toBe(2);
-    expect(report.issues.some(i => i.severity === 'error')).toBe(true);
+    expect(report.issues.some((i) => i.severity === 'error')).toBe(true);
   });
 
   it('returns mode in report', () => {

@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
 
@@ -106,10 +107,7 @@ export async function verifyBackup(
  * @returns true if checksums match, false otherwise
  * @task T4728
  */
-export async function compareChecksums(
-  filePath1: string,
-  filePath2: string,
-): Promise<boolean> {
+export async function compareChecksums(filePath1: string, filePath2: string): Promise<boolean> {
   const checksum1 = await computeChecksum(filePath1);
   const checksum2 = await computeChecksum(filePath2);
   return checksum1 === checksum2;

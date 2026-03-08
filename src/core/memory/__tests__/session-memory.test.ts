@@ -6,10 +6,10 @@
  * @epic T5149
  */
 
-import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DebriefData } from '../../sessions/handoff.js';
 
 let tempDir: string;
@@ -146,12 +146,14 @@ describe('Session Memory', () => {
 
       const longDecision = 'A'.repeat(200);
       const debrief = makeDebrief({
-        decisions: [{
-          id: 'DEC-002',
-          decision: longDecision,
-          rationale: 'test',
-          taskId: 'T100',
-        }],
+        decisions: [
+          {
+            id: 'DEC-002',
+            decision: longDecision,
+            rationale: 'test',
+            taskId: 'T100',
+          },
+        ],
       });
       const items = extractMemoryItems('S-001', debrief);
       const decisionItem = items.find((i) => i.type === 'decision');
@@ -289,10 +291,11 @@ describe('Session Memory', () => {
         sourceType: 'session-debrief',
       });
 
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', epicId: 'T5149', rootTaskId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, {
+        type: 'epic',
+        epicId: 'T5149',
+        rootTaskId: 'T5149',
+      });
 
       expect(context).toHaveProperty('recentDecisions');
       expect(context).toHaveProperty('relevantPatterns');
@@ -314,10 +317,7 @@ describe('Session Memory', () => {
         sourceType: 'session-debrief',
       });
 
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T200' },
-      );
+      const context = await getSessionMemoryContext(tempDir, { type: 'epic', rootTaskId: 'T200' });
 
       // The observation contains 'session' text so it should be found
       // by the search even with T200 as query (may or may not match)
@@ -383,11 +383,7 @@ describe('Session Memory', () => {
         });
       }
 
-      const context = await getSessionMemoryContext(
-        tempDir,
-        undefined,
-        { limit: 2 },
-      );
+      const context = await getSessionMemoryContext(tempDir, undefined, { limit: 2 });
 
       // Observations search should be limited
       expect(context.recentObservations.length).toBeLessThanOrEqual(2);
@@ -405,10 +401,7 @@ describe('Session Memory', () => {
         sourceType: 'session-debrief',
       });
 
-      const context = await getSessionMemoryContext(
-        tempDir,
-        { type: 'epic', rootTaskId: 'T5149' },
-      );
+      const context = await getSessionMemoryContext(tempDir, { type: 'epic', rootTaskId: 'T5149' });
 
       // The search query includes T5149, so relevant results should appear
       expect(context).toHaveProperty('recentDecisions');

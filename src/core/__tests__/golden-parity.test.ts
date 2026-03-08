@@ -9,12 +9,12 @@
  * @epic T4663
  */
 
-import { describe, it, expect } from 'vitest';
-import { formatSuccess, formatError } from '../output.js';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { createPage } from '../pagination.js';
+import { describe, expect, it } from 'vitest';
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { formatError, formatSuccess } from '../output.js';
+import { createPage } from '../pagination.js';
 
 /**
  * Canonical LAFS success envelope shape.
@@ -111,11 +111,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
     });
 
     it('tasks.list envelope matches golden shape', () => {
-      const json = formatSuccess(
-        { tasks: [], total: 0 },
-        undefined,
-        'tasks.list',
-      );
+      const json = formatSuccess({ tasks: [], total: 0 }, undefined, 'tasks.list');
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_SUCCESS_SHAPE);
     });
@@ -193,11 +189,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
   describe('Paginated envelope shape', () => {
     it('envelope with page field has correct structure', () => {
       const page = createPage({ total: 100, limit: 20, offset: 0 });
-      const json = formatSuccess(
-        { tasks: [] },
-        undefined,
-        { operation: 'tasks.list', page },
-      );
+      const json = formatSuccess({ tasks: [] }, undefined, { operation: 'tasks.list', page });
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_SUCCESS_SHAPE);
       expect(parsed.page).toBeDefined();

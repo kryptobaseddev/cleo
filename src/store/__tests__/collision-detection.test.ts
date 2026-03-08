@@ -8,10 +8,10 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint to prevent real git operations
 vi.mock('../git-checkpoint.js', () => ({
@@ -62,9 +62,9 @@ describe('Collision Detection', () => {
       });
 
       // Should throw in strict mode
-      await expect(
-        checkTaskExists('T001', tempDir, { strictMode: true }),
-      ).rejects.toThrow('collision');
+      await expect(checkTaskExists('T001', tempDir, { strictMode: true })).rejects.toThrow(
+        'collision',
+      );
     });
 
     it('should return true for existing task in non-strict mode', async () => {
@@ -136,7 +136,7 @@ describe('Collision Detection', () => {
       );
 
       // All should return false (no collisions for non-existent tasks)
-      expect(results.every(r => r === false)).toBe(true);
+      expect(results.every((r) => r === false)).toBe(true);
     });
 
     it('should detect collision from rapid create-then-check', async () => {

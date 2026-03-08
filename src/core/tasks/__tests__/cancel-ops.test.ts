@@ -4,9 +4,9 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
-import { canCancel, cancelTask, cancelMultiple } from '../cancel-ops.js';
+import { describe, expect, it } from 'vitest';
 import type { Task } from '../../../types/task.js';
+import { canCancel, cancelMultiple, cancelTask } from '../cancel-ops.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -75,7 +75,7 @@ describe('cancelTask', () => {
   it('sets cancellationReason and timestamp', () => {
     const tasks = [makeTask({ id: 'T001', status: 'active' })];
     const { tasks: updated } = cancelTask('T001', tasks, 'Duplicate');
-    const cancelled = updated.find(t => t.id === 'T001')!;
+    const cancelled = updated.find((t) => t.id === 'T001')!;
     expect(cancelled.status).toBe('cancelled');
     expect(cancelled.cancelledAt).toBeDefined();
     expect(cancelled.cancellationReason).toBe('Duplicate');
@@ -88,7 +88,7 @@ describe('cancelTask', () => {
       makeTask({ id: 'T002', status: 'pending' }),
     ];
     const { tasks: updated } = cancelTask('T001', tasks);
-    expect(updated.find(t => t.id === 'T002')!.status).toBe('pending');
+    expect(updated.find((t) => t.id === 'T002')!.status).toBe('pending');
   });
 
   it('cancels without reason', () => {
@@ -108,9 +108,9 @@ describe('cancelMultiple', () => {
     ];
     const { tasks: updated, results } = cancelMultiple(['T001', 'T002'], tasks, 'Batch cancel');
     expect(results).toHaveLength(2);
-    expect(results.every(r => r.success)).toBe(true);
-    expect(updated.filter(t => t.status === 'cancelled')).toHaveLength(2);
-    expect(updated.find(t => t.id === 'T003')!.status).toBe('pending');
+    expect(results.every((r) => r.success)).toBe(true);
+    expect(updated.filter((t) => t.status === 'cancelled')).toHaveLength(2);
+    expect(updated.find((t) => t.id === 'T003')!.status).toBe('pending');
   });
 
   it('partially succeeds when some tasks cannot be cancelled', () => {

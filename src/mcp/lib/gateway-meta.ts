@@ -14,8 +14,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { GatewayMeta } from '../../types/lafs.js';
 import { getCurrentSessionId } from '../../core/sessions/context-alert.js';
+import type { GatewayMeta } from '../../types/lafs.js';
 
 /**
  * GatewayMeta with an index signature for DomainResponse._meta

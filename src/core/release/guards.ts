@@ -8,10 +8,10 @@
  * @epic T4454
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
-import type { TaskFile, Task } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJson } from '../../store/json.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {
@@ -29,10 +29,7 @@ export interface EpicCompletenessResult {
 /**
  * Walk parent chain to find the epic ancestor of a task.
  */
-function findEpicAncestor(
-  taskId: string,
-  tasksById: Map<string, Task>,
-): string | null {
+function findEpicAncestor(taskId: string, tasksById: Map<string, Task>): string | null {
   const task = tasksById.get(taskId);
   if (!task) return null;
   if (task.type === 'epic') return taskId;
@@ -79,7 +76,7 @@ export async function checkEpicCompleteness(
   }
 
   // Find orphan tasks (no epic)
-  const orphanTasks = releaseTaskIds.filter(id => !taskToEpic.get(id));
+  const orphanTasks = releaseTaskIds.filter((id) => !taskToEpic.get(id));
 
   // Group by epic
   const byEpic = new Map<string, string[]>();
@@ -98,11 +95,11 @@ export async function checkEpicCompleteness(
     if (!epic) continue;
 
     // Find all children of this epic
-    const allChildren = data.tasks.filter(t => t.parentId === epicId && t.id !== epicId);
+    const allChildren = data.tasks.filter((t) => t.parentId === epicId && t.id !== epicId);
     const includedSet = new Set(includedTasks);
     const missingChildren = allChildren
-      .filter(t => !includedSet.has(t.id) && !releaseSet.has(t.id))
-      .map(t => ({ id: t.id, title: t.title, status: t.status }));
+      .filter((t) => !includedSet.has(t.id) && !releaseSet.has(t.id))
+      .map((t) => ({ id: t.id, title: t.title, status: t.status }));
 
     if (missingChildren.length > 0) hasIncomplete = true;
 
@@ -138,8 +135,8 @@ export function checkDoubleListing(
 
   for (const taskId of releaseTaskIds) {
     const inReleases = existingReleases
-      .filter(r => r.tasks.includes(taskId))
-      .map(r => r.version);
+      .filter((r) => r.tasks.includes(taskId))
+      .map((r) => r.version);
 
     if (inReleases.length > 0) {
       duplicates.push({ taskId, releases: inReleases });

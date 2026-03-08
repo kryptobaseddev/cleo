@@ -4,30 +4,38 @@
  * @epic T4454
  */
 
-export { addTask, type AddTaskOptions, type AddTaskResult } from './add.js';
 export {
-  validateTitle,
-  validateStatus,
-  validatePriority,
-  normalizePriority,
-  VALID_PRIORITIES,
-  validateTaskType,
-  validateSize,
-  validateLabels,
-  validatePhaseFormat,
-  validateDepends,
-  validateParent,
+  type AddTaskOptions,
+  type AddTaskResult,
+  addTask,
+  findRecentDuplicate,
   generateTaskId,
+  getNextPosition,
   getTaskDepth,
   inferTaskType,
-  getNextPosition,
-  findRecentDuplicate,
   logOperation,
+  normalizePriority,
+  VALID_PRIORITIES,
+  validateDepends,
+  validateLabels,
+  validateParent,
+  validatePhaseFormat,
+  validatePriority,
+  validateSize,
+  validateStatus,
+  validateTaskType,
+  validateTitle,
 } from './add.js';
-export { listTasks, type ListTasksOptions, type ListTasksResult } from './list.js';
+export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
+export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
+export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+export {
+  type FindResult,
+  type FindTasksOptions,
+  type FindTasksResult,
+  findTasks,
+  fuzzyScore,
+} from './find.js';
+export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
 export { showTask, type TaskDetail } from './show.js';
-export { findTasks, fuzzyScore, type FindTasksOptions, type FindTasksResult, type FindResult } from './find.js';
-export { completeTask, type CompleteTaskOptions, type CompleteTaskResult } from './complete.js';
-export { updateTask, type UpdateTaskOptions, type UpdateTaskResult } from './update.js';
-export { deleteTask, type DeleteTaskOptions, type DeleteTaskResult } from './delete.js';
-export { archiveTasks, type ArchiveTasksOptions, type ArchiveTasksResult } from './archive.js';
+export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

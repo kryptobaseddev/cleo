@@ -7,22 +7,22 @@
  * @task T4854
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync } from 'fs';
 import { mkdtemp, rm } from 'fs/promises';
-import { join } from 'path';
 import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  orchestrateStatus,
   orchestrateAnalyze,
-  orchestrateReady,
-  orchestrateNext,
-  orchestrateWaves,
   orchestrateContext,
-  orchestrateValidate,
-  orchestrateSpawn,
   orchestrateHandoff,
+  orchestrateNext,
+  orchestrateReady,
+  orchestrateSpawn,
   orchestrateStartup,
+  orchestrateStatus,
+  orchestrateValidate,
+  orchestrateWaves,
 } from '../orchestrate-engine.js';
 import { sessionStart, sessionStatus } from '../session-engine.js';
 
@@ -45,11 +45,58 @@ async function seedTasks(testRoot: string, tasks: any[]): Promise<void> {
 }
 
 const SAMPLE_TASKS = [
-  { id: 'T100', title: 'Epic Task', description: 'Parent epic', status: 'active', priority: 'high', createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T101', title: 'First child', description: 'Task 1', status: 'done', priority: 'high', parentId: 'T100', createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T102', title: 'Second child', description: 'Task 2', status: 'pending', priority: 'medium', parentId: 'T100', depends: ['T101'], createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T103', title: 'Third child', description: 'Task 3', status: 'pending', priority: 'high', parentId: 'T100', depends: ['T101'], createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T104', title: 'Fourth child', description: 'Task 4', status: 'pending', priority: 'low', parentId: 'T100', depends: ['T102', 'T103'], createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
+  {
+    id: 'T100',
+    title: 'Epic Task',
+    description: 'Parent epic',
+    status: 'active',
+    priority: 'high',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  },
+  {
+    id: 'T101',
+    title: 'First child',
+    description: 'Task 1',
+    status: 'done',
+    priority: 'high',
+    parentId: 'T100',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  },
+  {
+    id: 'T102',
+    title: 'Second child',
+    description: 'Task 2',
+    status: 'pending',
+    priority: 'medium',
+    parentId: 'T100',
+    depends: ['T101'],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  },
+  {
+    id: 'T103',
+    title: 'Third child',
+    description: 'Task 3',
+    status: 'pending',
+    priority: 'high',
+    parentId: 'T100',
+    depends: ['T101'],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  },
+  {
+    id: 'T104',
+    title: 'Fourth child',
+    description: 'Task 4',
+    status: 'pending',
+    priority: 'low',
+    parentId: 'T100',
+    depends: ['T102', 'T103'],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  },
 ];
 
 describe('Orchestrate Engine', () => {
@@ -59,14 +106,19 @@ describe('Orchestrate Engine', () => {
     await seedTasks(TEST_ROOT, SAMPLE_TASKS);
     const protocolsDir = join(TEST_ROOT, 'protocols');
     mkdirSync(protocolsDir, { recursive: true });
-    writeFileSync(join(protocolsDir, 'implementation.md'), '# Implementation Protocol\nUse this for handoff tests.\n');
+    writeFileSync(
+      join(protocolsDir, 'implementation.md'),
+      '# Implementation Protocol\nUse this for handoff tests.\n',
+    );
   });
 
   afterEach(async () => {
     try {
       const { closeAllDatabases } = await import('../../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     await rm(TEST_ROOT, { recursive: true, force: true });
   });
 
@@ -195,11 +247,14 @@ describe('Orchestrate Engine', () => {
       });
       expect(startResult.success).toBe(true);
 
-      const result = await orchestrateHandoff({
-        taskId: 'T102',
-        protocolType: 'implementation',
-        note: 'handoff complete',
-      }, TEST_ROOT);
+      const result = await orchestrateHandoff(
+        {
+          taskId: 'T102',
+          protocolType: 'implementation',
+          note: 'handoff complete',
+        },
+        TEST_ROOT,
+      );
 
       expect(result.success).toBe(true);
       const data = result.data as any;
@@ -216,10 +271,13 @@ describe('Orchestrate Engine', () => {
     });
 
     it('should fail with no active session and surface step metadata', async () => {
-      const result = await orchestrateHandoff({
-        taskId: 'T102',
-        protocolType: 'implementation',
-      }, TEST_ROOT);
+      const result = await orchestrateHandoff(
+        {
+          taskId: 'T102',
+          protocolType: 'implementation',
+        },
+        TEST_ROOT,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_SESSION_REQUIRED');
@@ -236,10 +294,13 @@ describe('Orchestrate Engine', () => {
       });
       expect(startResult.success).toBe(true);
 
-      const result = await orchestrateHandoff({
-        taskId: 'T104',
-        protocolType: 'implementation',
-      }, TEST_ROOT);
+      const result = await orchestrateHandoff(
+        {
+          taskId: 'T104',
+          protocolType: 'implementation',
+        },
+        TEST_ROOT,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_SPAWN_VALIDATION_FAILED');

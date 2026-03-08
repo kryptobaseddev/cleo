@@ -12,9 +12,9 @@
 
 import type { DebriefData, DebriefDecision } from '../sessions/handoff.js';
 import type {
+  BrainCompactHit,
   BrainObservationType,
   ObserveBrainResult,
-  BrainCompactHit,
   SearchBrainCompactResult,
 } from './brain-retrieval.js';
 
@@ -101,9 +101,10 @@ export function extractMemoryItems(
   if (Array.isArray(tasksCompleted) && tasksCompleted.length > 0) {
     const taskList = tasksCompleted.join(', ');
     const nextSuggested = debrief.handoff?.nextSuggested;
-    const nextPart = Array.isArray(nextSuggested) && nextSuggested.length > 0
-      ? ` Next suggested: ${nextSuggested.join(', ')}`
-      : '';
+    const nextPart =
+      Array.isArray(nextSuggested) && nextSuggested.length > 0
+        ? ` Next suggested: ${nextSuggested.join(', ')}`
+        : '';
     const text = `Session ${sessionId} completed ${tasksCompleted.length} tasks: ${taskList}.${nextPart}`;
     items.push({
       text,
@@ -172,7 +173,9 @@ export async function persistSessionMemory(
     const links = await import('./brain-links.js');
     linkMemoryToTask = links.linkMemoryToTask;
   } catch (err) {
-    result.errors.push(`Failed to load brain modules: ${err instanceof Error ? err.message : String(err)}`);
+    result.errors.push(
+      `Failed to load brain modules: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return result;
   }
 
@@ -190,7 +193,9 @@ export async function persistSessionMemory(
       result.observationsCreated++;
       result.observationIds.push(obsResult.id);
     } catch (err) {
-      result.errors.push(`Failed to create observation: ${err instanceof Error ? err.message : String(err)}`);
+      result.errors.push(
+        `Failed to create observation: ${err instanceof Error ? err.message : String(err)}`,
+      );
       continue; // Skip linking if observation creation failed
     }
 
@@ -206,7 +211,9 @@ export async function persistSessionMemory(
         );
         result.linksCreated++;
       } catch (err) {
-        result.errors.push(`Failed to link observation ${obsResult.id} to task ${item.linkTaskId}: ${err instanceof Error ? err.message : String(err)}`);
+        result.errors.push(
+          `Failed to link observation ${obsResult.id} to task ${item.linkTaskId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   }
@@ -260,7 +267,11 @@ export async function getSessionMemoryContext(
             limit,
             tables: ['decisions'],
           })
-        : Promise.resolve({ results: [], total: 0, tokensEstimated: 0 } as SearchBrainCompactResult),
+        : Promise.resolve({
+            results: [],
+            total: 0,
+            tokensEstimated: 0,
+          } as SearchBrainCompactResult),
 
       // Patterns: recent patterns
       searchBrainCompact(projectRoot, {

@@ -10,9 +10,9 @@
  * @task T4979
  */
 
-import { applyFieldFilter as sdkApplyFieldFilter, isMVILevel } from '@cleocode/lafs-protocol';
 import type { LAFSEnvelope } from '@cleocode/lafs-protocol';
-import type { Middleware, DispatchRequest, DispatchResponse } from '../types.js';
+import { isMVILevel, applyFieldFilter as sdkApplyFieldFilter } from '@cleocode/lafs-protocol';
+import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**
  * Create the LAFS field-filter middleware.
@@ -25,7 +25,10 @@ import type { Middleware, DispatchRequest, DispatchResponse } from '../types.js'
  * them as params) and stored on the DispatchRequest before the domain handler runs.
  */
 export function createFieldFilter(): Middleware {
-  return async (req: DispatchRequest, next: () => Promise<DispatchResponse>): Promise<DispatchResponse> => {
+  return async (
+    req: DispatchRequest,
+    next: () => Promise<DispatchResponse>,
+  ): Promise<DispatchResponse> => {
     // Extract control params from req.params (MCP agents pass them here)
     const _fields = req._fields ?? (req.params?._fields as string[] | undefined);
     const rawMvi = req._mvi ?? (req.params?._mvi as string | undefined);
@@ -48,7 +51,7 @@ export function createFieldFilter(): Middleware {
     if (_fields?.length && response.success && response.data !== undefined) {
       const stub: LAFSEnvelope = {
         $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-        _meta: (response._meta as unknown as LAFSEnvelope['_meta']),
+        _meta: response._meta as unknown as LAFSEnvelope['_meta'],
         success: true,
         result: response.data as LAFSEnvelope['result'],
       };

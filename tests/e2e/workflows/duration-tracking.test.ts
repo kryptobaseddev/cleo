@@ -8,7 +8,7 @@
  * @epic T3125
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/cli.js';
 
 // Mock engine imports
@@ -33,9 +33,7 @@ describe('11.4 Duration Tracking', () => {
     // Mock taskFind response
     (taskFind as any).mockResolvedValueOnce({
       success: true,
-      data: [
-        { id: 'T2405', title: 'Authentication module', status: 'active' },
-      ],
+      data: [{ id: 'T2405', title: 'Authentication module', status: 'active' }],
     });
 
     const result = await dispatchRaw('query', 'tasks', 'find', { query: 'task' });

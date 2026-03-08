@@ -5,10 +5,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -157,7 +157,8 @@ describe('Brain Migration', () => {
     const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
     closeBrainDb();
 
-    const content = '{"id":"P001","type":"workflow","pattern":"test","context":"ctx","frequency":1,"successRate":null,"impact":null,"antiPattern":null,"mitigation":null,"examples":[],"extractedAt":"2026-01-01T00:00:00Z","updatedAt":null}\n{bad json\n';
+    const content =
+      '{"id":"P001","type":"workflow","pattern":"test","context":"ctx","frequency":1,"successRate":null,"impact":null,"antiPattern":null,"mitigation":null,"examples":[],"extractedAt":"2026-01-01T00:00:00Z","updatedAt":null}\n{bad json\n';
     await writeFile(join(memoryDir, 'patterns.jsonl'), content);
 
     const result = await migrateBrainData(tempDir);
@@ -173,19 +174,33 @@ describe('Brain Migration', () => {
     await writeFile(
       join(memoryDir, 'patterns.jsonl'),
       JSON.stringify({
-        id: 'P001', type: 'workflow', pattern: 'Test pattern',
-        context: 'Test', frequency: 1, successRate: null, impact: null,
-        antiPattern: null, mitigation: null, examples: [],
-        extractedAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'P001',
+        type: 'workflow',
+        pattern: 'Test pattern',
+        context: 'Test',
+        frequency: 1,
+        successRate: null,
+        impact: null,
+        antiPattern: null,
+        mitigation: null,
+        examples: [],
+        extractedAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       }) + '\n',
     );
 
     await writeFile(
       join(memoryDir, 'learnings.jsonl'),
       JSON.stringify({
-        id: 'L001', insight: 'Test insight', source: 'test',
-        confidence: 0.8, actionable: false, application: null,
-        applicableTypes: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'L001',
+        insight: 'Test insight',
+        source: 'test',
+        confidence: 0.8,
+        actionable: false,
+        application: null,
+        applicableTypes: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       }) + '\n',
     );
 

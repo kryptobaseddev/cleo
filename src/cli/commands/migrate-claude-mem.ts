@@ -8,9 +8,9 @@
  * @task T5143
  */
 
-import { Command } from 'commander';
-import { getProjectRoot } from '../../core/paths.js';
+import type { Command } from 'commander';
 import { migrateClaudeMem } from '../../core/memory/claude-mem-migration.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 /**
  * Register the `migrate claude-mem` command under a migrate parent command.
@@ -22,9 +22,7 @@ export function registerMigrateClaudeMemCommand(program: Command): void {
   // Find or create the 'migrate' parent command
   let migrateCmd = program.commands.find((c) => c.name() === 'migrate');
   if (!migrateCmd) {
-    migrateCmd = program
-      .command('migrate')
-      .description('Data migration utilities');
+    migrateCmd = program.command('migrate').description('Data migration utilities');
   }
 
   migrateCmd
@@ -50,10 +48,10 @@ export function registerMigrateClaudeMemCommand(program: Command): void {
         }
 
         console.log(
-          `Imported ${result.observationsImported} observations, `
-          + `${result.learningsImported} learnings, `
-          + `${result.decisionsImported} decisions `
-          + `(${result.observationsSkipped} skipped)`,
+          `Imported ${result.observationsImported} observations, ` +
+            `${result.learningsImported} learnings, ` +
+            `${result.decisionsImported} decisions ` +
+            `(${result.observationsSkipped} skipped)`,
         );
 
         if (result.errors.length > 0) {

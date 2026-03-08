@@ -4,22 +4,22 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Task } from '../../../types/task.js';
 import {
   detectCircularDeps,
-  wouldCreateCycle,
   getBlockedTasks,
-  getReadyTasks,
-  getDependents,
   getDependentIds,
-  getUnresolvedDeps,
-  validateDependencyRefs,
-  validateDependencies,
-  topologicalSort,
-  getTransitiveBlockers,
+  getDependents,
   getLeafBlockers,
+  getReadyTasks,
+  getTransitiveBlockers,
+  getUnresolvedDeps,
+  topologicalSort,
+  validateDependencies,
+  validateDependencyRefs,
+  wouldCreateCycle,
 } from '../dependency-check.js';
-import type { Task } from '../../../types/task.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -33,10 +33,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 
 describe('detectCircularDeps', () => {
   it('returns empty for no cycle', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', depends: ['T001'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', depends: ['T001'] })];
     expect(detectCircularDeps('T001', tasks)).toEqual([]);
   });
 
@@ -67,18 +64,12 @@ describe('detectCircularDeps', () => {
 
 describe('wouldCreateCycle', () => {
   it('detects would-be cycle', () => {
-    const tasks = [
-      makeTask({ id: 'T001', depends: ['T002'] }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001', depends: ['T002'] }), makeTask({ id: 'T002' })];
     expect(wouldCreateCycle('T002', 'T001', tasks)).toBe(true);
   });
 
   it('allows non-cyclic dependency', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     expect(wouldCreateCycle('T002', 'T001', tasks)).toBe(false);
   });
 });
@@ -132,7 +123,7 @@ describe('getReadyTasks', () => {
     ];
     const ready = getReadyTasks(tasks);
     expect(ready).toHaveLength(2);
-    expect(ready.map(t => t.id).sort()).toEqual(['T002', 'T003']);
+    expect(ready.map((t) => t.id).sort()).toEqual(['T002', 'T003']);
   });
 
   it('excludes done/cancelled tasks', () => {
@@ -165,7 +156,7 @@ describe('getDependents / getDependentIds', () => {
   it('returns tasks that depend on a given task', () => {
     const deps = getDependents('T001', tasks);
     expect(deps).toHaveLength(2);
-    expect(deps.map(t => t.id).sort()).toEqual(['T002', 'T003']);
+    expect(deps.map((t) => t.id).sort()).toEqual(['T002', 'T003']);
   });
 
   it('returns dependent IDs', () => {
@@ -203,41 +194,31 @@ describe('getUnresolvedDeps', () => {
 
 describe('validateDependencyRefs', () => {
   it('detects missing dependency references', () => {
-    const tasks = [
-      makeTask({ id: 'T001', depends: ['T999'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001', depends: ['T999'] })];
     const errors = validateDependencyRefs(tasks);
     expect(errors).toHaveLength(1);
     expect(errors[0].code).toBe('E_DEP_NOT_FOUND');
   });
 
   it('passes when all refs exist', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', depends: ['T001'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', depends: ['T001'] })];
     expect(validateDependencyRefs(tasks)).toHaveLength(0);
   });
 });
 
 describe('validateDependencies', () => {
   it('validates clean dependency graph', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', depends: ['T001'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', depends: ['T001'] })];
     const result = validateDependencies(tasks);
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
   it('detects self-dependency', () => {
-    const tasks = [
-      makeTask({ id: 'T001', depends: ['T001'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001', depends: ['T001'] })];
     const result = validateDependencies(tasks);
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.code === 'E_SELF_DEP')).toBe(true);
+    expect(result.errors.some((e) => e.code === 'E_SELF_DEP')).toBe(true);
   });
 
   it('detects circular dependencies', () => {
@@ -247,7 +228,7 @@ describe('validateDependencies', () => {
     ];
     const result = validateDependencies(tasks);
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.code === 'E_CIRCULAR_DEP')).toBe(true);
+    expect(result.errors.some((e) => e.code === 'E_CIRCULAR_DEP')).toBe(true);
   });
 
   it('warns about completed tasks with unmet deps', () => {
@@ -284,10 +265,7 @@ describe('topologicalSort', () => {
   });
 
   it('handles tasks with no dependencies', () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     const sorted = topologicalSort(tasks);
     expect(sorted).not.toBeNull();
     expect(sorted).toHaveLength(2);

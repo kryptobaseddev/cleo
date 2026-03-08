@@ -31,7 +31,7 @@
  * @epic T4654
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ===========================================================================
 // Mocks — all engine functions and MCP-only middleware
@@ -113,9 +113,16 @@ vi.mock('../../dispatch/engines/lifecycle-engine.js', () => ({
   lifecycleGatePass: vi.fn(),
   lifecycleGateFail: vi.fn(),
   LIFECYCLE_STAGES: [
-    'research', 'consensus', 'architecture_decision', 'specification',
-    'decomposition', 'implementation', 'validation', 'testing',
-    'release', 'contribution',
+    'research',
+    'consensus',
+    'architecture_decision',
+    'specification',
+    'decomposition',
+    'implementation',
+    'validation',
+    'testing',
+    'release',
+    'contribution',
   ],
 }));
 
@@ -249,38 +256,46 @@ vi.mock('../../core/paths.js', () => ({
 
 // --- MCP-only middleware (passthrough stubs to avoid blocking tests) ---
 vi.mock('../../dispatch/middleware/rate-limiter.js', () => ({
-  createRateLimiter: vi.fn(() =>
-    async (
-      _req: import('../../dispatch/types.js').DispatchRequest,
-      next: import('../../dispatch/types.js').DispatchNext,
-    ) => next(),
+  createRateLimiter: vi.fn(
+    () =>
+      async (
+        _req: import('../../dispatch/types.js').DispatchRequest,
+        next: import('../../dispatch/types.js').DispatchNext,
+      ) =>
+        next(),
   ),
 }));
 
 vi.mock('../../dispatch/middleware/verification-gates.js', () => ({
-  createVerificationGates: vi.fn(() =>
-    async (
-      _req: import('../../dispatch/types.js').DispatchRequest,
-      next: import('../../dispatch/types.js').DispatchNext,
-    ) => next(),
+  createVerificationGates: vi.fn(
+    () =>
+      async (
+        _req: import('../../dispatch/types.js').DispatchRequest,
+        next: import('../../dispatch/types.js').DispatchNext,
+      ) =>
+        next(),
   ),
 }));
 
 vi.mock('../../dispatch/middleware/protocol-enforcement.js', () => ({
-  createProtocolEnforcement: vi.fn(() =>
-    async (
-      _req: import('../../dispatch/types.js').DispatchRequest,
-      next: import('../../dispatch/types.js').DispatchNext,
-    ) => next(),
+  createProtocolEnforcement: vi.fn(
+    () =>
+      async (
+        _req: import('../../dispatch/types.js').DispatchRequest,
+        next: import('../../dispatch/types.js').DispatchNext,
+      ) =>
+        next(),
   ),
 }));
 
 vi.mock('../../dispatch/middleware/audit.js', () => ({
-  createAudit: vi.fn(() =>
-    async (
-      _req: import('../../dispatch/types.js').DispatchRequest,
-      next: import('../../dispatch/types.js').DispatchNext,
-    ) => next(),
+  createAudit: vi.fn(
+    () =>
+      async (
+        _req: import('../../dispatch/types.js').DispatchRequest,
+        next: import('../../dispatch/types.js').DispatchNext,
+      ) =>
+        next(),
   ),
 }));
 
@@ -305,22 +320,22 @@ vi.mock('../../mcp/lib/security.js', () => ({
 
 import { dispatchRaw, resetCliDispatcher } from '../../dispatch/adapters/cli.js';
 import { handleMcpToolCall, resetMcpDispatcher } from '../../dispatch/adapters/mcp.js';
-import { TasksHandler } from '../../dispatch/domains/tasks.js';
 import { SessionHandler } from '../../dispatch/domains/session.js';
+import { TasksHandler } from '../../dispatch/domains/tasks.js';
 import {
-  taskShow,
-  taskList,
-  taskFind,
-  taskCreate,
-  taskComplete,
-  taskUpdate,
-  taskDelete,
-  sessionStatus,
   sessionList,
   sessionStart,
+  sessionStatus,
+  taskComplete,
+  taskCreate,
   taskCurrentGet,
+  taskDelete,
+  taskFind,
+  taskList,
+  taskShow,
   taskStart,
   taskStop,
+  taskUpdate,
 } from '../../dispatch/lib/engine.js';
 
 // ===========================================================================
@@ -331,9 +346,7 @@ import {
  * Strip _meta from a DispatchResponse for data-only comparison.
  * _meta legitimately differs between CLI (source:'cli') and MCP (source:'mcp').
  */
-function stripMeta(
-  response: Record<string, unknown>,
-): Omit<Record<string, unknown>, '_meta'> {
+function stripMeta(response: Record<string, unknown>): Omit<Record<string, unknown>, '_meta'> {
   const { _meta: _ignored, ...rest } = response;
   return rest;
 }
@@ -414,9 +427,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
 
       expect(taskShow).toHaveBeenCalledTimes(2);
       // Both calls pass the same projectRoot and taskId
-      expect(vi.mocked(taskShow).mock.calls[0]).toEqual(
-        vi.mocked(taskShow).mock.calls[1],
-      );
+      expect(vi.mocked(taskShow).mock.calls[0]).toEqual(vi.mocked(taskShow).mock.calls[1]);
     });
   });
 
@@ -474,9 +485,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       await dispatchRaw('query', 'tasks', 'list', { parent: 'T010', limit: 5 });
 
       expect(taskList).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskList).mock.calls[0]).toEqual(
-        vi.mocked(taskList).mock.calls[1],
-      );
+      expect(vi.mocked(taskList).mock.calls[0]).toEqual(vi.mocked(taskList).mock.calls[1]);
     });
   });
 
@@ -511,9 +520,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       await dispatchRaw('query', 'tasks', 'find', params);
 
       expect(taskFind).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskFind).mock.calls[0]).toEqual(
-        vi.mocked(taskFind).mock.calls[1],
-      );
+      expect(vi.mocked(taskFind).mock.calls[0]).toEqual(vi.mocked(taskFind).mock.calls[1]);
     });
   });
 
@@ -570,9 +577,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       await dispatchRaw('mutate', 'tasks', 'add', params);
 
       expect(taskCreate).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskCreate).mock.calls[0]).toEqual(
-        vi.mocked(taskCreate).mock.calls[1],
-      );
+      expect(vi.mocked(taskCreate).mock.calls[0]).toEqual(vi.mocked(taskCreate).mock.calls[1]);
     });
   });
 
@@ -621,9 +626,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       await dispatchRaw('mutate', 'tasks', 'complete', { taskId: 'T001', notes: 'Done' });
 
       expect(taskComplete).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskComplete).mock.calls[0]).toEqual(
-        vi.mocked(taskComplete).mock.calls[1],
-      );
+      expect(vi.mocked(taskComplete).mock.calls[0]).toEqual(vi.mocked(taskComplete).mock.calls[1]);
     });
   });
 
@@ -664,9 +667,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       await dispatchRaw('mutate', 'tasks', 'update', params);
 
       expect(taskUpdate).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskUpdate).mock.calls[0]).toEqual(
-        vi.mocked(taskUpdate).mock.calls[1],
-      );
+      expect(vi.mocked(taskUpdate).mock.calls[0]).toEqual(vi.mocked(taskUpdate).mock.calls[1]);
     });
   });
 
@@ -870,9 +871,7 @@ describe('Section 3: Focus operations parity (tasks.start/stop/current) (T4796)'
       await dispatchRaw('mutate', 'tasks', 'start', { taskId: 'T005' });
 
       expect(taskStart).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(taskStart).mock.calls[0]).toEqual(
-        vi.mocked(taskStart).mock.calls[1],
-      );
+      expect(vi.mocked(taskStart).mock.calls[0]).toEqual(vi.mocked(taskStart).mock.calls[1]);
     });
   });
 
@@ -1026,12 +1025,7 @@ describe('Section 5: Documented parity gaps (T4796)', () => {
       data: { task: { id: 'T001' } },
     });
 
-    const mcpResponse = await handleMcpToolCall(
-      'cleo_query',
-      'tasks',
-      'show',
-      { taskId: 'T001' },
-    );
+    const mcpResponse = await handleMcpToolCall('cleo_query', 'tasks', 'show', { taskId: 'T001' });
 
     // GAP has been resolved: cleo_query is now normalized to query.
     // The request succeeds because the registry lookup now works.

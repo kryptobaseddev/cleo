@@ -6,9 +6,9 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
+import { CleoError } from '../errors.js';
 
 export interface SessionStatsResult {
   totalSessions: number;
@@ -45,16 +45,11 @@ export async function getSessionStats(
   if (sessionId) {
     const session = allSessions.find((s) => s.id === sessionId);
     if (!session) {
-      throw new CleoError(
-        ExitCode.SESSION_NOT_FOUND,
-        `Session '${sessionId}' not found`,
-      );
+      throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${sessionId}' not found`);
     }
 
     const startedAt = new Date(session.startedAt).getTime();
-    const endedAt = session.endedAt
-      ? new Date(session.endedAt).getTime()
-      : Date.now();
+    const endedAt = session.endedAt ? new Date(session.endedAt).getTime() : Date.now();
     const durationMinutes = Math.round((endedAt - startedAt) / (1000 * 60));
 
     return {
@@ -63,22 +58,12 @@ export async function getSessionStats(
       suspendedSessions: allSessions.filter((s) => s.status === 'suspended').length,
       endedSessions: allSessions.filter((s) => s.status === 'ended').length,
       archivedSessions: allSessions.filter((s) => (s.status as string) === 'archived').length,
-      totalTasksCompleted: allSessions.reduce(
-        (sum, s) => sum + (s.stats?.tasksCompleted ?? 0),
-        0,
-      ),
-      totalFocusChanges: allSessions.reduce(
-        (sum, s) => sum + (s.stats?.focusChanges ?? 0),
-        0,
-      ),
+      totalTasksCompleted: allSessions.reduce((sum, s) => sum + (s.stats?.tasksCompleted ?? 0), 0),
+      totalFocusChanges: allSessions.reduce((sum, s) => sum + (s.stats?.focusChanges ?? 0), 0),
       averageResumeCount:
         allSessions.length > 0
           ? Math.round(
-              (allSessions.reduce(
-                (sum, s) => sum + (s.resumeCount ?? 0),
-                0,
-              ) /
-                allSessions.length) *
+              (allSessions.reduce((sum, s) => sum + (s.resumeCount ?? 0), 0) / allSessions.length) *
                 100,
             ) / 100
           : 0,
@@ -101,18 +86,11 @@ export async function getSessionStats(
     (sum, s) => sum + (s.stats?.tasksCompleted ?? 0),
     0,
   );
-  const totalFocusChanges = allSessions.reduce(
-    (sum, s) => sum + (s.stats?.focusChanges ?? 0),
-    0,
-  );
+  const totalFocusChanges = allSessions.reduce((sum, s) => sum + (s.stats?.focusChanges ?? 0), 0);
   const averageResumeCount =
     allSessions.length > 0
       ? Math.round(
-          (allSessions.reduce(
-            (sum, s) => sum + (s.resumeCount ?? 0),
-            0,
-          ) /
-            allSessions.length) *
+          (allSessions.reduce((sum, s) => sum + (s.resumeCount ?? 0), 0) / allSessions.length) *
             100,
         ) / 100
       : 0;

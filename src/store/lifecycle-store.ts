@@ -11,7 +11,7 @@
  * @epic T4454
  */
 
-import { eq, and, inArray, desc, asc, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
 
@@ -50,9 +50,7 @@ export async function findActivePipelinesWithStagesAndTasks(
 ): Promise<PipelineStageTaskRow[]> {
   const db = await getDb(cwd);
 
-  const conditions = [
-    eq(schema.lifecyclePipelines.status, 'active'),
-  ];
+  const conditions = [eq(schema.lifecyclePipelines.status, 'active')];
 
   if (taskIds && taskIds.length > 0) {
     conditions.push(inArray(schema.lifecyclePipelines.taskId, taskIds));
@@ -69,15 +67,9 @@ export async function findActivePipelinesWithStagesAndTasks(
       schema.lifecycleStages,
       eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
     )
-    .innerJoin(
-      schema.tasks,
-      eq(schema.tasks.id, schema.lifecyclePipelines.taskId),
-    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.lifecyclePipelines.taskId))
     .where(and(...conditions))
-    .orderBy(
-      asc(schema.tasks.priority),
-      desc(schema.lifecyclePipelines.startedAt),
-    )
+    .orderBy(asc(schema.tasks.priority), desc(schema.lifecyclePipelines.startedAt))
     .all();
 }
 
@@ -106,10 +98,7 @@ export async function findPipelineWithCurrentStageAndTask(
       schema.lifecycleStages,
       eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
     )
-    .innerJoin(
-      schema.tasks,
-      eq(schema.tasks.id, schema.lifecyclePipelines.taskId),
-    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.lifecyclePipelines.taskId))
     .where(
       and(
         eq(schema.lifecyclePipelines.taskId, taskId),
@@ -145,7 +134,10 @@ export async function findPipelineWithStage(
       schema.lifecycleStages,
       and(
         eq(schema.lifecycleStages.pipelineId, schema.lifecyclePipelines.id),
-        eq(schema.lifecycleStages.stageName, stageName as typeof schema.LIFECYCLE_STAGE_NAMES[number]),
+        eq(
+          schema.lifecycleStages.stageName,
+          stageName as (typeof schema.LIFECYCLE_STAGE_NAMES)[number],
+        ),
       ),
     )
     .where(eq(schema.lifecyclePipelines.taskId, taskId))
@@ -369,8 +361,5 @@ export async function insertTransition(
 ): Promise<void> {
   const db = await getDb(cwd);
 
-  await db
-    .insert(schema.lifecycleTransitions)
-    .values(transition)
-    .run();
+  await db.insert(schema.lifecycleTransitions).values(transition).run();
 }

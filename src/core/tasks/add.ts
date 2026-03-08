@@ -5,18 +5,22 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
-import { TASK_STATUSES } from '../../store/status-registry.js';
-import { getArchivePath } from '../paths.js';
-import { computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { loadConfig } from '../config.js';
-import { createTaskSafe, updateTask } from '../../store/task-store.js';
+import { computeChecksum } from '../../store/json.js';
 import { setMetaValue } from '../../store/sqlite-data-accessor.js';
-import { resolveHierarchyPolicy, validateHierarchyPlacement, countActiveChildren } from './hierarchy-policy.js';
+import { TASK_STATUSES } from '../../store/status-registry.js';
+import { createTaskSafe, updateTask } from '../../store/task-store.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '../../types/task.js';
+import { loadConfig } from '../config.js';
+import { CleoError } from '../errors.js';
+import { getArchivePath } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
+import {
+  countActiveChildren,
+  resolveHierarchyPolicy,
+  validateHierarchyPlacement,
+} from './hierarchy-policy.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -89,7 +93,12 @@ const NUMERIC_PRIORITY_MAP: Record<number, TaskPriority> = {
 };
 
 /** Valid string priority values. */
-export const VALID_PRIORITIES: readonly TaskPriority[] = ['critical', 'high', 'medium', 'low'] as const;
+export const VALID_PRIORITIES: readonly TaskPriority[] = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+] as const;
 
 /**
  * Normalize priority to canonical string format.
@@ -199,7 +208,7 @@ export function validatePhaseFormat(phase: string): void {
  * @task T4460
  */
 export function validateDepends(depends: string[], tasks: Task[]): void {
-  const existingIds = new Set(tasks.map(t => t.id));
+  const existingIds = new Set(tasks.map((t) => t.id));
   for (const depId of depends) {
     const trimmed = depId.trim();
     if (!/^T\d{3,}$/.test(trimmed)) {
@@ -209,10 +218,7 @@ export function validateDepends(depends: string[], tasks: Task[]): void {
       );
     }
     if (!existingIds.has(trimmed)) {
-      throw new CleoError(
-        ExitCode.NOT_FOUND,
-        `Dependency task not found: ${trimmed}`,
-      );
+      throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`);
     }
   }
 }
@@ -249,13 +255,11 @@ export function validateParent(
   maxSiblings: number = 0,
 ): void {
   // Check parent exists
-  const parent = tasks.find(t => t.id === parentId);
+  const parent = tasks.find((t) => t.id === parentId);
   if (!parent) {
-    throw new CleoError(
-      ExitCode.PARENT_NOT_FOUND,
-      `Parent task not found: ${parentId}`,
-      { fix: `Use 'cleo show ${parentId}' to check or create as standalone task` },
-    );
+    throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task not found: ${parentId}`, {
+      fix: `Use 'cleo show ${parentId}' to check or create as standalone task`,
+    });
   }
 
   // Check parent type allows children
@@ -278,7 +282,7 @@ export function validateParent(
 
   // Check sibling count
   if (maxSiblings > 0) {
-    const siblingCount = tasks.filter(t => t.parentId === parentId).length;
+    const siblingCount = tasks.filter((t) => t.parentId === parentId).length;
     if (siblingCount >= maxSiblings) {
       throw new CleoError(
         ExitCode.SIBLING_LIMIT,
@@ -301,7 +305,7 @@ export function getTaskDepth(taskId: string, tasks: Task[]): number {
   while (currentId) {
     if (visited.has(currentId)) break; // circular reference guard
     visited.add(currentId);
-    const task = tasks.find(t => t.id === currentId);
+    const task = tasks.find((t) => t.id === currentId);
     if (!task?.parentId) break;
     depth++;
     currentId = task.parentId;
@@ -315,7 +319,7 @@ export function getTaskDepth(taskId: string, tasks: Task[]): number {
  */
 export function inferTaskType(parentId: string | null | undefined, tasks: Task[]): TaskType {
   if (!parentId) return 'task';
-  const parent = tasks.find(t => t.id === parentId);
+  const parent = tasks.find((t) => t.id === parentId);
   if (!parent) return 'task';
   if (parent.type === 'epic') return 'task';
   return 'subtask';
@@ -326,8 +330,8 @@ export function inferTaskType(parentId: string | null | undefined, tasks: Task[]
  * @task T4460
  */
 export function getNextPosition(parentId: string | null | undefined, tasks: Task[]): number {
-  const siblings = tasks.filter(t =>
-    parentId ? t.parentId === parentId : (!t.parentId || t.parentId === null),
+  const siblings = tasks.filter((t) =>
+    parentId ? t.parentId === parentId : !t.parentId || t.parentId === null,
   );
   let maxPos = 0;
   for (const s of siblings) {
@@ -399,21 +403,28 @@ export function findRecentDuplicate(
  * Add a new task to the todo file.
  * @task T4460
  */
-export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<AddTaskResult> {
+export async function addTask(
+  options: AddTaskOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<AddTaskResult> {
   const archivePath = getArchivePath(cwd);
 
   // Validate title
   validateTitle(options.title);
 
   // Always use accessor (SQLite canonical storage per ADR-006)
-  const dataAccessor = accessor ?? await (await import('../../store/data-accessor.js')).getAccessor(cwd);
+  const dataAccessor =
+    accessor ?? (await (await import('../../store/data-accessor.js')).getAccessor(cwd));
 
   // Read current data
   const data = await dataAccessor.loadTaskFile();
 
   // Read archive for ID generation (only needed for non-SQLite paths)
   let archivedTasks: Array<{ id: string }> = [];
-  const useSqliteAlloc = accessor?.engine === 'sqlite' || (!accessor && (await import('../../store/sqlite.js')).getNativeDb() !== null);
+  const useSqliteAlloc =
+    accessor?.engine === 'sqlite' ||
+    (!accessor && (await import('../../store/sqlite.js')).getNativeDb() !== null);
   if (!useSqliteAlloc) {
     try {
       if (accessor) {
@@ -463,7 +474,10 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       }
       // Create phase
       const order = Object.keys(phases).length + 1;
-      const name = phase.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const name = phase
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
       if (!data.project) {
         (data as unknown as Record<string, unknown>).project = { name: '', phases: {} };
       }
@@ -487,11 +501,12 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     const policy = resolveHierarchyPolicy(config);
     const placement = validateHierarchyPlacement(parentId, data.tasks, policy);
     if (!placement.valid) {
-      const code = placement.error?.code === 'E_PARENT_NOT_FOUND'
-        ? ExitCode.PARENT_NOT_FOUND
-        : placement.error?.code === 'E_DEPTH_EXCEEDED'
-          ? ExitCode.DEPTH_EXCEEDED
-          : ExitCode.SIBLING_LIMIT;
+      const code =
+        placement.error?.code === 'E_PARENT_NOT_FOUND'
+          ? ExitCode.PARENT_NOT_FOUND
+          : placement.error?.code === 'E_DEPTH_EXCEEDED'
+            ? ExitCode.DEPTH_EXCEEDED
+            : ExitCode.SIBLING_LIMIT;
       throw new CleoError(code, placement.error?.message ?? 'Hierarchy constraint violated');
     }
     // Active siblings cap
@@ -508,7 +523,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         'Epic tasks cannot have a parent - they must be root-level',
-        { fix: "Remove --parent flag or change --type to task|subtask" },
+        { fix: 'Remove --parent flag or change --type to task|subtask' },
       );
     }
   }
@@ -517,7 +532,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       'Subtask tasks require a parent - specify with --parent',
-      { fix: "Add --parent T### flag or change --type to task|epic" },
+      { fix: 'Add --parent T### flag or change --type to task|epic' },
     );
   }
 
@@ -540,7 +555,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
   } else {
     // Legacy path: scan tasks in memory (acceptable TOCTOU for single-process JSON accessor)
     taskId = generateTaskId(data.tasks, archivedTasks);
-    if (data.tasks.some(t => t.id === taskId)) {
+    if (data.tasks.some((t) => t.id === taskId)) {
       throw new CleoError(ExitCode.ID_COLLISION, `Generated ID ${taskId} already exists`);
     }
   }
@@ -566,12 +581,15 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
   // Add optional fields
   if (phase) task.phase = phase;
   if (options.description) task.description = options.description;
-  if (options.labels?.length) task.labels = options.labels.map(l => l.trim());
-  if (options.files?.length) task.files = options.files.map(f => f.trim());
-  if (options.acceptance?.length) task.acceptance = options.acceptance.map(a => a.trim());
-  if (options.depends?.length) task.depends = options.depends.map(d => d.trim());
+  if (options.labels?.length) task.labels = options.labels.map((l) => l.trim());
+  if (options.files?.length) task.files = options.files.map((f) => f.trim());
+  if (options.acceptance?.length) task.acceptance = options.acceptance.map((a) => a.trim());
+  if (options.depends?.length) task.depends = options.depends.map((d) => d.trim());
   if (options.notes) {
-    const timestampedNote = `${new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
+    const timestampedNote = `${new Date()
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
     task.notes = [timestampedNote];
   }
   if (status === 'blocked' && options.description) {
@@ -591,14 +609,21 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     // Position shuffling via targeted SQL updates
     if (options.position !== undefined) {
       for (const t of data.tasks) {
-        const isInScope = parentId
-          ? t.parentId === parentId
-          : (!t.parentId || t.parentId === null);
-        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
-          await updateTask(t.id, {
-            position: t.position + 1,
-            positionVersion: (t.positionVersion ?? 0) + 1,
-          }, cwd);
+        const isInScope = parentId ? t.parentId === parentId : !t.parentId || t.parentId === null;
+        if (
+          isInScope &&
+          t.position !== undefined &&
+          t.position !== null &&
+          t.position >= options.position
+        ) {
+          await updateTask(
+            t.id,
+            {
+              position: t.position + 1,
+              positionVersion: (t.positionVersion ?? 0) + 1,
+            },
+            cwd,
+          );
         }
       }
     }
@@ -626,10 +651,13 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     // Position shuffling if explicit position was given
     if (options.position !== undefined) {
       for (const t of data.tasks) {
-        const isInScope = parentId
-          ? t.parentId === parentId
-          : (!t.parentId || t.parentId === null);
-        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
+        const isInScope = parentId ? t.parentId === parentId : !t.parentId || t.parentId === null;
+        if (
+          isInScope &&
+          t.position !== undefined &&
+          t.position !== null &&
+          t.position >= options.position
+        ) {
           t.position = t.position + 1;
           t.positionVersion = (t.positionVersion ?? 0) + 1;
         }

@@ -15,27 +15,35 @@
  * @task T4810 - Data loss prevention guards
  */
 
-import { existsSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { createRequire } from 'node:module';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { createRequire } from 'node:module';
+
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
-const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
+const { DatabaseSync } = _require('node:sqlite') as {
+  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
+};
+
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as schema from './tasks-schema.js';
-import { getCleoDirAbsolute } from '../core/paths.js';
-import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 import { getLogger } from '../core/logger.js';
+import { getCleoDirAbsolute } from '../core/paths.js';
+import {
+  createBatchCallback,
+  createDrizzleCallback,
+  openNativeDatabase,
+} from './node-sqlite-adapter.js';
 import { listSqliteBackups } from './sqlite-backup.js';
+import * as schema from './tasks-schema.js';
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -92,7 +100,9 @@ async function autoRecoverFromBackup(
 
   try {
     // Count tasks in current database
-    const countResult = nativeDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as { cnt: number } | undefined;
+    const countResult = nativeDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
+      | { cnt: number }
+      | undefined;
     const taskCount = countResult?.cnt ?? 0;
 
     if (taskCount > 0) return; // Database has data, no recovery needed
@@ -111,7 +121,9 @@ async function autoRecoverFromBackup(
     const backupDb = new DatabaseSync(newestBackup.path, { readOnly: true });
     let backupTaskCount = 0;
     try {
-      const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as { cnt: number } | undefined;
+      const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
+        | { cnt: number }
+        | undefined;
       backupTaskCount = backupCount?.cnt ?? 0;
     } finally {
       backupDb.close();
@@ -126,8 +138,8 @@ async function autoRecoverFromBackup(
     log.warn(
       { dbPath, backupPath: newestBackup.path, backupTasks: backupTaskCount },
       `Empty database detected with ${backupTaskCount}-task backup available. ` +
-      'Auto-recovering from backup. This likely happened because git-tracked ' +
-      'WAL/SHM files were overwritten during a branch switch (T5188).',
+        'Auto-recovering from backup. This likely happened because git-tracked ' +
+        'WAL/SHM files were overwritten during a branch switch (T5188).',
     );
 
     // Close current connection
@@ -136,8 +148,16 @@ async function autoRecoverFromBackup(
     // Remove stale WAL/SHM files that may have been corrupted by git
     const walPath = dbPath + '-wal';
     const shmPath = dbPath + '-shm';
-    try { unlinkSync(walPath); } catch { /* may not exist */ }
-    try { unlinkSync(shmPath); } catch { /* may not exist */ }
+    try {
+      unlinkSync(walPath);
+    } catch {
+      /* may not exist */
+    }
+    try {
+      unlinkSync(shmPath);
+    } catch {
+      /* may not exist */
+    }
 
     // Restore from backup (atomic: copy to temp, rename)
     const tempPath = dbPath + '.recovery-tmp';
@@ -165,10 +185,7 @@ async function autoRecoverFromBackup(
     _db = restoredDb;
   } catch (err) {
     // Auto-recovery failure is non-fatal — log and continue with empty DB
-    log.error(
-      { err, dbPath },
-      'Auto-recovery from backup failed. Continuing with empty database.',
-    );
+    log.error({ err, dbPath }, 'Auto-recovery from backup failed. Continuing with empty database.');
   }
 }
 
@@ -245,7 +262,7 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
             log.warn(
               { path: fileToCheck },
               `${basename} is tracked by project git — this risks data loss on branch switch. ` +
-              `Run: git rm --cached ${fileToCheck.replace(gitCwd + sep, '')} (see ADR-013, T5188)`,
+                `Run: git rm --cached ${fileToCheck.replace(gitCwd + sep, '')} (see ADR-013, T5188)`,
             );
           } catch {
             // Exit code 1 = not tracked = good
@@ -283,9 +300,9 @@ export function resolveMigrationsFolder(): string {
  * Check whether a table exists in the SQLite database.
  */
 function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
-  const result = nativeDb.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-  ).get(tableName) as Record<string, unknown> | undefined;
+  const result = nativeDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(tableName) as Record<string, unknown> | undefined;
   return !!result;
 }
 
@@ -361,44 +378,48 @@ async function runMigrations(
   // already holds a RESERVED lock. Retry with exponential backoff + jitter.
   // busy_timeout (5000ms) provides first-line defense; this retry handles cases
   // where the lock holder runs long migrations that exceed busy_timeout.
-  await migrate(db, async (queries: string[]) => {
-    let lastError: unknown;
+  await migrate(
+    db,
+    async (queries: string[]) => {
+      let lastError: unknown;
 
-    for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
-      try {
-        nativeDb.prepare('BEGIN IMMEDIATE').run();
+      for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
         try {
-          for (const query of queries) {
-            nativeDb.prepare(query).run();
+          nativeDb.prepare('BEGIN IMMEDIATE').run();
+          try {
+            for (const query of queries) {
+              nativeDb.prepare(query).run();
+            }
+            nativeDb.prepare('COMMIT').run();
+            return; // Success — exit retry loop
+          } catch (err) {
+            nativeDb.prepare('ROLLBACK').run();
+            throw err; // Re-throw DDL errors (not retryable)
           }
-          nativeDb.prepare('COMMIT').run();
-          return; // Success — exit retry loop
         } catch (err) {
-          nativeDb.prepare('ROLLBACK').run();
-          throw err; // Re-throw DDL errors (not retryable)
-        }
-      } catch (err) {
-        if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
-          throw err; // Non-busy error or exhausted retries
-        }
-        lastError = err;
+          if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
+            throw err; // Non-busy error or exhausted retries
+          }
+          lastError = err;
 
-        // Exponential backoff with jitter to de-correlate competing processes
-        const exponentialDelay = MIGRATION_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        const jitter = Math.random() * exponentialDelay * 0.5;
-        const delay = Math.min(exponentialDelay + jitter, MIGRATION_RETRY_MAX_DELAY_MS);
+          // Exponential backoff with jitter to de-correlate competing processes
+          const exponentialDelay = MIGRATION_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+          const jitter = Math.random() * exponentialDelay * 0.5;
+          const delay = Math.min(exponentialDelay + jitter, MIGRATION_RETRY_MAX_DELAY_MS);
 
-        // Sync sleep — node:sqlite DatabaseSync is sync, Atomics.wait is the
-        // established pattern (see node-sqlite-adapter.ts WAL retry)
-        const buf = new SharedArrayBuffer(4);
-        Atomics.wait(new Int32Array(buf), 0, 0, Math.round(delay));
+          // Sync sleep — node:sqlite DatabaseSync is sync, Atomics.wait is the
+          // established pattern (see node-sqlite-adapter.ts WAL retry)
+          const buf = new SharedArrayBuffer(4);
+          Atomics.wait(new Int32Array(buf), 0, 0, Math.round(delay));
+        }
       }
-    }
 
-    // Should not reach here, but TypeScript needs exhaustive paths
-    /* c8 ignore next */
-    throw lastError;
-  }, { migrationsFolder });
+      // Should not reach here, but TypeScript needs exhaustive paths
+      /* c8 ignore next */
+      throw lastError;
+    },
+    { migrationsFolder },
+  );
 }
 
 /**
@@ -500,11 +521,15 @@ export async function closeAllDatabases(): Promise<void> {
   try {
     const { closeBrainDb } = await import('./brain-sqlite.js');
     closeBrainDb();
-  } catch { /* module may not be loaded */ }
+  } catch {
+    /* module may not be loaded */
+  }
 
   // Close nexus.db (dynamic import to avoid circular deps)
   try {
     const { closeNexusDb } = await import('./nexus-sqlite.js');
     closeNexusDb();
-  } catch { /* module may not be loaded */ }
+  } catch {
+    /* module may not be loaded */
+  }
 }

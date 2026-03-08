@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -18,8 +18,14 @@ export function registerStatsCommand(program: Command): void {
     .option('-p, --period <period>', 'Analysis period: today/week/month/quarter/year or days', '30')
     .option('-v, --verbose', 'Show detailed breakdowns per category')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'stats', {
-        period: opts['period'] ? Number(opts['period']) : 30,
-      }, { command: 'stats', operation: 'admin.stats' });
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'stats',
+        {
+          period: opts['period'] ? Number(opts['period']) : 30,
+        },
+        { command: 'stats', operation: 'admin.stats' },
+      );
     });
 }

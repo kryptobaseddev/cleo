@@ -21,7 +21,7 @@ export function getNextAvailableId(tasks: Task[]): number {
   if (tasks.length === 0) return 1;
   const maxId = tasks.reduce((max, t) => {
     const num = parseInt(t.id.replace('T', ''), 10);
-    return isNaN(num) ? max : Math.max(max, num);
+    return Number.isNaN(num) ? max : Math.max(max, num);
   }, 0);
   return maxId + 1;
 }
@@ -30,10 +30,7 @@ export function getNextAvailableId(tasks: Task[]): number {
  * Generate a remap table for importing tasks.
  * Maps source task IDs to new sequential IDs starting from nextAvailable.
  */
-export function generateRemapTable(
-  sourceTaskIds: string[],
-  existingTasks: Task[],
-): RemapTable {
+export function generateRemapTable(sourceTaskIds: string[], existingTasks: Task[]): RemapTable {
   const forward = new Map<string, string>();
   const reverse = new Map<string, string>();
   let nextId = getNextAvailableId(existingTasks);
@@ -103,7 +100,7 @@ export function remapTaskReferences(
   if (!newId) throw new Error(`No mapping for task ${task.id}`);
 
   // Remap parent
-  let newParentId: string | null | undefined = undefined;
+  let newParentId: string | null | undefined;
   if (task.parentId) {
     if (table.forward.has(task.parentId)) {
       newParentId = table.forward.get(task.parentId)!;
@@ -115,7 +112,7 @@ export function remapTaskReferences(
   }
 
   // Remap dependencies
-  let newDepends: string[] | undefined = undefined;
+  let newDepends: string[] | undefined;
   if (task.depends?.length) {
     newDepends = [];
     for (const dep of task.depends) {
@@ -164,10 +161,7 @@ export function detectDuplicateTitles(
 /**
  * Resolve duplicate title by appending suffix.
  */
-export function resolveDuplicateTitle(
-  title: string,
-  existingTitles: Set<string>,
-): string {
+export function resolveDuplicateTitle(title: string, existingTitles: Set<string>): string {
   let candidate = `${title} (imported)`;
   if (!existingTitles.has(candidate.toLowerCase())) return candidate;
 

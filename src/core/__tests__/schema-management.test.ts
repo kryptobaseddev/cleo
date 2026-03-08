@@ -2,10 +2,10 @@
  * Tests for centralized schema management.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // We mock the two dependency functions so schema-management uses our temp dirs.
 let mockGlobalSchemasDir: string;
@@ -20,13 +20,13 @@ vi.mock('../scaffold.js', () => ({
 }));
 
 import {
-  resolveSchemaPath,
-  getSchemaVersion,
-  ensureGlobalSchemas,
   checkGlobalSchemas,
   checkSchemaStaleness,
-  listInstalledSchemas,
   cleanProjectSchemas,
+  ensureGlobalSchemas,
+  getSchemaVersion,
+  listInstalledSchemas,
+  resolveSchemaPath,
 } from '../schema-management.js';
 
 // Helper: create a minimal schema JSON with a version
@@ -95,10 +95,7 @@ describe('schema-management', () => {
 
     it('handles _meta.schemaVersion format', () => {
       mkdirSync(mockGlobalSchemasDir, { recursive: true });
-      writeFileSync(
-        join(mockGlobalSchemasDir, 'config.schema.json'),
-        makeSchema('2.10.0', true),
-      );
+      writeFileSync(join(mockGlobalSchemasDir, 'config.schema.json'), makeSchema('2.10.0', true));
 
       expect(getSchemaVersion('config.schema.json')).toBe('2.10.0');
     });
@@ -296,14 +293,14 @@ describe('schema-management', () => {
       const result = listInstalledSchemas();
       expect(result).toHaveLength(2);
 
-      const names = result.map(s => s.name).sort();
+      const names = result.map((s) => s.name).sort();
       expect(names).toEqual(['config.schema.json', 'todo.schema.json']);
 
-      const todoEntry = result.find(s => s.name === 'todo.schema.json')!;
+      const todoEntry = result.find((s) => s.name === 'todo.schema.json')!;
       expect(todoEntry.version).toBe('1.0.0');
       expect(todoEntry.path).toBe(join(mockGlobalSchemasDir, 'todo.schema.json'));
 
-      const configEntry = result.find(s => s.name === 'config.schema.json')!;
+      const configEntry = result.find((s) => s.name === 'config.schema.json')!;
       expect(configEntry.version).toBe('2.0.0');
     });
 

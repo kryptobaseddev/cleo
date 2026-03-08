@@ -8,10 +8,10 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint
 vi.mock('../git-checkpoint.js', () => ({
@@ -83,11 +83,7 @@ describe('Write Verification', () => {
         createdAt: new Date().toISOString(),
       });
 
-      const verified = await verifyTaskWrite(
-        'T001',
-        { title: 'Test Task' },
-        tempDir,
-      );
+      const verified = await verifyTaskWrite('T001', { title: 'Test Task' }, tempDir);
       expect(verified).toBe(true);
     });
 
@@ -145,12 +141,10 @@ describe('Write Verification', () => {
         createdAt: new Date().toISOString(),
       };
 
-      const result = await safeCreateTask(
-        () => createTask(taskData),
-        taskData as any,
-        tempDir,
-        { autoCheckpoint: false, validateSequence: false },
-      );
+      const result = await safeCreateTask(() => createTask(taskData), taskData as any, tempDir, {
+        autoCheckpoint: false,
+        validateSequence: false,
+      });
 
       expect(result.id).toBe('T001');
 
@@ -227,12 +221,9 @@ describe('Write Verification', () => {
         createdAt: new Date().toISOString(),
       });
 
-      const result = await safeDeleteTask(
-        () => deleteTask('T001'),
-        'T001',
-        tempDir,
-        { autoCheckpoint: false },
-      );
+      const result = await safeDeleteTask(() => deleteTask('T001'), 'T001', tempDir, {
+        autoCheckpoint: false,
+      });
 
       expect(result).toBe(true);
 

@@ -5,11 +5,11 @@
  * @epic T4454
  */
 
-import { Command } from 'commander';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
-import { ExitCode } from '../../types/exit-codes.js';
+import type { Command } from 'commander';
 import { createPage } from '../../core/pagination.js';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the find command.
@@ -48,13 +48,18 @@ export function registerFindCommand(program: Command): void {
       }
 
       const rawData = response.data;
-      const data = (Array.isArray(rawData)
-        ? { results: rawData, total: rawData.length }
-        : rawData as Record<string, unknown>) ?? {};
+      const data =
+        (Array.isArray(rawData)
+          ? { results: rawData, total: rawData.length }
+          : (rawData as Record<string, unknown>)) ?? {};
       const results = (data?.results as unknown[]) ?? [];
 
       if (results.length === 0) {
-        cliOutput(data, { command: 'find', message: 'No matching tasks found', operation: 'tasks.find' });
+        cliOutput(data, {
+          command: 'find',
+          message: 'No matching tasks found',
+          operation: 'tasks.find',
+        });
         process.exit(ExitCode.NO_DATA);
         return;
       }

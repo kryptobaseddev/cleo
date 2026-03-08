@@ -93,12 +93,13 @@ export function checkManifestEntry(entry: ManifestEntry | null): ManifestIntegri
   const hasStatus = !!entry.status;
   const hasKeyFindings = !!(entry.key_findings || entry.findings_summary);
 
-  const missingCount = [hasId, hasTitle, hasStatus, hasKeyFindings].filter(v => !v).length;
+  const missingCount = [hasId, hasTitle, hasStatus, hasKeyFindings].filter((v) => !v).length;
 
   if (missingCount === 0) {
-    const findingsValid = Array.isArray(entry.key_findings) || typeof entry.findings_summary === 'string';
+    const findingsValid =
+      Array.isArray(entry.key_findings) || typeof entry.findings_summary === 'string';
     const linkedValid = Array.isArray(entry.linked_tasks) || Array.isArray(entry.task_ids);
-    return (findingsValid && linkedValid) ? 'valid' : 'partial';
+    return findingsValid && linkedValid ? 'valid' : 'partial';
   }
 
   return missingCount < 3 ? 'partial' : 'invalid';
@@ -217,13 +218,12 @@ export function calculateTokenEfficiency(
 ): TokenEfficiency {
   const safeTokensUsed = tokensUsed || 1;
   const safeMaxTokens = maxTokens || 200000;
-  const totalIo = (inputTokens + outputTokens) || 1;
+  const totalIo = inputTokens + outputTokens || 1;
 
   const contextUtilization = safeTokensUsed / safeMaxTokens;
   const tokenUtilizationRate = outputTokens / totalIo;
-  const contextEfficiency = contextUtilization > 0.01
-    ? tasksCompleted / (contextUtilization * 10)
-    : 0;
+  const contextEfficiency =
+    contextUtilization > 0.01 ? tasksCompleted / (contextUtilization * 10) : 0;
 
   return {
     tokensUsed: safeTokensUsed,
@@ -247,7 +247,7 @@ export function calculateOrchestrationOverhead(
   numSubagents: number = 1,
 ): OrchestrationOverhead {
   const safeSubagents = numSubagents || 1;
-  const totalTokens = (orchestratorTokens + totalSubagentTokens) || 1;
+  const totalTokens = orchestratorTokens + totalSubagentTokens || 1;
 
   return {
     orchestratorTokens,

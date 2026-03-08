@@ -14,10 +14,10 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint (fast mock so it doesn't affect perf numbers)
 vi.mock('../git-checkpoint.js', () => ({
@@ -68,12 +68,10 @@ describe('Safety Performance', () => {
       };
 
       const start = performance.now();
-      await safeCreateTask(
-        () => createTask(taskData),
-        taskData as any,
-        tempDir,
-        { autoCheckpoint: false, validateSequence: false },
-      );
+      await safeCreateTask(() => createTask(taskData), taskData as any, tempDir, {
+        autoCheckpoint: false,
+        validateSequence: false,
+      });
       const duration = performance.now() - start;
 
       // Should complete within 200ms (generous for CI environments)
@@ -172,10 +170,7 @@ describe('Safety Performance', () => {
       const { validateAndRepairSequence } = await import('../data-safety.js');
 
       // Write a sequence file
-      await writeFile(
-        join(cleoDir, '.sequence.json'),
-        JSON.stringify({ counter: 100 }),
-      );
+      await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 100 }));
 
       const start = performance.now();
       await validateAndRepairSequence(tempDir);

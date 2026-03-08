@@ -11,11 +11,11 @@
  * @epic T4545
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { getCleoDir, getConfigPath } from '../core/paths.js';
 import { readJson } from './json.js';
 
@@ -40,7 +40,10 @@ export function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
  * Run a git command against the isolated .cleo/.git repo, suppressing errors.
  * @task T4872
  */
-export async function cleoGitCommand(args: string[], cleoDir: string): Promise<{ stdout: string; success: boolean }> {
+export async function cleoGitCommand(
+  args: string[],
+  cleoDir: string,
+): Promise<{ stdout: string; success: boolean }> {
   try {
     const result = await execFileAsync('git', args, {
       cwd: resolve(cleoDir), // absolute cwd so relative paths in args resolve correctly
@@ -203,8 +206,10 @@ async function isDetachedHead(cleoDir: string): Promise<boolean> {
  * @task T4872
  */
 function isRebaseInProgress(cleoDir: string): boolean {
-  return existsSync(join(cleoDir, '.git', 'rebase-merge')) ||
-    existsSync(join(cleoDir, '.git', 'rebase-apply'));
+  return (
+    existsSync(join(cleoDir, '.git', 'rebase-merge')) ||
+    existsSync(join(cleoDir, '.git', 'rebase-apply'))
+  );
 }
 
 /**
@@ -229,7 +234,7 @@ async function getLastCheckpointTime(cleoDir: string): Promise<number> {
     const stateFile = join(cleoDir, CHECKPOINT_STATE_FILE);
     const content = await readFile(stateFile, 'utf-8');
     const epoch = parseInt(content.trim(), 10);
-    return isNaN(epoch) ? 0 : epoch;
+    return Number.isNaN(epoch) ? 0 : epoch;
   } catch {
     return 0;
   }
@@ -251,7 +256,10 @@ async function getChangedStateFiles(cleoDir: string, cwd?: string): Promise<Chan
 
     // Check for staged or unstaged changes (paths relative to cleoDir work tree)
     const diffResult = await cleoGitCommand(['diff', '--quiet', '--', stateFile], cleoDir);
-    const cachedResult = await cleoGitCommand(['diff', '--cached', '--quiet', '--', stateFile], cleoDir);
+    const cachedResult = await cleoGitCommand(
+      ['diff', '--cached', '--quiet', '--', stateFile],
+      cleoDir,
+    );
     const untrackedResult = await cleoGitCommand(
       ['ls-files', '--others', '--exclude-standard', '--', stateFile],
       cleoDir,
@@ -273,9 +281,10 @@ async function getChangedStateFiles(cleoDir: string, cwd?: string): Promise<Chan
  * @task T4552
  * @task T4872
  */
-export async function shouldCheckpoint(
-  options?: { force?: boolean; cwd?: string },
-): Promise<boolean> {
+export async function shouldCheckpoint(options?: {
+  force?: boolean;
+  cwd?: string;
+}): Promise<boolean> {
   const force = options?.force ?? false;
   const cwd = options?.cwd;
 
@@ -364,7 +373,7 @@ export async function gitCheckpoint(
   }
 
   // Restrict commit to only the staged state files (prevents sweeping pre-staged project files)
-  commitArgs.push('--', ...changed.map(f => f.path));
+  commitArgs.push('--', ...changed.map((f) => f.path));
 
   // Commit to .cleo/.git
   const commitResult = await cleoGitCommand(commitArgs, cleoDir);
@@ -396,7 +405,7 @@ export async function gitCheckpointStatus(cwd?: string): Promise<CheckpointStatu
     lastCheckpointIso = new Date(lastCheckpoint * 1000).toISOString();
   }
 
-  const isRepo = isCleoGitInitialized(cleoDir) && await isCleoGitRepo(cleoDir);
+  const isRepo = isCleoGitInitialized(cleoDir) && (await isCleoGitRepo(cleoDir));
 
   let pendingChanges = 0;
   if (isRepo) {
@@ -425,7 +434,7 @@ export async function gitCheckpointStatus(cwd?: string): Promise<CheckpointStatu
  */
 export async function gitCheckpointDryRun(cwd?: string): Promise<ChangedFile[]> {
   const cleoDir = getCleoDir(cwd);
-  const isRepo = isCleoGitInitialized(cleoDir) && await isCleoGitRepo(cleoDir);
+  const isRepo = isCleoGitInitialized(cleoDir) && (await isCleoGitRepo(cleoDir));
 
   if (!isRepo) return [];
 

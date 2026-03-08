@@ -9,9 +9,9 @@
  */
 
 import {
-  getTrackedSkills as caampGetTrackedSkills,
-  checkSkillUpdate as caampCheckSkillUpdate,
   checkAllSkillUpdates as caampCheckAllSkillUpdates,
+  checkSkillUpdate as caampCheckSkillUpdate,
+  getTrackedSkills as caampGetTrackedSkills,
 } from '@cleocode/caamp';
 
 /**
@@ -50,12 +50,14 @@ export async function checkSkillUpdateAsync(name: string): Promise<{
 /**
  * Check all installed skills for available updates via CAAMP.
  */
-export async function checkAllSkillUpdatesAsync(): Promise<Array<{
-  name: string;
-  installedVersion: string;
-  availableVersion: string;
-  needsUpdate: boolean;
-}>> {
+export async function checkAllSkillUpdatesAsync(): Promise<
+  Array<{
+    name: string;
+    installedVersion: string;
+    availableVersion: string;
+    needsUpdate: boolean;
+  }>
+> {
   try {
     const results = await caampCheckAllSkillUpdates();
     return Object.entries(results).map(([name, status]) => ({

@@ -4,8 +4,8 @@
  * @task T2928
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadConfig, validateConfig, resetConfig, ConfigValidationError } from '../config.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ConfigValidationError, loadConfig, resetConfig, validateConfig } from '../config.js';
 import { DEFAULT_CONFIG } from '../defaults.js';
 
 describe('Configuration Loader', () => {
@@ -172,9 +172,7 @@ describe('Configuration Loader', () => {
     it('should format error message correctly', () => {
       const error = new ConfigValidationError('timeout', 500, 'must be >= 1000');
 
-      expect(error.message).toBe(
-        "Invalid config field 'timeout': must be >= 1000 (got 500)"
-      );
+      expect(error.message).toBe("Invalid config field 'timeout': must be >= 1000 (got 500)");
       expect(error.name).toBe('ConfigValidationError');
       expect(error.field).toBe('timeout');
       expect(error.value).toBe(500);

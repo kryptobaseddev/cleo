@@ -9,19 +9,13 @@
  * @task T4520
  */
 
-import {
-  existsSync,
-  readFileSync,
-  appendFileSync,
-  writeFileSync,
-  mkdirSync,
-} from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAgentOutputsDir, getAgentOutputsAbsolute, getManifestPath } from '../../paths.js';
-import type { ManifestEntry } from '../types.js';
-import { CleoError } from '../../errors.js';
-import { ExitCode } from '../../../types/exit-codes.js';
 import { MANIFEST_STATUSES } from '../../../store/status-registry.js';
+import { ExitCode } from '../../../types/exit-codes.js';
+import { CleoError } from '../../errors.js';
+import { getAgentOutputsAbsolute, getAgentOutputsDir, getManifestPath } from '../../paths.js';
+import type { ManifestEntry } from '../types.js';
 
 // ============================================================================
 // Initialization
@@ -97,7 +91,7 @@ export function appendManifest(entry: ManifestEntry, cwd?: string): void {
 
   // Check for duplicate ID
   const existing = readManifest(cwd);
-  if (existing.some(e => e.id === entry.id)) {
+  if (existing.some((e) => e.id === entry.id)) {
     throw new CleoError(
       ExitCode.ID_COLLISION,
       `Manifest entry with id="${entry.id}" already exists`,
@@ -115,7 +109,7 @@ export function appendManifest(entry: ManifestEntry, cwd?: string): void {
  */
 export function findEntry(id: string, cwd?: string): ManifestEntry | null {
   const entries = readManifest(cwd);
-  return entries.find(e => e.id === id) ?? null;
+  return entries.find((e) => e.id === id) ?? null;
 }
 
 /**
@@ -136,22 +130,22 @@ export function filterEntries(
 
   if (criteria.status) {
     const s = criteria.status;
-    entries = entries.filter(e => e.status === s);
+    entries = entries.filter((e) => e.status === s);
   }
   if (criteria.agentType) {
     const at = criteria.agentType;
-    entries = entries.filter(e => e.agent_type === at);
+    entries = entries.filter((e) => e.agent_type === at);
   }
   if (criteria.topic) {
     const t = criteria.topic;
-    entries = entries.filter(e => e.topics.includes(t));
+    entries = entries.filter((e) => e.topics.includes(t));
   }
   if (criteria.linkedTask) {
     const lt = criteria.linkedTask;
-    entries = entries.filter(e => e.linked_tasks?.includes(lt));
+    entries = entries.filter((e) => e.linked_tasks?.includes(lt));
   }
   if (criteria.actionable !== undefined) {
-    entries = entries.filter(e => e.actionable === criteria.actionable);
+    entries = entries.filter((e) => e.actionable === criteria.actionable);
   }
 
   return entries;
@@ -163,9 +157,7 @@ export function filterEntries(
  */
 export function getPendingFollowup(cwd?: string): ManifestEntry[] {
   const entries = readManifest(cwd);
-  return entries.filter(e =>
-    Array.isArray(e.needs_followup) && e.needs_followup.length > 0,
-  );
+  return entries.filter((e) => Array.isArray(e.needs_followup) && e.needs_followup.length > 0);
 }
 
 /**
@@ -191,9 +183,12 @@ export function getFollowupTaskIds(cwd?: string): string[] {
  * Check if a task has linked research.
  * @task T4520
  */
-export function taskHasResearch(taskId: string, cwd?: string): { hasResearch: boolean; count: number } {
+export function taskHasResearch(
+  taskId: string,
+  cwd?: string,
+): { hasResearch: boolean; count: number } {
   const entries = readManifest(cwd);
-  const linked = entries.filter(e => e.linked_tasks?.includes(taskId));
+  const linked = entries.filter((e) => e.linked_tasks?.includes(taskId));
   return { hasResearch: linked.length > 0, count: linked.length };
 }
 
@@ -260,11 +255,11 @@ export function rotateManifest(maxEntries: number = 100, cwd?: string): number {
 
   // Write archive file
   const archivePath = join(archiveDir, `MANIFEST-${new Date().toISOString().split('T')[0]}.jsonl`);
-  const archiveContent = toArchive.map(e => JSON.stringify(e)).join('\n') + '\n';
+  const archiveContent = toArchive.map((e) => JSON.stringify(e)).join('\n') + '\n';
   appendFileSync(archivePath, archiveContent, 'utf-8');
 
   // Rewrite main manifest with kept entries
-  const keepContent = toKeep.map(e => JSON.stringify(e)).join('\n') + '\n';
+  const keepContent = toKeep.map((e) => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(manifestPath, keepContent, 'utf-8');
 
   return toArchive.length;
@@ -276,11 +271,26 @@ export function rotateManifest(maxEntries: number = 100, cwd?: string): number {
 
 const MANIFEST_STATUS_SET = new Set(MANIFEST_STATUSES);
 const VALID_AGENT_TYPES = new Set([
-  'research', 'consensus', 'specification', 'decomposition',
-  'implementation', 'contribution', 'release',
-  'validation', 'documentation', 'analysis', 'testing',
-  'cleanup', 'design', 'architecture', 'report',
-  'synthesis', 'orchestrator', 'handoff', 'verification', 'review',
+  'research',
+  'consensus',
+  'specification',
+  'decomposition',
+  'implementation',
+  'contribution',
+  'release',
+  'validation',
+  'documentation',
+  'analysis',
+  'testing',
+  'cleanup',
+  'design',
+  'architecture',
+  'report',
+  'synthesis',
+  'orchestrator',
+  'handoff',
+  'verification',
+  'review',
 ]);
 
 /**
@@ -314,7 +324,11 @@ function validateEntry(entry: ManifestEntry): void {
   }
 
   // Validate agent_type if present
-  if (entry.agent_type && !VALID_AGENT_TYPES.has(entry.agent_type) && !entry.agent_type.startsWith('ct-')) {
+  if (
+    entry.agent_type &&
+    !VALID_AGENT_TYPES.has(entry.agent_type) &&
+    !entry.agent_type.startsWith('ct-')
+  ) {
     throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid agent_type: ${entry.agent_type}`);
   }
 }

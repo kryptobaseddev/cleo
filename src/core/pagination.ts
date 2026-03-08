@@ -8,7 +8,7 @@
  * @epic T4663
  */
 
-import type { LAFSPage, LAFSPageOffset, LAFSPageNone } from '@cleocode/lafs-protocol';
+import type { LAFSPage, LAFSPageNone, LAFSPageOffset } from '@cleocode/lafs-protocol';
 
 /**
  * Input parameters for paginating a result set.
@@ -68,7 +68,11 @@ export function createPage(input: PaginateInput): LAFSPage {
  * @task T4668
  * @epic T4663
  */
-export function paginate<T>(items: T[], limit?: number, offset?: number): { items: T[]; page: LAFSPage } {
+export function paginate<T>(
+  items: T[],
+  limit?: number,
+  offset?: number,
+): { items: T[]; page: LAFSPage } {
   const total = items.length;
 
   if (limit === undefined && offset === undefined) {

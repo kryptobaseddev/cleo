@@ -8,8 +8,8 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 /** Header start/end markers for CLEO command metadata. */
 const CLEO_HEADER_START = '###CLEO';
@@ -79,18 +79,54 @@ export function parseCommandHeader(scriptPath: string): CommandMeta | null {
     const value = line.slice(colonIdx + 1).trim();
 
     switch (key) {
-      case 'command': meta.command = value; break;
-      case 'category': meta.category = value; break;
-      case 'synopsis': meta.synopsis = value; break;
-      case 'aliases': meta.aliases = value.split(',').map(s => s.trim()).filter(Boolean); break;
-      case 'relevance': meta.relevance = value; break;
-      case 'flags': meta.flags = value.split(',').map(s => s.trim()).filter(Boolean); break;
-      case 'exits': meta.exits = value.split(',').map(s => s.trim()).filter(Boolean); break;
-      case 'json_output': meta.jsonOutput = value === 'true'; break;
-      case 'json_default': meta.jsonDefault = value === 'true'; break;
-      case 'subcommands': meta.subcommands = value.split(',').map(s => s.trim()).filter(Boolean); break;
-      case 'note': meta.note = value; break;
-      case 'alias_for': meta.aliasFor = value; break;
+      case 'command':
+        meta.command = value;
+        break;
+      case 'category':
+        meta.category = value;
+        break;
+      case 'synopsis':
+        meta.synopsis = value;
+        break;
+      case 'aliases':
+        meta.aliases = value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        break;
+      case 'relevance':
+        meta.relevance = value;
+        break;
+      case 'flags':
+        meta.flags = value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        break;
+      case 'exits':
+        meta.exits = value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        break;
+      case 'json_output':
+        meta.jsonOutput = value === 'true';
+        break;
+      case 'json_default':
+        meta.jsonDefault = value === 'true';
+        break;
+      case 'subcommands':
+        meta.subcommands = value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        break;
+      case 'note':
+        meta.note = value;
+        break;
+      case 'alias_for':
+        meta.aliasFor = value;
+        break;
     }
   }
 
@@ -130,9 +166,7 @@ export function validateHeader(meta: CommandMeta): { valid: boolean; errors: str
 }
 
 /** Get command-to-script mapping. */
-export function getCommandScriptMap(
-  scriptsDir: string,
-): Record<string, string> {
+export function getCommandScriptMap(scriptsDir: string): Record<string, string> {
   const registry = scanAllCommands(scriptsDir);
   const map: Record<string, string> = {};
 
@@ -147,9 +181,7 @@ export function getCommandScriptMap(
 }
 
 /** Group commands by category. */
-export function getCommandsByCategory(
-  scriptsDir: string,
-): Record<string, CommandMeta[]> {
+export function getCommandsByCategory(scriptsDir: string): Record<string, CommandMeta[]> {
   const registry = scanAllCommands(scriptsDir);
   const byCategory: Record<string, CommandMeta[]> = {};
 
@@ -163,12 +195,7 @@ export function getCommandsByCategory(
 }
 
 /** Filter commands by relevance level. */
-export function getCommandsByRelevance(
-  scriptsDir: string,
-  relevance: string,
-): CommandMeta[] {
+export function getCommandsByRelevance(scriptsDir: string, relevance: string): CommandMeta[] {
   const registry = scanAllCommands(scriptsDir);
-  return Array.from(registry.values()).filter(
-    meta => meta.relevance === relevance,
-  );
+  return Array.from(registry.values()).filter((meta) => meta.relevance === relevance);
 }

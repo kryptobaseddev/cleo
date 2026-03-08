@@ -4,19 +4,23 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  listPhases,
-  showPhase,
-  setPhase,
-  startPhase,
-  completePhase,
-  renamePhase,
-  deletePhase,
-} from '../index.js';
-import { createTestDb, makeTaskFile, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+  createTestDb,
+  makeTaskFile,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
 import type { Task } from '../../../types/task.js';
+import {
+  completePhase,
+  deletePhase,
+  listPhases,
+  renamePhase,
+  setPhase,
+  showPhase,
+  startPhase,
+} from '../index.js';
 
 let env: TestDbEnv;
 let accessor: DataAccessor;
@@ -25,7 +29,13 @@ const defaultProjectMeta = {
   name: 'Test',
   currentPhase: 'core',
   phases: {
-    setup: { order: 1, name: 'Setup', status: 'completed', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-02T00:00:00Z' },
+    setup: {
+      order: 1,
+      name: 'Setup',
+      status: 'completed',
+      startedAt: '2026-01-01T00:00:00Z',
+      completedAt: '2026-01-02T00:00:00Z',
+    },
     core: { order: 2, name: 'Core', status: 'active', startedAt: '2026-01-02T00:00:00Z' },
     polish: { order: 3, name: 'Polish', status: 'pending' },
   },
@@ -34,9 +44,30 @@ const defaultProjectMeta = {
 };
 
 const defaultTasks: Array<Partial<Task> & { id: string }> = [
-  { id: 'T001', title: 'Task 1', status: 'done', priority: 'medium', phase: 'setup', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T002', title: 'Task 2', status: 'active', priority: 'high', phase: 'core', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T003', title: 'Task 3', status: 'pending', priority: 'medium', phase: 'polish', createdAt: '2026-01-01T00:00:00Z' },
+  {
+    id: 'T001',
+    title: 'Task 1',
+    status: 'done',
+    priority: 'medium',
+    phase: 'setup',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T002',
+    title: 'Task 2',
+    status: 'active',
+    priority: 'high',
+    phase: 'core',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T003',
+    title: 'Task 3',
+    status: 'pending',
+    priority: 'medium',
+    phase: 'polish',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
 beforeEach(async () => {
@@ -48,7 +79,10 @@ afterEach(async () => {
   await env.cleanup();
 });
 
-async function writeTodo(overrides: Record<string, unknown> = {}, tasks?: Array<Partial<Task> & { id: string }>) {
+async function writeTodo(
+  overrides: Record<string, unknown> = {},
+  tasks?: Array<Partial<Task> & { id: string }>,
+) {
   const taskFile = makeTaskFile(tasks ?? defaultTasks);
   taskFile.project = { ...defaultProjectMeta, ...overrides } as typeof taskFile.project;
   await accessor.saveTaskFile(taskFile);
@@ -110,7 +144,11 @@ describe('setPhase', () => {
 
   it('allows rollback with flag', async () => {
     await writeTodo();
-    const result = await setPhase({ slug: 'setup', rollback: true, force: true }, env.tempDir, accessor);
+    const result = await setPhase(
+      { slug: 'setup', rollback: true, force: true },
+      env.tempDir,
+      accessor,
+    );
     expect(result.isRollback).toBe(true);
   });
 
@@ -149,7 +187,14 @@ describe('completePhase', () => {
   it('completes active phase with no incomplete tasks', async () => {
     // Make core have all done tasks
     const taskFile = makeTaskFile([
-      { id: 'T001', title: 'Task 1', status: 'done', priority: 'medium', phase: 'core', createdAt: '2026-01-01T00:00:00Z' },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'done',
+        priority: 'medium',
+        phase: 'core',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
     ]);
     taskFile.project = { ...defaultProjectMeta } as typeof taskFile.project;
     await accessor.saveTaskFile(taskFile);
@@ -176,7 +221,9 @@ describe('renamePhase', () => {
 
   it('rejects renaming to existing phase', async () => {
     await writeTodo();
-    await expect(renamePhase('core', 'polish', env.tempDir, accessor)).rejects.toThrow('already exists');
+    await expect(renamePhase('core', 'polish', env.tempDir, accessor)).rejects.toThrow(
+      'already exists',
+    );
   });
 });
 
@@ -199,12 +246,16 @@ describe('deletePhase', () => {
 
   it('rejects deleting current phase', async () => {
     await writeTodo();
-    await expect(deletePhase('core', { force: true }, env.tempDir, accessor)).rejects.toThrow('current');
+    await expect(deletePhase('core', { force: true }, env.tempDir, accessor)).rejects.toThrow(
+      'current',
+    );
   });
 
   it('rejects deleting phase with tasks without reassignment', async () => {
     await writeTodo();
-    await expect(deletePhase('polish', { force: true }, env.tempDir, accessor)).rejects.toThrow('orphaned');
+    await expect(deletePhase('polish', { force: true }, env.tempDir, accessor)).rejects.toThrow(
+      'orphaned',
+    );
   });
 
   it('requires force flag', async () => {

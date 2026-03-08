@@ -8,7 +8,7 @@
  * @task T4814, T5241, T5615
  */
 
-import { Gateway, Tier, CanonicalDomain, type ParamDef } from './types.js';
+import type { CanonicalDomain, Gateway, ParamDef, Tier } from './types.js';
 
 /** Definition of a single dispatchable operation. */
 export interface OperationDef {
@@ -79,10 +79,30 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'type', type: 'string', required: false, description: 'Filter by task type' },
       { name: 'phase', type: 'string', required: false, description: 'Filter by task phase' },
       { name: 'label', type: 'string', required: false, description: 'Filter by task label' },
-      { name: 'children', type: 'boolean', required: false, description: 'Limit parent queries to direct children' },
-      { name: 'limit', type: 'number', required: false, description: 'Maximum number of tasks to return' },
-      { name: 'offset', type: 'number', required: false, description: 'Number of filtered tasks to skip' },
-      { name: 'compact', type: 'boolean', required: false, description: 'Deprecated: request compact task rows for compatibility' },
+      {
+        name: 'children',
+        type: 'boolean',
+        required: false,
+        description: 'Limit parent queries to direct children',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum number of tasks to return',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Number of filtered tasks to skip',
+      },
+      {
+        name: 'compact',
+        type: 'boolean',
+        required: false,
+        description: 'Deprecated: request compact task rows for compatibility',
+      },
     ],
   },
   {
@@ -149,7 +169,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'plan',
-    description: 'Composite planning view with in-progress epics, ready tasks, blocked tasks, and open bugs (query)',
+    description:
+      'Composite planning view with in-progress epics, ready tasks, blocked tasks, and open bugs (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -227,9 +248,19 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [
       { name: 'status', type: 'string', required: false, description: 'Filter by session status' },
-      { name: 'active', type: 'boolean', required: false, description: 'Legacy active-session filter' },
+      {
+        name: 'active',
+        type: 'boolean',
+        required: false,
+        description: 'Legacy active-session filter',
+      },
       { name: 'limit', type: 'number', required: false, description: 'Maximum sessions to return' },
-      { name: 'offset', type: 'number', required: false, description: 'Skip this many sessions before returning results' },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Skip this many sessions before returning results',
+      },
     ],
   },
   {
@@ -266,7 +297,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'handoff.show',
-    description: 'session.handoff.show - Show handoff data from the most recent ended session (query)',
+    description:
+      'session.handoff.show - Show handoff data from the most recent ended session (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -423,7 +455,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'memory',
     operation: 'pattern.find',
-    description: 'memory.pattern.find (query) — search BRAIN pattern memory by type, impact, or keyword',
+    description:
+      'memory.pattern.find (query) — search BRAIN pattern memory by type, impact, or keyword',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -434,7 +467,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'memory',
     operation: 'learning.find',
-    description: 'memory.learning.find (query) — search BRAIN learning memory by confidence, actionability, or keyword',
+    description:
+      'memory.learning.find (query) — search BRAIN learning memory by confidence, actionability, or keyword',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -536,7 +570,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'phaseId', type: 'string', required: false, description: 'Phase slug (omit for current phase)' },
+      {
+        name: 'phaseId',
+        type: 'string',
+        required: false,
+        description: 'Phase slug (omit for current phase)',
+      },
     ],
   },
   {
@@ -666,7 +705,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'check',
     operation: 'compliance.summary',
-    description: 'check.compliance.summary (query) — absorbs compliance.violations via detail param',
+    description:
+      'check.compliance.summary (query) — absorbs compliance.violations via detail param',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -735,15 +775,31 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'check',
     operation: 'grade.list',
-    description: 'check.grade.list (query) — list past session grade results; moved from admin (T5615)',
+    description:
+      'check.grade.list (query) — list past session grade results; moved from admin (T5615)',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'sessionId', type: 'string', required: false, description: 'Filter grades by session ID' },
-      { name: 'limit', type: 'number', required: false, description: 'Maximum grade entries to return' },
-      { name: 'offset', type: 'number', required: false, description: 'Skip this many grade entries before returning results' },
+      {
+        name: 'sessionId',
+        type: 'string',
+        required: false,
+        description: 'Filter grades by session ID',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum grade entries to return',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Skip this many grade entries before returning results',
+      },
     ],
   },
   // T5405: WarpChain validation query
@@ -829,10 +885,30 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'action', type: 'string', required: false, description: 'Action: status (default) or list' },
-      { name: 'status', type: 'string', required: false, description: 'Filter jobs by status (for list action)' },
-      { name: 'limit', type: 'number', required: false, description: 'Maximum jobs to return (for list action)' },
-      { name: 'offset', type: 'number', required: false, description: 'Skip this many jobs before returning results' },
+      {
+        name: 'action',
+        type: 'string',
+        required: false,
+        description: 'Action: status (default) or list',
+      },
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Filter jobs by status (for list action)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum jobs to return (for list action)',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Skip this many jobs before returning results',
+      },
     ],
   },
   {
@@ -879,7 +955,8 @@ export const OPERATIONS: OperationDef[] = [
         name: 'tier',
         type: 'number',
         required: false,
-        description: 'Progressive disclosure tier: 0=basic (default), 1=+memory/check, 2=all operations',
+        description:
+          'Progressive disclosure tier: 0=basic (default), 1=+memory/check, 2=all operations',
         cli: { flag: 'tier', short: '-t' },
       },
       {
@@ -977,13 +1054,19 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tools',
     operation: 'skill.catalog',
-    description: 'tools.skill.catalog (query) — CAAMP catalog; absorbs catalog.protocols/profiles/resources/info via type param',
+    description:
+      'tools.skill.catalog (query) — CAAMP catalog; absorbs catalog.protocols/profiles/resources/info via type param',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'type', type: 'string', required: false, description: 'Catalog type: protocols, profiles, resources, or info (default)' },
+      {
+        name: 'type',
+        type: 'string',
+        required: false,
+        description: 'Catalog type: protocols, profiles, resources, or info (default)',
+      },
     ],
   },
   // skill.precedence.show/resolve merged into skill.precedence via action param (T5615)
@@ -991,14 +1074,25 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tools',
     operation: 'skill.precedence',
-    description: 'tools.skill.precedence (query) — absorbs precedence.show and precedence.resolve via action param',
+    description:
+      'tools.skill.precedence (query) — absorbs precedence.show and precedence.resolve via action param',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'action', type: 'string', required: false, description: 'Action: show (default) or resolve' },
-      { name: 'providerId', type: 'string', required: false, description: 'Provider ID for resolve action' },
+      {
+        name: 'action',
+        type: 'string',
+        required: false,
+        description: 'Action: show (default) or resolve',
+      },
+      {
+        name: 'providerId',
+        type: 'string',
+        required: false,
+        description: 'Provider ID for resolve action',
+      },
     ],
   },
   {
@@ -1041,8 +1135,18 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['providerId', 'capability'],
     params: [
-      { name: 'providerId', type: 'string', required: true, description: 'Provider ID (e.g., claude-code)' },
-      { name: 'capability', type: 'string', required: true, description: 'Capability path in dot notation (e.g., spawn.supportsSubagents)' },
+      {
+        name: 'providerId',
+        type: 'string',
+        required: true,
+        description: 'Provider ID (e.g., claude-code)',
+      },
+      {
+        name: 'capability',
+        type: 'string',
+        required: true,
+        description: 'Capability path in dot notation (e.g., spawn.supportsSubagents)',
+      },
     ],
   },
   {
@@ -1055,7 +1159,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['event'],
     params: [
-      { name: 'event', type: 'string', required: true, description: 'Hook event to query (e.g., onSessionStart, onToolComplete)' },
+      {
+        name: 'event',
+        type: 'string',
+        required: true,
+        description: 'Hook event to query (e.g., onSessionStart, onToolComplete)',
+      },
     ],
   },
   {
@@ -1092,7 +1201,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'cancel',
-    description: 'tasks.cancel (mutate) — cancel task (soft terminal state; reversible via tasks.restore)',
+    description:
+      'tasks.cancel (mutate) — cancel task (soft terminal state; reversible via tasks.restore)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1273,35 +1383,87 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'handoff',
-    description: 'orchestrate.handoff (mutate) — composite handoff (context.inject -> session.end -> spawn)',
+    description:
+      'orchestrate.handoff (mutate) — composite handoff (context.inject -> session.end -> spawn)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId', 'protocolType'],
     params: [
-      { name: 'taskId', type: 'string', required: true, description: 'Successor task ID for spawn context' },
-      { name: 'protocolType', type: 'string', required: true, description: 'Protocol name for handoff context injection' },
-      { name: 'note', type: 'string', required: false, description: 'Optional handoff note persisted through session.end' },
-      { name: 'nextAction', type: 'string', required: false, description: 'Optional next action metadata for the handoff payload' },
-      { name: 'variant', type: 'string', required: false, description: 'Optional context injection variant' },
-      { name: 'tier', type: 'number', required: false, description: 'Progressive disclosure tier (0-2)' },
-      { name: 'idempotencyKey', type: 'string', required: false, description: 'Caller-provided retry correlation key (reported in metadata)' },
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Successor task ID for spawn context',
+      },
+      {
+        name: 'protocolType',
+        type: 'string',
+        required: true,
+        description: 'Protocol name for handoff context injection',
+      },
+      {
+        name: 'note',
+        type: 'string',
+        required: false,
+        description: 'Optional handoff note persisted through session.end',
+      },
+      {
+        name: 'nextAction',
+        type: 'string',
+        required: false,
+        description: 'Optional next action metadata for the handoff payload',
+      },
+      {
+        name: 'variant',
+        type: 'string',
+        required: false,
+        description: 'Optional context injection variant',
+      },
+      {
+        name: 'tier',
+        type: 'number',
+        required: false,
+        description: 'Progressive disclosure tier (0-2)',
+      },
+      {
+        name: 'idempotencyKey',
+        type: 'string',
+        required: false,
+        description: 'Caller-provided retry correlation key (reported in metadata)',
+      },
     ],
   },
   {
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'spawn.execute',
-    description: 'orchestrate.spawn.execute (mutate) — execute spawn for a task using adapter registry',
+    description:
+      'orchestrate.spawn.execute (mutate) — execute spawn for a task using adapter registry',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
     params: [
       { name: 'taskId', type: 'string', required: true, description: 'Task ID to spawn' },
-      { name: 'adapterId', type: 'string', required: false, description: 'Adapter ID (auto-select if omitted)' },
-      { name: 'protocolType', type: 'string', required: false, description: 'Protocol type override' },
-      { name: 'tier', type: 'number', required: false, description: 'Progressive disclosure tier (0-2)' },
+      {
+        name: 'adapterId',
+        type: 'string',
+        required: false,
+        description: 'Adapter ID (auto-select if omitted)',
+      },
+      {
+        name: 'protocolType',
+        type: 'string',
+        required: false,
+        description: 'Protocol type override',
+      },
+      {
+        name: 'tier',
+        type: 'number',
+        required: false,
+        description: 'Progressive disclosure tier (0-2)',
+      },
     ],
   },
   {
@@ -1319,7 +1481,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'parallel',
-    description: 'orchestrate.parallel (mutate) — absorbs parallel.start and parallel.end via action param',
+    description:
+      'orchestrate.parallel (mutate) — absorbs parallel.start and parallel.end via action param',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1353,7 +1516,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'memory',
     operation: 'pattern.store',
-    description: 'memory.pattern.store (mutate) — store a reusable workflow or anti-pattern in BRAIN pattern memory',
+    description:
+      'memory.pattern.store (mutate) — store a reusable workflow or anti-pattern in BRAIN pattern memory',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1363,7 +1527,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'memory',
     operation: 'learning.store',
-    description: 'memory.learning.store (mutate) — store an insight or lesson learned in BRAIN learning memory',
+    description:
+      'memory.learning.store (mutate) — store an insight or lesson learned in BRAIN learning memory',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1483,10 +1648,25 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['phaseId'],
     params: [
-      { name: 'phaseId', type: 'string', required: true, description: 'Phase slug to set as current' },
-      { name: 'rollback', type: 'boolean', required: false, description: 'Allow backward phase movement' },
+      {
+        name: 'phaseId',
+        type: 'string',
+        required: true,
+        description: 'Phase slug to set as current',
+      },
+      {
+        name: 'rollback',
+        type: 'boolean',
+        required: false,
+        description: 'Allow backward phase movement',
+      },
       { name: 'force', type: 'boolean', required: false, description: 'Skip confirmation prompt' },
-      { name: 'dryRun', type: 'boolean', required: false, description: 'Preview changes without modifying files' },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview changes without modifying files',
+      },
     ],
   },
   // phase.start and phase.complete removed — merged into phase.set via action param (T5615)
@@ -1500,7 +1680,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'force', type: 'boolean', required: false, description: 'Skip validation and interactive prompt' },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Skip validation and interactive prompt',
+      },
     ],
   },
   {
@@ -1524,7 +1709,12 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: ['phaseId'],
     params: [
       { name: 'phaseId', type: 'string', required: true, description: 'Phase slug to delete' },
-      { name: 'reassignTo', type: 'string', required: false, description: 'Reassign tasks to another phase' },
+      {
+        name: 'reassignTo',
+        type: 'string',
+        required: false,
+        description: 'Reassign tasks to another phase',
+      },
       { name: 'force', type: 'boolean', required: false, description: 'Required safety flag' },
     ],
   },
@@ -1583,7 +1773,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'check',
     operation: 'gate.set',
-    description: 'check.gate.set (mutate) — write path of former gate.verify; set/reset gates (T5615)',
+    description:
+      'check.gate.set (mutate) — write path of former gate.verify; set/reset gates (T5615)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1644,7 +1835,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'pipeline',
     operation: 'release.ship',
-    description: 'Ship a release: validate gates → write CHANGELOG → git commit/tag/push → record provenance; absorbs prepare/changelog/commit/tag/push/gates.run via step param',
+    description:
+      'Ship a release: validate gates → write CHANGELOG → git commit/tag/push → record provenance; absorbs prepare/changelog/commit/tag/push/gates.run via step param',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1782,7 +1974,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tools',
     operation: 'todowrite.status',
-    description: 'tools.todowrite.status (query) — TodoWrite sync status; moved from admin.sync.status (T5615)',
+    description:
+      'tools.todowrite.status (query) — TodoWrite sync status; moved from admin.sync.status (T5615)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -1802,13 +1995,19 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tools',
     operation: 'todowrite.clear',
-    description: 'tools.todowrite.clear (mutate) — clear TodoWrite sync state; moved from admin.sync.clear (T5615)',
+    description:
+      'tools.todowrite.clear (mutate) — clear TodoWrite sync state; moved from admin.sync.clear (T5615)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'dryRun', type: 'boolean', required: false, description: 'Preview what would be cleared' },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview what would be cleared',
+      },
     ],
   },
   // T4916: Global install refresh
@@ -1828,22 +2027,38 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'admin',
     operation: 'token',
-    description: 'admin.token (query) — summarize/list/show token telemetry; absorbs token.summary, token.list, token.show via action param',
+    description:
+      'admin.token (query) — summarize/list/show token telemetry; absorbs token.summary, token.list, token.show via action param',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'action', type: 'string', required: false, description: 'Action: summary (default), list, or show' },
+      {
+        name: 'action',
+        type: 'string',
+        required: false,
+        description: 'Action: summary (default), list, or show',
+      },
       { name: 'tokenId', type: 'string', required: false, description: 'Token ID for show action' },
       { name: 'provider', type: 'string', required: false, description: 'Filter by provider' },
       { name: 'transport', type: 'string', required: false, description: 'Filter by transport' },
       { name: 'domain', type: 'string', required: false, description: 'Filter by domain' },
-      { name: 'operationName', type: 'string', required: false, description: 'Filter by operation name' },
+      {
+        name: 'operationName',
+        type: 'string',
+        required: false,
+        description: 'Filter by operation name',
+      },
       { name: 'sessionId', type: 'string', required: false, description: 'Filter by session ID' },
       { name: 'taskId', type: 'string', required: false, description: 'Filter by task ID' },
       { name: 'limit', type: 'number', required: false, description: 'Maximum records to return' },
-      { name: 'offset', type: 'number', required: false, description: 'Skip this many records before returning results' },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Skip this many records before returning results',
+      },
     ],
   },
   // admin.token.record/delete/clear merged into admin.token (mutate) (T5615)
@@ -1851,14 +2066,25 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'admin',
     operation: 'token',
-    description: 'admin.token (mutate) — record/delete/clear token telemetry; absorbs token.record, token.delete, token.clear via action param',
+    description:
+      'admin.token (mutate) — record/delete/clear token telemetry; absorbs token.record, token.delete, token.clear via action param',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'action', type: 'string', required: false, description: 'Action: record (default), delete, or clear' },
-      { name: 'tokenId', type: 'string', required: false, description: 'Token ID for delete action' },
+      {
+        name: 'action',
+        type: 'string',
+        required: false,
+        description: 'Action: record (default), delete, or clear',
+      },
+      {
+        name: 'tokenId',
+        type: 'string',
+        required: false,
+        description: 'Token ID for delete action',
+      },
     ],
   },
 
@@ -1878,7 +2104,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'admin',
     operation: 'adr.sync',
-    description: 'admin.adr.sync (mutate) — sync .cleo/adrs/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag',
+    description:
+      'admin.adr.sync (mutate) — sync .cleo/adrs/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1895,11 +2122,26 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'query', type: 'string', required: false, description: 'Search query (omit to list all ADRs)' },
+      {
+        name: 'query',
+        type: 'string',
+        required: false,
+        description: 'Search query (omit to list all ADRs)',
+      },
       { name: 'status', type: 'string', required: false, description: 'Filter ADRs by status' },
-      { name: 'since', type: 'string', required: false, description: 'Filter ADRs created on or after this date' },
+      {
+        name: 'since',
+        type: 'string',
+        required: false,
+        description: 'Filter ADRs created on or after this date',
+      },
       { name: 'limit', type: 'number', required: false, description: 'Maximum ADRs to return' },
-      { name: 'offset', type: 'number', required: false, description: 'Skip this many ADRs before returning results' },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Skip this many ADRs before returning results',
+      },
     ],
   },
   // admin.doctor removed — merged into admin.health via mode:"diagnose" param (T5615)
@@ -1908,7 +2150,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'admin',
     operation: 'health',
-    description: 'admin.health (mutate) — auto-fix failed health/doctor checks; mode:"repair" form of admin.health query (T5615)',
+    description:
+      'admin.health (mutate) — auto-fix failed health/doctor checks; mode:"repair" form of admin.health query (T5615)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1919,7 +2162,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'admin',
     operation: 'context.inject',
-    description: 'admin.context.inject (mutate) — inject protocol content into session context; moved from session domain (T5615)',
+    description:
+      'admin.context.inject (mutate) — inject protocol content into session context; moved from session domain (T5615)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -1930,7 +2174,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query' as const,
     domain: 'admin',
     operation: 'export',
-    description: 'admin.export (query) — export tasks; absorbs snapshot.export and export.tasks via scope param',
+    description:
+      'admin.export (query) — export tasks; absorbs snapshot.export and export.tasks via scope param',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1941,7 +2186,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'admin',
     operation: 'import',
-    description: 'admin.import (mutate) — import tasks; absorbs snapshot.import and import.tasks via scope param',
+    description:
+      'admin.import (mutate) — import tasks; absorbs snapshot.import and import.tasks via scope param',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2035,7 +2281,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query' as const,
     domain: 'nexus',
     operation: 'resolve',
-    description: 'nexus.resolve (query) — resolve a cross-project project:taskId reference; renamed from nexus.query (T5615)',
+    description:
+      'nexus.resolve (query) — resolve a cross-project project:taskId reference; renamed from nexus.query (T5615)',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -2149,13 +2396,19 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'nexus',
     operation: 'sync',
-    description: 'nexus.sync (mutate) — sync project(s) metadata; absorbs sync.all when name omitted',
+    description:
+      'nexus.sync (mutate) — sync project(s) metadata; absorbs sync.all when name omitted',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'name', type: 'string', required: false, description: 'Project name to sync (omit to sync all)' },
+      {
+        name: 'name',
+        type: 'string',
+        required: false,
+        description: 'Project name to sync (omit to sync all)',
+      },
     ],
   },
   {
@@ -2220,18 +2473,45 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate' as const,
     domain: 'sticky',
     operation: 'convert',
-    description: 'sticky.convert (mutate) — convert sticky to task, memory, task_note, or session_note',
+    description:
+      'sticky.convert (mutate) — convert sticky to task, memory, task_note, or session_note',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['stickyId', 'targetType'],
     params: [
       { name: 'stickyId', type: 'string', required: true, description: 'ID of the sticky note' },
-      { name: 'targetType', type: 'string', required: true, description: 'Target type: task, memory, task_note, or session_note' },
-      { name: 'title', type: 'string', required: false, description: 'Optional task title (for task conversion)' },
-      { name: 'memoryType', type: 'string', required: false, description: 'Optional memory type (for memory conversion)' },
-      { name: 'taskId', type: 'string', required: false, description: 'Target task ID (required for task_note conversion)' },
-      { name: 'sessionId', type: 'string', required: false, description: 'Target session ID (optional for session_note conversion, defaults to active session)' },
+      {
+        name: 'targetType',
+        type: 'string',
+        required: true,
+        description: 'Target type: task, memory, task_note, or session_note',
+      },
+      {
+        name: 'title',
+        type: 'string',
+        required: false,
+        description: 'Optional task title (for task conversion)',
+      },
+      {
+        name: 'memoryType',
+        type: 'string',
+        required: false,
+        description: 'Optional memory type (for memory conversion)',
+      },
+      {
+        name: 'taskId',
+        type: 'string',
+        required: false,
+        description: 'Target task ID (required for task_note conversion)',
+      },
+      {
+        name: 'sessionId',
+        type: 'string',
+        required: false,
+        description:
+          'Target session ID (optional for session_note conversion, defaults to active session)',
+      },
     ],
   },
   {
@@ -2260,20 +2540,27 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'tessera.list',
-    description: 'orchestrate.tessera.list (query) — list Tessera templates; absorbs tessera.show via optional id param',
+    description:
+      'orchestrate.tessera.list (query) — list Tessera templates; absorbs tessera.show via optional id param',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'id', type: 'string', required: false, description: 'Optional template ID for single-item lookup (replaces tessera.show)' },
+      {
+        name: 'id',
+        type: 'string',
+        required: false,
+        description: 'Optional template ID for single-item lookup (replaces tessera.show)',
+      },
     ],
   },
   {
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'tessera.instantiate',
-    description: 'orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance',
+    description:
+      'orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -2320,9 +2607,13 @@ export function getGatewayDomains(gateway: Gateway): string[] {
 /**
  * Resolves a domain + operation to its registered definition.
  */
-export function resolve(gateway: Gateway, domain: string, operation: string): Resolution | undefined {
+export function resolve(
+  gateway: Gateway,
+  domain: string,
+  operation: string,
+): Resolution | undefined {
   const def = OPERATIONS.find(
-    o => o.gateway === gateway && o.domain === domain && o.operation === operation,
+    (o) => o.gateway === gateway && o.domain === domain && o.operation === operation,
   );
 
   if (!def) return undefined;
@@ -2334,30 +2625,35 @@ export function resolve(gateway: Gateway, domain: string, operation: string): Re
  * Validates that all required parameters are present in the request.
  * Returns an array of missing parameter keys.
  */
-export function validateRequiredParams(def: OperationDef, params?: Record<string, unknown>): string[] {
+export function validateRequiredParams(
+  def: OperationDef,
+  params?: Record<string, unknown>,
+): string[] {
   if (!def.requiredParams || def.requiredParams.length === 0) return [];
   const provided = params || {};
-  return def.requiredParams.filter(key => provided[key] === undefined || provided[key] === null || provided[key] === '');
+  return def.requiredParams.filter(
+    (key) => provided[key] === undefined || provided[key] === null || provided[key] === '',
+  );
 }
 
 /** Get all operations for a specific canonical domain. */
 export function getByDomain(domain: CanonicalDomain): OperationDef[] {
-  return OPERATIONS.filter(o => o.domain === domain);
+  return OPERATIONS.filter((o) => o.domain === domain);
 }
 
 /** Get all operations for a specific gateway. */
 export function getByGateway(gateway: Gateway): OperationDef[] {
-  return OPERATIONS.filter(o => o.gateway === gateway);
+  return OPERATIONS.filter((o) => o.gateway === gateway);
 }
 
 /** Get all operations available at or below a specific tier. */
 export function getByTier(tier: Tier): OperationDef[] {
-  return OPERATIONS.filter(o => o.tier <= tier);
+  return OPERATIONS.filter((o) => o.tier <= tier);
 }
 
 /** Get a list of canonical domains that actually have operations registered. */
 export function getActiveDomains(): CanonicalDomain[] {
-  const active = new Set(OPERATIONS.map(o => o.domain));
+  const active = new Set(OPERATIONS.map((o) => o.domain));
   return Array.from(active);
 }
 
@@ -2366,8 +2662,8 @@ export function getActiveDomains(): CanonicalDomain[] {
  */
 export function getCounts(): { query: number; mutate: number; total: number } {
   return {
-    query: OPERATIONS.filter(o => o.gateway === 'query').length,
-    mutate: OPERATIONS.filter(o => o.gateway === 'mutate').length,
+    query: OPERATIONS.filter((o) => o.gateway === 'query').length,
+    mutate: OPERATIONS.filter((o) => o.gateway === 'mutate').length,
     total: OPERATIONS.length,
   };
 }
@@ -2375,5 +2671,7 @@ export function getCounts(): { query: number; mutate: number; total: number } {
 // Module load validation (dynamic, no hardcoded operation totals)
 const counts = getCounts();
 if (counts.total !== OPERATIONS.length) {
-  console.warn(`[Registry] Operation count mismatch: total=${counts.total}, registry=${OPERATIONS.length}`);
+  console.warn(
+    `[Registry] Operation count mismatch: total=${counts.total}, registry=${OPERATIONS.length}`,
+  );
 }

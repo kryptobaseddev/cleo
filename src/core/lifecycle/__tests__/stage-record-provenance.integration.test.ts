@@ -4,14 +4,18 @@
  * @task T5217
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const syncAdrsToDbMock = vi.hoisted(() => vi.fn(async () => ({ inserted: 0, updated: 0, skipped: 0, errors: [] })));
-const linkPipelineAdrMock = vi.hoisted(() => vi.fn(async () => ({ linked: [], synced: 0, skipped: 0, errors: [] })));
+const syncAdrsToDbMock = vi.hoisted(() =>
+  vi.fn(async () => ({ inserted: 0, updated: 0, skipped: 0, errors: [] })),
+);
+const linkPipelineAdrMock = vi.hoisted(() =>
+  vi.fn(async () => ({ linked: [], synced: 0, skipped: 0, errors: [] })),
+);
 
 vi.mock('../../adrs/sync.js', () => ({
   syncAdrsToDb: syncAdrsToDbMock,
@@ -42,7 +46,9 @@ describe('stage.record provenance integration', () => {
     try {
       const { closeAllDatabases } = await import('../../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* module may not be loaded */ }
+    } catch {
+      /* module may not be loaded */
+    }
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
     vi.restoreAllMocks();
@@ -54,7 +60,13 @@ describe('stage.record provenance integration', () => {
     const schema = await import('../../../store/tasks-schema.js');
     const { eq } = await import('drizzle-orm');
 
-    await recordStageProgress('T9001', 'research', 'completed', 'Initial research complete', testDir);
+    await recordStageProgress(
+      'T9001',
+      'research',
+      'completed',
+      'Initial research complete',
+      testDir,
+    );
 
     const artifactPath = join(cleoDir, 'rcasd', 'T9001', 'research', 'T9001-research.md');
     expect(existsSync(artifactPath)).toBe(true);
@@ -73,9 +85,14 @@ describe('stage.record provenance integration', () => {
       .all();
 
     expect(stageRows.length).toBe(1);
-    expect(stageRows[0]?.outputFile?.replaceAll('\\', '/')).toBe('.cleo/rcasd/T9001/research/T9001-research.md');
+    expect(stageRows[0]?.outputFile?.replaceAll('\\', '/')).toBe(
+      '.cleo/rcasd/T9001/research/T9001-research.md',
+    );
 
-    const provenance = JSON.parse(stageRows[0]?.provenanceChainJson ?? '{}') as Record<string, unknown>;
+    const provenance = JSON.parse(stageRows[0]?.provenanceChainJson ?? '{}') as Record<
+      string,
+      unknown
+    >;
     expect(provenance['stage']).toBe('research');
     expect(provenance['status']).toBe('completed');
 
@@ -106,7 +123,13 @@ describe('stage.record provenance integration', () => {
   it('auto-triggers ADR sync and linking on architecture_decision completion', async () => {
     const { recordStageProgress } = await import('../index.js');
 
-    await recordStageProgress('T9003', 'architecture_decision', 'completed', 'Architecture finalized', testDir);
+    await recordStageProgress(
+      'T9003',
+      'architecture_decision',
+      'completed',
+      'Architecture finalized',
+      testDir,
+    );
 
     expect(syncAdrsToDbMock).toHaveBeenCalledWith(testDir);
     expect(linkPipelineAdrMock).toHaveBeenCalledWith(testDir, 'T9003');

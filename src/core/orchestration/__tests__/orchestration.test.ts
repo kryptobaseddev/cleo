@@ -4,30 +4,76 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  startOrchestration,
-  analyzeEpic,
-  getReadyTasks,
-  getNextTask,
-  prepareSpawn,
-  autoDispatch,
-  resolveTokens,
-  getOrchestratorContext,
-} from '../index.js';
-import type { Task } from '../../../types/task.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
+import type { Task } from '../../../types/task.js';
+import {
+  analyzeEpic,
+  autoDispatch,
+  getNextTask,
+  getOrchestratorContext,
+  getReadyTasks,
+  prepareSpawn,
+  resolveTokens,
+  startOrchestration,
+} from '../index.js';
 
 let env: TestDbEnv;
 let accessor: DataAccessor;
 
 const epicTaskPartials: Array<Partial<Task> & { id: string }> = [
-  { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T002', title: 'Implement auth', status: 'done', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T003', title: 'Build UI', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T004', title: 'Research patterns', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', labels: ['research'], createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'T005', title: 'Test integration', status: 'blocked', priority: 'high', type: 'task', parentId: 'T001', depends: ['T003'], createdAt: '2026-01-01T00:00:00Z' },
+  {
+    id: 'T001',
+    title: 'Epic',
+    status: 'active',
+    priority: 'high',
+    type: 'epic',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T002',
+    title: 'Implement auth',
+    status: 'done',
+    priority: 'high',
+    type: 'task',
+    parentId: 'T001',
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T003',
+    title: 'Build UI',
+    status: 'pending',
+    priority: 'medium',
+    type: 'task',
+    parentId: 'T001',
+    depends: ['T002'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T004',
+    title: 'Research patterns',
+    status: 'pending',
+    priority: 'medium',
+    type: 'task',
+    parentId: 'T001',
+    labels: ['research'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'T005',
+    title: 'Test integration',
+    status: 'blocked',
+    priority: 'high',
+    type: 'task',
+    parentId: 'T001',
+    depends: ['T003'],
+    createdAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
 beforeEach(async () => {
@@ -77,7 +123,7 @@ describe('getReadyTasks', () => {
   it('returns tasks with all deps met', async () => {
     await writeTodo();
     const ready = await getReadyTasks('T001', env.tempDir, accessor);
-    const readyIds = ready.filter(r => r.ready).map(r => r.taskId);
+    const readyIds = ready.filter((r) => r.ready).map((r) => r.taskId);
     expect(readyIds).toContain('T003');
     expect(readyIds).toContain('T004');
   });
@@ -85,7 +131,7 @@ describe('getReadyTasks', () => {
   it('marks blocked tasks with blockers', async () => {
     await writeTodo();
     const ready = await getReadyTasks('T001', env.tempDir, accessor);
-    const t005 = ready.find(r => r.taskId === 'T005');
+    const t005 = ready.find((r) => r.taskId === 'T005');
     expect(t005?.ready).toBe(false);
     expect(t005?.blockers).toContain('T003');
   });
@@ -113,22 +159,48 @@ describe('prepareSpawn', () => {
 
 describe('autoDispatch', () => {
   it('dispatches by label', () => {
-    const task: Task = { id: 'T001', title: 'Something', status: 'pending', priority: 'medium', labels: ['research'], createdAt: '2026-01-01T00:00:00Z' };
+    const task: Task = {
+      id: 'T001',
+      title: 'Something',
+      status: 'pending',
+      priority: 'medium',
+      labels: ['research'],
+      createdAt: '2026-01-01T00:00:00Z',
+    };
     expect(autoDispatch(task)).toBe('research');
   });
 
   it('dispatches by type (epic)', () => {
-    const task: Task = { id: 'T001', title: 'Something', status: 'pending', priority: 'medium', type: 'epic', createdAt: '2026-01-01T00:00:00Z' };
+    const task: Task = {
+      id: 'T001',
+      title: 'Something',
+      status: 'pending',
+      priority: 'medium',
+      type: 'epic',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
     expect(autoDispatch(task)).toBe('decomposition');
   });
 
   it('dispatches by keyword', () => {
-    const task: Task = { id: 'T001', title: 'Implement auth module', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' };
+    const task: Task = {
+      id: 'T001',
+      title: 'Implement auth module',
+      status: 'pending',
+      priority: 'medium',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
     expect(autoDispatch(task)).toBe('implementation');
   });
 
   it('falls back to implementation', () => {
-    const task: Task = { id: 'T001', title: 'Something generic', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' };
+    const task: Task = {
+      id: 'T001',
+      title: 'Something generic',
+      status: 'pending',
+      priority: 'medium',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
     expect(autoDispatch(task)).toBe('implementation');
   });
 });

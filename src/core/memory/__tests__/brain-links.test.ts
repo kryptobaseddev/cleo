@@ -5,10 +5,10 @@
  * @epic T5149
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -81,7 +81,9 @@ describe('Brain Memory Links', () => {
 
   describe('unlinkMemoryFromTask', () => {
     it('should remove an existing link', async () => {
-      const { linkMemoryToTask, unlinkMemoryFromTask, getMemoryLinks } = await import('../brain-links.js');
+      const { linkMemoryToTask, unlinkMemoryFromTask, getMemoryLinks } = await import(
+        '../brain-links.js'
+      );
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       closeBrainDb();
 
@@ -238,7 +240,9 @@ describe('Brain Memory Links', () => {
     });
 
     it('should return empty array when no linked entries exist', async () => {
-      const { getLinkedDecisions, getLinkedPatterns, getLinkedLearnings } = await import('../brain-links.js');
+      const { getLinkedDecisions, getLinkedPatterns, getLinkedLearnings } = await import(
+        '../brain-links.js'
+      );
       const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);

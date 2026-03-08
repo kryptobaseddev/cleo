@@ -8,9 +8,9 @@
  * compatible `validateSchema()` calls with raw data.
  */
 
+import type { ErrorObject, ValidateFunction } from 'ajv';
 import AjvModule from 'ajv';
 import addFormatsModule from 'ajv-formats';
-import type { ValidateFunction, ErrorObject } from 'ajv';
 import { readFileSync } from 'fs';
 import { insertTaskSchema } from '../../store/validation-schemas.js';
 import { resolveSchemaPath as resolveSchemaPathGlobal } from '../schema-management.js';
@@ -114,21 +114,20 @@ function getValidator(schemaType: SchemaType): ValidateFunction | null {
  * @param data - The data to validate
  * @returns Validation result with errors if invalid
  */
-export function validateSchema(
-  schemaType: SchemaType,
-  data: unknown
-): ValidationResult {
+export function validateSchema(schemaType: SchemaType, data: unknown): ValidationResult {
   const validate = getValidator(schemaType);
 
   if (!validate) {
     return {
       valid: false,
-      errors: [{
-        path: '',
-        message: `Schema '${schemaType}' not found. Ensure schemas/ directory is accessible.`,
-        keyword: 'schema-not-found',
-        params: { schemaType },
-      }],
+      errors: [
+        {
+          path: '',
+          message: `Schema '${schemaType}' not found. Ensure schemas/ directory is accessible.`,
+          keyword: 'schema-not-found',
+          params: { schemaType },
+        },
+      ],
     };
   }
 
@@ -138,14 +137,12 @@ export function validateSchema(
     return { valid: true, errors: [] };
   }
 
-  const errors: ValidationError[] = (validate.errors || []).map(
-    (err: ErrorObject) => ({
-      path: err.instancePath || '/',
-      message: err.message || 'Validation failed',
-      keyword: err.keyword,
-      params: err.params as Record<string, unknown>,
-    })
-  );
+  const errors: ValidationError[] = (validate.errors || []).map((err: ErrorObject) => ({
+    path: err.instancePath || '/',
+    message: err.message || 'Validation failed',
+    keyword: err.keyword,
+    params: err.params as Record<string, unknown>,
+  }));
 
   return { valid: false, errors };
 }
@@ -162,12 +159,14 @@ export function validateTask(task: unknown): ValidationResult {
   if (!task || typeof task !== 'object') {
     return {
       valid: false,
-      errors: [{
-        path: '',
-        message: 'Task must be a non-null object',
-        keyword: 'type',
-        params: { type: 'object' },
-      }],
+      errors: [
+        {
+          path: '',
+          message: 'Task must be a non-null object',
+          keyword: 'type',
+          params: { type: 'object' },
+        },
+      ],
     };
   }
 

@@ -8,7 +8,7 @@
  */
 
 import type { Task } from '../../types/task.js';
-import type { RelatesType, RelatesEntry } from './crossref-extract.js';
+import type { RelatesEntry, RelatesType } from './crossref-extract.js';
 
 /** Discovery method. */
 export type DiscoveryMethod = 'labels' | 'description' | 'files' | 'hierarchy' | 'auto';
@@ -25,15 +25,91 @@ export interface DiscoveryMatch {
 
 /** Common English stopwords for text comparison. */
 const STOPWORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-  'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
-  'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-  'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can',
-  'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we',
-  'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'all',
-  'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such',
-  'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
-  'just', 'also', 'now', 'then', 'here', 'there', 'if', 'else', 'any',
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'as',
+  'is',
+  'was',
+  'are',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'must',
+  'shall',
+  'can',
+  'this',
+  'that',
+  'these',
+  'those',
+  'i',
+  'you',
+  'he',
+  'she',
+  'it',
+  'we',
+  'they',
+  'what',
+  'which',
+  'who',
+  'when',
+  'where',
+  'why',
+  'how',
+  'all',
+  'each',
+  'every',
+  'both',
+  'few',
+  'more',
+  'most',
+  'other',
+  'some',
+  'such',
+  'no',
+  'nor',
+  'not',
+  'only',
+  'own',
+  'same',
+  'so',
+  'than',
+  'too',
+  'very',
+  'just',
+  'also',
+  'now',
+  'then',
+  'here',
+  'there',
+  'if',
+  'else',
+  'any',
 ]);
 
 /**
@@ -188,9 +264,7 @@ export function discoverByHierarchy(
 
   // Find siblings (same parent)
   if (source.parentId) {
-    const siblings = tasks.filter(
-      (t) => t.parentId === source.parentId && t.id !== taskId,
-    );
+    const siblings = tasks.filter((t) => t.parentId === source.parentId && t.id !== taskId);
     for (const sib of siblings) {
       results.push({
         taskId: sib.id,
@@ -247,7 +321,6 @@ export function discoverRelatedTasks(
       return discoverByFiles(taskId, tasks);
     case 'hierarchy':
       return discoverByHierarchy(taskId, tasks);
-    case 'auto':
     default: {
       const labels = discoverByLabels(taskId, tasks);
       const description = discoverByDescription(taskId, tasks);
@@ -306,7 +379,5 @@ export function suggestRelates(
     }
   }
 
-  return all.filter(
-    (m) => m.score >= threshold && !existingRelates.has(m.taskId),
-  );
+  return all.filter((m) => m.score >= threshold && !existingRelates.has(m.taskId));
 }

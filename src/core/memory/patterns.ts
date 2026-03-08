@@ -52,10 +52,7 @@ function generatePatternId(): string {
  * If a similar pattern already exists (same type + matching text), increments frequency.
  * @task T4768, T5241
  */
-export async function storePattern(
-  projectRoot: string,
-  params: StorePatternParams,
-) {
+export async function storePattern(projectRoot: string, params: StorePatternParams) {
   if (!params.pattern || !params.pattern.trim()) {
     throw new Error('Pattern description is required');
   }
@@ -110,12 +107,9 @@ export async function storePattern(
  * Search patterns by criteria.
  * @task T4768, T5241
  */
-export async function searchPatterns(
-  projectRoot: string,
-  params: SearchPatternParams = {},
-) {
+export async function searchPatterns(projectRoot: string, params: SearchPatternParams = {}) {
   const accessor = await getBrainAccessor(projectRoot);
-  
+
   // Note: findPatterns from accessor handles basic filtering
   let entries = await accessor.findPatterns({
     type: params.type,
@@ -130,12 +124,12 @@ export async function searchPatterns(
       (e) =>
         e.pattern.toLowerCase().includes(q) ||
         e.context.toLowerCase().includes(q) ||
-        (e.antiPattern && e.antiPattern.toLowerCase().includes(q)) ||
-        (e.mitigation && e.mitigation.toLowerCase().includes(q)),
+        e.antiPattern?.toLowerCase().includes(q) ||
+        e.mitigation?.toLowerCase().includes(q),
     );
   }
 
-  return entries.map(e => ({
+  return entries.map((e) => ({
     ...e,
     examples: JSON.parse(e.examplesJson || '[]'),
   }));

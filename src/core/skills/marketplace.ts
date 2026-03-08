@@ -6,13 +6,10 @@
  * @task T4521
  */
 
-import {
-  MarketplaceClient,
-  searchSkills as caampSearchSkills,
-} from '@cleocode/caamp';
-import type { MarketplaceResult } from '@cleocode/caamp';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { MarketplaceResult } from '@cleocode/caamp';
+import { searchSkills as caampSearchSkills, MarketplaceClient } from '@cleocode/caamp';
 import { getProjectRoot } from '../paths.js';
 
 // ============================================================================

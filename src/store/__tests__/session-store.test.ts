@@ -8,10 +8,10 @@
  * @epic T4638
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Session } from '../../types/session.js';
 
 let tempDir: string;
@@ -309,7 +309,9 @@ describe('SQLite session-store', () => {
 
   describe('stopTask', () => {
     it('stops the current task', async () => {
-      const { createSession, startTask, stopTask, getCurrentTask } = await import('../session-store.js');
+      const { createSession, startTask, stopTask, getCurrentTask } = await import(
+        '../session-store.js'
+      );
       await createSession(makeSession({ id: 'sess-001' }));
       await startTask('sess-001', 'T001');
 
@@ -380,16 +382,20 @@ describe('SQLite session-store', () => {
 
     it('returns most recent active session when multiple exist', async () => {
       const { createSession, getActiveSession } = await import('../session-store.js');
-      await createSession(makeSession({
-        id: 'sess-old',
-        status: 'active',
-        startedAt: '2026-01-01T00:00:00.000Z',
-      }));
-      await createSession(makeSession({
-        id: 'sess-new',
-        status: 'active',
-        startedAt: '2026-01-02T00:00:00.000Z',
-      }));
+      await createSession(
+        makeSession({
+          id: 'sess-old',
+          status: 'active',
+          startedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      );
+      await createSession(
+        makeSession({
+          id: 'sess-new',
+          status: 'active',
+          startedAt: '2026-01-02T00:00:00.000Z',
+        }),
+      );
 
       const active = await getActiveSession();
       expect(active!.id).toBe('sess-new');

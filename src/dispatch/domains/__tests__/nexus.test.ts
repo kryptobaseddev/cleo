@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core nexus modules before importing the handler
 vi.mock('../../../core/nexus/registry.js', () => ({
@@ -39,20 +39,26 @@ vi.mock('../../../core/logger.js', () => ({
   })),
 }));
 
-import { NexusHandler } from '../nexus.js';
 import {
+  blockingAnalysis,
+  buildGlobalGraph,
+  criticalPath,
+  nexusDeps,
+  orphanDetection,
+} from '../../../core/nexus/deps.js';
+import { setPermission } from '../../../core/nexus/permissions.js';
+import { resolveTask, validateSyntax } from '../../../core/nexus/query.js';
+import {
+  nexusGetProject,
   nexusInit,
-  nexusRegister,
-  nexusUnregister,
   nexusList,
+  nexusRegister,
   nexusSync,
   nexusSyncAll,
-  nexusGetProject,
+  nexusUnregister,
   readRegistry,
 } from '../../../core/nexus/registry.js';
-import { resolveTask, validateSyntax } from '../../../core/nexus/query.js';
-import { nexusDeps, buildGlobalGraph, criticalPath, blockingAnalysis, orphanDetection } from '../../../core/nexus/deps.js';
-import { setPermission } from '../../../core/nexus/permissions.js';
+import { NexusHandler } from '../nexus.js';
 
 describe('NexusHandler', () => {
   let handler: NexusHandler;
@@ -152,7 +158,13 @@ describe('NexusHandler', () => {
         total: 1,
         filtered: 1,
       });
-      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 1,
+        offset: 0,
+        hasMore: false,
+        total: 1,
+      });
     });
   });
 
@@ -468,8 +480,30 @@ describe('NexusHandler', () => {
     it('returns all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'resolve', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search', 'share.status']);
-      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'permission.set', 'reconcile', 'share.snapshot.export', 'share.snapshot.import']);
+      expect(ops.query).toEqual([
+        'status',
+        'list',
+        'show',
+        'resolve',
+        'deps',
+        'graph',
+        'path.show',
+        'blockers.show',
+        'orphans.list',
+        'discover',
+        'search',
+        'share.status',
+      ]);
+      expect(ops.mutate).toEqual([
+        'init',
+        'register',
+        'unregister',
+        'sync',
+        'permission.set',
+        'reconcile',
+        'share.snapshot.export',
+        'share.snapshot.import',
+      ]);
     });
   });
 

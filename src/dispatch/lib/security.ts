@@ -8,16 +8,14 @@
  * @epic T3125
  */
 
-import { resolve, normalize, relative, isAbsolute } from 'path';
+import { isAbsolute, normalize, relative, resolve } from 'path';
 import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 import {
-  TASK_PRIORITIES,
-} from '../../store/tasks-schema.js';
-import {
-  TASK_STATUSES,
-  MANIFEST_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
+  MANIFEST_STATUSES,
+  TASK_STATUSES,
 } from '../../store/status-registry.js';
+import { TASK_PRIORITIES } from '../../store/tasks-schema.js';
 
 /**
  * Security validation error thrown when input fails sanitization
@@ -26,7 +24,7 @@ export class SecurityError extends Error {
   constructor(
     message: string,
     public code: string = 'E_SECURITY_VIOLATION',
-    public field?: string
+    public field?: string,
   ) {
     super(message);
     this.name = 'SecurityError';
@@ -53,20 +51,12 @@ const DEFAULT_MAX_CONTENT_LENGTH = 64 * 1024;
  */
 export function sanitizeTaskId(value: unknown): string {
   if (typeof value !== 'string') {
-    throw new SecurityError(
-      'Task ID must be a string',
-      'E_INVALID_TASK_ID',
-      'taskId'
-    );
+    throw new SecurityError('Task ID must be a string', 'E_INVALID_TASK_ID', 'taskId');
   }
 
   const normalized = normalizeTaskId(value);
   if (normalized === null) {
-    throw new SecurityError(
-      `Invalid task ID format: ${value}`,
-      'E_INVALID_TASK_ID',
-      'taskId'
-    );
+    throw new SecurityError(`Invalid task ID format: ${value}`, 'E_INVALID_TASK_ID', 'taskId');
   }
 
   const numericPart = parseInt(normalized.slice(1), 10);
@@ -74,7 +64,7 @@ export function sanitizeTaskId(value: unknown): string {
     throw new SecurityError(
       `Task ID exceeds maximum value: ${value}`,
       'E_INVALID_TASK_ID',
-      'taskId'
+      'taskId',
     );
   }
 
@@ -86,37 +76,25 @@ export function sanitizeTaskId(value: unknown): string {
  */
 export function sanitizePath(path: string, projectRoot: string): string {
   if (typeof path !== 'string') {
-    throw new SecurityError(
-      'Path must be a string',
-      'E_INVALID_PATH',
-      'path'
-    );
+    throw new SecurityError('Path must be a string', 'E_INVALID_PATH', 'path');
   }
 
   if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
     throw new SecurityError(
       'Project root must be a non-empty string',
       'E_INVALID_PATH',
-      'projectRoot'
+      'projectRoot',
     );
   }
 
   const trimmedPath = path.trim();
 
   if (trimmedPath.length === 0) {
-    throw new SecurityError(
-      'Path cannot be empty',
-      'E_INVALID_PATH',
-      'path'
-    );
+    throw new SecurityError('Path cannot be empty', 'E_INVALID_PATH', 'path');
   }
 
   if (trimmedPath.includes('\0')) {
-    throw new SecurityError(
-      'Path contains null bytes',
-      'E_PATH_TRAVERSAL',
-      'path'
-    );
+    throw new SecurityError('Path contains null bytes', 'E_PATH_TRAVERSAL', 'path');
   }
 
   const normalizedRoot = resolve(projectRoot);
@@ -134,7 +112,7 @@ export function sanitizePath(path: string, projectRoot: string): string {
     throw new SecurityError(
       `Path traversal detected: "${path}" resolves outside project root`,
       'E_PATH_TRAVERSAL',
-      'path'
+      'path',
     );
   }
 
@@ -146,21 +124,17 @@ export function sanitizePath(path: string, projectRoot: string): string {
  */
 export function sanitizeContent(
   content: string,
-  maxLength: number = DEFAULT_MAX_CONTENT_LENGTH
+  maxLength: number = DEFAULT_MAX_CONTENT_LENGTH,
 ): string {
   if (typeof content !== 'string') {
-    throw new SecurityError(
-      'Content must be a string',
-      'E_INVALID_CONTENT',
-      'content'
-    );
+    throw new SecurityError('Content must be a string', 'E_INVALID_CONTENT', 'content');
   }
 
   if (content.length > maxLength) {
     throw new SecurityError(
       `Content exceeds maximum length (${maxLength} characters): got ${content.length}`,
       'E_CONTENT_TOO_LARGE',
-      'content'
+      'content',
     );
   }
 
@@ -170,17 +144,9 @@ export function sanitizeContent(
 /**
  * Validate that a value is in an allowed enum set
  */
-export function validateEnum(
-  value: string,
-  allowed: string[],
-  fieldName: string
-): string {
+export function validateEnum(value: string, allowed: string[], fieldName: string): string {
   if (typeof value !== 'string') {
-    throw new SecurityError(
-      `${fieldName} must be a string`,
-      'E_INVALID_ENUM',
-      fieldName
-    );
+    throw new SecurityError(`${fieldName} must be a string`, 'E_INVALID_ENUM', fieldName);
   }
 
   const trimmed = value.trim();
@@ -189,7 +155,7 @@ export function validateEnum(
     throw new SecurityError(
       `Invalid ${fieldName}: "${trimmed}". Allowed values: ${allowed.join(', ')}`,
       'E_INVALID_ENUM',
-      fieldName
+      fieldName,
     );
   }
 
@@ -200,8 +166,14 @@ export function validateEnum(
  * Known enum values for CLEO domains
  */
 export const VALID_DOMAINS = [
-  'tasks', 'session', 'orchestrate', 'research',
-  'lifecycle', 'validate', 'release', 'system',
+  'tasks',
+  'session',
+  'orchestrate',
+  'research',
+  'lifecycle',
+  'validate',
+  'release',
+  'system',
 ] as const;
 
 export const VALID_GATEWAYS = ['query', 'mutate'] as const;
@@ -270,7 +242,7 @@ export class RateLimiter {
       this.windows.set(key, timestamps);
     }
 
-    const validTimestamps = timestamps.filter(t => t > windowStart);
+    const validTimestamps = timestamps.filter((t) => t > windowStart);
     this.windows.set(key, validTimestamps);
 
     const remaining = Math.max(0, config.maxRequests - validTimestamps.length);
@@ -322,10 +294,19 @@ export class RateLimiter {
  * MCP clients may send comma-separated strings instead of arrays.
  */
 const ARRAY_PARAMS = new Set([
-  'labels', 'addLabels', 'removeLabels',
-  'depends', 'addDepends', 'removeDepends',
-  'files', 'acceptance', 'findings', 'sources',
-  'tasks', 'removeTasks', 'taskIds',
+  'labels',
+  'addLabels',
+  'removeLabels',
+  'depends',
+  'addDepends',
+  'removeDepends',
+  'files',
+  'acceptance',
+  'findings',
+  'sources',
+  'tasks',
+  'removeTasks',
+  'taskIds',
 ]);
 
 /**
@@ -334,8 +315,12 @@ const ARRAY_PARAMS = new Set([
  */
 export function ensureArray(value: unknown, separator = ','): string[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (Array.isArray(value)) return value.map(v => typeof v === 'string' ? v.trim() : String(v));
-  if (typeof value === 'string') return value.split(separator).map(s => s.trim()).filter(Boolean);
+  if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? v.trim() : String(v)));
+  if (typeof value === 'string')
+    return value
+      .split(separator)
+      .map((s) => s.trim())
+      .filter(Boolean);
   return [String(value)];
 }
 
@@ -360,8 +345,13 @@ export function sanitizeParams(
 
     if (
       typeof value === 'string' &&
-      (key === 'taskId' || key === 'parent' || key === 'epicId' ||
-       key === 'parentId' || key === 'newParentId' || key === 'relatedId' || key === 'targetId')
+      (key === 'taskId' ||
+        key === 'parent' ||
+        key === 'epicId' ||
+        key === 'parentId' ||
+        key === 'newParentId' ||
+        key === 'relatedId' ||
+        key === 'targetId')
     ) {
       if (key === 'parent' && value === '') {
         continue;
@@ -370,7 +360,10 @@ export function sanitizeParams(
       continue;
     }
 
-    if ((key === 'depends' || key === 'addDepends' || key === 'removeDepends') && Array.isArray(value)) {
+    if (
+      (key === 'depends' || key === 'addDepends' || key === 'removeDepends') &&
+      Array.isArray(value)
+    ) {
       sanitized[key] = value.map((v) => {
         if (typeof v === 'string') {
           return sanitizeTaskId(v);
@@ -380,11 +373,7 @@ export function sanitizeParams(
       continue;
     }
 
-    if (
-      typeof value === 'string' &&
-      (key === 'path' || key === 'file') &&
-      projectRoot
-    ) {
+    if (typeof value === 'string' && (key === 'path' || key === 'file') && projectRoot) {
       sanitized[key] = sanitizePath(value, projectRoot);
       continue;
     }
@@ -402,9 +391,7 @@ export function sanitizeParams(
       if (typeof value === 'string') {
         sanitized[key] = sanitizeContent(value);
       } else if (Array.isArray(value)) {
-        sanitized[key] = value.map((v) =>
-          typeof v === 'string' ? sanitizeContent(v) : v
-        );
+        sanitized[key] = value.map((v) => (typeof v === 'string' ? sanitizeContent(v) : v));
       }
       continue;
     }
@@ -412,16 +399,15 @@ export function sanitizeParams(
     if (typeof value === 'string' && key === 'status') {
       const isLifecycleStageStatus =
         context?.domain === 'pipeline' && context?.operation === 'stage.record';
-      const isAdrStatus =
-        context?.domain === 'admin' && context?.operation?.startsWith('adr.');
+      const isAdrStatus = context?.domain === 'admin' && context?.operation?.startsWith('adr.');
 
       sanitized[key] = validateEnum(
         value,
         isLifecycleStageStatus
           ? [...LIFECYCLE_STAGE_STATUSES]
           : isAdrStatus
-          ? ['proposed', 'accepted', 'superseded', 'deprecated']
-          : [...TASK_STATUSES, ...MANIFEST_STATUSES],
+            ? ['proposed', 'accepted', 'superseded', 'deprecated']
+            : [...TASK_STATUSES, ...MANIFEST_STATUSES],
         'status',
       );
       continue;
@@ -429,7 +415,6 @@ export function sanitizeParams(
 
     if (typeof value === 'string' && key === 'priority') {
       sanitized[key] = validateEnum(value, [...VALID_PRIORITIES], 'priority');
-      continue;
     }
   }
 

@@ -4,7 +4,7 @@
  * @epic T4454, T5323
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -12,9 +12,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
  * @task T4464, T5326
  */
 export function registerPhaseCommand(program: Command): void {
-  const phase = program
-    .command('phase')
-    .description('Project-level phase lifecycle management');
+  const phase = program.command('phase').description('Project-level phase lifecycle management');
 
   // T5326: Migrated to dispatch
   phase
@@ -41,12 +39,18 @@ export function registerPhaseCommand(program: Command): void {
     .option('--force', 'Skip confirmation prompt')
     .option('--dry-run', 'Preview changes without modifying files')
     .action(async (slug: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.set', {
-        phaseId: slug,
-        rollback: opts['rollback'],
-        force: opts['force'],
-        dryRun: opts['dryRun'],
-      }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.set',
+        {
+          phaseId: slug,
+          rollback: opts['rollback'],
+          force: opts['force'],
+          dryRun: opts['dryRun'],
+        },
+        { command: 'phase' },
+      );
     });
 
   // T5326: Migrated to dispatch
@@ -54,7 +58,13 @@ export function registerPhaseCommand(program: Command): void {
     .command('start <slug>')
     .description('Start a phase (pending -> active)')
     .action(async (slug: string) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.start', { phaseId: slug }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.start',
+        { phaseId: slug },
+        { command: 'phase' },
+      );
     });
 
   // T5326: Migrated to dispatch
@@ -62,7 +72,13 @@ export function registerPhaseCommand(program: Command): void {
     .command('complete <slug>')
     .description('Complete a phase (active -> completed)')
     .action(async (slug: string) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.complete', { phaseId: slug }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.complete',
+        { phaseId: slug },
+        { command: 'phase' },
+      );
     });
 
   // T5326: Migrated to dispatch
@@ -71,9 +87,15 @@ export function registerPhaseCommand(program: Command): void {
     .description('Complete current phase and start next')
     .option('-f, --force', 'Skip validation and interactive prompt')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.advance', {
-        force: opts['force'],
-      }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.advance',
+        {
+          force: opts['force'],
+        },
+        { command: 'phase' },
+      );
     });
 
   // T5326: Migrated to dispatch
@@ -81,7 +103,13 @@ export function registerPhaseCommand(program: Command): void {
     .command('rename <oldName> <newName>')
     .description('Rename a phase and update all task references')
     .action(async (oldName: string, newName: string) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.rename', { oldName, newName }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.rename',
+        { oldName, newName },
+        { command: 'phase' },
+      );
     });
 
   // T5326: Migrated to dispatch
@@ -91,10 +119,16 @@ export function registerPhaseCommand(program: Command): void {
     .option('--reassign-to <phase>', 'Reassign tasks to another phase')
     .option('--force', 'Required safety flag')
     .action(async (slug: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'phase.delete', {
-        phaseId: slug,
-        reassignTo: opts['reassignTo'],
-        force: opts['force'],
-      }, { command: 'phase' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'phase.delete',
+        {
+          phaseId: slug,
+          reassignTo: opts['reassignTo'],
+          force: opts['force'],
+        },
+        { command: 'phase' },
+      );
     });
 }

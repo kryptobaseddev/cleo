@@ -4,11 +4,11 @@
  * @epic T4454
  */
 
-import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task } from '../../types/task.js';
+import { CleoError } from '../errors.js';
 import { getExecutionWaves } from '../phases/deps.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Orchestrator session state. */
 export interface OrchestratorSession {
@@ -63,7 +63,7 @@ export async function startOrchestration(
   accessor?: DataAccessor,
 ): Promise<OrchestratorSession> {
   const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find(t => t.id === epicId);
+  const epic = data.tasks.find((t) => t.id === epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
@@ -92,36 +92,40 @@ export async function startOrchestration(
  * Analyze an epic's dependency structure.
  * @task T4466
  */
-export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<AnalysisResult> {
+export async function analyzeEpic(
+  epicId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<AnalysisResult> {
   const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find(t => t.id === epicId);
+  const epic = data.tasks.find((t) => t.id === epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
   }
 
-  const childTasks = data.tasks.filter(t => t.parentId === epicId);
+  const childTasks = data.tasks.filter((t) => t.parentId === epicId);
   const waves = await getExecutionWaves(epicId, cwd, accessor);
 
-  const completedTasks = childTasks.filter(t => t.status === 'done').map(t => t.id);
-  const blockedTasks = childTasks.filter(t => t.status === 'blocked').map(t => t.id);
+  const completedTasks = childTasks.filter((t) => t.status === 'done').map((t) => t.id);
+  const blockedTasks = childTasks.filter((t) => t.status === 'blocked').map((t) => t.id);
 
   // Find ready tasks (all deps complete, not yet started)
   const completedSet = new Set(completedTasks);
   const readyTasks = childTasks
-    .filter(t => {
+    .filter((t) => {
       if (t.status === 'done' || t.status === 'cancelled') return false;
       const deps = t.depends ?? [];
-      return deps.every(d => completedSet.has(d));
+      return deps.every((d) => completedSet.has(d));
     })
-    .map(t => t.id);
+    .map((t) => t.id);
 
   return {
     epicId,
     totalTasks: childTasks.length,
-    waves: waves.map(w => ({
+    waves: waves.map((w) => ({
       wave: w.wave,
-      tasks: w.tasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+      tasks: w.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
     })),
     readyTasks,
     blockedTasks,
@@ -133,18 +137,20 @@ export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataA
  * Get parallel-safe ready tasks for an epic.
  * @task T4466
  */
-export async function getReadyTasks(epicId: string, _cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness[]> {
+export async function getReadyTasks(
+  epicId: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskReadiness[]> {
   const data = await accessor!.loadTaskFile();
-  const childTasks = data.tasks.filter(t => t.parentId === epicId);
-  const completedIds = new Set(
-    data.tasks.filter(t => t.status === 'done').map(t => t.id),
-  );
+  const childTasks = data.tasks.filter((t) => t.parentId === epicId);
+  const completedIds = new Set(data.tasks.filter((t) => t.status === 'done').map((t) => t.id));
 
   return childTasks
-    .filter(t => t.status !== 'done' && t.status !== 'cancelled')
-    .map(task => {
+    .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+    .map((task) => {
       const deps = task.depends ?? [];
-      const unmetDeps = deps.filter(d => !completedIds.has(d));
+      const unmetDeps = deps.filter((d) => !completedIds.has(d));
       const protocol = autoDispatch(task);
 
       return {
@@ -161,9 +167,13 @@ export async function getReadyTasks(epicId: string, _cwd?: string, accessor?: Da
  * Get the next task to work on for an epic.
  * @task T4466
  */
-export async function getNextTask(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness | null> {
+export async function getNextTask(
+  epicId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskReadiness | null> {
   const readyTasks = await getReadyTasks(epicId, cwd, accessor);
-  const ready = readyTasks.filter(t => t.ready);
+  const ready = readyTasks.filter((t) => t.ready);
 
   if (ready.length === 0) return null;
 
@@ -174,9 +184,13 @@ export async function getNextTask(epicId: string, cwd?: string, accessor?: DataA
  * Prepare a spawn context for a subagent.
  * @task T4466
  */
-export async function prepareSpawn(taskId: string, _cwd?: string, accessor?: DataAccessor): Promise<SpawnContext> {
+export async function prepareSpawn(
+  taskId: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<SpawnContext> {
   const data = await accessor!.loadTaskFile();
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
@@ -224,7 +238,11 @@ export async function validateSpawnOutput(
  * Get orchestrator context summary.
  * @task T4466
  */
-export async function getOrchestratorContext(epicId: string, _cwd?: string, accessor?: DataAccessor): Promise<{
+export async function getOrchestratorContext(
+  epicId: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{
   epicId: string;
   epicTitle: string;
   totalTasks: number;
@@ -235,17 +253,17 @@ export async function getOrchestratorContext(epicId: string, _cwd?: string, acce
   completionPercent: number;
 }> {
   const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find(t => t.id === epicId);
+  const epic = data.tasks.find((t) => t.id === epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
   }
 
-  const children = data.tasks.filter(t => t.parentId === epicId);
-  const completed = children.filter(t => t.status === 'done').length;
-  const inProgress = children.filter(t => t.status === 'active').length;
-  const blocked = children.filter(t => t.status === 'blocked').length;
-  const pending = children.filter(t => t.status === 'pending').length;
+  const children = data.tasks.filter((t) => t.parentId === epicId);
+  const completed = children.filter((t) => t.status === 'done').length;
+  const inProgress = children.filter((t) => t.status === 'active').length;
+  const blocked = children.filter((t) => t.status === 'blocked').length;
+  const pending = children.filter((t) => t.status === 'pending').length;
 
   return {
     epicId,
@@ -255,7 +273,7 @@ export async function getOrchestratorContext(epicId: string, _cwd?: string, acce
     inProgress,
     blocked,
     pending,
-    completionPercent: children.length > 0 ? Math.floor(completed * 100 / children.length) : 0,
+    completionPercent: children.length > 0 ? Math.floor((completed * 100) / children.length) : 0,
   };
 }
 
@@ -301,7 +319,7 @@ export function autoDispatch(task: Task): string {
   // 1. Label-based dispatch (highest priority)
   if (task.labels?.length) {
     for (const [protocol, config] of Object.entries(DISPATCH_MAP)) {
-      if (task.labels.some(l => config.labels.includes(l))) {
+      if (task.labels.some((l) => config.labels.includes(l))) {
         return protocol;
       }
     }
@@ -313,7 +331,7 @@ export function autoDispatch(task: Task): string {
   // 3. Keyword-based dispatch
   const text = `${task.title} ${task.description ?? ''}`.toLowerCase();
   for (const [protocol, config] of Object.entries(DISPATCH_MAP)) {
-    if (config.keywords.some(kw => text.includes(kw))) {
+    if (config.keywords.some((kw) => text.includes(kw))) {
       return protocol;
     }
   }
@@ -345,9 +363,13 @@ function buildSpawnPrompt(task: Task, protocol: string): string {
     `4. Append manifest entry to MANIFEST.jsonl`,
     `5. Complete: \`cleo complete ${task.id}\``,
     '',
-    task.acceptance?.length ? `### Acceptance Criteria\n${task.acceptance.map(a => `- ${a}`).join('\n')}` : '',
-    task.depends?.length ? `### Dependencies\n${task.depends.map(d => `- ${d}`).join('\n')}` : '',
-  ].filter(Boolean).join('\n');
+    task.acceptance?.length
+      ? `### Acceptance Criteria\n${task.acceptance.map((a) => `- ${a}`).join('\n')}`
+      : '',
+    task.depends?.length ? `### Dependencies\n${task.depends.map((d) => `- ${d}`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /**
@@ -357,13 +379,12 @@ function buildSpawnPrompt(task: Task, protocol: string): string {
 function findUnresolvedTokens(prompt: string): string[] {
   const tokens: string[] = [];
   const tokenRegex = /\{\{([A-Z_]+)\}\}/g;
-  let match;
-  while ((match = tokenRegex.exec(prompt)) !== null) {
+  for (const match of prompt.matchAll(tokenRegex)) {
     tokens.push(match[1]!);
   }
 
-  const refRegex = /@([a-zA-Z0-9_./\-]+\.md)/g;
-  while ((match = refRegex.exec(prompt)) !== null) {
+  const refRegex = /@([a-zA-Z0-9_./-]+\.md)/g;
+  for (const match of prompt.matchAll(refRegex)) {
     tokens.push(`@${match[1]}`);
   }
 

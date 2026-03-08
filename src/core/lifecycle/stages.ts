@@ -66,7 +66,7 @@ export const CONTRIBUTION_STAGE = 'contribution' as const;
  *
  * @task T4800
  */
-export type Stage = typeof PIPELINE_STAGES[number];
+export type Stage = (typeof PIPELINE_STAGES)[number];
 
 /**
  * Stage status values.
@@ -394,7 +394,7 @@ export function isPrerequisite(potentialPrereq: Stage, stage: Stage): boolean {
  * @task T4800
  */
 export function getDependents(stage: Stage): Stage[] {
-  return PIPELINE_STAGES.filter(s => STAGE_PREREQUISITES[s].includes(stage));
+  return PIPELINE_STAGES.filter((s) => STAGE_PREREQUISITES[s].includes(stage));
 }
 
 // =============================================================================
@@ -424,10 +424,7 @@ export function isValidStage(stage: string): stage is Stage {
  */
 export function validateStage(stage: string): Stage {
   if (!isValidStage(stage)) {
-    throw new Error(
-      `Invalid stage: "${stage}". ` +
-      `Valid stages: ${PIPELINE_STAGES.join(', ')}`
-    );
+    throw new Error(`Invalid stage: "${stage}". ` + `Valid stages: ${PIPELINE_STAGES.join(', ')}`);
   }
   return stage;
 }
@@ -461,9 +458,7 @@ export function isValidStageStatus(status: string): status is StageStatus {
  * @task T4800
  */
 export function getStagesByCategory(category: StageCategory): Stage[] {
-  return PIPELINE_STAGES.filter(
-    stage => STAGE_DEFINITIONS[stage].category === category
-  );
+  return PIPELINE_STAGES.filter((stage) => STAGE_DEFINITIONS[stage].category === category);
 }
 
 /**
@@ -474,9 +469,7 @@ export function getStagesByCategory(category: StageCategory): Stage[] {
  * @task T4800
  */
 export function getSkippableStages(): Stage[] {
-  return PIPELINE_STAGES.filter(
-    stage => STAGE_DEFINITIONS[stage].skippable
-  );
+  return PIPELINE_STAGES.filter((stage) => STAGE_DEFINITIONS[stage].skippable);
 }
 
 // =============================================================================
@@ -515,12 +508,36 @@ export const TRANSITION_RULES: TransitionRule[] = [
   { from: 'testing', to: 'release', allowed: true },
 
   // Skip patterns (allowed with force)
-  { from: 'research', to: 'specification', allowed: true, requiresForce: true, reason: 'Skipping consensus and architecture_decision' },
-  { from: 'specification', to: 'implementation', allowed: true, requiresForce: true, reason: 'Skipping decomposition' },
+  {
+    from: 'research',
+    to: 'specification',
+    allowed: true,
+    requiresForce: true,
+    reason: 'Skipping consensus and architecture_decision',
+  },
+  {
+    from: 'specification',
+    to: 'implementation',
+    allowed: true,
+    requiresForce: true,
+    reason: 'Skipping decomposition',
+  },
 
   // Backward transitions (allowed with force, for rework)
-  { from: 'implementation', to: 'specification', allowed: true, requiresForce: true, reason: 'Rework required' },
-  { from: 'testing', to: 'implementation', allowed: true, requiresForce: true, reason: 'Fix test failures' },
+  {
+    from: 'implementation',
+    to: 'specification',
+    allowed: true,
+    requiresForce: true,
+    reason: 'Rework required',
+  },
+  {
+    from: 'testing',
+    to: 'implementation',
+    allowed: true,
+    requiresForce: true,
+    reason: 'Fix test failures',
+  },
 
   // Disallowed transitions
   { from: 'release', to: 'any', allowed: false, reason: 'Pipeline completed' },
@@ -539,7 +556,7 @@ export const TRANSITION_RULES: TransitionRule[] = [
 export function checkTransition(
   from: Stage,
   to: Stage,
-  force: boolean = false
+  force: boolean = false,
 ): { allowed: boolean; requiresForce: boolean; reason?: string } {
   // Same stage - no transition needed
   if (from === to) {
@@ -548,8 +565,7 @@ export function checkTransition(
 
   // Find explicit rule
   const rule = TRANSITION_RULES.find(
-    r => (r.from === from || r.from === 'any') &&
-         (r.to === to || r.to === 'any')
+    (r) => (r.from === from || r.from === 'any') && (r.to === to || r.to === 'any'),
   );
 
   if (rule) {
@@ -557,7 +573,7 @@ export function checkTransition(
       return {
         allowed: false,
         requiresForce: false,
-        reason: rule.reason || 'Transition not allowed'
+        reason: rule.reason || 'Transition not allowed',
       };
     }
 
@@ -565,7 +581,7 @@ export function checkTransition(
       return {
         allowed: false,
         requiresForce: true,
-        reason: rule.reason || 'Transition requires force flag'
+        reason: rule.reason || 'Transition requires force flag',
       };
     }
 
@@ -577,8 +593,8 @@ export function checkTransition(
     // Check if skipping any non-skippable stages
     const between = getStagesBetween(from, to);
     const nonSkippableSkipped = between
-      .filter(s => s !== from && s !== to)
-      .filter(s => !STAGE_DEFINITIONS[s].skippable);
+      .filter((s) => s !== from && s !== to)
+      .filter((s) => !STAGE_DEFINITIONS[s].skippable);
 
     if (nonSkippableSkipped.length > 0) {
       return {

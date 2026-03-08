@@ -31,30 +31,28 @@
  * @epic T4663
  */
 
-import { mkdir, copyFile, symlink, lstat, unlink } from 'node:fs/promises';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFile, lstat, mkdir, readFile, symlink, unlink } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { readJson } from '../store/json.js';
-import { readFile } from 'node:fs/promises';
-import { getCleoDirAbsolute, getProjectRoot, getAgentsHome } from './paths.js';
-import { migrateAgentOutputs } from './migration/agent-outputs.js';
-import { CleoError } from './errors.js';
 import { ExitCode } from '../types/exit-codes.js';
-
+import { CleoError } from './errors.js';
+import { ensureGitHooks } from './hooks.js';
+import { ensureInjection } from './injection.js';
+import { migrateAgentOutputs } from './migration/agent-outputs.js';
+import { getAgentsHome, getCleoDirAbsolute, getProjectRoot } from './paths.js';
 // Shared utility imports
 import {
+  ensureCleoGitRepo,
   ensureCleoStructure,
   ensureConfig,
   ensureGitignore,
-  ensureProjectInfo,
   ensureProjectContext,
-  ensureCleoGitRepo,
-  removeCleoFromRootGitignore,
+  ensureProjectInfo,
   getPackageRoot,
+  removeCleoFromRootGitignore,
 } from './scaffold.js';
-import { ensureGitHooks } from './hooks.js';
 import { ensureGlobalSchemas } from './schema-management.js';
-import { ensureInjection } from './injection.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -86,10 +84,7 @@ export interface InitResult {
  * Install cleo-subagent agent definition to ~/.agents/agents/.
  * @task T4685
  */
-export async function initAgentDefinition(
-  created: string[],
-  warnings: string[],
-): Promise<void> {
+export async function initAgentDefinition(created: string[], warnings: string[]): Promise<void> {
   const packageRoot = getPackageRoot();
   const agentSourceDir = join(packageRoot, 'agents', 'cleo-subagent');
 
@@ -116,7 +111,7 @@ export async function initAgentDefinition(
     // Create symlink from ~/.agents/agents/cleo-subagent -> package agents/cleo-subagent/
     await symlink(agentSourceDir, globalAgentsDir, 'dir');
     created.push('agent: cleo-subagent (symlinked)');
-  } catch (err) {
+  } catch (_err) {
     // If symlink fails (e.g., permissions), try copying
     try {
       await mkdir(globalAgentsDir, { recursive: true });
@@ -126,7 +121,9 @@ export async function initAgentDefinition(
       }
       created.push('agent: cleo-subagent (copied)');
     } catch (copyErr) {
-      warnings.push(`Agent definition install: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`);
+      warnings.push(
+        `Agent definition install: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`,
+      );
     }
   }
 }
@@ -141,11 +138,10 @@ export async function initMcpServer(
   warnings: string[],
 ): Promise<void> {
   try {
-    const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import('./mcp/index.js');
-    const {
-      getInstalledProviders,
-      installMcpServerToAll,
-    } = await import('@cleocode/caamp');
+    const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import(
+      './mcp/index.js'
+    );
+    const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
     type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
 
     const env = detectEnvMode();
@@ -160,14 +156,18 @@ export async function initMcpServer(
     // MCP server config is a system-level tool setup by default.
     // Project-level CLEO data still lives in per-project .cleo/.
     const results = await installMcpServerToAll(
-      providers, serverName, serverEntry, 'global', projectRoot,
+      providers,
+      serverName,
+      serverEntry,
+      'global',
+      projectRoot,
     );
 
-    const successes = results.filter(r => r.success);
-    const failures = results.filter(r => !r.success);
+    const successes = results.filter((r) => r.success);
+    const failures = results.filter((r) => !r.success);
 
     if (successes.length > 0) {
-      created.push(`MCP server: ${successes.map(r => r.provider.id).join(', ')}`);
+      created.push(`MCP server: ${successes.map((r) => r.provider.id).join(', ')}`);
     }
 
     for (const f of failures) {
@@ -185,12 +185,11 @@ export async function initMcpServer(
  * @task T4707
  * @task T4689
  */
-export async function initCoreSkills(
-  created: string[],
-  warnings: string[],
-): Promise<void> {
+export async function initCoreSkills(created: string[], warnings: string[]): Promise<void> {
   try {
-    const { getInstalledProviders, installSkill, registerSkillLibraryFromPath } = await import('@cleocode/caamp');
+    const { getInstalledProviders, installSkill, registerSkillLibraryFromPath } = await import(
+      '@cleocode/caamp'
+    );
 
     const providers = getInstalledProviders();
     if (providers.length === 0) {
@@ -231,10 +230,16 @@ export async function initCoreSkills(
     // Read the skills catalog to find core skills
     const catalogPath = join(ctSkillsRoot, 'skills.json');
     const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8'));
-    const skills: Array<{ name: string; path: string; core: boolean; category: string; tier: number }> = catalog.skills ?? [];
+    const skills: Array<{
+      name: string;
+      path: string;
+      core: boolean;
+      category: string;
+      tier: number;
+    }> = catalog.skills ?? [];
 
     // Install core and recommended skills (tier 0, 1, 2)
-    const coreSkills = skills.filter(s => s.tier <= 2);
+    const coreSkills = skills.filter((s) => s.tier <= 2);
 
     const installed: string[] = [];
     for (const skill of coreSkills) {
@@ -289,7 +294,9 @@ export async function initNexusRegistration(
     if (errStr.includes('NEXUS_PROJECT_EXISTS')) {
       warnings.push('NEXUS registration: Project already registered');
     } else if (errStr.includes('NEXUS_REGISTRY_CORRUPT')) {
-      warnings.push(`NEXUS registration: Identity conflict - ${err instanceof Error ? err.message : errStr}. Run 'cleo nexus unregister' and re-register.`);
+      warnings.push(
+        `NEXUS registration: Identity conflict - ${err instanceof Error ? err.message : errStr}. Run 'cleo nexus unregister' and re-register.`,
+      );
     } else {
       warnings.push(`NEXUS registration: ${err instanceof Error ? err.message : errStr}`);
     }
@@ -356,14 +363,14 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const projRoot = getProjectRoot();
 
   // Guard: fail if project already initialized (unless --force)
-  const alreadyInitialized = existsSync(cleoDir) && (
-    existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json'))
-  );
+  const alreadyInitialized =
+    existsSync(cleoDir) &&
+    (existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json')));
   if (alreadyInitialized && !opts.force) {
     throw new CleoError(
       ExitCode.GENERAL_ERROR,
       'Project already initialized. DANGER ZONE: use --force to wipe and re-init.',
-      { fix: 'cleo init --force' }
+      { fix: 'cleo init --force' },
     );
   }
 
@@ -422,9 +429,17 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   // Remove legacy sequence files if they exist (migration)
   const legacySequencePath = join(cleoDir, '.sequence');
-  try { await unlink(legacySequencePath); } catch { /* ignore if absent */ }
+  try {
+    await unlink(legacySequencePath);
+  } catch {
+    /* ignore if absent */
+  }
   const legacySequenceJsonPath = join(cleoDir, '.sequence.json');
-  try { await unlink(legacySequenceJsonPath); } catch { /* ignore if absent */ }
+  try {
+    await unlink(legacySequenceJsonPath);
+  } catch {
+    /* ignore if absent */
+  }
 
   // T4872: Isolated .cleo/.git checkpoint repository
   try {
@@ -433,7 +448,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
       created.push('.cleo/.git (isolated checkpoint repository)');
     }
   } catch (err) {
-    warnings.push(`Could not initialize .cleo/.git: ${err instanceof Error ? err.message : String(err)}`);
+    warnings.push(
+      `Could not initialize .cleo/.git: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // T4700: Migrate legacy agent-output directories before proceeding
@@ -464,12 +481,15 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
       created.push(hooksResult.details ?? 'git hooks installed');
     } else if (hooksResult.action === 'skipped' && hooksResult.details?.includes('No .git/')) {
       warnings.push(hooksResult.details);
-    } else if (hooksResult.action === 'skipped' && hooksResult.details?.includes('not found in package root')) {
+    } else if (
+      hooksResult.action === 'skipped' &&
+      hooksResult.details?.includes('not found in package root')
+    ) {
       warnings.push(hooksResult.details);
     } else if (hooksResult.action === 'repaired' && hooksResult.details?.includes('error')) {
       // Hook errors reported via details in 'repaired' action
       const match = hooksResult.details.match(/Installed (\d+)/);
-      if (match && parseInt(match[1]) > 0) {
+      if (match && parseInt(match[1], 10) > 0) {
         created.push(`git hooks (${match[1]} installed)`);
       }
       warnings.push(hooksResult.details);
@@ -534,7 +554,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // Remove .cleo/ from root .gitignore if present
   const rootGitignoreResult = await removeCleoFromRootGitignore(projRoot);
   if (rootGitignoreResult.removed) {
-    warnings.push('.cleo/ was found in root .gitignore and has been removed. CLEO uses .cleo/.gitignore for selective tracking.');
+    warnings.push(
+      '.cleo/ was found in root .gitignore and has been removed. CLEO uses .cleo/.gitignore for selective tracking.',
+    );
   }
 
   return {
@@ -562,9 +584,9 @@ export function isAutoInitEnabled(): boolean {
 export async function ensureInitialized(projectRoot?: string): Promise<{ initialized: boolean }> {
   const root = projectRoot ?? getProjectRoot();
   const cleoDir = join(root, '.cleo');
-  const isInit = existsSync(cleoDir) && (
-    existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json'))
-  );
+  const isInit =
+    existsSync(cleoDir) &&
+    (existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json')));
 
   if (isInit) {
     return { initialized: true };
@@ -587,10 +609,7 @@ export async function getVersion(projectRoot?: string): Promise<{ version: strin
   const root = projectRoot ?? getProjectRoot();
 
   // Try VERSION file
-  const versionPaths = [
-    join(root, 'VERSION'),
-    join(root, '..', 'VERSION'),
-  ];
+  const versionPaths = [join(root, 'VERSION'), join(root, '..', 'VERSION')];
 
   for (const versionPath of versionPaths) {
     try {

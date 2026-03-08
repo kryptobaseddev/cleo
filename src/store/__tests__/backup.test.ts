@@ -4,10 +4,10 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile, readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createBackup, listBackups, restoreFromBackup } from '../backup.js';
 
 describe('createBackup', () => {
@@ -60,7 +60,7 @@ describe('createBackup', () => {
     }
 
     const entries = await readdir(backupDir);
-    const backupFiles = entries.filter(e => e.startsWith('data.json.'));
+    const backupFiles = entries.filter((e) => e.startsWith('data.json.'));
     expect(backupFiles.length).toBeLessThanOrEqual(maxBackups);
   });
 
@@ -162,8 +162,8 @@ describe('restoreFromBackup', () => {
 
   it('throws when no backups exist', async () => {
     const targetFile = join(tempDir, 'restored.json');
-    await expect(
-      restoreFromBackup('todo.json', backupDir, targetFile),
-    ).rejects.toThrow(/no backups/i);
+    await expect(restoreFromBackup('todo.json', backupDir, targetFile)).rejects.toThrow(
+      /no backups/i,
+    );
   });
 });

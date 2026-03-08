@@ -18,11 +18,11 @@
  * @epic T4454
  */
 
-import { existsSync,readFileSync } from 'node:fs';
-import { mkdir,mkdtemp,rm,stat,writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Session } from '../../types/session.js';
 import type { Task } from '../../types/task.js';
 
@@ -235,7 +235,8 @@ describe('Migration Safety Integration Tests', () => {
 
     it('should handle migration interruption and resume', async () => {
       // Setup: Create migration state file simulating interrupted migration
-      const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration } = await import('../../core/migration/state.js');
+      const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration } =
+        await import('../../core/migration/state.js');
 
       const tasks = [createFullTask('T001'), createFullTask('T002')];
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(tasks)));
@@ -334,7 +335,9 @@ describe('Migration Safety Integration Tests', () => {
       expect(existsSync(dbPath)).toBe(true);
 
       // Create backup with checksum verification
-      const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+      const { computeChecksum, compareChecksums } = await import(
+        '../../core/migration/checksum.js'
+      );
       const originalChecksum = await computeChecksum(dbPath);
 
       const backupPath = join(safetyDir, 'tasks.db.pre-migration.checksum');
@@ -357,11 +360,7 @@ describe('Migration Safety Integration Tests', () => {
   describe('Atomic Operations', () => {
     it('should never leave database in inconsistent state', async () => {
       // Setup: Create valid JSON files
-      const tasks = [
-        createFullTask('T001'),
-        createFullTask('T002'),
-        createFullTask('T003'),
-      ];
+      const tasks = [createFullTask('T001'), createFullTask('T002'), createFullTask('T003')];
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(tasks)));
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
@@ -383,7 +382,7 @@ describe('Migration Safety Integration Tests', () => {
       // Verify database is valid (can run queries)
       const allTasks = await db.select().from(taskSchema).all();
       expect(allTasks.length).toBe(3);
-      expect(allTasks.every(t => t.id && t.title)).toBe(true);
+      expect(allTasks.every((t) => t.id && t.title)).toBe(true);
     });
 
     it('should use atomic rename, never delete-then-create', async () => {
@@ -571,10 +570,15 @@ describe('Migration Safety Integration Tests', () => {
 
   describe('Safety Mechanisms', () => {
     it('should create state file during migration', async () => {
-      const { createMigrationState, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, loadMigrationState } = await import(
+        '../../core/migration/state.js'
+      );
 
       // Create migration state
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([createFullTask('T001')])),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
       const state = await createMigrationState(cleoDir);
@@ -609,7 +613,10 @@ describe('Migration Safety Integration Tests', () => {
 
       // Read and verify log entries
       const logContent = readFileSync(logPath, 'utf-8');
-      const entries = logContent.trim().split('\n').map(line => JSON.parse(line));
+      const entries = logContent
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
 
       expect(entries.length).toBeGreaterThanOrEqual(3);
       expect(entries[0].level).toBe('info');
@@ -623,13 +630,16 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should track migration progress in state', async () => {
-      const { createMigrationState, updateMigrationProgress, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, updateMigrationProgress, loadMigrationState } = await import(
+        '../../core/migration/state.js'
+      );
 
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([
-        createFullTask('T001'),
-        createFullTask('T002'),
-        createFullTask('T003'),
-      ])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(
+          createTodoJson([createFullTask('T001'), createFullTask('T002'), createFullTask('T003')]),
+        ),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
       const state = await createMigrationState(cleoDir);
@@ -644,7 +654,8 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should track errors and warnings in state', async () => {
-      const { createMigrationState, addMigrationError, addMigrationWarning, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, addMigrationError, addMigrationWarning, loadMigrationState } =
+        await import('../../core/migration/state.js');
 
       await createMigrationState(cleoDir);
 
@@ -662,9 +673,14 @@ describe('Migration Safety Integration Tests', () => {
 
   describe('Checksum Verification', () => {
     it('should detect modified source files', async () => {
-      const { createMigrationState, verifySourceIntegrity } = await import('../../core/migration/state.js');
+      const { createMigrationState, verifySourceIntegrity } = await import(
+        '../../core/migration/state.js'
+      );
 
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([createFullTask('T001')])),
+      );
       await createMigrationState(cleoDir);
 
       // Verify source files are intact
@@ -673,7 +689,10 @@ describe('Migration Safety Integration Tests', () => {
       expect(initialCheck.changed).toHaveLength(0);
 
       // Modify the source file
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T002')])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([createFullTask('T002')])),
+      );
 
       // Verify source files are now detected as changed
       const finalCheck = await verifySourceIntegrity(cleoDir);
@@ -682,7 +701,9 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should compute consistent checksums for same content', async () => {
-      const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+      const { computeChecksum, compareChecksums } = await import(
+        '../../core/migration/checksum.js'
+      );
 
       const content = JSON.stringify({ test: 'data', array: [1, 2, 3] });
       const file1 = join(cleoDir, 'test1.json');
@@ -719,7 +740,7 @@ describe('Migration Safety Integration Tests', () => {
       expect(summary.info).toBeGreaterThan(0);
 
       const entries = logger.getEntries();
-      const fileOp = entries.find(e => e.operation === 'file-write');
+      const fileOp = entries.find((e) => e.operation === 'file-write');
       expect(fileOp).toBeDefined();
       expect(fileOp!.data?.sourcePath).toBeDefined();
     });
@@ -733,8 +754,12 @@ describe('Migration Safety Integration Tests', () => {
       logger.logValidation('validate', 'failing-target', false, { error: 'details' }, ['error1']);
 
       const entries = logger.getEntries();
-      expect(entries.some(e => e.operation === 'validation' && e.data?.valid === true)).toBe(true);
-      expect(entries.some(e => e.operation === 'validation' && e.data?.valid === false)).toBe(true);
+      expect(entries.some((e) => e.operation === 'validation' && e.data?.valid === true)).toBe(
+        true,
+      );
+      expect(entries.some((e) => e.operation === 'validation' && e.data?.valid === false)).toBe(
+        true,
+      );
     });
 
     it('should log import progress', async () => {
@@ -745,7 +770,7 @@ describe('Migration Safety Integration Tests', () => {
       logger.logImportProgress('import', 'tasks', 50, 100);
 
       const entries = logger.getEntriesByPhase('import');
-      const progressEntry = entries.find(e => e.operation === 'import-progress');
+      const progressEntry = entries.find((e) => e.operation === 'import-progress');
 
       expect(progressEntry).toBeDefined();
       expect(progressEntry!.data?.imported).toBe(50);
@@ -758,12 +783,25 @@ describe('Migration Safety Integration Tests', () => {
 
   describe('Migration Phases', () => {
     it('should transition through all phases correctly', async () => {
-      const { createMigrationState, updateMigrationPhase, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, updateMigrationPhase, loadMigrationState } = await import(
+        '../../core/migration/state.js'
+      );
 
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([createFullTask('T001')])),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
-      const phases = ['init', 'backup', 'validate', 'import', 'verify', 'cleanup', 'complete'] as const;
+      const phases = [
+        'init',
+        'backup',
+        'validate',
+        'import',
+        'verify',
+        'cleanup',
+        'complete',
+      ] as const;
 
       await createMigrationState(cleoDir);
 
@@ -775,9 +813,14 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should complete migration and cleanup state', async () => {
-      const { createMigrationState, completeMigration, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, completeMigration, loadMigrationState } = await import(
+        '../../core/migration/state.js'
+      );
 
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([createFullTask('T001')])),
+      );
       await createMigrationState(cleoDir);
 
       const completed = await completeMigration(cleoDir);
@@ -792,7 +835,9 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should fail migration with error details', async () => {
-      const { createMigrationState, failMigration, loadMigrationState } = await import('../../core/migration/state.js');
+      const { createMigrationState, failMigration, loadMigrationState } = await import(
+        '../../core/migration/state.js'
+      );
 
       await createMigrationState(cleoDir);
       await failMigration(cleoDir, 'Migration failed: corrupted data');
@@ -825,11 +870,7 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should show data counts in dry-run mode', async () => {
-      const tasks = [
-        createFullTask('T001'),
-        createFullTask('T002'),
-        createFullTask('T003'),
-      ];
+      const tasks = [createFullTask('T001'), createFullTask('T002'), createFullTask('T003')];
       const sessions = [createTestSession('sess-001')];
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(tasks)));
@@ -854,7 +895,10 @@ describe('Migration Safety Integration Tests', () => {
       ];
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(activeTasks)));
-      await writeFile(join(cleoDir, 'todo-archive.json'), JSON.stringify(createArchiveJson(archivedTasks)));
+      await writeFile(
+        join(cleoDir, 'todo-archive.json'),
+        JSON.stringify(createArchiveJson(archivedTasks)),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
@@ -874,7 +918,10 @@ describe('Migration Safety Integration Tests', () => {
       };
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson()));
-      await writeFile(join(cleoDir, 'todo-archive.json'), JSON.stringify(createArchiveJson([archivedTask])));
+      await writeFile(
+        join(cleoDir, 'todo-archive.json'),
+        JSON.stringify(createArchiveJson([archivedTask])),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
@@ -897,7 +944,7 @@ describe('Migration Safety Integration Tests', () => {
   describe('Complex Scenarios', () => {
     it('should handle large datasets efficiently', async () => {
       const manyTasks = Array.from({ length: 100 }, (_, i) =>
-        createFullTask(`T${String(i + 1).padStart(3, '0')}`)
+        createFullTask(`T${String(i + 1).padStart(3, '0')}`),
       );
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(manyTasks)));
@@ -948,7 +995,10 @@ describe('Migration Safety Integration Tests', () => {
         // Missing many optional fields
       };
 
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([minimalTask as Task])));
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify(createTodoJson([minimalTask as Task])),
+      );
       await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');

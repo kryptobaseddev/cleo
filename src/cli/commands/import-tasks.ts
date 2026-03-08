@@ -6,7 +6,7 @@
  * @epic T4545
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerImportTasksCommand(program: Command): void {
@@ -23,18 +23,24 @@ export function registerImportTasksCommand(program: Command): void {
     .option('--on-missing-dep <mode>', 'Handle missing deps: strip|placeholder|fail', 'strip')
     .option('--force', 'Skip conflict detection')
     .action(async (file: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'import', {
-        scope: 'tasks',
-        file,
-        dryRun: opts['dryRun'],
-        parent: opts['parent'],
-        phase: opts['phase'],
-        addLabel: opts['addLabel'],
-        provenance: opts['provenance'],
-        resetStatus: opts['resetStatus'],
-        onConflict: opts['onConflict'],
-        onMissingDep: opts['onMissingDep'],
-        force: opts['force'],
-      }, { command: 'import-tasks' });
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'import',
+        {
+          scope: 'tasks',
+          file,
+          dryRun: opts['dryRun'],
+          parent: opts['parent'],
+          phase: opts['phase'],
+          addLabel: opts['addLabel'],
+          provenance: opts['provenance'],
+          resetStatus: opts['resetStatus'],
+          onConflict: opts['onConflict'],
+          onMissingDep: opts['onMissingDep'],
+          force: opts['force'],
+        },
+        { command: 'import-tasks' },
+      );
     });
 }

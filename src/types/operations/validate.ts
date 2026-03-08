@@ -47,7 +47,14 @@ export interface ValidateSchemaResult {
 // validate.protocol
 export interface ValidateProtocolParams {
   taskId: string;
-  protocolType: 'research' | 'consensus' | 'specification' | 'decomposition' | 'implementation' | 'contribution' | 'release';
+  protocolType:
+    | 'research'
+    | 'consensus'
+    | 'specification'
+    | 'decomposition'
+    | 'implementation'
+    | 'contribution'
+    | 'release';
 }
 export interface ValidateProtocolResult {
   taskId: string;
@@ -127,11 +134,13 @@ export interface ValidateComplianceViolationsParams {
   protocol?: string;
 }
 export interface ValidateComplianceViolationsResult {
-  violations: Array<ValidationViolation & {
-    taskId: string;
-    protocol: string;
-    timestamp: string;
-  }>;
+  violations: Array<
+    ValidationViolation & {
+      taskId: string;
+      protocol: string;
+      timestamp: string;
+    }
+  >;
   total: number;
 }
 

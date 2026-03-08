@@ -94,7 +94,13 @@ export interface TaskFileExt {
     generation?: number;
     [key: string]: unknown;
   };
-  tasks?: Array<{ id: string; status: string; parentId?: string; completedAt?: string; [key: string]: unknown }>;
+  tasks?: Array<{
+    id: string;
+    status: string;
+    parentId?: string;
+    completedAt?: string;
+    [key: string]: unknown;
+  }>;
   lastUpdated?: string;
   [key: string]: unknown;
 }
@@ -124,4 +130,3 @@ export interface AssumptionRecord {
   validatedAt: string | null;
   timestamp: string;
 }
-

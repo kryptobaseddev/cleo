@@ -19,12 +19,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ExitCode } from '../../../types/exit-codes.js';
+import type { Task } from '../../../types/task.js';
+import { CleoError } from '../../errors.js';
 import { getProjectRoot, getTaskPath } from '../../paths.js';
 import { findSkill } from '../discovery.js';
 import { injectTokens, type TokenValues } from './token.js';
-import type { Task } from '../../../types/task.js';
-import { CleoError } from '../../errors.js';
-import { ExitCode } from '../../../types/exit-codes.js';
 
 // ============================================================================
 // Protocol Base
@@ -63,7 +63,7 @@ export function buildTaskContext(taskId: string, cwd?: string): string {
 
   const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find(t => t.id === taskId);
+  const task = tasks.find((t) => t.id === taskId);
 
   if (!task) {
     return `## Task Context\n\n**Task**: ${taskId}\n**Status**: not found\n`;
@@ -127,20 +127,15 @@ export function filterProtocolByTier(content: string, tier: 0 | 1 | 2): string {
 
   // Extract header (before first TIER marker)
   const firstTierMatch = content.match(/<!-- TIER:\w+ -->/);
-  const header = firstTierMatch
-    ? content.slice(0, firstTierMatch.index).trimEnd()
-    : '';
+  const header = firstTierMatch ? content.slice(0, firstTierMatch.index).trimEnd() : '';
 
   // Extract footer (after last /TIER marker)
   const lastCloseTierRegex = /<!-- \/TIER:\w+ -->/g;
   let lastMatch: RegExpExecArray | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = lastCloseTierRegex.exec(content)) !== null) {
-    lastMatch = match;
+  for (const m of content.matchAll(lastCloseTierRegex)) {
+    lastMatch = m as RegExpExecArray;
   }
-  const footer = lastMatch
-    ? content.slice(lastMatch.index + lastMatch[0].length).trimStart()
-    : '';
+  const footer = lastMatch ? content.slice(lastMatch.index + lastMatch[0].length).trimStart() : '';
 
   // Extract each allowed tier block
   const tierBlocks: string[] = [];
@@ -157,7 +152,7 @@ export function filterProtocolByTier(content: string, tier: 0 | 1 | 2): string {
   }
 
   // Compose: header + tier blocks + footer
-  const parts = [header, ...tierBlocks, footer].filter(p => p.length > 0);
+  const parts = [header, ...tierBlocks, footer].filter((p) => p.length > 0);
   return parts.join('\n\n');
 }
 
@@ -188,9 +183,8 @@ export function injectProtocol(
 
   if (protocolBase) {
     // Apply tier filtering if specified
-    const filteredProtocol = tier !== undefined
-      ? filterProtocolByTier(protocolBase, tier)
-      : protocolBase;
+    const filteredProtocol =
+      tier !== undefined ? filterProtocolByTier(protocolBase, tier) : protocolBase;
     const resolvedProtocol = injectTokens(filteredProtocol, tokenValues);
     parts.push('\n---\n');
     parts.push('## SUBAGENT PROTOCOL (RFC 2119)\n\n');
@@ -218,11 +212,9 @@ export function orchestratorSpawnSkill(
   // Find the skill
   const skill = findSkill(skillName, cwd);
   if (!skill || !skill.content) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Skill not found: ${skillName}`,
-      { fix: `Check skills directory for ${skillName}/SKILL.md` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Skill not found: ${skillName}`, {
+      fix: `Check skills directory for ${skillName}/SKILL.md`,
+    });
   }
 
   return injectProtocol(skill.content, taskId, tokenValues, cwd, tier);

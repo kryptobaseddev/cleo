@@ -10,7 +10,7 @@
  * @task T5156
  * @epic T5150
  */
-import { beforeEach,describe,expect,it,vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock dependencies so we don't hit the filesystem
 vi.mock('node:fs', () => ({
@@ -29,10 +29,10 @@ vi.mock('../../discovery.js', () => ({
   mapSkillName: vi.fn(() => ({ canonical: 'task-executor', mapped: true })),
 }));
 
-import { existsSync,readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { findSkill } from '../../discovery.js';
-import { injectProtocol,orchestratorSpawnSkill } from '../../injection/subagent.js';
-import { buildPrompt,spawn,spawnBatch } from '../spawn.js';
+import { injectProtocol, orchestratorSpawnSkill } from '../../injection/subagent.js';
+import { buildPrompt, spawn, spawnBatch } from '../spawn.js';
 
 const TIERED_PROTOCOL = `# Protocol
 <!-- TIER:minimal -->
@@ -72,7 +72,13 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
       return '';
     });
 
-    const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 0);
+    const result = orchestratorSpawnSkill(
+      'T100',
+      'test-skill',
+      { TASK_ID: 'T100' },
+      '/mock/project',
+      0,
+    );
 
     expect(result).toContain('Minimal Section');
     expect(result).not.toContain('Standard Section');
@@ -88,7 +94,13 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
       return '';
     });
 
-    const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 1);
+    const result = orchestratorSpawnSkill(
+      'T100',
+      'test-skill',
+      { TASK_ID: 'T100' },
+      '/mock/project',
+      1,
+    );
 
     expect(result).toContain('Minimal Section');
     expect(result).toContain('Standard Section');
@@ -103,7 +115,13 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
       return '';
     });
 
-    const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 2);
+    const result = orchestratorSpawnSkill(
+      'T100',
+      'test-skill',
+      { TASK_ID: 'T100' },
+      '/mock/project',
+      2,
+    );
 
     expect(result).toContain('Minimal Section');
     expect(result).toContain('Standard Section');
@@ -119,7 +137,12 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
     });
 
     // No tier parameter — should pass through unfiltered
-    const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project');
+    const result = orchestratorSpawnSkill(
+      'T100',
+      'test-skill',
+      { TASK_ID: 'T100' },
+      '/mock/project',
+    );
 
     // All tier content present because no filtering was applied
     expect(result).toContain('TIER:minimal');

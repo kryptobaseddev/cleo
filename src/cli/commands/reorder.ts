@@ -3,7 +3,7 @@
  * @task T4454
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerReorderCommand(program: Command): void {
@@ -17,6 +17,12 @@ export function registerReorderCommand(program: Command): void {
     .option('--bottom', 'Move to last position')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       const position = opts['position'] as number | undefined;
-      await dispatchFromCli('mutate', 'tasks', 'reorder', { taskId, position }, { command: 'reorder' });
+      await dispatchFromCli(
+        'mutate',
+        'tasks',
+        'reorder',
+        { taskId, position },
+        { command: 'reorder' },
+      );
     });
 }

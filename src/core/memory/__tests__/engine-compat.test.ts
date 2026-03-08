@@ -9,32 +9,65 @@
  * @task T5241
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, existsSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { memoryShow } from '../engine-compat.js';
 import {
-  memoryShow,
-} from '../engine-compat.js';
-import {
-  pipelineManifestList,
-  pipelineManifestFind,
-  pipelineManifestPending,
-  pipelineManifestStats,
-  pipelineManifestRead,
-  pipelineManifestLink,
   pipelineManifestAppend,
   pipelineManifestArchive,
-  pipelineManifestContradictions,
-  pipelineManifestSuperseded,
   pipelineManifestCompact,
+  pipelineManifestContradictions,
+  pipelineManifestFind,
+  pipelineManifestLink,
+  pipelineManifestList,
+  pipelineManifestPending,
+  pipelineManifestRead,
+  pipelineManifestStats,
+  pipelineManifestSuperseded,
   pipelineManifestValidate,
 } from '../pipeline-manifest-sqlite.js';
 
 const SAMPLE_ENTRIES = [
-  { id: 'T001-research', file: 'out/T001.md', title: 'First Research', date: '2026-01-15', status: 'completed', agent_type: 'research', topics: ['mcp', 'engine'], key_findings: ['finding1', 'finding2', 'finding3'], actionable: true, linked_tasks: ['T001'], needs_followup: [] },
-  { id: 'T002-spec', file: 'out/T002.md', title: 'Specification Doc', date: '2026-02-01', status: 'partial', agent_type: 'specification', topics: ['spec', 'api'], key_findings: ['spec1'], actionable: false, linked_tasks: ['T002'], needs_followup: ['T003'] },
-  { id: 'T003-impl', file: 'out/T003.md', title: 'Implementation', date: '2026-02-10', status: 'blocked', agent_type: 'implementation', topics: ['engine', 'native'], key_findings: [], actionable: true, linked_tasks: ['T001', 'T003'] },
+  {
+    id: 'T001-research',
+    file: 'out/T001.md',
+    title: 'First Research',
+    date: '2026-01-15',
+    status: 'completed',
+    agent_type: 'research',
+    topics: ['mcp', 'engine'],
+    key_findings: ['finding1', 'finding2', 'finding3'],
+    actionable: true,
+    linked_tasks: ['T001'],
+    needs_followup: [],
+  },
+  {
+    id: 'T002-spec',
+    file: 'out/T002.md',
+    title: 'Specification Doc',
+    date: '2026-02-01',
+    status: 'partial',
+    agent_type: 'specification',
+    topics: ['spec', 'api'],
+    key_findings: ['spec1'],
+    actionable: false,
+    linked_tasks: ['T002'],
+    needs_followup: ['T003'],
+  },
+  {
+    id: 'T003-impl',
+    file: 'out/T003.md',
+    title: 'Implementation',
+    date: '2026-02-10',
+    status: 'blocked',
+    agent_type: 'implementation',
+    topics: ['engine', 'native'],
+    key_findings: [],
+    actionable: true,
+    linked_tasks: ['T001', 'T003'],
+  },
 ];
 
 describe('Memory Engine Compat', () => {
@@ -49,7 +82,9 @@ describe('Memory Engine Compat', () => {
     try {
       const { closeAllDatabases } = await import('../../../store/sqlite.js');
       await closeAllDatabases();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }
@@ -96,7 +131,9 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
     try {
       const { resetDbState } = await import('../../../store/sqlite.js');
       resetDbState();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }

@@ -11,36 +11,35 @@
  * @epic T4820
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { paginate } from '../../core/pagination.js';
+import { getProjectRoot } from '../../core/paths.js';
+import { validateChain } from '../../core/validation/chain-validation.js';
+import type { WarpChain } from '../../types/warp-chain.js';
 
 import {
-  validateSchemaOp,
-  validateTaskOp,
-  validateProtocol,
-  validateManifestOp,
-  validateOutput,
+  systemArchiveStats,
+  validateCoherenceCheck,
+  validateComplianceRecord,
   validateComplianceSummary,
   validateComplianceViolations,
-  validateComplianceRecord,
-  validateTestStatus,
-  validateTestCoverage,
-  validateCoherenceCheck,
-  validateTestRun,
+  validateGateVerify,
+  validateManifestOp,
+  validateOutput,
+  validateProtocol,
   validateProtocolConsensus,
   validateProtocolContribution,
   validateProtocolDecomposition,
   validateProtocolImplementation,
   validateProtocolSpecification,
-  validateGateVerify,
-  systemArchiveStats,
+  validateSchemaOp,
+  validateTaskOp,
+  validateTestCoverage,
+  validateTestRun,
+  validateTestStatus,
 } from '../lib/engine.js';
-
-import { validateChain } from '../../core/validation/chain-validation.js';
-import type { WarpChain } from '../../types/warp-chain.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // CheckHandler
@@ -57,10 +56,7 @@ export class CheckHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -68,7 +64,14 @@ export class CheckHandler implements DomainHandler {
         case 'schema': {
           const type = params?.type as string;
           if (!type) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'type is required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'type is required',
+              startTime,
+            );
           }
           const result = validateSchemaOp(type, params?.data, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
@@ -77,7 +80,14 @@ export class CheckHandler implements DomainHandler {
         case 'task': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const result = await validateTaskOp(taskId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
@@ -91,9 +101,20 @@ export class CheckHandler implements DomainHandler {
         case 'output': {
           const filePath = params?.filePath as string;
           if (!filePath) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'filePath is required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'filePath is required',
+              startTime,
+            );
           }
-          const result = validateOutput(filePath, params?.taskId as string | undefined, this.projectRoot);
+          const result = validateOutput(
+            filePath,
+            params?.taskId as string | undefined,
+            this.projectRoot,
+          );
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -143,10 +164,13 @@ export class CheckHandler implements DomainHandler {
           // Dispatch to specific protocol validators
           switch (protocolType) {
             case 'consensus': {
-              const result = await validateProtocolConsensus({
-                ...protocolParams,
-                votingMatrixFile: params?.votingMatrixFile as string | undefined,
-              }, this.projectRoot);
+              const result = await validateProtocolConsensus(
+                {
+                  ...protocolParams,
+                  votingMatrixFile: params?.votingMatrixFile as string | undefined,
+                },
+                this.projectRoot,
+              );
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
             }
             case 'contribution': {
@@ -154,10 +178,13 @@ export class CheckHandler implements DomainHandler {
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
             }
             case 'decomposition': {
-              const result = await validateProtocolDecomposition({
-                ...protocolParams,
-                epicId: params?.epicId as string | undefined,
-              }, this.projectRoot);
+              const result = await validateProtocolDecomposition(
+                {
+                  ...protocolParams,
+                  epicId: params?.epicId as string | undefined,
+                },
+                this.projectRoot,
+              );
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
             }
             case 'implementation': {
@@ -165,17 +192,27 @@ export class CheckHandler implements DomainHandler {
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
             }
             case 'specification': {
-              const result = await validateProtocolSpecification({
-                ...protocolParams,
-                specFile: params?.specFile as string | undefined,
-              }, this.projectRoot);
+              const result = await validateProtocolSpecification(
+                {
+                  ...protocolParams,
+                  specFile: params?.specFile as string | undefined,
+                },
+                this.projectRoot,
+              );
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
             }
             default: {
               // Generic protocol validation (legacy behavior)
               const taskId = params?.taskId as string;
               if (!taskId) {
-                return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'taskId is required for generic protocol check', startTime);
+                return this.errorResponse(
+                  'query',
+                  'check',
+                  operation,
+                  'E_INVALID_INPUT',
+                  'taskId is required for generic protocol check',
+                  startTime,
+                );
               }
               const result = await validateProtocol(taskId, protocolType, this.projectRoot);
               return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
@@ -186,7 +223,14 @@ export class CheckHandler implements DomainHandler {
         case 'gate.status': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           // Read-only access
           const result = await validateGateVerify({ taskId }, this.projectRoot);
@@ -202,12 +246,22 @@ export class CheckHandler implements DomainHandler {
         case 'chain.validate': {
           const chain = params?.chain as WarpChain;
           if (!chain) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'chain is required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'chain is required',
+              startTime,
+            );
           }
           const chainResult = validateChain(chain);
           return this.wrapEngineResult(
             { success: chainResult.errors.length === 0, data: chainResult },
-            'query', 'check', operation, startTime,
+            'query',
+            'check',
+            operation,
+            startTime,
           );
         }
 
@@ -216,10 +270,23 @@ export class CheckHandler implements DomainHandler {
           const { gradeSession } = await import('../../core/sessions/session-grade.js');
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'sessionId required', startTime);
+            return this.errorResponse(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'sessionId required',
+              startTime,
+            );
           }
           const gradeResult = await gradeSession(sessionId, this.projectRoot);
-          return this.wrapEngineResult({ success: true, data: gradeResult }, 'query', 'check', operation, startTime);
+          return this.wrapEngineResult(
+            { success: true, data: gradeResult },
+            'query',
+            'check',
+            operation,
+            startTime,
+          );
         }
 
         case 'grade.list': {
@@ -256,10 +323,7 @@ export class CheckHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -268,13 +332,22 @@ export class CheckHandler implements DomainHandler {
           const taskId = params?.taskId as string;
           const result = params?.result as string;
           if (!taskId || !result) {
-            return this.errorResponse('mutate', 'check', operation, 'E_INVALID_INPUT', 'taskId and result are required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId and result are required',
+              startTime,
+            );
           }
           const engineResult = validateComplianceRecord(
             taskId,
             result,
             params?.protocol as string | undefined,
-            params?.violations as Array<{ code: string; message: string; severity: string }> | undefined,
+            params?.violations as
+              | Array<{ code: string; message: string; severity: string }>
+              | undefined,
             this.projectRoot,
           );
           return this.wrapEngineResult(engineResult, 'mutate', 'check', operation, startTime);
@@ -291,7 +364,14 @@ export class CheckHandler implements DomainHandler {
         case 'gate.set': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('mutate', 'check', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
           }
           const gateParams = {
             taskId,
@@ -320,11 +400,18 @@ export class CheckHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'schema', 'protocol', 'task', 'manifest', 'output',
-        'compliance.summary', 'test', 'coherence',
+        'schema',
+        'protocol',
+        'task',
+        'manifest',
+        'output',
+        'compliance.summary',
+        'test',
+        'coherence',
         'gate.status',
         'archive.stats',
-        'grade', 'grade.list',
+        'grade',
+        'grade.list',
         'chain.validate',
       ],
       mutate: ['compliance.record', 'test.run', 'gate.set'],
@@ -336,7 +423,17 @@ export class CheckHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -346,19 +443,26 @@ export class CheckHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? {
-        error: {
-          code: result.error.code,
-          message: result.error.message,
-          details: result.error.details as Record<string, unknown> | undefined,
-          fix: result.error.fix,
-          alternatives: result.error.alternatives,
-        }
-      } : {}),
+      ...(result.error
+        ? {
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+              details: result.error.details as Record<string, unknown> | undefined,
+              fix: result.error.fix,
+              alternatives: result.error.alternatives,
+            },
+          }
+        : {}),
     };
   }
 
-  private unsupported(gateway: string, domain: string, operation: string, startTime: number): DispatchResponse {
+  private unsupported(
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number,
+  ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
@@ -381,7 +485,13 @@ export class CheckHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:check').error({ gateway, domain, operation, err: error }, message);
     return {

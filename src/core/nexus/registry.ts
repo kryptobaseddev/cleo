@@ -12,19 +12,19 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { join, basename } from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { z } from 'zod';
+import { basename, join } from 'node:path';
 import { eq, or } from 'drizzle-orm';
-import { CleoError } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { getCleoHome } from '../paths.js';
-import { getLogger } from '../logger.js';
+import { z } from 'zod';
 import { getAccessor } from '../../store/data-accessor.js';
-import { generateProjectHash } from './hash.js';
-import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
-import { projectRegistry, nexusAuditLog } from '../../store/nexus-schema.js';
 import type { ProjectRegistryRow } from '../../store/nexus-schema.js';
+import { nexusAuditLog, projectRegistry } from '../../store/nexus-schema.js';
+import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import { ExitCode } from '../../types/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { getLogger } from '../logger.js';
+import { getCleoHome } from '../paths.js';
+import { generateProjectHash } from './hash.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -146,10 +146,7 @@ async function writeNexusAudit(fields: NexusAuditFields): Promise<void> {
       errorMessage: fields.errorMessage,
     });
 
-    getLogger('nexus').info(
-      { ...fields, domain: 'nexus' },
-      `nexus audit: ${fields.action}`,
-    );
+    getLogger('nexus').info({ ...fields, domain: 'nexus' }, `nexus audit: ${fields.action}`);
   } catch (err) {
     getLogger('nexus').warn({ err }, 'nexus audit write failed');
   }
@@ -235,12 +232,14 @@ async function isCleoProject(projectPath: string): Promise<boolean> {
 }
 
 /** Read task metadata from a project's task file. */
-async function readProjectMeta(projectPath: string): Promise<{ taskCount: number; labels: string[] }> {
+async function readProjectMeta(
+  projectPath: string,
+): Promise<{ taskCount: number; labels: string[] }> {
   try {
     const accessor = await getAccessor(projectPath);
     const taskFile = await accessor.loadTaskFile();
     const tasks = taskFile.tasks ?? [];
-    const allLabels = tasks.flatMap(t => t.labels ?? []);
+    const allLabels = tasks.flatMap((t) => t.labels ?? []);
     const uniqueLabels = [...new Set(allLabels)].sort();
     return { taskCount: tasks.length, labels: uniqueLabels };
   } catch {
@@ -279,11 +278,9 @@ export async function nexusRegister(
 
   // Validate project has readable task data
   if (!(await isCleoProject(projectPath))) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Path missing .cleo/tasks.db: ${projectPath}`,
-      { fix: `cd ${projectPath} && cleo init` },
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo/tasks.db: ${projectPath}`, {
+      fix: `cd ${projectPath} && cleo init`,
+    });
   }
 
   const projectName = name || basename(projectPath) || 'unnamed';
@@ -294,7 +291,9 @@ export async function nexusRegister(
   const db = await getNexusDb();
 
   // Check if already registered
-  const existingRows = await db.select().from(projectRegistry)
+  const existingRows = await db
+    .select()
+    .from(projectRegistry)
     .where(eq(projectRegistry.projectHash, projectHash));
   const existing = existingRows[0];
 
@@ -307,7 +306,9 @@ export async function nexusRegister(
 
   // Check for name conflicts (new entries only)
   if (!existing) {
-    const nameConflictRows = await db.select().from(projectRegistry)
+    const nameConflictRows = await db
+      .select()
+      .from(projectRegistry)
       .where(eq(projectRegistry.name, projectName));
     if (nameConflictRows.length > 0) {
       throw new CleoError(
@@ -324,7 +325,8 @@ export async function nexusRegister(
 
   if (existing) {
     // Merge nexus fields into existing entry
-    await db.update(projectRegistry)
+    await db
+      .update(projectRegistry)
       .set({
         permissions,
         lastSync: now,
@@ -377,15 +379,11 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
 
   const project = await nexusGetProject(nameOrHash);
   if (!project) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project not found in registry: ${nameOrHash}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
   }
 
   const db = await getNexusDb();
-  await db.delete(projectRegistry)
-    .where(eq(projectRegistry.projectHash, project.hash));
+  await db.delete(projectRegistry).where(eq(projectRegistry.projectHash, project.hash));
 
   await writeNexusAudit({
     action: 'unregister',
@@ -418,13 +416,10 @@ export async function nexusGetProject(nameOrHash: string): Promise<NexusProject 
     const db = await getNexusDb();
 
     // Try hash match first, then name
-    const rows = await db.select().from(projectRegistry)
-      .where(
-        or(
-          eq(projectRegistry.projectHash, nameOrHash),
-          eq(projectRegistry.name, nameOrHash),
-        ),
-      );
+    const rows = await db
+      .select()
+      .from(projectRegistry)
+      .where(or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)));
 
     const row = rows[0];
     if (!row) return null;
@@ -452,17 +447,15 @@ export async function nexusSync(nameOrHash: string): Promise<void> {
 
   const project = await nexusGetProject(nameOrHash);
   if (!project) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project not found in registry: ${nameOrHash}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
   }
 
   const meta = await readProjectMeta(project.path);
   const now = new Date().toISOString();
   const db = await getNexusDb();
 
-  await db.update(projectRegistry)
+  await db
+    .update(projectRegistry)
     .set({
       taskCount: meta.taskCount,
       labelsJson: JSON.stringify(meta.labels),
@@ -494,7 +487,8 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
     try {
       const meta = await readProjectMeta(project.path);
       const now = new Date().toISOString();
-      await db.update(projectRegistry)
+      await db
+        .update(projectRegistry)
         .set({
           taskCount: meta.taskCount,
           labelsJson: JSON.stringify(meta.labels),
@@ -528,14 +522,12 @@ export async function nexusSetPermission(
 ): Promise<void> {
   const project = await nexusGetProject(nameOrHash);
   if (!project) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project not found in registry: ${nameOrHash}`,
-    );
+    throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
   }
 
   const db = await getNexusDb();
-  await db.update(projectRegistry)
+  await db
+    .update(projectRegistry)
     .set({ permissions: permission })
     .where(eq(projectRegistry.projectHash, project.hash));
 
@@ -580,7 +572,9 @@ export async function nexusReconcile(projectRoot: string): Promise<{
 
   // Scenario 4 check: hash matches but different projectId
   if (projectId) {
-    const hashRows = await db.select().from(projectRegistry)
+    const hashRows = await db
+      .select()
+      .from(projectRegistry)
       .where(eq(projectRegistry.projectHash, currentHash));
     const hashMatch = hashRows[0];
     if (hashMatch && hashMatch.projectId !== projectId) {
@@ -602,7 +596,9 @@ export async function nexusReconcile(projectRoot: string): Promise<{
 
   // Look up by projectId (stable across moves)
   if (projectId) {
-    const idRows = await db.select().from(projectRegistry)
+    const idRows = await db
+      .select()
+      .from(projectRegistry)
       .where(eq(projectRegistry.projectId, projectId));
     const existing = idRows[0];
 
@@ -611,7 +607,8 @@ export async function nexusReconcile(projectRoot: string): Promise<{
 
       if (existing.projectPath === projectRoot) {
         // Scenario 1: path matches — just update lastSeen
-        await db.update(projectRegistry)
+        await db
+          .update(projectRegistry)
           .set({ lastSeen: now })
           .where(eq(projectRegistry.projectId, projectId));
         await writeNexusAudit({
@@ -627,7 +624,8 @@ export async function nexusReconcile(projectRoot: string): Promise<{
 
       // Scenario 2: path changed — update path, hash, and lastSeen
       const oldPath = existing.projectPath;
-      await db.update(projectRegistry)
+      await db
+        .update(projectRegistry)
         .set({
           projectPath: projectRoot,
           projectHash: currentHash,
@@ -647,13 +645,16 @@ export async function nexusReconcile(projectRoot: string): Promise<{
   }
 
   // Also check by hash for projects without a projectId
-  const hashRows = await db.select().from(projectRegistry)
+  const hashRows = await db
+    .select()
+    .from(projectRegistry)
     .where(eq(projectRegistry.projectHash, currentHash));
   const hashMatch = hashRows[0];
 
   if (hashMatch) {
     const now = new Date().toISOString();
-    await db.update(projectRegistry)
+    await db
+      .update(projectRegistry)
       .set({ lastSeen: now })
       .where(eq(projectRegistry.projectHash, currentHash));
     await writeNexusAudit({

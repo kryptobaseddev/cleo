@@ -9,8 +9,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
+import { join } from 'node:path';
 
 /** Marker constants for idempotent injection. */
 const MARKER_START = '# CLEO-CLAUDE-ALIASES:START';
@@ -45,11 +45,16 @@ export function getRcFilePath(shell?: ShellType): string {
   const sh = shell ?? getCurrentShell();
 
   switch (sh) {
-    case 'bash': return join(home, '.bashrc');
-    case 'zsh': return join(home, '.zshrc');
-    case 'powershell': return join(home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
-    case 'cmd': return ''; // CMD doesn't have a standard RC
-    default: return join(home, '.bashrc');
+    case 'bash':
+      return join(home, '.bashrc');
+    case 'zsh':
+      return join(home, '.zshrc');
+    case 'powershell':
+      return join(home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+    case 'cmd':
+      return ''; // CMD doesn't have a standard RC
+    default:
+      return join(home, '.bashrc');
   }
 }
 
@@ -67,7 +72,7 @@ export function detectAvailableShells(): ShellType[] {
 /** Generate bash/zsh alias content. */
 export function generateBashAliases(cleoPath?: string): string {
   const cleo = cleoPath ?? 'cleo';
-  const envExports = CLAUDE_ENV_VARS.map(v => `export ${v}`).join('\n');
+  const envExports = CLAUDE_ENV_VARS.map((v) => `export ${v}`).join('\n');
 
   return [
     MARKER_START,
@@ -89,7 +94,7 @@ export function generatePowershellAliases(cleoPath?: string): string {
 
   return [
     '# CLEO CLI aliases',
-    ...CLAUDE_ENV_VARS.map(v => {
+    ...CLAUDE_ENV_VARS.map((v) => {
       const [key, val] = v.split('=');
       return `$env:${key} = "${val}"`;
     }),
@@ -118,9 +123,8 @@ export function injectAliases(
   shell: ShellType = 'bash',
   cleoPath?: string,
 ): { action: 'created' | 'updated' | 'added'; version: string } {
-  const content = shell === 'powershell'
-    ? generatePowershellAliases(cleoPath)
-    : generateBashAliases(cleoPath);
+  const content =
+    shell === 'powershell' ? generatePowershellAliases(cleoPath) : generateBashAliases(cleoPath);
 
   if (!existsSync(filePath)) {
     writeFileSync(filePath, content + '\n', 'utf-8');
@@ -152,7 +156,7 @@ export function removeAliases(filePath: string): boolean {
   const endIdx = existing.indexOf(MARKER_END) + MARKER_END.length;
 
   // Remove the block plus any surrounding blank lines
-  let before = existing.slice(0, startIdx).replace(/\n+$/, '\n');
+  const before = existing.slice(0, startIdx).replace(/\n+$/, '\n');
   const after = existing.slice(endIdx).replace(/^\n+/, '\n');
   writeFileSync(filePath, before + after, 'utf-8');
   return true;

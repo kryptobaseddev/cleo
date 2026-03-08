@@ -11,69 +11,146 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      schemas: ${{ steps.filter.outputs.schemas }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'package*.json'
+              - 'tsconfig.json'
+              - 'vitest.config.ts'
+              - 'build.mjs'
+            schemas:
+              - 'schemas/**'
+              - 'templates/**'
+
   hygiene:
     name: Hygiene Gates
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
-
       - name: Enforce scoped TODO policy
         run: bash dev/check-todo-hygiene.sh
-
       - name: Report and enforce underscore import hygiene
         run: node dev/check-underscore-import-hygiene.mjs
 
-  typescript:
-    name: TypeScript Build & Test
+  biome:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: biomejs/setup-biome@v2
+      - run: biome ci .
+
+  typecheck:
+    name: Type Check
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 10
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['24']
+        os: ${{ fromJson(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+        shard: [1, 2]
       fail-fast: false
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24'
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Add cleo binary to PATH (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           echo "$((Get-Location).Path)\node_modules\.bin" >> $env:GITHUB_PATH
+      - name: Run unit tests (shard ${{ matrix.shard }}/2)
+        run: npx vitest run --project unit --shard=${{ matrix.shard }}/2
 
-      - name: Type check
-        run: npx tsc --noEmit
+  integration-tests:
+    name: Integration Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx vitest run --project integration
 
-      - name: Run tests
-        run: npx vitest run
+  e2e-tests:
+    name: E2E Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx vitest run --project e2e
 
-      - name: Build
-        run: node build.mjs
-
+  build-verify:
+    name: Build & Verify (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        os: ${{ fromJson(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: node build.mjs
       - name: Verify CLI binary
         run: node dist/cli/index.js version
         shell: bash
-
       - name: Verify MCP server starts
         run: |
           timeout 5 node dist/mcp/index.js 2>&1 || true
@@ -82,23 +159,20 @@ jobs:
 
   validate-json:
     name: Validate JSON Files
+    needs: changes
+    if: needs.changes.outputs.schemas == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Install jq
         run: sudo apt-get install -y jq
-
       - name: Validate JSON schemas
         run: |
           for file in schemas/*.json; do
             echo "Validating: $file"
             jq empty "$file"
           done
-
       - name: Validate template files
         run: |
           for file in templates/*.json; do
@@ -108,39 +182,32 @@ jobs:
 
   install-test:
     name: npm Install Test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
-
       - name: Install dependencies and build
         run: npm ci && npm run build
-
       - name: Test npm link (simulates global install)
         run: |
           npm link
           cleo version
           cleo --help
-
       - name: Test MCP server flag
         run: |
           timeout 5 cleo --mcp-server 2>&1 || true
-
       - name: Test project initialization
         run: |
           mkdir -p /tmp/test-project
           cd /tmp/test-project
           cleo init test-project
           ls -la .cleo/
-
       - name: Cleanup
         run: npm unlink -g @cleocode/cleo
         if: always()

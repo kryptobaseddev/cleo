@@ -11,58 +11,43 @@
  * @task T5671
  */
 
-import type { DomainHandler, DispatchResponse } from '../types.js';
-import { dispatchMeta } from './_meta.js';
-import { routeByParam } from './_routing.js';
 import { getLogger } from '../../core/logger.js';
-import { getProjectRoot } from '../../core/paths.js';
-import { paginate } from '../../core/pagination.js';
-
 import {
-  nexusInit,
-  nexusRegister,
-  nexusUnregister,
-  nexusList,
-  nexusSync,
-  nexusSyncAll,
-  nexusGetProject,
-  nexusReconcile,
-  readRegistry,
-  type NexusPermissionLevel,
-} from '../../core/nexus/registry.js';
-
-import {
-  resolveTask,
-  parseQuery,
-  validateSyntax,
-} from '../../core/nexus/query.js';
-
-import {
-  nexusDeps,
+  blockingAnalysis,
   buildGlobalGraph,
   criticalPath,
-  blockingAnalysis,
+  nexusDeps,
   orphanDetection,
 } from '../../core/nexus/deps.js';
-
+import { setPermission } from '../../core/nexus/permissions.js';
+import { parseQuery, resolveTask, validateSyntax } from '../../core/nexus/query.js';
 import {
-  setPermission,
-} from '../../core/nexus/permissions.js';
-
-import { getAccessor } from '../../store/data-accessor.js';
-
+  type NexusPermissionLevel,
+  nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusReconcile,
+  nexusRegister,
+  nexusSync,
+  nexusSyncAll,
+  nexusUnregister,
+  readRegistry,
+} from '../../core/nexus/registry.js';
 // Sharing core imports (merged from sharing domain)
-import {
-  getSharingStatus,
-} from '../../core/nexus/sharing/index.js';
+import { getSharingStatus } from '../../core/nexus/sharing/index.js';
+import { paginate } from '../../core/pagination.js';
+import { getProjectRoot } from '../../core/paths.js';
 import {
   exportSnapshot,
+  getDefaultSnapshotPath,
   importSnapshot,
   readSnapshot,
   writeSnapshot,
-  getDefaultSnapshotPath,
 } from '../../core/snapshot/index.js';
-
+import { getAccessor } from '../../store/data-accessor.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
+import { dispatchMeta } from './_meta.js';
+import { routeByParam } from './_routing.js';
 
 // ---------------------------------------------------------------------------
 // NexusHandler
@@ -79,10 +64,7 @@ export class NexusHandler implements DomainHandler {
   // Query
   // -----------------------------------------------------------------------
 
-  async query(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -102,22 +84,40 @@ export class NexusHandler implements DomainHandler {
           const projects = await nexusList();
           const { limit, offset } = this.getListParams(params);
           const page = paginate(projects, limit, offset);
-          return this.successResponse('query', operation, startTime, {
-            projects: page.items,
-            count: projects.length,
-            total: projects.length,
-            filtered: projects.length,
-          }, page.page);
+          return this.successResponse(
+            'query',
+            operation,
+            startTime,
+            {
+              projects: page.items,
+              count: projects.length,
+              total: projects.length,
+              filtered: projects.length,
+            },
+            page.page,
+          );
         }
 
         case 'show': {
           const name = params?.name as string;
           if (!name) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'name is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'name is required',
+              startTime,
+            );
           }
           const project = await nexusGetProject(name);
           if (!project) {
-            return this.errorResponse('query', operation, 'E_NOT_FOUND', `Project not found: ${name}`, startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_NOT_FOUND',
+              `Project not found: ${name}`,
+              startTime,
+            );
           }
           return this.successResponse('query', operation, startTime, project);
         }
@@ -126,10 +126,22 @@ export class NexusHandler implements DomainHandler {
         case 'query': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           if (!validateSyntax(query)) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`, startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`,
+              startTime,
+            );
           }
           const result = await resolveTask(query, params?.currentProject as string | undefined);
           return this.successResponse('query', operation, startTime, result);
@@ -138,7 +150,13 @@ export class NexusHandler implements DomainHandler {
         case 'deps': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           const direction = (params?.direction as 'forward' | 'reverse') ?? 'forward';
           const result = await nexusDeps(query, direction);
@@ -158,7 +176,13 @@ export class NexusHandler implements DomainHandler {
         case 'blockers.show': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           const analysis = await blockingAnalysis(query);
           return this.successResponse('query', operation, startTime, analysis);
@@ -168,18 +192,30 @@ export class NexusHandler implements DomainHandler {
           const orphans = await orphanDetection();
           const { limit, offset } = this.getListParams(params);
           const page = paginate(orphans, limit, offset);
-          return this.successResponse('query', operation, startTime, {
-            orphans: page.items,
-            count: orphans.length,
-            total: orphans.length,
-            filtered: orphans.length,
-          }, page.page);
+          return this.successResponse(
+            'query',
+            operation,
+            startTime,
+            {
+              orphans: page.items,
+              count: orphans.length,
+              total: orphans.length,
+              filtered: orphans.length,
+            },
+            page.page,
+          );
         }
 
         case 'discover': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'query is required',
+              startTime,
+            );
           }
           const method = (params?.method as string) ?? 'auto';
           const limit = (params?.limit as number) ?? 10;
@@ -195,7 +231,13 @@ export class NexusHandler implements DomainHandler {
         case 'search': {
           const pattern = params?.pattern as string;
           if (!pattern) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'pattern is required', startTime);
+            return this.errorResponse(
+              'query',
+              operation,
+              'E_INVALID_INPUT',
+              'pattern is required',
+              startTime,
+            );
           }
           const projectFilter = params?.project as string | undefined;
           const limit = (params?.limit as number) ?? 20;
@@ -209,9 +251,14 @@ export class NexusHandler implements DomainHandler {
 
         // Sharing: merged entry point via routeByParam (T5671)
         case 'share':
-          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
-            status: () => this.queryShareStatus(startTime),
-          }, 'status');
+          return routeByParam<Promise<DispatchResponse>>(
+            params,
+            'action',
+            {
+              status: () => this.queryShareStatus(startTime),
+            },
+            'status',
+          );
 
         // Backward-compat alias
         case 'share.status':
@@ -229,10 +276,7 @@ export class NexusHandler implements DomainHandler {
   // Mutate
   // -----------------------------------------------------------------------
 
-  async mutate(
-    operation: string,
-    params?: Record<string, unknown>,
-  ): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
     try {
@@ -247,7 +291,13 @@ export class NexusHandler implements DomainHandler {
         case 'register': {
           const path = params?.path as string;
           if (!path) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'path is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'path is required',
+              startTime,
+            );
           }
           const hash = await nexusRegister(
             path,
@@ -263,7 +313,13 @@ export class NexusHandler implements DomainHandler {
         case 'unregister': {
           const name = params?.name as string;
           if (!name) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'name is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'name is required',
+              startTime,
+            );
           }
           await nexusUnregister(name);
           return this.successResponse('mutate', operation, startTime, {
@@ -288,13 +344,31 @@ export class NexusHandler implements DomainHandler {
           const name = params?.name as string;
           const level = params?.level as string;
           if (!name) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'name is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'name is required',
+              startTime,
+            );
           }
           if (!level) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'level is required', startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              'level is required',
+              startTime,
+            );
           }
           if (!['read', 'write', 'execute'].includes(level)) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', `Invalid permission level: ${level}. Must be: read, write, or execute`, startTime);
+            return this.errorResponse(
+              'mutate',
+              operation,
+              'E_INVALID_INPUT',
+              `Invalid permission level: ${level}. Must be: read, write, or execute`,
+              startTime,
+            );
           }
           await setPermission(name, level as NexusPermissionLevel);
           return this.successResponse('mutate', operation, startTime, {
@@ -339,12 +413,28 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'list', 'show', 'resolve', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search',
+        'status',
+        'list',
+        'show',
+        'resolve',
+        'deps',
+        'graph',
+        'path.show',
+        'blockers.show',
+        'orphans.list',
+        'discover',
+        'search',
         'share.status',
       ],
       mutate: [
-        'init', 'register', 'unregister', 'sync', 'permission.set', 'reconcile',
-        'share.snapshot.export', 'share.snapshot.import',
+        'init',
+        'register',
+        'unregister',
+        'sync',
+        'permission.set',
+        'reconcile',
+        'share.snapshot.export',
+        'share.snapshot.import',
       ],
     };
   }
@@ -361,9 +451,20 @@ export class NexusHandler implements DomainHandler {
     taskQuery: string,
     method: string,
     limit: number,
-  ): Promise<Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }>> {
+  ): Promise<
+    Array<{
+      project: string;
+      taskId: string;
+      title: string;
+      score: number;
+      type: string;
+      reason: string;
+    }>
+  > {
     if (!validateSyntax(taskQuery)) {
-      throw new Error(`Invalid query syntax: ${taskQuery}. Expected: T001, project:T001, .:T001, or *:T001`);
+      throw new Error(
+        `Invalid query syntax: ${taskQuery}. Expected: T001, project:T001, .:T001, or *:T001`,
+      );
     }
 
     const sourceTask = await resolveTask(taskQuery);
@@ -380,10 +481,23 @@ export class NexusHandler implements DomainHandler {
     const registry = await readRegistry();
     if (!registry) return [];
 
-    const candidates: Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }> = [];
+    const candidates: Array<{
+      project: string;
+      taskId: string;
+      title: string;
+      score: number;
+      type: string;
+      reason: string;
+    }> = [];
 
     for (const project of Object.values(registry.projects)) {
-      let tasks: Array<{ id: string; title: string; description?: string; labels?: string[]; status: string }>;
+      let tasks: Array<{
+        id: string;
+        title: string;
+        description?: string;
+        labels?: string[];
+        status: string;
+      }>;
       try {
         const accessor = await getAccessor(project.path);
         const data = await accessor.loadTaskFile();
@@ -401,7 +515,7 @@ export class NexusHandler implements DomainHandler {
 
         if (method === 'labels' || method === 'auto') {
           const taskLabels = task.labels ?? [];
-          const overlap = taskLabels.filter(l => sourceLabels.has(l));
+          const overlap = taskLabels.filter((l) => sourceLabels.has(l));
           if (overlap.length > 0) {
             const labelScore = overlap.length / Math.max(sourceLabels.size, taskLabels.length, 1);
             if (method === 'labels' || labelScore > score) {
@@ -415,9 +529,10 @@ export class NexusHandler implements DomainHandler {
         if (method === 'description' || method === 'auto') {
           const taskDesc = ((task.description ?? '') + ' ' + (task.title ?? '')).toLowerCase();
           const taskWords = this.extractKeywords(taskDesc);
-          const commonWords = sourceWords.filter(w => taskWords.includes(w));
+          const commonWords = sourceWords.filter((w) => taskWords.includes(w));
           if (commonWords.length > 0) {
-            const descScore = commonWords.length / Math.max(sourceWords.length, taskWords.length, 1);
+            const descScore =
+              commonWords.length / Math.max(sourceWords.length, taskWords.length, 1);
             if (descScore > score) {
               score = descScore;
               matchType = 'description';
@@ -447,13 +562,22 @@ export class NexusHandler implements DomainHandler {
     pattern: string,
     projectFilter?: string,
     limit = 20,
-  ): Promise<Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }>> {
+  ): Promise<
+    Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority?: string;
+      description?: string;
+      _project: string;
+    }>
+  > {
     // Handle wildcard query syntax (*:T001) - delegate to resolveTask
     if (/^\*:.+$/.test(pattern)) {
       try {
         const result = await resolveTask(pattern);
         const tasks = Array.isArray(result) ? result : [result];
-        return tasks.slice(0, limit).map(t => ({
+        return tasks.slice(0, limit).map((t) => ({
           id: t.id,
           title: t.title,
           status: t.status,
@@ -478,9 +602,16 @@ export class NexusHandler implements DomainHandler {
       throw new Error(`Invalid search pattern: ${pattern}`);
     }
 
-    const results: Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }> = [];
+    const results: Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority?: string;
+      description?: string;
+      _project: string;
+    }> = [];
     const projectEntries = projectFilter
-      ? Object.values(registry.projects).filter(p => p.name === projectFilter)
+      ? Object.values(registry.projects).filter((p) => p.name === projectFilter)
       : Object.values(registry.projects);
 
     if (projectFilter && projectEntries.length === 0) {
@@ -488,7 +619,13 @@ export class NexusHandler implements DomainHandler {
     }
 
     for (const project of projectEntries) {
-      let tasks: Array<{ id: string; title: string; description?: string; status: string; priority?: string }>;
+      let tasks: Array<{
+        id: string;
+        title: string;
+        description?: string;
+        status: string;
+        priority?: string;
+      }>;
       try {
         const accessor = await getAccessor(project.path);
         const data = await accessor.loadTaskFile();
@@ -520,21 +657,92 @@ export class NexusHandler implements DomainHandler {
 
   private extractKeywords(text: string): string[] {
     const stopWords = new Set([
-      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-      'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'to', 'of',
-      'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
-      'during', 'before', 'after', 'above', 'below', 'and', 'but', 'or', 'nor',
-      'not', 'so', 'yet', 'both', 'either', 'neither', 'each', 'every', 'all',
-      'any', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'only',
-      'own', 'same', 'than', 'too', 'very', 'just', 'because', 'if', 'when',
-      'this', 'that', 'these', 'those', 'it', 'its',
+      'the',
+      'a',
+      'an',
+      'is',
+      'are',
+      'was',
+      'were',
+      'be',
+      'been',
+      'being',
+      'have',
+      'has',
+      'had',
+      'do',
+      'does',
+      'did',
+      'will',
+      'would',
+      'could',
+      'should',
+      'may',
+      'might',
+      'shall',
+      'can',
+      'need',
+      'dare',
+      'to',
+      'of',
+      'in',
+      'for',
+      'on',
+      'with',
+      'at',
+      'by',
+      'from',
+      'as',
+      'into',
+      'through',
+      'during',
+      'before',
+      'after',
+      'above',
+      'below',
+      'and',
+      'but',
+      'or',
+      'nor',
+      'not',
+      'so',
+      'yet',
+      'both',
+      'either',
+      'neither',
+      'each',
+      'every',
+      'all',
+      'any',
+      'few',
+      'more',
+      'most',
+      'other',
+      'some',
+      'such',
+      'no',
+      'only',
+      'own',
+      'same',
+      'than',
+      'too',
+      'very',
+      'just',
+      'because',
+      'if',
+      'when',
+      'this',
+      'that',
+      'these',
+      'those',
+      'it',
+      'its',
     ]);
 
     return text
       .replace(/[^a-z0-9\s-]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 2 && !stopWords.has(w));
+      .filter((w) => w.length > 2 && !stopWords.has(w));
   }
 
   // -----------------------------------------------------------------------
@@ -574,7 +782,13 @@ export class NexusHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     const inputPath = params?.inputPath as string;
     if (!inputPath) {
-      return this.errorResponse('mutate', 'share.snapshot.import', 'E_INVALID_INPUT', 'inputPath is required', startTime);
+      return this.errorResponse(
+        'mutate',
+        'share.snapshot.import',
+        'E_INVALID_INPUT',
+        'inputPath is required',
+        startTime,
+      );
     }
     const snapshot = await readSnapshot(inputPath);
     const result = await importSnapshot(snapshot, this.projectRoot);
@@ -633,7 +847,12 @@ export class NexusHandler implements DomainHandler {
     };
   }
 
-  private handleError(gateway: string, operation: string, error: unknown, startTime: number): DispatchResponse {
+  private handleError(
+    gateway: string,
+    operation: string,
+    error: unknown,
+    startTime: number,
+  ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
     getLogger('domain:nexus').error({ gateway, operation, err: error }, message);
     return {

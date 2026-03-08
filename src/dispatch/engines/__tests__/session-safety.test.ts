@@ -11,7 +11,7 @@
  * @task T5122
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '../../../types/session.js';
 
 // ---------------------------------------------------------------------------
@@ -221,7 +221,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toHaveLength(10);
       expect(result.data!.total).toBe(15);
       expect(result.data!.filtered).toBe(15);
-      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: true, total: 15 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 10,
+        offset: 0,
+        hasMore: true,
+        total: 15,
+      });
     });
 
     it('sets _meta.truncated=true when total exceeds default limit', async () => {
@@ -268,7 +274,13 @@ describe('Session Context Safety (T5122)', () => {
 
       expect(result.data!._meta.truncated).toBe(true);
       expect(result.data!._meta.total).toBe(15);
-      expect(result.page).toEqual({ mode: 'offset', limit: 5, offset: 0, hasMore: true, total: 15 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 5,
+        offset: 0,
+        hasMore: true,
+        total: 15,
+      });
     });
   });
 
@@ -289,7 +301,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.total).toBe(3);
       expect(result.data!.total).toBe(3);
       expect(result.data!.filtered).toBe(3);
-      expect(result.page).toEqual({ mode: 'offset', limit: 100, offset: 0, hasMore: false, total: 3 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 100,
+        offset: 0,
+        hasMore: false,
+        total: 3,
+      });
     });
 
     it('returns all sessions when limit equals total', async () => {
@@ -302,7 +320,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toHaveLength(5);
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(5);
-      expect(result.page).toEqual({ mode: 'offset', limit: 5, offset: 0, hasMore: false, total: 5 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 5,
+        offset: 0,
+        hasMore: false,
+        total: 5,
+      });
     });
   });
 
@@ -350,10 +374,22 @@ describe('Session Context Safety (T5122)', () => {
   describe('session.find filters by scope', () => {
     it('returns only sessions matching scope type and ID', async () => {
       const sessions = [
-        makeSession({ id: 'ses-1', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-01T00:00:00Z' }),
-        makeSession({ id: 'ses-2', scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true }, startedAt: '2026-01-02T00:00:00Z' }),
+        makeSession({
+          id: 'ses-1',
+          scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+          startedAt: '2026-01-01T00:00:00Z',
+        }),
+        makeSession({
+          id: 'ses-2',
+          scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true },
+          startedAt: '2026-01-02T00:00:00Z',
+        }),
         makeSession({ id: 'ses-3', scope: { type: 'global' }, startedAt: '2026-01-03T00:00:00Z' }),
-        makeSession({ id: 'ses-4', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-04T00:00:00Z' }),
+        makeSession({
+          id: 'ses-4',
+          scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+          startedAt: '2026-01-04T00:00:00Z',
+        }),
       ];
 
       mockLoadSessions.mockResolvedValue(sessions);
@@ -367,7 +403,11 @@ describe('Session Context Safety (T5122)', () => {
 
     it('returns only sessions matching scope type alone', async () => {
       const sessions = [
-        makeSession({ id: 'ses-1', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-01T00:00:00Z' }),
+        makeSession({
+          id: 'ses-1',
+          scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+          startedAt: '2026-01-01T00:00:00Z',
+        }),
         makeSession({ id: 'ses-2', scope: { type: 'global' }, startedAt: '2026-01-02T00:00:00Z' }),
         makeSession({ id: 'ses-3', scope: { type: 'global' }, startedAt: '2026-01-03T00:00:00Z' }),
       ];
@@ -406,7 +446,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.truncated).toBe(true);
       expect(result.data!._meta.total).toBe(20);
       expect(result.data!.sessions).toHaveLength(10);
-      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: true, total: 20 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 10,
+        offset: 0,
+        hasMore: true,
+        total: 20,
+      });
     });
 
     it('does not truncate when total is within default limit', async () => {
@@ -418,7 +464,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(7);
       expect(result.data!.sessions).toHaveLength(7);
-      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 7 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+        total: 7,
+      });
     });
   });
 
@@ -447,7 +499,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.total).toBe(0);
       expect(result.data!.total).toBe(0);
       expect(result.data!.filtered).toBe(0);
-      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+        total: 0,
+      });
     });
 
     it('session.list with active=true filter still enforces default limit', async () => {
@@ -476,7 +534,13 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.total).toBe(15);
       expect(result.data!.filtered).toBe(15);
       expect(result.data!._meta).toEqual({ truncated: true, total: 15 });
-      expect(result.page).toEqual({ mode: 'offset', limit: 3, offset: 10, hasMore: true, total: 15 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 3,
+        offset: 10,
+        hasMore: true,
+        total: 15,
+      });
     });
 
     it('session.list accepts canonical status filter', async () => {
@@ -494,15 +558,41 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.total).toBe(3);
       expect(result.data!.filtered).toBe(2);
       expect(result.data!._meta).toEqual({ truncated: false, total: 2 });
-      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 2 });
+      expect(result.page).toEqual({
+        mode: 'offset',
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+        total: 2,
+      });
     });
 
     it('session.find combined status+scope filters work together', async () => {
       const sessions = [
-        makeSession({ id: 'ses-1', status: 'active', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-01T00:00:00Z' }),
-        makeSession({ id: 'ses-2', status: 'ended', scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true }, startedAt: '2026-01-02T00:00:00Z' }),
-        makeSession({ id: 'ses-3', status: 'active', scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true }, startedAt: '2026-01-03T00:00:00Z' }),
-        makeSession({ id: 'ses-4', status: 'ended', scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true }, startedAt: '2026-01-04T00:00:00Z' }),
+        makeSession({
+          id: 'ses-1',
+          status: 'active',
+          scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+          startedAt: '2026-01-01T00:00:00Z',
+        }),
+        makeSession({
+          id: 'ses-2',
+          status: 'ended',
+          scope: { type: 'epic', rootTaskId: 'T001', includeDescendants: true },
+          startedAt: '2026-01-02T00:00:00Z',
+        }),
+        makeSession({
+          id: 'ses-3',
+          status: 'active',
+          scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true },
+          startedAt: '2026-01-03T00:00:00Z',
+        }),
+        makeSession({
+          id: 'ses-4',
+          status: 'ended',
+          scope: { type: 'epic', rootTaskId: 'T002', includeDescendants: true },
+          startedAt: '2026-01-04T00:00:00Z',
+        }),
       ];
 
       mockLoadSessions.mockResolvedValue(sessions);

@@ -8,12 +8,12 @@
  * @epic T5186
  */
 
-import { readdirSync, statSync, existsSync, readFileSync, createReadStream } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { getLogDir } from '../logger.js';
-import { getCleoHome, getCleoDirAbsolute } from '../paths.js';
-import type { LogFileInfo, LogDiscoveryOptions } from './types.js';
+import { getCleoDirAbsolute, getCleoHome } from '../paths.js';
+import type { LogDiscoveryOptions, LogFileInfo } from './types.js';
 
 /** Regex for standard CLEO pino log files: cleo.YYYY-MM-DD.N.log */
 const CLEO_LOG_PATTERN = /^cleo\.(\d{4}-\d{2}-\d{2})\.(\d+)\.log$/;
@@ -64,7 +64,7 @@ function scanLogDir(dir: string, includeMigration: boolean): LogFileInfo[] {
     if (!cleoMatch && (!isMigration || !includeMigration)) continue;
 
     const filePath = join(dir, name);
-    let stat;
+    let stat: import('node:fs').Stats;
     try {
       stat = statSync(filePath);
     } catch {
@@ -88,10 +88,7 @@ function scanLogDir(dir: string, includeMigration: boolean): LogFileInfo[] {
  * Discover all log files in the specified scope.
  * Returns file info sorted by date (newest first).
  */
-export function discoverLogFiles(
-  options?: LogDiscoveryOptions,
-  cwd?: string,
-): LogFileInfo[] {
+export function discoverLogFiles(options?: LogDiscoveryOptions, cwd?: string): LogFileInfo[] {
   const scope = options?.scope ?? 'project';
   const includeMigration = options?.includeMigration ?? false;
   const sinceDate = options?.since;
@@ -110,7 +107,7 @@ export function discoverLogFiles(
 
   // Filter by modification date
   if (sinceDate) {
-    files = files.filter(f => f.mtime >= sinceDate);
+    files = files.filter((f) => f.mtime >= sinceDate);
   }
 
   // Sort newest first by mtime
@@ -136,7 +133,7 @@ export function readLogFileLines(filePath: string): string[] {
     return [];
   }
   if (!content.trim()) return [];
-  return content.split('\n').filter(line => line.trim() !== '');
+  return content.split('\n').filter((line) => line.trim() !== '');
 }
 
 /**

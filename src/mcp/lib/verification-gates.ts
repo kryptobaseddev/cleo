@@ -13,15 +13,14 @@
  * Reference: docs/specs/MCP-SERVER-SPECIFICATION.md Section 7
  */
 
-import { ExitCode, ErrorCategory, ErrorSeverity } from './exit-codes.js';
-import { ProtocolEnforcer, ProtocolType } from './protocol-enforcement.js';
-
+import { ErrorCategory, ErrorSeverity, ExitCode } from './exit-codes.js';
 import {
   validateLayer1Schema,
   validateLayer2Semantic,
   validateLayer3Referential,
   validateLayer4Protocol,
 } from './gate-validators.js';
+import { ProtocolEnforcer, type ProtocolType } from './protocol-enforcement.js';
 
 /**
  * Gate layer enumeration
@@ -118,10 +117,7 @@ export class VerificationGate {
     const layers: Record<GateLayer, LayerResult> = {} as Record<GateLayer, LayerResult>;
 
     // Layer 1: Schema Validation
-    const schemaResult = await this.runLayer(
-      GateLayer.SCHEMA,
-      () => validateLayer1Schema(context)
-    );
+    const schemaResult = await this.runLayer(GateLayer.SCHEMA, () => validateLayer1Schema(context));
     layers[GateLayer.SCHEMA] = schemaResult;
 
     if (!schemaResult.passed && this.strictMode) {
@@ -129,9 +125,8 @@ export class VerificationGate {
     }
 
     // Layer 2: Semantic Validation
-    const semanticResult = await this.runLayer(
-      GateLayer.SEMANTIC,
-      () => validateLayer2Semantic(context)
+    const semanticResult = await this.runLayer(GateLayer.SEMANTIC, () =>
+      validateLayer2Semantic(context),
     );
     layers[GateLayer.SEMANTIC] = semanticResult;
 
@@ -140,9 +135,8 @@ export class VerificationGate {
     }
 
     // Layer 3: Referential Validation
-    const referentialResult = await this.runLayer(
-      GateLayer.REFERENTIAL,
-      () => validateLayer3Referential(context)
+    const referentialResult = await this.runLayer(GateLayer.REFERENTIAL, () =>
+      validateLayer3Referential(context),
     );
     layers[GateLayer.REFERENTIAL] = referentialResult;
 
@@ -151,9 +145,8 @@ export class VerificationGate {
     }
 
     // Layer 4: Protocol Validation
-    const protocolResult = await this.runLayer(
-      GateLayer.PROTOCOL,
-      () => validateLayer4Protocol(context, this.protocolEnforcer)
+    const protocolResult = await this.runLayer(GateLayer.PROTOCOL, () =>
+      validateLayer4Protocol(context, this.protocolEnforcer),
     );
     layers[GateLayer.PROTOCOL] = protocolResult;
 
@@ -170,7 +163,7 @@ export class VerificationGate {
    */
   private async runLayer(
     layer: GateLayer,
-    validator: () => Promise<LayerResult>
+    validator: () => Promise<LayerResult>,
   ): Promise<LayerResult> {
     const startTime = Date.now();
 
@@ -216,12 +209,12 @@ export class VerificationGate {
    */
   private buildFailureResult(
     layers: Record<GateLayer, LayerResult>,
-    blockedAt: GateLayer
+    blockedAt: GateLayer,
   ): VerificationResult {
     const failedLayer = layers[blockedAt];
     const totalViolations = Object.values(layers).reduce(
       (sum, layer) => sum + layer.violations.length,
-      0
+      0,
     );
 
     // Determine exit code based on layer and violation type
@@ -460,11 +453,9 @@ export const WORKFLOW_GATE_SEQUENCE: WorkflowGateName[] = [
 /**
  * Map from gate name to definition for fast lookup
  */
-const GATE_DEF_MAP: Record<WorkflowGateName, WorkflowGateDefinition> =
-  Object.fromEntries(WORKFLOW_GATE_DEFINITIONS.map((d) => [d.name, d])) as Record<
-    WorkflowGateName,
-    WorkflowGateDefinition
-  >;
+const GATE_DEF_MAP: Record<WorkflowGateName, WorkflowGateDefinition> = Object.fromEntries(
+  WORKFLOW_GATE_DEFINITIONS.map((d) => [d.name, d]),
+) as Record<WorkflowGateName, WorkflowGateDefinition>;
 
 /**
  * WorkflowGateTracker
@@ -620,9 +611,7 @@ export class WorkflowGateTracker {
    * Get all gates that are currently blocked or have null status
    */
   getPendingGates(): WorkflowGateState[] {
-    return this.getAllGates().filter(
-      (g) => g.status === null || g.status === 'blocked'
-    );
+    return this.getAllGates().filter((g) => g.status === null || g.status === 'blocked');
   }
 
   /**
@@ -689,7 +678,7 @@ export function isValidWorkflowGateName(name: string): name is WorkflowGateName 
  * Get the definition for a workflow gate
  */
 export function getWorkflowGateDefinition(
-  name: WorkflowGateName
+  name: WorkflowGateName,
 ): WorkflowGateDefinition | undefined {
   return GATE_DEF_MAP[name];
 }
