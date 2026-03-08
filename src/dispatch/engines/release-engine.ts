@@ -318,13 +318,12 @@ export async function releasePush(
     if (!hasEntry) {
       return engineError('E_PROTOCOL_RELEASE',
         `Agent protocol violation: no release manifest entry for '${version}'. ` +
-        'Use the full release.ship workflow (release.prepare -> release.commit -> release.tag -> release.push) ' +
-        'to ensure provenance tracking. Direct release.push is not allowed in agent context without a manifest entry.',
+        'Use the full release.ship workflow to ensure provenance tracking. ' +
+        'Direct release.push is not allowed in agent context without a manifest entry.',
         {
-          fix: `ct release add ${version} && ct release ship ${version} --push`,
+          fix: `ct release ship ${version} --epic T####`,
           alternatives: [
-            { action: 'Prepare release first', command: `ct release add ${version}` },
-            { action: 'Use full ship workflow', command: `ct release ship ${version} --push` },
+            { action: 'Use full ship workflow', command: `ct release ship ${version} --epic T####` },
           ],
         },
       );
