@@ -58,7 +58,7 @@ export function registerSessionCommand(program: Command): void {
           note: opts['note'] as string | undefined,
           nextAction: opts['nextAction'] as string | undefined,
         },
-        { command: 'session', operation: 'session.stop' },
+        { command: 'session', operation: 'session.end' },
       );
     });
 
@@ -172,7 +172,7 @@ export function registerSessionCommand(program: Command): void {
   session
     .command('gc')
     .description('Garbage collect old sessions')
-    .option('--max-age <hours>', 'Max age in hours for active sessions', parseInt)
+    .option('--max-age <days>', 'Max age in days for active sessions', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',

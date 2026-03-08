@@ -90,6 +90,23 @@ export interface SharingConfig {
   denylist: string[];
 }
 
+/** SignalDock transport mode. */
+export type SignalDockMode = 'http' | 'native';
+
+/** SignalDock integration configuration. */
+export interface SignalDockConfig {
+  /** Whether SignalDock transport is enabled (default: false). */
+  enabled: boolean;
+  /** Transport mode: 'http' for REST API client, 'native' for napi-rs bindings (default: 'http'). */
+  mode: SignalDockMode;
+  /** SignalDock API server endpoint (default: 'http://localhost:4000'). */
+  endpoint: string;
+  /** Prefix for CLEO agent names in SignalDock registry (default: 'cleo-'). */
+  agentPrefix: string;
+  /** Default privacy tier for registered agents (default: 'private'). */
+  privacyTier: 'public' | 'discoverable' | 'private';
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   version: string;
@@ -100,6 +117,8 @@ export interface CleoConfig {
   lifecycle: LifecycleConfig;
   logging: LoggingConfig;
   sharing: SharingConfig;
+  /** SignalDock inter-agent transport (optional, disabled by default). */
+  signaldock?: SignalDockConfig;
 }
 
 /** Configuration resolution priority. */

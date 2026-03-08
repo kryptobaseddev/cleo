@@ -214,6 +214,14 @@ export class TasksHandler implements DomainHandler {
               startTime,
             );
           }
+          // Consolidated: mode param routes to relates.find logic (T5615/T5671)
+          if (params?.mode) {
+            const result = await taskRelatesFind(this.projectRoot, taskId, {
+              mode: params.mode as 'suggest' | 'discover',
+              threshold: params?.threshold ? Number(params.threshold) : undefined,
+            });
+            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          }
           const result = await taskRelates(this.projectRoot, taskId);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
@@ -422,6 +430,22 @@ export class TasksHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
+          }
+          // Consolidated: from param routes to reopen/unarchive logic (T5615/T5671)
+          const from = params?.from as string | undefined;
+          if (from === 'done') {
+            const result = await taskReopen(this.projectRoot, taskId, {
+              status: params?.status as string | undefined,
+              reason: params?.reason as string | undefined,
+            });
+            return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          }
+          if (from === 'archived') {
+            const result = await taskUnarchive(this.projectRoot, taskId, {
+              status: params?.status as string | undefined,
+              preserveStatus: params?.preserveStatus as boolean | undefined,
+            });
+            return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
           }
           const result = await taskRestore(this.projectRoot, taskId, {
             cascade: params?.cascade as boolean | undefined,
