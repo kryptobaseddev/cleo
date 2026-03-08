@@ -8,7 +8,7 @@
  * @epic T4454
  */
 
-import { existsSync, mkdirSync, statSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, appendFileSync, readdirSync, unlinkSync, readFileSync, accessSync, constants } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 
 /** Log entry severity level */
@@ -299,7 +299,6 @@ export class MigrationLogger {
         return;
       }
 
-      const { readdirSync, unlinkSync } = require('node:fs');
       const files: Array<{ name: string; path: string; mtime: number }> = readdirSync(logsDir)
         .filter((f: string) => f.startsWith('migration-') && f.endsWith('.jsonl'))
         .map((f: string) => ({
@@ -418,7 +417,6 @@ export function createMigrationLogger(
  * Read and parse a migration log file.
  */
 export function readMigrationLog(logPath: string): MigrationLogEntry[] {
-  const { readFileSync } = require('node:fs');
   const content = readFileSync(logPath, 'utf-8');
 
   return content
@@ -432,7 +430,6 @@ export function readMigrationLog(logPath: string): MigrationLogEntry[] {
  */
 export function logFileExists(logPath: string): boolean {
   try {
-    const { accessSync, constants } = require('node:fs');
     accessSync(logPath, constants.R_OK);
     return true;
   } catch {
@@ -445,7 +442,6 @@ export function logFileExists(logPath: string): boolean {
  */
 export function getLatestMigrationLog(cleoDir: string): string | null {
   try {
-    const { readdirSync, statSync } = require('node:fs');
     const logsDir = join(cleoDir, 'logs');
 
     if (!existsSync(logsDir)) {

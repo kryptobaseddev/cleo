@@ -2,7 +2,7 @@
  * Tests for migration logger (@task T4727)
  */
 
-import { existsSync,mkdirSync,readFileSync,writeFileSync } from 'node:fs';
+import { existsSync,mkdirSync,readFileSync,writeFileSync,rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach,beforeEach,describe,expect,it } from 'vitest';
@@ -30,7 +30,6 @@ describe('MigrationLogger', () => {
     // Clean up temp directory
     try {
       if (existsSync(tempDir)) {
-        const { rmdirSync } = require('node:fs');
         rmdirSync(tempDir, { recursive: true });
       }
     } catch {
@@ -275,7 +274,6 @@ describe('helper functions', () => {
   afterEach(() => {
     try {
       if (existsSync(tempDir)) {
-        const { rmdirSync } = require('node:fs');
         rmdirSync(tempDir, { recursive: true });
       }
     } catch {
