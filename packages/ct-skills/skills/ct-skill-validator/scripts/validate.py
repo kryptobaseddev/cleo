@@ -235,12 +235,12 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
         else:
             ok(tier, f"Body length OK ({line_count} lines)")
 
-        # Placeholder scan
-        placeholders = [r"\[Required:", r"TODO", r"REPLACE", r"\[Add content", r"FIXME", r"TBD"]
+        # Placeholder scan — case-sensitive to avoid matching "todo app", "replace with X", etc.
+        placeholders = [r"\[Required:", r"\bTODO\b", r"\bREPLACE\b", r"\[Add content", r"\bFIXME\b", r"\bTBD\b"]
         for pattern in placeholders:
-            matches = re.findall(pattern, body, re.IGNORECASE)
+            matches = re.findall(pattern, body)
             if matches:
-                clean_pattern = pattern.replace("\\", "")
+                clean_pattern = re.sub(r"[\\(?\[\])]", "", pattern).strip("\\b")
                 warn(tier, f"Placeholder text found: '{clean_pattern}' ({len(matches)} occurrence(s))")
 
         # Section headers check for long bodies
@@ -252,14 +252,17 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
                 ok(tier, f"Body has {len(section_headers)} section header(s)")
 
         # File reference existence checks
-        # Only flag paths where scripts/ or references/ is not preceded by / or ${
-        # (avoids false positives from cross-skill paths like ${SKILL_DIR}/../other/scripts/x.py)
-        ref_pattern = r"(?<![/${])(?:^|(?<=[\s`(,]))(?:references|scripts)/[\w./-]+"
-        refs = re.findall(r"(?:references|scripts)/[\w./-]+", body)
+        # Strip fenced code blocks first — paths inside ``` are examples, not live references
+        body_no_fences = re.sub(r"```[\s\S]*?```", "", body)
+        refs = re.findall(r"(?:references|scripts)/[\w./-]+", body_no_fences)
         for ref in refs:
-            # Skip if this match appears only inside a longer path (preceded by / or ${...}/)
+            # Skip cross-skill paths (preceded by / or ${ anywhere in the body)
             escaped = re.escape(ref)
-            if re.search(r"[/$]" + escaped, body):
+            if re.search(r"[/$]" + escaped, body_no_fences):
+                continue
+            # Skip example prose: line contains illustrative markers
+            ref_line = next((l for l in body_no_fences.split("\n") if ref in l), "")
+            if re.search(r"\b(examples?|e\.g\.|such as|like `|would be|illustrat)\b", ref_line, re.IGNORECASE):
                 continue
             ref_path = skill_dir / ref
             if not ref_path.exists():

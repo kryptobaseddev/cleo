@@ -1,0 +1,19 @@
+{
+  "name": "ct-orchestrator",
+  "version": "4.0.0",
+  "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation.",
+  "path": "packages/ct-skills/skills/ct-orchestrator",
+  "status": "active",
+  "tier": 0,
+  "core": true,
+  "category": "core",
+  "protocol": "agent-protocol",
+  "mvi_scope": "orchestrator",
+  "requires_tiers": ["minimal", "standard", "orchestrator"],
+  "dependencies": [],
+  "sharedResources": ["subagent-protocol-base", "task-system-integration"],
+  "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli", "opencode", "codex-cli"],
+  "token_budget": 8000,
+  "capabilities": ["multi-agent-coordination", "wave-planning", "context-protection", "hitl-orchestration"],
+  "constraints": ["requires-agent-runtime"]
+}

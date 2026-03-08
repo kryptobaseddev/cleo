@@ -1,34 +1,6 @@
 ---
 name: ct-orchestrator
-description: |
-  Pipeline-aware orchestration skill for managing complex workflows through subagent delegation.
-  Use when the user asks to "orchestrate", "orchestrator mode", "run as orchestrator",
-  "delegate to subagents", "coordinate agents", "spawn subagents", "multi-agent workflow",
-  "context-protected workflow", "agent farm", "HITL orchestration", "pipeline management",
-  or needs to manage complex workflows by delegating work to subagents while protecting
-  the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral —
-  works with any agent runtime that supports prompt-based delegation.
-version: 4.0.0
-tier: 0
-core: true
-category: core
-protocol: agent-protocol
-mvi_scope: orchestrator
-requires_tiers:
-  - minimal
-  - standard
-  - orchestrator
-dependencies: []
-sharedResources:
-  - subagent-protocol-base
-  - task-system-integration
-compatibility:
-  - claude-code
-  - cursor
-  - windsurf
-  - gemini-cli
-  - opencode
-  - codex-cli
+description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral."
 license: MIT
 ---
 
