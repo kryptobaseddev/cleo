@@ -61,8 +61,10 @@
   "license": "MIT",
   "files": [
     "dist",
-    "drizzle",
-    "drizzle-brain",
+    "migrations",
+    "drizzle-tasks.config.ts",
+    "drizzle-brain.config.ts",
+    "drizzle-nexus.config.ts",
     "packages/ct-skills",
     "schemas",
     "templates",
