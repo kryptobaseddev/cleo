@@ -1,7 +1,8 @@
 /**
- * E2E Research Workflow Tests
+ * E2E Pipeline Manifest Workflow Tests
  *
- * Tests research management workflows via the 'cleo research' CLI command.
+ * Tests pipeline manifest workflows via the canonical pipeline domain.
+ * Migrated from research domain (defunct) to pipeline.manifest.* operations.
  *
  * @task T2937
  */
@@ -14,7 +15,7 @@ import {
 } from './setup.js';
 import type { IntegrationTestContext } from '../integration-setup.js';
 
-describe('E2E: Research Workflow', () => {
+describe('E2E: Pipeline Manifest Workflow', () => {
   let context: IntegrationTestContext;
 
   beforeAll(async () => {
@@ -25,46 +26,42 @@ describe('E2E: Research Workflow', () => {
     await cleanupE2ETest();
   }, 30000);
 
-  it('should list research entries', async () => {
-    // List research entries from manifest
+  it('should list manifest entries', async () => {
     const listResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'list',
+      domain: 'pipeline',
+      operation: 'manifest.list',
       flags: {
         limit: 5,
         json: true,
       },
     });
 
+    // manifest.list succeeds even with empty manifest
     expect(listResult.success).toBe(true);
-    // Research list returns entries array
     const data = listResult.data;
     expect(data).toBeDefined();
   });
 
-  it('should get research statistics', async () => {
-    // Get research statistics
+  it('should get manifest statistics', async () => {
     const statsResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'stats',
+      domain: 'pipeline',
+      operation: 'manifest.stats',
       flags: { json: true },
     });
 
     expect(statsResult.success).toBe(true);
     const stats = statsResult.data as any;
     expect(stats).toBeDefined();
-    // Stats should have manifest information
-    expect(stats?.manifest || stats?.entries !== undefined || stats).toBeTruthy();
   });
 
-  it('should link research to a task', async () => {
+  it('should link manifest entry to a task', async () => {
     // Create task for linking
     const taskResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'add',
-      args: ['Research Link Test'],
+      args: ['Manifest Link Test'],
       flags: {
-        description: 'Task for research linking',
+        description: 'Task for manifest linking',
         json: true,
       },
     });
@@ -75,74 +72,28 @@ describe('E2E: Research Workflow', () => {
     const taskId = extractTaskId(taskResult);
     context.createdTaskIds.push(taskId);
 
-    // Link research to task (CLI signature: link <researchId> <taskId>)
-    const researchId = `test-research-${Date.now()}`;
+    const researchId = `test-manifest-${Date.now()}`;
     const linkResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'link',
+      domain: 'pipeline',
+      operation: 'manifest.link',
       args: [researchId, taskId],
-      flags: {
-        json: true,
-      },
+      flags: { json: true },
     });
 
-    // Link may fail with E_RESEARCH_NOT_FOUND if the research entry doesn't
-    // exist in the manifest. The link command validates both task and research IDs.
+    // Link may fail if the manifest entry doesn't exist
     if (!linkResult.success) {
-      // Acceptable errors:
-      // - research entry not found in manifest
-      // - input rejected by stricter canonical validation path
-      expect(linkResult.error?.code).toMatch(/E_RESEARCH_NOT_FOUND|E_NOT_FOUND|E_INVALID_INPUT/);
+      expect(linkResult.error?.code).toMatch(/E_NOT_FOUND|E_INVALID_INPUT|E_MANIFEST_LINK/);
     }
   });
 
-  it('should show research links for a task', async () => {
-    // Create task and link research
-    const taskResult = await context.executor.execute({
-      domain: 'tasks',
-      operation: 'add',
-      args: ['Research Links Test'],
-      flags: {
-        description: 'Task for showing research links',
-        json: true,
-      },
-    });
-
-    const taskId = extractTaskId(taskResult);
-    context.createdTaskIds.push(taskId);
-
-    // Link a research entry (CLI signature: link <researchId> <taskId>)
-    await context.executor.execute({
-      domain: 'research',
-      operation: 'link',
-      args: [`links-test-${Date.now()}`, taskId],
-      flags: { json: true },
-    });
-
-    // Show links for task - may return empty list or error if memory not initialized
-    const linksResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'links',
-      args: [taskId],
-      flags: { json: true },
-    });
-
-    // Links query returns success with empty list if no entries linked
-    // (link step may have failed if research entry didn't exist)
-    expect(linksResult.success || linksResult.error?.code).toBeTruthy();
-  });
-
-  it('should handle research archiving', async () => {
-    // Archive old research entries - requires beforeDate parameter in the MCP layer
-    // The CLI archive command maps to pipeline.manifest.archive which requires beforeDate
+  it('should handle manifest archiving', async () => {
     const archiveResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'archive',
+      domain: 'pipeline',
+      operation: 'manifest.archive',
       flags: { json: true },
     });
 
-    // Archive may succeed with entries archived, or fail with E_INVALID_INPUT
-    // (missing beforeDate) depending on CLI implementation
+    // Archive may succeed or fail with E_INVALID_INPUT (missing beforeDate)
     expect(archiveResult.success || archiveResult.error?.code).toBeTruthy();
     if (archiveResult.success) {
       const result = archiveResult.data as any;
@@ -150,14 +101,17 @@ describe('E2E: Research Workflow', () => {
     }
   });
 
-  it('should show pending research followups', async () => {
-    // Get pending research entries
-    const pendingResult = await context.executor.execute({
-      domain: 'research',
-      operation: 'pending',
-      flags: { json: true },
+  it('should list manifest entries with status filter', async () => {
+    const listResult = await context.executor.execute({
+      domain: 'pipeline',
+      operation: 'manifest.list',
+      flags: {
+        status: 'partial',
+        json: true,
+      },
     });
 
-    expect(pendingResult.success).toBe(true);
+    // manifest.list succeeds even with no matching entries
+    expect(listResult.success).toBe(true);
   });
 });

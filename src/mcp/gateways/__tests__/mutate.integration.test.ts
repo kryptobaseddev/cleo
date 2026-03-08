@@ -365,10 +365,10 @@ describe('mutate Gateway Integration', () => {
     });
   });
 
-  describe('System Domain', () => {
+  describe('Admin Domain', () => {
     it('should set config value', async () => {
       const result = await context.executor.execute({
-        domain: 'system',
+        domain: 'admin',
         operation: 'config',
         args: ['set', 'test.integration.value', 'true'],
         flags: { json: true },
@@ -379,7 +379,7 @@ describe('mutate Gateway Integration', () => {
 
     it('should create backup', async () => {
       const result = await context.executor.execute({
-        domain: 'system',
+        domain: 'admin',
         operation: 'backup',
         args: ['create'],
         flags: {},
@@ -401,7 +401,7 @@ describe('mutate Gateway Integration', () => {
 
     it('should cleanup stale data', async () => {
       const result = await context.executor.execute({
-        domain: 'system',
+        domain: 'admin',
         operation: 'cleanup',
         flags: {
           'dry-run': true,

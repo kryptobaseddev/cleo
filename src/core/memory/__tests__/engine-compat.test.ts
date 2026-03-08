@@ -114,28 +114,28 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
       await seedEntries();
       const result = await pipelineManifestList({ status: 'completed' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(1);
+      expect((result.data as any).filtered).toBe(1);
     });
 
     it('should filter by topic', async () => {
       await seedEntries();
       const result = await pipelineManifestList({ topic: 'engine' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(2);
+      expect((result.data as any).filtered).toBe(2);
     });
 
     it('should filter by type', async () => {
       await seedEntries();
       const result = await pipelineManifestList({ type: 'research' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(1);
+      expect((result.data as any).filtered).toBe(1);
     });
 
     it('should apply limit', async () => {
       await seedEntries();
       const result = await pipelineManifestList({ limit: 2 }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(2);
+      expect((result.data as any).entries.length).toBe(2);
     });
   });
 
