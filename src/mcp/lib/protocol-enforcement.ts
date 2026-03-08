@@ -324,8 +324,7 @@ export class ProtocolEnforcer {
       'pipeline.manifest.append',
       'orchestrate.spawn',
       'tasks.complete',
-      'release.prepare',
-      'release.commit',
+      'release.ship',
       'validate.compliance.record',
     ];
 

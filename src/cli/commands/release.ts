@@ -12,36 +12,15 @@ export function registerReleaseCommand(program: Command): void {
     .command('release')
     .description('Release lifecycle management');
 
-  release
-    .command('add <version>')
-    .alias('create')
-    .description('Add a new release')
-    .option('--tasks <ids>', 'Comma-separated task IDs')
-    .option('--notes <notes>', 'Release notes')
-    .option('--target-date <date>', 'Target release date')
-    .action(async (version: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'release.prepare', {
-        version,
-        tasks: opts['tasks'] ? (opts['tasks'] as string).split(',').map(s => s.trim()) : undefined,
-        notes: opts['notes'],
-        targetDate: opts['targetDate'],
-      }, { command: 'release' });
-    });
-
-  release
-    .command('plan <version>')
-    .description('Add or remove tasks from a release')
-    .option('--tasks <ids>', 'Comma-separated task IDs to add')
-    .option('--remove <ids>', 'Comma-separated task IDs to remove')
-    .option('--notes <notes>', 'Update release notes')
-    .action(async (version: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'release.prepare', {
-        version, action: 'plan',
-        tasks: opts['tasks'] ? (opts['tasks'] as string).split(',').map(s => s.trim()) : undefined,
-        removeTasks: opts['remove'] ? (opts['remove'] as string).split(',').map(s => s.trim()) : undefined,
-        notes: opts['notes'],
-      }, { command: 'release' });
-    });
+  /**
+   * REMOVED: release add/plan commands
+   *
+   * The release.prepare operation was consolidated into release.ship as part
+   * of the API rationalization (T5615). To add a release, use the full ship
+   * workflow which validates gates and records provenance.
+   *
+   * For preview/dry-run: cleo release ship <version> --epic <id> --dry-run
+   */
 
   /**
    * Composite release: prepare → gates → changelog → commit → tag → push.

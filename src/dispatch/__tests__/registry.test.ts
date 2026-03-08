@@ -53,10 +53,10 @@ describe('Operation Registry', () => {
       expect(stage?.domain).toBe('pipeline');
       expect(stage?.operation).toBe('stage.validate');
 
-      const release = resolve('mutate', 'pipeline', 'release.prepare');
+      const release = resolve('mutate', 'pipeline', 'release.ship');
       expect(release).toBeDefined();
       expect(release?.domain).toBe('pipeline');
-      expect(release?.operation).toBe('release.prepare');
+      expect(release?.operation).toBe('release.ship');
     });
 
     it('should resolve memory domain operations', () => {

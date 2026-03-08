@@ -31,12 +31,6 @@ import {
   lifecycleReset,
   lifecycleGatePass,
   lifecycleGateFail,
-  releasePrepare,
-  releaseChangelog,
-  releaseCommit,
-  releaseTag,
-  releasePush,
-  releaseGatesRun,
   releaseRollback,
 } from '../lib/engine.js';
 
@@ -194,9 +188,8 @@ export class PipelineHandler implements DomainHandler {
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
         'stage.gate.pass', 'stage.gate.fail',
-        'release.prepare', 'release.changelog', 'release.commit',
-        'release.tag', 'release.push', 'release.gates.run',
-        'release.rollback', 'release.cancel', 'release.ship',
+        // Release operations consolidated in T5615: prepare/changelog/commit/tag/push/gates.run merged into ship
+        'release.ship', 'release.cancel', 'release.rollback',
         'manifest.append', 'manifest.archive',
         'phase.set', 'phase.start', 'phase.complete',
         'phase.advance', 'phase.rename', 'phase.delete',
@@ -423,69 +416,8 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
-      case 'prepare': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.prepare', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const tasks = params?.tasks as string[] | undefined;
-        const notes = params?.notes as string | undefined;
-        const result = await releasePrepare(version, tasks, notes, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.prepare', startTime);
-      }
-
-      case 'changelog': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.changelog', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const result = await releaseChangelog(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.changelog', startTime);
-      }
-
-      case 'commit': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.commit', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const result = await releaseCommit(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.commit', startTime);
-      }
-
-      case 'tag': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.tag', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const result = await releaseTag(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.tag', startTime);
-      }
-
-      case 'push': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.push', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const remote = params?.remote as string | undefined;
-        const explicitPush = params?.explicitPush as boolean | undefined;
-        const result = await releasePush(version, remote, this.projectRoot, { explicitPush: explicitPush ?? true });
-        return this.wrapEngineResult(result, 'mutate', 'release.push', startTime);
-      }
-
-      case 'gates.run': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.gates.run', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const result = await releaseGatesRun(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.gates.run', startTime);
-      }
+      // Release operations consolidated in T5615:
+      // prepare/changelog/commit/tag/push/gates.run merged into release.ship
 
       case 'rollback': {
         const version = params?.version as string;

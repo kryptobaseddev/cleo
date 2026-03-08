@@ -236,12 +236,9 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'tools', operation: 'issues.generate.config',  gateway: 'mutate', mode: 'native' },
 
   // === Pipeline Domain (release operations) ===
-  { domain: 'pipeline', operation: 'release.prepare', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'release.changelog', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'release.commit', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'release.tag', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'release.push', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'release.gates.run', gateway: 'mutate', mode: 'native' },
+  // Consolidated in T5615: release.prepare/changelog/commit/tag/push/gates.run merged into release.ship
+  { domain: 'pipeline', operation: 'release.ship', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'release.cancel', gateway: 'mutate', mode: 'native' },
   { domain: 'pipeline', operation: 'release.rollback', gateway: 'mutate', mode: 'native' },
 ];
 
