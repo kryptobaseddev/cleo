@@ -3,7 +3,7 @@
   "name": "io.github.kryptobaseddev/cleo-mcp-server",
   "title": "CLEO MCP Server",
   "description": "Task management for solo developers and AI coding agents — CQRS pattern, 200 operations across 10 domains",
-  "version": "2026.3.24",
+  "version": "2026.3.26",
   "websiteUrl": "https://github.com/kryptobaseddev/cleo",
   "repository": {
     "url": "https://github.com/kryptobaseddev/cleo.git",
@@ -51,7 +51,11 @@
         "Anti-hallucination validation on all task operations",
         "Atomic file operations with backup and rollback"
       ],
-      "categories": ["developer-tools", "task-management", "ai-agents"]
+      "categories": [
+        "developer-tools",
+        "task-management",
+        "ai-agents"
+      ]
     }
   }
 }
