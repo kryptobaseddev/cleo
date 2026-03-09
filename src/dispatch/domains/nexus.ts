@@ -46,8 +46,9 @@ import {
 } from '../../core/snapshot/index.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
+import { errorResult, getListParams, handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
-import { routeByParam } from './_routing.js';
+
 
 // ---------------------------------------------------------------------------
 // NexusHandler
@@ -82,7 +83,7 @@ export class NexusHandler implements DomainHandler {
 
         case 'list': {
           const projects = await nexusList();
-          const { limit, offset } = this.getListParams(params);
+          const { limit, offset } = getListParams(params);
           const page = paginate(projects, limit, offset);
           return this.successResponse(
             'query',
@@ -101,8 +102,9 @@ export class NexusHandler implements DomainHandler {
         case 'show': {
           const name = params?.name as string;
           if (!name) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'name is required',
@@ -111,8 +113,9 @@ export class NexusHandler implements DomainHandler {
           }
           const project = await nexusGetProject(name);
           if (!project) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_NOT_FOUND',
               `Project not found: ${name}`,
@@ -122,12 +125,12 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, project);
         }
 
-        case 'resolve':
-        case 'query': {
+        case 'resolve': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'query is required',
@@ -135,8 +138,9 @@ export class NexusHandler implements DomainHandler {
             );
           }
           if (!validateSyntax(query)) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`,
@@ -150,8 +154,9 @@ export class NexusHandler implements DomainHandler {
         case 'deps': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'query is required',
@@ -176,8 +181,9 @@ export class NexusHandler implements DomainHandler {
         case 'blockers.show': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'query is required',
@@ -190,7 +196,7 @@ export class NexusHandler implements DomainHandler {
 
         case 'orphans.list': {
           const orphans = await orphanDetection();
-          const { limit, offset } = this.getListParams(params);
+          const { limit, offset } = getListParams(params);
           const page = paginate(orphans, limit, offset);
           return this.successResponse(
             'query',
@@ -209,8 +215,9 @@ export class NexusHandler implements DomainHandler {
         case 'discover': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'query is required',
@@ -231,8 +238,9 @@ export class NexusHandler implements DomainHandler {
         case 'search': {
           const pattern = params?.pattern as string;
           if (!pattern) {
-            return this.errorResponse(
+            return errorResult(
               'query',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'pattern is required',
@@ -249,26 +257,15 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
-        // Sharing: merged entry point via routeByParam (T5671)
-        case 'share':
-          return routeByParam<Promise<DispatchResponse>>(
-            params,
-            'action',
-            {
-              status: () => this.queryShareStatus(startTime),
-            },
-            'status',
-          );
-
-        // Backward-compat alias
         case 'share.status':
           return this.queryShareStatus(startTime);
 
         default:
-          return this.unsupported('query', operation, startTime);
+          return unsupportedOp('query', 'nexus', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', operation, error, startTime);
+      getLogger('domain:nexus').error({ gateway: 'query', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('query', 'nexus', operation, error, startTime);
     }
   }
 
@@ -291,8 +288,9 @@ export class NexusHandler implements DomainHandler {
         case 'register': {
           const path = params?.path as string;
           if (!path) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'path is required',
@@ -313,8 +311,9 @@ export class NexusHandler implements DomainHandler {
         case 'unregister': {
           const name = params?.name as string;
           if (!name) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'name is required',
@@ -327,8 +326,7 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
-        case 'sync':
-        case 'sync.all': {
+        case 'sync': {
           const name = params?.name as string | undefined;
           if (name) {
             await nexusSync(name);
@@ -344,8 +342,9 @@ export class NexusHandler implements DomainHandler {
           const name = params?.name as string;
           const level = params?.level as string;
           if (!name) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'name is required',
@@ -353,8 +352,9 @@ export class NexusHandler implements DomainHandler {
             );
           }
           if (!level) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               'level is required',
@@ -362,8 +362,9 @@ export class NexusHandler implements DomainHandler {
             );
           }
           if (!['read', 'write', 'execute'].includes(level)) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'nexus',
               operation,
               'E_INVALID_INPUT',
               `Invalid permission level: ${level}. Must be: read, write, or execute`,
@@ -382,27 +383,18 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('mutate', operation, startTime, result);
         }
 
-        // Sharing: merged entry point via routeByParam (T5671)
-        case 'share':
-          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
-            export: () => this.mutateShareSnapshotExport(params, startTime),
-            import: () => this.mutateShareSnapshotImport(params, startTime),
-          });
-
-        // Backward-compat aliases
         case 'share.snapshot.export':
-        case 'share.snapshot-export':
           return this.mutateShareSnapshotExport(params, startTime);
 
         case 'share.snapshot.import':
-        case 'share.snapshot-import':
           return this.mutateShareSnapshotImport(params, startTime);
 
         default:
-          return this.unsupported('mutate', operation, startTime);
+          return unsupportedOp('mutate', 'nexus', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', operation, error, startTime);
+      getLogger('domain:nexus').error({ gateway: 'mutate', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('mutate', 'nexus', operation, error, startTime);
     }
   }
 
@@ -413,6 +405,7 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
+        'share.status',
         'status',
         'list',
         'show',
@@ -424,17 +417,16 @@ export class NexusHandler implements DomainHandler {
         'orphans.list',
         'discover',
         'search',
-        'share.status',
       ],
       mutate: [
+        'share.snapshot.export',
+        'share.snapshot.import',
         'init',
         'register',
         'unregister',
         'sync',
         'permission.set',
         'reconcile',
-        'share.snapshot.export',
-        'share.snapshot.import',
       ],
     };
   }
@@ -782,8 +774,9 @@ export class NexusHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     const inputPath = params?.inputPath as string;
     if (!inputPath) {
-      return this.errorResponse(
+      return errorResult(
         'mutate',
+        'nexus',
         'share.snapshot.import',
         'E_INVALID_INPUT',
         'inputPath is required',
@@ -818,47 +811,4 @@ export class NexusHandler implements DomainHandler {
     };
   }
 
-  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
-    return {
-      limit: typeof params?.limit === 'number' ? params.limit : undefined,
-      offset: typeof params?.offset === 'number' ? params.offset : undefined,
-    };
-  }
-
-  private unsupported(gateway: string, operation: string, startTime: number): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, 'nexus', operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown nexus ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, 'nexus', operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:nexus').error({ gateway, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, 'nexus', operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

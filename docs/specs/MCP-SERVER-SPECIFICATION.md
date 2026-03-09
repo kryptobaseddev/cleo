@@ -33,7 +33,7 @@ As of 2026-03-06, implementation counts are:
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
 2. **Full Capability Access**: All 256 operations accessible through domain routing across 10 canonical domains
 3. **Safety by Design**: Read operations cannot mutate state
-4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
+4. **Protocol Enforcement**: RCASD-IVTR+C lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
 
 ### 1.2 Architecture Overview
@@ -573,12 +573,12 @@ For batch operations that partially succeed:
 
 ## 4. Protocol Enforcement
 
-### 4.1 RCSD-IVTR Lifecycle
+### 4.1 RCASD-IVTR+C Lifecycle
 
-The MCP server enforces the complete RCSD-IVTR lifecycle pipeline:
+The MCP server enforces the complete RCASD-IVTR+C lifecycle pipeline:
 
 ```
-SETUP PIPELINE (RCSD)
+SETUP PIPELINE (RCASD)
 ━━━━━━━━━━━━━━━━━━━━━
 Research ────► Consensus ────► Specification ────► Decomposition
   (60)          (61)            (62)                (63)
@@ -1343,7 +1343,7 @@ Recommended limits:
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 - [MCP Specification](https://modelcontextprotocol.io/specification)
 - [CLEO CLAUDE.md](../CLAUDE.md)
-- [RCSD Pipeline Spec](./RCSD-PIPELINE-SPEC.md)
+- [RCASD-IVTR+C Pipeline Spec](./RCSD-PIPELINE-SPEC.md)
 - [Project Lifecycle Spec](./PROJECT-LIFECYCLE-SPEC.md)
 - [Protocol Enforcement Guide](../guides/protocol-enforcement.md)
 - [MCP-CLI Parity Matrix](./MCP-CLI-PARITY-MATRIX.md)
@@ -1381,7 +1381,7 @@ Recommended limits:
 
 - Initial specification
 - Two-gateway CQRS design (query + mutate)
-- Full RCSD-IVTR protocol coverage
+- Full RCASD-IVTR+C protocol coverage
 - 93 operations across 8 domains (46 query + 47 mutate)
 - Complete exit code mapping
 - Manifest and verification gate systems

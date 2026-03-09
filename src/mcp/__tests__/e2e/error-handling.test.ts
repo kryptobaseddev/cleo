@@ -292,7 +292,7 @@ describe('E2E: Error Handling Workflow', () => {
   });
 
   it('should handle lifecycle gate failure', async () => {
-    // Create epic without RCSD completion
+    // Create epic without RCASD-IVTR+C completion
     const epicResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'add',

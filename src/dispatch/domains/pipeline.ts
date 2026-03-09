@@ -66,7 +66,8 @@ import {
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { dispatchMeta } from './_meta.js';
-import { routeByParam } from './_routing.js';
+import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
+
 
 // ---------------------------------------------------------------------------
 // PipelineHandler
@@ -112,15 +113,17 @@ export class PipelineHandler implements DomainHandler {
         return await this.queryChain(operation.slice('chain.'.length), params, startTime);
       }
 
-      return this.errorResponse(
+      return errorResult(
         'query',
+        'pipeline',
         operation,
         'E_INVALID_OPERATION',
         `Unknown pipeline query: ${operation}`,
         startTime,
       );
     } catch (error) {
-      return this.handleError('query', operation, error, startTime);
+      getLogger('domain:pipeline').error({ gateway: 'query', domain: 'pipeline', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('query', 'pipeline', operation, error, startTime);
     }
   }
 
@@ -153,15 +156,17 @@ export class PipelineHandler implements DomainHandler {
         return await this.mutateChain(operation.slice('chain.'.length), params, startTime);
       }
 
-      return this.errorResponse(
+      return errorResult(
         'mutate',
+        'pipeline',
         operation,
         'E_INVALID_OPERATION',
         `Unknown pipeline mutation: ${operation}`,
         startTime,
       );
     } catch (error) {
-      return this.handleError('mutate', operation, error, startTime);
+      getLogger('domain:pipeline').error({ gateway: 'mutate', domain: 'pipeline', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('mutate', 'pipeline', operation, error, startTime);
     }
   }
 
@@ -219,8 +224,9 @@ export class PipelineHandler implements DomainHandler {
         const epicId = params?.epicId as string;
         const targetStage = params?.targetStage as string;
         if (!epicId || !targetStage) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'stage.validate',
             'E_INVALID_INPUT',
             'epicId and targetStage are required',
@@ -228,14 +234,15 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleCheck(epicId, targetStage, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'stage.validate', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'stage.validate', startTime);
       }
 
       case 'status': {
         const epicId = params?.epicId as string;
         if (!epicId) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'stage.status',
             'E_INVALID_INPUT',
             'epicId is required',
@@ -243,14 +250,15 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleStatus(epicId, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'stage.status', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'stage.status', startTime);
       }
 
       case 'history': {
         const taskId = params?.taskId as string;
         if (!taskId) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'stage.history',
             'E_INVALID_INPUT',
             'taskId is required',
@@ -258,12 +266,13 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleHistory(taskId, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'stage.history', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'stage.history', startTime);
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'query',
+          'pipeline',
           `stage.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown stage query: ${sub}`,
@@ -288,8 +297,9 @@ export class PipelineHandler implements DomainHandler {
         const status = params?.status as string;
         const notes = params?.notes as string | undefined;
         if (!taskId || !stage || !status) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'stage.record',
             'E_INVALID_INPUT',
             'taskId, stage, and status are required',
@@ -297,7 +307,7 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleProgress(taskId, stage, status, notes, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'stage.record', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'stage.record', startTime);
       }
 
       case 'skip': {
@@ -305,8 +315,9 @@ export class PipelineHandler implements DomainHandler {
         const stage = params?.stage as string;
         const reason = params?.reason as string;
         if (!taskId || !stage || !reason) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'stage.skip',
             'E_INVALID_INPUT',
             'taskId, stage, and reason are required',
@@ -314,7 +325,7 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleSkip(taskId, stage, reason, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'stage.skip', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'stage.skip', startTime);
       }
 
       case 'reset': {
@@ -322,8 +333,9 @@ export class PipelineHandler implements DomainHandler {
         const stage = params?.stage as string;
         const reason = params?.reason as string;
         if (!taskId || !stage || !reason) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'stage.reset',
             'E_INVALID_INPUT',
             'taskId, stage, and reason are required',
@@ -331,54 +343,58 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await lifecycleReset(taskId, stage, reason, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'stage.reset', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'stage.reset', startTime);
       }
 
-      // Merged: stage.gate routes by action param (pass/fail)
-      // Backward-compat aliases: stage.gate.pass, stage.gate.fail
-      case 'gate':
-      case 'gate.pass':
-      case 'gate.fail': {
+      case 'gate.pass': {
         const taskId = params?.taskId as string;
         const gateName = params?.gateName as string;
         if (!taskId || !gateName) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
-            `stage.${sub}`,
+            'pipeline',
+            'stage.gate.pass',
             'E_INVALID_INPUT',
             'taskId and gateName are required',
             startTime,
           );
         }
-        // If using backward-compat alias, derive action from sub name
-        const effectiveParams =
-          sub === 'gate' ? params : { ...params, action: sub === 'gate.pass' ? 'pass' : 'fail' };
-        return routeByParam<Promise<DispatchResponse>>(effectiveParams, 'action', {
-          pass: async () => {
-            const result = await lifecycleGatePass(
-              taskId,
-              gateName,
-              params?.agent as string | undefined,
-              params?.notes as string | undefined,
-              this.projectRoot,
-            );
-            return this.wrapEngineResult(result, 'mutate', 'stage.gate', startTime);
-          },
-          fail: async () => {
-            const result = await lifecycleGateFail(
-              taskId,
-              gateName,
-              params?.reason as string | undefined,
-              this.projectRoot,
-            );
-            return this.wrapEngineResult(result, 'mutate', 'stage.gate', startTime);
-          },
-        });
+        const result = await lifecycleGatePass(
+          taskId,
+          gateName,
+          params?.agent as string | undefined,
+          params?.notes as string | undefined,
+          this.projectRoot,
+        );
+        return wrapResult(result, 'mutate', 'pipeline', 'stage.gate.pass', startTime);
+      }
+
+      case 'gate.fail': {
+        const taskId = params?.taskId as string;
+        const gateName = params?.gateName as string;
+        if (!taskId || !gateName) {
+          return errorResult(
+            'mutate',
+            'pipeline',
+            'stage.gate.fail',
+            'E_INVALID_INPUT',
+            'taskId and gateName are required',
+            startTime,
+          );
+        }
+        const result = await lifecycleGateFail(
+          taskId,
+          gateName,
+          params?.reason as string | undefined,
+          this.projectRoot,
+        );
+        return wrapResult(result, 'mutate', 'pipeline', 'stage.gate.fail', startTime);
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'mutate',
+          'pipeline',
           `stage.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown stage mutation: ${sub}`,
@@ -406,14 +422,15 @@ export class PipelineHandler implements DomainHandler {
           },
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'query', 'release.list', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'release.list', startTime);
       }
 
       case 'show': {
         const version = params?.version as string;
         if (!version) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'release.show',
             'E_INVALID_INPUT',
             'version is required',
@@ -421,7 +438,7 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await releaseShow(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'release.show', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'release.show', startTime);
       }
 
       case 'channel.show': {
@@ -440,7 +457,7 @@ export class PipelineHandler implements DomainHandler {
         const distTag = channelToDistTag(resolvedChannel);
         const description = describeChannel(resolvedChannel);
 
-        return this.wrapEngineResult(
+        return wrapResult(
           {
             success: true,
             data: {
@@ -451,14 +468,16 @@ export class PipelineHandler implements DomainHandler {
             },
           },
           'query',
+          'pipeline',
           'release.channel.show',
           startTime,
         );
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'query',
+          'pipeline',
           `release.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown release query: ${sub}`,
@@ -483,8 +502,9 @@ export class PipelineHandler implements DomainHandler {
       case 'rollback': {
         const version = params?.version as string;
         if (!version) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'release.rollback',
             'E_INVALID_INPUT',
             'version is required',
@@ -493,14 +513,15 @@ export class PipelineHandler implements DomainHandler {
         }
         const reason = params?.reason as string | undefined;
         const result = await releaseRollback(version, reason, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.rollback', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'release.rollback', startTime);
       }
 
       case 'cancel': {
         const version = params?.version as string;
         if (!version) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'release.cancel',
             'E_INVALID_INPUT',
             'version is required',
@@ -508,15 +529,16 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await releaseCancel(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.cancel', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'release.cancel', startTime);
       }
 
       case 'ship': {
         const version = params?.version as string;
         const epicId = params?.epicId as string;
         if (!version || !epicId) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'release.ship',
             'E_INVALID_INPUT',
             'version and epicId are required',
@@ -530,12 +552,13 @@ export class PipelineHandler implements DomainHandler {
           { version, epicId, remote, dryRun, bump },
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'mutate', 'release.ship', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'release.ship', startTime);
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'mutate',
+          'pipeline',
           `release.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown release mutation: ${sub}`,
@@ -557,8 +580,9 @@ export class PipelineHandler implements DomainHandler {
       case 'show': {
         const entryId = params?.entryId as string;
         if (!entryId) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'manifest.show',
             'E_INVALID_INPUT',
             'entryId is required',
@@ -566,20 +590,21 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await pipelineManifestShow(entryId, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'manifest.show', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'manifest.show', startTime);
       }
       case 'list': {
         const result = await pipelineManifestList(
           (params ?? {}) as Parameters<typeof pipelineManifestList>[0],
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'query', 'manifest.list', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'manifest.list', startTime);
       }
       case 'find': {
         const query = params?.query as string;
         if (!query) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'manifest.find',
             'E_INVALID_INPUT',
             'query is required',
@@ -594,18 +619,19 @@ export class PipelineHandler implements DomainHandler {
           },
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'query', 'manifest.find', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'manifest.find', startTime);
       }
       case 'stats': {
         const result = await pipelineManifestStats(
           params?.epicId as string | undefined,
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'query', 'manifest.stats', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'manifest.stats', startTime);
       }
       default:
-        return this.errorResponse(
+        return errorResult(
           'query',
+          'pipeline',
           `manifest.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown manifest query: ${sub}`,
@@ -623,17 +649,17 @@ export class PipelineHandler implements DomainHandler {
       case 'show': {
         const phaseId = params?.phaseId as string | undefined;
         const result = await phaseShow(phaseId, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'phase.show', startTime);
+        return wrapResult(result, 'query', 'pipeline', 'phase.show', startTime);
       }
 
       case 'list': {
         const result = await phaseList(this.projectRoot);
         if (!result.success || !result.data) {
-          return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
+          return wrapResult(result, 'query', 'pipeline', 'phase.list', startTime);
         }
 
         const listData = result.data as ListPhasesResult;
-        const { limit, offset } = this.getListParams(params);
+        const { limit, offset } = getListParams(params);
         const page = paginate(listData.phases, limit, offset);
 
         return {
@@ -650,8 +676,9 @@ export class PipelineHandler implements DomainHandler {
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'query',
+          'pipeline',
           `phase.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown phase query: ${sub}`,
@@ -673,8 +700,9 @@ export class PipelineHandler implements DomainHandler {
       case 'append': {
         const entry = params?.entry as Parameters<typeof pipelineManifestAppend>[0];
         if (!entry) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'manifest.append',
             'E_INVALID_INPUT',
             'entry is required',
@@ -682,13 +710,14 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await pipelineManifestAppend(entry, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'manifest.append', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'manifest.append', startTime);
       }
       case 'archive': {
         const beforeDate = params?.beforeDate as string;
         if (!beforeDate) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'manifest.archive',
             'E_INVALID_INPUT',
             'beforeDate is required (ISO-8601: YYYY-MM-DD)',
@@ -696,11 +725,12 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await pipelineManifestArchive(beforeDate, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'manifest.archive', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'manifest.archive', startTime);
       }
       default:
-        return this.errorResponse(
+        return errorResult(
           'mutate',
+          'pipeline',
           `manifest.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown manifest mutation: ${sub}`,
@@ -719,32 +749,27 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
-      // Merged: phase.set absorbs phase.start/phase.complete via action param (T5615)
-      // Backward-compat aliases: phase.start, phase.complete
-      case 'set':
-      case 'start':
-      case 'complete': {
+      case 'set': {
         const phaseId = params?.phaseId as string;
         if (!phaseId) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
-            `phase.${sub}`,
+            'pipeline',
+            'phase.set',
             'E_INVALID_INPUT',
             'phaseId is required',
             startTime,
           );
         }
-        // Derive action from sub name for backward-compat aliases
-        const effectiveAction = sub === 'set' ? (params?.action as string | undefined) : sub; // 'start' or 'complete'
-        if (effectiveAction === 'start') {
+        const action = params?.action as string | undefined;
+        if (action === 'start') {
           const result = await phaseStart(phaseId, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
+          return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
         }
-        if (effectiveAction === 'complete') {
+        if (action === 'complete') {
           const result = await phaseComplete(phaseId, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
+          return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
         }
-        // Default: phase.set behavior
         const result = await phaseSet(
           {
             phaseId,
@@ -754,21 +779,22 @@ export class PipelineHandler implements DomainHandler {
           },
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
       }
 
       case 'advance': {
         const force = params?.force as boolean | undefined;
         const result = await phaseAdvance(force, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'phase.advance', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'phase.advance', startTime);
       }
 
       case 'rename': {
         const oldName = params?.oldName as string;
         const newName = params?.newName as string;
         if (!oldName || !newName) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'phase.rename',
             'E_INVALID_INPUT',
             'oldName and newName are required',
@@ -776,14 +802,15 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         const result = await phaseRename(oldName, newName, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'phase.rename', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'phase.rename', startTime);
       }
 
       case 'delete': {
         const phaseId = params?.phaseId as string;
         if (!phaseId) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'phase.delete',
             'E_INVALID_INPUT',
             'phaseId is required',
@@ -798,12 +825,13 @@ export class PipelineHandler implements DomainHandler {
           },
           this.projectRoot,
         );
-        return this.wrapEngineResult(result, 'mutate', 'phase.delete', startTime);
+        return wrapResult(result, 'mutate', 'pipeline', 'phase.delete', startTime);
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'mutate',
+          'pipeline',
           `phase.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown phase mutation: ${sub}`,
@@ -825,8 +853,9 @@ export class PipelineHandler implements DomainHandler {
       case 'show': {
         const chainId = params?.chainId as string;
         if (!chainId) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'chain.show',
             'E_INVALID_INPUT',
             'chainId is required',
@@ -835,17 +864,19 @@ export class PipelineHandler implements DomainHandler {
         }
         const chain = await showChain(chainId, this.projectRoot);
         if (!chain) {
-          return this.errorResponse(
+          return errorResult(
             'query',
+            'pipeline',
             'chain.show',
             'E_NOT_FOUND',
             `Chain "${chainId}" not found`,
             startTime,
           );
         }
-        return this.wrapEngineResult(
+        return wrapResult(
           { success: true, data: chain },
           'query',
+          'pipeline',
           'chain.show',
           startTime,
         );
@@ -853,9 +884,9 @@ export class PipelineHandler implements DomainHandler {
 
       case 'list': {
         const chains = await listChains(this.projectRoot);
-        const { limit, offset } = this.getListParams(params);
+        const { limit, offset } = getListParams(params);
         const page = paginate(chains, limit, offset);
-        return this.wrapEngineResult(
+        return wrapResult(
           {
             success: true,
             data: {
@@ -866,14 +897,16 @@ export class PipelineHandler implements DomainHandler {
             page: page.page,
           },
           'query',
+          'pipeline',
           'chain.list',
           startTime,
         );
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'query',
+          'pipeline',
           `chain.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown chain query: ${sub}`,
@@ -895,8 +928,9 @@ export class PipelineHandler implements DomainHandler {
       case 'add': {
         const chain = params?.chain as WarpChain;
         if (!chain) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'chain.add',
             'E_INVALID_INPUT',
             'chain is required',
@@ -904,9 +938,10 @@ export class PipelineHandler implements DomainHandler {
           );
         }
         await addChain(chain, this.projectRoot);
-        return this.wrapEngineResult(
+        return wrapResult(
           { success: true, data: { id: chain.id } },
           'mutate',
+          'pipeline',
           'chain.add',
           startTime,
         );
@@ -916,8 +951,9 @@ export class PipelineHandler implements DomainHandler {
         const chainId = params?.chainId as string;
         const epicId = params?.epicId as string;
         if (!chainId || !epicId) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'chain.instantiate',
             'E_INVALID_INPUT',
             'chainId and epicId are required',
@@ -942,8 +978,9 @@ export class PipelineHandler implements DomainHandler {
             message.includes('FOREIGN KEY constraint failed') ||
             message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
           ) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
+              'pipeline',
               'chain.instantiate',
               'E_NOT_FOUND',
               `Chain "${chainId}" not found`,
@@ -952,9 +989,10 @@ export class PipelineHandler implements DomainHandler {
           }
           throw error;
         }
-        return this.wrapEngineResult(
+        return wrapResult(
           { success: true, data: instance },
           'mutate',
+          'pipeline',
           'chain.instantiate',
           startTime,
         );
@@ -964,8 +1002,9 @@ export class PipelineHandler implements DomainHandler {
         const instanceId = params?.instanceId as string;
         const nextStage = params?.nextStage as string;
         if (!instanceId || !nextStage) {
-          return this.errorResponse(
+          return errorResult(
             'mutate',
+            'pipeline',
             'chain.advance',
             'E_INVALID_INPUT',
             'instanceId and nextStage are required',
@@ -974,17 +1013,19 @@ export class PipelineHandler implements DomainHandler {
         }
         const gateResults = (params?.gateResults ?? []) as GateResult[];
         const updated = await advanceInstance(instanceId, nextStage, gateResults, this.projectRoot);
-        return this.wrapEngineResult(
+        return wrapResult(
           { success: true, data: updated },
           'mutate',
+          'pipeline',
           'chain.advance',
           startTime,
         );
       }
 
       default:
-        return this.errorResponse(
+        return errorResult(
           'mutate',
+          'pipeline',
           `chain.${sub}`,
           'E_INVALID_OPERATION',
           `Unknown chain mutation: ${sub}`,
@@ -993,79 +1034,4 @@ export class PipelineHandler implements DomainHandler {
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      page?: import('@cleocode/lafs-protocol').LAFSPage;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    if (result.success) {
-      return {
-        _meta: dispatchMeta(gateway, 'pipeline', operation, startTime),
-        success: true,
-        data: result.data,
-        ...(result.page ? { page: result.page } : {}),
-      };
-    }
-    return {
-      _meta: dispatchMeta(gateway, 'pipeline', operation, startTime),
-      success: false,
-      error: {
-        code: result.error?.code || 'E_UNKNOWN',
-        message: result.error?.message || 'Unknown error',
-        fix: result.error?.fix,
-        alternatives: result.error?.alternatives,
-      },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, 'pipeline', operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:pipeline').error(
-      { gateway, domain: 'pipeline', operation, err: error },
-      message,
-    );
-    return this.errorResponse(gateway, operation, 'E_INTERNAL_ERROR', message, startTime);
-  }
-
-  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
-    return {
-      limit: typeof params?.limit === 'number' ? params.limit : undefined,
-      offset: typeof params?.offset === 'number' ? params.offset : undefined,
-    };
-  }
 }

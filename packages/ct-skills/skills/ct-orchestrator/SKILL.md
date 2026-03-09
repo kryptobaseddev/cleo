@@ -163,9 +163,9 @@ mutate({ domain: "session", operation: "start",
 
 ## Lifecycle Gate Enforcement
 
-Before spawning implementation tasks, the system checks RCSD prerequisites. In **strict** mode (default), missing prerequisites block the spawn (exit 75). In **advisory** mode, it warns but proceeds. Set to **off** to disable.
+Before spawning implementation tasks, the system checks RCASD-IVTR+C prerequisites. In **strict** mode (default), missing prerequisites block the spawn (exit 75). In **advisory** mode, it warns but proceeds. Set to **off** to disable.
 
-Gate check: epic tasks must complete prior RCSD stages before later stages can spawn. Non-epic tasks skip gate checks.
+Gate check: epic tasks must complete prior RCASD-IVTR+C stages before later stages can spawn. Non-epic tasks skip gate checks.
 
 > Full decision tree, enforcement modes, gate failure handling, and emergency bypass: `references/lifecycle-gates.md`
 
@@ -374,7 +374,7 @@ All code changes MUST include provenance tags:
 - [AUTONOMOUS-ORCHESTRATION-SPEC.md](../../docs/specs/AUTONOMOUS-ORCHESTRATION-SPEC.md) - Autonomous mode
 - [PROJECT-LIFECYCLE-SPEC.md](../../docs/specs/PROJECT-LIFECYCLE-SPEC.md) - Full lifecycle
 - [PROTOCOL-STACK-SPEC.md](../../docs/specs/PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
-- [RCSD-PIPELINE-SPEC.md](../../docs/specs/RCSD-PIPELINE-SPEC.md) - RCSD pipeline
+- [RCSD-PIPELINE-SPEC.md](../../docs/specs/RCSD-PIPELINE-SPEC.md) - RCASD-IVTR+C pipeline
 - [ORCHESTRATOR-VISION.md](../../docs/ORCHESTRATOR-VISION.md) - Core philosophy
 - [ORCHESTRATOR-PROTOCOL.md](../../docs/guides/ORCHESTRATOR-PROTOCOL.md) - Practical workflows
 - [orchestrator.md](../../docs/commands/orchestrator.md) - CLI command reference

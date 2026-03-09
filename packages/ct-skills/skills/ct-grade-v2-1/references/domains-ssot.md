@@ -13,7 +13,7 @@ Source: `docs/specs/CLEO-OPERATION-CONSTITUTION.md` + `src/dispatch/registry.ts`
 | `session` | query+mutate | status, list, show, history, decision.log, start, end, resume, gc | Session lifecycle |
 | `memory` | query+mutate | (tier 1+) show, find, timeline, fetch, observe | Cognitive memory (brain.db) |
 | `check` | query+mutate | schema, protocol, task, manifest, test.run | Validation and compliance |
-| `pipeline` | query+mutate | stage.validate, stage.status, manifest.*, release.* | RCSD lifecycle, releases |
+| `pipeline` | query+mutate | stage.validate, stage.status, manifest.*, release.* | RCASD-IVTR+C lifecycle, releases |
 | `orchestrate` | query+mutate | status, next, ready, waves, spawn, spawn.execute | Multi-agent coordination |
 | `tools` | query+mutate | skill.list, skill.show, skill.find, provider.list, issue.add.bug | Skills, providers |
 | `admin` | query+mutate | version, health, dash, help, stats, grade, grade.list | Config, diagnostics |

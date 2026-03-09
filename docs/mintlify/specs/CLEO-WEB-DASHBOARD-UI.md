@@ -542,7 +542,7 @@ The landing page. Shows the state of the project at a glance.
 |  BRAIN                                                            |
 +------------------------------------------------------------------+
 |                                                                    |
-|  [Research] [Consensus] [RCSD] [Decisions]                        |
+|  [Research] [Consensus] [RCASD-IVTR+C] [Decisions]                |
 |                                                                    |
 |  RESEARCH ARTIFACTS (43)                                          |
 |  +--------------------------------------------------------------+ |
@@ -553,7 +553,7 @@ The landing page. Shows the state of the project at a glance.
 |  | MCP Agent Interaction      | T4357 | done   | mcp, agents    | |
 |  +--------------------------------------------------------------+ |
 |                                                                    |
-|  RCSD PIPELINE                                                    |
+|  RCASD-IVTR+C PIPELINE                                            |
 |  +--------------------------------------------------------------+ |
 |  | Task   | R | C | S | D | I | V | T | Rel                     | |
 |  |--------|---|---|---|---|---|---|---|---                         | |
@@ -565,7 +565,7 @@ The landing page. Shows the state of the project at a glance.
 +------------------------------------------------------------------+
 ```
 
-**RCSD pipeline**: Compact grid showing lifecycle stages per task. Each cell is a small status indicator. Click a cell to see stage details.
+**RCASD-IVTR+C pipeline**: Compact grid showing lifecycle stages per task. Each cell is a small status indicator. Click a cell to see stage details.
 
 ### 5.9 Nexus View (/nexus) -- Phase 4
 

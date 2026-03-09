@@ -8,17 +8,17 @@
  */
 
 /**
- * RCSD Pipeline States
+ * RCASD-IVTR+C Pipeline States
  */
 
-export const rcsdStates = {
-  // No RCSD stages completed
-  noRCSD: {
+export const rcasdStates = {
+  // No RCASD-IVTR+C stages completed
+  noRCASD: {
     epicId: 'T3000',
     manifest: null, // No manifest exists
   },
 
-  // Partial RCSD (only research complete)
+  // Partial RCASD (only research complete)
   researchOnly: {
     epicId: 'T3001',
     manifest: {
@@ -54,7 +54,7 @@ export const rcsdStates = {
   },
 
   // Complete RCASD (all stages done)
-  completeRCSD: {
+  completeRCASD: {
     epicId: 'T3004',
     manifest: {
       research: 'completed',
@@ -165,11 +165,11 @@ export const ivtrStates = {
  */
 
 export const gateFailures = {
-  // Try to skip to implementation without RCSD
+  // Try to skip to implementation without RCASD-IVTR+C
   skipToImplementation: {
     epicId: 'T3020',
     targetStage: 'implementation',
-    currentManifest: null, // No RCSD done
+    currentManifest: null, // No RCASD-IVTR+C done
     expectedResult: {
       passed: false,
       missingPrerequisites: ['research', 'consensus', 'specification', 'decomposition'],
@@ -280,7 +280,7 @@ export const gateSuccesses = {
   },
 
   // Valid progression: complete RCASD to implementation
-  completeRCSDToImplementation: {
+  completeRCASDToImplementation: {
     epicId: 'T3032',
     targetStage: 'implementation',
     currentManifest: {
@@ -389,7 +389,7 @@ export const bypassScenarios = {
  * Combined lifecycle scenario export
  */
 export const lifecycleScenarios = {
-  rcsd: rcsdStates,
+  rcasd: rcasdStates,
   ivtr: ivtrStates,
   failures: gateFailures,
   successes: gateSuccesses,

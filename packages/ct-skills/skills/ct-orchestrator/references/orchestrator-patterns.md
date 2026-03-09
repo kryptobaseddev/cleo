@@ -140,10 +140,10 @@ Always use `cleo release create` → `cleo release ship`.
 
 See `src/protocols/release.md` for the full release protocol specification.
 
-## Full RCSD-to-Release Lifecycle
+## Full RCASD-IVTR+C Lifecycle
 
 ```bash
-# RCSD PIPELINE (setup phase)
+# RCASD-IVTR+C PIPELINE (setup phase)
 cleo orchestrator spawn T100  # research protocol
 cleo orchestrator spawn T101  # consensus protocol
 cleo orchestrator spawn T102  # specification protocol

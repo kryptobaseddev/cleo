@@ -43,7 +43,7 @@ import {
   validateStage,
 } from '../lifecycle/stages.js';
 
-describe('RCSD Pipeline E2E', () => {
+describe('RCASD-IVTR+C Pipeline E2E', () => {
   let testDir: string;
 
   beforeEach(async () => {
@@ -186,7 +186,7 @@ describe('RCSD Pipeline E2E', () => {
   // ===========================================================================
 
   describe('RCASD-INDEX', () => {
-    it('builds an empty index when no RCSD directories exist', () => {
+    it('builds an empty index when no RCASD-IVTR+C directories exist', () => {
       const index = buildIndex(testDir);
       expect(index.$schema).toBe('https://cleo-dev.com/schemas/v1/rcasd-index.schema.json');
       expect(index._meta.version).toBe('1.0.0');
@@ -196,7 +196,7 @@ describe('RCSD Pipeline E2E', () => {
     });
 
     it('builds an index from on-disk manifests', async () => {
-      // Create a sample RCSD task directory with manifest
+      // Create a sample RCASD task directory with manifest
       const taskDir = join(testDir, '.cleo', 'rcasd', 'T1234');
       await mkdir(taskDir, { recursive: true });
 

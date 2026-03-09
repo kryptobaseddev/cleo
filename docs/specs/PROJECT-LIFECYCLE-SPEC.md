@@ -652,7 +652,7 @@ Evidence is linked to specific stages, enabling per-stage audit of what was prod
 
 This specification is referenced by:
 
-- PROTOCOL-ENFORCEMENT-SPEC.md (Section 1.2, defers to this spec for RCSD pipeline integration)
+- PROTOCOL-ENFORCEMENT-SPEC.md (Section 1.2, defers to this spec for RCASD-IVTR+C pipeline integration)
 - MCP-SERVER-SPECIFICATION.md (pipeline domain operations)
 - MCP-AGENT-INTERACTION-SPEC.md (lifecycle-aware agent behavior)
 - CLEO-STRATEGIC-ROADMAP-SPEC.md (RCASD lifecycle context)

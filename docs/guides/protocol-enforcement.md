@@ -4,7 +4,7 @@
 
 ## Overview
 
-CLEO implements **protocol enforcement** to ensure all agent-generated outputs conform to the RCSD-IVTR lifecycle protocols. This guide explains how protocol validation works, how to interpret violations, and how to resolve them.
+CLEO implements **protocol enforcement** to ensure all agent-generated outputs conform to the RCASD-IVTR+C lifecycle protocols. This guide explains how protocol validation works, how to interpret violations, and how to resolve them.
 
 ---
 

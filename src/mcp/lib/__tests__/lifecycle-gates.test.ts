@@ -4,7 +4,7 @@
  * @task T2923
  * @epic T2908
  *
- * Tests RCSD→IVTR lifecycle gate enforcement with exit code 75 (E_LIFECYCLE_GATE_FAILED).
+ * Tests RCASD-IVTR+C lifecycle gate enforcement with exit code 75 (E_LIFECYCLE_GATE_FAILED).
  * Covers enforcement modes (strict/advisory/off) and prerequisite checking.
  */
 
@@ -21,9 +21,9 @@ describe('Lifecycle Gate Enforcement', () => {
   });
 
   /**
-   * RCSD Pipeline Gate Tests
+   * RCASD-IVTR+C Pipeline Gate Tests
    */
-  describe('RCSD Pipeline Gates', () => {
+  describe('RCASD-IVTR+C Pipeline Gates', () => {
     describe('Research → Consensus Gate', () => {
       it('should pass when research is completed', async () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
@@ -57,7 +57,7 @@ describe('Lifecycle Gate Enforcement', () => {
 
     describe('Consensus → Specification Gate', () => {
       it('should pass when research + consensus completed', async () => {
-        const { manifest } = lifecycleScenarios.rcsd.researchAndConsensus;
+        const { manifest } = lifecycleScenarios.rcasd.researchAndConsensus;
 
         const result = await enforcer.checkLifecycleGate('T3002', 'specification', manifest);
 
@@ -80,8 +80,8 @@ describe('Lifecycle Gate Enforcement', () => {
     });
 
     describe('Specification → Decomposition Gate', () => {
-      it('should pass when all prior RCSD stages complete', async () => {
-        const { manifest } = lifecycleScenarios.rcsd.upToSpecification;
+      it('should pass when all prior RCASD-IVTR+C stages complete', async () => {
+        const { manifest } = lifecycleScenarios.rcasd.upToSpecification;
 
         const result = await enforcer.checkLifecycleGate('T3003', 'decomposition', manifest);
 
@@ -104,9 +104,9 @@ describe('Lifecycle Gate Enforcement', () => {
     });
 
     describe('Decomposition → Implementation Gate', () => {
-      it('should pass with complete RCSD', async () => {
+      it('should pass with complete RCASD-IVTR+C', async () => {
         const { epicId, targetStage, currentManifest, expectedResult } =
-          lifecycleScenarios.successes.completeRCSDToImplementation;
+          lifecycleScenarios.successes.completeRCASDToImplementation;
 
         const result = await enforcer.checkLifecycleGate(
           epicId,
@@ -274,7 +274,7 @@ describe('Lifecycle Gate Enforcement', () => {
    */
   describe('Missing Manifest Handling', () => {
     it('should warn when no RCASD manifest exists', async () => {
-      const { epicId } = lifecycleScenarios.rcsd.noRCSD;
+      const { epicId } = lifecycleScenarios.rcasd.noRCASD;
 
       const result = await enforcer.checkLifecycleGate(epicId, 'implementation', undefined);
 
@@ -295,7 +295,7 @@ describe('Lifecycle Gate Enforcement', () => {
    */
   describe('Failed Stage Handling', () => {
     it('should block progression when stage failed', async () => {
-      const { epicId, manifest } = lifecycleScenarios.rcsd.specificationFailed;
+      const { epicId, manifest } = lifecycleScenarios.rcasd.specificationFailed;
 
       const result = await enforcer.checkLifecycleGate(epicId, 'decomposition', manifest);
 

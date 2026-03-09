@@ -454,7 +454,7 @@ const meta = await getSkillMetadata("skill-name");
 ### 9.1 Related Specifications
 
 - [METRICS-VALUE-PROOF-SPEC.md](METRICS-VALUE-PROOF-SPEC.md) - Initial design
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCSD-IVTR protocols
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCASD-IVTR+C protocols
 - [PROTOCOL-STACK-SPEC.md](PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
 
 ### 9.2 Core Module Documentation

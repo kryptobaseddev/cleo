@@ -28,7 +28,7 @@ src/
     sessions/         # Session lifecycle management
     focus/            # Focus management
     phases/           # Phase tracking
-    lifecycle/        # RCSD lifecycle enforcement
+    lifecycle/        # RCASD-IVTR+C lifecycle enforcement
     migration/        # Schema migration engine
     orchestration/    # Multi-agent orchestration
     release/          # Release lifecycle
@@ -537,7 +537,7 @@ Phase tracking and lifecycle management for project phases. Handles phase transi
 
 ### Lifecycle (`src/core/lifecycle/`)
 
-RCSD lifecycle gate enforcement. Validates that tasks progress through Research > Consensus > Specification > Decomposition before entering implementation.
+RCASD-IVTR+C lifecycle gate enforcement. Validates that tasks progress through Research > Consensus > Architecture Decision > Specification > Decomposition before entering implementation.
 
 ### Migration (`src/core/migration/`)
 

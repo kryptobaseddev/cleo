@@ -496,7 +496,7 @@ The dispatch system selects which skill/protocol to inject into a subagent promp
 | `skill_prepare_spawn` | Prepare full spawn prompt JSON |
 | `skill_prepare_spawn_multi` | Prepare multi-task spawn |
 
-**Rationale**: These functions operate on CLEO's task system (task labels, types, RCSD lifecycle) and produce prompt content for CLEO's subagent spawning workflow. They have no counterpart in CAAMP because CAAMP is agent-agnostic and does not model task dispatch.
+**Rationale**: These functions operate on CLEO's task system (task labels, types, RCASD-IVTR+C lifecycle) and produce prompt content for CLEO's subagent spawning workflow. They have no counterpart in CAAMP because CAAMP is agent-agnostic and does not model task dispatch.
 
 ### lib/token-inject.sh -- 19 functions
 

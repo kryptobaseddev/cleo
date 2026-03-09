@@ -47,14 +47,14 @@ This specification **DEFERS TO**:
 
 ---
 
-## Part 2: Pipeline Change (RCSD to RCADSD-ICR)
+## Part 2: Pipeline Change (RCSD to RCASD-IVTR+C)
 
 ### 2.1 Current Pipeline
 
-The current RCSD-IVTR pipeline has 7 stages:
+The current RCASD-IVTR+C pipeline has 7 stages:
 
 ```
-SETUP PHASE (RCSD):
+SETUP PHASE (RCASD):
   Research -> Consensus -> Specification -> Decomposition
 
 EXECUTION PHASE (IVTR):
@@ -63,7 +63,7 @@ EXECUTION PHASE (IVTR):
 
 Defined in `src/core/lifecycle/index.ts`:
 ```typescript
-export const RCSD_STAGES = ['research', 'consensus', 'specification', 'decomposition'] as const;
+export const RCASD_STAGES = ['research', 'consensus', 'specification', 'decomposition'] as const;
 export const EXECUTION_STAGES = ['implementation', 'contribution', 'release'] as const;
 ```
 
@@ -81,7 +81,7 @@ EXECUTION PHASE (ICR):
 
 | Requirement | Description |
 |-------------|-------------|
-| PIPE-001 | The `RCSD_STAGES` array MUST be updated to `['research', 'consensus', 'adr', 'specification', 'decomposition']`. |
+| PIPE-001 | The `RCASD_STAGES` array MUST be updated to `['research', 'consensus', 'adr', 'specification', 'decomposition']`. |
 | PIPE-002 | The `RcsdStage` type union MUST include `'adr'`. |
 | PIPE-003 | The `checkGate()` function MUST enforce that `adr` stage requires `consensus` to be `completed` or `skipped`. |
 | PIPE-004 | The `checkGate()` function MUST enforce that `specification` stage requires `adr` to be `completed` or `skipped`. |
@@ -641,7 +641,7 @@ Per ADR-006, all operational data MUST move from JSONL files to SQLite tables. T
    d. INSERT into target table
    e. Validate: count(inserted) == count(parsed)
    f. Rename source to .jsonl.bak
-4. For each RCSD manifest:
+4. For each RCASD manifest:
    a. Read JSON file
    b. Create lifecycle_pipelines row
    c. Create lifecycle_stages rows (one per stage)

@@ -25,14 +25,14 @@ import {
 } from '../lifecycle-engine.js';
 
 let TEST_ROOT = '';
-let RCSD_DIR = '';
+let RCASD_DIR = '';
 
 describe('Lifecycle Engine', () => {
   beforeEach(() => {
     resetDbState();
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-lifecycle-engine-'));
-    RCSD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
-    mkdirSync(RCSD_DIR, { recursive: true });
+    RCASD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
+    mkdirSync(RCASD_DIR, { recursive: true });
     initLogger(join(TEST_ROOT, '.cleo'), {
       level: 'fatal',
       filePath: 'logs/test.log',

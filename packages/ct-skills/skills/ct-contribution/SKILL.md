@@ -40,7 +40,7 @@ The Contribution Protocol enables:
 |----------|---------------------------|-----------|
 | Multi-agent research (2+ sessions) | **Yes** | Structured conflict detection |
 | Consensus-building on architecture | **Yes** | Weighted voting, evidence tracking |
-| RCSD pipeline integration | **Yes** | JSON format enables automation |
+| RCASD-IVTR+C pipeline integration | **Yes** | JSON format enables automation |
 | Single-agent research | No | Simpler research manifest sufficient |
 | Quick decision with no alternatives | No | Protocol overhead not justified |
 

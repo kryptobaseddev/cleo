@@ -445,7 +445,7 @@ After EVERY command:
 
 ---
 
-## RCSD-IVTR Lifecycle (LOOM)
+## RCASD-IVTR+C Lifecycle (LOOM)
 
 **LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/CLEO-VISION.md` for the complete LOOM framework.
 

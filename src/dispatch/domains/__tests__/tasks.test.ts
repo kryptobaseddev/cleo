@@ -80,7 +80,6 @@ describe('TasksHandler', () => {
         'show',
         'list',
         'find',
-        'exists',
         'tree',
         'blockers',
         'depends',
@@ -88,12 +87,10 @@ describe('TasksHandler', () => {
         'next',
         'plan',
         'relates',
-        'relates.find',
         'complexity.estimate',
         'history',
         'current',
         'label.list',
-        'label.show',
       ]);
     });
 
@@ -107,10 +104,7 @@ describe('TasksHandler', () => {
         'delete',
         'archive',
         'restore',
-        'reopen',
-        'unarchive',
         'reparent',
-        'promote',
         'reorder',
         'relates.add',
         'start',
@@ -245,18 +239,6 @@ describe('TasksHandler', () => {
         includeArchive: true,
         offset: 5,
       });
-    });
-
-    it('exists - delegates to taskExists', async () => {
-      vi.mocked(taskExists).mockResolvedValue({
-        success: true,
-        data: { exists: true, taskId: 'T001' },
-      });
-
-      const result = await handler.query('exists', { taskId: 'T001' });
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ exists: true, taskId: 'T001' });
     });
 
     it('tree - delegates to taskTree', async () => {
@@ -507,18 +489,6 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       expect(taskReparent).toHaveBeenCalledWith('/mock/project', 'T001', 'T002');
-    });
-
-    it('promote - delegates to taskPromote', async () => {
-      vi.mocked(taskPromote).mockResolvedValue({
-        success: true,
-        data: { task: 'T001', promoted: true },
-      });
-
-      const result = await handler.mutate('promote', { taskId: 'T001' });
-
-      expect(result.success).toBe(true);
-      expect(taskPromote).toHaveBeenCalledWith('/mock/project', 'T001');
     });
 
     it('reorder - delegates to taskReorder', async () => {
