@@ -130,11 +130,45 @@ function handleSummarize(_data) {
     // Use default
   }
   cleoObserve(sessionInfo, '[hook] session-end');
+  // Refresh CLAUDE.md so next session gets up-to-date context
+  updateClaudeContext();
+}
+
+function updateClaudeContext() {
+  // Write recent brain observations to .claude-plugin/CLAUDE.md so Claude Code
+  // auto-loads them as context on every session/prompt.
+  try {
+    const raw = execFileSync(CLEO_BIN, ['memory', 'find', 'session task decision pattern', '--limit', '20', '--json'], {
+      timeout: 10000,
+      encoding: 'utf8',
+      cwd: process.env.CLEO_PROJECT_DIR || process.cwd(),
+    });
+    const parsed = JSON.parse(raw);
+    const hits = parsed?.result?.results || [];
+    if (hits.length === 0) return;
+
+    const lines = ['<cleo-brain-context>', '# CLEO Brain — Recent Memory\n'];
+    for (const h of hits) {
+      const icon = { observation: 'O', decision: 'D', pattern: 'P', learning: 'L' }[h.type] || 'O';
+      const date = (h.date || '').slice(0, 10);
+      const title = (h.title || '').slice(0, 90);
+      lines.push(`- [${icon}] ${date} ${title}`);
+    }
+    lines.push('</cleo-brain-context>');
+
+    // Write to plugin CLAUDE.md — path relative to worker script location
+    const pluginRoot = path.resolve(__dirname, '..', '..');
+    const claudeMdPath = path.join(pluginRoot, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, lines.join('\n') + '\n', 'utf8');
+    log(`Updated CLAUDE.md with ${hits.length} brain observations`);
+  } catch (err) {
+    log(`updateClaudeContext failed: ${err.message}`);
+  }
 }
 
 function handleSessionInit(_data) {
-  log('Session init received (no-op).');
-  // No-op for now — placeholder for future context injection
+  log('Session init — updating brain context in CLAUDE.md...');
+  updateClaudeContext();
 }
 
 // --- HTTP Server ---
