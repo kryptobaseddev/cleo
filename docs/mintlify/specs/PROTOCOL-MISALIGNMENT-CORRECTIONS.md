@@ -36,7 +36,7 @@ This specification **DEFERS TO**:
 
 - [PROTOCOL-ENFORCEMENT-SPEC.md](PROTOCOL-ENFORCEMENT-SPEC.md) for enforcement architecture
 - Individual protocol files (`src/protocols/*.md`) for specific requirement definitions (post-correction)
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCSD pipeline integration
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCASD-IVTR+C pipeline integration
 
 ### 1.3 Scope
 

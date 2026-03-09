@@ -751,7 +751,7 @@ tests/
 ### 11.3 Related Specifications
 
 - [PROTOCOL-ENFORCEMENT-SPEC.md](PROTOCOL-ENFORCEMENT-SPEC.md) - Overall enforcement architecture
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCSD pipeline and session lifecycle
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCASD-IVTR+C pipeline and session lifecycle
 - [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) - Session scope and focus context
 
 ### 11.4 Git Evidence

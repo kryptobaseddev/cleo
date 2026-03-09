@@ -23,6 +23,7 @@ export interface EngineResult {
     code: string;
     message: string;
     details?: unknown;
+    exitCode?: number;
     fix?: string;
     alternatives?: Array<{ action: string; command: string }>;
   };
@@ -50,6 +51,7 @@ export function wrapResult(
             code: result.error.code,
             message: result.error.message,
             details: result.error.details as Record<string, unknown> | undefined,
+            exitCode: result.error.exitCode,
             fix: result.error.fix,
             alternatives: result.error.alternatives,
           },

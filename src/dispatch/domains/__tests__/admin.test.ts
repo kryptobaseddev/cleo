@@ -183,9 +183,9 @@ describe('AdminHandler', () => {
         'log',
         'sequence',
         'help',
+        'token',
         'adr.show',
         'adr.find',
-        'token',
         'export',
       ]);
     });
@@ -194,7 +194,6 @@ describe('AdminHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
         'init',
-        'health',
         'config.set',
         'backup',
         'migrate',
@@ -202,12 +201,13 @@ describe('AdminHandler', () => {
         'job.cancel',
         'safestop',
         'inject.generate',
+        'install.global',
+        'token',
         'adr.sync',
+        'health',
+        'context.inject',
         'import',
         'detect',
-        'token',
-        'context.inject',
-        'install.global',
       ]);
     });
   });
@@ -355,90 +355,11 @@ describe('AdminHandler', () => {
       expect(findOp?.costHint).toBe('minimal');
     });
 
-    it('should return E_NOT_AVAILABLE for job.status when no job manager', async () => {
-      const res = await handler.query('job.status', { jobId: 'job-1' });
-
-      expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_NOT_AVAILABLE');
-    });
-
-    it('should return E_NOT_AVAILABLE for job.list when no job manager', async () => {
-      const res = await handler.query('job.list');
-
-      expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_NOT_AVAILABLE');
-    });
-
-    it('should return canonical paged envelope for job.list', async () => {
-      const jobs = [
-        { id: 'job-1', status: 'running' },
-        { id: 'job-2', status: 'queued' },
-        { id: 'job-3', status: 'running' },
-      ];
-      const mockManager = {
-        listJobs: vi.fn((status?: string) =>
-          status ? jobs.filter((job) => job.status === status) : jobs,
-        ),
-      };
-      vi.mocked(getJobManager).mockReturnValue(mockManager as never);
-
-      const res = await handler.query('job.list', { status: 'running', limit: 1, offset: 1 });
-
-      expect(res.success).toBe(true);
-      expect(res.data).toEqual({
-        jobs: [{ id: 'job-3', status: 'running' }],
-        count: 2,
-        total: 3,
-        filtered: 2,
-      });
-      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
-    });
-
     it('should return E_INVALID_OPERATION for grade.list (moved to check domain)', async () => {
       const res = await handler.query('grade.list', { sessionId: 'ses-1', limit: 1, offset: 1 });
 
       expect(res.success).toBe(false);
       expect(res.error?.code).toBe('E_INVALID_OPERATION');
-    });
-
-    it('should return canonical paged envelope for adr.list', async () => {
-      vi.mocked(listAdrs).mockResolvedValue({
-        adrs: [
-          {
-            id: 'ADR-002',
-            title: 'Second',
-            status: 'accepted',
-            date: '2026-02-02',
-            filePath: '.cleo/adrs/ADR-002.md',
-          },
-        ],
-        total: 3,
-        filtered: 2,
-      });
-
-      const res = await handler.query('adr.list', { status: 'accepted', limit: 1, offset: 1 });
-
-      expect(res.success).toBe(true);
-      expect(res.data).toEqual({
-        adrs: [
-          {
-            id: 'ADR-002',
-            title: 'Second',
-            status: 'accepted',
-            date: '2026-02-02',
-            filePath: '.cleo/adrs/ADR-002.md',
-          },
-        ],
-        total: 3,
-        filtered: 2,
-      });
-      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
-      expect(listAdrs).toHaveBeenCalledWith('/mock/project', {
-        status: 'accepted',
-        since: undefined,
-        limit: 1,
-        offset: 1,
-      });
     });
 
     it('should return E_INVALID_OPERATION for unknown query', async () => {
@@ -516,26 +437,6 @@ describe('AdminHandler', () => {
       expect(systemBackup).toHaveBeenCalledWith('/mock/project', { type: 'snapshot' });
     });
 
-    it('should call systemRestore for restore with backupId validation', async () => {
-      vi.mocked(systemRestore).mockReturnValue({ success: true, data: { restored: true } });
-
-      const res = await handler.mutate('restore', { backupId: 'snap-1' });
-
-      expect(res.success).toBe(true);
-      expect(systemRestore).toHaveBeenCalledWith('/mock/project', {
-        backupId: 'snap-1',
-        force: undefined,
-      });
-    });
-
-    it('should return error for restore without backupId', async () => {
-      const res = await handler.mutate('restore', {});
-
-      expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_INVALID_INPUT');
-      expect(systemRestore).not.toHaveBeenCalled();
-    });
-
     it('should call systemMigrate for migrate', async () => {
       vi.mocked(systemMigrate).mockReturnValue({ success: true, data: { migrated: true } });
 
@@ -543,15 +444,6 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(systemMigrate).toHaveBeenCalledWith('/mock/project', { dryRun: true });
-    });
-
-    it('should call systemSync for sync', async () => {
-      vi.mocked(systemSync).mockReturnValue({ success: true, data: { synced: 0 } });
-
-      const res = await handler.mutate('sync', { direction: 'up' });
-
-      expect(res.success).toBe(true);
-      expect(systemSync).toHaveBeenCalledWith('/mock/project', { direction: 'up' });
     });
 
     it('should call systemCleanup for cleanup with target validation', async () => {

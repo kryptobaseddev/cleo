@@ -209,9 +209,9 @@ describe('NexusHandler', () => {
     });
   });
 
-  describe('query: query', () => {
+  describe('query: resolve', () => {
     it('returns error when query param is missing', async () => {
-      const result = await handler.query('query', {});
+      const result = await handler.query('resolve', {});
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
@@ -220,7 +220,7 @@ describe('NexusHandler', () => {
     it('returns error for invalid query syntax', async () => {
       vi.mocked(validateSyntax).mockReturnValue(false);
 
-      const result = await handler.query('query', { query: 'bad-query' });
+      const result = await handler.query('resolve', { query: 'bad-query' });
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
@@ -235,7 +235,7 @@ describe('NexusHandler', () => {
         _project: 'my-project',
       } as Awaited<ReturnType<typeof resolveTask>>);
 
-      const result = await handler.query('query', { query: 'my-project:T001' });
+      const result = await handler.query('resolve', { query: 'my-project:T001' });
 
       expect(result.success).toBe(true);
     });
@@ -481,6 +481,7 @@ describe('NexusHandler', () => {
       const ops = handler.getSupportedOperations();
 
       expect(ops.query).toEqual([
+        'share.status',
         'status',
         'list',
         'show',
@@ -492,17 +493,16 @@ describe('NexusHandler', () => {
         'orphans.list',
         'discover',
         'search',
-        'share.status',
       ]);
       expect(ops.mutate).toEqual([
+        'share.snapshot.export',
+        'share.snapshot.import',
         'init',
         'register',
         'unregister',
         'sync',
         'permission.set',
         'reconcile',
-        'share.snapshot.export',
-        'share.snapshot.import',
       ]);
     });
   });

@@ -261,7 +261,7 @@ Phase 4   ┌─────────▼────────────�
 | **Session** | 8 (query) + 6 (mutate) | 8 + 12 | Expand resume, archive, cleanup |
 | **Orchestrate** | 0 | 14 | HIGH -- critical for agent coordination |
 | **Research** | 0 | 12 | HIGH -- critical for manifest ops |
-| **Lifecycle** | 0 | 10 | MEDIUM -- RCSD pipeline tracking |
+| **Lifecycle** | 0 | 10 | MEDIUM -- RCASD-IVTR+C pipeline tracking |
 | **Release** | 0 | 7 | MEDIUM -- release automation |
 | **Validate** | 1 | 11 | MEDIUM -- extend beyond schema |
 | **System** | 5 + 1 hybrid | 25+ | LOW -- many are informational |

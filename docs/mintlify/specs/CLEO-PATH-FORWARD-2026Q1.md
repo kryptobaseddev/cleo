@@ -175,7 +175,7 @@ Agent context injection follows a four-level progressive disclosure model, deliv
 | **0: Minimal Entry** | ~200 tokens | All agents | Two MCP tools, 6 quick-reference examples |
 | **1: Domain Discovery** | ~500 tokens | Multi-step workflows | Available operations per domain |
 | **2: Operation-Specific** | ~2-5K tokens | On error or request | Parameter schemas, error contracts, examples |
-| **3: Protocol-Aware** | ~5-15K tokens | Orchestrators only | Full RCSD lifecycle, manifest requirements |
+| **3: Protocol-Aware** | ~5-15K tokens | Orchestrators only | Full RCASD-IVTR+C lifecycle, manifest requirements |
 
 **Impact**: At 10+ subagent spawns per session, progressive disclosure saves ~45,000 tokens compared to the current injection model, freeing context for actual work.
 

@@ -15,7 +15,7 @@ The skill must serve or extend at least one of CLEO's **10 canonical domains**:
 | `session` | Session lifecycle, decisions, assumptions, context |
 | `memory` | Cognitive memory: observations, decisions, patterns, learnings (brain.db) |
 | `check` | Schema validation, protocol compliance, test execution |
-| `pipeline` | RCSD lifecycle stages, manifest ledger, release management |
+| `pipeline` | RCASD-IVTR+C lifecycle stages, manifest ledger, release management |
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution |
 | `tools` | Skills, providers, issues, CAAMP catalog |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs |

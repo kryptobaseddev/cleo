@@ -180,18 +180,6 @@ export class ToolsHandler implements DomainHandler {
         };
       }
 
-      // Plugin-extracted operations — return informative error
-      case 'templates':
-      case 'validate.labels':
-        return {
-          _meta: dispatchMeta('query', 'tools', `issue.${sub}`, startTime),
-          success: false,
-          error: {
-            code: 'E_PLUGIN_EXTRACTED',
-            message: 'This operation moved to the ct-github-issues plugin',
-          },
-        };
-
       default:
         return unsupportedOp('query', 'tools', `issue.${sub}`, startTime);
     }
@@ -206,24 +194,7 @@ export class ToolsHandler implements DomainHandler {
     _params: Record<string, unknown> | undefined,
     startTime: number,
   ): DispatchResponse {
-    switch (sub) {
-      // Plugin-extracted operations
-      case 'add.bug':
-      case 'add.feature':
-      case 'add.help':
-      case 'generate.config':
-        return {
-          _meta: dispatchMeta('mutate', 'tools', `issue.${sub}`, startTime),
-          success: false,
-          error: {
-            code: 'E_PLUGIN_EXTRACTED',
-            message: 'This operation moved to the ct-github-issues plugin',
-          },
-        };
-
-      default:
-        return unsupportedOp('mutate', 'tools', `issue.${sub}`, startTime);
-    }
+    return unsupportedOp('mutate', 'tools', `issue.${sub}`, startTime);
   }
 
   // -----------------------------------------------------------------------
@@ -415,16 +386,6 @@ export class ToolsHandler implements DomainHandler {
         );
       }
 
-      // Backward-compat aliases for old dotted catalog sub-ops
-      case 'catalog.protocols':
-        return this.querySkillCatalogProtocols(params, startTime);
-      case 'catalog.profiles':
-        return this.querySkillCatalogProfiles(params, startTime);
-      case 'catalog.resources':
-        return this.querySkillCatalogResources(params, startTime);
-      case 'catalog.info':
-        return this.querySkillCatalogInfo(startTime);
-
       // Merged: skill.precedence (absorbs precedence.show/resolve via action param)
       case 'precedence': {
         return routeByParam(
@@ -437,12 +398,6 @@ export class ToolsHandler implements DomainHandler {
           'show',
         );
       }
-
-      // Backward-compat aliases for old dotted precedence sub-ops
-      case 'precedence.show':
-        return this.querySkillPrecedenceShow(startTime);
-      case 'precedence.resolve':
-        return this.querySkillPrecedenceResolve(params, startTime);
 
       default:
         return unsupportedOp('query', 'tools', `skill.${sub}`, startTime);

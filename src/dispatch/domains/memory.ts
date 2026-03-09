@@ -40,7 +40,7 @@ import {
   memoryTimeline,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // Memory Handler Class
@@ -67,7 +67,7 @@ export class MemoryHandler implements DomainHandler {
         case 'find': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -86,13 +86,13 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'timeline': {
           const anchor = params?.anchor as string;
           if (!anchor) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -109,13 +109,13 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'fetch': {
           const ids = params?.ids as string[] | undefined;
           if (!ids || !Array.isArray(ids) || ids.length === 0) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -125,7 +125,7 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryFetch({ ids }, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'decision.find': {
@@ -137,7 +137,7 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'pattern.find': {
@@ -151,7 +151,7 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'learning.find': {
@@ -165,13 +165,13 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'graph.show': {
           const nodeId = params?.nodeId as string;
           if (!nodeId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -181,13 +181,13 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryGraphShow({ nodeId }, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'graph.neighbors': {
           const nodeId = params?.nodeId as string;
           if (!nodeId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -200,13 +200,13 @@ export class MemoryHandler implements DomainHandler {
             { nodeId, edgeType: params?.edgeType as string | undefined },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'reason.why': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -216,13 +216,13 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryReasonWhy({ taskId }, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'reason.similar': {
           const entryId = params?.entryId as string;
           if (!entryId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -235,13 +235,13 @@ export class MemoryHandler implements DomainHandler {
             { entryId, limit: params?.limit as number | undefined },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'search.hybrid': {
           const query = params?.query as string;
           if (!query) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'memory',
               operation,
@@ -260,14 +260,16 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         default:
-          return this.unsupported('query', 'memory', operation, startTime);
+          return unsupportedOp('query', 'memory', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'memory', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:memory').error({ gateway: 'query', domain: 'memory', operation, err: error }, message);
+      return handleErrorResult('query', 'memory', operation, error, startTime);
     }
   }
 
@@ -283,7 +285,7 @@ export class MemoryHandler implements DomainHandler {
         case 'observe': {
           const text = params?.text as string;
           if (!text) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'memory',
               operation,
@@ -303,14 +305,14 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'decision.store': {
           const decision = params?.decision as string;
           const rationale = params?.rationale as string;
           if (!decision || !rationale) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'memory',
               operation,
@@ -329,14 +331,14 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'pattern.store': {
           const patternText = params?.pattern as string;
           const context = params?.context as string;
           if (!patternText || !context) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'memory',
               operation,
@@ -359,14 +361,14 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'learning.store': {
           const insight = params?.insight as string;
           const source = params?.source as string;
           if (!insight || !source) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'memory',
               operation,
@@ -386,14 +388,14 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'link': {
           const taskId = params?.taskId as string;
           const entryId = params?.entryId as string;
           if (!taskId || !entryId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'memory',
               operation,
@@ -403,7 +405,7 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryLink({ taskId, entryId }, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'graph.add': {
@@ -420,7 +422,7 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'graph.remove': {
@@ -433,14 +435,16 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         default:
-          return this.unsupported('mutate', 'memory', operation, startTime);
+          return unsupportedOp('mutate', 'memory', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'memory', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:memory').error({ gateway: 'mutate', domain: 'memory', operation, err: error }, message);
+      return handleErrorResult('mutate', 'memory', operation, error, startTime);
     }
   }
 
@@ -475,86 +479,4 @@ export class MemoryHandler implements DomainHandler {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:memory').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

@@ -16,18 +16,15 @@ import { getProjectRoot } from '../../core/paths.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
   sessionBriefing,
-  sessionChainShow,
   sessionComputeDebrief,
   sessionComputeHandoff,
   sessionContextDrift,
-  sessionContextInject,
   sessionDebriefShow,
   sessionDecisionLog,
   sessionEnd,
   sessionFind,
   sessionGc,
   sessionHandoff,
-  sessionHistory,
   sessionList,
   sessionRecordAssumption,
   sessionRecordDecision,
@@ -38,7 +35,7 @@ import {
   sessionSuspend,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // SessionHandler
@@ -62,7 +59,7 @@ export class SessionHandler implements DomainHandler {
       switch (operation) {
         case 'status': {
           const result = await sessionStatus(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'list': {
@@ -75,14 +72,14 @@ export class SessionHandler implements DomainHandler {
               offset?: number;
             },
           );
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         // session.show absorbs debrief.show via include param (T5615)
         case 'show': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'session',
               operation,
@@ -94,41 +91,10 @@ export class SessionHandler implements DomainHandler {
           const include = params?.include as string | undefined;
           if (include === 'debrief') {
             const result = await sessionDebriefShow(this.projectRoot, sessionId);
-            return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+            return wrapResult(result, 'query', 'session', operation, startTime);
           }
           const result = await sessionShow(this.projectRoot, sessionId);
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
-        }
-
-        // backward-compat alias — merged into show via include:"debrief"
-        case 'debrief.show': {
-          return this.query('show', { ...params, include: 'debrief' });
-        }
-
-        // backward-compat alias — history not in registry but kept for existing callers
-        case 'history': {
-          const result = await sessionHistory(
-            this.projectRoot,
-            params as { sessionId?: string; limit?: number },
-          );
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
-        }
-
-        // backward-compat alias — chain.show moved to pipeline domain (T5615)
-        case 'chain.show': {
-          const chainSessionId = params?.sessionId as string;
-          if (!chainSessionId) {
-            return this.errorResponse(
-              'query',
-              'session',
-              operation,
-              'E_INVALID_INPUT',
-              'sessionId is required',
-              startTime,
-            );
-          }
-          const result = await sessionChainShow(this.projectRoot, chainSessionId);
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'decision.log': {
@@ -136,7 +102,7 @@ export class SessionHandler implements DomainHandler {
             this.projectRoot,
             params as { sessionId?: string; taskId?: string },
           );
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'context.drift': {
@@ -144,7 +110,7 @@ export class SessionHandler implements DomainHandler {
             this.projectRoot,
             params as { sessionId?: string },
           );
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'handoff.show': {
@@ -158,7 +124,7 @@ export class SessionHandler implements DomainHandler {
             }
           }
           const result = await sessionHandoff(this.projectRoot, scopeFilter);
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'briefing.show': {
@@ -169,7 +135,7 @@ export class SessionHandler implements DomainHandler {
             maxEpics: params?.maxEpics as number | undefined,
             scope: params?.scope as string | undefined,
           });
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'find': {
@@ -182,14 +148,15 @@ export class SessionHandler implements DomainHandler {
               limit?: number;
             },
           );
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         default:
-          return this.unsupported('query', 'session', operation, startTime);
+          return unsupportedOp('query', 'session', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'session', operation, error, startTime);
+      getLogger('domain:session').error({ gateway: 'query', domain: 'session', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('query', 'session', operation, error, startTime);
     }
   }
 
@@ -205,7 +172,7 @@ export class SessionHandler implements DomainHandler {
         case 'start': {
           const scope = params?.scope as string;
           if (!scope) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'session',
               operation,
@@ -245,7 +212,7 @@ export class SessionHandler implements DomainHandler {
               );
             }
           }
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'end': {
@@ -295,13 +262,13 @@ export class SessionHandler implements DomainHandler {
             unbindSession();
           }
 
-          return this.wrapEngineResult(endResult, 'mutate', 'session', operation, startTime);
+          return wrapResult(endResult, 'mutate', 'session', operation, startTime);
         }
 
         case 'resume': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'session',
               operation,
@@ -311,13 +278,13 @@ export class SessionHandler implements DomainHandler {
             );
           }
           const result = await sessionResume(this.projectRoot, sessionId);
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'suspend': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'session',
               operation,
@@ -331,7 +298,7 @@ export class SessionHandler implements DomainHandler {
             sessionId,
             params?.reason as string | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'gc': {
@@ -339,7 +306,7 @@ export class SessionHandler implements DomainHandler {
             this.projectRoot,
             params?.maxAgeDays as number | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'record.decision': {
@@ -350,7 +317,7 @@ export class SessionHandler implements DomainHandler {
             rationale: params?.rationale as string,
             alternatives: params?.alternatives as string[] | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'record.assumption': {
@@ -360,41 +327,15 @@ export class SessionHandler implements DomainHandler {
             assumption: params?.assumption as string,
             confidence: params?.confidence as 'high' | 'medium' | 'low',
           });
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
-        }
-
-        // backward-compat alias — context.inject moved to admin domain (T5615)
-        case 'context.inject': {
-          console.warn(
-            '[CLEO deprecation] session.context.inject is deprecated and will be removed in a future version. Use admin.context.inject instead.',
-          );
-          const protocolType = params?.protocolType as string;
-          if (!protocolType) {
-            return this.errorResponse(
-              'mutate',
-              'session',
-              operation,
-              'E_INVALID_INPUT',
-              'protocolType is required',
-              startTime,
-            );
-          }
-          const result = sessionContextInject(
-            protocolType,
-            {
-              taskId: params?.taskId as string | undefined,
-              variant: params?.variant as string | undefined,
-            },
-            this.projectRoot,
-          );
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         default:
-          return this.unsupported('mutate', 'session', operation, startTime);
+          return unsupportedOp('mutate', 'session', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'session', operation, error, startTime);
+      getLogger('domain:session').error({ gateway: 'mutate', domain: 'session', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('mutate', 'session', operation, error, startTime);
     }
   }
 
@@ -418,88 +359,4 @@ export class SessionHandler implements DomainHandler {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      page?: import('@cleocode/lafs-protocol').LAFSPage;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.page ? { page: result.page } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:session').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

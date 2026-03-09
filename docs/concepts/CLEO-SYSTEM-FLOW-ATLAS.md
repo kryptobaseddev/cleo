@@ -26,7 +26,7 @@ CLEO's architecture is organized around four conceptual systems. These systems a
 | System | Primary Domain(s) | Supporting Domains | Purpose |
 |--------|-------------------|-------------------|---------|
 | **BRAIN** | memory | tasks, session | Cognitive memory -- observations, decisions, patterns, learnings |
-| **LOOM** | pipeline | check, orchestrate | Lifecycle management (RCSD stages), artifact ledger, release orchestration |
+| **LOOM** | pipeline | check, orchestrate | Lifecycle management (RCASD-IVTR+C stages), artifact ledger, release orchestration |
 | **NEXUS** | nexus | admin | Cross-project coordination, registry, dependency graph, and `nexus.share.*` relay operations |
 | **LAFS** | (cross-cutting) | all domains | Progressive disclosure protocol, field selection, envelope verbosity |
 
@@ -549,7 +549,7 @@ These rules MUST always hold true in a correct CLEO installation:
 | **MANIFEST.jsonl** | Append-only artifact ledger owned by the pipeline domain. |
 | **NEXUS** | Cross-project coordination system backed by nexus.db. |
 | **OperationDef** | TypeScript interface defining a single dispatchable operation. |
-| **RCSD** | Research, Construction, Stabilization, Deployment -- the lifecycle stage model. |
+| **RCASD-IVTR+C** | Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release + Contribution -- the lifecycle stage model. |
 | **SSoT** | Single Source of Truth. For operations, this is registry.ts. |
 | **Tier** | Progressive disclosure level (0=basic, 1=extended, 2=full). |
 | **brain.db** | SQLite database with FTS5 storing cognitive memory (5 tables). |

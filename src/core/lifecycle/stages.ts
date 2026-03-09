@@ -36,7 +36,7 @@
  * Names match the SQLite CHECK constraint on lifecycle_stages.stage_name.
  *
  * @task T4800
- * @audit T4799 - Consolidates: RCSD_STAGES, EXECUTION_STAGES, ENGINE_LIFECYCLE_STAGES
+ * @audit T4799 - Consolidates: RCASD_STAGES, EXECUTION_STAGES, ENGINE_LIFECYCLE_STAGES
  */
 import type { StageStatus } from '../../store/status-registry.js';
 

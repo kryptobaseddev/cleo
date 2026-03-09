@@ -4,7 +4,7 @@
  * @task T2923
  * @epic T2908
  *
- * Sample violations and valid examples for each RCSD-IVTR protocol.
+ * Sample violations and valid examples for each RCASD-IVTR+C protocol.
  */
 
 /**

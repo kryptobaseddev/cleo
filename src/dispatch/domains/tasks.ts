@@ -15,6 +15,7 @@
 
 import { getLogger } from '../../core/logger.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 import {
   taskAnalyze,
   taskArchive,
@@ -28,15 +29,12 @@ import {
   taskDepends,
   taskDepsCycles,
   taskDepsOverview,
-  taskExists,
   taskFind,
   taskHistory,
   taskLabelList,
-  taskLabelShow,
   taskList,
   taskNext,
   taskPlan,
-  taskPromote,
   taskRelates,
   taskRelatesAdd,
   taskRelatesFind,
@@ -53,7 +51,6 @@ import {
   taskWorkHistory,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // TasksHandler
@@ -78,7 +75,7 @@ export class TasksHandler implements DomainHandler {
         case 'show': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'tasks',
               operation,
@@ -88,7 +85,7 @@ export class TasksHandler implements DomainHandler {
             );
           }
           const result = await taskShow(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'list': {
@@ -104,7 +101,7 @@ export class TasksHandler implements DomainHandler {
             offset: params?.offset as number | undefined,
             compact: params?.compact as boolean | undefined,
           });
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'find': {
@@ -120,29 +117,13 @@ export class TasksHandler implements DomainHandler {
               offset: params?.offset as number | undefined,
             },
           );
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
-        }
-
-        case 'exists': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskExists(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'tree': {
           const taskId = params?.taskId as string | undefined;
           const result = await taskTree(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'blockers': {
@@ -150,7 +131,7 @@ export class TasksHandler implements DomainHandler {
             this.projectRoot,
             params as { analyze?: boolean; limit?: number },
           );
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'depends': {
@@ -158,16 +139,16 @@ export class TasksHandler implements DomainHandler {
           const action = params?.action as string | undefined;
           if (action === 'overview') {
             const result = await taskDepsOverview(this.projectRoot);
-            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           if (action === 'cycles') {
             const result = await taskDepsCycles(this.projectRoot);
-            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           // Default: single-task dependency query requires taskId
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'tasks',
               operation,
@@ -179,14 +160,14 @@ export class TasksHandler implements DomainHandler {
           const direction = params?.direction as 'upstream' | 'downstream' | 'both' | undefined;
           const tree = params?.tree as boolean | undefined;
           const result = await taskDepends(this.projectRoot, taskId, direction, tree);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'analyze': {
           const taskId = params?.taskId as string | undefined;
           const tierLimit = params?.tierLimit as number | undefined;
           const result = await taskAnalyze(this.projectRoot, taskId, { tierLimit });
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'next': {
@@ -194,18 +175,18 @@ export class TasksHandler implements DomainHandler {
             this.projectRoot,
             params as { count?: number; explain?: boolean },
           );
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'plan': {
           const result = await taskPlan(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'relates': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'tasks',
               operation,
@@ -220,35 +201,16 @@ export class TasksHandler implements DomainHandler {
               mode: params.mode as 'suggest' | 'discover',
               threshold: params?.threshold ? Number(params.threshold) : undefined,
             });
-            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           const result = await taskRelates(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
-        }
-
-        case 'relates.find': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskRelatesFind(this.projectRoot, taskId, {
-            mode: params?.mode as 'suggest' | 'discover',
-            threshold: params?.threshold ? Number(params.threshold) : undefined,
-          });
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'complexity.estimate': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'tasks',
               operation,
@@ -258,50 +220,35 @@ export class TasksHandler implements DomainHandler {
             );
           }
           const result = await taskComplexityEstimate(this.projectRoot, { taskId });
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'current': {
           const result = await taskCurrentGet(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'history': {
           const taskId = params?.taskId as string;
           if (taskId) {
             const result = await taskHistory(this.projectRoot, taskId, params?.limit as number);
-            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           const result = await taskWorkHistory(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'label.list': {
           const result = await taskLabelList(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
-        }
-
-        case 'label.show': {
-          const label = params?.label as string;
-          if (!label) {
-            return this.errorResponse(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'label is required',
-              startTime,
-            );
-          }
-          const result = await taskLabelShow(this.projectRoot, label);
-          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         default:
-          return this.unsupported('query', 'tasks', operation, startTime);
+          return unsupportedOp('query', 'tasks', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'tasks', operation, error, startTime);
+      getLogger('domain:tasks').error({ gateway: 'query', domain: 'tasks', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('query', 'tasks', operation, error, startTime);
     }
   }
 
@@ -317,7 +264,7 @@ export class TasksHandler implements DomainHandler {
         case 'add': {
           const title = params?.title as string;
           if (!title) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -335,13 +282,13 @@ export class TasksHandler implements DomainHandler {
             labels: params?.labels as string[] | undefined,
             type: params?.type as string | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'update': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -367,13 +314,13 @@ export class TasksHandler implements DomainHandler {
             type: params?.type as string | undefined,
             size: params?.size as string | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'complete': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -387,13 +334,13 @@ export class TasksHandler implements DomainHandler {
             taskId,
             params?.notes as string | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'delete': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -407,7 +354,7 @@ export class TasksHandler implements DomainHandler {
             taskId,
             params?.force as boolean | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'archive': {
@@ -416,13 +363,13 @@ export class TasksHandler implements DomainHandler {
             params?.taskId as string | undefined,
             params?.before as string | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'restore': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -438,26 +385,26 @@ export class TasksHandler implements DomainHandler {
               status: params?.status as string | undefined,
               reason: params?.reason as string | undefined,
             });
-            return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+            return wrapResult(result, 'mutate', 'tasks', operation, startTime);
           }
           if (from === 'archived') {
             const result = await taskUnarchive(this.projectRoot, taskId, {
               status: params?.status as string | undefined,
               preserveStatus: params?.preserveStatus as boolean | undefined,
             });
-            return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+            return wrapResult(result, 'mutate', 'tasks', operation, startTime);
           }
           const result = await taskRestore(this.projectRoot, taskId, {
             cascade: params?.cascade as boolean | undefined,
             notes: params?.notes as string | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'cancel': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -471,51 +418,13 @@ export class TasksHandler implements DomainHandler {
             taskId,
             params?.reason as string | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
-        }
-
-        case 'reopen': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskReopen(this.projectRoot, taskId, {
-            status: params?.status as string | undefined,
-            reason: params?.reason as string | undefined,
-          });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
-        }
-
-        case 'unarchive': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskUnarchive(this.projectRoot, taskId, {
-            status: params?.status as string | undefined,
-            preserveStatus: params?.preserveStatus as boolean | undefined,
-          });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'reparent': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -529,29 +438,13 @@ export class TasksHandler implements DomainHandler {
             taskId,
             (params?.newParentId as string | null) ?? null,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
-        }
-
-        case 'promote': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskPromote(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'reorder': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -562,7 +455,7 @@ export class TasksHandler implements DomainHandler {
           }
           const position = params?.position as number;
           if (position === undefined || position === null) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -572,7 +465,7 @@ export class TasksHandler implements DomainHandler {
             );
           }
           const result = await taskReorder(this.projectRoot, taskId, position);
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'relates.add': {
@@ -581,7 +474,7 @@ export class TasksHandler implements DomainHandler {
           const relatedId = (params?.relatedId ?? params?.targetId) as string;
           const type = params?.type as string;
           if (!taskId || !relatedId || !type) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -597,13 +490,13 @@ export class TasksHandler implements DomainHandler {
             type,
             params?.reason as string | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'start': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'tasks',
               operation,
@@ -613,19 +506,20 @@ export class TasksHandler implements DomainHandler {
             );
           }
           const result = await taskStart(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'stop': {
           const result = await taskStop(this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         default:
-          return this.unsupported('mutate', 'tasks', operation, startTime);
+          return unsupportedOp('mutate', 'tasks', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'tasks', operation, error, startTime);
+      getLogger('domain:tasks').error({ gateway: 'mutate', domain: 'tasks', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('mutate', 'tasks', operation, error, startTime);
     }
   }
 
@@ -639,7 +533,6 @@ export class TasksHandler implements DomainHandler {
         'show',
         'list',
         'find',
-        'exists',
         'tree',
         'blockers',
         'depends',
@@ -647,12 +540,10 @@ export class TasksHandler implements DomainHandler {
         'next',
         'plan',
         'relates',
-        'relates.find',
         'complexity.estimate',
         'history',
         'current',
         'label.list',
-        'label.show',
       ],
       mutate: [
         'add',
@@ -662,10 +553,7 @@ export class TasksHandler implements DomainHandler {
         'delete',
         'archive',
         'restore',
-        'reopen',
-        'unarchive',
         'reparent',
-        'promote',
         'reorder',
         'relates.add',
         'start',
@@ -674,90 +562,4 @@ export class TasksHandler implements DomainHandler {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      page?: import('@cleocode/lafs-protocol').LAFSPage;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        exitCode?: number;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.page ? { page: result.page } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              exitCode: result.error.exitCode,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:tasks').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

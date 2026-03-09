@@ -378,7 +378,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/core/tasks/` - Task CRUD, hierarchy, dependencies
 - `src/core/task-work/` - Active task tracking (start/stop/current)
 - `src/core/sessions/` - Session lifecycle
-- `src/core/lifecycle/` - RCSD-IVTR lifecycle gates
+- `src/core/lifecycle/` - RCASD-IVTR+C lifecycle gates
 - `src/core/orchestration/` - Multi-agent orchestration
 - `src/core/research/` - Research manifest management
 - `src/core/release/` - Release management
@@ -485,7 +485,7 @@ These codes are raised by the orchestration layer during multi-agent coordinatio
 
 | Code | Name | Description |
 |------|------|-------------|
-| 80 | LIFECYCLE_GATE_FAILED | RCSD pipeline gate check failed |
+| 80 | LIFECYCLE_GATE_FAILED | RCASD-IVTR+C pipeline gate check failed |
 | 81 | AUDIT_MISSING | Required audit trail entry missing |
 | 82 | CIRCULAR_VALIDATION | Circular validation dependency detected |
 | 83 | LIFECYCLE_TRANSITION_INVALID | Invalid lifecycle stage transition |

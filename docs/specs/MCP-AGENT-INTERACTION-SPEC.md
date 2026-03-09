@@ -109,7 +109,7 @@ The MCP server implements exactly 247 operations across 10 canonical domains. Bo
 - **session** (19 ops): Session lifecycle and context
 - **memory** (25 ops): Cognitive memory and observations
 - **check** (20 ops): Schema validation and test execution
-- **pipeline** (40 ops): RCSD lifecycle and releases
+- **pipeline** (40 ops): RCASD-IVTR+C lifecycle and releases
 - **orchestrate** (20 ops): Multi-agent coordination
 - **tools** (32 ops): Skills, providers, and CAAMP catalog
 - **admin** (43 ops): Configuration, backup, diagnostics

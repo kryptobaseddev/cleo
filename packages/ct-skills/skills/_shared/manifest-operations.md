@@ -65,7 +65,7 @@ cleo research add \
 | `--needs-followup` | `[]` | Comma-separated task IDs |
 | `--agent-type` | `research` | See Agent Type Values below |
 
-**Agent Type Values** (RCSD-IVTR protocol + workflow types):
+**Agent Type Values** (RCASD-IVTR+C protocol + workflow types):
 - **Protocol types**: `research`, `consensus`, `specification`, `decomposition`, `implementation`, `contribution`, `release`
 - **Workflow types**: `validation`, `documentation`, `analysis`, `testing`, `cleanup`, `design`, `architecture`, `report`
 - **Extended types**: `synthesis`, `orchestrator`, `handoff`, `verification`, `review`
@@ -807,4 +807,4 @@ cleo research link {{TASK_ID}} {{ENTRY_ID}}
 - **Research Manifest Library**: `lib/research-manifest.sh`
 - **Research CLI**: `scripts/research.sh`
 - **Exit Codes**: `lib/exit-codes.sh` (EXIT_VALIDATION_ERROR = 6)
-- **RCSD-IVTR Protocol**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
+- **RCASD-IVTR+C Protocol**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`

@@ -44,7 +44,7 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `session` | Session lifecycle, decisions, assumptions, context | sessions/ JSON |
 | `memory` | Cognitive memory: observations, decisions, patterns, learnings | brain.db |
 | `check` | Schema validation, protocol compliance, test execution, grading | tasks.db (audit) |
-| `pipeline` | RCSD lifecycle stages, manifest ledger, release management | MANIFEST.jsonl, tasks.db |
+| `pipeline` | RCASD-IVTR+C lifecycle stages, manifest ledger, release management | MANIFEST.jsonl, tasks.db |
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution | tasks.db |
 | `tools` | Skills, providers, TodoWrite integration, CAAMP catalog | .cleo/skills/ |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs, protocol injection | config.json, tasks.db |
@@ -286,7 +286,7 @@ Includes 3 operations moved in from admin.
 
 ### 6.5 pipeline (31 operations)
 
-The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
+The pipeline domain manages RCASD-IVTR+C lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|

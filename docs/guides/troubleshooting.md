@@ -458,10 +458,10 @@ cleo nexus register /path/to/project2 --name project2
 
 | Code | Name | Description | Fix |
 |------|------|-------------|-----|
-| 80 | E_LIFECYCLE_GATE_FAILED | Lifecycle prerequisites not met | Complete missing RCSD stages first |
+| 80 | E_LIFECYCLE_GATE_FAILED | Lifecycle prerequisites not met | Complete missing RCASD-IVTR+C stages first |
 | 81 | E_AUDIT_MISSING | Audit object incomplete | Add required audit fields |
 | 82 | E_CIRCULAR_VALIDATION | Agent validating own work | Use different agent for validation |
-| 83 | E_LIFECYCLE_TRANSITION_INVALID | Invalid state transition | Follow RCSD→IVTR pipeline order |
+| 83 | E_LIFECYCLE_TRANSITION_INVALID | Invalid state transition | Follow RCASD-IVTR+C pipeline order |
 | 84 | E_PROVENANCE_REQUIRED | Provenance fields missing | Add createdBy/validatedBy fields |
 
 ---

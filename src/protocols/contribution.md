@@ -16,10 +16,10 @@ enforcement: strict
 **Provenance**: @task T3155, @epic T3147
 **Version**: 1.1.1
 **Type**: Cross-Cutting Protocol
-**Applies To**: All RCSD-IVTR stages
+**Applies To**: All RCASD-IVTR+C stages
 **Max Active**: 3 protocols (including base)
 
-> **Cross-Cutting Nature**: This protocol applies across ALL stages of RCSD-IVTR.
+> **Cross-Cutting Nature**: This protocol applies across ALL stages of RCASD-IVTR+C.
 > Unlike stage-specific protocols (research, consensus, etc.), contribution
 > tracking is active whenever multi-agent coordination or attribution is needed.
 

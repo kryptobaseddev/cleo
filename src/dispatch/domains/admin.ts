@@ -69,6 +69,7 @@ import {
 import { OPERATIONS } from '../registry.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+import { errorResult, getListParams, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 import { routeByParam } from './_routing.js';
 
 // ---------------------------------------------------------------------------
@@ -82,13 +83,6 @@ export class AdminHandler implements DomainHandler {
     this.projectRoot = getProjectRoot();
   }
 
-  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
-    const limit = typeof params?.limit === 'number' && params.limit > 0 ? params.limit : undefined;
-    const offset =
-      typeof params?.offset === 'number' && params.offset > 0 ? params.offset : undefined;
-    return { limit, offset };
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
@@ -100,31 +94,25 @@ export class AdminHandler implements DomainHandler {
       switch (operation) {
         case 'version': {
           const result = await getVersion(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'health': {
           const mode = params?.mode as string | undefined;
           if (mode === 'diagnose') {
             const result = await systemDoctor(this.projectRoot);
-            return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+            return wrapResult(result, 'query', 'admin', operation, startTime);
           }
           const result = systemHealth(
             this.projectRoot,
             params as { detailed?: boolean } | undefined,
           );
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
-        }
-
-        // backward-compat alias — merged into health via mode:"diagnose"
-        case 'doctor': {
-          const result = await systemDoctor(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'config.show': {
           const result = await configGet(this.projectRoot, params?.key as string | undefined);
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'stats': {
@@ -132,7 +120,7 @@ export class AdminHandler implements DomainHandler {
             this.projectRoot,
             params as { period?: number } | undefined,
           );
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'context': {
@@ -140,7 +128,7 @@ export class AdminHandler implements DomainHandler {
             this.projectRoot,
             params as { session?: string } | undefined,
           );
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'runtime': {
@@ -148,7 +136,7 @@ export class AdminHandler implements DomainHandler {
             this.projectRoot,
             params as { detailed?: boolean } | undefined,
           );
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         // Merged: job.status + job.list → job via action param (T5615)
@@ -161,7 +149,7 @@ export class AdminHandler implements DomainHandler {
                 const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
                 const manager = getJobManager();
                 if (!manager) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -172,7 +160,7 @@ export class AdminHandler implements DomainHandler {
                 }
                 const jobId = params?.jobId as string;
                 if (!jobId) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -183,7 +171,7 @@ export class AdminHandler implements DomainHandler {
                 }
                 const job = manager.getJob(jobId);
                 if (!job) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -192,7 +180,7 @@ export class AdminHandler implements DomainHandler {
                     startTime,
                   );
                 }
-                return this.wrapEngineResult(
+                return wrapResult(
                   { success: true, data: job },
                   'query',
                   'admin',
@@ -204,7 +192,7 @@ export class AdminHandler implements DomainHandler {
                 const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
                 const mgr = getJobManager();
                 if (!mgr) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -214,11 +202,11 @@ export class AdminHandler implements DomainHandler {
                   );
                 }
                 const statusFilter = params?.status as string | undefined;
-                const { limit, offset } = this.getListParams(params);
+                const { limit, offset } = getListParams(params);
                 const allJobs = mgr.listJobs();
                 const filteredJobs = statusFilter ? mgr.listJobs(statusFilter) : allJobs;
                 const page = paginate(filteredJobs, limit, offset);
-                return this.wrapEngineResult(
+                return wrapResult(
                   {
                     success: true,
                     data: {
@@ -240,19 +228,11 @@ export class AdminHandler implements DomainHandler {
           );
         }
 
-        // backward-compat aliases for old dotted names
-        case 'job.status': {
-          return this.query('job', { ...params, action: 'status' });
-        }
-        case 'job.list': {
-          return this.query('job', { ...params, action: 'list' });
-        }
-
         case 'dash': {
           const blockedTasksLimit =
             typeof params?.blockedTasksLimit === 'number' ? params.blockedTasksLimit : undefined;
           const result = await systemDash(this.projectRoot, { blockedTasksLimit });
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'log': {
@@ -269,13 +249,13 @@ export class AdminHandler implements DomainHandler {
                 }
               | undefined,
           );
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'sequence': {
           const action = params?.action as string | undefined;
           if (action && action !== 'show' && action !== 'check') {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'admin',
               operation,
@@ -287,7 +267,7 @@ export class AdminHandler implements DomainHandler {
           const result = await systemSequence(this.projectRoot, {
             action: action as 'show' | 'check' | undefined,
           });
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'help': {
@@ -365,9 +345,7 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
-        // adr.find absorbs adr.list — omit query to list all (T5615)
-        case 'adr.find':
-        case 'adr.list': {
+        case 'adr.find': {
           const query = params?.query as string | undefined;
           if (query) {
             const result = await findAdrs(this.projectRoot, query, {
@@ -382,7 +360,7 @@ export class AdminHandler implements DomainHandler {
             };
           }
           // No query — list all ADRs
-          const { limit, offset } = this.getListParams(params);
+          const { limit, offset } = getListParams(params);
           const result = await listAdrs(this.projectRoot, {
             status: params?.status as string | undefined,
             since: params?.since as string | undefined,
@@ -400,7 +378,7 @@ export class AdminHandler implements DomainHandler {
         case 'adr.show': {
           const adrId = params?.adrId as string;
           if (!adrId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'admin',
               operation,
@@ -411,7 +389,7 @@ export class AdminHandler implements DomainHandler {
           }
           const adr = await showAdr(this.projectRoot, adrId);
           if (!adr) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'admin',
               operation,
@@ -474,7 +452,7 @@ export class AdminHandler implements DomainHandler {
                 };
               },
               list: async (): Promise<DispatchResponse> => {
-                const { limit, offset } = this.getListParams(params);
+                const { limit, offset } = getListParams(params);
                 const result = await listTokenUsage(
                   {
                     provider: params?.provider as string | undefined,
@@ -524,7 +502,7 @@ export class AdminHandler implements DomainHandler {
               show: async (): Promise<DispatchResponse> => {
                 const tokenId = params?.tokenId as string;
                 if (!tokenId) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -535,7 +513,7 @@ export class AdminHandler implements DomainHandler {
                 }
                 const result = await showTokenUsage(tokenId, this.projectRoot);
                 if (!result) {
-                  return this.errorResponse(
+                  return errorResult(
                     'query',
                     'admin',
                     operation,
@@ -553,17 +531,6 @@ export class AdminHandler implements DomainHandler {
             },
             'summary',
           );
-        }
-
-        // backward-compat aliases for old dotted token names
-        case 'token.summary': {
-          return this.query('token', { ...params, action: 'summary' });
-        }
-        case 'token.list': {
-          return this.query('token', { ...params, action: 'list' });
-        }
-        case 'token.show': {
-          return this.query('token', { ...params, action: 'show' });
         }
 
         // Merged: export + snapshot.export + export.tasks → export via scope param (T5615)
@@ -617,26 +584,12 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
-        // backward-compat aliases for old export names
-        case 'snapshot.export': {
-          return this.query('export', { ...params, scope: 'snapshot' });
-        }
-        case 'export.tasks': {
-          return this.query('export', { ...params, scope: 'tasks' });
-        }
-
-        // backward-compat alias — sync.status moved to tools.todowrite.status (T5615)
-        case 'sync.status': {
-          const { getSyncStatus } = await import('../../core/admin/sync.js');
-          const result = await getSyncStatus(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
-        }
-
         default:
-          return this.unsupported('query', 'admin', operation, startTime);
+          return unsupportedOp('query', 'admin', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'admin', operation, error, startTime);
+      getLogger('domain:admin').error({ gateway: 'query', domain: 'admin', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('query', 'admin', operation, error, startTime);
     }
   }
 
@@ -654,7 +607,7 @@ export class AdminHandler implements DomainHandler {
             this.projectRoot,
             params as { projectName?: string; force?: boolean } | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         // Merged: health (mutate) absorbs fix and doctor via mode param (T5615)
@@ -662,22 +615,17 @@ export class AdminHandler implements DomainHandler {
           const mode = params?.mode as string | undefined;
           if (mode === 'diagnose') {
             const result = await systemDoctor(this.projectRoot);
-            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+            return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
           // Default: repair mode
           const result = await systemFix(this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
-        // backward-compat alias — merged into health (mutate)
-        case 'fix': {
-          return this.mutate('health', { ...params, mode: 'repair' });
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'config.set': {
           const key = params?.key as string;
           if (!key) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -687,7 +635,7 @@ export class AdminHandler implements DomainHandler {
             );
           }
           const result = await configSet(this.projectRoot, key, params?.value);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         // Merged: backup absorbs restore and backup.restore via action param (T5615)
@@ -696,7 +644,7 @@ export class AdminHandler implements DomainHandler {
           if (action === 'restore') {
             const backupId = params?.backupId as string;
             if (!backupId) {
-              return this.errorResponse(
+              return errorResult(
                 'mutate',
                 'admin',
                 operation,
@@ -709,12 +657,12 @@ export class AdminHandler implements DomainHandler {
               backupId,
               force: params?.force as boolean | undefined,
             });
-            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+            return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
           if (action === 'restore.file') {
             const file = params?.file as string;
             if (!file) {
-              return this.errorResponse(
+              return errorResult(
                 'mutate',
                 'admin',
                 operation,
@@ -726,22 +674,14 @@ export class AdminHandler implements DomainHandler {
             const result = await backupRestore(this.projectRoot, file, {
               dryRun: params?.dryRun as boolean | undefined,
             });
-            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+            return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
           // Default: create backup
           const result = systemBackup(
             this.projectRoot,
             params as { type?: string; note?: string } | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
-        // backward-compat aliases
-        case 'restore': {
-          return this.mutate('backup', { ...params, action: 'restore' });
-        }
-        case 'backup.restore': {
-          return this.mutate('backup', { ...params, action: 'restore.file' });
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'migrate': {
@@ -749,13 +689,13 @@ export class AdminHandler implements DomainHandler {
             this.projectRoot,
             params as { target?: string; dryRun?: boolean } | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'cleanup': {
           const target = params?.target as string;
           if (!target) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -769,14 +709,14 @@ export class AdminHandler implements DomainHandler {
             olderThan: params?.olderThan as string | undefined,
             dryRun: params?.dryRun as boolean | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'job.cancel': {
           const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
           const mgr = getJobManager();
           if (!mgr) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -787,7 +727,7 @@ export class AdminHandler implements DomainHandler {
           }
           const jobId = params?.jobId as string;
           if (!jobId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -798,7 +738,7 @@ export class AdminHandler implements DomainHandler {
           }
           const cancelled = mgr.cancelJob(jobId);
           if (!cancelled) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -807,7 +747,7 @@ export class AdminHandler implements DomainHandler {
               startTime,
             );
           }
-          return this.wrapEngineResult(
+          return wrapResult(
             { success: true, data: { jobId, cancelled: true } },
             'mutate',
             'admin',
@@ -829,12 +769,12 @@ export class AdminHandler implements DomainHandler {
                 }
               | undefined,
           );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'inject.generate': {
           const result = await systemInjectGenerate(this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         // adr.sync absorbs adr.validate via validate flag (T5615)
@@ -864,18 +804,13 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
-        // backward-compat alias — merged into adr.sync
-        case 'adr.validate': {
-          return this.mutate('adr.sync', { ...params, validate: true });
-        }
-
         // Merged: import + snapshot.import + import.tasks → import via scope param (T5615)
         case 'import': {
           const scope = params?.scope as string | undefined;
           if (scope === 'snapshot') {
             const file = params?.file as string;
             if (!file) {
-              return this.errorResponse(
+              return errorResult(
                 'mutate',
                 'admin',
                 operation,
@@ -913,7 +848,7 @@ export class AdminHandler implements DomainHandler {
           if (scope === 'tasks') {
             const file = params?.file as string;
             if (!file) {
-              return this.errorResponse(
+              return errorResult(
                 'mutate',
                 'admin',
                 operation,
@@ -949,7 +884,7 @@ export class AdminHandler implements DomainHandler {
           // Default: standard import
           const file = params?.file as string;
           if (!file) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -974,21 +909,13 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
-        // backward-compat aliases for old import names
-        case 'snapshot.import': {
-          return this.mutate('import', { ...params, scope: 'snapshot' });
-        }
-        case 'import.tasks': {
-          return this.mutate('import', { ...params, scope: 'tasks' });
-        }
-
         case 'detect': {
           const { ensureProjectContext, ensureContributorMcp } = await import(
             '../../core/scaffold.js'
           );
           const contextResult = await ensureProjectContext(this.projectRoot, { force: true });
           const mcpResult = await ensureContributorMcp(this.projectRoot);
-          return this.wrapEngineResult(
+          return wrapResult(
             {
               success: true,
               data: { context: contextResult, mcp: mcpResult },
@@ -1037,7 +964,7 @@ export class AdminHandler implements DomainHandler {
               delete: async (): Promise<DispatchResponse> => {
                 const tokenId = params?.tokenId as string;
                 if (!tokenId) {
-                  return this.errorResponse(
+                  return errorResult(
                     'mutate',
                     'admin',
                     operation,
@@ -1098,22 +1025,11 @@ export class AdminHandler implements DomainHandler {
           );
         }
 
-        // backward-compat aliases for old dotted token names
-        case 'token.record': {
-          return this.mutate('token', { ...params, action: 'record' });
-        }
-        case 'token.delete': {
-          return this.mutate('token', { ...params, action: 'delete' });
-        }
-        case 'token.clear': {
-          return this.mutate('token', { ...params, action: 'clear' });
-        }
-
         // admin.context.inject — moved from session domain (T5615)
         case 'context.inject': {
           const protocolType = params?.protocolType as string;
           if (!protocolType) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'admin',
               operation,
@@ -1130,7 +1046,7 @@ export class AdminHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         // admin.install.global — refresh global CLEO setup (T4916)
@@ -1140,7 +1056,7 @@ export class AdminHandler implements DomainHandler {
           );
           const scaffoldResult = await ensureGlobalScaffold();
           const templateResult = await ensureGlobalTemplates();
-          return this.wrapEngineResult(
+          return wrapResult(
             {
               success: true,
               data: { scaffold: scaffoldResult, templates: templateResult },
@@ -1152,26 +1068,12 @@ export class AdminHandler implements DomainHandler {
           );
         }
 
-        // backward-compat alias — sync moved to tools.todowrite domain (T5615)
-        case 'sync': {
-          const { systemSync: sSync } = await import('../lib/engine.js');
-          const result = sSync(this.projectRoot, params as { direction?: string } | undefined);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-        case 'sync.clear': {
-          const { clearSyncState } = await import('../../core/admin/sync.js');
-          const result = await clearSyncState(
-            this.projectRoot,
-            params?.dryRun as boolean | undefined,
-          );
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
         default:
-          return this.unsupported('mutate', 'admin', operation, startTime);
+          return unsupportedOp('mutate', 'admin', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'admin', operation, error, startTime);
+      getLogger('domain:admin').error({ gateway: 'mutate', domain: 'admin', operation, err: error }, error instanceof Error ? error.message : String(error));
+      return handleErrorResult('mutate', 'admin', operation, error, startTime);
     }
   }
 
@@ -1193,14 +1095,13 @@ export class AdminHandler implements DomainHandler {
         'log',
         'sequence',
         'help',
+        'token',
         'adr.show',
         'adr.find',
-        'token',
         'export',
       ],
       mutate: [
         'init',
-        'health',
         'config.set',
         'backup',
         'migrate',
@@ -1208,98 +1109,15 @@ export class AdminHandler implements DomainHandler {
         'job.cancel',
         'safestop',
         'inject.generate',
+        'install.global',
+        'token',
         'adr.sync',
+        'health',
+        'context.inject',
         'import',
         'detect',
-        'token',
-        'context.inject',
-        'install.global',
       ],
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      page?: import('@cleocode/lafs-protocol').LAFSPage;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.page ? { page: result.page } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:admin').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

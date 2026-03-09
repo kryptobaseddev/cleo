@@ -87,7 +87,7 @@ cleo research add \
 See the reference above for:
 - Complete CLI command syntax
 - Field definitions and constraints
-- Agent type values (RCSD-IVTR + workflow types)
+- Agent type values (RCASD-IVTR+C + workflow types)
 - Manifest entry schema
 - Anti-patterns to avoid
 

@@ -1,7 +1,7 @@
 /**
  * E2E Lifecycle Workflow Tests
  *
- * Tests RCSD-IVTR lifecycle workflows via CLI commands.
+ * Tests RCASD-IVTR+C lifecycle workflows via CLI commands.
  * Available lifecycle subcommands: show, start, complete, skip, gate
  *
  * @task T2937
@@ -29,7 +29,7 @@ describe('E2E: Lifecycle Workflow', () => {
       operation: 'add',
       args: ['Lifecycle Test Epic'],
       flags: {
-        description: 'Epic for RCSD lifecycle testing',
+        description: 'Epic for RCASD-IVTR+C lifecycle testing',
         json: true,
       },
     });
@@ -104,7 +104,7 @@ describe('E2E: Lifecycle Workflow', () => {
     });
 
     expect(showResult.exitCode).toBe(0);
-    // Should contain standard RCSD stage names
+    // Should contain standard RCASD-IVTR+C stage names
     expect(showResult.stdout).toContain('research');
     expect(showResult.stdout).toContain('implementation');
   });
@@ -168,14 +168,14 @@ describe('E2E: Lifecycle Workflow', () => {
     expect(typeof skipResult.exitCode).toBe('number');
   });
 
-  it('should complete full RCSD lifecycle progression', async () => {
+  it('should complete full RCASD-IVTR+C lifecycle progression', async () => {
     // Create epic
     const epicResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'add',
-      args: ['Full RCSD Test Epic'],
+      args: ['Full RCASD-IVTR+C Test Epic'],
       flags: {
-        description: 'Epic for full RCSD progression testing',
+        description: 'Epic for full RCASD-IVTR+C progression testing',
         json: true,
       },
     });
@@ -183,7 +183,7 @@ describe('E2E: Lifecycle Workflow', () => {
     const epicId = extractTaskId(epicResult);
     context.createdTaskIds.push(epicId);
 
-    // Progress through all RCSD stages using 'lifecycle complete'
+    // Progress through all RCASD-IVTR+C stages using 'lifecycle complete'
     const stages = ['research', 'consensus', 'specification', 'decomposition'];
     for (const stage of stages) {
       const result = await context.executor.execute({
@@ -210,7 +210,7 @@ describe('E2E: Lifecycle Workflow', () => {
     expect(gateOutput).toBeDefined();
   });
 
-  it('should check gate enforcement without RCSD completion', async () => {
+  it('should check gate enforcement without RCASD-IVTR+C completion', async () => {
     // Create epic without completing any stages
     const epicResult = await context.executor.execute({
       domain: 'tasks',
@@ -225,7 +225,7 @@ describe('E2E: Lifecycle Workflow', () => {
     const epicId = extractTaskId(epicResult);
     context.createdTaskIds.push(epicId);
 
-    // Check implementation gate (should fail without RCSD)
+    // Check implementation gate (should fail without RCASD-IVTR+C)
     const gateResult = await context.executor.execute({
       domain: 'lifecycle',
       operation: 'gate',

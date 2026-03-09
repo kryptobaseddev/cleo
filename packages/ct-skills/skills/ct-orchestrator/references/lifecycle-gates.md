@@ -1,11 +1,11 @@
 # Lifecycle Gate Enforcement
 
 > Referenced from: @skills/ct-orchestrator/SKILL.md
-> Load when: Need details on RCSD gate checks, enforcement modes, handling gate failures, or emergency bypass
+> Load when: Need details on RCASD-IVTR+C gate checks, enforcement modes, handling gate failures, or emergency bypass
 
 ## Overview
 
-Before spawning ANY implementation task, the system automatically checks RCSD prerequisites. This ensures the Research → Consensus → Specification → Decomposition pipeline is followed.
+Before spawning ANY implementation task, the system automatically checks RCASD-IVTR+C prerequisites. This ensures the Research → Consensus → Specification → Decomposition pipeline is followed.
 
 ## Decision Tree
 
@@ -21,7 +21,7 @@ Before spawn:
 │   ├─ advisory → Check gates, warn on failure, proceed
 │   └─ strict (default) → Check gates, BLOCK on failure
 │
-├─ Map protocol to RCSD stage:
+├─ Map protocol to RCASD-IVTR+C stage:
 │   ├─ research → research stage
 │   ├─ consensus → consensus stage
 │   ├─ specification → specification stage

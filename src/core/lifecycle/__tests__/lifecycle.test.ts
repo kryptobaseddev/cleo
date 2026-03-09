@@ -1,5 +1,5 @@
 /**
- * Tests for lifecycle (RCSD) pipeline.
+ * Tests for lifecycle (RCASD-IVTR+C) pipeline.
  * @task T4467
  * @epic T4454
  */
@@ -127,7 +127,7 @@ describe('checkGate', () => {
 
   it('passes when all prerequisites complete', async () => {
     process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'strict';
-    // Complete all RCSD stages
+    // Complete all RCASD-IVTR+C stages
     await startStage('T001', 'research');
     await skipStage('T001', 'consensus', 'N/A');
     await skipStage('T001', 'architecture_decision', 'N/A');
@@ -140,7 +140,7 @@ describe('checkGate', () => {
 });
 
 describe('listEpicsWithLifecycle', () => {
-  it('includes epics from both RCASD and RCSD directories', async () => {
+  it('includes epics from both RCASD and legacy RCSD directories', async () => {
     // Initialize lifecycle pipeline records in SQLite (SQLite-native approach)
     // Must record a stage to create the pipeline entry; fresh DB has no records yet
     await recordStageProgress('T001', 'research', 'not_started');

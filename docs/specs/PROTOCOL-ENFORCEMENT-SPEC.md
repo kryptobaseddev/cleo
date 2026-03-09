@@ -50,7 +50,7 @@ This specification **DEFERS TO**:
 
 - Individual protocol files (`src/protocols/*.md`) for specific requirement definitions
 - [COMMIT-TASK-ENFORCEMENT-SPEC.md](COMMIT-TASK-ENFORCEMENT-SPEC.md) for commit-msg hook implementation
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCSD pipeline integration
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCASD-IVTR+C pipeline integration
 
 ### 1.3 Scope
 
@@ -607,7 +607,7 @@ tests/
 ### 9.3 Related Specifications
 
 - [COMMIT-TASK-ENFORCEMENT-SPEC.md](COMMIT-TASK-ENFORCEMENT-SPEC.md) - Commit-msg hook implementation
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCSD pipeline and HITL gates
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCASD-IVTR+C pipeline and HITL gates
 - [CLEO-SUBAGENT-PROTOCOL-v1.md](CLEO-SUBAGENT-PROTOCOL-v1.md) - Subagent output requirements
 
 ### 9.4 Implementation Evidence

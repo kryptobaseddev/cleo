@@ -40,6 +40,7 @@ import {
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // CheckHandler
@@ -64,7 +65,7 @@ export class CheckHandler implements DomainHandler {
         case 'schema': {
           const type = params?.type as string;
           if (!type) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -74,13 +75,13 @@ export class CheckHandler implements DomainHandler {
             );
           }
           const result = validateSchemaOp(type, params?.data, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'task': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -90,18 +91,18 @@ export class CheckHandler implements DomainHandler {
             );
           }
           const result = await validateTaskOp(taskId, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'manifest': {
           const result = validateManifestOp(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'output': {
           const filePath = params?.filePath as string;
           if (!filePath) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -115,7 +116,7 @@ export class CheckHandler implements DomainHandler {
             params?.taskId as string | undefined,
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'compliance.summary': {
@@ -124,11 +125,11 @@ export class CheckHandler implements DomainHandler {
 
           if (detail) {
             const result = validateComplianceViolations(limit, this.projectRoot);
-            return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+            return wrapResult(result, 'query', 'check', operation, startTime);
           }
 
           const result = validateComplianceSummary(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'test': {
@@ -136,17 +137,17 @@ export class CheckHandler implements DomainHandler {
 
           if (format === 'coverage') {
             const result = validateTestCoverage(this.projectRoot);
-            return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+            return wrapResult(result, 'query', 'check', operation, startTime);
           }
 
           // Default to status
           const result = validateTestStatus(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'coherence': {
           const result = await validateCoherenceCheck(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'protocol': {
@@ -171,11 +172,11 @@ export class CheckHandler implements DomainHandler {
                 },
                 this.projectRoot,
               );
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'contribution': {
               const result = await validateProtocolContribution(protocolParams, this.projectRoot);
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'decomposition': {
               const result = await validateProtocolDecomposition(
@@ -185,11 +186,11 @@ export class CheckHandler implements DomainHandler {
                 },
                 this.projectRoot,
               );
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'implementation': {
               const result = await validateProtocolImplementation(protocolParams, this.projectRoot);
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'specification': {
               const result = await validateProtocolSpecification(
@@ -199,13 +200,13 @@ export class CheckHandler implements DomainHandler {
                 },
                 this.projectRoot,
               );
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
             default: {
               // Generic protocol validation (legacy behavior)
               const taskId = params?.taskId as string;
               if (!taskId) {
-                return this.errorResponse(
+                return errorResult(
                   'query',
                   'check',
                   operation,
@@ -215,7 +216,7 @@ export class CheckHandler implements DomainHandler {
                 );
               }
               const result = await validateProtocol(taskId, protocolType, this.projectRoot);
-              return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+              return wrapResult(result, 'query', 'check', operation, startTime);
             }
           }
         }
@@ -223,7 +224,7 @@ export class CheckHandler implements DomainHandler {
         case 'gate.status': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -234,19 +235,19 @@ export class CheckHandler implements DomainHandler {
           }
           // Read-only access
           const result = await validateGateVerify({ taskId }, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'archive.stats': {
           const result = await systemArchiveStats(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+          return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         // T5405: WarpChain validation
         case 'chain.validate': {
           const chain = params?.chain as WarpChain;
           if (!chain) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -256,7 +257,7 @@ export class CheckHandler implements DomainHandler {
             );
           }
           const chainResult = validateChain(chain);
-          return this.wrapEngineResult(
+          return wrapResult(
             { success: chainResult.errors.length === 0, data: chainResult },
             'query',
             'check',
@@ -270,7 +271,7 @@ export class CheckHandler implements DomainHandler {
           const { gradeSession } = await import('../../core/sessions/session-grade.js');
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'check',
               operation,
@@ -280,7 +281,7 @@ export class CheckHandler implements DomainHandler {
             );
           }
           const gradeResult = await gradeSession(sessionId, this.projectRoot);
-          return this.wrapEngineResult(
+          return wrapResult(
             { success: true, data: gradeResult },
             'query',
             'check',
@@ -312,10 +313,12 @@ export class CheckHandler implements DomainHandler {
         }
 
         default:
-          return this.unsupported('query', 'check', operation, startTime);
+          return unsupportedOp('query', 'check', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'check', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:check').error({ gateway: 'query', domain: 'check', operation, err: error }, message);
+      return handleErrorResult('query', 'check', operation, error, startTime);
     }
   }
 
@@ -332,7 +335,7 @@ export class CheckHandler implements DomainHandler {
           const taskId = params?.taskId as string;
           const result = params?.result as string;
           if (!taskId || !result) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'check',
               operation,
@@ -350,7 +353,7 @@ export class CheckHandler implements DomainHandler {
               | undefined,
             this.projectRoot,
           );
-          return this.wrapEngineResult(engineResult, 'mutate', 'check', operation, startTime);
+          return wrapResult(engineResult, 'mutate', 'check', operation, startTime);
         }
 
         case 'test.run': {
@@ -358,7 +361,7 @@ export class CheckHandler implements DomainHandler {
             params as { scope?: string; pattern?: string; parallel?: boolean } | undefined,
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'mutate', 'check', operation, startTime);
+          return wrapResult(result, 'mutate', 'check', operation, startTime);
         }
 
         case 'compliance.sync': {
@@ -377,7 +380,7 @@ export class CheckHandler implements DomainHandler {
         case 'gate.set': {
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'check',
               operation,
@@ -395,14 +398,16 @@ export class CheckHandler implements DomainHandler {
             reset: params?.reset as boolean | undefined,
           };
           const result = await validateGateVerify(gateParams, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'check', operation, startTime);
+          return wrapResult(result, 'mutate', 'check', operation, startTime);
         }
 
         default:
-          return this.unsupported('mutate', 'check', operation, startTime);
+          return unsupportedOp('mutate', 'check', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'check', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:check').error({ gateway: 'mutate', domain: 'check', operation, err: error }, message);
+      return handleErrorResult('mutate', 'check', operation, error, startTime);
     }
   }
 
@@ -431,86 +436,4 @@ export class CheckHandler implements DomainHandler {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:check').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

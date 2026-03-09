@@ -242,7 +242,7 @@ GET /api/brain/consensus
     Returns: consensus reports list
 
 GET /api/brain/rcsd
-    Returns: RCSD document index with lifecycle stage status
+    Returns: RCASD-IVTR+C document index with lifecycle stage status
 ```
 
 ### 4.7 WebSocket Events
@@ -306,7 +306,7 @@ Events emitted on file change (via chokidar):
 - Dependency bottleneck highlighting (highest blocking count)
 - Archive explorer -- browse 4,165 completed tasks with search
 - Research artifact browser with status filtering
-- RCSD lifecycle pipeline visualization
+- RCASD-IVTR+C lifecycle pipeline visualization
 
 ### Phase 3: Interactive Management
 
@@ -481,7 +481,7 @@ The dashboard can leverage all 162 MCP domain operations across 10 domains:
 | `session` | 7 | 10 | Session list, focus, metrics, start/end |
 | `system` | 19 | 11 | Health, config, version, diagnostics, dash |
 | `validate` | 13 | 8 | Compliance summary, violations, test status |
-| `lifecycle` | 9 | 9 | RCSD pipeline status, stage tracking |
+| `lifecycle` | 9 | 9 | RCASD-IVTR+C pipeline status, stage tracking |
 | `release` | 3 | 9 | Release list, version, changelog, ship |
 | `orchestrate` | 6 | 6 | Epic orchestration status, wave progress |
 | `research` | 5 | 5 | Research artifacts, search, reports |

@@ -106,7 +106,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 ### The Four Systems
 
-- **BRAIN — Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 6 tables, 3-layer retrieval (search/timeline/fetch), observe operation, and 5,122 migrated observations. Target: FTS5 search, vector similarity via SQLite-vec, and graph-based retrieval. The lifeblood of anti-hallucination.
+- **BRAIN — Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 5 tables, 3-layer retrieval (search/timeline/fetch), observe operation, and 5,122 migrated observations. Target: FTS5 search, vector similarity via SQLite-vec, and graph-based retrieval. The lifeblood of anti-hallucination.
 
 - **LOOM — Logical Order of Operations Methodology**: The systematic framework for how CLEO processes project threads from concept to completion. LOOM encompasses the RCASD-IVTR+C pipeline (Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release) with the Contribution protocol (+C) running across all stages. It is the "order of operations" that moves work through its lifecycle.
 
@@ -132,7 +132,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 ## BRAIN: The Memory System
 
-BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 6 tables shipped, 3-layer retrieval operational, and 5,122 observations migrated from claude-mem.
+BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 5 tables shipped, 3-layer retrieval operational, and 5,122 observations migrated from claude-mem.
 
 ### Brain Metaphor: Domains as Cognitive Functions
 
@@ -158,7 +158,7 @@ This metaphor isn't decorative — it reflects the architectural design where ta
 | Database | Contents | Scope |
 |----------|----------|-------|
 | **`.cleo/tasks.db`** | Tasks, sessions, lifecycle pipelines, ADRs, audit log, status registry | Project work — the structured RCASD-IVTR+C pipeline |
-| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, FTS5 indexes | Memory and cognition — SHIPPED with 6 tables, 3-layer retrieval. Vector embeddings and PageIndex are planned. |
+| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, FTS5 indexes | Memory and cognition — SHIPPED with 5 tables, 3-layer retrieval. Vector embeddings and PageIndex are planned. |
 | **`~/.cleo/nexus.db`** [TARGET] | Project registry, cross-project graph edges, permissions, global pattern library | Global NEXUS network — currently served by JSON registry |
 
 Three JSON configuration files complement the databases (exempt from SQLite-only storage per ADR-006, ADR-011):
@@ -382,7 +382,7 @@ flowchart LR
 
 | Mode | Behavior | Use Case |
 |------|----------|----------|
-| `strict` | Blocks progression with exit 75 | Production (default) |
+| `strict` | Blocks progression with exit 80 | Production (default) |
 | `advisory` | Warns but allows progression | Development |
 | `off` | Skips gate checks | Emergency bypass |
 

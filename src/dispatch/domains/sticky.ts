@@ -25,6 +25,7 @@ import {
 } from '../engines/sticky-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // StickyHandler
@@ -54,7 +55,7 @@ export class StickyHandler implements DomainHandler {
           };
           const result = await stickyList(this.projectRoot, filters);
           if (!result.success) {
-            return this.wrapEngineResult(result, 'query', 'sticky', operation, startTime);
+            return wrapResult(result, 'query', 'sticky', operation, startTime);
           }
 
           const filteredStickies = result.data?.stickies ?? [];
@@ -64,7 +65,7 @@ export class StickyHandler implements DomainHandler {
             filters.priority !== undefined;
           const totalResult = hasFilter ? await stickyList(this.projectRoot, {}) : result;
           if (!totalResult.success) {
-            return this.wrapEngineResult(totalResult, 'query', 'sticky', operation, startTime);
+            return wrapResult(totalResult, 'query', 'sticky', operation, startTime);
           }
 
           const limit = params?.limit as number | undefined;
@@ -86,7 +87,7 @@ export class StickyHandler implements DomainHandler {
         case 'show': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse(
+            return errorResult(
               'query',
               'sticky',
               operation,
@@ -96,14 +97,16 @@ export class StickyHandler implements DomainHandler {
             );
           }
           const result = await stickyShow(this.projectRoot, stickyId);
-          return this.wrapEngineResult(result, 'query', 'sticky', operation, startTime);
+          return wrapResult(result, 'query', 'sticky', operation, startTime);
         }
 
         default:
-          return this.unsupported('query', 'sticky', operation, startTime);
+          return unsupportedOp('query', 'sticky', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('query', 'sticky', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:sticky').error({ gateway: 'query', domain: 'sticky', operation, err: error }, message);
+      return handleErrorResult('query', 'sticky', operation, error, startTime);
     }
   }
 
@@ -119,7 +122,7 @@ export class StickyHandler implements DomainHandler {
         case 'add': {
           const content = params?.content as string;
           if (!content) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'sticky',
               operation,
@@ -134,7 +137,7 @@ export class StickyHandler implements DomainHandler {
             color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
             priority: params?.priority as 'low' | 'medium' | 'high' | undefined,
           });
-          return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+          return wrapResult(result, 'mutate', 'sticky', operation, startTime);
         }
 
         case 'convert': {
@@ -146,7 +149,7 @@ export class StickyHandler implements DomainHandler {
             | 'task_note'
             | undefined;
           if (!stickyId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'sticky',
               operation,
@@ -156,7 +159,7 @@ export class StickyHandler implements DomainHandler {
             );
           }
           if (!targetType) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'sticky',
               operation,
@@ -172,11 +175,11 @@ export class StickyHandler implements DomainHandler {
               stickyId,
               params?.title as string | undefined,
             );
-            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+            return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           } else if (targetType === 'task_note') {
             const taskId = params?.taskId as string | undefined;
             if (!taskId) {
-              return this.errorResponse(
+              return errorResult(
                 'mutate',
                 'sticky',
                 operation,
@@ -186,28 +189,28 @@ export class StickyHandler implements DomainHandler {
               );
             }
             const result = await stickyConvertToTaskNote(this.projectRoot, stickyId, taskId);
-            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+            return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           } else if (targetType === 'session_note') {
             const result = await stickyConvertToSessionNote(
               this.projectRoot,
               stickyId,
               params?.sessionId as string | undefined,
             );
-            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+            return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           } else {
             const result = await stickyConvertToMemory(
               this.projectRoot,
               stickyId,
               params?.memoryType as string | undefined,
             );
-            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+            return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           }
         }
 
         case 'archive': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'sticky',
               operation,
@@ -217,13 +220,13 @@ export class StickyHandler implements DomainHandler {
             );
           }
           const result = await stickyArchive(this.projectRoot, stickyId);
-          return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+          return wrapResult(result, 'mutate', 'sticky', operation, startTime);
         }
 
         case 'purge': {
           const stickyId = params?.stickyId as string;
           if (!stickyId) {
-            return this.errorResponse(
+            return errorResult(
               'mutate',
               'sticky',
               operation,
@@ -233,14 +236,16 @@ export class StickyHandler implements DomainHandler {
             );
           }
           const result = await stickyPurge(this.projectRoot, stickyId);
-          return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+          return wrapResult(result, 'mutate', 'sticky', operation, startTime);
         }
 
         default:
-          return this.unsupported('mutate', 'sticky', operation, startTime);
+          return unsupportedOp('mutate', 'sticky', operation, startTime);
       }
     } catch (error) {
-      return this.handleError('mutate', 'sticky', operation, error, startTime);
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger('domain:sticky').error({ gateway: 'mutate', domain: 'sticky', operation, err: error }, message);
+      return handleErrorResult('mutate', 'sticky', operation, error, startTime);
     }
   }
 
@@ -255,86 +260,4 @@ export class StickyHandler implements DomainHandler {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  private wrapEngineResult(
-    result: {
-      success: boolean;
-      data?: unknown;
-      error?: {
-        code: string;
-        message: string;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      };
-    },
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: result.success,
-      ...(result.success ? { data: result.data } : {}),
-      ...(result.error
-        ? {
-            error: {
-              code: result.error.code,
-              message: result.error.message,
-              details: result.error.details as Record<string, unknown> | undefined,
-              fix: result.error.fix,
-              alternatives: result.error.alternatives,
-            },
-          }
-        : {}),
-    };
-  }
-
-  private unsupported(
-    gateway: string,
-    domain: string,
-    operation: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
-    };
-  }
-
-  private errorResponse(
-    gateway: string,
-    domain: string,
-    operation: string,
-    code: string,
-    message: string,
-    startTime: number,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code, message },
-    };
-  }
-
-  private handleError(
-    gateway: string,
-    domain: string,
-    operation: string,
-    error: unknown,
-    startTime: number,
-  ): DispatchResponse {
-    const message = error instanceof Error ? error.message : String(error);
-    getLogger('domain:sticky').error({ gateway, domain, operation, err: error }, message);
-    return {
-      _meta: dispatchMeta(gateway, domain, operation, startTime),
-      success: false,
-      error: { code: 'E_INTERNAL', message },
-    };
-  }
 }

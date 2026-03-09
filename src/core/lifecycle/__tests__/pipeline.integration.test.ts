@@ -1,7 +1,7 @@
 /**
- * RCSD Pipeline Integration Test
+ * RCASD-IVTR+C Pipeline Integration Test
  *
- * End-to-end test exercising the full RCSD lifecycle through all 9 stages.
+ * End-to-end test exercising the full RCASD-IVTR+C lifecycle through all 9 stages.
  * This is the final validation test for epic T4798.
  *
  * Test Coverage:
@@ -182,7 +182,7 @@ function checkTransition(from: string, to: string, force?: boolean) {
   return checkTransitionRaw(toCanonical(from), toCanonical(to), force);
 }
 
-describe('RCSD Pipeline Integration', () => {
+describe('RCASD-IVTR+C Pipeline Integration', () => {
   beforeEach(async () => {
     testDir = await mkdtemp(join(tmpdir(), 'cleo-pipeline-test-'));
     cleoDir = join(testDir, '.cleo');

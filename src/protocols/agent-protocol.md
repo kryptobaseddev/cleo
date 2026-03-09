@@ -169,7 +169,7 @@ MCP gateway is the **primary** interface. CLI (`ct`/`cleo`) is for human use and
 | 66 | RESUME_FAILED | Yes | Check session/handoff validity |
 | 67 | CONCURRENT_SESSION | Yes | End other session first |
 
-**NOTE**: Codes 60-67 have a known collision between protocol validation (RCSD) and orchestrator functions. They are isolated by usage context.
+**NOTE**: Codes 60-67 have a known collision between protocol validation (RCASD-IVTR+C) and orchestrator functions. They are isolated by usage context.
 
 ### Nexus (70-79)
 
@@ -190,10 +190,10 @@ MCP gateway is the **primary** interface. CLI (`ct`/`cleo`) is for human use and
 
 | Code | Constant | Recoverable | Recovery |
 |------|----------|:-----------:|----------|
-| 80 | LIFECYCLE_GATE_FAILED | Yes | Complete prerequisite RCSD stages |
+| 80 | LIFECYCLE_GATE_FAILED | Yes | Complete prerequisite RCASD-IVTR+C stages |
 | 81 | AUDIT_MISSING | Yes | Add required audit fields |
 | 82 | CIRCULAR_VALIDATION | No | Assign different validator |
-| 83 | LIFECYCLE_TRANSITION_INVALID | No | Follow RCSD->IVTR sequence |
+| 83 | LIFECYCLE_TRANSITION_INVALID | No | Follow RCASD-IVTR+C sequence |
 | 84 | PROVENANCE_REQUIRED | Yes | Add provenance fields |
 
 ### Special (100+) - NOT errors
