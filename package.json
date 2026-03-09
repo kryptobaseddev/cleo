@@ -77,7 +77,8 @@
     "packages/ct-skills/skills",
     "completions",
     "server.json",
-    "bin"
+    "bin",
+    ".claude-plugin"
   ],
   "dependencies": {
     "@cleocode/caamp": "^1.7.0",

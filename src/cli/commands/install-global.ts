@@ -176,6 +176,18 @@ export function registerInstallGlobalCommand(program: Command): void {
           );
         }
 
+        // Step 6: Install CLEO Claude Code plugin (brain hooks + session hooks)
+        try {
+          const { installClaudePlugin } = await import('../../core/install/claude-plugin.js');
+          const pluginResult = await installClaudePlugin({ dryRun: isDryRun });
+          created.push(...pluginResult.created);
+          warnings.push(...pluginResult.warnings);
+        } catch (err) {
+          warnings.push(
+            `Claude plugin install skipped: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+
         cliOutput(
           {
             success: true,
