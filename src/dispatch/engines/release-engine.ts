@@ -422,6 +422,36 @@ export async function releaseShip(
       }
     }
 
+    // Step 0.5: Ensure release record exists (auto-prepare if needed)
+    // Since T5615 removed release.add/plan, ship must be self-contained
+    try {
+      await showManifestRelease(version, cwd);
+    } catch {
+      // Release record doesn't exist yet — create it
+      logStep(0, 8, 'Auto-prepare release record');
+      if (!dryRun) {
+        await prepareRelease(
+          version,
+          undefined,
+          `Auto-prepared by release.ship (${epicId})`,
+          () => loadTasks(projectRoot),
+          cwd,
+        );
+        // Set epicId on the newly created record (prepareRelease doesn't accept it)
+        const { getDb } = await import('../../store/sqlite.js');
+        const { releaseManifests } = await import('../../store/tasks-schema.js');
+        const { eq } = await import('drizzle-orm');
+        const normalizedVer = version.startsWith('v') ? version : `v${version}`;
+        const db = await getDb(cwd);
+        await db
+          .update(releaseManifests)
+          .set({ epicId })
+          .where(eq(releaseManifests.version, normalizedVer))
+          .run();
+      }
+      logStep(0, 8, 'Auto-prepare release record', true);
+    }
+
     // Step 1: Run release gates
     logStep(1, 8, 'Validate release gates');
     const gatesResult = await runReleaseGates(version, () => loadTasks(projectRoot), projectRoot, {
