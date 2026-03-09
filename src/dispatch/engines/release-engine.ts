@@ -448,6 +448,9 @@ export async function releaseShip(
           .set({ epicId })
           .where(eq(releaseManifests.version, normalizedVer))
           .run();
+
+        // Pre-generate changelog so has_changelog gate passes
+        await generateReleaseChangelog(version, () => loadTasks(projectRoot), cwd);
       }
       logStep(0, 8, 'Auto-prepare release record', true);
     }
