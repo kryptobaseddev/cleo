@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.3.26] (2026-03-09)
+
+Re-shipped with self-contained release.ship fix
+
+### Bug Fixes
+- **MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination**: Reduce MCP response sizes and improve data quality across domains: - admin help: compact domain-grouped format by default (~85% token reduction), v... (T5584)
+- **Fix Layer 1 gate validator rejecting valid non-task status values**: Layer 1 schema validator checked all status params against TASK_STATUSES regardless of domain. Operations like pipeline.stage.record with valid lif... (T5598)
+- **Fix missing drizzle-brain symlink for brain.db initialization**: brain.db was 0 bytes because drizzle-brain symlink was missing at project root. The drizzle symlink for tasks.db existed correctly but drizzle-brai... (T5650)
+
+### Changes
+- **Wire --bump-version into releaseShip() pipeline and fix release notes content**: bumpVersionFromConfig() exists but is never called by releaseShip(). VERSION and package.json are bumped manually after the tag, backwards and erro... (T5617)
+- Scandir test (T5665)
+---
 ## [2026.3.24] (2026-03-08)
 
 ### Bug Fixes
