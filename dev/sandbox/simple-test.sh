@@ -1,37 +1,49 @@
 #!/usr/bin/env bash
-# Simple CLEO workflow test for sandbox
+# Simple CLEO workflow smoke test for sandbox
 
 set -euo pipefail
 
-MANAGER="$(dirname "$0")/sandbox-manager.sh"
+SSH_KEY_PATH="${HOME}/.cleo/sandbox/ssh/sandbox_key"
+SSH_PORT="2222"
+CLEO="/home/testuser/cleo-source"
+CLI="node ${CLEO}/dist/cli/index.js"
+
+sandbox_run() {
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" \
+        testuser@localhost "$@" 2>&1
+}
 
 echo "=== CLEO Simple Workflow Test ==="
 echo
 
-# Test 1: Create new project with simpler config
+# Test 1: Create new project
 echo "1. Creating fresh test project..."
-$MANAGER exec "rm -rf ~/simple-test && mkdir -p ~/simple-test && cd ~/simple-test && echo '{\"session\":{\"requireSession\":false}}' > init-config.json && /home/testuser/.local/bin/cleo init"
+sandbox_run "rm -rf ~/simple-test && mkdir -p ~/simple-test && cd ~/simple-test && git init && $CLI init"
 
-# Test 2: Add tasks without session
+# Test 2: Add tasks
 echo "2. Adding tasks..."
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo add 'First task'"
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo add 'Second task'"
+sandbox_run "cd ~/simple-test && $CLI add 'First task' --description 'The first test task'"
+sandbox_run "cd ~/simple-test && $CLI add 'Second task' --description 'The second test task'"
 
 # Test 3: List tasks
 echo "3. Listing tasks..."
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo list"
+sandbox_run "cd ~/simple-test && $CLI list"
 
 # Test 4: Show specific task
 echo "4. Showing task details..."
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo show T001"
+sandbox_run "cd ~/simple-test && $CLI show T001"
 
 # Test 5: Complete task
 echo "5. Completing first task..."
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo done T001 --notes 'Completed during sandbox test'"
+sandbox_run "cd ~/simple-test && $CLI session start --scope epic:T001 --name 'Smoke Test'"
+sandbox_run "cd ~/simple-test && $CLI start T001"
+sandbox_run "cd ~/simple-test && $CLI done T001 --notes 'Completed during sandbox smoke test'"
+sandbox_run "cd ~/simple-test && $CLI session end"
 
 # Test 6: Verify completion
 echo "6. Verifying completion..."
-$MANAGER exec "cd ~/simple-test && /home/testuser/.local/bin/cleo show T001"
+sandbox_run "cd ~/simple-test && $CLI show T001"
 
 echo
 echo "=== Test Complete ==="

@@ -176,15 +176,39 @@ export function registerInstallGlobalCommand(program: Command): void {
           );
         }
 
-        // Step 6: Install CLEO Claude Code plugin (brain hooks + session hooks)
+        // Step 6: Install provider adapters (plugin registration, etc.)
         try {
-          const { installClaudePlugin } = await import('../../core/install/claude-plugin.js');
-          const pluginResult = await installClaudePlugin({ dryRun: isDryRun });
-          created.push(...pluginResult.created);
-          warnings.push(...pluginResult.warnings);
+          const { AdapterManager } = await import('../../core/adapters/manager.js');
+          const thisFileStep6 = fileURLToPath(import.meta.url);
+          const packageRootStep6 = resolve(dirname(thisFileStep6), '..', '..', '..');
+          const manager = AdapterManager.getInstance(packageRootStep6);
+          manager.discover();
+          const detected = manager.detectActive();
+
+          for (const adapterId of detected) {
+            try {
+              const adapter = await manager.activate(adapterId);
+              if (adapter.install) {
+                if (!isDryRun) {
+                  const installResult = await adapter.install.install({
+                    projectDir: process.cwd(),
+                  });
+                  if (installResult.success) {
+                    created.push(`${adapterId} adapter (installed)`);
+                  }
+                } else {
+                  created.push(`${adapterId} adapter (would install)`);
+                }
+              }
+            } catch (activateErr) {
+              warnings.push(
+                `Adapter ${adapterId} skipped: ${activateErr instanceof Error ? activateErr.message : String(activateErr)}`,
+              );
+            }
+          }
         } catch (err) {
           warnings.push(
-            `Claude plugin install skipped: ${err instanceof Error ? err.message : String(err)}`,
+            `Adapter install skipped: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
 

@@ -1,0 +1,23 @@
+{
+  "name": "@cleocode/contracts",
+  "version": "1.0.0",
+  "description": "Provider adapter contracts and interfaces for CLEO",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:check": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src"
+  ]
+}

@@ -2,7 +2,7 @@
 # Based on Fedora to match host system
 FROM fedora:latest
 
-# Install base dependencies
+# Install base dependencies (Node.js 24+ required)
 RUN dnf update -y && \
     dnf install -y \
         bash \
@@ -22,7 +22,12 @@ RUN dnf update -y && \
         vim \
         which \
         bats \
-    && dnf clean all
+        sqlite \
+    && curl -fsSL https://rpm.nodesource.com/setup_24.x | bash - \
+    && dnf install -y nodejs \
+    && npm install -g npm@latest \
+    && dnf clean all \
+    && node --version | grep -qE '^v2[4-9]\.' && echo "Node 24+ verified" || (echo "ERROR: Node 24+ required" && exit 1)
 
 # Configure SSH
 RUN ssh-keygen -A && \

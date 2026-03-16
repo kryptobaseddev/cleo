@@ -4,6 +4,10 @@
  * Maps CLEO's numeric exit codes (ExitCode enum) to LAFS error registry
  * string codes for protocol conformance.
  *
+ * @deprecated Use `src/core/error-catalog.ts` instead. This registry is retained
+ * for backward compatibility but will be removed in a future release.
+ * Import from `error-catalog.ts` for the unified, complete error catalog.
+ *
  * @task T4671
  * @epic T4663
  */

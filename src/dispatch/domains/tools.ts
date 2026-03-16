@@ -15,6 +15,7 @@
  * @task T5671
  */
 
+import { AdapterManager } from '../../core/adapters/index.js';
 import {
   buildInjectionContent,
   catalog,
@@ -87,6 +88,11 @@ export class ToolsHandler implements DomainHandler {
         return await this.queryTodowrite(operation.slice('todowrite.'.length), params, startTime);
       }
 
+      // Adapter sub-domain
+      if (operation.startsWith('adapter.')) {
+        return this.queryAdapter(operation.slice('adapter.'.length), params, startTime);
+      }
+
       return unsupportedOp('query', 'tools', operation, startTime);
     } catch (error) {
       return this.handleError('query', 'tools', operation, error, startTime);
@@ -115,6 +121,11 @@ export class ToolsHandler implements DomainHandler {
       // TodoWrite sub-domain
       if (operation.startsWith('todowrite.')) {
         return await this.mutateTodowrite(operation.slice('todowrite.'.length), params, startTime);
+      }
+
+      // Adapter sub-domain
+      if (operation.startsWith('adapter.')) {
+        return await this.mutateAdapter(operation.slice('adapter.'.length), params, startTime);
       }
 
       return unsupportedOp('mutate', 'tools', operation, startTime);
@@ -146,6 +157,11 @@ export class ToolsHandler implements DomainHandler {
         'provider.hooks',
         // todowrite
         'todowrite.status',
+        // adapter
+        'adapter.list',
+        'adapter.show',
+        'adapter.detect',
+        'adapter.health',
       ],
       mutate: [
         // skill
@@ -157,6 +173,9 @@ export class ToolsHandler implements DomainHandler {
         // todowrite
         'todowrite.sync',
         'todowrite.clear',
+        // adapter
+        'adapter.activate',
+        'adapter.dispose',
       ],
     };
   }
@@ -860,6 +879,142 @@ export class ToolsHandler implements DomainHandler {
 
       default:
         return unsupportedOp('mutate', 'tools', `todowrite.${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Adapter queries
+  // -----------------------------------------------------------------------
+
+  private queryAdapter(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): DispatchResponse {
+    const manager = AdapterManager.getInstance(this.projectRoot);
+
+    switch (sub) {
+      case 'list': {
+        const adapters = manager.listAdapters();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'adapter.list', startTime),
+          success: true,
+          data: { adapters, count: adapters.length },
+        };
+      }
+      case 'show': {
+        const id = params?.id as string | undefined;
+        if (!id) {
+          return errorResult(
+            'query', 'tools', 'adapter.show',
+            'E_INVALID_INPUT', 'Missing required parameter: id', startTime,
+          );
+        }
+        const manifest = manager.getManifest(id);
+        const adapter = manager.get(id);
+        if (!manifest) {
+          return errorResult(
+            'query', 'tools', 'adapter.show',
+            'E_NOT_FOUND', `Adapter not found: ${id}`, startTime,
+          );
+        }
+        return {
+          _meta: dispatchMeta('query', 'tools', 'adapter.show', startTime),
+          success: true,
+          data: {
+            manifest,
+            initialized: !!adapter,
+            active: manager.getActiveId() === id,
+          },
+        };
+      }
+      case 'detect': {
+        manager.discover();
+        const detected = manager.detectActive();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'adapter.detect', startTime),
+          success: true,
+          data: { detected, count: detected.length },
+        };
+      }
+      case 'health': {
+        const id = params?.id as string | undefined;
+        // Return synchronous "pending" — health checks are async but we
+        // keep the query interface synchronous. Callers that need real
+        // health data should use the mutate gateway or call healthCheck directly.
+        const adapters = manager.listAdapters();
+        const filtered = id ? adapters.filter((a) => a.id === id) : adapters;
+        return {
+          _meta: dispatchMeta('query', 'tools', 'adapter.health', startTime),
+          success: true,
+          data: { adapters: filtered, count: filtered.length },
+        };
+      }
+      default:
+        return unsupportedOp('query', 'tools', `adapter.${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Adapter mutations
+  // -----------------------------------------------------------------------
+
+  private async mutateAdapter(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const manager = AdapterManager.getInstance(this.projectRoot);
+
+    switch (sub) {
+      case 'activate': {
+        const id = params?.id as string | undefined;
+        if (!id) {
+          return errorResult(
+            'mutate', 'tools', 'adapter.activate',
+            'E_INVALID_INPUT', 'Missing required parameter: id', startTime,
+          );
+        }
+        try {
+          // Ensure manifests are discovered first
+          if (!manager.getManifest(id)) {
+            manager.discover();
+          }
+          const adapter = await manager.activate(id);
+          return {
+            _meta: dispatchMeta('mutate', 'tools', 'adapter.activate', startTime),
+            success: true,
+            data: {
+              id,
+              name: adapter.name,
+              version: adapter.version,
+              active: true,
+            },
+          };
+        } catch (err) {
+          return errorResult(
+            'mutate', 'tools', 'adapter.activate',
+            'E_ADAPTER_ACTIVATE_FAILED',
+            err instanceof Error ? err.message : String(err),
+            startTime,
+          );
+        }
+      }
+      case 'dispose': {
+        const id = params?.id as string | undefined;
+        if (id) {
+          await manager.disposeAdapter(id);
+        } else {
+          await manager.dispose();
+        }
+        return {
+          _meta: dispatchMeta('mutate', 'tools', 'adapter.dispose', startTime),
+          success: true,
+          data: { disposed: id ?? 'all' },
+        };
+      }
+      default:
+        return unsupportedOp('mutate', 'tools', `adapter.${sub}`, startTime);
     }
   }
 

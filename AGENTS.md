@@ -95,11 +95,11 @@ CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route 
 
 ```
 MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
-     query (114 ops)                                                                       (86 commands)
-     mutate (87 ops)
+     query (118 ops)                                                                       (86 commands)
+     mutate (89 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 201 operations across 10 canonical domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 207 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 86 commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
 - **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
@@ -107,19 +107,63 @@ MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ �
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - **Verb standards**: `docs/specs/VERB-STANDARDS.md` (add, show, find, list, etc.)
 
+### Provider Adapter System
+
+CLEO uses a **provider adapter architecture** for vendor-neutral portability. Provider interactions (hooks, spawn, install) are decoupled from core logic via adapter packages:
+
+```
+packages/contracts/       # Type-only interfaces (CLEOProviderAdapter, etc.)
+packages/shared/          # Runtime utilities for adapters (observation formatter, CLI wrapper)
+packages/adapters/        # One package per provider
+  claude-code/            #   Full adapter (hooks + spawn + install)
+  opencode/               #   Full adapter (hooks + spawn + install)
+  cursor/                 #   Minimal adapter (install only)
+src/core/adapters/        # AdapterManager (discovery, detection, lifecycle)
+```
+
+- **Discovery**: AdapterManager scans `packages/adapters/*/manifest.json` at startup
+- **Detection**: Each manifest declares `detectionPatterns` (env vars, files, CLI availability)
+- **Contracts**: `CLEOProviderAdapter`, `AdapterHookProvider`, `AdapterSpawnProvider`, `AdapterInstallProvider`
+- **ADR**: `docs/adrs/ADR-001-provider-adapter-architecture.md`
+- **Guide**: `docs/guides/adapter-development.md`
+
+### Provider-Agnostic Memory Bridge
+
+CLEO's brain memory system uses a three-layer approach that works with any provider:
+
+1. **Static Seed** (`.cleo/memory-bridge.md`) -- auto-generated markdown referenced via `@`-directives from any provider's instruction file
+2. **Guided Self-Retrieval** (`ct-memory` skill) -- teaches agents to search brain.db with progressive disclosure
+3. **Dynamic Resources** (`cleo://memory/*`) -- four MCP resource endpoints for on-demand memory access
+
+- **Bridge generator**: `src/core/memory/memory-bridge.ts`
+- **Skill**: `packages/ct-skills/skills/ct-memory/SKILL.md`
+- **MCP resources**: `src/mcp/resources/` (recent, learnings, patterns, handoff)
+- **Routing table**: `src/core/skills/routing-table.ts` (53-entry token-efficiency routing)
+- **ADR**: `docs/adrs/ADR-002-provider-agnostic-memory-bridge.md`
+
 ## Project Structure & Module Organization
 
 ```
+packages/             # npm workspace packages
+  packages/contracts/ #   Type-only adapter interfaces (@cleocode/contracts)
+  packages/shared/    #   Runtime utilities for adapters (@cleocode/shared)
+  packages/adapters/  #   Provider adapters (claude-code, opencode, cursor)
+  packages/ct-skills/ #   CLEO skills (ct-memory, etc.)
+  packages/ct-agents/ #   CLEO agent protocols
 src/                  # TypeScript source (primary codebase)
   src/cli/            #   CLI entry point (Commander.js) and command registrations
   src/cli/commands/   #   86 command handlers (parse args -> core -> format output)
   src/core/           #   Shared business logic (tasks, sessions, lifecycle, etc.)
+  src/core/adapters/  #   AdapterManager (discovery, detection, lifecycle)
+  src/core/memory/    #   Memory bridge generator + brain retrieval
+  src/core/skills/    #   Skill routing table (53-entry token-efficiency routing)
   src/dispatch/       #   Central dispatch layer (registry, middleware, engines)
   src/dispatch/engines/ # Engine adapters (task, session, system, etc.) — canonical location
   src/dispatch/domains/ # Domain routing
   src/mcp/            #   MCP server (gateways, barrel re-exports)
   src/mcp/domains/    #     MCP tool definitions and routing
   src/mcp/engine/     #     Barrel re-exports from src/dispatch/engines/ + utilities
+  src/mcp/resources/  #     MCP memory resource endpoints (cleo://memory/*)
   src/store/          #   Data access layer (JSON, atomic ops, backup, lock)
   src/types/          #   Shared TypeScript type definitions
   src/validation/     #   Schema validation and anti-hallucination checks
@@ -357,8 +401,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 114 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 87 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 118 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 89 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky)
 - `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
 - `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)
@@ -380,11 +424,23 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/core/sessions/` - Session lifecycle
 - `src/core/lifecycle/` - RCASD-IVTR+C lifecycle gates
 - `src/core/orchestration/` - Multi-agent orchestration
+- `src/core/adapters/` - AdapterManager (provider discovery, detection, lifecycle)
+- `src/core/memory/` - Memory bridge generator + brain retrieval
+- `src/core/skills/` - Skill routing table
 - `src/core/research/` - Research manifest management
 - `src/core/release/` - Release management
 - `src/core/compliance/` - Protocol compliance
 - `src/core/validation/` - Schema and anti-hallucination validation
+- `src/core/error-catalog.ts` - Unified error catalog (RFC 9457 ProblemDetails)
 - `src/core/config.ts` - Configuration management
+
+### Provider Adapter Packages
+- `packages/contracts/` - Type-only adapter interfaces (zero runtime dependencies)
+- `packages/shared/` - Shared runtime utilities for adapter implementations
+- `packages/adapters/claude-code/` - Claude Code adapter (hooks + spawn + install)
+- `packages/adapters/opencode/` - OpenCode adapter (hooks + spawn + install)
+- `packages/adapters/cursor/` - Cursor adapter (install only)
+- `packages/ct-skills/skills/ct-memory/` - Brain memory skill with progressive disclosure
 
 ### Store Layer
 - `src/store/json.ts` - JSON file read/write
@@ -393,7 +449,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` - All 201 MCP operations mapped to CLI equivalents (supersedes CLEO-OPERATIONS-REFERENCE.md)
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` - All 207 MCP operations mapped to CLI equivalents (supersedes CLEO-OPERATIONS-REFERENCE.md)
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns

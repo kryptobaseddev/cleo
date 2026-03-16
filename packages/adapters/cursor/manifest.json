@@ -1,0 +1,22 @@
+{
+  "id": "cursor",
+  "name": "Cursor Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Cursor AI code editor",
+  "provider": "cursor",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": false,
+    "supportedHookEvents": [],
+    "supportsSpawn": false,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": true,
+    "instructionFilePattern": ".cursor/rules/*.mdc"
+  },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "CURSOR_EDITOR", "description": "Cursor sets this env var" },
+    { "type": "file", "pattern": ".cursor", "description": "Cursor config directory" },
+    { "type": "file", "pattern": ".cursorrules", "description": "Legacy Cursor rules file" }
+  ]
+}

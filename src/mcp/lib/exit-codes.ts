@@ -1,6 +1,11 @@
 /**
  * Exit code mapping for CLEO CLI operations
  *
+ * @deprecated Use `src/core/error-catalog.ts` for the unified error catalog
+ * and `src/types/exit-codes.ts` for the canonical ExitCode enum.
+ * This file is retained for backward compatibility but will be removed
+ * in a future release.
+ *
  * @task T2913
  * @epic T2908
  *

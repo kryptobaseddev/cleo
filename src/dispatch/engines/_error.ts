@@ -157,6 +157,13 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_TESTS_SKIPPED: 103,
   E_TASK_COMPLETED: 104,
 
+  // Adapter Errors (95-99)
+  E_ADAPTER_NOT_FOUND: 95,
+  E_ADAPTER_INIT_FAILED: 96,
+  E_ADAPTER_HOOK_FAILED: 97,
+  E_ADAPTER_SPAWN_FAILED: 98,
+  E_ADAPTER_INSTALL_FAILED: 99,
+
   // Common engine-specific aliases
   E_NOT_INITIALIZED: 3,
   E_NO_HANDLER: 1,

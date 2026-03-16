@@ -28,9 +28,9 @@ describe('operation-count doc sync', () => {
     );
 
     const staleDriftPatterns = [
-      /All 207 MCP operations/,
-      /207 MCP operations \(118 query \+ 89 mutate\)/,
-      /207 operations across 10 domains/,
+      /All 201 MCP operations/,
+      /201 MCP operations \(114 query \+ 87 mutate\)/,
+      /201 operations across 10 domains/,
       /\| \*\*Total\*\* \| \*\*126\*\* \| \*\*92\*\* \| \*\*218\*\* \|/,
     ];
 

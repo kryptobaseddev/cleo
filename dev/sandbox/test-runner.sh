@@ -7,6 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANAGER="$SCRIPT_DIR/sandbox-manager.sh"
+SSH_KEY_PATH="${HOME}/.cleo/sandbox/ssh/sandbox_key"
+SSH_PORT="2222"
+CLEO="/home/testuser/cleo-source"
+CLI="node ${CLEO}/dist/cli/index.js"
 
 # Colors
 GREEN='\033[0;32m'
@@ -31,6 +35,13 @@ log_info() {
     echo -e "${YELLOW}[INFO]${NC} $*"
 }
 
+# Run command in sandbox via SSH
+sandbox_run() {
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" \
+        testuser@localhost "$@" 2>&1
+}
+
 # Execute command in sandbox and check exit code
 run_in_sandbox() {
     local description="$1"
@@ -38,7 +49,7 @@ run_in_sandbox() {
 
     log_test "$description"
 
-    if "$MANAGER" exec "$@"; then
+    if sandbox_run "$@"; then
         log_pass "$description"
         return 0
     else
@@ -47,29 +58,18 @@ run_in_sandbox() {
     fi
 }
 
-# Test scenario: Fresh installation
-test_fresh_installation() {
+# Test scenario: Fresh project setup
+test_fresh_setup() {
     echo
     echo "========================================="
-    echo "Test Scenario 1: Fresh Installation"
+    echo "Test Scenario 1: Fresh Project Setup"
     echo "========================================="
 
-    # Re-install from the already-mounted project source
-    # (sandbox-manager.sh copies the project into /home/testuser/projects)
-    run_in_sandbox "Check dependencies" \
-        "cd /home/testuser/projects/claude-todo && ./install.sh --check-deps"
+    run_in_sandbox "Check CLEO CLI is available" \
+        "cd $CLEO && $CLI version"
 
-    # Run installation
-    run_in_sandbox "Run installation" \
-        "cd /home/testuser/projects/claude-todo && ./install.sh"
-
-    # Verify installation
-    run_in_sandbox "Verify cleo command" \
-        "which cleo"
-
-    # Check version
-    run_in_sandbox "Check CLEO version" \
-        "cleo version"
+    run_in_sandbox "Check Node.js version" \
+        "node --version"
 }
 
 # Test scenario: Basic workflow
@@ -79,40 +79,38 @@ test_basic_workflow() {
     echo "Test Scenario 2: Basic Task Workflow"
     echo "========================================="
 
-    # Initialize project
-    run_in_sandbox "Initialize CLEO in new project" \
-        "mkdir -p /home/testuser/test-project && cd /home/testuser/test-project && cleo init"
+    # Clean and initialize project
+    sandbox_run "rm -rf /home/testuser/test-project" >/dev/null 2>&1 || true
 
-    # Disable multiSession so workflow tests don't require session scoping
-    run_in_sandbox "Disable multiSession for test" \
-        "cd /home/testuser/test-project && cleo config set multiSession.enabled false"
+    run_in_sandbox "Initialize CLEO in new project" \
+        "mkdir -p /home/testuser/test-project && cd /home/testuser/test-project && git init && $CLI init"
 
     # Create tasks
     run_in_sandbox "Create first task" \
-        "cd /home/testuser/test-project && cleo add 'Setup development environment' --notes 'Install dependencies and configure tools'"
+        "cd /home/testuser/test-project && $CLI add 'Setup development environment' --description 'Install dependencies and configure tools'"
 
     run_in_sandbox "Create second task" \
-        "cd /home/testuser/test-project && cleo add 'Write documentation' --notes 'Create README and API docs'"
+        "cd /home/testuser/test-project && $CLI add 'Write documentation' --description 'Create README and API docs'"
 
     # List tasks
     run_in_sandbox "List all tasks" \
-        "cd /home/testuser/test-project && cleo list"
+        "cd /home/testuser/test-project && $CLI list"
 
-    # Start session
+    # Start session with proper scope format
     run_in_sandbox "Start work session" \
-        "cd /home/testuser/test-project && cleo session start --name 'Test Session'"
+        "cd /home/testuser/test-project && $CLI session start --scope epic:T001 --name 'Test Session'"
 
-    # Set focus
+    # Start task
     run_in_sandbox "Start first task" \
-        "cd /home/testuser/test-project && cleo start T001"
+        "cd /home/testuser/test-project && $CLI start T001"
 
-    # Complete task
+    # Complete task (provide notes instead of non-existent --skip-notes)
     run_in_sandbox "Complete first task" \
-        "cd /home/testuser/test-project && cleo done T001 --skip-notes"
+        "cd /home/testuser/test-project && $CLI done T001 --notes 'Completed in test'"
 
     # End session
     run_in_sandbox "End work session" \
-        "cd /home/testuser/test-project && cleo session end"
+        "cd /home/testuser/test-project && $CLI session end"
 }
 
 # Test scenario: Multi-project setup
@@ -122,26 +120,25 @@ test_multi_project() {
     echo "Test Scenario 3: Multi-Project Setup"
     echo "========================================="
 
-    # Create multiple projects
+    sandbox_run "rm -rf /home/testuser/project-a /home/testuser/project-b" >/dev/null 2>&1 || true
+
     run_in_sandbox "Create project A" \
-        "mkdir -p /home/testuser/project-a && cd /home/testuser/project-a && cleo init"
+        "mkdir -p /home/testuser/project-a && cd /home/testuser/project-a && git init && $CLI init"
 
     run_in_sandbox "Create project B" \
-        "mkdir -p /home/testuser/project-b && cd /home/testuser/project-b && cleo init"
+        "mkdir -p /home/testuser/project-b && cd /home/testuser/project-b && git init && $CLI init"
 
-    # Add tasks to both
     run_in_sandbox "Add task to project A" \
-        "cd /home/testuser/project-a && cleo add 'Feature A1'"
+        "cd /home/testuser/project-a && $CLI add 'Feature A1' --description 'Project A feature'"
 
     run_in_sandbox "Add task to project B" \
-        "cd /home/testuser/project-b && cleo add 'Feature B1'"
+        "cd /home/testuser/project-b && $CLI add 'Feature B1' --description 'Project B feature'"
 
-    # Verify isolation
     run_in_sandbox "List tasks in project A" \
-        "cd /home/testuser/project-a && cleo list"
+        "cd /home/testuser/project-a && $CLI list"
 
     run_in_sandbox "List tasks in project B" \
-        "cd /home/testuser/project-b && cleo list"
+        "cd /home/testuser/project-b && $CLI list"
 }
 
 # Test scenario: Error handling
@@ -151,16 +148,15 @@ test_error_handling() {
     echo "Test Scenario 4: Error Handling"
     echo "========================================="
 
-    # Invalid commands (these should fail gracefully)
     log_test "Test invalid task ID"
-    if "$MANAGER" exec "cd /home/testuser/test-project && cleo show T999" 2>/dev/null; then
+    if sandbox_run "cd /home/testuser/test-project && $CLI show T999" >/dev/null 2>&1; then
         log_fail "Should have failed for invalid task ID"
     else
         log_pass "Correctly handled invalid task ID"
     fi
 
     log_test "Test operation outside CLEO project"
-    if "$MANAGER" exec "cd /tmp && cleo list" 2>/dev/null; then
+    if sandbox_run "cd /tmp && $CLI list" >/dev/null 2>&1; then
         log_fail "Should have failed outside project"
     else
         log_pass "Correctly detected non-CLEO directory"
@@ -174,15 +170,14 @@ test_data_persistence() {
     echo "Test Scenario 5: Data Persistence"
     echo "========================================="
 
-    # Create task and verify it persists
     run_in_sandbox "Create task for persistence test" \
-        "cd /home/testuser/test-project && cleo add 'Persistence test task'"
+        "cd /home/testuser/test-project && $CLI add 'Persistence test task' --description 'Test that data persists in SQLite'"
 
-    run_in_sandbox "Verify task data file exists" \
-        "test -f /home/testuser/test-project/.cleo/todo.json"
+    run_in_sandbox "Verify tasks database exists" \
+        "test -f /home/testuser/test-project/.cleo/tasks.db"
 
-    run_in_sandbox "Verify task is in JSON" \
-        "cd /home/testuser/test-project && jq -e '.tasks[] | select(.title == \"Persistence test task\")' .cleo/todo.json"
+    run_in_sandbox "Verify task is in database" \
+        "cd /home/testuser/test-project && sqlite3 .cleo/tasks.db \"SELECT title FROM tasks WHERE title = 'Persistence test task'\""
 }
 
 # Main test runner
@@ -193,19 +188,18 @@ main() {
 
     # Ensure sandbox is running
     log_info "Ensuring sandbox is running..."
-    "$MANAGER" start
+    "$MANAGER" start 2>/dev/null || true
 
     echo
-    "$MANAGER" status
 
     # Run test scenarios
     local failed=0
 
-    test_fresh_installation || ((failed++))
-    test_basic_workflow || ((failed++))
-    test_multi_project || ((failed++))
-    test_error_handling || ((failed++))
-    test_data_persistence || ((failed++))
+    test_fresh_setup || failed=$((failed + 1))
+    test_basic_workflow || failed=$((failed + 1))
+    test_multi_project || failed=$((failed + 1))
+    test_error_handling || failed=$((failed + 1))
+    test_data_persistence || failed=$((failed + 1))
 
     # Summary
     echo
@@ -223,27 +217,14 @@ main() {
 }
 
 # Parse options
-RUN_SPECIFIC=""
 if [[ $# -gt 0 ]]; then
     case "$1" in
-        fresh)
-            test_fresh_installation
-            ;;
-        workflow)
-            test_basic_workflow
-            ;;
-        multi)
-            test_multi_project
-            ;;
-        errors)
-            test_error_handling
-            ;;
-        persistence)
-            test_data_persistence
-            ;;
-        *)
-            main
-            ;;
+        fresh)       test_fresh_setup ;;
+        workflow)    test_basic_workflow ;;
+        multi)       test_multi_project ;;
+        errors)      test_error_handling ;;
+        persistence) test_data_persistence ;;
+        *)           main ;;
     esac
 else
     main

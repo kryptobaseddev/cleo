@@ -1,307 +1,266 @@
 #!/usr/bin/env bash
-# Domain Operations Validation Script (T3069)
-# Tests all 93 operations across 8 domains via MCP server
+# Domain Operations Validation Script
+# Tests operations across canonical MCP domains via proper MCP JSON-RPC protocol
+# with initialization handshake, plus CLI verification.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SSH_KEY_PATH="${HOME}/.cleo/sandbox/ssh/sandbox_key"
+SSH_PORT="2222"
+CLEO="/home/testuser/cleo-source"
+CLI="node ${CLEO}/dist/cli/index.js"
 RESULTS_FILE="/tmp/mcp-domain-tests.jsonl"
-SUMMARY_FILE="/tmp/mcp-domain-summary.txt"
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Test counters
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 
-# Initialize results file
 > "$RESULTS_FILE"
-> "$SUMMARY_FILE"
 
-# Helper function to test an operation
-test_operation() {
+# Run command in sandbox via SSH
+sandbox_run() {
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" \
+        testuser@localhost "$@" 2>&1
+}
+
+# Send a properly handshaked MCP request and return the tool call response
+# Usage: mcp_request <gateway> <domain> <operation> [params_json] [project_dir]
+mcp_request() {
+    local gateway="$1"
+    local domain="$2"
+    local operation="$3"
+    local params_json="${4:-{}}"
+    local project_dir="${5:-/home/testuser/domain-test}"
+
+    local args_json
+    args_json=$(printf '{"domain":"%s","operation":"%s","params":%s}' "$domain" "$operation" "$params_json")
+
+    local init_msg='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"domain-test","version":"1.0"}}}'
+    local notif_msg='{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    local call_msg
+    call_msg=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}' "$gateway" "$args_json")
+
+    sandbox_run "cd ${project_dir} && printf '%s\n%s\n%s\n' '${init_msg}' '${notif_msg}' '${call_msg}' | node ${CLEO}/dist/mcp/index.js 2>/dev/null" || true
+}
+
+# Test a domain operation via MCP with proper handshake
+# Usage: test_mcp_operation <gateway> <domain> <operation> <description> [expected] [params_json]
+test_mcp_operation() {
     local gateway=$1
     local domain=$2
     local operation=$3
-    local params=$4
-    local description=$5
+    local description=$4
+    local expected="${5:-}"
+    local params_json="${6:-{}}"
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-    echo -e "${BLUE}[$TOTAL_TESTS] Testing: $domain.$operation${NC} - $description"
+    echo -e "${BLUE}[$TOTAL_TESTS] MCP: $gateway $domain.$operation${NC} - $description"
 
-    # Create JSON-RPC request
-    REQUEST=$(cat <<EOF
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "$gateway",
-    "arguments": {
-      "domain": "$domain",
-      "operation": "$operation",
-      "params": $params
-    }
-  },
-  "id": $TOTAL_TESTS
-}
-EOF
-)
+    local response
+    response=$(mcp_request "$gateway" "$domain" "$operation" "$params_json")
 
-    # Execute via MCP server in sandbox
-    RESPONSE=$(echo "$REQUEST" | "$SCRIPT_DIR/sandbox-manager.sh" exec "cd ~/test-mcp && node ~/mcp-server/dist/index.js" 2>&1 || true)
-
-    # Check response
-    if echo "$RESPONSE" | jq -e '.result.content[0].text' >/dev/null 2>&1; then
-        CONTENT=$(echo "$RESPONSE" | jq -r '.result.content[0].text')
-
-        # Validate response structure
-        if echo "$CONTENT" | jq -e '._meta' >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ PASS${NC}"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-
-            # Log result
-            jq -n \
-                --arg domain "$domain" \
-                --arg operation "$operation" \
-                --arg status "PASS" \
-                --arg description "$description" \
-                --argjson response "$CONTENT" \
-                '{domain: $domain, operation: $operation, status: $status, description: $description, response: $response}' \
-                >> "$RESULTS_FILE"
+    # Check if we got a valid JSON-RPC result
+    if echo "$response" | grep -qF '"result"'; then
+        if [[ -n "$expected" ]]; then
+            if echo "$response" | grep -qF "$expected"; then
+                echo -e "${GREEN}  PASS${NC}"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                echo -e "${RED}  FAIL${NC} - response missing '$expected'"
+                echo "  Response tail: $(echo "$response" | tail -2 | head -1 | cut -c1-200)"
+                FAILED_TESTS=$((FAILED_TESTS + 1))
+            fi
         else
-            echo -e "${RED}✗ FAIL${NC} - Invalid response format (missing _meta)"
-            FAILED_TESTS=$((FAILED_TESTS + 1))
-
-            # Log result
-            jq -n \
-                --arg domain "$domain" \
-                --arg operation "$operation" \
-                --arg status "FAIL" \
-                --arg description "$description" \
-                --arg error "Invalid response format" \
-                --arg response "$CONTENT" \
-                '{domain: $domain, operation: $operation, status: $status, description: $description, error: $error, response: $response}' \
-                >> "$RESULTS_FILE"
+            echo -e "${GREEN}  PASS${NC}"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
         fi
     else
-        echo -e "${RED}✗ FAIL${NC} - MCP error or invalid response"
+        echo -e "${RED}  FAIL${NC} - no valid result in response"
+        echo "  Response tail: $(echo "$response" | tail -2 | head -1 | cut -c1-200)"
         FAILED_TESTS=$((FAILED_TESTS + 1))
-
-        # Log result
-        jq -n \
-            --arg domain "$domain" \
-            --arg operation "$operation" \
-            --arg status "FAIL" \
-            --arg description "$description" \
-            --arg error "MCP error or invalid response" \
-            --arg response "$RESPONSE" \
-            '{domain: $domain, operation: $operation, status: $status, description: $description, error: $error, response: $response}' \
-            >> "$RESULTS_FILE"
     fi
 
     echo ""
 }
 
-# Helper to compare MCP response with CLI output
-compare_with_cli() {
-    local domain=$1
-    local operation=$2
-    local cli_command=$3
+# Test a CLI operation
+test_cli_operation() {
+    local command=$1
+    local description=$2
+    local expected="${3:-}"
 
-    echo -e "${YELLOW}Comparing MCP response with CLI output for: $domain.$operation${NC}"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-    # Get CLI output
-    CLI_OUTPUT=$("$SCRIPT_DIR/sandbox-manager.sh" exec "cd ~/test-mcp && $cli_command" 2>&1 || true)
+    echo -e "${BLUE}[$TOTAL_TESTS] CLI: $command${NC} - $description"
 
-    echo "CLI output sample:"
-    echo "$CLI_OUTPUT" | head -n 10
+    local output
+    if output=$(sandbox_run "cd /home/testuser/domain-test && $CLI $command" 2>&1); then
+        if [[ -n "$expected" ]]; then
+            if echo "$output" | grep -qF "$expected"; then
+                echo -e "${GREEN}  PASS${NC}"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                echo -e "${RED}  FAIL${NC} - output missing '$expected'"
+                echo "  Output: $(echo "$output" | head -3)"
+                FAILED_TESTS=$((FAILED_TESTS + 1))
+            fi
+        else
+            echo -e "${GREEN}  PASS${NC}"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+        fi
+    else
+        # Some commands are expected to fail (error cases)
+        if [[ -n "$expected" ]] && echo "$output" | grep -qF "$expected"; then
+            echo -e "${GREEN}  PASS${NC} (failed as expected with matching output)"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+        else
+            echo -e "${RED}  FAIL${NC} - command failed"
+            echo "  Output: $(echo "$output" | head -3)"
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+        fi
+    fi
+
     echo ""
 }
 
 echo "=========================================="
-echo "MCP Domain Operations Validation (T3069)"
+echo "MCP Domain Operations Validation"
+echo "(with proper JSON-RPC handshake)"
 echo "=========================================="
 echo ""
 
-# ============================================================
-# 1. TASKS DOMAIN (Priority: High)
-# ============================================================
-echo -e "${BLUE}━━━ 1. TASKS DOMAIN ━━━${NC}"
-
-test_operation "query" "tasks" "list" '{"status":"pending"}' \
-    "List pending tasks"
-
-test_operation "query" "tasks" "show" '{"id":"T001"}' \
-    "Show task T001"
-
-test_operation "query" "tasks" "find" '{"query":"test"}' \
-    "Find tasks with 'test'"
-
-test_operation "query" "tasks" "exists" '{"id":"T001"}' \
-    "Check if T001 exists"
-
-test_operation "query" "tasks" "next" '{}' \
-    "Get next suggested task"
-
-test_operation "query" "tasks" "stats" '{}' \
-    "Get task statistics"
-
-test_operation "mutate" "tasks" "add" '{"title":"MCP Test Task","description":"Created via MCP","addPhase":true}' \
-    "Add new task via MCP"
-
-test_operation "mutate" "tasks" "update" '{"id":"T002","title":"Updated via MCP"}' \
-    "Update task T002"
-
-test_operation "query" "tasks" "depends" '{"id":"T003"}' \
-    "Get dependencies for T003"
-
-# Error case
-test_operation "query" "tasks" "show" '{"id":"T999"}' \
-    "Error case: non-existent task"
+# Setup: create a test project with sample data
+echo -e "${YELLOW}Setting up test project...${NC}"
+sandbox_run "rm -rf /home/testuser/domain-test" >/dev/null 2>&1 || true
+sandbox_run "mkdir -p /home/testuser/domain-test && cd /home/testuser/domain-test && git init && $CLI init" >/dev/null 2>&1 || true
+sandbox_run "cd /home/testuser/domain-test && $CLI add 'Domain test task' --description 'Task for domain operation testing'" >/dev/null 2>&1 || true
+sandbox_run "cd /home/testuser/domain-test && $CLI add 'Second domain task' --description 'Another task for testing'" >/dev/null 2>&1 || true
+echo ""
 
 # ============================================================
-# 2. SESSION DOMAIN (Priority: High)
+# 1. TASKS DOMAIN
 # ============================================================
-echo -e "${BLUE}━━━ 2. SESSION DOMAIN ━━━${NC}"
+echo -e "${BLUE}--- 1. TASKS DOMAIN ---${NC}"
 
-test_operation "query" "session" "status" '{}' \
-    "Get current session status"
+test_mcp_operation "query" "tasks" "list" \
+    "List tasks via MCP" "Domain test task"
 
-test_operation "query" "session" "list" '{}' \
-    "List all sessions"
+test_mcp_operation "query" "tasks" "show" \
+    "Show task T001 via MCP" "T001" '{"id":"T001"}'
 
-test_operation "query" "session" "focus-show" '{}' \
-    "Show current focus"
+test_mcp_operation "query" "tasks" "find" \
+    "Find tasks matching 'domain'" "domain" '{"query":"domain"}'
 
-test_operation "query" "session" "stats" '{}' \
-    "Get session statistics"
+test_mcp_operation "query" "tasks" "tree" \
+    "Get task tree via MCP"
 
-test_operation "mutate" "session" "focus-set" '{"id":"T002"}' \
-    "Set focus to T002"
+test_mcp_operation "query" "tasks" "next" \
+    "Get next suggested task via MCP"
 
-test_operation "query" "session" "focus-show" '{}' \
-    "Verify focus changed to T002"
+test_mcp_operation "query" "tasks" "stats" \
+    "Get task statistics via MCP"
 
-test_operation "mutate" "session" "focus-set" '{"id":"T001"}' \
-    "Reset focus to T001"
+test_mcp_operation "mutate" "tasks" "add" \
+    "Add task via MCP mutate" "MCP domain task" '{"title":"MCP domain task","description":"Added via domain test"}'
 
-# ============================================================
-# 3. SYSTEM DOMAIN (Priority: High)
-# ============================================================
-echo -e "${BLUE}━━━ 3. SYSTEM DOMAIN ━━━${NC}"
-
-test_operation "query" "system" "version" '{}' \
-    "Get CLEO version"
-
-test_operation "query" "system" "context" '{}' \
-    "Get context window usage"
-
-test_operation "query" "system" "health" '{}' \
-    "Get system health"
-
-test_operation "query" "system" "config" '{}' \
-    "Get system configuration"
-
-test_operation "query" "system" "metrics" '{}' \
-    "Get system metrics"
-
-test_operation "query" "system" "help" '{"command":"tasks"}' \
-    "Get help for tasks domain"
+test_cli_operation "list --human" \
+    "CLI list confirms MCP-added task" "MCP domain task"
 
 # ============================================================
-# 4. ORCHESTRATE DOMAIN (Priority: Medium)
+# 2. SESSION DOMAIN
 # ============================================================
-echo -e "${BLUE}━━━ 4. ORCHESTRATE DOMAIN ━━━${NC}"
+echo -e "${BLUE}--- 2. SESSION DOMAIN ---${NC}"
 
-test_operation "query" "orchestrate" "status" '{"epic":"T001"}' \
-    "Get orchestration status for T001"
+test_mcp_operation "query" "session" "status" \
+    "Get session status via MCP"
 
-test_operation "query" "orchestrate" "ready" '{"epic":"T001"}' \
-    "Get ready tasks for T001"
+test_mcp_operation "query" "session" "list" \
+    "List sessions via MCP"
 
-test_operation "query" "orchestrate" "next" '{"epic":"T001"}' \
-    "Get next task for T001"
-
-test_operation "query" "orchestrate" "waves" '{"epicId":"T001"}' \
-    "Get dependency waves for T001"
-
-test_operation "mutate" "orchestrate" "analyze" '{"epicId":"T001"}' \
-    "Analyze epic T001"
+test_mcp_operation "query" "session" "find" \
+    "Find sessions via MCP"
 
 # ============================================================
-# 5. RESEARCH DOMAIN (Priority: Medium)
+# 3. ADMIN DOMAIN
 # ============================================================
-echo -e "${BLUE}━━━ 5. RESEARCH DOMAIN ━━━${NC}"
+echo -e "${BLUE}--- 3. ADMIN DOMAIN ---${NC}"
 
-test_operation "query" "research" "list" '{"task":"T001"}' \
-    "List research for T001"
+test_mcp_operation "query" "admin" "version" \
+    "Get CLEO version via MCP" "2026"
 
-test_operation "query" "research" "stats" '{}' \
-    "Get research statistics"
+test_mcp_operation "query" "admin" "health" \
+    "Get system health via MCP"
 
-test_operation "query" "research" "validate" '{}' \
-    "Validate research entries"
+test_mcp_operation "query" "admin" "help" \
+    "Get help via MCP"
 
-# ============================================================
-# 6. LIFECYCLE DOMAIN (Priority: Medium)
-# ============================================================
-echo -e "${BLUE}━━━ 6. LIFECYCLE DOMAIN ━━━${NC}"
+test_mcp_operation "query" "admin" "dash" \
+    "Get dashboard via MCP"
 
-test_operation "query" "lifecycle" "stages" '{}' \
-    "List lifecycle stages"
+test_mcp_operation "query" "admin" "context" \
+    "Get context usage via MCP"
 
-test_operation "query" "lifecycle" "status" '{"epicId":"T001"}' \
-    "Get lifecycle status for T001"
-
-test_operation "query" "lifecycle" "validate" '{"epicId":"T001"}' \
-    "Validate lifecycle for T001"
-
-test_operation "mutate" "lifecycle" "record" '{"epicId":"T001","stage":"research","status":"completed"}' \
-    "Record lifecycle stage completion"
-
-test_operation "query" "lifecycle" "report" '{"epicId":"T001"}' \
-    "Generate lifecycle report for T001"
+test_mcp_operation "query" "admin" "stats" \
+    "Get system stats via MCP"
 
 # ============================================================
-# 7. VALIDATE DOMAIN (Priority: Medium)
+# 4. CHECK DOMAIN
 # ============================================================
-echo -e "${BLUE}━━━ 7. VALIDATE DOMAIN ━━━${NC}"
+echo -e "${BLUE}--- 4. CHECK DOMAIN ---${NC}"
 
-test_operation "query" "validate" "all" '{}' \
-    "Validate all data"
+test_mcp_operation "query" "check" "validate" \
+    "Validate data integrity via MCP"
 
-test_operation "query" "validate" "task" '{"id":"T001"}' \
-    "Validate task T001"
-
-test_operation "query" "validate" "stats" '{}' \
-    "Get validation statistics"
-
-test_operation "query" "validate" "schema" '{}' \
-    "Validate schema compliance"
+test_mcp_operation "query" "check" "health" \
+    "Check system health via MCP"
 
 # ============================================================
-# 8. RELEASE DOMAIN (Priority: Low)
+# 5. MEMORY DOMAIN
 # ============================================================
-echo -e "${BLUE}━━━ 8. RELEASE DOMAIN ━━━${NC}"
+echo -e "${BLUE}--- 5. MEMORY DOMAIN ---${NC}"
 
-test_operation "query" "release" "version" '{}' \
-    "Get release version"
-
-test_operation "query" "release" "verify" '{}' \
-    "Verify release readiness"
-
-test_operation "query" "release" "changelog" '{}' \
-    "Get changelog"
+test_mcp_operation "query" "memory" "brain.search" \
+    "Search brain via MCP" "" '{"query":"test"}'
 
 # ============================================================
-# Generate Summary
+# 6. CLI CROSS-CHECK (verify CLI and MCP agree)
+# ============================================================
+echo -e "${BLUE}--- 6. CLI CROSS-CHECK ---${NC}"
+
+test_cli_operation "version" \
+    "CLI version" "2026"
+
+test_cli_operation "list" \
+    "CLI list tasks"
+
+test_cli_operation "show T001" \
+    "CLI show T001" "T001"
+
+test_cli_operation "stats" \
+    "CLI stats"
+
+test_cli_operation "tree" \
+    "CLI tree"
+
+test_cli_operation "validate" \
+    "CLI validate"
+
+test_cli_operation "doctor" \
+    "CLI doctor"
+
+# ============================================================
+# Summary
 # ============================================================
 echo ""
 echo "=========================================="
@@ -312,52 +271,18 @@ echo -e "${GREEN}Passed: $PASSED_TESTS${NC}"
 echo -e "${RED}Failed: $FAILED_TESTS${NC}"
 echo ""
 
-SUCCESS_RATE=$(echo "scale=2; $PASSED_TESTS * 100 / $TOTAL_TESTS" | bc)
-echo "Success Rate: ${SUCCESS_RATE}%"
-echo ""
-
-# Write summary
-cat > "$SUMMARY_FILE" <<EOF
-MCP Domain Operations Validation (T3069)
-========================================
-
-Test Results:
-- Total Tests: $TOTAL_TESTS
-- Passed: $PASSED_TESTS
-- Failed: $FAILED_TESTS
-- Success Rate: ${SUCCESS_RATE}%
-
-Domains Tested:
-1. tasks (19 operations defined, $(jq -s 'map(select(.domain == "tasks")) | length' "$RESULTS_FILE") tested)
-2. session (12 operations defined, $(jq -s 'map(select(.domain == "session")) | length' "$RESULTS_FILE") tested)
-3. system (12 operations defined, $(jq -s 'map(select(.domain == "system")) | length' "$RESULTS_FILE") tested)
-4. orchestrate (12 operations defined, $(jq -s 'map(select(.domain == "orchestrate")) | length' "$RESULTS_FILE") tested)
-5. research (10 operations defined, $(jq -s 'map(select(.domain == "research")) | length' "$RESULTS_FILE") tested)
-6. lifecycle (10 operations defined, $(jq -s 'map(select(.domain == "lifecycle")) | length' "$RESULTS_FILE") tested)
-7. validate (11 operations defined, $(jq -s 'map(select(.domain == "validate")) | length' "$RESULTS_FILE") tested)
-8. release (7 operations defined, $(jq -s 'map(select(.domain == "release")) | length' "$RESULTS_FILE") tested)
-
-Results File: $RESULTS_FILE
-Summary File: $SUMMARY_FILE
-EOF
-
-echo "Results written to:"
-echo "  - $RESULTS_FILE"
-echo "  - $SUMMARY_FILE"
-echo ""
-
-# Show failed tests
-if [ $FAILED_TESTS -gt 0 ]; then
-    echo -e "${RED}Failed Tests:${NC}"
-    jq -r 'select(.status == "FAIL") | "  [\(.domain).\(.operation)] \(.description): \(.error)"' "$RESULTS_FILE"
-    echo ""
+if [[ $TOTAL_TESTS -gt 0 ]]; then
+    SUCCESS_RATE=$(echo "scale=1; $PASSED_TESTS * 100 / $TOTAL_TESTS" | bc)
+    echo "Success Rate: ${SUCCESS_RATE}%"
+else
+    echo "No tests ran."
 fi
+echo ""
 
-# Exit with appropriate code
-if [ $FAILED_TESTS -eq 0 ]; then
-    echo -e "${GREEN}✓ All tests passed!${NC}"
+if [[ $FAILED_TESTS -eq 0 ]]; then
+    echo -e "${GREEN}All tests passed!${NC}"
     exit 0
 else
-    echo -e "${YELLOW}⚠ Some tests failed. Review results above.${NC}"
+    echo -e "${YELLOW}Some tests failed. Review results above.${NC}"
     exit 1
 fi

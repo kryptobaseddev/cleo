@@ -65,6 +65,11 @@
   ],
   "author": "CLEO Development Team",
   "license": "MIT",
+  "workspaces": [
+    "packages/contracts",
+    "packages/shared",
+    "packages/adapters/*"
+  ],
   "files": [
     "dist",
     "migrations",
@@ -77,12 +82,11 @@
     "packages/ct-skills/skills",
     "completions",
     "server.json",
-    "bin",
-    ".claude-plugin"
+    "bin"
   ],
   "dependencies": {
     "@cleocode/caamp": "^1.7.0",
-    "@cleocode/lafs-protocol": "^1.6.0",
+    "@cleocode/lafs-protocol": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

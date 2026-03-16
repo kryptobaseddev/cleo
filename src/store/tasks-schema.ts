@@ -231,6 +231,8 @@ export const sessions = sqliteTable(
     handoffConsumedAt: text('handoff_consumed_at'),
     handoffConsumedBy: text('handoff_consumed_by'),
     debriefJson: text('debrief_json'),
+    // Provider adapter tracking (T5240)
+    providerId: text('provider_id'),
     // Session stats columns (type unification)
     statsJson: text('stats_json'),
     resumeCount: integer('resume_count'),

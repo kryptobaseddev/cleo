@@ -551,6 +551,22 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // T4684: NEXUS registration (reconcile-based handshake, T5368)
   await initNexusRegistration(projRoot, created, warnings);
 
+  // T5240: Adapter discovery — scan packages/adapters/ and detect active provider
+  try {
+    const { AdapterManager } = await import('./adapters/index.js');
+    const mgr = AdapterManager.getInstance(projRoot);
+    const manifests = mgr.discover();
+    if (manifests.length > 0) {
+      created.push(`adapters: ${manifests.length} adapter(s) discovered`);
+      const detected = mgr.detectActive();
+      if (detected.length > 0) {
+        created.push(`adapters: active provider detected (${detected.join(', ')})`);
+      }
+    }
+  } catch (err) {
+    warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // Remove .cleo/ from root .gitignore if present
   const rootGitignoreResult = await removeCleoFromRootGitignore(projRoot);
   if (rootGitignoreResult.removed) {

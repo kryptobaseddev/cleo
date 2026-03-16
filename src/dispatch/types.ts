@@ -192,7 +192,7 @@ export interface RateLimitMeta {
 export interface DispatchError {
   /** Machine-readable error code (E_NOT_FOUND, E_VALIDATION_FAILED, …). */
   code: string;
-  /** LAFS exit code (1-94). */
+  /** LAFS exit code (1-99). */
   exitCode?: number;
   /** Human-readable message. */
   message: string;
@@ -202,6 +202,8 @@ export interface DispatchError {
   fix?: string;
   /** Alternative actions the caller can try. */
   alternatives?: Array<{ action: string; command: string }>;
+  /** RFC 9457 Problem Details (optional, populated from CleoError.toProblemDetails()). */
+  problemDetails?: import('../core/errors.js').ProblemDetails;
 }
 
 /**

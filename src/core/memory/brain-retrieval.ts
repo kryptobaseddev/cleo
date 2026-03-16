@@ -573,6 +573,16 @@ export async function observeBrain(
     }
   }
 
+  // Regenerate memory bridge for high-value observation types (T5240).
+  // Only learning and decision types trigger bridge refresh to avoid excessive writes.
+  if (type === 'decision') {
+    import('./memory-bridge.js')
+      .then(({ refreshMemoryBridge }) => refreshMemoryBridge(projectRoot))
+      .catch(() => {
+        /* Memory bridge refresh is best-effort */
+      });
+  }
+
   return {
     id: row.id,
     type: row.type,

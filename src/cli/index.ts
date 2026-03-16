@@ -41,7 +41,7 @@ class GroupedHelp extends Help {
       'history',
     ],
     Session: ['session', 'briefing', 'phase', 'checkpoint', 'safestop'],
-    Memory: ['memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note'],
+    Memory: ['memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note', 'refresh-memory'],
     Check: ['validate', 'verify', 'compliance', 'doctor', 'analyze'],
     Pipeline: [
       'release',
@@ -322,6 +322,8 @@ import { registerSnapshotCommand } from './commands/snapshot.js';
 import { registerSpecificationCommand } from './commands/specification.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStatsCommand } from './commands/stats.js';
+// T5240: Memory bridge refresh command
+import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
 // T5281: Sticky notes command
 import { registerStickyCommand } from './commands/sticky.js';
 import { registerStopCommand } from './commands/stop.js';
@@ -531,6 +533,9 @@ registerMigrateClaudeMemCommand(program);
 
 // T5281: Sticky notes command
 registerStickyCommand(program);
+
+// T5240: Memory bridge refresh command
+registerRefreshMemoryCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

@@ -4,6 +4,9 @@
  * Registry to manage multiple spawn adapters for different providers.
  * Provides adapter lookup by ID, by provider, and filtering by capability.
  *
+ * Delegates to adapter packages in packages/adapters/ via bridge adapters
+ * that map between CLEOSpawnAdapter and AdapterSpawnProvider interfaces.
+ *
  * @task T5236
  * @phase 1C
  */
@@ -14,7 +17,8 @@ import {
   type Provider,
   providerSupportsById,
 } from '@cleocode/caamp';
-import type { CLEOSpawnAdapter } from '../../types/spawn.js';
+import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
+import type { CLEOSpawnAdapter, CLEOSpawnContext, CLEOSpawnResult } from '../../types/spawn.js';
 
 /**
  * Spawn capability type - subset of provider capabilities related to spawning
@@ -159,22 +163,99 @@ export function hasParallelSpawnProvider(): boolean {
 export const spawnRegistry = new SpawnAdapterRegistry();
 
 /**
+ * Bridge an AdapterSpawnProvider (from packages/adapters/) to CLEOSpawnAdapter.
+ *
+ * Maps between the contracts-based SpawnContext/SpawnResult types and the
+ * CLEO-specific CLEOSpawnContext/CLEOSpawnResult types used by the orchestrate
+ * engine and spawn registry.
+ *
+ * @param providerId - Provider identifier (e.g. 'claude-code', 'opencode')
+ * @param delegate - The underlying AdapterSpawnProvider instance
+ * @returns A CLEOSpawnAdapter wrapping the delegate
+ */
+function bridgeSpawnAdapter(
+  providerId: string,
+  delegate: AdapterSpawnProvider,
+): CLEOSpawnAdapter {
+  return {
+    id: providerId,
+    providerId,
+
+    canSpawn(): Promise<boolean> {
+      return delegate.canSpawn();
+    },
+
+    async spawn(context: CLEOSpawnContext): Promise<CLEOSpawnResult> {
+      const contractContext: SpawnContext = {
+        taskId: context.taskId,
+        prompt: context.prompt,
+        workingDirectory: context.workingDirectory,
+        options: context.options as unknown as Record<string, unknown> | undefined,
+      };
+      const result: SpawnResult = await delegate.spawn(contractContext);
+      return {
+        instanceId: result.instanceId,
+        status: result.status as CLEOSpawnResult['status'],
+        taskId: result.taskId,
+        providerId: result.providerId,
+        timing: {
+          startTime: result.startTime,
+          endTime: result.endTime,
+        },
+      };
+    },
+
+    async listRunning(): Promise<CLEOSpawnResult[]> {
+      const results: SpawnResult[] = await delegate.listRunning();
+      return results.map((r) => ({
+        instanceId: r.instanceId,
+        status: r.status as CLEOSpawnResult['status'],
+        taskId: r.taskId,
+        providerId: r.providerId,
+        timing: {
+          startTime: r.startTime,
+          endTime: r.endTime,
+        },
+      }));
+    },
+
+    terminate(instanceId: string): Promise<void> {
+      return delegate.terminate(instanceId);
+    },
+  };
+}
+
+/**
  * Initialize the registry with default adapters.
  *
- * This function registers the built-in adapters for supported providers.
- * Currently registers the Claude Code adapter; additional adapters will
- * be added as they are implemented.
+ * Dynamically imports spawn providers from the adapter packages
+ * (packages/adapters/claude-code/ and packages/adapters/opencode/)
+ * and wraps them as CLEOSpawnAdapters via the bridge function.
  *
  * @returns Promise that resolves when initialization is complete
  */
 export async function initializeDefaultAdapters(): Promise<void> {
   if (!spawnRegistry.hasAdapterForProvider('claude-code')) {
-    const { ClaudeCodeSpawnAdapter } = await import('./adapters/claude-code-adapter.js');
-    spawnRegistry.register(new ClaudeCodeSpawnAdapter());
+    try {
+      const { ClaudeCodeSpawnProvider } = await import(
+        /* webpackIgnore: true */
+        '@cleocode/adapter-claude-code'
+      );
+      spawnRegistry.register(bridgeSpawnAdapter('claude-code', new ClaudeCodeSpawnProvider()));
+    } catch {
+      // Adapter package not available — skip registration
+    }
   }
 
   if (!spawnRegistry.hasAdapterForProvider('opencode')) {
-    const { OpenCodeSpawnAdapter } = await import('./adapters/opencode-adapter.js');
-    spawnRegistry.register(new OpenCodeSpawnAdapter());
+    try {
+      const { OpenCodeSpawnProvider } = await import(
+        /* webpackIgnore: true */
+        '@cleocode/adapter-opencode'
+      );
+      spawnRegistry.register(bridgeSpawnAdapter('opencode', new OpenCodeSpawnProvider()));
+    } catch {
+      // Adapter package not available — skip registration
+    }
   }
 }

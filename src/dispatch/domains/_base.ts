@@ -8,6 +8,7 @@
  * @epic T5671
  */
 
+import type { ProblemDetails } from '../../core/errors.js';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 
@@ -26,6 +27,7 @@ export interface EngineResult {
     exitCode?: number;
     fix?: string;
     alternatives?: Array<{ action: string; command: string }>;
+    problemDetails?: ProblemDetails;
   };
 }
 
@@ -54,6 +56,7 @@ export function wrapResult(
             exitCode: result.error.exitCode,
             fix: result.error.fix,
             alternatives: result.error.alternatives,
+            ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
           },
         }
       : {}),

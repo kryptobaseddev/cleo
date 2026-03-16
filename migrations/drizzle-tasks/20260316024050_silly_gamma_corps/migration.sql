@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `provider_id` text;
