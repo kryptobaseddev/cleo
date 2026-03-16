@@ -97,8 +97,19 @@ export async function checkEpicCompleteness(
     // Find all children of this epic
     const allChildren = data.tasks.filter((t) => t.parentId === epicId && t.id !== epicId);
     const includedSet = new Set(includedTasks);
+    // Build set of parent task IDs (tasks with children) — these are filtered out
+    // by prepareRelease and should not be flagged as missing.
+    const parentIds = new Set(data.tasks.filter((t) => t.parentId).map((t) => t.parentId!));
+    // Only flag done leaf tasks not included in the release — pending/active/blocked
+    // tasks are future work, and parent tasks are structural (excluded by prepareRelease).
     const missingChildren = allChildren
-      .filter((t) => !includedSet.has(t.id) && !releaseSet.has(t.id))
+      .filter(
+        (t) =>
+          t.status === 'done' &&
+          !parentIds.has(t.id) &&
+          !includedSet.has(t.id) &&
+          !releaseSet.has(t.id),
+      )
       .map((t) => ({ id: t.id, title: t.title, status: t.status }));
 
     if (missingChildren.length > 0) hasIncomplete = true;
