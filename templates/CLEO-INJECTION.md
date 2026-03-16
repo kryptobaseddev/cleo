@@ -96,6 +96,17 @@ mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery
 - Fetching all entries without searching first (expensive)
 - Skipping brain.search and going straight to brain.fetch
 
+## Memory Bridge
+
+CLEO auto-generates `.cleo/memory-bridge.md` from brain.db content. This file is `@`-referenced
+in AGENTS.md so providers automatically load project memory context at session start.
+
+**Contents**: Last session handoff, key learnings, active patterns, recent decisions, recent observations.
+
+**Refreshes on**: `session.end`, `tasks.complete`, `memory.observe` (decisions), `cleo refresh-memory`.
+
+If the file is missing, run `cleo init` or `cleo refresh-memory` to regenerate it.
+
 ## Escalation
 
 For deeper guidance beyond this minimal protocol:

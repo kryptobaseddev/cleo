@@ -1,27 +1,28 @@
 /**
- * Statusline setup helper - Claude Code status line integration.
+ * Statusline integration for the Claude Code adapter.
  *
+ * Implements the statusline portion of AdapterContextMonitorProvider.
  * Checks and configures Claude Code status line for context monitoring.
  *
- * @task T4454
- * @epic T4454
+ * @task T5240
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getCleoHome } from '../paths.js';
 
-/** Inline Claude settings path to decouple from provider-specific paths (T5240). */
+type StatuslineStatus = 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
+
+/**
+ * Get the path to Claude Code's settings.json.
+ * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
+ */
 function getClaudeSettingsPath(): string {
   return process.env['CLAUDE_SETTINGS'] ?? join(
     process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
     'settings.json',
   );
 }
-
-/** Statusline integration status. */
-export type StatuslineStatus = 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
 
 /**
  * Check if statusline integration is configured.
@@ -72,9 +73,7 @@ export function checkStatuslineIntegration(): StatuslineStatus {
 /**
  * Get the statusline setup command for Claude Code settings.
  */
-export function getStatuslineConfig(): Record<string, unknown> {
-  const cleoHome = getCleoHome();
-
+export function getStatuslineConfig(cleoHome: string): Record<string, unknown> {
   return {
     statusLine: {
       type: 'command',
@@ -86,14 +85,14 @@ export function getStatuslineConfig(): Record<string, unknown> {
 /**
  * Get human-readable setup instructions.
  */
-export function getSetupInstructions(): string {
+export function getSetupInstructions(cleoHome: string): string {
   const settingsPath = getClaudeSettingsPath();
 
   return [
     'To enable context monitoring, add to your Claude Code settings:',
     `File: ${settingsPath}`,
     '',
-    JSON.stringify(getStatuslineConfig(), null, 2),
+    JSON.stringify(getStatuslineConfig(cleoHome), null, 2),
     '',
     'This enables real-time context window tracking in the CLI.',
   ].join('\n');

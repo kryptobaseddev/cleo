@@ -12,7 +12,11 @@
     "supportsInstall": true,
     "supportsMcp": true,
     "supportsInstructionFiles": true,
-    "instructionFilePattern": "AGENTS.md"
+    "instructionFilePattern": "AGENTS.md",
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": true,
+    "supportsTransport": false
   },
   "detectionPatterns": [
     { "type": "env", "pattern": "OPENCODE_VERSION", "description": "OpenCode sets this env var" },

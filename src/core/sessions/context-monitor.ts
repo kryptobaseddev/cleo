@@ -42,11 +42,26 @@ export function getContextStatusFromPercentage(percentage: number): ContextStatu
 /**
  * Process context window input and write state file.
  * Returns the status line string for display.
+ *
+ * Tries adapter-based context monitoring first; falls back to local implementation.
  */
 export async function processContextInput(
   input: ContextWindowInput,
   cwd?: string,
 ): Promise<string> {
+  // Try adapter-based context monitoring first
+  try {
+    const { AdapterManager } = await import('../adapters/index.js');
+    const mgr = AdapterManager.getInstance(cwd ?? process.cwd());
+    const adapter = mgr.getActive();
+    if (adapter?.contextMonitor) {
+      return adapter.contextMonitor.processContextInput(input, cwd);
+    }
+  } catch {
+    // Adapter not available, fall through to local implementation
+  }
+
+  // Fallback: local implementation for backward compatibility
   const contextSize = input.context_window?.context_window_size ?? 200000;
   const usage = input.context_window?.current_usage;
 

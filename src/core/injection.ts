@@ -137,6 +137,12 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     agentsMdLines.push('@.cleo/project-context.json');
   }
 
+  // Memory bridge: auto-generated project memory context (T5240)
+  const memoryBridgePath = join(projectRoot, '.cleo', 'memory-bridge.md');
+  if (existsSync(memoryBridgePath)) {
+    agentsMdLines.push('@.cleo/memory-bridge.md');
+  }
+
   // Contributor project warning (ADR-029): inject dev-channel guidance when
   // this project IS the CLEO source repo, so agents use cleo-dev not @latest.
   const contributorBlock = buildContributorInjectionBlock(projectRoot);

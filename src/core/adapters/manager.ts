@@ -11,7 +11,10 @@ import type {
   AdapterManifest,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { hooks } from '../hooks/registry.js';
+import type { HookEvent, HookPayload } from '../hooks/types.js';
 import { getLogger } from '../logger.js';
+import { ADAPTER_REGISTRY } from './adapter-registry.js';
 import { detectProvider, discoverAdapterManifests } from './discovery.js';
 
 const log = getLogger('adapter-manager');
@@ -40,6 +43,7 @@ export class AdapterManager {
 
   private adapters = new Map<string, CLEOProviderAdapter>();
   private manifests = new Map<string, AdapterManifest>();
+  private hookCleanups = new Map<string, Array<() => void>>();
   private activeId: string | null = null;
   private projectRoot: string;
 
@@ -89,7 +93,7 @@ export class AdapterManager {
 
   /**
    * Load and initialize an adapter by manifest ID.
-   * The adapter module is dynamically imported from the manifest's entryPoint.
+   * Uses the static adapter registry for reliable bundled operation.
    */
   async activate(adapterId: string): Promise<CLEOProviderAdapter> {
     const manifest = this.manifests.get(adapterId);
@@ -104,28 +108,23 @@ export class AdapterManager {
       return existing;
     }
 
-    // Dynamic import of the adapter module
-    const { resolve } = await import('node:path');
-    const entryPath = resolve(
-      this.projectRoot,
-      'packages',
-      'adapters',
-      manifest.provider,
-      manifest.entryPoint,
-    );
+    // Static registry lookup (replaces dynamic import)
+    const factory = ADAPTER_REGISTRY[adapterId];
+    if (!factory) {
+      throw new Error(`No adapter registered in static registry: ${adapterId}`);
+    }
 
     try {
-      const mod = await import(entryPath);
-      const adapter: CLEOProviderAdapter =
-        typeof mod.default === 'function'
-          ? new mod.default()
-          : typeof mod.createAdapter === 'function'
-            ? await mod.createAdapter()
-            : mod.default;
-
+      const adapter = await factory();
       await adapter.initialize(this.projectRoot);
       this.adapters.set(adapterId, adapter);
       this.activeId = adapterId;
+
+      // Wire hooks into HookRegistry
+      if (adapter.hooks) {
+        await this.wireAdapterHooks(adapterId, adapter);
+      }
+
       log.info({ adapterId, provider: manifest.provider }, 'Adapter activated');
       return adapter;
     } catch (err) {
@@ -215,6 +214,8 @@ export class AdapterManager {
   async dispose(): Promise<void> {
     for (const [id, adapter] of this.adapters) {
       try {
+        // Clean up hooks first
+        await this.cleanupAdapterHooks(id, adapter);
         await adapter.dispose();
         log.info({ adapterId: id }, 'Adapter disposed');
       } catch (err) {
@@ -222,6 +223,7 @@ export class AdapterManager {
       }
     }
     this.adapters.clear();
+    this.hookCleanups.clear();
     this.activeId = null;
   }
 
@@ -230,6 +232,7 @@ export class AdapterManager {
     const adapter = this.adapters.get(adapterId);
     if (!adapter) return;
     try {
+      await this.cleanupAdapterHooks(adapterId, adapter);
       await adapter.dispose();
     } catch (err) {
       log.error({ adapterId, err }, 'Failed to dispose adapter');
@@ -237,6 +240,61 @@ export class AdapterManager {
     this.adapters.delete(adapterId);
     if (this.activeId === adapterId) {
       this.activeId = null;
+    }
+  }
+
+  /**
+   * Wire an adapter's hook event map into CLEO's HookRegistry.
+   * Creates bridging handlers at priority 50 for each mapped event.
+   */
+  private async wireAdapterHooks(adapterId: string, adapter: CLEOProviderAdapter): Promise<void> {
+    if (!adapter.hooks) return;
+
+    try {
+      await adapter.hooks.registerNativeHooks(this.projectRoot);
+    } catch (err) {
+      log.error({ adapterId, err }, 'Failed to register native hooks');
+    }
+
+    const eventMap = adapter.hooks.getEventMap?.();
+    if (!eventMap) return;
+
+    const cleanups: Array<() => void> = [];
+
+    for (const [_providerEvent, caampEvent] of Object.entries(eventMap)) {
+      const hookId = `adapter-${adapterId}-${caampEvent}`;
+      const unregister = hooks.register({
+        id: hookId,
+        event: caampEvent as HookEvent,
+        priority: 50,
+        handler: async (_projectRoot: string, payload: HookPayload) => {
+          log.debug({ adapterId, event: caampEvent, payload }, 'Adapter hook dispatched');
+        },
+      });
+      cleanups.push(unregister);
+    }
+
+    this.hookCleanups.set(adapterId, cleanups);
+  }
+
+  /**
+   * Clean up hook registrations for an adapter.
+   */
+  private async cleanupAdapterHooks(adapterId: string, adapter: CLEOProviderAdapter): Promise<void> {
+    // Unregister from HookRegistry
+    const cleanups = this.hookCleanups.get(adapterId);
+    if (cleanups) {
+      for (const fn of cleanups) {
+        fn();
+      }
+      this.hookCleanups.delete(adapterId);
+    }
+
+    // Unregister native hooks
+    try {
+      await adapter.hooks?.unregisterNativeHooks();
+    } catch (err) {
+      log.error({ adapterId, err }, 'Failed to unregister native hooks');
     }
   }
 }

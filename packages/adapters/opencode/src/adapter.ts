@@ -50,6 +50,10 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
     supportsMcp: true,
     supportsInstructionFiles: true,
     instructionFilePattern: 'AGENTS.md',
+    supportsContextMonitor: false,
+    supportsStatusline: false,
+    supportsProviderPaths: true,
+    supportsTransport: false,
   };
 
   hooks: OpenCodeHookProvider;

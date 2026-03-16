@@ -40,6 +40,10 @@ export class CursorAdapter implements CLEOProviderAdapter {
     supportsMcp: true,
     supportsInstructionFiles: true,
     instructionFilePattern: '.cursor/rules/*.mdc',
+    supportsContextMonitor: false,
+    supportsStatusline: false,
+    supportsProviderPaths: true,
+    supportsTransport: false,
   };
 
   hooks: CursorHookProvider;

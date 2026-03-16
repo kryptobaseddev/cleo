@@ -43,6 +43,7 @@ import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { getAgentsHome, getCleoDirAbsolute, getProjectRoot } from './paths.js';
 // Shared utility imports
 import {
+  ensureBrainDb,
   ensureCleoGitRepo,
   ensureCleoStructure,
   ensureConfig,
@@ -53,6 +54,7 @@ import {
   removeCleoFromRootGitignore,
 } from './scaffold.js';
 import { ensureGlobalSchemas } from './schema-management.js';
+import { writeMemoryBridge } from './memory/memory-bridge.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -404,6 +406,16 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     created.push(`tasks.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
 
+  // Initialize brain.db for BRAIN memory system
+  try {
+    const brainResult = await ensureBrainDb(projRoot);
+    if (brainResult.action === 'created') {
+      created.push('brain.db');
+    }
+  } catch (err) {
+    created.push(`brain.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
+  }
+
   // T4681: Create .cleo/.gitignore (respect force flag)
   if (force) {
     // When force is set, always overwrite — ensureGitignore does content-comparison only
@@ -551,7 +563,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // T4684: NEXUS registration (reconcile-based handshake, T5368)
   await initNexusRegistration(projRoot, created, warnings);
 
-  // T5240: Adapter discovery — scan packages/adapters/ and detect active provider
+  // T5240: Adapter discovery, activation, and install
   try {
     const { AdapterManager } = await import('./adapters/index.js');
     const mgr = AdapterManager.getInstance(projRoot);
@@ -561,10 +573,37 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
       const detected = mgr.detectActive();
       if (detected.length > 0) {
         created.push(`adapters: active provider detected (${detected.join(', ')})`);
+
+        // Activate and install detected adapters
+        for (const adapterId of detected) {
+          try {
+            const adapter = await mgr.activate(adapterId);
+            const installResult = await adapter.install.install({
+              projectDir: projRoot,
+            });
+            if (installResult.success) {
+              created.push(`adapter install (${adapterId}): installed`);
+            } else {
+              warnings.push(`adapter install (${adapterId}): failed`);
+            }
+          } catch (err) {
+            warnings.push(`adapter activate/install (${adapterId}): ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
   } catch (err) {
     warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Generate memory-bridge.md from brain.db content
+  try {
+    const bridgeResult = await writeMemoryBridge(projRoot);
+    if (bridgeResult.written) {
+      created.push('memory-bridge.md');
+    }
+  } catch (err) {
+    warnings.push(`Memory bridge: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Remove .cleo/ from root .gitignore if present

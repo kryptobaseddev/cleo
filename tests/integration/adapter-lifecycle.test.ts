@@ -181,6 +181,88 @@ describe('adapter lifecycle integration', () => {
     });
   });
 
+  describe('adapter activation', () => {
+    beforeEach(() => {
+      AdapterManager.resetInstance();
+    });
+
+    afterEach(async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      await mgr.dispose();
+      AdapterManager.resetInstance();
+    });
+
+    it('should activate claude-code adapter from dynamic import', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const adapter = await mgr.activate('claude-code');
+      expect(adapter).toBeDefined();
+      expect(adapter.id).toBe('claude-code');
+      expect(mgr.getActiveId()).toBe('claude-code');
+    });
+
+    it('activated adapter should have new capability flags', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const adapter = await mgr.activate('claude-code');
+      expect(adapter.capabilities.supportsContextMonitor).toBe(true);
+      expect(adapter.capabilities.supportsProviderPaths).toBe(true);
+      expect(adapter.capabilities.supportsStatusline).toBe(true);
+      expect(adapter.capabilities.supportsTransport).toBe(true);
+    });
+
+    it('activated adapter should have paths provider', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const adapter = await mgr.activate('claude-code');
+      expect(adapter.paths).toBeDefined();
+      expect(adapter.paths!.getProviderDir()).toBeTruthy();
+    });
+
+    it('activated adapter should have context monitor provider', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const adapter = await mgr.activate('claude-code');
+      expect(adapter.contextMonitor).toBeDefined();
+      expect(typeof adapter.contextMonitor!.processContextInput).toBe('function');
+      expect(typeof adapter.contextMonitor!.checkStatuslineIntegration).toBe('function');
+    });
+
+    it('activated adapter should have transport provider', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const adapter = await mgr.activate('claude-code');
+      expect(adapter.transport).toBeDefined();
+      expect(adapter.transport!.transportName).toBe('claude-code');
+    });
+
+    it('dispose should clear active adapter', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+      await mgr.activate('claude-code');
+
+      expect(mgr.getActive()).not.toBeNull();
+
+      await mgr.dispose();
+      expect(mgr.getActive()).toBeNull();
+      expect(mgr.getActiveId()).toBeNull();
+    });
+
+    it('re-activate returns cached adapter', async () => {
+      const mgr = AdapterManager.getInstance(PROJECT_ROOT);
+      mgr.discover();
+
+      const first = await mgr.activate('claude-code');
+      const second = await mgr.activate('claude-code');
+      expect(first).toBe(second);
+    });
+  });
+
   describe('error paths', () => {
     it('activate throws for non-existent adapter', async () => {
       AdapterManager.resetInstance();

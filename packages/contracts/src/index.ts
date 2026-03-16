@@ -19,3 +19,6 @@ export type {
   BridgeObservation,
 } from './memory.js';
 export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
+export type { AdapterPathProvider } from './provider-paths.js';
+export type { AdapterContextMonitorProvider } from './context-monitor.js';
+export type { AdapterTransportProvider } from './transport.js';

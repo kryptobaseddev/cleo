@@ -13,4 +13,8 @@ export interface AdapterCapabilities {
   supportsInstructionFiles: boolean;
   /** Provider-specific instruction file name, e.g. "CLAUDE.md", ".cursorrules" */
   instructionFilePattern?: string;
+  supportsContextMonitor: boolean;
+  supportsStatusline: boolean;
+  supportsProviderPaths: boolean;
+  supportsTransport: boolean;
 }

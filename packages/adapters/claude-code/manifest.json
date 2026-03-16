@@ -12,7 +12,11 @@
     "supportsInstall": true,
     "supportsMcp": true,
     "supportsInstructionFiles": true,
-    "instructionFilePattern": "CLAUDE.md"
+    "instructionFilePattern": "CLAUDE.md",
+    "supportsContextMonitor": true,
+    "supportsStatusline": true,
+    "supportsProviderPaths": true,
+    "supportsTransport": true
   },
   "detectionPatterns": [
     { "type": "env", "pattern": "CLAUDE_CODE_ENTRYPOINT", "description": "Claude Code sets this env var" },

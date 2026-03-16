@@ -781,6 +781,36 @@ export async function runUpgrade(
       /* best-effort */
     }
 
+    // Initialize brain.db for BRAIN memory system
+    try {
+      const { ensureBrainDb } = await import('./scaffold.js');
+      const brainResult = await ensureBrainDb(projectRootForMaint);
+      if (brainResult.action !== 'skipped') {
+        actions.push({
+          action: 'ensure_brain_db',
+          status: 'applied',
+          details: brainResult.details ?? 'brain.db initialized',
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    // Regenerate memory-bridge.md
+    try {
+      const { writeMemoryBridge } = await import('./memory/memory-bridge.js');
+      const bridgeResult = await writeMemoryBridge(projectRootForMaint);
+      if (bridgeResult.written) {
+        actions.push({
+          action: 'memory_bridge',
+          status: 'applied',
+          details: 'memory-bridge.md regenerated',
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
     // Remove .cleo/ from root .gitignore if present
     try {
       const rootGitignoreResult = await removeCleoFromRootGitignore(projectRootForMaint);

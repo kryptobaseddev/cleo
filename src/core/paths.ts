@@ -336,6 +336,7 @@ export function getAgentsHome(): string {
 
 /**
  * Get the Claude Code global directory.
+ * @deprecated Use AdapterPathProvider.getProviderDir() from the active adapter instead.
  * Respects CLAUDE_HOME env var, defaults to ~/.claude.
  */
 export function getClaudeDir(): string {
@@ -344,6 +345,7 @@ export function getClaudeDir(): string {
 
 /**
  * Get the Claude Code agents directory (~/.claude/agents by default).
+ * @deprecated Use AdapterPathProvider.getAgentInstallDir() from the active adapter instead.
  */
 export function getClaudeAgentsDir(): string {
   return join(getClaudeDir(), 'agents');
@@ -351,6 +353,7 @@ export function getClaudeAgentsDir(): string {
 
 /**
  * Get the Claude Code settings.json path.
+ * @deprecated Use AdapterPathProvider.getSettingsPath() from the active adapter instead.
  * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
  */
 export function getClaudeSettingsPath(): string {
@@ -359,6 +362,7 @@ export function getClaudeSettingsPath(): string {
 
 /**
  * Get the claude-mem SQLite database path.
+ * @deprecated Use AdapterPathProvider.getMemoryDbPath() from the active adapter instead.
  * Respects CLAUDE_MEM_DB env var, defaults to ~/.claude-mem/claude-mem.db.
  * This is a third-party tool path; homedir() is correct here (no env-paths standard).
  */
