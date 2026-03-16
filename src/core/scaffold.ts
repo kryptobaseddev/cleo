@@ -899,6 +899,100 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
   };
 }
 
+/**
+ * Create brain.db if missing.
+ * Idempotent: skips if brain.db already exists.
+ */
+export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult> {
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const dbPath = join(cleoDir, 'brain.db');
+
+  if (existsSync(dbPath)) {
+    return { action: 'skipped', path: dbPath, details: 'brain.db already exists' };
+  }
+
+  try {
+    const { getBrainDb } = await import('../store/brain-sqlite.js');
+    await getBrainDb(projectRoot);
+    return { action: 'created', path: dbPath, details: 'Brain database initialized' };
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: dbPath,
+      details: `Failed to initialize brain.db: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Verify .cleo/brain.db exists and is non-empty.
+ */
+export function checkBrainDb(projectRoot: string): CheckResult {
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const dbPath = join(cleoDir, 'brain.db');
+
+  if (!existsSync(dbPath)) {
+    return {
+      id: 'brain_db',
+      category: 'scaffold',
+      status: 'failed',
+      message: 'brain.db not found',
+      details: { path: dbPath, exists: false },
+      fix: 'cleo init',
+    };
+  }
+
+  const stat = statSync(dbPath);
+  if (stat.size === 0) {
+    return {
+      id: 'brain_db',
+      category: 'scaffold',
+      status: 'warning',
+      message: 'brain.db exists but is empty (0 bytes)',
+      details: { path: dbPath, exists: true, size: 0 },
+      fix: 'cleo upgrade',
+    };
+  }
+
+  return {
+    id: 'brain_db',
+    category: 'scaffold',
+    status: 'passed',
+    message: `brain.db exists (${stat.size} bytes)`,
+    details: { path: dbPath, exists: true, size: stat.size },
+    fix: null,
+  };
+}
+
+/**
+ * Verify .cleo/memory-bridge.md exists.
+ * Warning level if missing (not failure) — it is auto-generated.
+ */
+export function checkMemoryBridge(projectRoot: string): CheckResult {
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const bridgePath = join(cleoDir, 'memory-bridge.md');
+
+  if (!existsSync(bridgePath)) {
+    return {
+      id: 'memory_bridge',
+      category: 'scaffold',
+      status: 'warning',
+      message: 'memory-bridge.md not found',
+      details: { path: bridgePath, exists: false },
+      fix: 'cleo init or cleo refresh-memory',
+    };
+  }
+
+  return {
+    id: 'memory_bridge',
+    category: 'scaffold',
+    status: 'passed',
+    message: 'memory-bridge.md exists',
+    details: { path: bridgePath, exists: true },
+    fix: null,
+  };
+}
+
 // ── Global (~/.cleo) scaffold functions ──────────────────────────────
 
 /**

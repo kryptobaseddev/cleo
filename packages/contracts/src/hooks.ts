@@ -12,4 +12,6 @@ export interface AdapterHookProvider {
   registerNativeHooks(projectDir: string): Promise<void>;
   /** Unregister all native hooks previously registered. */
   unregisterNativeHooks(): Promise<void>;
+  /** Return the full event mapping for introspection. */
+  getEventMap?(): Readonly<Record<string, string>>;
 }

@@ -17,9 +17,12 @@ import type {
   AdapterHealthStatus,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { ClaudeCodeContextMonitorProvider } from './context-monitor.js';
 import { ClaudeCodeHookProvider } from './hooks.js';
 import { ClaudeCodeInstallProvider } from './install.js';
+import { ClaudeCodePathProvider } from './paths.js';
 import { ClaudeCodeSpawnProvider } from './spawn.js';
+import { ClaudeCodeTransportProvider } from './transport.js';
 
 const execAsync = promisify(exec);
 
@@ -50,11 +53,18 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     supportsMcp: true,
     supportsInstructionFiles: true,
     instructionFilePattern: 'CLAUDE.md',
+    supportsContextMonitor: true,
+    supportsStatusline: true,
+    supportsProviderPaths: true,
+    supportsTransport: true,
   };
 
   hooks: ClaudeCodeHookProvider;
   spawn: ClaudeCodeSpawnProvider;
   install: ClaudeCodeInstallProvider;
+  paths: ClaudeCodePathProvider;
+  contextMonitor: ClaudeCodeContextMonitorProvider;
+  transport: ClaudeCodeTransportProvider;
 
   private projectDir: string | null = null;
   private initialized = false;
@@ -63,6 +73,9 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     this.hooks = new ClaudeCodeHookProvider();
     this.spawn = new ClaudeCodeSpawnProvider();
     this.install = new ClaudeCodeInstallProvider();
+    this.paths = new ClaudeCodePathProvider();
+    this.contextMonitor = new ClaudeCodeContextMonitorProvider();
+    this.transport = new ClaudeCodeTransportProvider();
   }
 
   /**

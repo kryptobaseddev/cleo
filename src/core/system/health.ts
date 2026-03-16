@@ -15,11 +15,13 @@ import { checkInjection } from '../injection.js';
 import { getAgentsHome, isProjectInitialized } from '../paths.js';
 import { getSystemInfo, type SystemInfo } from '../platform.js';
 import {
+  checkBrainDb,
   checkCleoStructure,
   checkConfig,
   checkGlobalHome,
   checkGlobalTemplates,
   checkLogDir,
+  checkMemoryBridge,
   checkProjectContext,
   checkProjectInfo,
   checkSqliteDb,
@@ -1179,6 +1181,22 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
   } else {
     checks.push({ check: 'log_dir', status: 'pass', message: 'Log directory present' });
   }
+
+  // Brain.db: warning-level check (not a startup failure)
+  const brainDbCheck = checkBrainDb(root);
+  checks.push({
+    check: 'brain_db',
+    status: brainDbCheck.status === 'passed' ? 'pass' : 'warn',
+    message: brainDbCheck.message,
+  });
+
+  // Memory bridge: info-level check
+  const memBridgeCheck = checkMemoryBridge(root);
+  checks.push({
+    check: 'memory_bridge',
+    status: memBridgeCheck.status === 'passed' ? 'pass' : 'warn',
+    message: memBridgeCheck.message,
+  });
 
   // Determine overall state
   const hasFailures = failures.length > 0;

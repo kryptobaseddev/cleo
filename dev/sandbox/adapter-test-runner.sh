@@ -763,6 +763,29 @@ test_db_integrity() {
 
 
 #=============================================================
+# TEST SUITE 13: Full Lifecycle E2E
+#=============================================================
+test_lifecycle_e2e() {
+    echo -e "\n========================================="
+    echo "Suite 13: Full Lifecycle E2E"
+    echo "========================================="
+
+    if [ -f "$SCRIPT_DIR/test-lifecycle-e2e.sh" ]; then
+        log_test "Full lifecycle E2E test"
+        local output
+        if output=$(sandbox_exec "bash /home/testuser/cleo-source/dev/sandbox/test-lifecycle-e2e.sh" 2>&1); then
+            log_pass "Full lifecycle E2E test passed"
+        else
+            log_fail "Full lifecycle E2E test failed"
+            echo "  Output (last 5 lines): $(echo "$output" | tail -5)"
+        fi
+    else
+        log_info "test-lifecycle-e2e.sh not found, skipping"
+    fi
+}
+
+
+#=============================================================
 # MAIN RUNNER
 #=============================================================
 main() {
@@ -792,6 +815,7 @@ main() {
     test_legacy_cleanup
     test_multi_project
     test_db_integrity
+    test_lifecycle_e2e
 
     # Summary
     echo
@@ -829,6 +853,7 @@ if [[ $# -gt 0 ]]; then
         cleanup)    test_legacy_cleanup ;;
         multi)      test_multi_project ;;
         integrity)  test_db_integrity ;;
+        lifecycle)  test_lifecycle_e2e ;;
         *)          main ;;
     esac
 else

@@ -138,6 +138,16 @@ export async function startSession(
     }
   }
 
+  // Auto-detect runtime provider for session tracking (T5240)
+  let detectedProviderId: string | null = null;
+  try {
+    const { detectRuntimeProviderContext } = await import('../metrics/provider-detection.js');
+    const ctx = detectRuntimeProviderContext();
+    detectedProviderId = ctx.runtimeProviderId ?? null;
+  } catch {
+    // Provider detection is best-effort
+  }
+
   const session: Session = {
     id: generateSessionId(),
     name: options.name,
@@ -152,7 +162,7 @@ export async function startSession(
     notes: [],
     tasksCompleted: [],
     tasksCreated: [],
-    providerId: options.providerId ?? null,
+    providerId: options.providerId ?? detectedProviderId ?? null,
   };
 
   // If grade mode enabled, mark session and set env vars for audit middleware
@@ -166,6 +176,19 @@ export async function startSession(
   sessions.push(session);
   await saveSessions(sessions, cwd, accessor);
 
+  // Best-effort adapter activation based on detected provider (T5240)
+  if (session.providerId) {
+    import('../adapters/index.js')
+      .then(({ AdapterManager }) => {
+        const mgr = AdapterManager.getInstance(cwd ?? process.cwd());
+        mgr.discover();
+        return mgr.activate(session.providerId!);
+      })
+      .catch(() => {
+        /* Adapter activation is best-effort */
+      });
+  }
+
   // Dispatch onSessionStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
@@ -175,6 +198,7 @@ export async function startSession(
       name: options.name,
       scope,
       agent: options.agent,
+      providerId: session.providerId ?? undefined,
     })
     .catch(() => {
       /* Hooks are best-effort */
@@ -236,6 +260,7 @@ export async function endSession(
       sessionId: session.id,
       duration,
       tasksCompleted: session.tasksCompleted || [],
+      providerId: session.providerId ?? undefined,
     })
     .catch(() => {
       /* Hooks are best-effort */
