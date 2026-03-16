@@ -27,13 +27,14 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "packages/**/*.test.ts"],
           exclude: [
             "node_modules",
             "dist",
             "src/**/*.integration.test.ts",
             "src/**/*e2e*.test.ts",
             "src/mcp/__tests__/e2e/**/*.test.ts",
+            "packages/**/*.integration.test.ts",
             ...excluded,
           ],
           sequence: { groupOrder: 1 },

@@ -2,40 +2,50 @@
 
 ## [2026.3.29] (2026-03-16)
 
-Provider Adapter Architecture + Provider-Agnostic Memory Bridge (T5240)
+Auto-prepared by release.ship (T5240)
 
 ### Features
-- **Provider Adapter System**: Pluggable adapter architecture for Claude Code, OpenCode, and Cursor. Each adapter handles provider-specific hooks, spawn, and installation while CLEO core remains vendor-neutral. (ADR-031)
-- **Provider-Agnostic Memory Bridge**: Three-layer memory surfacing (static seed `.cleo/memory-bridge.md`, guided self-retrieval `ct-memory` skill, dynamic MCP resource endpoints). Agents in any provider start conversations with context from prior sessions. (ADR-032)
-- **MCP Resource Endpoints**: Four `cleo://memory/*` URIs serving brain.db content dynamically — recent observations, active learnings, active patterns, and session handoff. LAFS budget-aware truncation. (T5240)
-- **ct-memory Skill**: Brain memory protocol with progressive disclosure. Teaches agents the 3-layer retrieval pattern (search, timeline, fetch) with anti-hallucination guidance and LAFS MVI budget control. (T5240)
-- **Token-Efficiency Routing Table**: Maps each operation to preferred channel (MCP vs CLI) based on token overhead. Extends capability matrix with `preferredChannel` field. (T5240)
-- **Dynamic Skill Generator**: Produces provider-aware skill content based on active adapter capabilities. (T5240)
-- **RFC 9457 ProblemDetails**: `CleoError.toProblemDetails()` produces structured error responses with URN type, HTTP status, LAFS code, and recoverability. (T5240)
-- **Unified Error Catalog**: Single source of truth for all exit codes, replacing 5 scattered registries. Adapter-specific error codes 95-99 added. (T5240)
+- **Create normalizeTaskId() SSoT utility with validation and tests**: Create SSoT utility function `normalizeTaskId()` in src/core/tasks/task-id-utils.ts that accepts any task ID format and returns canonical "T1234". ... (T5587)
+- **Implement normalization across all task operations**: Implement normalizeTaskId() across all identified operations. Update task lookup functions to normalize input before querying database. Ensure epic... (T5589)
+- **Implement automatic PR creation for protected branches**: Implement automatic PR creation when branch protection blocks direct push. Use GitHub CLI (gh) if available, or provide clear manual instructions. ... (T5591)
+- **Implement multi-channel release support (@latest/@beta/@alpha)**: Add release channel support to pipeline: @latest for main branch, @beta for develop branch, @alpha for feature branches. Update release gates to va... (T5592)
+- **Implementation: tasks.list Core Optimization**: Redesign tasks.list as the flagship optimized list operation. Implement: (1) Cursor-based pagination with stable ordering, (2) Smart field projecti... (T5621)
+- **Implementation: Session & Admin List Operations Standardization**: Apply optimized patterns to session.list, admin.job.list, admin.adr.list, and admin.grade.list. Standardize on: consistent pagination metadata, MVI... (T5622)
+- **Implementation: Pipeline List Operations Enhancement**: Enhance pipeline domain list operations: release.list, manifest.list, phase.list, chain.list. These handle larger datasets (manifest entries, relea... (T5623)
+- **Implementation: Remaining List Operations Compliance**: Update remaining list operations to meet new standards: sticky.list, nexus.list, tools.skill.list, tools.provider.list, orchestrate.tessera.list, t... (T5624)
 
-### Architecture
-- **packages/contracts/**: `@cleocode/contracts` — adapter interfaces, capability types, memory bridge types (T5240)
-- **packages/shared/**: `@cleocode/shared` — runtime utilities for adapters (T5240)
-- **packages/adapters/claude-code/**: Full adapter — hooks (8 CAAMP events), spawn (claude CLI), install (CLAUDE.md, .mcp.json) (T5240)
-- **packages/adapters/opencode/**: Full adapter — hooks (6/8 events), spawn (opencode CLI), install (AGENTS.md, .opencode/config.json) (T5240)
-- **packages/adapters/cursor/**: Install-only adapter — .cursor/rules/cleo.mdc (MDC format), .cursor/mcp.json (T5240)
-- **src/core/adapters/**: AdapterManager singleton with discover/detect/activate/dispose lifecycle (T5240)
-
-### Breaking Changes
-- **Removed `.claude-plugin/` directory**: Brain hooks and context injection are now handled by the provider adapter system. Users should run `cleo install-global` to migrate to adapter-based installation. (T5240)
-- **Removed `src/core/install/claude-plugin.ts`**: Replaced by `packages/adapters/claude-code/src/install.ts` (T5240)
-- **Removed `src/core/spawn/adapters/`**: Replaced by adapter packages and `SpawnAdapterRegistry` bridge (T5240)
+### Bug Fixes
+- **MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination**: Reduce MCP response sizes and improve data quality across domains: - admin help: compact domain-grouped format by default (~85% token reduction), v... (T5584)
+- **Fix Layer 1 gate validator rejecting valid non-task status values**: Layer 1 schema validator checked all status params against TASK_STATUSES regardless of domain. Operations like pipeline.stage.record with valid lif... (T5598)
+- **Fix missing drizzle-brain symlink for brain.db initialization**: brain.db was 0 bytes because drizzle-brain symlink was missing at project root. The drizzle symlink for tasks.db existed correctly but drizzle-brai... (T5650)
+- **BUG: Remove projects-registry.json and wire nexus.db as canonical cross-project store**: ~/.cleo/projects-registry.json is the old registry and MUST be fully deleted. nexus.db is canonical but not properly wired. Agents hit nexus tier-2... (T5656)
 
 ### Documentation
-- **ADR-031**: Provider Adapter Architecture (T5240)
-- **ADR-032**: Provider-Agnostic Memory Bridge (T5240)
-- **Adapter Development Guide**: `docs/guides/adapter-development.md` (T5240)
+- **Add agent guidance and workflow visualization to release command**: Enhance release.ship output with clear agent guidance and next steps. Add --guided flag for step-by-step mode. Show progress through workflow stage... (T5593)
+- **Documentation: Migration Guide & Agent Communication**: Create comprehensive documentation for the LOOM Pipeline changes: (1) Migration guide for existing agent workflows using list operations, (2) Updat... (T5626)
 
 ### Tests
-- 95 new tests across 6 test files (routing table, dynamic skill generator, budget truncation, MCP resources, error catalog + ProblemDetails, adapter lifecycle integration) (T5240)
-- 4959 total tests passing (T5240)
+- **Testing & Validation: LOOM Pipeline Integration Suite**: Create comprehensive test suite for optimized list operations. Include: token usage benchmarks (before/after comparison), pagination correctness te... (T5625)
 
+### Chores
+- **Decide keep or remove outcomes for session operations**: Decide which session operations should stay, merge, parameterize, or disappear, and record any naming or contract changes needed to keep session co... (T5537)
+- **Decide keep or remove outcomes for memory operations**: Produce a disposition for each memory operation, including merges, removals, or plugin moves, plus any help-tier or contract changes required for a... (T5541)
+
+### Changes
+- **Inventory session operations and map agent workflows**: Inventory session operations across lifecycle, continuity, drift detection, handoff, and decision recording so the current surface is tied to real ... (T5535)
+- **Challenge session operations against LAFS and MVI**: Challenge the session domain against LAFS, progressive disclosure, and MVI with special attention to what an agent must know at start, resume, susp... (T5536)
+- **Inventory memory operations and map agent workflows**: Inventory memory operations across retrieval, manifest access, contradiction handling, supersession, and mutation so the domain can be evaluated ag... (T5539)
+- **Challenge memory operations against LAFS and MVI**: Challenge the memory domain against LAFS, progressive disclosure, and MVI to make sure agents get useful recall signals without excessive cognitive... (T5540)
+- **C: Synthesize all 10 domain reviews into unified consolidation decisions**: After all 10 domain inventory + challenge tasks complete (T5530-T5566 children), synthesize findings into a single decision matrix. For every opera... (T5609)
+- **C: Design canonical agent decision tree for operation selection**: LLM agents face a 267-op surface with no clear guidance on which operation to use for a given goal. This creates hallucination and ambiguity. Desig... (T5610)
+- **A: Write ADR for CLEO Operation Model Rationalization**: Capture the architecture decision behind the operation consolidation: why the surface grew unbounded, what principles constrain it going forward, a... (T5611)
+- **S: Update CLEO-OPERATION-CONSTITUTION.md to reflect rationalized operation set**: After consolidation decisions are finalized (T5609) and the ADR is written (T5611), update the Constitution to match the new operation set. Must up... (T5612)
+- **I: Rewrite ct-cleo skill with canonical decision tree and correct domain refs**: Full rewrite of packages/ct-skills/skills/ct-cleo/SKILL.md based on T5607 audit and T5610 decision tree. Requirements: (1) Remove all stale domain ... (T5613)
+- **I: Rewrite CLEO-INJECTION.md for MVI token-conservative agent guidance**: templates/CLEO-INJECTION.md is the cold-start protocol injected into every agent. It must be ruthlessly token-conservative while surfacing exactly ... (T5614)
+- **Wire --bump-version into releaseShip() pipeline and fix release notes content**: bumpVersionFromConfig() exists but is never called by releaseShip(). VERSION and package.json are bumped manually after the tag, backwards and erro... (T5617)
+- **Design Phase: LAFS Envelope Optimization Standards**: Design optimized LAFS envelope structures specifically for list operations to minimize token waste. Define standard pagination metadata format, tru... (T5620)
+- Scandir test (T5665)
+---
 ## [2026.3.28] (2026-03-09)
 
 CLEO brain context injection via CLAUDE.md + MCP Registry description fix (T5671)
