@@ -16,6 +16,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { registerMemoryResources } from './resources/index.js';
 import { hooks } from '../core/hooks/registry.js';
 import { handleMcpToolCall, initMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { registerMutateTool } from './gateways/mutate.js';
@@ -202,9 +203,14 @@ async function main(): Promise<void> {
       {
         capabilities: {
           tools: {},
+          resources: {},
         },
       },
     );
+
+    // Register memory resources (ListResources + ReadResource handlers)
+    registerMemoryResources(server);
+    log.info('Memory resources registered');
 
     // Register tools (ListTools handler)
     server.setRequestHandler(ListToolsRequestSchema, async () => {

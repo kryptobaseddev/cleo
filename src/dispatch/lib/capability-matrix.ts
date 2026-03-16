@@ -25,11 +25,18 @@ export type GatewayType = 'query' | 'mutate';
 /**
  * Single operation capability entry
  */
+/**
+ * Preferred communication channel for token efficiency.
+ * Added for provider-agnostic skill routing (@task T5240).
+ */
+export type PreferredChannel = 'mcp' | 'cli' | 'either';
+
 export interface OperationCapability {
   domain: string;
   operation: string;
   gateway: GatewayType;
   mode: ExecutionMode;
+  preferredChannel?: PreferredChannel;
 }
 
 /**

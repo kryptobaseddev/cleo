@@ -1,554 +1,129 @@
 # CLEO Sandbox Testing Guide
 
-Comprehensive guide for running production-like tests in an isolated container environment.
+## Available Test Runners
 
-## What is the Sandbox?
+| Runner | Assertions | What It Tests |
+|--------|-----------|---------------|
+| `adapter-test-runner.sh` | 97 | Adapter system, memory bridge, MCP resources, contracts, shared package, E2E workflows |
+| `test-runner.sh` | ~15 | Project init, task CRUD, sessions, multi-project isolation, error handling, SQLite persistence |
+| `simple-test.sh` | 6 | Smoke test: create project, add tasks, list, complete |
+| `test-docs-examples.sh` | 8 | MCP server JSON-RPC responses match documented API |
+| `test-domain-operations.sh` | ~35 | MCP operations across tasks, session, system, orchestrate, pipeline, check domains |
+| `test-lifecycle-gates.sh` | ~10 | RCASD-IVTR+C lifecycle gate enforcement modes |
 
-The CLEO Sandbox is a **production-like testing environment** that provides:
+## adapter-test-runner.sh (12 Suites)
 
-- **Complete isolation**: Test without affecting your development system
-- **SSH access**: Full remote access like a real server
-- **Reproducibility**: Consistent Fedora Linux environment
-- **Safety**: No risk of data loss or system corruption
-- **Automation**: Scripts for common testing scenarios
-
-## Why Use the Sandbox?
-
-### Before Release Testing
-- Verify installation on clean system
-- Test user onboarding flow
-- Validate documentation accuracy
-- Check for missing dependencies
-
-### Production Simulation
-- Test multi-project setups
-- Verify session management
-- Test concurrent operations
-- Validate data persistence
-
-### Integration Testing
-- Test with real filesystem
-- Verify JSON schema validation
-- Test atomic operations
-- Validate backup/restore
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────┐
-│  Host System (Fedora Desktop)               │
-│                                              │
-│  ┌────────────────────────────────────────┐ │
-│  │  Podman Container (cleo-sandbox)       │ │
-│  │                                        │ │
-│  │  OS: Fedora Linux (latest)            │ │
-│  │  User: testuser (password: testpass)  │ │
-│  │  SSH: Port 2222                        │ │
-│  │  Dependencies: bash, jq, git, bats    │ │
-│  │                                        │ │
-│  │  /home/testuser/                      │ │
-│  │  ├── projects/     # CLEO source      │ │
-│  │  ├── test-project/ # Test projects    │ │
-│  │  └── .cleo/        # Installation     │ │
-│  │                                        │ │
-│  └────────────────────────────────────────┘ │
-│           ↑                                  │
-│           │ SSH (localhost:2222)             │
-│           │ Key: ~/.cleo/sandbox/ssh/        │
-└───────────┼──────────────────────────────────┘
-            │
-    sandbox-manager.sh
-```
-
-## Components
-
-### 1. Container Image (`Containerfile`)
-- Based on Fedora (matches host system)
-- Pre-installed: bash, jq, git, openssh, sudo, vim, bats
-- Configured SSH server on port 2222
-- Test user with sudo access
-
-### 2. Management Script (`sandbox-manager.sh`)
-Main tool for sandbox lifecycle:
-- `build` - Build container image
-- `start` - Start sandbox
-- `stop` - Stop sandbox
-- `destroy` - Remove sandbox
-- `ssh` - Connect interactively
-- `exec` - Run single command
-- `status` - Show sandbox state
-- `logs` - View container logs
-
-### 3. Test Runner (`test-runner.sh`)
-Automated test scenarios:
-- Fresh installation test
-- Basic workflow test
-- Multi-project test
-- Error handling test
-- Data persistence test
-
-### 4. Documentation
-- `README.md` - Complete reference
-- `QUICKSTART.md` - Getting started (this file)
-- `TESTING-GUIDE.md` - Testing best practices
-
-## Quick Reference
-
-### Essential Commands
+The most comprehensive test runner. Requires `deploy` before running.
 
 ```bash
-# Lifecycle
-./sandbox-manager.sh start          # Start sandbox
-./sandbox-manager.sh status         # Check status
-./sandbox-manager.sh ssh            # Interactive shell
-./sandbox-manager.sh destroy        # Clean up
-
-# Testing
-./sandbox-manager.sh exec "command" # Run command
-./test-runner.sh                    # Run all tests
-./test-runner.sh workflow           # Run specific test
-
-# Debugging
-./sandbox-manager.sh logs           # View logs
-./sandbox-manager.sh logs -f        # Follow logs
-```
-
-### File Locations
-
-On Host:
-- Scripts: `/mnt/projects/claude-todo/dev/sandbox/`
-- SSH Keys: `~/.cleo/sandbox/ssh/`
-
-In Sandbox:
-- CLEO Source: `/home/testuser/projects/`
-- Installation: `/home/testuser/.cleo/`
-- Test Projects: `/home/testuser/test-project/`
-
-## Testing Workflows
-
-### 1. Installation Testing
-
-Verify CLEO installs correctly on a fresh system:
-
-```bash
-# Start sandbox
 ./sandbox-manager.sh start
-
-# Copy CLEO to sandbox (already done on start)
-# CLEO is at /home/testuser/projects
-
-# Test installation
-./sandbox-manager.sh exec "cd ~/projects && ./install.sh --check-deps"
-./sandbox-manager.sh exec "cd ~/projects && ./install.sh"
-./sandbox-manager.sh exec "/home/testuser/.local/bin/cleo version"
+./sandbox-manager.sh deploy
+./adapter-test-runner.sh
 ```
 
-### 2. User Workflow Testing
+### Suite Descriptions
 
-Test typical user operations:
+| Suite | Name | Key Assertions |
+|-------|------|----------------|
+| 1 | Build & Version | Node.js, npm, sqlite3 installed; CLEO CalVer version; dist files exist |
+| 2 | Adapter Discovery | Adapter manifests (claude-code, opencode, cursor) exist and parse; AdapterManager exports |
+| 3 | Memory Bridge | Module loads; generateMemoryBridgeContent, refreshMemoryBridge, writeMemoryBridge exported |
+| 4 | MCP Resources | 4 resource URIs (recent, learnings, patterns, handoff); readMemoryResource; token truncation |
+| 5 | Error Catalog | ERROR_CATALOG map; getErrorDefinition; CleoError.toProblemDetails RFC 9457 shape |
+| 6 | Contracts Package | packages/contracts/dist/index.js loads; barrel exports |
+| 7 | Shared Package | packages/shared exports: shouldSkipTool, formatObservation, CleoCli, dispatchHookEvent |
+| 8 | Session Provider | Sessions table has provider_id column; session start/end lifecycle |
+| 9 | Routing Table | ROUTING_TABLE 50+ entries; getPreferredChannel works; entry shape validation |
+| 10 | Legacy Cleanup | .claude-plugin/ deleted; old spawn adapters deleted; no dangling imports |
+| 11 | E2E Workflow | Full task lifecycle: init, add, list, show, session start, start task, done, end session |
+| 12 | Error Paths | Non-existent task, outside project, duplicate completion, invalid command |
+
+### Running Individual Suites
 
 ```bash
-# SSH into sandbox
-./sandbox-manager.sh ssh
+./adapter-test-runner.sh build        # Suite 1 only
+./adapter-test-runner.sh adapter      # Suite 2 only
+./adapter-test-runner.sh e2e          # Suite 11 only
+./adapter-test-runner.sh errorpaths   # Suite 12 only
+```
 
-# Inside sandbox - complete workflow
-mkdir ~/myproject && cd ~/myproject
-cleo init
+## test-runner.sh (Basic Workflows)
 
-# Bootstrap first epic (multi-session mode)
-cat > .cleo/todo.json <<'EOF'
-{
-  "$schema": "../schemas/todo.schema.json",
-  "version": "2.6.0",
-  "tasks": [{
-    "id": "T001",
-    "title": "Project Setup",
-    "description": "Initial setup",
-    "status": "pending",
-    "type": "epic",
-    "created": "2026-02-04T17:00:00Z",
-    "updated": "2026-02-04T17:00:00Z"
-  }]
+Tests fundamental CLEO operations using the CLI inside the sandbox.
+
+```bash
+./test-runner.sh                  # All scenarios
+./test-runner.sh workflow         # Task CRUD + sessions
+./test-runner.sh persistence      # SQLite data persistence
+```
+
+### Scenarios
+
+1. **fresh** -- Verifies `cleo` command is available and returns version
+2. **workflow** -- Init project, add tasks, start session, start/complete task, end session
+3. **multi** -- Create two projects, verify tasks do not leak between them
+4. **errors** -- Invalid task ID, operations outside a CLEO project
+5. **persistence** -- Verifies `.cleo/tasks.db` exists and contains data via `sqlite3`
+
+## test-docs-examples.sh
+
+Sends JSON-RPC requests to the MCP server and validates response structure. Tests system version, task find, task show, session status, task exists, dependencies, and error format.
+
+```bash
+./test-docs-examples.sh
+```
+
+## test-domain-operations.sh
+
+Tests MCP operations across multiple domains (tasks, session, system, orchestrate, pipeline, check) via JSON-RPC, verifying that responses contain `_meta` envelopes.
+
+```bash
+./test-domain-operations.sh
+```
+
+## test-lifecycle-gates.sh
+
+Tests the RCASD-IVTR+C lifecycle gate enforcement system. Verifies that gates block invalid transitions, allow valid ones, and respect enforcement modes (strict, advisory, off).
+
+```bash
+./test-lifecycle-gates.sh
+```
+
+## How to Add New Tests
+
+### Adding to adapter-test-runner.sh
+
+1. Create a new function following the pattern `test_your_suite()`.
+2. Use the assertion helpers: `assert_contains`, `assert_success`, `assert_fails`, `assert_file_exists`, `assert_file_missing`.
+3. Add your function to the `main()` runner and the `case` statement for individual suite selection.
+
+Example:
+
+```bash
+test_my_feature() {
+    echo -e "\n========================================="
+    echo "Suite N: My Feature"
+    echo "========================================="
+
+    assert_success "Feature module loads" \
+        "cd $CLEO && node -e \"import('./dist/core/my-feature.js').then(() => process.exit(0))\""
+
+    assert_contains "Feature returns expected value" "expected" \
+        "cd $CLEO && node -e \"import('./dist/core/my-feature.js').then(m => console.log(m.doThing()))\""
 }
-EOF
-
-# Start session and work
-cleo session start --scope epic:T001 --auto-focus --name "Setup"
-cleo add "Task 1"
-cleo add "Task 2"
-cleo list
-cleo done T002
-cleo session end
 ```
 
-### 3. Multi-Project Testing
+### Adding to test-runner.sh
 
-Test project isolation:
+1. Add a new function `test_your_scenario()`.
+2. Use `run_in_sandbox "description" "command"` for assertions.
+3. Add to `main()` and the `case` dispatch.
 
-```bash
-./sandbox-manager.sh ssh
+## Prerequisites
 
-# Create two projects
-mkdir -p ~/project-a ~/project-b
-
-# Initialize both
-cd ~/project-a && cleo init
-cd ~/project-b && cleo init
-
-# Add tasks to each (after session setup)
-cd ~/project-a && cleo add "Feature A"
-cd ~/project-b && cleo add "Feature B"
-
-# Verify isolation
-cd ~/project-a && cleo list  # Only sees project-a tasks
-cd ~/project-b && cleo list  # Only sees project-b tasks
-```
-
-### 4. Error Handling Testing
-
-Test graceful error handling:
+All test runners require the sandbox to be running. The comprehensive suites (`adapter-test-runner.sh`) also require `deploy`:
 
 ```bash
-./sandbox-manager.sh ssh
-
-cd ~/myproject
-
-# Test invalid operations
-cleo show T999                # Invalid task ID
-cleo update T999 --title "X" # Update non-existent task
-cd /tmp && cleo list          # Operation outside project
-
-# Verify error messages are helpful
-```
-
-### 5. Data Integrity Testing
-
-Test data persistence and validation:
-
-```bash
-./sandbox-manager.sh ssh
-
-cd ~/myproject
-
-# Add task and verify JSON
-cleo add "Integrity test"
-cat .cleo/todo.json | jq '.tasks[] | select(.title == "Integrity test")'
-
-# Verify schema compliance
-cleo --validate
-
-# Test backup creation
-ls -la .cleo/.backups/
-```
-
-## Automated Testing
-
-### Run All Tests
-
-```bash
-cd /mnt/projects/claude-todo/dev/sandbox
-./test-runner.sh
-```
-
-Output shows:
-- ✓ Passed tests
-- ✗ Failed tests
-- Summary at end
-
-### Run Specific Tests
-
-```bash
-./test-runner.sh fresh       # Installation test
-./test-runner.sh workflow    # Basic workflow
-./test-runner.sh multi       # Multi-project
-./test-runner.sh errors      # Error handling
-./test-runner.sh persistence # Data persistence
-```
-
-### Custom Test Scripts
-
-Create your own:
-
-```bash
-#!/usr/bin/env bash
-# my-custom-test.sh
-
-MANAGER="./sandbox-manager.sh"
-
-# Ensure sandbox is running
-$MANAGER start
-
-# Run your tests
-$MANAGER exec "cd ~/myproject && cleo list"
-$MANAGER exec "cd ~/myproject && cleo add 'Custom test'"
-
-# Cleanup
-$MANAGER destroy
-```
-
-## Best Practices
-
-### 1. Start Fresh
-
-Always start with a clean sandbox for important tests:
-
-```bash
-./sandbox-manager.sh destroy
 ./sandbox-manager.sh start
+./sandbox-manager.sh deploy    # Required for adapter-test-runner.sh
 ```
-
-### 2. Test Incrementally
-
-Build up complexity:
-1. Test installation
-2. Test single operation
-3. Test workflow
-4. Test edge cases
-
-### 3. Document Findings
-
-Keep notes of issues found:
-- What operation failed?
-- What was the error message?
-- How to reproduce?
-- Expected vs actual behavior
-
-### 4. Use Realistic Data
-
-Test with real-world scenarios:
-- Typical task descriptions
-- Realistic project structures
-- Common error conditions
-- Normal usage patterns
-
-### 5. Verify Cleanup
-
-After tests, check:
-- Sandbox is stopped
-- No hanging processes
-- Disk space freed
-
-```bash
-./sandbox-manager.sh status
-podman ps -a | grep cleo
-```
-
-## Troubleshooting
-
-### Sandbox Won't Start
-
-```bash
-# Check if port 2222 is busy
-sudo lsof -i :2222
-
-# Check container status
-podman ps -a | grep cleo
-
-# View detailed logs
-./sandbox-manager.sh logs
-
-# Force cleanup and rebuild
-podman rm -f cleo-sandbox
-podman rmi cleo-sandbox:latest
-./sandbox-manager.sh build
-./sandbox-manager.sh start
-```
-
-### SSH Connection Issues
-
-```bash
-# Verify SSH keys
-ls -la ~/.cleo/sandbox/ssh/
-stat -c "%a" ~/.cleo/sandbox/ssh/sandbox_key  # Should be 600
-
-# Test direct SSH
-ssh -p 2222 -i ~/.cleo/sandbox/ssh/sandbox_key testuser@localhost
-
-# Check SSH service in container
-./sandbox-manager.sh logs | grep sshd
-```
-
-### CLEO Operation Failures
-
-```bash
-# SSH into sandbox to debug
-./sandbox-manager.sh ssh
-
-# Check installation
-which cleo
-cleo --version
-cleo --validate
-
-# Check project state
-cd ~/myproject
-ls -la .cleo/
-cat .cleo/config.json | jq '.'
-
-# Check for errors
-cat .cleo/todo-log.jsonl | jq '.[] | select(.level == "ERROR")'
-```
-
-### Container Storage Issues
-
-```bash
-# Check disk usage
-podman system df
-
-# Clean up old containers and images
-podman system prune -a
-
-# Remove specific container
-podman rm -f cleo-sandbox
-
-# Remove specific image
-podman rmi cleo-sandbox:latest
-```
-
-## Integration with Development
-
-### Pre-Release Checklist
-
-Before each release, run sandbox tests:
-
-```bash
-cd dev/sandbox
-
-# 1. Build fresh sandbox
-./sandbox-manager.sh destroy
-./sandbox-manager.sh build
-
-# 2. Test installation
-./test-runner.sh fresh
-
-# 3. Test workflows
-./test-runner.sh workflow
-
-# 4. Test edge cases
-./test-runner.sh errors
-
-# 5. Review results
-# All tests should pass
-
-# 6. Cleanup
-./sandbox-manager.sh destroy
-```
-
-### CI/CD Integration
-
-Add to your CI pipeline:
-
-```yaml
-# .github/workflows/integration-test.yml
-name: Integration Tests
-
-on: [push, pull_request]
-
-jobs:
-  sandbox-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Install Podman
-        run: sudo apt-get update && sudo apt-get install -y podman
-
-      - name: Run Sandbox Tests
-        run: |
-          cd dev/sandbox
-          ./sandbox-manager.sh start
-          ./test-runner.sh
-          EXIT_CODE=$?
-          ./sandbox-manager.sh destroy
-          exit $EXIT_CODE
-```
-
-### Manual QA Process
-
-Use sandbox for manual QA:
-
-1. **Setup Phase**
-   ```bash
-   ./sandbox-manager.sh start
-   ./sandbox-manager.sh ssh
-   ```
-
-2. **Execute Test Cases**
-   - Follow test plan
-   - Document results
-   - Take notes on UX
-
-3. **Cleanup Phase**
-   ```bash
-   exit  # Leave SSH
-   ./sandbox-manager.sh destroy
-   ```
-
-## Advanced Topics
-
-### Multiple Sandboxes
-
-Run multiple sandboxes for parallel testing:
-
-```bash
-# Modify sandbox-manager.sh to use different names
-CONTAINER_NAME="cleo-sandbox-test1" SSH_PORT=2222 ./sandbox-manager.sh start
-CONTAINER_NAME="cleo-sandbox-test2" SSH_PORT=2223 ./sandbox-manager.sh start
-```
-
-### Performance Benchmarking
-
-```bash
-./sandbox-manager.sh ssh
-
-cd ~/myproject
-
-# Benchmark operations
-time cleo add "Benchmark test"
-time cleo list
-time cleo show T001
-
-# Stress test
-for i in {1..100}; do
-  cleo add "Task $i"
-done
-time cleo list
-```
-
-### Snapshot and Restore
-
-```bash
-# Create snapshot
-podman commit cleo-sandbox cleo-sandbox:snapshot-1
-
-# Restore from snapshot
-podman rm -f cleo-sandbox
-podman run -d --name cleo-sandbox cleo-sandbox:snapshot-1
-```
-
-## Resources
-
-- [Sandbox README](README.md) - Complete reference
-- [Quick Start Guide](QUICKSTART.md) - Getting started
-- [CLEO Documentation](../../docs/) - Main docs
-- [Testing Framework](../../tests/) - Unit/integration tests
-- [Podman Documentation](https://docs.podman.io/) - Container runtime
-
-## Contributing
-
-Found issues during sandbox testing? Please report:
-
-1. Open issue on GitHub
-2. Include sandbox test output
-3. Provide steps to reproduce
-4. Tag with `sandbox` label
-
-## Summary
-
-The CLEO Sandbox provides a production-like environment for:
-- ✅ Testing installations
-- ✅ Validating workflows
-- ✅ Reproducing issues
-- ✅ Pre-release verification
-- ✅ Documentation validation
-
-Use it regularly to catch issues before they reach users!

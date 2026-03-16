@@ -235,6 +235,56 @@ logs_sandbox() {
     podman logs "$@" "$CONTAINER_NAME"
 }
 
+# Deploy CLEO source into the sandbox container
+deploy_cleo() {
+    if ! podman ps --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "$CONTAINER_NAME"; then
+        log_error "Sandbox container is not running"
+        log_info "Start it with: ./sandbox-manager.sh start"
+        exit 1
+    fi
+
+    log_info "Deploying CLEO to sandbox..."
+
+    # Create a clean tarball excluding heavy/local-only directories
+    local tmptar
+    tmptar=$(mktemp /tmp/cleo-deploy-XXXXXX.tar.gz)
+    (
+        cd "$PROJECT_ROOT"
+        tar czf "$tmptar" \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='.git' \
+            --exclude='.cleo/brain.db' \
+            --exclude='.cleo/tasks.db' \
+            --exclude='.cleo/nexus.db' \
+            --exclude='.cleo/.backups' \
+            --exclude='.cleo/backups' \
+            .
+    )
+
+    # Copy tarball into container and extract
+    podman cp "$tmptar" "${CONTAINER_NAME}:/tmp/cleo-source.tar.gz"
+    rm -f "$tmptar"
+    podman exec "$CONTAINER_NAME" chown testuser:testuser /tmp/cleo-source.tar.gz
+
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" testuser@localhost \
+        "rm -rf /home/testuser/cleo-source && mkdir -p /home/testuser/cleo-source && cd /home/testuser/cleo-source && tar xzf /tmp/cleo-source.tar.gz && rm /tmp/cleo-source.tar.gz"
+
+    # Install dependencies and build
+    log_info "Installing dependencies (this may take a few minutes)..."
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" testuser@localhost \
+        "cd /home/testuser/cleo-source && npm install 2>&1 | tail -5 && npm run build 2>&1 | tail -10"
+
+    # Make cleo available in PATH
+    ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        -p "$SSH_PORT" -i "$SSH_KEY_PATH" testuser@localhost \
+        "sudo ln -sf /home/testuser/cleo-source/dist/cli/index.js /usr/local/bin/cleo && sudo chmod +x /usr/local/bin/cleo"
+
+    log_success "CLEO deployed and built in sandbox"
+}
+
 # Show usage
 usage() {
     cat <<EOF
@@ -247,6 +297,7 @@ Commands:
     start       Start the sandbox container (builds if needed)
     stop        Stop the sandbox container
     destroy     Destroy the sandbox container (keeps image)
+    deploy      Deploy CLEO source into the sandbox (copy, install, build)
     ssh         SSH into the running sandbox
     exec        Execute a command in the sandbox
     status      Show sandbox status
@@ -255,6 +306,7 @@ Commands:
 
 Examples:
     $0 start                    # Start sandbox
+    $0 deploy                   # Deploy CLEO into running sandbox
     $0 ssh                      # Connect to sandbox
     $0 exec "ls -la"           # Run command in sandbox
     $0 logs -f                 # Follow container logs
@@ -285,6 +337,9 @@ main() {
             ;;
         stop)
             stop_sandbox
+            ;;
+        deploy)
+            deploy_cleo
             ;;
         destroy)
             destroy_sandbox

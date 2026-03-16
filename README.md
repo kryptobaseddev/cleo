@@ -1003,7 +1003,7 @@ cleo init --with-plugin
 - Enhanced command palette integration
 
 **Documentation:**
-- Plugin architecture: [.claude-plugin/README.md](.claude-plugin/README.md)
+- Adapter architecture: [packages/adapters/claude-code/](packages/adapters/claude-code/)
 - Global injection: [templates/CLEO-INJECTION.md](templates/CLEO-INJECTION.md)
 
 ### TodoWrite Sync

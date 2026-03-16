@@ -126,6 +126,7 @@ export const sessionSchema = z.object({
   stats: sessionStatsSchema.optional(),
   resumeCount: z.number().optional(),
   gradeMode: z.boolean().optional(),
+  providerId: z.string().nullable().optional(),
 });
 
 /** Session domain type — derived from Zod schema aligned with Drizzle sessions table. */

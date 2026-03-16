@@ -1,0 +1,22 @@
+{
+  "id": "opencode",
+  "name": "OpenCode Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for OpenCode AI coding assistant",
+  "provider": "opencode",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": true,
+    "supportedHookEvents": ["onSessionStart", "onSessionEnd", "onToolStart", "onToolComplete", "onError", "onPromptSubmit"],
+    "supportsSpawn": true,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": true,
+    "instructionFilePattern": "AGENTS.md"
+  },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "OPENCODE_VERSION", "description": "OpenCode sets this env var" },
+    { "type": "file", "pattern": ".opencode/config.json", "description": "OpenCode config directory" },
+    { "type": "cli", "pattern": "opencode", "description": "OpenCode CLI available in PATH" }
+  ]
+}

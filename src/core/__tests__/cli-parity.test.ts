@@ -182,7 +182,7 @@ describe('LAFS Envelope Format', () => {
     expect(parsed._meta).toBeDefined();
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
-    expect(parsed.error.code).toMatch(/^E_NOT_FOUND/);
+    expect(parsed.error.code).toMatch(/^E_CLEO_NOT_FOUND/);
     expect(parsed.error.message).toBe('Task T999 not found');
     expect(parsed.error.details.fix).toBe('Use cleo list to find tasks');
     expect(parsed.error.details.alternatives).toHaveLength(1);

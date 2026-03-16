@@ -1,5 +1,41 @@
 # Changelog
 
+## [2026.3.29] (2026-03-16)
+
+Provider Adapter Architecture + Provider-Agnostic Memory Bridge (T5240)
+
+### Features
+- **Provider Adapter System**: Pluggable adapter architecture for Claude Code, OpenCode, and Cursor. Each adapter handles provider-specific hooks, spawn, and installation while CLEO core remains vendor-neutral. (ADR-031)
+- **Provider-Agnostic Memory Bridge**: Three-layer memory surfacing (static seed `.cleo/memory-bridge.md`, guided self-retrieval `ct-memory` skill, dynamic MCP resource endpoints). Agents in any provider start conversations with context from prior sessions. (ADR-032)
+- **MCP Resource Endpoints**: Four `cleo://memory/*` URIs serving brain.db content dynamically — recent observations, active learnings, active patterns, and session handoff. LAFS budget-aware truncation. (T5240)
+- **ct-memory Skill**: Brain memory protocol with progressive disclosure. Teaches agents the 3-layer retrieval pattern (search, timeline, fetch) with anti-hallucination guidance and LAFS MVI budget control. (T5240)
+- **Token-Efficiency Routing Table**: Maps each operation to preferred channel (MCP vs CLI) based on token overhead. Extends capability matrix with `preferredChannel` field. (T5240)
+- **Dynamic Skill Generator**: Produces provider-aware skill content based on active adapter capabilities. (T5240)
+- **RFC 9457 ProblemDetails**: `CleoError.toProblemDetails()` produces structured error responses with URN type, HTTP status, LAFS code, and recoverability. (T5240)
+- **Unified Error Catalog**: Single source of truth for all exit codes, replacing 5 scattered registries. Adapter-specific error codes 95-99 added. (T5240)
+
+### Architecture
+- **packages/contracts/**: `@cleocode/contracts` — adapter interfaces, capability types, memory bridge types (T5240)
+- **packages/shared/**: `@cleocode/shared` — runtime utilities for adapters (T5240)
+- **packages/adapters/claude-code/**: Full adapter — hooks (8 CAAMP events), spawn (claude CLI), install (CLAUDE.md, .mcp.json) (T5240)
+- **packages/adapters/opencode/**: Full adapter — hooks (6/8 events), spawn (opencode CLI), install (AGENTS.md, .opencode/config.json) (T5240)
+- **packages/adapters/cursor/**: Install-only adapter — .cursor/rules/cleo.mdc (MDC format), .cursor/mcp.json (T5240)
+- **src/core/adapters/**: AdapterManager singleton with discover/detect/activate/dispose lifecycle (T5240)
+
+### Breaking Changes
+- **Removed `.claude-plugin/` directory**: Brain hooks and context injection are now handled by the provider adapter system. Users should run `cleo install-global` to migrate to adapter-based installation. (T5240)
+- **Removed `src/core/install/claude-plugin.ts`**: Replaced by `packages/adapters/claude-code/src/install.ts` (T5240)
+- **Removed `src/core/spawn/adapters/`**: Replaced by adapter packages and `SpawnAdapterRegistry` bridge (T5240)
+
+### Documentation
+- **ADR-031**: Provider Adapter Architecture (T5240)
+- **ADR-032**: Provider-Agnostic Memory Bridge (T5240)
+- **Adapter Development Guide**: `docs/guides/adapter-development.md` (T5240)
+
+### Tests
+- 95 new tests across 6 test files (routing table, dynamic skill generator, budget truncation, MCP resources, error catalog + ProblemDetails, adapter lifecycle integration) (T5240)
+- 4959 total tests passing (T5240)
+
 ## [2026.3.28] (2026-03-09)
 
 CLEO brain context injection via CLAUDE.md + MCP Registry description fix (T5671)

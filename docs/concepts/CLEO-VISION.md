@@ -218,7 +218,7 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 201 MCP operations (114 query + 87 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG
+**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 207 MCP operations (118 query + 89 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (3 adapters: Claude Code, OpenCode, Cursor — ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints — ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes)
 
 **In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
 
@@ -533,7 +533,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), 201 operations across 10 domains -- the agent interface
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), 207 operations across 10 domains -- the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
@@ -554,9 +554,9 @@ All interfaces MUST preserve the same memory model, lifecycle guarantees, proven
 
 ## Provider Neutrality
 
-CLEO is provider-agnostic by design. The LAFS protocol ensures that any LLM agent — Claude, GPT, Gemini, Llama, or future models — can use CLEO identically through the same structured interface.
+CLEO is provider-agnostic by design. The LAFS protocol ensures that any LLM agent — Claude, GPT, Gemini, Llama, or future models — can use CLEO identically through the same structured interface. The **Provider Adapter System** (ADR-031) delivers this vision with pluggable adapters for Claude Code, OpenCode, and Cursor — each handling provider-specific hook events, spawn mechanics, and installation while CLEO core remains neutral. The **Memory Bridge** (ADR-032) ensures any agent in any provider starts with context from prior sessions.
 
-- Tool-specific integrations (Claude Code plugin, Cursor adapter) MAY optimize user experience
+- Provider adapters in `packages/adapters/` handle provider-specific integration (hooks, spawn, install)
 - Core memory models, provenance semantics, and lifecycle enforcement MUST remain neutral and portable
 - BRAIN stores project knowledge in SQLite (`tasks.db` + `brain.db`) — no cloud dependencies, no vendor lock-in
 - NEXUS connects projects locally — no external services required

@@ -320,6 +320,13 @@ export async function completeTask(
     }
   }
 
+  // Regenerate .cleo/memory-bridge.md (best-effort, T5240)
+  import('../memory/memory-bridge.js')
+    .then(({ refreshMemoryBridge }) => refreshMemoryBridge(cwd ?? process.cwd()))
+    .catch(() => {
+      /* Memory bridge refresh is best-effort */
+    });
+
   return {
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),

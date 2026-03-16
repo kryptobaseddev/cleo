@@ -399,6 +399,12 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 | mutate | `provider.inject` | Inject provider configuration | 1 | -- | No |
 | mutate | `todowrite.sync` | Synchronize TodoWrite integration (moved from admin) | 1 | -- | No |
 | mutate | `todowrite.clear` | Clear TodoWrite sync state (moved from admin) | 1 | -- | No |
+| query | `adapter.list` | List all discovered provider adapters | 2 | -- | Yes |
+| query | `adapter.show` | Show details for a specific adapter | 2 | `id` | Yes |
+| query | `adapter.detect` | Detect active providers in current environment | 2 | -- | Yes |
+| query | `adapter.health` | Health status for adapters | 2 | -- | Yes |
+| mutate | `adapter.activate` | Load and activate a provider adapter | 2 | `id` | No |
+| mutate | `adapter.dispose` | Dispose one or all adapters | 2 | -- | Yes |
 
 **Extracted to `ct-github-issues` plugin (6 ops removed from core):**
 - `tools.issue.templates` — reads `.github/ISSUE_TEMPLATE/`; GitHub coupling
@@ -562,11 +568,11 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | check | 13 | 4 | 17 |
 | pipeline | 14 | 17 | 31 |
 | orchestrate | 9 | 7 | 16 |
-| tools | 16 | 6 | 22 |
+| tools | 20 | 8 | 28 |
 | admin | 15 | 15 | 30 |
 | nexus | 12 | 8 | 20 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **114** | **87** | **201** |
+| **Total** | **118** | **89** | **207** |
 
 > These counts match `src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
 

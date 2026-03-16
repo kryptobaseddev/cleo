@@ -1,0 +1,28 @@
+{
+  "name": "@cleocode/adapter-claude-code",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Anthropic Claude Code CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cleocode/contracts": "1.0.0",
+    "@cleocode/shared": "1.0.0"
+  },
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "manifest.json"
+  ]
+}

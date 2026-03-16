@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MCP_SERVER="${PROJECT_ROOT}/mcp-server/dist/index.js"
+MCP_SERVER="${PROJECT_ROOT}/dist/mcp/index.js"
 TEST_RESULTS=()
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -23,11 +23,11 @@ log_test() {
 
     if [[ "$status" == "PASS" ]]; then
         echo -e "${GREEN}✓${NC} $name"
-        ((TESTS_PASSED++))
+        TESTS_PASSED=$((TESTS_PASSED + 1))
     elif [[ "$status" == "FAIL" ]]; then
         echo -e "${RED}✗${NC} $name"
         echo -e "  ${RED}Error:${NC} $message"
-        ((TESTS_FAILED++))
+        TESTS_FAILED=$((TESTS_FAILED + 1))
     else
         echo -e "${YELLOW}⊘${NC} $name - $message"
     fi
@@ -35,10 +35,10 @@ log_test() {
     TEST_RESULTS+=("$status|$name|$message")
 }
 
-# Test 1: System Version (QUICK-START.md line 47-52)
+# Test 1: System Version
 test_system_version() {
     echo ""
-    echo "Testing: System Version Query (QUICK-START.md)"
+    echo "Testing: System Version Query"
 
     local request='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"domain":"system","operation":"version"}}}'
 
@@ -56,10 +56,10 @@ test_system_version() {
     fi
 }
 
-# Test 2: Task Find (README.md line 80-85)
+# Test 2: Task Find
 test_task_find() {
     echo ""
-    echo "Testing: Task Find Operation (README.md)"
+    echo "Testing: Task Find Operation"
 
     local request='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"find","params":{"query":"validation"}}}}'
 
@@ -77,12 +77,12 @@ test_task_find() {
     fi
 }
 
-# Test 3: Task Get (task-management.md line 42-46)
+# Test 3: Task Show
 test_task_get() {
     echo ""
-    echo "Testing: Task Get Operation (task-management.md)"
+    echo "Testing: Task Show Operation"
 
-    local request='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"show","params":{"taskId":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -98,10 +98,10 @@ test_task_get() {
     fi
 }
 
-# Test 4: Session Status (USAGE-GUIDE.md line 553-556)
+# Test 4: Session Status
 test_session_status() {
     echo ""
-    echo "Testing: Session Status Query (USAGE-GUIDE.md)"
+    echo "Testing: Session Status Query"
 
     local request='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"domain":"session","operation":"status"}}}'
 
@@ -119,33 +119,33 @@ test_session_status() {
     fi
 }
 
-# Test 5: Task Exists Check (task-management.md line 445-449)
+# Test 5: Task Find Check
 test_task_exists() {
     echo ""
-    echo "Testing: Task Exists Check (task-management.md)"
+    echo "Testing: Task Find Check"
 
-    local request='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"exists","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"find","params":{"query":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
     if echo "$response" | jq -e '.result.content[0].text' &>/dev/null; then
         local result=$(echo "$response" | jq -r '.result.content[0].text')
-        if echo "$result" | jq -e '.success == true and .data.exists == true' &>/dev/null; then
-            log_test "PASS" "Task Exists Check" "Task T3074 exists"
+        if echo "$result" | jq -e '.success == true' &>/dev/null; then
+            log_test "PASS" "Task Find Check" "Task find succeeded"
         else
-            log_test "FAIL" "Task Exists Check" "Task check failed: $result"
+            log_test "FAIL" "Task Find Check" "Task find failed: $result"
         fi
     else
-        log_test "FAIL" "Task Exists Check" "No valid response: $response"
+        log_test "FAIL" "Task Find Check" "No valid response: $response"
     fi
 }
 
-# Test 6: Task Dependencies (task-management.md line 197-203)
+# Test 6: Task Dependencies
 test_task_deps() {
     echo ""
-    echo "Testing: Task Dependencies Query (task-management.md)"
+    echo "Testing: Task Dependencies Query"
 
-    local request='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"deps","params":{"taskId":"T3074","direction":"both"}}}}'
+    local request='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"depends","params":{"taskId":"T3074","direction":"both"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -161,34 +161,34 @@ test_task_deps() {
     fi
 }
 
-# Test 7: Lifecycle Status Check (USAGE-GUIDE.md line 779-784)
+# Test 7: Pipeline Status Check
 test_lifecycle_status() {
     echo ""
-    echo "Testing: Lifecycle Status Check (USAGE-GUIDE.md)"
+    echo "Testing: Pipeline Status Check"
 
-    local request='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"domain":"lifecycle","operation":"status","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"domain":"pipeline","operation":"status","params":{"taskId":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
     if echo "$response" | jq -e '.result.content[0].text' &>/dev/null; then
         local result=$(echo "$response" | jq -r '.result.content[0].text')
         if echo "$result" | jq -e '.success == true' &>/dev/null; then
-            log_test "PASS" "Lifecycle Status Check" "Retrieved lifecycle state"
+            log_test "PASS" "Pipeline Status Check" "Retrieved lifecycle state"
         else
-            log_test "FAIL" "Lifecycle Status Check" "Query failed: $result"
+            log_test "FAIL" "Pipeline Status Check" "Query failed: $result"
         fi
     else
-        log_test "FAIL" "Lifecycle Status Check" "No valid response: $response"
+        log_test "FAIL" "Pipeline Status Check" "No valid response: $response"
     fi
 }
 
-# Test 8: Error Response Format (README.md line 223-240)
+# Test 8: Error Response Format
 test_error_format() {
     echo ""
-    echo "Testing: Error Response Format (README.md)"
+    echo "Testing: Error Response Format"
 
     # Use non-existent task to trigger error
-    local request='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T9999999"}}}}'
+    local request='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"show","params":{"taskId":"T9999999"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 

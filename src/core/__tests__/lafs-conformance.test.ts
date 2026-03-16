@@ -280,7 +280,7 @@ describe('CleoError LAFS Shape', () => {
   it('toLAFSError() produces protocol-conformant error', () => {
     const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
     const lafsErr = err.toLAFSError();
-    expect(lafsErr.code).toMatch(/^E_NOT_FOUND/);
+    expect(lafsErr.code).toMatch(/^E_CLEO_NOT_FOUND/);
     expect(lafsErr.category).toBe('NOT_FOUND');
     expect(typeof lafsErr.retryable).toBe('boolean');
     expect(lafsErr.message).toBe('Task not found');

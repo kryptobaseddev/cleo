@@ -25,6 +25,8 @@ export interface StartSessionOptions {
   agent?: string;
   /** Enable full query+mutation audit logging for this session (behavioral grading). */
   grade?: boolean;
+  /** Provider adapter ID active for this session (T5240). */
+  providerId?: string;
 }
 
 /** Options for ending a session. */
@@ -150,6 +152,7 @@ export async function startSession(
     notes: [],
     tasksCompleted: [],
     tasksCreated: [],
+    providerId: options.providerId ?? null,
   };
 
   // If grade mode enabled, mark session and set env vars for audit middleware
@@ -252,6 +255,13 @@ export async function endSession(
   }).catch(() => {
     /* Memory bridge is best-effort */
   });
+
+  // Regenerate .cleo/memory-bridge.md (best-effort, T5240)
+  import('../memory/memory-bridge.js')
+    .then(({ refreshMemoryBridge }) => refreshMemoryBridge(cwd ?? process.cwd()))
+    .catch(() => {
+      /* Memory bridge refresh is best-effort */
+    });
 
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler
