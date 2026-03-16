@@ -30,6 +30,7 @@ import {
   getPushMode,
   loadReleaseConfig,
 } from './release-config.js';
+import { getVersionBumpConfig } from './version-bump.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -763,7 +764,7 @@ export async function runReleaseGates(
     });
   }
 
-  // GD1: Clean working tree (CHANGELOG.md and VERSION are allowed to be dirty)
+  // GD1: Clean working tree (CHANGELOG.md and version bump targets are allowed to be dirty)
   // Skipped in dry-run mode — dry-run makes no commits so tree cleanliness is irrelevant.
   // Untracked files (?? lines) are excluded from the dirty check — they do not affect git
   // commit/tag operations and must not block releases.
@@ -774,6 +775,9 @@ export async function runReleaseGates(
       message: 'Skipped in dry-run mode',
     });
   } else {
+    // Dynamically build exclusion set from configured version bump targets + CHANGELOG.md
+    const bumpTargets = getVersionBumpConfig(cwd);
+    const allowedDirty = new Set(['CHANGELOG.md', ...bumpTargets.map((t) => t.file)]);
     let workingTreeClean = true;
     let dirtyFiles: string[] = [];
     try {
@@ -788,16 +792,17 @@ export async function runReleaseGates(
         // Exclude untracked files (?? prefix) — they don't affect commits or tags
         .filter((l) => !l.startsWith('?? '))
         .map((l) => l.slice(3).trim())
-        .filter((f) => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
+        .filter((f) => !allowedDirty.has(f));
       workingTreeClean = dirtyFiles.length === 0;
     } catch {
       /* git not available — skip */
     }
+    const excludeList = [...allowedDirty].join(', ');
     gates.push({
       name: 'clean_working_tree',
       status: workingTreeClean ? 'passed' : 'failed',
       message: workingTreeClean
-        ? 'Working tree clean (excluding CHANGELOG.md, VERSION, package.json)'
+        ? `Working tree clean (excluding ${excludeList})`
         : `Uncommitted changes in: ${dirtyFiles.slice(0, 5).join(', ')}${dirtyFiles.length > 5 ? ` (+${dirtyFiles.length - 5} more)` : ''}`,
     });
   }
