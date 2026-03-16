@@ -528,6 +528,16 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Generate memory-bridge.md from brain.db BEFORE injection so AGENTS.md can reference it
+  try {
+    const bridgeResult = await writeMemoryBridge(projRoot);
+    if (bridgeResult.written) {
+      created.push('memory-bridge.md');
+    }
+  } catch (err) {
+    warnings.push(`Memory bridge: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // T4682: Inject into agent instruction files via CAAMP (AGENTS.md hub pattern)
   try {
     const injectionResult = await ensureInjection(projRoot);
@@ -594,16 +604,6 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     }
   } catch (err) {
     warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // Generate memory-bridge.md from brain.db content
-  try {
-    const bridgeResult = await writeMemoryBridge(projRoot);
-    if (bridgeResult.written) {
-      created.push('memory-bridge.md');
-    }
-  } catch (err) {
-    warnings.push(`Memory bridge: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Remove .cleo/ from root .gitignore if present

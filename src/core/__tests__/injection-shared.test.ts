@@ -209,11 +209,11 @@ describe('ensureInjection', () => {
     expect(result.path).toBe(join(tempDir, 'AGENTS.md'));
   });
 
-  it('returns skipped when no providers are detected', async () => {
+  it('creates AGENTS.md even when no providers are detected', async () => {
     // Mock CAAMP with no providers
     vi.doMock('@cleocode/caamp', () => ({
       getInstalledProviders: vi.fn(() => []),
-      inject: vi.fn(),
+      inject: vi.fn(async () => 'injected'),
       injectAll: vi.fn(),
       buildInjectionContent: vi.fn(),
     }));
@@ -221,8 +221,8 @@ describe('ensureInjection', () => {
     // Re-import to pick up the doMock
     const { ensureInjection: freshEnsure } = await import('../injection.js');
     const result = await freshEnsure(tempDir);
-    expect(result.action).toBe('skipped');
-    expect(result.details).toContain('No AI agent providers detected');
+    expect(result.action).toBe('repaired');
+    expect(result.details).toContain('No providers detected');
   });
 
   it('returns result with action when providers exist', async () => {
