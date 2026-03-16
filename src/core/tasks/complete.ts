@@ -77,7 +77,7 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
     ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
     : ['critical', 'high'];
 
-  const verificationEnabled = verificationEnabledRaw !== false;
+  const verificationEnabled = verificationEnabledRaw === true;
 
   const verificationRequiredGates = Array.isArray(verificationRequiredGatesRaw)
     ? verificationRequiredGatesRaw

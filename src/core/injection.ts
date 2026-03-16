@@ -98,34 +98,30 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
   const { getInstalledProviders, inject, injectAll, buildInjectionContent } = caamp;
 
   const providers = getInstalledProviders();
-  if (providers.length === 0) {
-    return {
-      action: 'skipped',
-      path: join(projectRoot, 'AGENTS.md'),
-      details: 'No AI agent providers detected, skipping injection',
-    };
-  }
-
   const actions: string[] = [];
 
-  // Step 0: Strip legacy CLEO blocks and remove deprecated AGENT-INJECTION.md
-  for (const provider of providers) {
-    const instructFile = join(projectRoot, provider.pathProject, provider.instructFile);
-    await stripCLEOBlocks(instructFile);
-  }
-  await stripCLEOBlocks(join(projectRoot, 'AGENTS.md'));
-  const removedStale = await removeStaleAgentInjection(projectRoot);
-  if (removedStale) {
-    actions.push('removed deprecated AGENT-INJECTION.md');
-  }
+  if (providers.length === 0) {
+    actions.push('No providers detected (AGENTS.md created without provider injection)');
+  } else {
+    // Step 0: Strip legacy CLEO blocks and remove deprecated AGENT-INJECTION.md
+    for (const provider of providers) {
+      const instructFile = join(projectRoot, provider.pathProject, provider.instructFile);
+      await stripCLEOBlocks(instructFile);
+    }
+    await stripCLEOBlocks(join(projectRoot, 'AGENTS.md'));
+    const removedStale = await removeStaleAgentInjection(projectRoot);
+    if (removedStale) {
+      actions.push('removed deprecated AGENT-INJECTION.md');
+    }
 
-  // Step 1: Inject @AGENTS.md into all provider instruction files
-  const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
-  const results = await injectAll(providers, projectRoot, 'project', injectionContent);
+    // Step 1: Inject @AGENTS.md into all provider instruction files
+    const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
+    const results = await injectAll(providers, projectRoot, 'project', injectionContent);
 
-  for (const [filePath, action] of results) {
-    const fileName = basename(filePath);
-    actions.push(`${fileName} (${action})`);
+    for (const [filePath, action] of results) {
+      const fileName = basename(filePath);
+      actions.push(`${fileName} (${action})`);
+    }
   }
 
   // Step 2: Inject CLEO protocol content into AGENTS.md itself

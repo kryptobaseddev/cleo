@@ -15,6 +15,7 @@ import { type ContextInjectionData, injectContext } from '../../core/sessions/co
 import type { FindSessionsParams, MinimalSessionRecord } from '../../core/sessions/find.js';
 import type { HandoffData } from '../../core/sessions/handoff.js';
 import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
+import { parseScope } from '../../core/sessions/index.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -291,6 +292,22 @@ export async function sessionStart(
     let accessor = await getAccessor(projectRoot);
     let taskData = await accessor.loadTaskFile();
 
+    // Validate scope BEFORE auto-ending active session (prevents data loss on invalid input)
+    let scope: ReturnType<typeof parseScope>;
+    try {
+      scope = parseScope(params.scope);
+    } catch (err) {
+      return engineError('E_INVALID_INPUT', err instanceof Error ? err.message : 'Invalid scope');
+    }
+
+    // For non-global scopes, verify root task exists before auto-ending
+    if (scope.type !== 'global') {
+      const rootTask = taskData.tasks?.find((t) => t.id === scope.rootTaskId);
+      if (!rootTask) {
+        return engineError('E_NOT_FOUND', `Root task '${scope.rootTaskId}' not found`);
+      }
+    }
+
     // Auto-end any active session before starting a new one
     const activeSessionId = taskData._meta?.activeSession;
     if (activeSessionId) {
@@ -298,21 +315,6 @@ export async function sessionStart(
       // Reload after auto-end modified the task file
       accessor = await getAccessor(projectRoot);
       taskData = await accessor.loadTaskFile();
-    }
-
-    // Parse scope (e.g., "epic:T001" -> { type: 'epic', rootTaskId: 'T001' })
-    const scopeParts = params.scope.split(':');
-    const scopeType = scopeParts[0] || 'task';
-    const rootTaskId = scopeParts[1] || '';
-
-    if (!rootTaskId) {
-      return engineError('E_INVALID_INPUT', 'Scope must include a task ID (e.g., epic:T001)');
-    }
-
-    // Verify root task exists
-    const rootTask = taskData.tasks?.find((t) => t.id === rootTaskId);
-    if (!rootTask) {
-      return engineError('E_NOT_FOUND', `Root task '${rootTaskId}' not found`);
     }
 
     const now = new Date().toISOString();
@@ -327,8 +329,8 @@ export async function sessionStart(
           (s: Session) =>
             s.status === 'ended' &&
             s.endedAt &&
-            s.scope?.rootTaskId === rootTaskId &&
-            s.scope?.type === scopeType,
+            s.scope?.type === scope.type &&
+            (scope.type === 'global' || s.scope?.rootTaskId === scope.rootTaskId),
         )
         .sort(
           (a: Session, b: Session) =>
@@ -345,17 +347,16 @@ export async function sessionStart(
       process.env.CLEO_AGENT_ID ??
       null;
 
-    const startingTaskId = params.startTask || (params.autoStart ? rootTaskId : null);
+    const rootTaskId = scope.type !== 'global' ? scope.rootTaskId : undefined;
+    const startingTaskId = params.startTask || (params.autoStart && rootTaskId ? rootTaskId : null);
 
     const newSession: Session = {
       id: sessionId,
       status: 'active',
       name: params.name || `session-${sessionId}`,
-      scope: {
-        type: scopeType,
-        rootTaskId,
-        includeDescendants: true,
-      },
+      scope: scope.type === 'global'
+        ? { type: 'global' }
+        : { type: scope.type, rootTaskId: scope.rootTaskId!, includeDescendants: true },
       taskWork: {
         taskId: startingTaskId,
         setAt: now,
@@ -389,7 +390,7 @@ export async function sessionStart(
     const startingTask = params.startTask;
     if (startingTask) {
       taskData.focus.currentTask = startingTask;
-    } else if (params.autoStart) {
+    } else if (params.autoStart && rootTaskId) {
       taskData.focus.currentTask = rootTaskId;
     }
 

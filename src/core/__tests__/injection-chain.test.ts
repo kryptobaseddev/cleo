@@ -233,6 +233,21 @@ describe('E2E: injection chain validation (T4694)', () => {
     expect(agentsContent).not.toContain('AGENT-INJECTION.md');
   });
 
+  it('creates AGENTS.md even when no providers detected', async () => {
+    // Override the mock to return no providers
+    const caamp = await import('@cleocode/caamp');
+    const getInstalledProviders = caamp.getInstalledProviders as ReturnType<typeof vi.fn>;
+    getInstalledProviders.mockReturnValueOnce([]);
+
+    await initProject({ name: 'no-provider-test' });
+
+    // AGENTS.md should still exist and reference CLEO-INJECTION.md
+    const agentsPath = join(testDir, 'AGENTS.md');
+    expect(existsSync(agentsPath)).toBe(true);
+    const agentsContent = await readFile(agentsPath, 'utf-8');
+    expect(agentsContent).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+  });
+
   it('updateDocs refreshes injection without full reinit', async () => {
     // First init
     await initProject({ name: 'chain-test' });

@@ -164,7 +164,7 @@ describe('completeTask', () => {
     );
   });
 
-  it('defaults verification enforcement to enabled when unset', async () => {
+  it('defaults verification enforcement to disabled when unset (opt-in)', async () => {
     await seedTasks(accessor, [
       {
         id: 'T001',
@@ -175,13 +175,12 @@ describe('completeTask', () => {
         type: 'task',
       },
     ]);
-    // Remove config.json so verification defaults to enabled
+    // Remove config.json so verification defaults to disabled (opt-in)
     const { rm } = await import('node:fs/promises');
     await rm(join(env.cleoDir, 'config.json'), { force: true });
 
-    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
-      'missing verification metadata',
-    );
+    const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
   });
 
   it('honors project config when verification enforcement is off', async () => {
