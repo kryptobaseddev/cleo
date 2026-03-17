@@ -68,6 +68,8 @@ export interface InitOptions {
   detect?: boolean;
   /** Update agent documentation injections only. */
   updateDocs?: boolean;
+  /** Run codebase analysis and store findings to brain.db. */
+  mapCodebase?: boolean;
 }
 
 /** Result of the init operation. */
@@ -526,6 +528,19 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     }
   } catch (err) {
     warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Codebase analysis and brain.db storage (brownfield auto-mapping)
+  if (opts.mapCodebase) {
+    try {
+      const { mapCodebase } = await import('./codebase-map/index.js');
+      const mapResult = await mapCodebase(projRoot, { storeToBrain: true });
+      created.push(
+        `codebase-map: ${mapResult.stack.languages.length} languages, ${mapResult.architecture.layers.length} layers analyzed`,
+      );
+    } catch (err) {
+      warnings.push(`Codebase mapping: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Generate memory-bridge.md from brain.db BEFORE injection so AGENTS.md can reference it

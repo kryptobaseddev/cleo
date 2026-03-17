@@ -184,6 +184,7 @@ describe('AdminHandler', () => {
         'adr.show',
         'adr.find',
         'export',
+        'map',
       ]);
     });
 
@@ -205,6 +206,7 @@ describe('AdminHandler', () => {
         'context.inject',
         'import',
         'detect',
+        'map',
       ]);
     });
   });

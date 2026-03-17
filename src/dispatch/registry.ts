@@ -2292,6 +2292,44 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'map',
+    description: 'admin.map (query) — analyze codebase structure, return structured mapping',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'focus',
+        type: 'string',
+        required: false,
+        description:
+          'Focus analysis on one area: stack, architecture, structure, conventions, testing, integrations, concerns',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'admin',
+    operation: 'map',
+    description: 'admin.map (mutate) — analyze codebase and store findings to brain.db',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'focus',
+        type: 'string',
+        required: false,
+        description:
+          'Focus analysis on one area: stack, architecture, structure, conventions, testing, integrations, concerns',
+      },
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // nexus.share — multi-contributor operations

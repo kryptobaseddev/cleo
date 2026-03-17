@@ -243,6 +243,22 @@
       "metadata": {}
     },
     {
+      "name": "ct-codebase-mapper",
+      "description": "Codebase analysis and mapping for autonomous agent understanding. Builds structured maps of project stack, architecture, conventions, testing, integrations, and concerns.",
+      "version": "1.0.0",
+      "path": "skills/ct-codebase-mapper/SKILL.md",
+      "references": [],
+      "core": false,
+      "category": "recommended",
+      "tier": 1,
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli"],
+      "license": "MIT",
+      "metadata": {}
+    },
+    {
       "name": "loom",
       "description": "LOOM (Logical Order of Operations Methodology) - the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. LOOM encompasses the full lifecycle methodology that transforms raw ideas into delivered artifacts, from Research through Release with the Contribution protocol (+C) running across all stages. References docs/concepts/CLEO-VISION.md for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.",
       "version": "1.0.0",

@@ -590,6 +590,15 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'map': {
+          const { mapCodebase } = await import('../engines/codebase-map-engine.js');
+          const result = await mapCodebase(this.projectRoot, {
+            focus: params?.focus as string | undefined,
+            storeToBrain: false,
+          });
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'admin', operation, startTime);
       }
@@ -1058,6 +1067,15 @@ export class AdminHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        case 'map': {
+          const { mapCodebase } = await import('../engines/codebase-map-engine.js');
+          const result = await mapCodebase(this.projectRoot, {
+            focus: params?.focus as string | undefined,
+            storeToBrain: true,
+          });
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
         // admin.install.global — refresh global CLEO setup (T4916)
         case 'install.global': {
           const { ensureGlobalScaffold, ensureGlobalTemplates } = await import(
@@ -1111,6 +1129,7 @@ export class AdminHandler implements DomainHandler {
         'adr.show',
         'adr.find',
         'export',
+        'map',
       ],
       mutate: [
         'init',
@@ -1128,6 +1147,7 @@ export class AdminHandler implements DomainHandler {
         'context.inject',
         'import',
         'detect',
+        'map',
       ],
     };
   }
