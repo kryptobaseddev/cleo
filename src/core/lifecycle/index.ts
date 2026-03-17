@@ -328,8 +328,8 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
   // Read from config
   try {
     const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
-    const config = await readJson<{ lifecycleEnforcement?: { mode?: string } }>(configPath);
-    const mode = config?.lifecycleEnforcement?.mode;
+    const config = await readJson<{ lifecycle?: { mode?: string } }>(configPath);
+    const mode = config?.lifecycle?.mode;
     if (mode && ['strict', 'advisory', 'off'].includes(mode)) {
       return mode as EnforcementMode;
     }

@@ -92,7 +92,7 @@ export function registerLifecycleCommand(program: Command): void {
         const { cliOutput } = await import('../renderers/index.js');
         cliOutput(result.data, { command: 'lifecycle' });
         const data = result.data as Record<string, unknown> | undefined;
-        if (data && !data['allowed']) {
+        if (data && !data['canProgress']) {
           process.exit(80);
         }
       } else {

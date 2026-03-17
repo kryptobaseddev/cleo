@@ -10,6 +10,7 @@
  */
 
 import {
+  checkGate,
   checkStagePrerequisites,
   failGate,
   getLifecycleGates,
@@ -149,6 +150,14 @@ export async function lifecycleProgress(
     return engineError('E_INVALID_INPUT', 'taskId, stage, and status are required');
   }
   try {
+    // Enforce lifecycle gates for stage transitions (T5698)
+    if (status === 'in_progress' || status === 'completed') {
+      const gateResult = await checkGate(taskId, stage, projectRoot);
+      if (!gateResult.allowed) {
+        return engineError('E_LIFECYCLE_GATE_FAILED', gateResult.message);
+      }
+    }
+
     const data = await recordStageProgress(taskId, stage, status, notes, projectRoot);
     return engineSuccess({ ...data, recorded: true });
   } catch (err) {

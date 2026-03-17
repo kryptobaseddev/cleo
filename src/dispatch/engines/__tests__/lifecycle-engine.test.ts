@@ -29,6 +29,7 @@ let RCASD_DIR = '';
 
 describe('Lifecycle Engine', () => {
   beforeEach(() => {
+    process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
     resetDbState();
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-lifecycle-engine-'));
     RCASD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
@@ -42,6 +43,7 @@ describe('Lifecycle Engine', () => {
   });
 
   afterEach(() => {
+    delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     closeLogger();
     closeDb();
     resetDbState();
@@ -213,6 +215,52 @@ describe('Lifecycle Engine', () => {
       const result = await lifecycleHistory('T999', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).history).toHaveLength(0);
+    });
+  });
+
+  describe('lifecycleProgress gate enforcement', () => {
+    it('blocks out-of-order stage transitions in strict mode', async () => {
+      process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'strict';
+      try {
+        // Try to start 'implementation' without completing prerequisites
+        const result = await lifecycleProgress('T700', 'implementation', 'in_progress', undefined, TEST_ROOT);
+        expect(result.success).toBe(false);
+        expect(result.error?.message).toContain('prerequisites');
+      } finally {
+        delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
+      }
+    });
+
+    it('blocks completing a stage with unmet prerequisites in strict mode', async () => {
+      process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'strict';
+      try {
+        const result = await lifecycleProgress('T701', 'implementation', 'completed', undefined, TEST_ROOT);
+        expect(result.success).toBe(false);
+        expect(result.error?.message).toContain('prerequisites');
+      } finally {
+        delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
+      }
+    });
+
+    it('allows stage progression when prerequisites are met', async () => {
+      process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'strict';
+      try {
+        // 'research' has no prerequisites, should succeed
+        const result = await lifecycleProgress('T702', 'research', 'completed', undefined, TEST_ROOT);
+        expect(result.success).toBe(true);
+      } finally {
+        delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
+      }
+    });
+
+    it('allows out-of-order transitions in advisory mode', async () => {
+      process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'advisory';
+      try {
+        const result = await lifecycleProgress('T703', 'implementation', 'in_progress', undefined, TEST_ROOT);
+        expect(result.success).toBe(true);
+      } finally {
+        delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
+      }
     });
   });
 });
