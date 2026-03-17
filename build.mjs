@@ -69,6 +69,7 @@ const buildOptions = {
           '@cleocode/adapter-opencode': resolve(__dirname, 'packages/adapters/opencode/src/index.ts'),
           '@cleocode/adapter-cursor': resolve(__dirname, 'packages/adapters/cursor/src/index.ts'),
           '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+          '@cleocode/core': resolve(__dirname, 'packages/core/src/index.ts'),
         };
 
         // Resolve @cleocode/* to source TypeScript

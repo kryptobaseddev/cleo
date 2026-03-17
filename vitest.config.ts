@@ -76,6 +76,7 @@ export default defineConfig({
       "@cleocode/adapter-opencode": resolve("packages/adapters/opencode/src/index.ts"),
       "@cleocode/adapter-cursor": resolve("packages/adapters/cursor/src/index.ts"),
       "@cleocode/contracts": resolve("packages/contracts/src/index.ts"),
+      "@cleocode/core": resolve("packages/core/src/index.ts"),
     },
   },
 });
