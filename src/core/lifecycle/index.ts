@@ -13,8 +13,8 @@
  * @epic T4454
  */
 
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readJson } from '../../store/json.js';
 import * as schema from '../../store/tasks-schema.js';
 import { LIFECYCLE_STAGE_STATUSES } from '../../store/tasks-schema.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -326,7 +326,8 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
   // Read from config
   try {
     const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
-    const config = await readJson<{ lifecycle?: { mode?: string } }>(configPath);
+    const raw = await readFile(configPath, 'utf-8');
+    const config = JSON.parse(raw) as { lifecycle?: { mode?: string } };
     const mode = config?.lifecycle?.mode;
     if (mode && ['strict', 'advisory', 'off'].includes(mode)) {
       return mode as EnforcementMode;
