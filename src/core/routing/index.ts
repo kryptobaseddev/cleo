@@ -1,8 +1,7 @@
 /**
- * Capability Matrix (Backward-Compat Re-export)
+ * Routing core module — barrel export.
  *
- * Thin wrapper that re-exports from the canonical location at
- * src/core/routing/capability-matrix.ts.
+ * Re-exports capability matrix and routing utilities from the core layer.
  *
  * @task T5706
  */
@@ -14,11 +13,11 @@ export {
   getNativeOperations,
   getOperationMode,
   requiresCLI,
-} from '../../core/routing/capability-matrix.js';
+} from './capability-matrix.js';
 export type {
   CapabilityReport,
   ExecutionMode,
   GatewayType,
   OperationCapability,
   PreferredChannel,
-} from '../../core/routing/capability-matrix.js';
+} from './capability-matrix.js';

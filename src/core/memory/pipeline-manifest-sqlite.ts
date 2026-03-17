@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, count, desc, eq, gte, isNull, like, lte, or, type SQL } from 'drizzle-orm';
-import type { EngineResult } from '../../dispatch/engines/_error.js';
+import type { EngineResult } from '../engine-result.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { pipelineManifest } from '../../store/tasks-schema.js';
 import { createPage } from '../pagination.js';
