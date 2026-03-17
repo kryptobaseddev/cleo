@@ -38,7 +38,7 @@ export async function deleteTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeleteTaskResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);

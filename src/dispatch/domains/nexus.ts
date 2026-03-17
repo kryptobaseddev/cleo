@@ -11,8 +11,8 @@
  * @task T5704
  */
 
-import type { NexusPermissionLevel } from '../../core/nexus/registry.js';
 import { getLogger } from '../../core/logger.js';
+import type { NexusPermissionLevel } from '../../core/nexus/registry.js';
 import { getProjectRoot } from '../../core/paths.js';
 import {
   nexusBlockers,
@@ -37,7 +37,13 @@ import {
   nexusUnregisterProject,
 } from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import {
+  errorResult,
+  getListParams,
+  handleErrorResult,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------

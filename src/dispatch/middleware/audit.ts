@@ -35,6 +35,7 @@ function resolveProjectHash(): string | null {
 
 // AuditEntry type re-exported from core (canonical location)
 export type { AuditEntry } from '../../core/audit.js';
+
 import type { AuditEntry } from '../../core/audit.js';
 
 /**

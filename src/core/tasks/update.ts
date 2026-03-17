@@ -9,13 +9,7 @@ import { getAccessor } from '../../store/data-accessor.js';
 import { safeAppendLog, safeSaveTaskData } from '../../store/data-safety-central.js';
 import { computeChecksum } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type {
-  Task,
-  TaskPriority,
-  TaskSize,
-  TaskStatus,
-  TaskType,
-} from '../../types/task.js';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import {
   normalizePriority,
@@ -92,7 +86,7 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);

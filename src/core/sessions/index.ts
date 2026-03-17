@@ -71,7 +71,7 @@ function generateSessionId(): string {
  * @task T4463
  */
 export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   return acc.loadSessions();
 }
 
@@ -84,7 +84,7 @@ export async function saveSessions(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<void> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   await acc.saveSessions(sessions);
 }
 

@@ -7,21 +7,21 @@
  * @task T5706
  */
 
+export type { RateLimitConfig, RateLimitResult } from '../../core/security/input-sanitization.js';
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
   ensureArray,
   RateLimiter,
+  SecurityError,
   sanitizeContent,
   sanitizeParams,
   sanitizePath,
   sanitizeTaskId,
-  SecurityError,
-  validateEnum,
   VALID_DOMAINS,
   VALID_GATEWAYS,
   VALID_LIFECYCLE_STAGE_STATUSES,
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
+  validateEnum,
 } from '../../core/security/input-sanitization.js';
-export type { RateLimitConfig, RateLimitResult } from '../../core/security/input-sanitization.js';

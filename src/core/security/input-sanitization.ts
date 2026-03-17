@@ -13,7 +13,6 @@
  */
 
 import { isAbsolute, normalize, relative, resolve } from 'path';
-import { normalizeTaskId } from '../tasks/id-generator.js';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
@@ -21,6 +20,7 @@ import {
   TASK_STATUSES,
 } from '../../store/status-registry.js';
 import { TASK_PRIORITIES } from '../../store/tasks-schema.js';
+import { normalizeTaskId } from '../tasks/id-generator.js';
 
 /**
  * Security validation error thrown when input fails sanitization

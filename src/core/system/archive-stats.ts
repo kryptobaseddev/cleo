@@ -41,7 +41,7 @@ export async function getArchiveStats(
   const periodDays = opts.period ?? 30;
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
-  const acc = accessor ?? await getAccessor(opts.cwd);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
   const archive = (await acc.loadArchive()) as unknown as ArchiveFile | null;
 
   if (!archive?.archivedTasks) {

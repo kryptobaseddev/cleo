@@ -15,18 +15,21 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, count, desc, eq, gte, isNull, like, lte, or, type SQL } from 'drizzle-orm';
-import type { EngineResult } from '../engine-result.js';
 import { pipelineManifest } from '../../store/tasks-schema.js';
+import type { EngineResult } from '../engine-result.js';
 
 async function getDb(cwd?: string): ReturnType<typeof import('../../store/sqlite.js')['getDb']> {
   const { getDb: _getDb } = await import('../../store/sqlite.js');
   return _getDb(cwd);
 }
 
-async function getNativeDb(): Promise<ReturnType<typeof import('../../store/sqlite.js')['getNativeDb']>> {
+async function getNativeDb(): Promise<
+  ReturnType<typeof import('../../store/sqlite.js')['getNativeDb']>
+> {
   const { getNativeDb: _getNativeDb } = await import('../../store/sqlite.js');
   return _getNativeDb();
 }
+
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import {

@@ -738,7 +738,11 @@ async function ensureLifecycleContext(
   stageName: string,
   cwd: string | undefined,
   options: EnsureLifecycleContextOptions,
-): Promise<{ db: Awaited<ReturnType<typeof import('../../store/sqlite.js')['getDb']>>; pipelineId: string; stageId: string }> {
+): Promise<{
+  db: Awaited<ReturnType<typeof import('../../store/sqlite.js')['getDb']>>;
+  pipelineId: string;
+  stageId: string;
+}> {
   const { getDb } = await import('../../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);

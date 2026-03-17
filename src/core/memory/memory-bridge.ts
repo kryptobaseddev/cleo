@@ -260,10 +260,7 @@ async function getLastHandoffSafe(
   }
 }
 
-function queryRecentDecisions(
-  db: DatabaseSync,
-  limit: number,
-): DecisionRow[] {
+function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
   try {
     return db
       .prepare(
@@ -275,10 +272,7 @@ function queryRecentDecisions(
   }
 }
 
-function queryHighConfidenceLearnings(
-  db: DatabaseSync,
-  limit: number,
-): LearningRow[] {
+function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): LearningRow[] {
   try {
     return db
       .prepare(
@@ -293,11 +287,7 @@ function queryHighConfidenceLearnings(
   }
 }
 
-function queryPatterns(
-  db: DatabaseSync,
-  type: string,
-  limit: number,
-): PatternRow[] {
+function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRow[] {
   try {
     return db
       .prepare(
@@ -309,10 +299,7 @@ function queryPatterns(
   }
 }
 
-function queryRecentObservations(
-  db: DatabaseSync,
-  limit: number,
-): ObservationRow[] {
+function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRow[] {
   try {
     return db
       .prepare(

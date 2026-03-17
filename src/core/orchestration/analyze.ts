@@ -92,10 +92,7 @@ export function detectCircularDependencies(
  * @param allTasks - All tasks in the project (to check if deps are completed elsewhere)
  * @returns Array of missing dependency references
  */
-export function findMissingDependencies(
-  children: Task[],
-  allTasks: Task[],
-): MissingDependency[] {
+export function findMissingDependencies(children: Task[], allTasks: Task[]): MissingDependency[] {
   const childIds = new Set(children.map((t) => t.id));
   const missingDeps: MissingDependency[] = [];
 

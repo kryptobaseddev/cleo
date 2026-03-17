@@ -17,7 +17,7 @@ interface LabelInfo {
 
 /** List all labels with task counts. */
 export async function listLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelInfo[]> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
   const labelMap: Record<string, LabelInfo> = {};
 
@@ -41,7 +41,7 @@ export async function showLabelTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
   const tasks = data.tasks.filter((t) => (t.labels ?? []).includes(label));
 

@@ -87,7 +87,7 @@ export async function injectTasks(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(opts.cwd);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
   const data = await acc.loadTaskFile();
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project');

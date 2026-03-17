@@ -45,7 +45,7 @@ export async function generateInjection(
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
 
-  const acc = accessor ?? await getAccessor(projectRoot);
+  const acc = accessor ?? (await getAccessor(projectRoot));
   const taskFile = await acc.loadTaskFile();
 
   if (taskFile) {

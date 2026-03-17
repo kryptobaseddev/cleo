@@ -218,7 +218,15 @@ describe('E2E: reasonWhy causal trace', () => {
       project: { name: 'test', currentPhase: null, phases: {}, phaseHistory: [], releases: [] },
       lastUpdated: '2026-03-04T00:00:00.000Z',
       _meta: { schemaVersion: '2025.1.0', checksum: '', configVersion: '1.0.0' },
-      focus: { currentTask: null, currentPhase: null, blockedUntil: null, sessionNote: null, sessionNotes: [], nextAction: null, primarySession: null },
+      focus: {
+        currentTask: null,
+        currentPhase: null,
+        blockedUntil: null,
+        sessionNote: null,
+        sessionNotes: [],
+        nextAction: null,
+        primarySession: null,
+      },
       tasks: [
         {
           id: 'T1',

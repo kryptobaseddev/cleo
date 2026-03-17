@@ -118,7 +118,7 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);

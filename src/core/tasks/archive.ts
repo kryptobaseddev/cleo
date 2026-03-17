@@ -44,7 +44,7 @@ export async function archiveTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ArchiveTasksResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
   const includeCancelled = options.includeCancelled ?? true;
 

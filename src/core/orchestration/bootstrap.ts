@@ -48,7 +48,7 @@ export async function buildBrainState(
   }
 
   // --- Tasks & Progress ---
-  const acc = accessor ?? await getAccessor(projectRoot);
+  const acc = accessor ?? (await getAccessor(projectRoot));
   const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];

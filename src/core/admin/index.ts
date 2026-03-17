@@ -8,18 +8,18 @@
 
 export { exportTasks } from './export.js';
 export { exportTasksPackage } from './export-tasks.js';
-export {
-  buildVerboseOperations,
-  computeHelp,
-  getCostHint,
-  groupOperationsByDomain,
-} from './help.js';
 export type {
   CostHint,
   GroupedOperations,
   HelpOperationDef,
   HelpResult,
   VerboseOperation,
+} from './help.js';
+export {
+  buildVerboseOperations,
+  computeHelp,
+  getCostHint,
+  groupOperationsByDomain,
 } from './help.js';
 export { importTasks } from './import.js';
 export { importTasksPackage } from './import-tasks.js';
