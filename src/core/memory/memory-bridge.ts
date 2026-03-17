@@ -277,6 +277,7 @@ function queryHighConfidenceLearnings(
     return db
       .prepare(
         `SELECT id, insight, confidence, created_at FROM brain_learnings
+         WHERE CAST(confidence AS REAL) >= 0.6
          ORDER BY confidence DESC, created_at DESC
          LIMIT ?`,
       )
@@ -310,6 +311,11 @@ function queryRecentObservations(
     return db
       .prepare(
         `SELECT id, title, type, created_at FROM brain_observations
+         WHERE type != 'change'
+           AND title NOT LIKE 'File changed:%'
+           AND title NOT LIKE 'Task start:%'
+           AND title NOT LIKE 'Task complete:%'
+           AND title NOT LIKE '[hook]%'
          ORDER BY created_at DESC LIMIT ?`,
       )
       .all(limit) as unknown as ObservationRow[];

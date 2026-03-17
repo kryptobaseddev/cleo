@@ -324,6 +324,8 @@ import { registerStartCommand } from './commands/start.js';
 import { registerStatsCommand } from './commands/stats.js';
 // T5240: Memory bridge refresh command
 import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
+// Brain observation CLI command (CLI parity for MCP mutate memory observe)
+import { registerObserveCommand } from './commands/observe.js';
 // T5281: Sticky notes command
 import { registerStickyCommand } from './commands/sticky.js';
 import { registerStopCommand } from './commands/stop.js';
@@ -536,6 +538,9 @@ registerStickyCommand(program);
 
 // T5240: Memory bridge refresh command
 registerRefreshMemoryCommand(program);
+
+// Brain observation CLI command
+registerObserveCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

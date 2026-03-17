@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const observeBrainMock = vi.fn();
 
@@ -12,6 +12,12 @@ describe('file hook handlers', () => {
   beforeEach(() => {
     observeBrainMock.mockReset();
     vi.restoreAllMocks();
+    // Enable file capture for tests
+    process.env['CLEO_BRAIN_CAPTURE_FILES'] = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env['CLEO_BRAIN_CAPTURE_FILES'];
   });
 
   it('calls observeBrain with file path and change type', async () => {
@@ -127,5 +133,42 @@ describe('file hook handlers', () => {
         changeType: 'write',
       }),
     ).rejects.toThrow('disk full');
+  });
+
+  it('skips when CLEO_BRAIN_CAPTURE_FILES is not set', async () => {
+    delete process.env['CLEO_BRAIN_CAPTURE_FILES'];
+    observeBrainMock.mockResolvedValue(undefined);
+
+    await handleFileChange('/tmp/project', {
+      timestamp: '2026-03-04T00:00:00.000Z',
+      filePath: `src/gated-test-${Date.now()}.ts`,
+      changeType: 'write',
+    });
+
+    expect(observeBrainMock).not.toHaveBeenCalled();
+  });
+
+  it('skips .cleo/ internal files', async () => {
+    observeBrainMock.mockResolvedValue(undefined);
+
+    await handleFileChange('/tmp/project', {
+      timestamp: '2026-03-04T00:00:00.000Z',
+      filePath: '.cleo/sessions.json',
+      changeType: 'write',
+    });
+
+    expect(observeBrainMock).not.toHaveBeenCalled();
+  });
+
+  it('skips test temp directory files', async () => {
+    observeBrainMock.mockResolvedValue(undefined);
+
+    await handleFileChange('/tmp/project', {
+      timestamp: '2026-03-04T00:00:00.000Z',
+      filePath: '/tmp/cleo-test-abc123/.cleo/tasks.db',
+      changeType: 'write',
+    });
+
+    expect(observeBrainMock).not.toHaveBeenCalled();
   });
 });
