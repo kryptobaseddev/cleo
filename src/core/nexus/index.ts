@@ -104,3 +104,14 @@ export {
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
+
+// Discovery - cross-project task discovery and search
+export {
+  discoverRelated,
+  type DiscoverResult,
+  extractKeywords,
+  type NexusDiscoverResult,
+  type NexusSearchResult,
+  searchAcrossProjects,
+  type SearchResult,
+} from './discover.js';
