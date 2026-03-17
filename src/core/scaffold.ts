@@ -246,6 +246,17 @@ export function createDefaultConfig(): Record<string, unknown> {
  * Idempotent: skips directories that already exist.
  */
 export async function ensureCleoStructure(projectRoot: string): Promise<ScaffoldResult> {
+  // Guard: reject global home as project root to prevent project-level
+  // subdirectories (adrs/, rcasd/, backups/, etc.) from polluting ~/.cleo/
+  const resolvedRoot = resolve(projectRoot);
+  if (resolvedRoot === resolve(getCleoHome())) {
+    return {
+      action: 'skipped',
+      path: join(resolvedRoot, '.cleo'),
+      details: 'Refused to scaffold project structure inside global CLEO home',
+    };
+  }
+
   const cleoDir = getCleoDirAbsolute(projectRoot);
 
   const alreadyExists = existsSync(cleoDir);

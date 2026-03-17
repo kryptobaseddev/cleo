@@ -155,6 +155,27 @@ describe('ensureCleoStructure', () => {
     const second = await ensureCleoStructure(tmpDir);
     expect(second.action).toBe('skipped');
   });
+
+  it('rejects global CLEO home as project root', async () => {
+    const fakeHome = join(tmpDir, 'fake-cleo-home');
+    mkdirSync(fakeHome, { recursive: true });
+    const origHome = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = fakeHome;
+    try {
+      const result = await ensureCleoStructure(fakeHome);
+      expect(result.action).toBe('skipped');
+      expect(result.details).toContain('global CLEO home');
+      // Verify no project subdirs were created
+      expect(existsSync(join(fakeHome, '.cleo', 'adrs'))).toBe(false);
+      expect(existsSync(join(fakeHome, '.cleo', 'rcasd'))).toBe(false);
+    } finally {
+      if (origHome !== undefined) {
+        process.env['CLEO_HOME'] = origHome;
+      } else {
+        delete process.env['CLEO_HOME'];
+      }
+    }
+  });
 });
 
 // ── ensureGitignore ──────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 process.env.NODE_NO_WARNINGS ??= "1";
@@ -68,6 +69,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "node:sqlite": "node:sqlite",
+      // Resolve workspace packages to source TypeScript so Vitest can
+      // import them without requiring a separate workspace build step.
+      // Mirrors the esbuild plugin in build.mjs (T5698)
+      "@cleocode/adapter-claude-code": resolve("packages/adapters/claude-code/src/index.ts"),
+      "@cleocode/adapter-opencode": resolve("packages/adapters/opencode/src/index.ts"),
+      "@cleocode/adapter-cursor": resolve("packages/adapters/cursor/src/index.ts"),
+      "@cleocode/contracts": resolve("packages/contracts/src/index.ts"),
     },
   },
 });
