@@ -173,4 +173,40 @@ export function registerMemoryBrainCommand(program: Command): void {
         { command: 'memory', operation: 'memory.observe' },
       );
     });
+
+  // -- timeline (chronological context around an anchor observation ID) --
+  memory
+    .command('timeline <anchor>')
+    .description('Show chronological context around an anchor observation ID')
+    .option('--before <n>', 'Number of entries before anchor', parseInt)
+    .option('--after <n>', 'Number of entries after anchor', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (anchor: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'timeline',
+        {
+          anchor,
+          depthBefore: opts['before'],
+          depthAfter: opts['after'],
+        },
+        { command: 'memory', operation: 'memory.timeline' },
+      );
+    });
+
+  // -- fetch (retrieve full details for specific observation IDs) --
+  memory
+    .command('fetch <ids...>')
+    .description('Fetch full details for specific observation IDs')
+    .option('--json', 'Output as JSON')
+    .action(async (ids: string[], _opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'fetch',
+        { ids },
+        { command: 'memory', operation: 'memory.fetch' },
+      );
+    });
 }

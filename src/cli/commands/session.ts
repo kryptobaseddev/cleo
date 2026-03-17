@@ -184,4 +184,46 @@ export function registerSessionCommand(program: Command): void {
         { command: 'session', operation: 'session.gc' },
       );
     });
+
+  session
+    .command('record-decision')
+    .description('Record a decision made during the current session')
+    .requiredOption('--session-id <sessionId>', 'Session ID')
+    .requiredOption('--task-id <taskId>', 'Task ID the decision relates to')
+    .requiredOption('--decision <decision>', 'Decision text')
+    .requiredOption('--rationale <rationale>', 'Rationale for the decision')
+    .option('--alternatives <alternatives>', 'Alternatives considered')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'record.decision',
+        {
+          sessionId: opts['sessionId'] as string,
+          taskId: opts['taskId'] as string,
+          decision: opts['decision'] as string,
+          rationale: opts['rationale'] as string,
+          alternatives: opts['alternatives'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.record.decision' },
+      );
+    });
+
+  session
+    .command('decision-log')
+    .description('Show decisions recorded in a session')
+    .option('--session-id <sessionId>', 'Session ID to filter by')
+    .option('--task-id <taskId>', 'Task ID to filter by')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'session',
+        'decision.log',
+        {
+          sessionId: opts['sessionId'] as string | undefined,
+          taskId: opts['taskId'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.decision.log' },
+      );
+    });
 }
