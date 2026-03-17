@@ -5,11 +5,9 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJsonRequired } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 
 interface LabelInfo {
   label: string;
@@ -19,9 +17,8 @@ interface LabelInfo {
 
 /** List all labels with task counts. */
 export async function listLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelInfo[]> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
   const labelMap: Record<string, LabelInfo> = {};
 
   for (const task of data.tasks) {
@@ -44,9 +41,8 @@ export async function showLabelTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
   const tasks = data.tasks.filter((t) => (t.labels ?? []).includes(label));
 
   if (tasks.length === 0) {

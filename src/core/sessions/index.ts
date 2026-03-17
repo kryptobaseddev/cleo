@@ -6,11 +6,10 @@
 
 import { randomBytes } from 'node:crypto';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson, saveJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session, SessionScope } from '../../types/session.js';
 import { CleoError } from '../errors.js';
-import { getBackupDir, getSessionsPath } from '../paths.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
@@ -72,13 +71,8 @@ function generateSessionId(): string {
  * @task T4463
  */
 export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
-  if (accessor) {
-    return accessor.loadSessions();
-  }
-  // JSON file fallback (legacy — used when no accessor is provided, e.g. session-enforcement)
-  const sessionsPath = getSessionsPath(cwd);
-  const data = await readJson<{ sessions: Session[] }>(sessionsPath);
-  return data?.sessions ?? [];
+  const acc = accessor ?? await getAccessor(cwd);
+  return acc.loadSessions();
 }
 
 /**
@@ -90,22 +84,8 @@ export async function saveSessions(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<void> {
-  if (accessor) {
-    await accessor.saveSessions(sessions);
-    return;
-  }
-  // JSON file fallback (legacy — used when no accessor is provided, e.g. session-enforcement)
-  const sessionsPath = getSessionsPath(cwd);
-  const backupDir = getBackupDir(cwd);
-  await saveJson(
-    sessionsPath,
-    {
-      version: '1.0.0',
-      sessions,
-      _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-    },
-    { backupDir },
-  );
+  const acc = accessor ?? await getAccessor(cwd);
+  await acc.saveSessions(sessions);
 }
 
 /**
