@@ -51,7 +51,22 @@ const buildOptions = {
     'write-file-atomic',
     '@modelcontextprotocol/sdk',
   ],
-  packages: 'external',
+  plugins: [
+    {
+      // Bundle @cleocode/* workspace packages inline; externalize all other packages.
+      // This ensures adapters are included in the published npm tarball. (T5698)
+      name: 'bundle-workspace-packages',
+      setup(build) {
+        // Mark all bare-specifier imports as external EXCEPT @cleocode/*
+        build.onResolve({ filter: /^[^./]/ }, (args) => {
+          if (args.path.startsWith('@cleocode/')) {
+            return undefined; // Let esbuild resolve and bundle it
+          }
+          return { path: args.path, external: true };
+        });
+      },
+    },
+  ],
 };
 
 // Generate build config before compilation

@@ -908,13 +908,36 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
   const dbPath = join(cleoDir, 'brain.db');
 
   if (existsSync(dbPath)) {
+    // Ensure FTS5 tables exist even for pre-existing brain.db (T5698)
+    try {
+      const { getBrainNativeDb } = await import('../store/brain-sqlite.js');
+      const nativeDb = getBrainNativeDb();
+      if (nativeDb) {
+        const { ensureFts5Tables } = await import('./memory/brain-search.js');
+        ensureFts5Tables(nativeDb);
+      }
+    } catch {
+      // Non-fatal — FTS5 may not be available
+    }
     return { action: 'skipped', path: dbPath, details: 'brain.db already exists' };
   }
 
   try {
-    const { getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
     await getBrainDb(projectRoot);
-    return { action: 'created', path: dbPath, details: 'Brain database initialized' };
+
+    // Create FTS5 virtual tables eagerly so search works immediately (T5698)
+    try {
+      const nativeDb = getBrainNativeDb();
+      if (nativeDb) {
+        const { ensureFts5Tables } = await import('./memory/brain-search.js');
+        ensureFts5Tables(nativeDb);
+      }
+    } catch {
+      // FTS5 may not be available in all SQLite builds — non-fatal
+    }
+
+    return { action: 'created', path: dbPath, details: 'Brain database initialized with FTS5' };
   } catch (err) {
     return {
       action: 'skipped',

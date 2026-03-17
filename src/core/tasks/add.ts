@@ -413,6 +413,17 @@ export async function addTask(
   // Validate title
   validateTitle(options.title);
 
+  // Anti-hallucination: title and description must be different (T5698)
+  if (
+    options.description &&
+    options.title.trim().toLowerCase() === options.description.trim().toLowerCase()
+  ) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Title and description must be different (anti-hallucination rule)',
+    );
+  }
+
   // Always use accessor (SQLite canonical storage per ADR-006)
   const dataAccessor =
     accessor ?? (await (await import('../../store/data-accessor.js')).getAccessor(cwd));
