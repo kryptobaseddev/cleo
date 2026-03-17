@@ -72,6 +72,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Build workspace packages (adapter type declarations)
+        run: npm run build --workspaces --if-present
       - run: npx tsc --noEmit
 
   unit-tests:
@@ -92,6 +94,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Build workspace packages (adapter type declarations)
+        run: npm run build --workspaces --if-present
       - name: Add cleo binary to PATH (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -113,6 +117,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Build workspace packages (adapter type declarations)
+        run: npm run build --workspaces --if-present
       - run: npx vitest run --project integration
 
   e2e-tests:
