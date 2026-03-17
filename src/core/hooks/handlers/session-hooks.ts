@@ -56,6 +56,14 @@ export async function handleSessionEnd(
   } catch (err) {
     if (!isMissingBrainSchemaError(err)) throw err;
   }
+
+  // Auto-grade session and feed insights to brain.db (best-effort)
+  try {
+    const { gradeSession } = await import('../../sessions/session-grade.js');
+    await gradeSession(payload.sessionId, projectRoot);
+  } catch {
+    // Grading must never block session end
+  }
 }
 
 // Register handlers on module load

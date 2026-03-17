@@ -53,6 +53,8 @@ export interface SessionMemoryContext {
   relevantPatterns: BrainCompactHit[];
   /** Recent observations from prior sessions */
   recentObservations: BrainCompactHit[];
+  /** Recent learnings relevant to this scope */
+  recentLearnings: BrainCompactHit[];
   /** Total token estimate for this context */
   tokensEstimated: number;
 }
@@ -243,6 +245,7 @@ export async function getSessionMemoryContext(
     recentDecisions: [],
     relevantPatterns: [],
     recentObservations: [],
+    recentLearnings: [],
     tokensEstimated: 0,
   };
 
@@ -259,7 +262,7 @@ export async function getSessionMemoryContext(
 
   try {
     // Run parallel searches across brain tables
-    const [decisionsResult, patternsResult, observationsResult] = await Promise.all([
+    const [decisionsResult, patternsResult, observationsResult, learningsResult] = await Promise.all([
       // Decisions: scope-filtered if we have a task ID, otherwise recent
       scopeQuery
         ? searchBrainCompact(projectRoot, {
@@ -286,17 +289,26 @@ export async function getSessionMemoryContext(
         limit,
         tables: ['observations'],
       }),
+
+      // Learnings: recent learnings
+      searchBrainCompact(projectRoot, {
+        query: scopeQuery || 'learning',
+        limit: Math.min(limit, 5),
+        tables: ['learnings'],
+      }),
     ]);
 
     const tokensEstimated =
       decisionsResult.tokensEstimated +
       patternsResult.tokensEstimated +
-      observationsResult.tokensEstimated;
+      observationsResult.tokensEstimated +
+      learningsResult.tokensEstimated;
 
     return {
       recentDecisions: decisionsResult.results,
       relevantPatterns: patternsResult.results,
       recentObservations: observationsResult.results,
+      recentLearnings: learningsResult.results,
       tokensEstimated,
     };
   } catch {

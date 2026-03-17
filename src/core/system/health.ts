@@ -1198,6 +1198,23 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
     message: memBridgeCheck.message,
   });
 
+  // NEXUS auto-registration (best-effort, never blocks startup)
+  try {
+    const { nexusReconcile } = await import('../nexus/registry.js');
+    await nexusReconcile(root);
+    checks.push({
+      check: 'nexus_registration',
+      status: 'pass',
+      message: 'NEXUS registry reconciled',
+    });
+  } catch {
+    checks.push({
+      check: 'nexus_registration',
+      status: 'warn',
+      message: 'NEXUS reconciliation skipped (non-fatal)',
+    });
+  }
+
   // Determine overall state
   const hasFailures = failures.length > 0;
   const state: StartupState = hasFailures && !projectHealthy ? 'needs_upgrade' : 'healthy';
