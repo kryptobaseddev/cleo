@@ -19,7 +19,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import { getCleoHome } from '../core/paths.js';
+import { getCleoHome } from '../primitives/paths.js';
 import * as nexusSchema from './nexus-schema.js';
 import {
   createBatchCallback,

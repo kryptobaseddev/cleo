@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { CleoError } from '../core/errors.js';
+import { CleoError } from '../primitives/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
 import { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
 import { createBackup } from './backup.js';

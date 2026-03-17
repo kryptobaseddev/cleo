@@ -12,8 +12,8 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { getLogger } from '../core/logger.js';
-import { checkSequence, repairSequence } from '../core/sequence/index.js';
+import { getLogger } from '../primitives/logger.js';
+import { checkSequence, repairSequence } from '../primitives/sequence.js';
 import type { Session } from '../types/session.js';
 import type { Task } from '../types/task.js';
 import { gitCheckpoint } from './git-checkpoint.js';

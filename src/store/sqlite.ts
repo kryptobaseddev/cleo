@@ -35,8 +35,8 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import { getLogger } from '../core/logger.js';
-import { getCleoDirAbsolute } from '../core/paths.js';
+import { getLogger } from '../primitives/logger.js';
+import { getCleoDirAbsolute } from '../primitives/paths.js';
 import {
   createBatchCallback,
   createDrizzleCallback,
