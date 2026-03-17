@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "echo '@cleocode/core: monorepo shell — full build in T5716' && exit 0",
-    "typecheck": "echo '@cleocode/core: typecheck via root tsconfig' && exit 0"
+    "build": "cd ../.. && node build.mjs --core-only",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cleocode/caamp": "^1.7.0",
