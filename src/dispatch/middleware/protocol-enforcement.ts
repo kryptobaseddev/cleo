@@ -1,4 +1,4 @@
-import { ProtocolEnforcer } from '../../mcp/lib/protocol-enforcement.js';
+import { ProtocolEnforcer } from '../../core/compliance/protocol-enforcement.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**
