@@ -72,7 +72,7 @@ describe('Session Memory', () => {
       // brain-search may not be loaded
     }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   // ==========================================================================
