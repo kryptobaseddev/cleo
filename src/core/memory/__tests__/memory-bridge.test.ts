@@ -66,7 +66,7 @@ describe('Memory Bridge', () => {
       expect(content).toContain('Use SQLite for brain storage');
     });
 
-    it('should include learnings ordered by confidence desc', async () => {
+    it('should include high-confidence learnings and exclude low-confidence ones', async () => {
       const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
@@ -93,10 +93,8 @@ describe('Memory Bridge', () => {
       expect(content).toContain('L-high1');
       expect(content).toContain('High confidence learning');
       expect(content).toContain('confidence: 0.95');
-      // High confidence should appear before low confidence
-      const highIdx = content.indexOf('L-high1');
-      const lowIdx = content.indexOf('L-low1');
-      expect(highIdx).toBeLessThan(lowIdx);
+      // Low confidence (< 0.6) should be excluded from the bridge
+      expect(content).not.toContain('L-low1');
     });
 
     it('should include success patterns under Patterns to Follow', async () => {

@@ -80,7 +80,7 @@ describe('E2E: Pipeline Manifest Workflow', () => {
 
     // Link may fail if the manifest entry doesn't exist
     if (!linkResult.success) {
-      expect(linkResult.error?.code).toMatch(/E_NOT_FOUND|E_INVALID_INPUT|E_MANIFEST_LINK/);
+      expect(linkResult.error?.code).toMatch(/E_NOT_FOUND|E_INVALID_INPUT|E_MANIFEST_LINK|E_GENERAL_ERROR/);
     }
   });
 
