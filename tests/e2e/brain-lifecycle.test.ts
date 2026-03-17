@@ -15,7 +15,7 @@
  * @epic T5149
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -208,44 +208,60 @@ describe('E2E: reasonWhy causal trace', () => {
     // Initialize brain.db so accessor is available
     await brainSqlite.getBrainDb(testDir);
 
-    // reasonWhy reads from getTaskPath() which returns .cleo/tasks.db
-    // and parses it as JSON via readJsonRequired. Write a JSON file at that path.
-    const tasksFile = {
+    // Create a proper SQLite-backed tasks.db via DataAccessor
+    const { createDataAccessor } = await import('../../src/store/data-accessor.js');
+    const { resetDbState } = await import('../../src/store/sqlite.js');
+    resetDbState();
+    const acc = await createDataAccessor(undefined, testDir);
+    await acc.saveTaskFile({
       version: '2025.1.0',
-      project: { name: 'test', prefix: 'T' },
+      project: { name: 'test', currentPhase: null, phases: {}, phaseHistory: [], releases: [] },
       lastUpdated: '2026-03-04T00:00:00.000Z',
-      _meta: { schemaVersion: '2025.1.0' },
+      _meta: { schemaVersion: '2025.1.0', checksum: '', configVersion: '1.0.0' },
+      focus: { currentTask: null, currentPhase: null, blockedUntil: null, sessionNote: null, sessionNotes: [], nextAction: null, primarySession: null },
       tasks: [
         {
           id: 'T1',
           title: 'Root blocker',
           description: 'The root cause',
           status: 'blocked',
+          priority: 'medium',
+          type: 'task',
           depends: [],
           blockedBy: 'External dependency',
+          createdAt: '2026-03-04T00:00:00.000Z',
+          updatedAt: '2026-03-04T00:00:00.000Z',
         },
         {
           id: 'T2',
           title: 'Middle task',
           description: 'Depends on T1',
           status: 'blocked',
+          priority: 'medium',
+          type: 'task',
           depends: ['T1'],
+          createdAt: '2026-03-04T00:00:00.000Z',
+          updatedAt: '2026-03-04T00:00:00.000Z',
         },
         {
           id: 'T3',
           title: 'Leaf task',
           description: 'Depends on T2',
           status: 'blocked',
+          priority: 'medium',
+          type: 'task',
           depends: ['T2'],
+          createdAt: '2026-03-04T00:00:00.000Z',
+          updatedAt: '2026-03-04T00:00:00.000Z',
         },
-      ],
-    };
-
-    await writeFile(join(testDir, '.cleo', 'tasks.db'), JSON.stringify(tasksFile, null, 2));
+      ] as import('../../src/types/task.js').Task[],
+    });
   });
 
   afterEach(async () => {
     brainSqlite?.closeBrainDb();
+    const { resetDbState } = await import('../../src/store/sqlite.js');
+    resetDbState();
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
   });

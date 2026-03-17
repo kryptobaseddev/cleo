@@ -5,17 +5,16 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import {
   safeAppendLog,
   safeSaveArchive,
   safeSaveTaskFile,
 } from '../../store/data-safety-central.js';
-import { computeChecksum, readJson, readJsonRequired, saveJson } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile } from '../../types/task.js';
+import type { Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getArchivePath, getBackupDir, getTaskPath } from '../paths.js';
-import { logOperation } from './add.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {
@@ -39,13 +38,8 @@ export async function deleteTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeleteTaskResult> {
-  const taskPath = getTaskPath(cwd);
-  const archivePath = getArchivePath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -119,12 +113,7 @@ export async function deleteTask(
   const remainingTasks = data.tasks.filter((t) => !idsToDelete.has(t.id));
 
   // Read/create archive
-  let archive: { archivedTasks: Task[]; version?: string } | null;
-  if (accessor) {
-    archive = await accessor.loadArchive();
-  } else {
-    archive = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
-  }
+  let archive = await acc.loadArchive();
   if (!archive) {
     archive = { archivedTasks: [], version: '1.0.0' };
   }
@@ -152,61 +141,52 @@ export async function deleteTask(
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  if (accessor) {
-    if (accessor.removeSingleTask && accessor.archiveSingleTask) {
-      // Fine-grained path: archive each deleted task
-      for (const t of tasksToArchive) {
-        await accessor.archiveSingleTask(t.id, {
-          archivedAt: now,
-          archiveReason: 'deleted',
-        });
-      }
-      // If force-orphaning children, upsert each orphaned child
-      if (options.force && !options.cascade && children.length > 0 && accessor.upsertSingleTask) {
-        for (const child of children) {
-          await accessor.upsertSingleTask(child);
-        }
-      }
-      // Clean up dependency references on remaining tasks that were modified
-      if (depsModifiedIds.size > 0 && accessor.upsertSingleTask) {
-        for (const t of remainingTasks) {
-          if (depsModifiedIds.has(t.id)) {
-            await accessor.upsertSingleTask(t);
-          }
-        }
-      }
-    } else {
-      await safeSaveTaskFile(accessor, data, cwd);
-      await safeSaveArchive(accessor, archive, cwd);
+  if (acc.removeSingleTask && acc.archiveSingleTask) {
+    // Fine-grained path: archive each deleted task
+    for (const t of tasksToArchive) {
+      await acc.archiveSingleTask(t.id, {
+        archivedAt: now,
+        archiveReason: 'deleted',
+      });
     }
-    await safeAppendLog(
-      accessor,
-      {
-        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-        timestamp: new Date().toISOString(),
-        action: 'task_deleted',
-        taskId: options.taskId,
-        actor: 'system',
-        details: {
-          title: task.title,
-          cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
-        },
-        before: null,
-        after: {
-          title: task.title,
-          cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
-        },
-      },
-      cwd,
-    );
+    // If force-orphaning children, upsert each orphaned child
+    if (options.force && !options.cascade && children.length > 0 && acc.upsertSingleTask) {
+      for (const child of children) {
+        await acc.upsertSingleTask(child);
+      }
+    }
+    // Clean up dependency references on remaining tasks that were modified
+    if (depsModifiedIds.size > 0 && acc.upsertSingleTask) {
+      for (const t of remainingTasks) {
+        if (depsModifiedIds.has(t.id)) {
+          await acc.upsertSingleTask(t);
+        }
+      }
+    }
   } else {
-    await saveJson(taskPath, data, { backupDir });
-    await saveJson(archivePath, archive, { backupDir });
-    await logOperation('task_deleted', options.taskId, {
-      title: task.title,
-      cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
-    });
+    await safeSaveTaskFile(acc, data, cwd);
+    await safeSaveArchive(acc, archive, cwd);
   }
+  await safeAppendLog(
+    acc,
+    {
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_deleted',
+      taskId: options.taskId,
+      actor: 'system',
+      details: {
+        title: task.title,
+        cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
+      },
+      before: null,
+      after: {
+        title: task.title,
+        cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
+      },
+    },
+    cwd,
+  );
 
   return {
     deletedTask: task,

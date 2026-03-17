@@ -6,9 +6,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
-import type { TaskFile } from '../../types/task.js';
-import { getSessionsPath, getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { getSessionsPath } from '../paths.js';
 
 export interface InjectGenerateResult {
   injection: string;
@@ -46,9 +45,8 @@ export async function generateInjection(
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
 
-  const taskFile = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(projectRoot));
+  const acc = accessor ?? await getAccessor(projectRoot);
+  const taskFile = await acc.loadTaskFile();
 
   if (taskFile) {
     focusTask = taskFile.focus?.currentTask ?? null;

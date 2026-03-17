@@ -6,11 +6,10 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getBackupDir, getTaskPath } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 
@@ -47,9 +46,8 @@ export async function currentTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   const focus = data.focus ?? {};
 
@@ -75,12 +73,8 @@ export async function startTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
-  const taskPath = getTaskPath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   // Verify task exists
   const task = data.tasks.find((t) => t.id === taskId);
@@ -126,11 +120,7 @@ export async function startTask(
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir });
-  }
+  await acc.saveTaskFile(data);
 
   await logOperation(
     'task_start',
@@ -170,12 +160,8 @@ export async function stopTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
-  const taskPath = getTaskPath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   const previousTask = data.focus?.currentTask ?? null;
 
@@ -209,11 +195,7 @@ export async function stopTask(
       });
   }
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir });
-  }
+  await acc.saveTaskFile(data);
 
   await logOperation(
     'task_stop',
@@ -236,9 +218,8 @@ export async function getWorkHistory(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   const notes = data.focus?.sessionNotes ?? [];
   const history: TaskWorkHistoryEntry[] = [];

@@ -5,11 +5,10 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile } from '../../types/task.js';
+import type { Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 
 /** Minimal audit row for stats queries. */
 interface AuditRow {
@@ -89,7 +88,7 @@ export async function getProjectStats(
   const periodDays = resolvePeriod(opts.period ?? '30');
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(opts.cwd));
+    : await (await getAccessor(opts.cwd)).loadTaskFile();
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
   }
@@ -275,7 +274,7 @@ export async function getDashboard(
 ): Promise<Record<string, unknown>> {
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(opts.cwd));
+    : await (await getAccessor(opts.cwd)).loadTaskFile();
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
   }

@@ -7,10 +7,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
-import type { TaskFile } from '../../types/task.js';
-import { getSessionsPath, getTaskPath } from '../paths.js';
+import { getSessionsPath } from '../paths.js';
 
 /** Build brain state for agent bootstrapping. */
 export async function buildBrainState(
@@ -49,9 +48,8 @@ export async function buildBrainState(
   }
 
   // --- Tasks & Progress ---
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(projectRoot));
+  const acc = accessor ?? await getAccessor(projectRoot);
+  const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];
   brain.progress = {

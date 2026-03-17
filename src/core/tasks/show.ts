@@ -5,11 +5,10 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJsonRequired } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile } from '../../types/task.js';
+import type { Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 
 /** Enriched task with hierarchy info. */
 export interface TaskDetail extends Task {
@@ -35,18 +34,16 @@ export async function showTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   // First, try to find in active tasks
   let task = data.tasks.find((t) => t.id === taskId);
   let isArchived = false;
 
   // If not found in active tasks, check the archive
-  if (!task && accessor) {
-    const archive = await accessor.loadArchive();
+  if (!task) {
+    const archive = await acc.loadArchive();
     if (archive) {
       task = archive.archivedTasks.find((t) => t.id === taskId);
       if (task) {

@@ -249,7 +249,8 @@ describe('Session focus and notes', () => {
     await startSession({ name: 'Empty note', scope: 'global' }, tempDir);
     const ended = await endSession({}, tempDir);
 
-    expect(ended.notes).toEqual([]);
+    // SQLite round-trips empty arrays as undefined via safeParseJsonArray
+    expect(ended.notes ?? []).toEqual([]);
   });
 });
 

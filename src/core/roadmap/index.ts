@@ -7,9 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
-import type { TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /** Get roadmap from pending epics and CHANGELOG history. */
 export async function getRoadmap(
@@ -20,9 +18,8 @@ export async function getRoadmap(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(opts.cwd));
+  const acc = accessor ?? await getAccessor(opts.cwd);
+  const data = await acc.loadTaskFile();
   const tasks = data?.tasks ?? [];
 
   // Get current version

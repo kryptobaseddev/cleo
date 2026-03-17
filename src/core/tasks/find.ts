@@ -5,11 +5,10 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson, readJsonRequired } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile, TaskStatus } from '../../types/task.js';
+import type { Task, TaskStatus } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getArchivePath, getTaskPath } from '../paths.js';
 
 /** Minimal task info for search results. */
 export interface FindResult {
@@ -100,26 +99,16 @@ export async function findTasks(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
   }
 
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   let allTasks: Task[] = [...data.tasks];
 
   // Include archive if requested
   if (options.includeArchive) {
-    if (accessor) {
-      const archive = await accessor.loadArchive();
-      if (archive?.archivedTasks) {
-        allTasks = [...allTasks, ...archive.archivedTasks];
-      }
-    } else {
-      const archivePath = getArchivePath(cwd);
-      const archive = await readJson<{ archivedTasks: Task[] }>(archivePath);
-      if (archive?.archivedTasks) {
-        allTasks = [...allTasks, ...archive.archivedTasks];
-      }
+    const archive = await acc.loadArchive();
+    if (archive?.archivedTasks) {
+      allTasks = [...allTasks, ...archive.archivedTasks];
     }
   }
 
