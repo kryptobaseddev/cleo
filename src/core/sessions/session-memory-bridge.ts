@@ -52,6 +52,17 @@ export async function bridgeSessionToMemory(
       sourceSessionId: sessionData.sessionId,
       sourceType: 'agent',
     });
+
+    // Auto-extract structured memory from session end (best-effort)
+    try {
+      const { extractSessionEndMemory, resolveTaskDetails } = await import(
+        '../memory/auto-extract.js'
+      );
+      const taskDetails = await resolveTaskDetails(projectRoot, sessionData.tasksCompleted);
+      await extractSessionEndMemory(projectRoot, sessionData, taskDetails);
+    } catch {
+      /* Session memory extraction is best-effort */
+    }
   } catch {
     // Best-effort: session bridge must never fail the session end flow
   }
