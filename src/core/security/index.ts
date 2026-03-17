@@ -1,8 +1,7 @@
 /**
- * Security Hardening and Input Sanitization (Backward-Compat Re-export)
+ * Security core module — barrel export.
  *
- * Thin wrapper that re-exports from the canonical location at
- * src/core/security/input-sanitization.ts.
+ * Re-exports input sanitization and security utilities from the core layer.
  *
  * @task T5706
  */
@@ -23,5 +22,5 @@ export {
   VALID_LIFECYCLE_STAGE_STATUSES,
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
-} from '../../core/security/input-sanitization.js';
-export type { RateLimitConfig, RateLimitResult } from '../../core/security/input-sanitization.js';
+} from './input-sanitization.js';
+export type { RateLimitConfig, RateLimitResult } from './input-sanitization.js';

@@ -8,26 +8,11 @@
  * to numeric exit codes. It mirrors ERROR_CODE_TO_EXIT in cli.ts.
  */
 
-import type { LAFSPage } from '@cleocode/lafs-protocol';
 import { getLogger } from '../../core/logger.js';
 
-/**
- * Canonical EngineResult type used by all engines.
- * Replaces the per-engine EngineResult interface definitions.
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  page?: LAFSPage;
-  error?: {
-    code: string;
-    message: string;
-    exitCode?: number;
-    details?: unknown;
-    fix?: string;
-    alternatives?: Array<{ action: string; command: string }>;
-  };
-}
+// Re-export EngineResult from core (canonical location)
+export type { EngineResult } from '../../core/engine-result.js';
+import type { EngineResult } from '../../core/engine-result.js';
 
 /**
  * Canonical mapping from string error codes to numeric exit codes.

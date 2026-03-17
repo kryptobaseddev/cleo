@@ -13,7 +13,7 @@
  * @epic T5149
  */
 
-import type { EngineResult } from '../../dispatch/engines/_error.js';
+import type { EngineResult } from '../engine-result.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';

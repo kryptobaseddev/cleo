@@ -49,6 +49,8 @@ jobs:
         run: bash dev/check-todo-hygiene.sh
       - name: Report and enforce underscore import hygiene
         run: node dev/check-underscore-import-hygiene.mjs
+      - name: Enforce core purity (no upward imports)
+        run: bash dev/check-core-purity.sh
 
   biome:
     name: Lint & Format

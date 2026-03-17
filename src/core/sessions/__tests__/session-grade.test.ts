@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuditEntry } from '../../../../dispatch/middleware/audit.js';
+import type { AuditEntry } from '../../audit.js';
 
 // We need to mock two modules: queryAudit (to inject test data) and
 // getCleoDirAbsolute (to redirect file writes to temp dirs).
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   tempCleoDir: { value: '' },
 }));
 
-vi.mock('../../../dispatch/middleware/audit.js', () => ({
+vi.mock('../../audit.js', () => ({
   queryAudit: mocks.queryAudit,
 }));
 
