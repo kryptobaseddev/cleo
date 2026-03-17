@@ -15,10 +15,21 @@
     "build": "echo '@cleocode/core: monorepo shell — full build in T5716' && exit 0",
     "typecheck": "echo '@cleocode/core: typecheck via root tsconfig' && exit 0"
   },
-  "peerDependencies": {
-    "@cleocode/caamp": "*",
+  "dependencies": {
+    "@cleocode/caamp": "^1.7.0",
     "@cleocode/contracts": "*",
-    "@cleocode/lafs-protocol": "*"
+    "@cleocode/lafs-protocol": "^1.7.0",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "drizzle-orm": "1.0.0-beta.15-859cf75",
+    "env-paths": "^4.0.0",
+    "pino": "^10.3.1",
+    "pino-roll": "^4.0.0",
+    "proper-lockfile": "^4.1.2",
+    "sql.js": "^1.14.0",
+    "write-file-atomic": "^6.0.0",
+    "yaml": "^2.8.2",
+    "zod": "^3.24.0"
   },
   "engines": {
     "node": ">=24.0.0"
