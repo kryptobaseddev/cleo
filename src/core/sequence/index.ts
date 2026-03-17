@@ -6,9 +6,7 @@
 
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
 import { createDataAccessor, type DataAccessor } from '../../store/data-accessor.js';
-import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { setMetaValue } from '../../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../../store/tasks-schema.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -77,6 +75,8 @@ async function readSequenceFromDb(
     return isValidSequenceState(value) ? value : null;
   }
 
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const rows = await db
     .select()
@@ -296,6 +296,7 @@ const MAX_ALLOC_RETRIES = 3;
  */
 export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<string> {
   // Ensure DB is initialized (triggers migrations, seeds sequence counter)
+  const { getDb, getNativeDb } = await import('../../store/sqlite.js');
   await getDb(cwd);
   const nativeDb = getNativeDb();
   if (!nativeDb) {

@@ -14,8 +14,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { getDb } from '../../store/sqlite.js';
 import { type NewTokenUsageRow, type TokenUsageRow, tokenUsage } from '../../store/tasks-schema.js';
 import { getCleoHome } from '../paths.js';
 import { resolveProviderFromModelRegistry } from './model-provider-registry.js';
@@ -382,8 +380,9 @@ export async function measureTokenExchange(input: TokenExchangeInput): Promise<T
   );
 }
 
-function whereClauses(filters: TokenUsageFilters): Array<ReturnType<typeof eq>> {
-  const clauses = [] as Array<ReturnType<typeof eq>>;
+async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
+  const { eq, gte, lte } = await import('drizzle-orm');
+  const clauses: unknown[] = [];
   if (filters.provider) clauses.push(eq(tokenUsage.provider, filters.provider));
   if (filters.transport) clauses.push(eq(tokenUsage.transport, filters.transport));
   if (filters.gateway) clauses.push(eq(tokenUsage.gateway, filters.gateway));
@@ -400,6 +399,8 @@ function whereClauses(filters: TokenUsageFilters): Array<ReturnType<typeof eq>> 
 }
 
 export async function recordTokenExchange(input: TokenExchangeInput): Promise<TokenUsageRow> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const measurement = await measureTokenExchange(input);
   const db = await getDb(input.cwd);
 
@@ -435,6 +436,8 @@ export async function recordTokenExchange(input: TokenExchangeInput): Promise<To
 }
 
 export async function showTokenUsage(id: string, cwd?: string): Promise<TokenUsageRow | null> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const rows = await db.select().from(tokenUsage).where(eq(tokenUsage.id, id)).limit(1);
   return rows[0] ?? null;
@@ -444,9 +447,11 @@ export async function listTokenUsage(
   filters: TokenUsageFilters = {},
   cwd?: string,
 ): Promise<{ records: TokenUsageRow[]; total: number; filtered: number }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { and, count, desc } = await import('drizzle-orm');
   const db = await getDb(cwd);
-  const clauses = whereClauses(filters);
-  const where = clauses.length > 0 ? and(...clauses) : undefined;
+  const clauses = await whereClauses(filters);
+  const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
 
   const totalRows = await db.select({ count: count() }).from(tokenUsage);
   const filteredRows = await db.select({ count: count() }).from(tokenUsage).where(where);
@@ -469,9 +474,11 @@ export async function summarizeTokenUsage(
   filters: TokenUsageFilters = {},
   cwd?: string,
 ): Promise<TokenUsageSummary> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { and, desc } = await import('drizzle-orm');
   const db = await getDb(cwd);
-  const clauses = whereClauses(filters);
-  const where = clauses.length > 0 ? and(...clauses) : undefined;
+  const clauses = await whereClauses(filters);
+  const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const rows = await db.select().from(tokenUsage).where(where).orderBy(desc(tokenUsage.createdAt));
 
   const byMethod = new Map<string, { count: number; totalTokens: number }>();
@@ -522,6 +529,8 @@ export async function deleteTokenUsage(
   id: string,
   cwd?: string,
 ): Promise<{ deleted: boolean; id: string }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   await db.delete(tokenUsage).where(eq(tokenUsage.id, id));
   return { deleted: true, id };
@@ -531,9 +540,11 @@ export async function clearTokenUsage(
   filters: TokenUsageFilters = {},
   cwd?: string,
 ): Promise<{ deleted: number }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { and, count } = await import('drizzle-orm');
   const db = await getDb(cwd);
-  const clauses = whereClauses(filters);
-  const where = clauses.length > 0 ? and(...clauses) : undefined;
+  const clauses = await whereClauses(filters);
+  const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const countRows = await db.select({ count: count() }).from(tokenUsage).where(where);
   await db.delete(tokenUsage).where(where);
   return { deleted: countRows[0]?.count ?? 0 };
@@ -548,6 +559,8 @@ export async function autoRecordDispatchTokenUsage(input: TokenExchangeInput): P
 }
 
 export async function getLatestTokenRecord(cwd?: string): Promise<TokenUsageRow | null> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { desc } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const rows = await db.select().from(tokenUsage).orderBy(desc(tokenUsage.createdAt)).limit(1);
   return rows[0] ?? null;
@@ -556,6 +569,8 @@ export async function getLatestTokenRecord(cwd?: string): Promise<TokenUsageRow 
 export async function getTokenUsageAggregateSql(
   cwd?: string,
 ): Promise<Array<{ provider: string; transport: string; totalTokens: number; count: number }>> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { sql, desc } = await import('drizzle-orm');
   const db = await getDb(cwd);
   return db
     .select({
