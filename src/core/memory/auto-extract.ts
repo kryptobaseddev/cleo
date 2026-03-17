@@ -8,7 +8,7 @@
  * @epic T5149
  */
 
-import type { Task } from '../../types/task.js';
+import type { Task, TaskFile } from '../../types/task.js';
 import type { SessionBridgeData } from '../sessions/session-memory-bridge.js';
 import { storeDecision } from './decisions.js';
 import { storeLearning } from './learnings.js';
@@ -49,16 +49,14 @@ export async function extractTaskCompletionMemory(
     // Pattern detection: look for recurring labels across recent done tasks
     const { getAccessor } = await import('../../store/data-accessor.js');
     const accessor = await getAccessor(projectRoot);
-    let taskFile;
+    let taskFile: TaskFile;
     try {
       taskFile = await accessor.loadTaskFile();
     } finally {
       await accessor.close();
     }
 
-    const recentDone = taskFile.tasks
-      .filter((t) => t.status === 'done')
-      .slice(-50);
+    const recentDone = taskFile.tasks.filter((t) => t.status === 'done').slice(-50);
 
     const labelCounts = new Map<string, string[]>();
     for (const t of recentDone) {
@@ -147,10 +145,7 @@ export async function extractSessionEndMemory(
  * Resolve an array of task IDs to their full Task objects.
  * Tasks that cannot be found are silently excluded.
  */
-export async function resolveTaskDetails(
-  projectRoot: string,
-  taskIds: string[],
-): Promise<Task[]> {
+export async function resolveTaskDetails(projectRoot: string, taskIds: string[]): Promise<Task[]> {
   if (taskIds.length === 0) {
     return [];
   }

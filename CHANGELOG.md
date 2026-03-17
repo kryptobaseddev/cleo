@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — Cognitive CLEO Epic (T5700)
+## [2026.3.34] — Cognitive CLEO Epic (T5700)
 
 ### Phase 1: Cognitive Feedback Loops
 - **Brain-enriched session briefing**: Added `recentLearnings` to `SessionMemoryContext` so session start briefings include relevant brain.db learnings (T5700)

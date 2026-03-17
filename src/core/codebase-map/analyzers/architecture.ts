@@ -43,12 +43,20 @@ const LAYER_PURPOSE: Record<string, string> = {
 };
 
 const ENTRY_POINT_NAMES = new Set([
-  'index.ts', 'index.js', 'index.mts', 'index.mjs',
-  'main.ts', 'main.js',
-  'app.ts', 'app.js',
-  'server.ts', 'server.js',
-  'cli.ts', 'cli.js',
-  'worker.ts', 'worker.js',
+  'index.ts',
+  'index.js',
+  'index.mts',
+  'index.mjs',
+  'main.ts',
+  'main.js',
+  'app.ts',
+  'app.js',
+  'server.ts',
+  'server.js',
+  'cli.ts',
+  'cli.js',
+  'worker.ts',
+  'worker.js',
 ]);
 
 const ARCH_PATTERNS: Record<string, string[]> = {
@@ -60,7 +68,10 @@ const ARCH_PATTERNS: Record<string, string[]> = {
   'component-based': ['components', 'pages'],
 };
 
-export function analyzeArchitecture(projectRoot: string, _projectContext: ProjectContext): ArchAnalysis {
+export function analyzeArchitecture(
+  projectRoot: string,
+  _projectContext: ProjectContext,
+): ArchAnalysis {
   const layers: ArchAnalysis['layers'] = [];
   const entryPoints: ArchAnalysis['entryPoints'] = [];
   const patterns: string[] = [];

@@ -2,18 +2,38 @@
  * Concerns analyzer — scans for TODO/FIXME comments, large files, and complexity estimates.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ConcernAnalysis } from '../index.js';
 
 const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'coverage',
-  '.cleo', '.next', '.nuxt', '__pycache__', 'target', 'vendor',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'coverage',
+  '.cleo',
+  '.next',
+  '.nuxt',
+  '__pycache__',
+  'target',
+  'vendor',
 ]);
 
 const SOURCE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs',
-  '.py', '.rs', '.go', '.rb', '.java', '.php', '.cs',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mts',
+  '.mjs',
+  '.py',
+  '.rs',
+  '.go',
+  '.rb',
+  '.java',
+  '.php',
+  '.cs',
 ]);
 
 const TODO_PATTERN = /\b(TODO|FIXME|HACK|XXX)\b[:\s]*(.*)/g;
@@ -88,8 +108,13 @@ function walkSourceFiles(
           const ext = entry.slice(entry.lastIndexOf('.'));
           if (SOURCE_EXTENSIONS.has(ext)) {
             // Skip test files for concern analysis
-            if (entry.endsWith('.test.ts') || entry.endsWith('.spec.ts') ||
-                entry.endsWith('.test.js') || entry.endsWith('.spec.js')) continue;
+            if (
+              entry.endsWith('.test.ts') ||
+              entry.endsWith('.spec.ts') ||
+              entry.endsWith('.test.js') ||
+              entry.endsWith('.spec.js')
+            )
+              continue;
             const relPath = fullPath.startsWith(projectRoot)
               ? fullPath.slice(projectRoot.length + 1)
               : fullPath;

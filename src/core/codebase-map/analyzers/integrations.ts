@@ -8,56 +8,59 @@ import type { ProjectContext } from '../../../store/project-detect.js';
 import type { IntegrationAnalysis } from '../index.js';
 
 const API_SDK_PATTERNS: Record<string, string[]> = {
-  'aws': ['aws-sdk', '@aws-sdk/client-s3', '@aws-sdk/client-lambda', 'aws-lambda'],
-  'gcp': ['@google-cloud/storage', '@google-cloud/bigquery', 'google-auth-library'],
-  'azure': ['@azure/storage-blob', '@azure/identity', '@azure/cosmos'],
-  'stripe': ['stripe'],
-  'twilio': ['twilio'],
-  'sendgrid': ['@sendgrid/mail'],
-  'resend': ['resend'],
-  'openai': ['openai'],
-  'anthropic': ['@anthropic-ai/sdk'],
-  'github': ['@octokit/rest', '@octokit/core', 'octokit'],
-  'slack': ['@slack/web-api', '@slack/bolt'],
-  'discord': ['discord.js', 'discord-api-types'],
+  aws: ['aws-sdk', '@aws-sdk/client-s3', '@aws-sdk/client-lambda', 'aws-lambda'],
+  gcp: ['@google-cloud/storage', '@google-cloud/bigquery', 'google-auth-library'],
+  azure: ['@azure/storage-blob', '@azure/identity', '@azure/cosmos'],
+  stripe: ['stripe'],
+  twilio: ['twilio'],
+  sendgrid: ['@sendgrid/mail'],
+  resend: ['resend'],
+  openai: ['openai'],
+  anthropic: ['@anthropic-ai/sdk'],
+  github: ['@octokit/rest', '@octokit/core', 'octokit'],
+  slack: ['@slack/web-api', '@slack/bolt'],
+  discord: ['discord.js', 'discord-api-types'],
 };
 
 const DB_SDK_PATTERNS: Record<string, string[]> = {
-  'postgres': ['pg', 'postgres', '@neondatabase/serverless', 'node-postgres'],
-  'mysql': ['mysql', 'mysql2'],
-  'sqlite': ['better-sqlite3', 'sqlite', 'sql.js'],
-  'mongodb': ['mongodb', 'mongoose'],
-  'redis': ['redis', 'ioredis', '@upstash/redis'],
-  'prisma': ['@prisma/client'],
-  'drizzle': ['drizzle-orm'],
-  'typeorm': ['typeorm'],
-  'sequelize': ['sequelize'],
-  'supabase': ['@supabase/supabase-js'],
-  'firebase': ['firebase', 'firebase-admin'],
-  'dynamodb': ['@aws-sdk/client-dynamodb', 'dynamoose'],
+  postgres: ['pg', 'postgres', '@neondatabase/serverless', 'node-postgres'],
+  mysql: ['mysql', 'mysql2'],
+  sqlite: ['better-sqlite3', 'sqlite', 'sql.js'],
+  mongodb: ['mongodb', 'mongoose'],
+  redis: ['redis', 'ioredis', '@upstash/redis'],
+  prisma: ['@prisma/client'],
+  drizzle: ['drizzle-orm'],
+  typeorm: ['typeorm'],
+  sequelize: ['sequelize'],
+  supabase: ['@supabase/supabase-js'],
+  firebase: ['firebase', 'firebase-admin'],
+  dynamodb: ['@aws-sdk/client-dynamodb', 'dynamoose'],
 };
 
 const AUTH_PATTERNS: Record<string, string[]> = {
-  'auth0': ['auth0', '@auth0/nextjs-auth0'],
-  'clerk': ['@clerk/nextjs', '@clerk/clerk-sdk-node'],
-  'nextauth': ['next-auth', '@auth/core'],
-  'passport': ['passport'],
-  'jwt': ['jsonwebtoken', '@types/jsonwebtoken', 'jose'],
-  'oauth2': ['simple-oauth2', 'oauth2-server'],
-  'lucia': ['lucia'],
+  auth0: ['auth0', '@auth0/nextjs-auth0'],
+  clerk: ['@clerk/nextjs', '@clerk/clerk-sdk-node'],
+  nextauth: ['next-auth', '@auth/core'],
+  passport: ['passport'],
+  jwt: ['jsonwebtoken', '@types/jsonwebtoken', 'jose'],
+  oauth2: ['simple-oauth2', 'oauth2-server'],
+  lucia: ['lucia'],
   'better-auth': ['better-auth'],
 };
 
 const CICD_FILES: Record<string, string[]> = {
   'github-actions': ['.github/workflows'],
   'gitlab-ci': ['.gitlab-ci.yml'],
-  'circleci': ['.circleci/config.yml'],
-  'jenkins': ['Jenkinsfile'],
-  'travis': ['.travis.yml'],
-  'buildkite': ['.buildkite/pipeline.yml'],
+  circleci: ['.circleci/config.yml'],
+  jenkins: ['Jenkinsfile'],
+  travis: ['.travis.yml'],
+  buildkite: ['.buildkite/pipeline.yml'],
 };
 
-export function analyzeIntegrations(projectRoot: string, _projectContext: ProjectContext): IntegrationAnalysis {
+export function analyzeIntegrations(
+  projectRoot: string,
+  _projectContext: ProjectContext,
+): IntegrationAnalysis {
   const apis: string[] = [];
   const databases: string[] = [];
   const auth: string[] = [];
@@ -108,7 +111,10 @@ export function analyzeIntegrations(projectRoot: string, _projectContext: Projec
 function collectAllDeps(projectRoot: string): Set<string> {
   const deps = new Set<string>();
   try {
-    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     const allPkgDeps = {
       ...((pkg.dependencies ?? {}) as Record<string, string>),
       ...((pkg.devDependencies ?? {}) as Record<string, string>),

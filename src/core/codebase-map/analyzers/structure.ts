@@ -7,9 +7,21 @@ import { join } from 'node:path';
 import type { StructureAnalysis } from '../index.js';
 
 const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'coverage',
-  '.cleo', '.next', '.nuxt', '.svelte-kit', 'out', '.cache',
-  '__pycache__', '.pytest_cache', 'target', 'vendor',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'coverage',
+  '.cleo',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  'out',
+  '.cache',
+  '__pycache__',
+  '.pytest_cache',
+  'target',
+  'vendor',
 ]);
 
 const DIR_PURPOSE: Record<string, string> = {

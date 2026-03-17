@@ -81,10 +81,12 @@ export function generateCodebaseMapSummary(result: CodebaseMapResult): string {
   lines.push('');
   lines.push(`**File naming**: ${result.conventions.fileNaming}`);
   lines.push(`**Import style**: ${result.conventions.importStyle}`);
-  if (result.conventions.typeSystem) lines.push(`**Type system**: ${result.conventions.typeSystem}`);
+  if (result.conventions.typeSystem)
+    lines.push(`**Type system**: ${result.conventions.typeSystem}`);
   if (result.conventions.linter) lines.push(`**Linter**: ${result.conventions.linter}`);
   if (result.conventions.formatter) lines.push(`**Formatter**: ${result.conventions.formatter}`);
-  if (result.conventions.errorHandling) lines.push(`**Error handling**: ${result.conventions.errorHandling}`);
+  if (result.conventions.errorHandling)
+    lines.push(`**Error handling**: ${result.conventions.errorHandling}`);
   lines.push('');
 
   // Testing
@@ -134,14 +136,15 @@ export function generateCodebaseMapSummary(result: CodebaseMapResult): string {
   }
 
   // Concerns
-  const hasConcerns =
-    result.concerns.todos.length > 0 || result.concerns.largeFiles.length > 0;
+  const hasConcerns = result.concerns.todos.length > 0 || result.concerns.largeFiles.length > 0;
 
   if (hasConcerns) {
     lines.push('## Concerns');
     lines.push('');
     const { high, medium, low } = result.concerns.complexity;
-    lines.push(`**Complexity**: ${high} high (>500 lines), ${medium} medium (200-500), ${low} low (<200)`);
+    lines.push(
+      `**Complexity**: ${high} high (>500 lines), ${medium} medium (200-500), ${low} low (<200)`,
+    );
     if (result.concerns.todos.length > 0) {
       lines.push(`**TODOs/FIXMEs**: ${result.concerns.todos.length} found`);
     }

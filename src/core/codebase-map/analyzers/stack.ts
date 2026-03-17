@@ -74,7 +74,10 @@ export function analyzeStack(projectRoot: string, projectContext: ProjectContext
 
   if (existsSync(join(projectRoot, 'package.json'))) {
     try {
-      const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+      const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<
+        string,
+        unknown
+      >;
       const deps = (pkg.dependencies ?? {}) as Record<string, string>;
       const devDeps = (pkg.devDependencies ?? {}) as Record<string, string>;
 
@@ -111,7 +114,10 @@ export function analyzeStack(projectRoot: string, projectContext: ProjectContext
   } else if (existsSync(join(projectRoot, 'package.json'))) {
     packageManager = 'npm';
     runtime = 'node';
-  } else if (existsSync(join(projectRoot, 'deno.json')) || existsSync(join(projectRoot, 'deno.jsonc'))) {
+  } else if (
+    existsSync(join(projectRoot, 'deno.json')) ||
+    existsSync(join(projectRoot, 'deno.jsonc'))
+  ) {
     runtime = 'deno';
   }
 

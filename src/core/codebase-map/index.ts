@@ -72,7 +72,14 @@ export interface CodebaseMapResult {
 }
 
 export interface MapCodebaseOptions {
-  focus?: 'stack' | 'architecture' | 'structure' | 'conventions' | 'testing' | 'integrations' | 'concerns';
+  focus?:
+    | 'stack'
+    | 'architecture'
+    | 'structure'
+    | 'conventions'
+    | 'testing'
+    | 'integrations'
+    | 'concerns';
   storeToBrain?: boolean;
 }
 
@@ -104,27 +111,41 @@ export async function mapCodebase(
 
   const result: CodebaseMapResult = {
     projectContext,
-    stack: !focus || focus === 'stack'
-      ? analyzeStack(projectRoot, projectContext)
-      : { languages: [], frameworks: [], dependencies: [] },
-    architecture: !focus || focus === 'architecture'
-      ? analyzeArchitecture(projectRoot, projectContext)
-      : { layers: [], entryPoints: [], patterns: [] },
-    structure: !focus || focus === 'structure'
-      ? analyzeStructure(projectRoot)
-      : { directories: [], totalFiles: 0 },
-    conventions: !focus || focus === 'conventions'
-      ? analyzeConventions(projectRoot, projectContext)
-      : { fileNaming: 'unknown', importStyle: 'unknown' },
-    testing: !focus || focus === 'testing'
-      ? analyzeTesting(projectRoot, projectContext)
-      : { framework: 'unknown', patterns: [], directories: [], hasFixtures: false, hasMocks: false, coverageConfigured: false },
-    integrations: !focus || focus === 'integrations'
-      ? analyzeIntegrations(projectRoot, projectContext)
-      : { apis: [], databases: [], auth: [], cicd: [], containerized: false },
-    concerns: !focus || focus === 'concerns'
-      ? analyzeConcerns(projectRoot)
-      : { todos: [], largeFiles: [], complexity: { high: 0, medium: 0, low: 0 } },
+    stack:
+      !focus || focus === 'stack'
+        ? analyzeStack(projectRoot, projectContext)
+        : { languages: [], frameworks: [], dependencies: [] },
+    architecture:
+      !focus || focus === 'architecture'
+        ? analyzeArchitecture(projectRoot, projectContext)
+        : { layers: [], entryPoints: [], patterns: [] },
+    structure:
+      !focus || focus === 'structure'
+        ? analyzeStructure(projectRoot)
+        : { directories: [], totalFiles: 0 },
+    conventions:
+      !focus || focus === 'conventions'
+        ? analyzeConventions(projectRoot, projectContext)
+        : { fileNaming: 'unknown', importStyle: 'unknown' },
+    testing:
+      !focus || focus === 'testing'
+        ? analyzeTesting(projectRoot, projectContext)
+        : {
+            framework: 'unknown',
+            patterns: [],
+            directories: [],
+            hasFixtures: false,
+            hasMocks: false,
+            coverageConfigured: false,
+          },
+    integrations:
+      !focus || focus === 'integrations'
+        ? analyzeIntegrations(projectRoot, projectContext)
+        : { apis: [], databases: [], auth: [], cicd: [], containerized: false },
+    concerns:
+      !focus || focus === 'concerns'
+        ? analyzeConcerns(projectRoot)
+        : { todos: [], largeFiles: [], complexity: { high: 0, medium: 0, low: 0 } },
     analyzedAt: new Date().toISOString(),
   };
 

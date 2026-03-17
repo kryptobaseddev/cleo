@@ -262,41 +262,42 @@ export async function getSessionMemoryContext(
 
   try {
     // Run parallel searches across brain tables
-    const [decisionsResult, patternsResult, observationsResult, learningsResult] = await Promise.all([
-      // Decisions: scope-filtered if we have a task ID, otherwise recent
-      scopeQuery
-        ? searchBrainCompact(projectRoot, {
-            query: scopeQuery,
-            limit,
-            tables: ['decisions'],
-          })
-        : Promise.resolve({
-            results: [],
-            total: 0,
-            tokensEstimated: 0,
-          } as SearchBrainCompactResult),
+    const [decisionsResult, patternsResult, observationsResult, learningsResult] =
+      await Promise.all([
+        // Decisions: scope-filtered if we have a task ID, otherwise recent
+        scopeQuery
+          ? searchBrainCompact(projectRoot, {
+              query: scopeQuery,
+              limit,
+              tables: ['decisions'],
+            })
+          : Promise.resolve({
+              results: [],
+              total: 0,
+              tokensEstimated: 0,
+            } as SearchBrainCompactResult),
 
-      // Patterns: recent patterns
-      searchBrainCompact(projectRoot, {
-        query: scopeQuery || 'pattern',
-        limit: Math.min(limit, 3),
-        tables: ['patterns'],
-      }),
+        // Patterns: recent patterns
+        searchBrainCompact(projectRoot, {
+          query: scopeQuery || 'pattern',
+          limit: Math.min(limit, 3),
+          tables: ['patterns'],
+        }),
 
-      // Observations: recent session-debrief observations
-      searchBrainCompact(projectRoot, {
-        query: scopeQuery || 'session',
-        limit,
-        tables: ['observations'],
-      }),
+        // Observations: recent session-debrief observations
+        searchBrainCompact(projectRoot, {
+          query: scopeQuery || 'session',
+          limit,
+          tables: ['observations'],
+        }),
 
-      // Learnings: recent learnings
-      searchBrainCompact(projectRoot, {
-        query: scopeQuery || 'learning',
-        limit: Math.min(limit, 5),
-        tables: ['learnings'],
-      }),
-    ]);
+        // Learnings: recent learnings
+        searchBrainCompact(projectRoot, {
+          query: scopeQuery || 'learning',
+          limit: Math.min(limit, 5),
+          tables: ['learnings'],
+        }),
+      ]);
 
     const tokensEstimated =
       decisionsResult.tokensEstimated +

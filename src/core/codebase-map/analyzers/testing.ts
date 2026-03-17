@@ -8,7 +8,10 @@ import { join } from 'node:path';
 import type { ProjectContext } from '../../../store/project-detect.js';
 import type { TestingAnalysis } from '../index.js';
 
-export function analyzeTesting(projectRoot: string, projectContext: ProjectContext): TestingAnalysis {
+export function analyzeTesting(
+  projectRoot: string,
+  projectContext: ProjectContext,
+): TestingAnalysis {
   const framework = projectContext.testing?.framework ?? 'unknown';
   const patterns: string[] = [];
   const directories: string[] = [];
@@ -22,7 +25,16 @@ export function analyzeTesting(projectRoot: string, projectContext: ProjectConte
   }
 
   // Scan for additional test dirs
-  const commonTestDirs = ['tests', 'test', 'spec', '__tests__', 'e2e', 'tests/e2e', 'tests/integration', 'tests/unit'];
+  const commonTestDirs = [
+    'tests',
+    'test',
+    'spec',
+    '__tests__',
+    'e2e',
+    'tests/e2e',
+    'tests/integration',
+    'tests/unit',
+  ];
   for (const dir of commonTestDirs) {
     if (existsSync(join(projectRoot, dir)) && !directories.includes(dir)) {
       directories.push(dir);
@@ -32,7 +44,10 @@ export function analyzeTesting(projectRoot: string, projectContext: ProjectConte
   // Detect test patterns from config or package.json
   if (framework === 'vitest' || framework === 'jest') {
     patterns.push('describe/it blocks', 'expect assertions');
-    if (existsSync(join(projectRoot, 'vitest.config.ts')) || existsSync(join(projectRoot, 'vitest.config.js'))) {
+    if (
+      existsSync(join(projectRoot, 'vitest.config.ts')) ||
+      existsSync(join(projectRoot, 'vitest.config.js'))
+    ) {
       patterns.push('vitest projects');
     }
   } else if (framework === 'mocha') {
@@ -106,7 +121,10 @@ function detectCoverage(projectRoot: string, framework: string): boolean {
 
   // Check package.json for coverage scripts
   try {
-    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     const scripts = (pkg.scripts ?? {}) as Record<string, string>;
     return Object.values(scripts).some((s) => s.includes('coverage') || s.includes('--coverage'));
   } catch {

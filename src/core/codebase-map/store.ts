@@ -99,11 +99,19 @@ export async function storeMapToBrain(
     if (hasIntegrations) {
       try {
         const integrationSummary = [
-          result.integrations.apis.length > 0 ? `APIs: ${result.integrations.apis.join(', ')}` : null,
-          result.integrations.databases.length > 0 ? `Databases: ${result.integrations.databases.join(', ')}` : null,
-          result.integrations.auth.length > 0 ? `Auth: ${result.integrations.auth.join(', ')}` : null,
+          result.integrations.apis.length > 0
+            ? `APIs: ${result.integrations.apis.join(', ')}`
+            : null,
+          result.integrations.databases.length > 0
+            ? `Databases: ${result.integrations.databases.join(', ')}`
+            : null,
+          result.integrations.auth.length > 0
+            ? `Auth: ${result.integrations.auth.join(', ')}`
+            : null,
           result.integrations.containerized ? 'Containerized: yes' : null,
-        ].filter(Boolean).join('\n');
+        ]
+          .filter(Boolean)
+          .join('\n');
 
         await observeBrain(projectRoot, {
           text: `Codebase integrations (source: codebase-map):\n${integrationSummary}`,
