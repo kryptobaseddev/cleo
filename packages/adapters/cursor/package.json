@@ -16,8 +16,7 @@
     "build:check": "tsc --noEmit"
   },
   "dependencies": {
-    "@cleocode/contracts": "1.0.0",
-    "@cleocode/shared": "1.0.0"
+    "@cleocode/contracts": "1.0.0"
   },
   "license": "MIT",
   "files": [
