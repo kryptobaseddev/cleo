@@ -164,6 +164,12 @@ export const ROUTING_TABLE: RoutingEntry[] = [
   { domain: 'admin', operation: 'health', preferredChannel: 'either', reason: 'Diagnostics' },
   { domain: 'admin', operation: 'dash', preferredChannel: 'mcp', reason: 'Composite view' },
   { domain: 'admin', operation: 'help', preferredChannel: 'mcp', reason: 'Operation discovery' },
+  {
+    domain: 'admin',
+    operation: 'map',
+    preferredChannel: 'mcp',
+    reason: 'Structured codebase analysis',
+  },
 
   // === Tools domain -- MCP preferred (structured responses) ===
   {

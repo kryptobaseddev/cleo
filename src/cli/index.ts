@@ -97,6 +97,7 @@ class GroupedHelp extends Help {
       'otel',
       'token',
       'adr',
+      'map',
       'commands',
     ],
   };
@@ -251,6 +252,7 @@ import { registerAddCommand } from './commands/add.js';
 import { registerAdrCommand } from './commands/adr.js';
 // Wave 3: Register remaining commands (T4585)
 import { registerAnalyzeCommand } from './commands/analyze.js';
+import { registerMapCommand } from './commands/map.js';
 import { registerArchiveCommand } from './commands/archive.js';
 // Wave 1: Partial port fixes (T4555)
 import { registerArchiveStatsCommand } from './commands/archive-stats.js';
@@ -481,6 +483,7 @@ registerBugCommand(program);
 
 // T4585: Wave 3 - Remaining commands
 registerAnalyzeCommand(program);
+registerMapCommand(program);
 registerBackupCommand(program);
 registerBlockersCommand(program);
 registerComplianceCommand(program);

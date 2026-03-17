@@ -569,10 +569,10 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | pipeline | 14 | 17 | 31 |
 | orchestrate | 9 | 7 | 16 |
 | tools | 20 | 8 | 28 |
-| admin | 15 | 15 | 30 |
+| admin | 16 | 16 | 32 |
 | nexus | 12 | 8 | 20 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **118** | **89** | **207** |
+| **Total** | **119** | **90** | **209** |
 
 > These counts match `src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
 

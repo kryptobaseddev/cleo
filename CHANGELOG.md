@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — Cognitive CLEO Epic (T5700)
+
+### Phase 1: Cognitive Feedback Loops
+- **Brain-enriched session briefing**: Added `recentLearnings` to `SessionMemoryContext` so session start briefings include relevant brain.db learnings (T5700)
+- **Brain-informed tasks.next scoring**: tasks.next now scores candidates with +10 for success pattern matches and -5 for failure pattern matches from brain.db (T5700)
+- **NEXUS auto-registration at startup**: Health check now auto-registers the current project in nexus.db if not already present (T5700)
+- **Grade-to-brain feedback loop**: Weak grading dimensions and protocol violations are automatically stored as learnings in brain.db (T5700)
+- **Auto-grade on session end**: Session end hooks now trigger automatic grading via the session-hooks handler (T5700)
+
+### Phase 2: Codebase Intelligence
+- **New `src/core/codebase-map/` module**: 7 analyzers — stack, architecture, structure, conventions, testing, integrations, and concerns (T5700)
+- **Brain.db persistence**: Codebase analysis findings are stored in brain.db for cross-session recall (T5700)
+- **Markdown summary generation**: `cleo map` produces human-readable codebase intelligence summaries (T5700)
+
+### Phase 3: Dispatch + CLI + Skill
+- **2 new MCP operations**: `query admin.map` + `mutate admin.map` (209 total: 119q + 90m) (T5700)
+- **`cleo map` CLI command**: `cleo map [--store] [--focus area]` for codebase intelligence from the command line (T5700)
+- **`cleo init --map-codebase`**: Brownfield auto-mapping during project initialization (T5700)
+- **`ct-codebase-mapper` skill**: New tier 1 recommended skill for codebase mapping workflows (T5700)
+- **Routing table entry**: `admin.map` added to the 53-entry skill routing table (T5700)
+
+---
+
 ## [2026.3.33] (2026-03-17)
 
 Auto-prepared by release.ship (T5698)

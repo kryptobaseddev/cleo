@@ -218,7 +218,7 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 207 MCP operations (118 query + 89 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (3 adapters: Claude Code, OpenCode, Cursor — ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints — ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes)
+**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 209 MCP operations (119 query + 90 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (3 adapters: Claude Code, OpenCode, Cursor — ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints — ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes)
 
 **In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
 
@@ -533,7 +533,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), 207 operations across 10 domains -- the agent interface
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), 209 operations across 10 domains -- the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics

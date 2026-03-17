@@ -22,6 +22,8 @@ export {
   readManifestEntries,
 } from '../../core/memory/pipeline-manifest-sqlite.js';
 export type { Session as SessionRecord } from '../../types/session.js';
+// Codebase map engine
+export { mapCodebase } from '../engines/codebase-map-engine.js';
 // Config engine
 export {
   configGet,
