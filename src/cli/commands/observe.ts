@@ -13,7 +13,10 @@ export function registerObserveCommand(program: Command): void {
     .command('observe <text>')
     .description('Save an observation to brain.db')
     .option('-t, --title <title>', 'Optional title (defaults to first 120 chars of text)')
-    .option('--type <type>', 'Observation type (discovery, decision, bugfix, refactor, feature, change, pattern, session_summary)')
+    .option(
+      '--type <type>',
+      'Observation type (discovery, decision, bugfix, refactor, feature, change, pattern, session_summary)',
+    )
     .action(async (text: string, opts: { title?: string; type?: string }) => {
       const projectDir = getProjectRoot();
       const { observeBrain } = await import('../../core/memory/brain-retrieval.js');
@@ -37,9 +40,7 @@ export function registerObserveCommand(program: Command): void {
           }) + '\n',
         );
       } catch (err) {
-        process.stderr.write(
-          `Error: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
+        process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
         process.exitCode = 1;
       }
     });

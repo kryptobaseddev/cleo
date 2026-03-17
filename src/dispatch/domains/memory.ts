@@ -268,7 +268,10 @@ export class MemoryHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:memory').error({ gateway: 'query', domain: 'memory', operation, err: error }, message);
+      getLogger('domain:memory').error(
+        { gateway: 'query', domain: 'memory', operation, err: error },
+        message,
+      );
       return handleErrorResult('query', 'memory', operation, error, startTime);
     }
   }
@@ -443,7 +446,10 @@ export class MemoryHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:memory').error({ gateway: 'mutate', domain: 'memory', operation, err: error }, message);
+      getLogger('domain:memory').error(
+        { gateway: 'mutate', domain: 'memory', operation, err: error },
+        message,
+      );
       return handleErrorResult('mutate', 'memory', operation, error, startTime);
     }
   }
@@ -478,5 +484,4 @@ export class MemoryHandler implements DomainHandler {
       ],
     };
   }
-
 }

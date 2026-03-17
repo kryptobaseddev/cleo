@@ -5,9 +5,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createTransport } from '../factory.js';
-import type { TransportFactoryConfig } from '../factory.js';
 import { ClaudeCodeTransport } from '../claude-code-transport.js';
+import type { TransportFactoryConfig } from '../factory.js';
+import { createTransport } from '../factory.js';
 import { SignalDockTransport } from '../signaldock-transport.js';
 
 describe('createTransport', () => {

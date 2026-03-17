@@ -4,11 +4,11 @@
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AdapterManager } from '../manager.js';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
+import { AdapterManager } from '../manager.js';
 
 // --- Helpers ---
 
@@ -128,9 +128,7 @@ describe('detectProvider', () => {
     try {
       const testFile = join(tempDir, 'detect-marker');
       writeFileSync(testFile, '');
-      const result = detectProvider([
-        { type: 'file', pattern: testFile, description: 'test' },
-      ]);
+      const result = detectProvider([{ type: 'file', pattern: testFile, description: 'test' }]);
       expect(result).toBe(true);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });

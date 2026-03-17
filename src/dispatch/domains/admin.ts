@@ -68,8 +68,14 @@ import {
 } from '../lib/engine.js';
 import { OPERATIONS } from '../registry.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
+import {
+  errorResult,
+  getListParams,
+  handleErrorResult,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
 import { dispatchMeta } from './_meta.js';
-import { errorResult, getListParams, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 import { routeByParam } from './_routing.js';
 
 // ---------------------------------------------------------------------------
@@ -588,7 +594,10 @@ export class AdminHandler implements DomainHandler {
           return unsupportedOp('query', 'admin', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:admin').error({ gateway: 'query', domain: 'admin', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:admin').error(
+        { gateway: 'query', domain: 'admin', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'admin', operation, error, startTime);
     }
   }
@@ -1072,7 +1081,10 @@ export class AdminHandler implements DomainHandler {
           return unsupportedOp('mutate', 'admin', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:admin').error({ gateway: 'mutate', domain: 'admin', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:admin').error(
+        { gateway: 'mutate', domain: 'admin', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'admin', operation, error, startTime);
     }
   }
@@ -1119,5 +1131,4 @@ export class AdminHandler implements DomainHandler {
       ],
     };
   }
-
 }

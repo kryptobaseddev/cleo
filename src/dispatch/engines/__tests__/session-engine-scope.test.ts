@@ -124,9 +124,9 @@ describe('Session Engine Scope (T5240)', () => {
   });
 
   it('starts session with global scope', async () => {
-    mockLoadTaskFile.mockResolvedValue(makeTaskFile([
-      { id: 'T001', title: 'Test task', status: 'pending' },
-    ]));
+    mockLoadTaskFile.mockResolvedValue(
+      makeTaskFile([{ id: 'T001', title: 'Test task', status: 'pending' }]),
+    );
 
     const result = await sessionStart(PROJECT_ROOT, { scope: 'global' });
 
@@ -137,9 +137,9 @@ describe('Session Engine Scope (T5240)', () => {
   });
 
   it('starts session with epic:T### scope', async () => {
-    mockLoadTaskFile.mockResolvedValue(makeTaskFile([
-      { id: 'T001', title: 'Epic task', status: 'active' },
-    ]));
+    mockLoadTaskFile.mockResolvedValue(
+      makeTaskFile([{ id: 'T001', title: 'Epic task', status: 'active' }]),
+    );
 
     const result = await sessionStart(PROJECT_ROOT, { scope: 'epic:T001' });
 
@@ -150,9 +150,9 @@ describe('Session Engine Scope (T5240)', () => {
   });
 
   it('rejects epic scope when root task does not exist', async () => {
-    mockLoadTaskFile.mockResolvedValue(makeTaskFile([
-      { id: 'T001', title: 'Test', status: 'pending' },
-    ]));
+    mockLoadTaskFile.mockResolvedValue(
+      makeTaskFile([{ id: 'T001', title: 'Test', status: 'pending' }]),
+    );
 
     const result = await sessionStart(PROJECT_ROOT, { scope: 'epic:T999' });
 

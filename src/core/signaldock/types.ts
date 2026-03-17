@@ -9,12 +9,7 @@
  */
 
 /** Functional classification of an agent. */
-export type AgentClass =
-  | 'personal_assistant'
-  | 'code_dev'
-  | 'research'
-  | 'utility_bot'
-  | 'custom';
+export type AgentClass = 'personal_assistant' | 'code_dev' | 'research' | 'utility_bot' | 'custom';
 
 /** Visibility tier controlling agent discoverability. */
 export type PrivacyTier = 'public' | 'discoverable' | 'private';

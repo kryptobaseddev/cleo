@@ -173,10 +173,7 @@ export const spawnRegistry = new SpawnAdapterRegistry();
  * @param delegate - The underlying AdapterSpawnProvider instance
  * @returns A CLEOSpawnAdapter wrapping the delegate
  */
-function bridgeSpawnAdapter(
-  providerId: string,
-  delegate: AdapterSpawnProvider,
-): CLEOSpawnAdapter {
+function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider): CLEOSpawnAdapter {
   return {
     id: providerId,
     providerId,

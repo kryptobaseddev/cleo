@@ -6,8 +6,8 @@
  * @task T5240
  */
 
-import { CleoError } from '../../core/errors.js';
 import { getErrorDefinition } from '../../core/error-catalog.js';
+import type { CleoError } from '../../core/errors.js';
 import { getExitCodeName } from '../../types/exit-codes.js';
 
 /**

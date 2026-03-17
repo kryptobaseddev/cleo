@@ -8,16 +8,16 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import {
+  createAdapter,
   OpenCodeAdapter,
   OpenCodeHookProvider,
-  OpenCodeSpawnProvider,
   OpenCodeInstallProvider,
-  createAdapter,
+  OpenCodeSpawnProvider,
 } from '@cleocode/adapter-opencode';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('OpenCodeAdapter', () => {
   let adapter: OpenCodeAdapter;

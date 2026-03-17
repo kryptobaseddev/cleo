@@ -14,9 +14,9 @@ import { getCleoHome } from '../paths.js';
 
 /** Inline Claude settings path to decouple from provider-specific paths (T5240). */
 function getClaudeSettingsPath(): string {
-  return process.env['CLAUDE_SETTINGS'] ?? join(
-    process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
-    'settings.json',
+  return (
+    process.env['CLAUDE_SETTINGS'] ??
+    join(process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'), 'settings.json')
   );
 }
 

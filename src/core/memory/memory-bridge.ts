@@ -212,8 +212,7 @@ export async function writeMemoryBridge(
     if (existsSync(bridgePath)) {
       const existing = readFileSync(bridgePath, 'utf-8');
       // Compare without the timestamp line
-      const stripTimestamp = (s: string) =>
-        s.replace(/^> Auto-generated at .*/m, '');
+      const stripTimestamp = (s: string) => s.replace(/^> Auto-generated at .*/m, '');
       if (stripTimestamp(existing) === stripTimestamp(content)) {
         return { path: bridgePath, written: false };
       }
@@ -222,7 +221,10 @@ export async function writeMemoryBridge(
     writeFileSync(bridgePath, content, 'utf-8');
     return { path: bridgePath, written: true };
   } catch (err) {
-    console.error('[CLEO] Failed to write memory bridge:', err instanceof Error ? err.message : String(err));
+    console.error(
+      '[CLEO] Failed to write memory bridge:',
+      err instanceof Error ? err.message : String(err),
+    );
     return { path: bridgePath, written: false };
   }
 }
@@ -235,7 +237,10 @@ export async function refreshMemoryBridge(projectRoot: string): Promise<void> {
   try {
     await writeMemoryBridge(projectRoot);
   } catch (err) {
-    console.error('[CLEO] Memory bridge refresh failed:', err instanceof Error ? err.message : String(err));
+    console.error(
+      '[CLEO] Memory bridge refresh failed:',
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 

@@ -24,8 +24,8 @@ import {
   stickyShow,
 } from '../engines/sticky-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // StickyHandler
@@ -105,7 +105,10 @@ export class StickyHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:sticky').error({ gateway: 'query', domain: 'sticky', operation, err: error }, message);
+      getLogger('domain:sticky').error(
+        { gateway: 'query', domain: 'sticky', operation, err: error },
+        message,
+      );
       return handleErrorResult('query', 'sticky', operation, error, startTime);
     }
   }
@@ -244,7 +247,10 @@ export class StickyHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:sticky').error({ gateway: 'mutate', domain: 'sticky', operation, err: error }, message);
+      getLogger('domain:sticky').error(
+        { gateway: 'mutate', domain: 'sticky', operation, err: error },
+        message,
+      );
       return handleErrorResult('mutate', 'sticky', operation, error, startTime);
     }
   }
@@ -259,5 +265,4 @@ export class StickyHandler implements DomainHandler {
       mutate: ['add', 'convert', 'archive', 'purge'],
     };
   }
-
 }

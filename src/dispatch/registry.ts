@@ -2040,9 +2040,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['id'],
-    params: [
-      { name: 'id', type: 'string', required: true, description: 'Adapter ID' },
-    ],
+    params: [{ name: 'id', type: 'string', required: true, description: 'Adapter ID' }],
   },
   {
     gateway: 'query',
@@ -2064,7 +2062,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'id', type: 'string', required: false, description: 'Specific adapter ID (omit for all)' },
+      {
+        name: 'id',
+        type: 'string',
+        required: false,
+        description: 'Specific adapter ID (omit for all)',
+      },
     ],
   },
   {
@@ -2076,9 +2079,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['id'],
-    params: [
-      { name: 'id', type: 'string', required: true, description: 'Adapter ID to activate' },
-    ],
+    params: [{ name: 'id', type: 'string', required: true, description: 'Adapter ID to activate' }],
   },
   {
     gateway: 'mutate',
@@ -2090,7 +2091,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'id', type: 'string', required: false, description: 'Adapter ID (omit to dispose all)' },
+      {
+        name: 'id',
+        type: 'string',
+        required: false,
+        description: 'Adapter ID (omit to dispose all)',
+      },
     ],
   },
   // T4916: Global install refresh

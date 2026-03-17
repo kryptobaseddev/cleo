@@ -133,7 +133,6 @@ vi.mock('../../registry.js', () => ({
   ],
 }));
 
-import { listAdrs } from '../../../core/adrs/index.js';
 import { getJobManager } from '../../../mcp/lib/job-manager-accessor.js';
 import {
   configSet,
@@ -147,12 +146,10 @@ import {
   systemInjectGenerate,
   systemLog,
   systemMigrate,
-  systemRestore,
   systemRuntime,
   systemSafestop,
   systemSequence,
   systemStats,
-  systemSync,
 } from '../../lib/engine.js';
 import { AdminHandler } from '../admin.js';
 

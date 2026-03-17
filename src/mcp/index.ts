@@ -16,7 +16,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { registerMemoryResources } from './resources/index.js';
 import { hooks } from '../core/hooks/registry.js';
 import { handleMcpToolCall, initMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { registerMutateTool } from './gateways/mutate.js';
@@ -25,6 +24,7 @@ import { BackgroundJobManager } from './lib/background-jobs.js';
 import { enforceBudget } from './lib/budget.js';
 import { QueryCache } from './lib/cache.js';
 import { loadConfig } from './lib/config.js';
+import { registerMemoryResources } from './resources/index.js';
 import '../core/hooks/handlers/index.js';
 import { join } from 'node:path';
 import { pruneAuditLog } from '../core/audit-prune.js';

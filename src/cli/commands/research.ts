@@ -44,7 +44,13 @@ export function registerResearchCommand(program: Command): void {
     .command('show <id>')
     .description('Show a research entry')
     .action(async (id: string) => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.show', { entryId: id }, { command: 'research' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'manifest.show',
+        { entryId: id },
+        { command: 'research' },
+      );
     });
 
   research
@@ -71,7 +77,13 @@ export function registerResearchCommand(program: Command): void {
     .command('pending')
     .description('List pending research entries')
     .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.list', { status: 'pending' }, { command: 'research' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'manifest.list',
+        { status: 'pending' },
+        { command: 'research' },
+      );
     });
 
   research
@@ -132,7 +144,13 @@ export function registerResearchCommand(program: Command): void {
     .command('links <taskId>')
     .description('Show research entries linked to a task')
     .action(async (taskId: string) => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.find', { taskId }, { command: 'research' });
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'manifest.find',
+        { taskId },
+        { command: 'research' },
+      );
     });
 
   research
@@ -140,9 +158,15 @@ export function registerResearchCommand(program: Command): void {
     .description('Archive completed research entries')
     .option('--before-date <date>', 'Archive entries before this date (YYYY-MM-DD)')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'manifest.archive', {
-        beforeDate: opts['beforeDate'] as string | undefined,
-      }, { command: 'research' });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'manifest.archive',
+        {
+          beforeDate: opts['beforeDate'] as string | undefined,
+        },
+        { command: 'research' },
+      );
     });
 
   research

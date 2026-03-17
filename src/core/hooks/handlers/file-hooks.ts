@@ -24,14 +24,14 @@ const DEDUP_INTERVAL_MS = 5_000;
 
 /** Path patterns to exclude from brain observations (internal/noisy files). */
 const SKIP_PATTERNS: readonly RegExp[] = [
-  /\.cleo\//,          // All .cleo internal files (sessions.json, config.json, tasks.db, etc.)
-  /\.cleo\\/,          // Windows path variant
-  /\/\.temp\//,        // Temp directories
-  /cleo-test-/,        // Vitest test temp dirs
-  /cleo-edge-/,        // Edge-case test temp dirs
-  /node_modules\//,    // Dependencies
-  /\.git\//,           // Git internals
-  /dist\//,            // Build output
+  /\.cleo\//, // All .cleo internal files (sessions.json, config.json, tasks.db, etc.)
+  /\.cleo\\/, // Windows path variant
+  /\/\.temp\//, // Temp directories
+  /cleo-test-/, // Vitest test temp dirs
+  /cleo-edge-/, // Edge-case test temp dirs
+  /node_modules\//, // Dependencies
+  /\.git\//, // Git internals
+  /dist\//, // Build output
 ];
 
 /** Check whether a relative path should be skipped. */

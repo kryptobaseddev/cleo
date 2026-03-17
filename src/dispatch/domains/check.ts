@@ -39,8 +39,8 @@ import {
   validateTestStatus,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // CheckHandler
@@ -317,7 +317,10 @@ export class CheckHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:check').error({ gateway: 'query', domain: 'check', operation, err: error }, message);
+      getLogger('domain:check').error(
+        { gateway: 'query', domain: 'check', operation, err: error },
+        message,
+      );
       return handleErrorResult('query', 'check', operation, error, startTime);
     }
   }
@@ -406,7 +409,10 @@ export class CheckHandler implements DomainHandler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('domain:check').error({ gateway: 'mutate', domain: 'check', operation, err: error }, message);
+      getLogger('domain:check').error(
+        { gateway: 'mutate', domain: 'check', operation, err: error },
+        message,
+      );
       return handleErrorResult('mutate', 'check', operation, error, startTime);
     }
   }
@@ -435,5 +441,4 @@ export class CheckHandler implements DomainHandler {
       mutate: ['compliance.record', 'compliance.sync', 'test.run', 'gate.set'],
     };
   }
-
 }

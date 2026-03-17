@@ -15,7 +15,6 @@
  * @task T5671
  */
 
-import { AdapterManager } from '../../core/adapters/index.js';
 import {
   buildInjectionContent,
   catalog,
@@ -32,6 +31,7 @@ import {
   installSkill,
   removeSkill,
 } from '@cleocode/caamp';
+import { AdapterManager } from '../../core/adapters/index.js';
 import { clearSyncState, getSyncStatus } from '../../core/admin/sync.js';
 import { collectDiagnostics } from '../../core/issue/diagnostics.js';
 import { getLogger } from '../../core/logger.js';
@@ -906,16 +906,24 @@ export class ToolsHandler implements DomainHandler {
         const id = params?.id as string | undefined;
         if (!id) {
           return errorResult(
-            'query', 'tools', 'adapter.show',
-            'E_INVALID_INPUT', 'Missing required parameter: id', startTime,
+            'query',
+            'tools',
+            'adapter.show',
+            'E_INVALID_INPUT',
+            'Missing required parameter: id',
+            startTime,
           );
         }
         const manifest = manager.getManifest(id);
         const adapter = manager.get(id);
         if (!manifest) {
           return errorResult(
-            'query', 'tools', 'adapter.show',
-            'E_NOT_FOUND', `Adapter not found: ${id}`, startTime,
+            'query',
+            'tools',
+            'adapter.show',
+            'E_NOT_FOUND',
+            `Adapter not found: ${id}`,
+            startTime,
           );
         }
         return {
@@ -971,8 +979,12 @@ export class ToolsHandler implements DomainHandler {
         const id = params?.id as string | undefined;
         if (!id) {
           return errorResult(
-            'mutate', 'tools', 'adapter.activate',
-            'E_INVALID_INPUT', 'Missing required parameter: id', startTime,
+            'mutate',
+            'tools',
+            'adapter.activate',
+            'E_INVALID_INPUT',
+            'Missing required parameter: id',
+            startTime,
           );
         }
         try {
@@ -993,7 +1005,9 @@ export class ToolsHandler implements DomainHandler {
           };
         } catch (err) {
           return errorResult(
-            'mutate', 'tools', 'adapter.activate',
+            'mutate',
+            'tools',
+            'adapter.activate',
             'E_ADAPTER_ACTIVATE_FAILED',
             err instanceof Error ? err.message : String(err),
             startTime,

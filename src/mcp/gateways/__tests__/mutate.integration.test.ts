@@ -199,9 +199,7 @@ describe('mutate Gateway Integration', () => {
       // lookup may not find the task in the isolated test environment's archive
       // because the archive format changed from JSON to SQLite)
       expect(
-        result.success ||
-          result.error?.code?.includes('NOT_FOUND') ||
-          result.exitCode === 4,
+        result.success || result.error?.code?.includes('NOT_FOUND') || result.exitCode === 4,
       ).toBe(true);
     });
 

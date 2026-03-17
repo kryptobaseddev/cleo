@@ -2,8 +2,9 @@
  * Integration tests for hook wiring — adapter hooks dispatch through HookRegistry.
  * @task T5240
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterManager } from '../../src/core/adapters/manager.js';
 import { hooks } from '../../src/core/hooks/registry.js';
 

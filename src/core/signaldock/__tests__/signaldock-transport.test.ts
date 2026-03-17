@@ -7,8 +7,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SignalDockTransport } from '../signaldock-transport.js';
 import type { SignalDockTransportConfig } from '../signaldock-transport.js';
+import { SignalDockTransport } from '../signaldock-transport.js';
 import type { Agent, ApiResponse, Conversation, Message } from '../types.js';
 
 function makeConfig(overrides?: Partial<SignalDockTransportConfig>): SignalDockTransportConfig {
@@ -134,12 +134,8 @@ describe('SignalDockTransport', () => {
     });
 
     it('uses custom prefix from config', async () => {
-      const customTransport = new SignalDockTransport(
-        makeConfig({ agentPrefix: 'test-' }),
-      );
-      fetchMock.mockResolvedValueOnce(
-        mockFetchResponse({ ...mockAgent, name: 'test-worker' }),
-      );
+      const customTransport = new SignalDockTransport(makeConfig({ agentPrefix: 'test-' }));
+      fetchMock.mockResolvedValueOnce(mockFetchResponse({ ...mockAgent, name: 'test-worker' }));
 
       await customTransport.register('worker', 'code_dev', 'private');
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -149,9 +145,9 @@ describe('SignalDockTransport', () => {
     it('throws on non-200 response', async () => {
       fetchMock.mockResolvedValueOnce(mockFetchError(409, 'Agent already exists'));
 
-      await expect(
-        transport.register('orchestrator', 'code_dev', 'private'),
-      ).rejects.toThrow(/SignalDock API error.*409.*Agent already exists/);
+      await expect(transport.register('orchestrator', 'code_dev', 'private')).rejects.toThrow(
+        /SignalDock API error.*409.*Agent already exists/,
+      );
     });
 
     it('throws on envelope error with success:false', async () => {
@@ -159,9 +155,9 @@ describe('SignalDockTransport', () => {
         mockFetchEnvelopeError('DUPLICATE', 'Agent name already taken'),
       );
 
-      await expect(
-        transport.register('orchestrator', 'code_dev', 'private'),
-      ).rejects.toThrow(/SignalDock error \[DUPLICATE\]: Agent name already taken/);
+      await expect(transport.register('orchestrator', 'code_dev', 'private')).rejects.toThrow(
+        /SignalDock error \[DUPLICATE\]: Agent name already taken/,
+      );
     });
   });
 
@@ -239,30 +235,16 @@ describe('SignalDockTransport', () => {
     });
 
     it('maps non-delivered status to pending', async () => {
-      fetchMock.mockResolvedValueOnce(
-        mockFetchResponse({ ...mockMessage, status: 'pending' }),
-      );
+      fetchMock.mockResolvedValueOnce(mockFetchResponse({ ...mockMessage, status: 'pending' }));
 
-      const result = await transport.send(
-        'agent-1',
-        'agent-2',
-        'Hello',
-        'conv-id',
-      );
+      const result = await transport.send('agent-1', 'agent-2', 'Hello', 'conv-id');
       expect(result.status).toBe('pending');
     });
 
     it('maps read status to pending (not delivered)', async () => {
-      fetchMock.mockResolvedValueOnce(
-        mockFetchResponse({ ...mockMessage, status: 'read' }),
-      );
+      fetchMock.mockResolvedValueOnce(mockFetchResponse({ ...mockMessage, status: 'read' }));
 
-      const result = await transport.send(
-        'agent-1',
-        'agent-2',
-        'Hello',
-        'conv-id',
-      );
+      const result = await transport.send('agent-1', 'agent-2', 'Hello', 'conv-id');
       // 'read' !== 'delivered', so maps to 'pending' per the ternary
       expect(result.status).toBe('pending');
     });
@@ -301,9 +283,7 @@ describe('SignalDockTransport', () => {
     it('throws on server error during poll', async () => {
       fetchMock.mockResolvedValueOnce(mockFetchError(500, 'Server error'));
 
-      await expect(transport.poll('agent-2')).rejects.toThrow(
-        /SignalDock API error.*500/,
-      );
+      await expect(transport.poll('agent-2')).rejects.toThrow(/SignalDock API error.*500/);
     });
   });
 
@@ -323,9 +303,7 @@ describe('SignalDockTransport', () => {
     it('throws on heartbeat failure', async () => {
       fetchMock.mockResolvedValueOnce(mockFetchError(404, 'Agent not found'));
 
-      await expect(transport.heartbeat('nonexistent')).rejects.toThrow(
-        /SignalDock API error.*404/,
-      );
+      await expect(transport.heartbeat('nonexistent')).rejects.toThrow(/SignalDock API error.*404/);
     });
   });
 
@@ -333,10 +311,7 @@ describe('SignalDockTransport', () => {
     it('creates a private conversation with sorted participants', async () => {
       fetchMock.mockResolvedValueOnce(mockFetchResponse(mockConversation));
 
-      const result = await transport.createConversation(
-        ['agent-2', 'agent-1'],
-        'private',
-      );
+      const result = await transport.createConversation(['agent-2', 'agent-1'], 'private');
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.participants).toEqual(['agent-1', 'agent-2']);
@@ -386,9 +361,9 @@ describe('SignalDockTransport', () => {
     it('handles network failure (fetch throws)', async () => {
       fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
 
-      await expect(
-        transport.register('test', 'code_dev', 'private'),
-      ).rejects.toThrow('fetch failed');
+      await expect(transport.register('test', 'code_dev', 'private')).rejects.toThrow(
+        'fetch failed',
+      );
     });
 
     it('handles response.text() failure gracefully', async () => {
@@ -398,9 +373,9 @@ describe('SignalDockTransport', () => {
         text: () => Promise.reject(new Error('body read failed')),
       });
 
-      await expect(
-        transport.register('test', 'code_dev', 'private'),
-      ).rejects.toThrow(/SignalDock API error.*500/);
+      await expect(transport.register('test', 'code_dev', 'private')).rejects.toThrow(
+        /SignalDock API error.*500/,
+      );
     });
 
     it('handles malformed JSON response', async () => {
@@ -411,9 +386,7 @@ describe('SignalDockTransport', () => {
         text: () => Promise.resolve('not json'),
       });
 
-      await expect(
-        transport.register('test', 'code_dev', 'private'),
-      ).rejects.toThrow();
+      await expect(transport.register('test', 'code_dev', 'private')).rejects.toThrow();
     });
 
     it('sets Content-Type and Accept headers on all requests', async () => {

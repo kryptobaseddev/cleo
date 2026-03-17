@@ -7,17 +7,17 @@
  * @task T5240
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
 import {
   ClaudeCodeAdapter,
   ClaudeCodeHookProvider,
-  ClaudeCodeSpawnProvider,
   ClaudeCodeInstallProvider,
+  ClaudeCodeSpawnProvider,
   createAdapter,
 } from '@cleocode/adapter-claude-code';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('ClaudeCodeAdapter', () => {
   let adapter: ClaudeCodeAdapter;

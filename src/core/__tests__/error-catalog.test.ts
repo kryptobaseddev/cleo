@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ExitCode } from '../../types/exit-codes.js';
 import {
   ERROR_CATALOG,
   getAllErrorDefinitions,
@@ -6,7 +7,6 @@ import {
   getErrorDefinitionByLafsCode,
 } from '../error-catalog.js';
 import { CleoError, type ProblemDetails } from '../errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 
 describe('error-catalog', () => {
   describe('ERROR_CATALOG structure', () => {
@@ -28,8 +28,13 @@ describe('error-catalog', () => {
 
     it('every entry has valid LAFS category', () => {
       const validCategories = new Set([
-        'INTERNAL', 'VALIDATION', 'NOT_FOUND', 'CONFLICT',
-        'CONTRACT', 'PERMISSION', 'TRANSIENT',
+        'INTERNAL',
+        'VALIDATION',
+        'NOT_FOUND',
+        'CONFLICT',
+        'CONTRACT',
+        'PERMISSION',
+        'TRANSIENT',
       ]);
       for (const entry of ERROR_CATALOG.values()) {
         expect(validCategories.has(entry.category)).toBe(true);

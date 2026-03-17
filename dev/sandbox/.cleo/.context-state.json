@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-16T14:04:59Z",
+  "staleAfterMs": 5000,
+  "contextWindow": {
+    "maxTokens": 1000000,
+    "currentTokens": 207472,
+    "percentage": 20
+  },
+  "status": "ok",
+  "sessionId": "",
+  "workspace": "/mnt/projects/claude-todo/dev/sandbox"
+}

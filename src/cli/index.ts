@@ -41,7 +41,17 @@ class GroupedHelp extends Help {
       'history',
     ],
     Session: ['session', 'briefing', 'phase', 'checkpoint', 'safestop'],
-    Memory: ['memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note', 'refresh-memory'],
+    Memory: [
+      'memory',
+      'memory-brain',
+      'observe',
+      'context',
+      'inject',
+      'sync',
+      'sticky',
+      'note',
+      'refresh-memory',
+    ],
     Check: ['validate', 'verify', 'compliance', 'doctor', 'analyze'],
     Pipeline: [
       'release',
@@ -294,6 +304,8 @@ import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 import { registerNextCommand } from './commands/next.js';
 import { registerNexusCommand } from './commands/nexus.js';
+// Brain observation CLI command (CLI parity for MCP mutate memory observe)
+import { registerObserveCommand } from './commands/observe.js';
 // T4362: Progressive disclosure ops command
 import { registerOpsCommand } from './commands/ops.js';
 import { registerOrchestrateCommand } from './commands/orchestrate.js';
@@ -302,6 +314,8 @@ import { registerPhaseCommand } from './commands/phase.js';
 import { registerPhasesCommand } from './commands/phases.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPromoteCommand } from './commands/promote.js';
+// T5240: Memory bridge refresh command
+import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
 import { registerRelatesCommand } from './commands/relates.js';
 import { registerReleaseCommand } from './commands/release.js';
 // T4884: .cleo/.git remote push/pull
@@ -322,10 +336,6 @@ import { registerSnapshotCommand } from './commands/snapshot.js';
 import { registerSpecificationCommand } from './commands/specification.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStatsCommand } from './commands/stats.js';
-// T5240: Memory bridge refresh command
-import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
-// Brain observation CLI command (CLI parity for MCP mutate memory observe)
-import { registerObserveCommand } from './commands/observe.js';
 // T5281: Sticky notes command
 import { registerStickyCommand } from './commands/sticky.js';
 import { registerStopCommand } from './commands/stop.js';

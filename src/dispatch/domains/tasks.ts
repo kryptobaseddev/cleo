@@ -15,7 +15,6 @@
 
 import { getLogger } from '../../core/logger.js';
 import { getProjectRoot } from '../../core/paths.js';
-import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 import {
   taskAnalyze,
   taskArchive,
@@ -51,6 +50,7 @@ import {
   taskWorkHistory,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // TasksHandler
@@ -247,7 +247,10 @@ export class TasksHandler implements DomainHandler {
           return unsupportedOp('query', 'tasks', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:tasks').error({ gateway: 'query', domain: 'tasks', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:tasks').error(
+        { gateway: 'query', domain: 'tasks', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'tasks', operation, error, startTime);
     }
   }
@@ -518,7 +521,10 @@ export class TasksHandler implements DomainHandler {
           return unsupportedOp('mutate', 'tasks', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:tasks').error({ gateway: 'mutate', domain: 'tasks', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:tasks').error(
+        { gateway: 'mutate', domain: 'tasks', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'tasks', operation, error, startTime);
     }
   }
@@ -561,5 +567,4 @@ export class TasksHandler implements DomainHandler {
       ],
     };
   }
-
 }

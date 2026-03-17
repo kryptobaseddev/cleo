@@ -39,6 +39,7 @@ import { ExitCode } from '../types/exit-codes.js';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import { ensureInjection } from './injection.js';
+import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { getAgentsHome, getCleoDirAbsolute, getProjectRoot } from './paths.js';
 // Shared utility imports
@@ -54,7 +55,6 @@ import {
   removeCleoFromRootGitignore,
 } from './scaffold.js';
 import { ensureGlobalSchemas } from './schema-management.js';
-import { writeMemoryBridge } from './memory/memory-bridge.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -597,7 +597,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
               warnings.push(`adapter install (${adapterId}): failed`);
             }
           } catch (err) {
-            warnings.push(`adapter activate/install (${adapterId}): ${err instanceof Error ? err.message : String(err)}`);
+            warnings.push(
+              `adapter activate/install (${adapterId}): ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }

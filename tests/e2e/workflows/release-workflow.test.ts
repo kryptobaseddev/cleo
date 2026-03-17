@@ -11,10 +11,7 @@ vi.mock('../../../src/dispatch/lib/engine.js', () => ({
 }));
 
 // Import mocked functions
-import {
-  releaseRollback,
-  releaseShip,
-} from '../../../src/dispatch/lib/engine.js';
+import { releaseRollback, releaseShip } from '../../../src/dispatch/lib/engine.js';
 
 // Mock paths
 vi.mock('../../../src/core/paths.js', async (importOriginal) => {
