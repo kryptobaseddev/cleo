@@ -4,13 +4,6 @@
  * @task T5240
  */
 
-export {
-  formatObservation,
-  shouldSkipTool,
-  summarizeToolUse,
-} from './observation-formatter.js';
-export type { FormattedObservation, ToolInput } from './observation-formatter.js';
-
 export { CleoCli } from './cleo-cli.js';
 export type {
   BrainSearchHit,
