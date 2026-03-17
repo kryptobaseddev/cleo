@@ -89,17 +89,79 @@ const buildOptions = {
   ],
 };
 
+/** @type {esbuild.BuildOptions} */
+const corePackageBuildOptions = {
+  entryPoints: ['packages/core/src/index.ts'],
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  outfile: 'packages/core/dist/index.js',
+  sourcemap: true,
+  plugins: [
+    {
+      // Bundle @cleocode/contracts inline; keep all other @cleocode/* and npm packages external.
+      // This ensures the standalone package has no relative back-references.
+      name: 'bundle-core-workspace-packages',
+      setup(build) {
+        const workspaceMap = {
+          '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+        };
+
+        // Resolve known workspace packages to their source TypeScript
+        build.onResolve({ filter: /^@cleocode\// }, (args) => {
+          const mapped = workspaceMap[args.path];
+          if (mapped) return { path: mapped };
+          // All other @cleocode/* are external (e.g. @cleocode/caamp, @cleocode/lafs-protocol)
+          return { path: args.path, external: true };
+        });
+
+        // Mark all other bare-specifier imports as external
+        build.onResolve({ filter: /^[a-zA-Z@]/ }, (args) => {
+          if (args.path.startsWith('@cleocode/')) return undefined;
+          return { path: args.path, external: true };
+        });
+      },
+    },
+  ],
+};
+
 // Generate build config before compilation
 generateBuildConfig();
+
+const isCoreOnly = process.argv.includes('--core-only');
 
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);
   await ctx.watch();
   console.log('Watching for changes...');
+} else if (isCoreOnly) {
+  // Build only the @cleocode/core standalone bundle
+  console.log('Building @cleocode/core standalone bundle...');
+  await esbuild.build(corePackageBuildOptions);
+  // Generate TypeScript declarations for packages/core
+  spawnSync(
+    'npx',
+    ['tsc', '--project', 'packages/core/tsconfig.json', '--emitDeclarationOnly', '--noEmit', 'false'],
+    { stdio: 'inherit', encoding: 'utf-8' },
+  );
+  console.log('Done: packages/core/dist/index.js');
 } else {
   await esbuild.build(buildOptions);
   // Make entry points executable (shebang only works with +x)
   await chmod('dist/cli/index.js', 0o755);
   await chmod('dist/mcp/index.js', 0o755);
+
+  // Also build the @cleocode/core standalone bundle
+  console.log('Building @cleocode/core standalone bundle...');
+  await esbuild.build(corePackageBuildOptions);
+  // Generate TypeScript declarations for packages/core
+  spawnSync(
+    'npx',
+    ['tsc', '--project', 'packages/core/tsconfig.json', '--emitDeclarationOnly', '--noEmit', 'false'],
+    { stdio: 'inherit', encoding: 'utf-8' },
+  );
+  console.log('Done: packages/core/dist/index.js');
+
   console.log('Build complete.');
 }
