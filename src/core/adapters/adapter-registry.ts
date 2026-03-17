@@ -7,7 +7,10 @@
  * Uses lazy imports to avoid eagerly loading adapter code (which pulls in
  * node:child_process etc.) at module evaluation time.
  *
- * @task T5240
+ * Note: esbuild must NOT externalize @cleocode/adapter-* packages.
+ * The build.mjs config uses a custom plugin to bundle them inline.
+ *
+ * @task T5698
  */
 
 import type { CLEOProviderAdapter } from '@cleocode/contracts';
