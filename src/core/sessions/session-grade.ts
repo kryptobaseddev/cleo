@@ -242,6 +242,7 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   // -- Total --
   result.totalScore = Object.values(result.dimensions).reduce((sum, d) => sum + d.score, 0);
 
+  await feedGradeToBrain(result, cwd);
   await appendGradeResult(result, cwd);
   return result;
 }
@@ -256,6 +257,49 @@ function detectDuplicateCreates(entries: AuditEntry[]): number {
     .filter(Boolean);
   const unique = new Set(titles);
   return titles.length - unique.size;
+}
+
+/**
+ * Feed grade insights back into brain.db as learnings.
+ * Best-effort — errors are silently caught.
+ */
+async function feedGradeToBrain(result: GradeResult, projectRoot?: string): Promise<void> {
+  if (!projectRoot) return;
+
+  try {
+    const { storeLearning } = await import('../memory/learnings.js');
+
+    // Find dimensions scoring below 50% of max
+    const weakDimensions: string[] = [];
+    for (const [name, dim] of Object.entries(result.dimensions)) {
+      if (dim.score < dim.max * 0.5) {
+        weakDimensions.push(name);
+      }
+    }
+
+    if (weakDimensions.length > 0) {
+      await storeLearning(projectRoot, {
+        insight: `Session ${result.sessionId} scored ${result.totalScore}/${result.maxScore}. Weak dimensions: ${weakDimensions.join(', ')}`,
+        source: `grade:${result.sessionId}`,
+        confidence: 0.8,
+        actionable: true,
+        application: `Improve in next session: ${weakDimensions.join(', ')}`,
+      });
+    }
+
+    // Store protocol violations as separate learning
+    if (result.flags.length > 0) {
+      await storeLearning(projectRoot, {
+        insight: `Session ${result.sessionId} protocol violations: ${result.flags.join('; ')}`,
+        source: `grade:${result.sessionId}`,
+        confidence: 0.7,
+        actionable: true,
+        application: 'Address protocol violations in next session',
+      });
+    }
+  } catch {
+    // Best-effort — grade feedback should never block
+  }
 }
 
 /** Append a grade result to .cleo/metrics/GRADES.jsonl */

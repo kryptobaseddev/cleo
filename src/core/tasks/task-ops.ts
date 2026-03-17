@@ -245,6 +245,41 @@ export async function coreTaskNext(
     })
     .sort((a, b) => b.score - a.score);
 
+  // Brain pattern scoring (best-effort)
+  try {
+    const { searchPatterns } = await import('../memory/patterns.js');
+    const [successPatterns, failurePatterns] = await Promise.all([
+      searchPatterns(projectRoot, { type: 'success', limit: 20 }),
+      searchPatterns(projectRoot, { type: 'failure', limit: 20 }),
+    ]);
+
+    if (successPatterns.length > 0 || failurePatterns.length > 0) {
+      for (const item of scored) {
+        const titleLower = item.task.title.toLowerCase();
+        const labels = (item.task.labels ?? []).map((l: string) => l.toLowerCase());
+        const matchText = [titleLower, ...labels].join(' ');
+
+        for (const sp of successPatterns) {
+          if (matchText.includes(sp.pattern.toLowerCase())) {
+            item.score += 10;
+            item.reasons.push(`brain: success pattern match "${sp.pattern}" (+10)`);
+            break;
+          }
+        }
+        for (const fp of failurePatterns) {
+          if (matchText.includes(fp.pattern.toLowerCase())) {
+            item.score -= 5;
+            item.reasons.push(`brain: failure pattern match "${fp.pattern}" (-5)`);
+            break;
+          }
+        }
+      }
+      scored.sort((a, b) => b.score - a.score);
+    }
+  } catch {
+    // Brain pattern scoring is best-effort
+  }
+
   const count = Math.min(params?.count || 1, scored.length);
   const explain = params?.explain ?? false;
 
