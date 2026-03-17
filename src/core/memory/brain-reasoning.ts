@@ -11,7 +11,6 @@
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import type { BrainDecisionRow } from '../../store/brain-schema.js';
-import { getBrainDb } from '../../store/brain-sqlite.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { searchBrain } from './brain-search.js';
@@ -185,7 +184,8 @@ export async function reasonSimilar(
 ): Promise<SimilarEntry[]> {
   const maxResults = limit ?? 10;
 
-  // Load the source entry's text
+  // Load the source entry's text — initialize brain.db before accessor use
+  const { getBrainDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const accessor = await getBrainAccessor(projectRoot);
 

@@ -14,9 +14,7 @@
  */
 
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
 import { readJson } from '../../store/json.js';
-import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { LIFECYCLE_STAGE_STATUSES } from '../../store/tasks-schema.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -364,6 +362,8 @@ export async function getLifecycleStatus(
   blockedOn: string[];
   initialized: boolean;
 }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
 
   // Query pipeline and task for this epic
@@ -505,6 +505,8 @@ export async function getLifecycleHistory(
   epicId: string,
   cwd?: string,
 ): Promise<{ epicId: string; history: LifecycleHistoryEntry[] }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const pipelineId = `pipeline-${epicId}`;
 
@@ -604,6 +606,8 @@ export async function getLifecycleGates(
   epicId: string,
   cwd?: string,
 ): Promise<Record<string, Record<string, GateData>>> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const pipelineId = `pipeline-${epicId}`;
 
@@ -733,7 +737,9 @@ async function ensureLifecycleContext(
   stageName: string,
   cwd: string | undefined,
   options: EnsureLifecycleContextOptions,
-): Promise<{ db: Awaited<ReturnType<typeof getDb>>; pipelineId: string; stageId: string }> {
+): Promise<{ db: Awaited<ReturnType<typeof import('../../store/sqlite.js')['getDb']>>; pipelineId: string; stageId: string }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(cwd);
   const pipelineId = `pipeline-${epicId}`;
   const stageId = `stage-${epicId}-${stageName}`;
@@ -823,6 +829,7 @@ export async function recordStageProgress(
     );
   }
 
+  const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = stage as Stage;
   const { db, stageId, pipelineId } = await ensureLifecycleContext(epicId, stage, cwd, {
@@ -928,6 +935,7 @@ export async function resetStage(
     throw new CleoError(ExitCode.INVALID_INPUT, `Invalid stage: ${stage}`);
   }
 
+  const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const { db, stageId } = await ensureLifecycleContext(epicId, stage, cwd, {
     now,
@@ -963,6 +971,7 @@ export async function passGate(
   notes?: string,
   cwd?: string,
 ): Promise<{ epicId: string; gateName: string; timestamp: string }> {
+  const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
   const gateId = `gate-${epicId}-${stageName}-${gateName}`;
@@ -1016,6 +1025,7 @@ export async function failGate(
   reason?: string,
   cwd?: string,
 ): Promise<{ epicId: string; gateName: string; reason?: string; timestamp: string }> {
+  const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
   const gateId = `gate-${epicId}-${stageName}-${gateName}`;
@@ -1063,6 +1073,7 @@ export async function failGate(
  */
 export async function listEpicsWithLifecycle(cwd?: string): Promise<string[]> {
   try {
+    const { getDb } = await import('../../store/sqlite.js');
     const db = await getDb(cwd);
     const rows = await db
       .select({ taskId: schema.lifecyclePipelines.taskId })

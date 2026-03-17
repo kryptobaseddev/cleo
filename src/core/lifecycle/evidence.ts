@@ -9,8 +9,6 @@
  */
 
 import { basename, relative } from 'node:path';
-import { eq, like } from 'drizzle-orm';
-import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
@@ -72,6 +70,7 @@ export async function recordEvidence(
 
   // SQLite write (best-effort)
   try {
+    const { getDb } = await import('../../store/sqlite.js');
     const db = await getDb(options?.cwd);
     await db
       .insert(schema.lifecycleEvidence)
@@ -110,6 +109,8 @@ export async function getEvidence(
   cwd?: string,
 ): Promise<EvidenceRecord[]> {
   try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { eq, like } = await import('drizzle-orm');
     const db = await getDb(cwd);
 
     let rows: schema.LifecycleEvidenceRow[];
@@ -194,6 +195,8 @@ export async function getEvidenceSummary(
   cwd?: string,
 ): Promise<{ stage: string; count: number; types: Record<EvidenceType, number> }[]> {
   try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { like } = await import('drizzle-orm');
     const db = await getDb(cwd);
     const stageIdPrefix = `stage-${epicId}-`;
 

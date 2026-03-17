@@ -9,11 +9,8 @@
  * @epic T5149
  */
 
-import { desc } from 'drizzle-orm';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../../store/brain-schema.js';
-import { brainDecisions } from '../../store/brain-schema.js';
-import { getBrainDb } from '../../store/brain-sqlite.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -48,6 +45,9 @@ export interface ListDecisionParams {
  * Reads the highest existing ID from brain_decisions to determine next.
  */
 async function nextDecisionId(projectRoot: string): Promise<string> {
+  const { getBrainDb } = await import('../../store/brain-sqlite.js');
+  const { brainDecisions } = await import('../../store/brain-schema.js');
+  const { desc } = await import('drizzle-orm');
   const db = await getBrainDb(projectRoot);
   const rows = await db
     .select({ id: brainDecisions.id })

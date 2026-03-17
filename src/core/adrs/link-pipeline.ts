@@ -16,8 +16,6 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, eq } from 'drizzle-orm';
-import { getDb } from '../../store/sqlite.js';
 import { adrRelations, adrTaskLinks, architectureDecisions } from '../../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 
@@ -87,6 +85,8 @@ export async function linkPipelineAdr(
     return result;
   }
 
+  const { getDb } = await import('../../store/sqlite.js');
+  const { and, eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 

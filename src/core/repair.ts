@@ -7,8 +7,6 @@
  * @task T4862
  */
 
-import { isNull, sql } from 'drizzle-orm';
-
 /** A single repair action with status. */
 export interface RepairAction {
   action: string;
@@ -26,6 +24,7 @@ export async function repairMissingSizes(
 ): Promise<RepairAction> {
   const { getDb } = await import('../store/sqlite.js');
   const { tasks } = await import('../store/tasks-schema.js');
+  const { isNull } = await import('drizzle-orm');
   const db = await getDb(cwd);
 
   const affected = await db.select({ id: tasks.id }).from(tasks).where(isNull(tasks.size));
@@ -65,6 +64,7 @@ export async function repairMissingCompletedAt(
 ): Promise<RepairAction> {
   const { getDb } = await import('../store/sqlite.js');
   const { tasks } = await import('../store/tasks-schema.js');
+  const { sql } = await import('drizzle-orm');
   const db = await getDb(cwd);
 
   const affected = await db
