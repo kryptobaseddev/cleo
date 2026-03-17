@@ -53,7 +53,7 @@ export function toolsIssueDiagnostics(): EngineResult<ReturnType<typeof collectD
     const diag = collectDiagnostics();
     return engineSuccess(diag);
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -91,7 +91,7 @@ export async function toolsSkillList(
       page: page.page,
     };
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -108,7 +108,7 @@ export async function toolsSkillShow(
     }
     return engineSuccess({ skill });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -130,7 +130,7 @@ export async function toolsSkillFind(
       : skills;
     return engineSuccess({ skills: filtered, count: filtered.length, query: q });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -162,7 +162,7 @@ export function toolsSkillDispatch(
     };
     return engineSuccess({ skill: name, dispatch: entry });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -189,7 +189,7 @@ export async function toolsSkillVerify(
       installPath: installed ? `${getCanonicalSkillsDir()}/${name}` : null,
     });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -208,7 +208,7 @@ export function toolsSkillDependencies(
     const tree = catalog.resolveDependencyTree([name]);
     return engineSuccess({ skill: name, direct, tree });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -224,7 +224,7 @@ export async function toolsSkillSpawnProviders(
     const providers = getProvidersBySpawnCapability(cap);
     return engineSuccess({ providers, capability: cap, count: providers.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -256,7 +256,7 @@ export function toolsSkillCatalogInfo(): EngineResult<{
       profileCount,
     });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -292,7 +292,7 @@ export function toolsSkillCatalogProtocols(
       page: page.page,
     };
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -340,7 +340,7 @@ export function toolsSkillCatalogProfiles(
       page: page.page,
     };
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -376,7 +376,7 @@ export function toolsSkillCatalogResources(
       page: page.page,
     };
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -393,7 +393,7 @@ export async function toolsSkillPrecedenceShow(): Promise<
     const map = getSkillsMapWithPrecedence();
     return engineSuccess({ precedenceMap: map });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -412,7 +412,7 @@ export async function toolsSkillPrecedenceResolve(
     const paths = await resolveSkillPathsForProvider(providerId, scope, projectRoot);
     return engineSuccess({ providerId, scope, paths });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -482,7 +482,7 @@ export async function toolsSkillInstall(
 
     return engineSuccess({ results, targets: targets.map((t) => t.providerId) });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -516,7 +516,7 @@ export async function toolsSkillUninstall(
     }
     return engineSuccess({ removed: result.removed, errors: result.errors });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -580,7 +580,7 @@ export async function toolsSkillRefresh(
 
     return engineSuccess({ updated, failed, checked: Object.keys(updates).length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -616,7 +616,7 @@ export function toolsProviderList(
       page: page.page,
     };
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -631,7 +631,7 @@ export function toolsProviderDetect(): EngineResult<{
     const detected = detectAllProviders();
     return engineSuccess({ providers: detected, count: detected.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -649,7 +649,7 @@ export async function toolsProviderInjectStatus(
     const checks = await checkAllInjections(providers, projectRoot, resolvedScope, content);
     return engineSuccess({ checks, count: checks.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -665,7 +665,7 @@ export async function toolsProviderSupports(
     const supported = providerSupportsById(providerId, capability);
     return engineSuccess({ providerId, capability, supported });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -682,7 +682,7 @@ export async function toolsProviderHooks(
     );
     return result;
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -712,7 +712,7 @@ export async function toolsProviderInject(
     const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
     return engineSuccess({ actions, count: actions.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -730,7 +730,7 @@ export async function toolsTodowriteStatus(
     const result = await getSyncStatus(projectRoot);
     return result;
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -744,7 +744,7 @@ export function toolsTodowriteSync(
   try {
     return systemSync(projectRoot, params);
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -759,7 +759,7 @@ export async function toolsTodowriteClear(
     const result = await clearSyncState(projectRoot, dryRun);
     return result;
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -781,7 +781,7 @@ export function toolsAdapterList(
     const adapters = manager.listAdapters();
     return engineSuccess({ adapters, count: adapters.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -809,7 +809,7 @@ export function toolsAdapterShow(
       active: manager.getActiveId() === id,
     });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -825,7 +825,7 @@ export function toolsAdapterDetect(
     const detected = manager.detectActive();
     return engineSuccess({ detected, count: detected.length });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -848,7 +848,7 @@ export function toolsAdapterHealth(
       count: filtered.length,
     });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -904,6 +904,6 @@ export async function toolsAdapterDispose(
     }
     return engineSuccess({ disposed: id ?? 'all' });
   } catch (error) {
-    return engineError('E_INTERNAL', String(error));
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
