@@ -1,0 +1,31 @@
+{
+  "name": "@cleocode/core",
+  "version": "1.0.0",
+  "description": "CLEO core business logic — task management, sessions, brain memory, orchestration",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "peerDependencies": {
+    "@cleocode/caamp": "*",
+    "@cleocode/contracts": "*",
+    "@cleocode/lafs-protocol": "*"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src"
+  ]
+}
