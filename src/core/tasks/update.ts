@@ -5,21 +5,19 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { safeAppendLog, safeSaveTaskData } from '../../store/data-safety-central.js';
-import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type {
   Task,
-  TaskFile,
   TaskPriority,
   TaskSize,
   TaskStatus,
   TaskType,
 } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getBackupDir, getTaskPath } from '../paths.js';
 import {
-  logOperation,
   normalizePriority,
   validateLabels,
   validateSize,
@@ -94,12 +92,8 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
-  const taskPath = getTaskPath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? await getAccessor(cwd);
+  const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -277,33 +271,25 @@ export async function updateTask(
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  if (accessor) {
-    if (accessor.upsertSingleTask) {
-      await accessor.upsertSingleTask(task);
-    } else {
-      await safeSaveTaskData(accessor, data, cwd);
-    }
-    await safeAppendLog(
-      accessor,
-      {
-        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-        timestamp: new Date().toISOString(),
-        action: 'task_updated',
-        taskId: options.taskId,
-        actor: 'system',
-        details: { changes, title: task.title },
-        before: null,
-        after: { changes, title: task.title },
-      },
-      cwd,
-    );
+  if (acc.upsertSingleTask) {
+    await acc.upsertSingleTask(task);
   } else {
-    await saveJson(taskPath, data, { backupDir });
-    await logOperation('task_updated', options.taskId, {
-      changes,
-      title: task.title,
-    });
+    await safeSaveTaskData(acc, data, cwd);
   }
+  await safeAppendLog(
+    acc,
+    {
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_updated',
+      taskId: options.taskId,
+      actor: 'system',
+      details: { changes, title: task.title },
+      before: null,
+      after: { changes, title: task.title },
+    },
+    cwd,
+  );
 
   return { task, changes };
 }
