@@ -16,6 +16,7 @@
 
 import { exportTasks } from '../../core/admin/export.js';
 import { exportTasksPackage } from '../../core/admin/export-tasks.js';
+import { computeHelp } from '../../core/admin/help.js';
 import { importTasks } from '../../core/admin/import.js';
 import { importTasksPackage } from '../../core/admin/import-tasks.js';
 import {
@@ -279,75 +280,12 @@ export class AdminHandler implements DomainHandler {
         case 'help': {
           const tier = typeof params?.tier === 'number' ? params.tier : 0;
           const verbose = params?.verbose === true;
-          const ops = OPERATIONS.filter((op) => op.tier <= tier);
-
-          const tierGuidance: Record<number, string> = {
-            0: 'Tier 0: Core task and session operations (tasks, session, admin). 80% of use cases.',
-            1: 'Tier 1: + memory/research and check/validate operations. 15% of use cases.',
-            2: 'Tier 2: Full access including pipeline, orchestrate, tools, nexus. 5% of use cases.',
-          };
-
-          // Compact domain-grouped format by default: { domain: { query: [...ops], mutate: [...ops] } }
-          const grouped: Record<string, { query: string[]; mutate: string[] }> = {};
-          for (const op of ops) {
-            if (!grouped[op.domain]) grouped[op.domain] = { query: [], mutate: [] };
-            grouped[op.domain][op.gateway].push(op.operation);
-          }
-
-          const getCostHint = (domain: string, op: string): 'minimal' | 'moderate' | 'heavy' => {
-            const key = `${domain}.${op}`;
-            const heavyOps = [
-              'tasks.list',
-              'tasks.tree',
-              'admin.log',
-              'admin.stats',
-              'tasks.analyze',
-            ];
-            const moderateOps = [
-              'tasks.show',
-              'tasks.blockers',
-              'tasks.depends',
-              'admin.health',
-              'admin.dash',
-              'admin.help',
-            ];
-            if (heavyOps.includes(key)) return 'heavy';
-            if (moderateOps.includes(key)) return 'moderate';
-            return 'minimal';
-          };
+          const helpResult = computeHelp(OPERATIONS, tier, verbose);
 
           return {
             _meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
-            data: {
-              tier,
-              operationCount: ops.length,
-              quickStart:
-                tier === 0
-                  ? [
-                      'query tasks.current \u2014 check active task (~100 tokens)',
-                      'query tasks.next \u2014 get suggestion (~300 tokens)',
-                      'query tasks.find {query} \u2014 search tasks (~200 tokens)',
-                      'mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
-                      'mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
-                    ]
-                  : undefined,
-              // Compact grouped by domain by default; pass verbose:true for full object list
-              operations: verbose
-                ? ops.map((op) => ({
-                    gateway: op.gateway,
-                    domain: op.domain,
-                    operation: op.operation,
-                    description: op.description,
-                    costHint: getCostHint(op.domain, op.operation),
-                  }))
-                : grouped,
-              guidance: tierGuidance[tier] ?? tierGuidance[0],
-              escalation:
-                tier < 2
-                  ? `For more operations: query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
-                  : 'Full operation set displayed. Pass verbose:true for detailed object list.',
-            },
+            data: helpResult,
           };
         }
 
