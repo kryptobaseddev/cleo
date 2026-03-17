@@ -67,7 +67,6 @@
   "license": "MIT",
   "workspaces": [
     "packages/contracts",
-    "packages/shared",
     "packages/adapters/*"
   ],
   "files": [
