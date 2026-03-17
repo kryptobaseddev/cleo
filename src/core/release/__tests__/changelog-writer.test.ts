@@ -123,6 +123,34 @@ describe('writeChangelogSection', () => {
     expect(content).not.toContain('[/custom-log]');
   });
 
+  it('removes [Unreleased] section when writing a versioned section', async () => {
+    const existing =
+      '# Changelog\n\n## [Unreleased] — Some Epic (T1234)\n\n### Features\n- unreleased feature\n\n---\n\n## [v0.9.0] (2026-01-01)\n\n- old thing\n\n---\n';
+    writeFileSync(changelogPath, existing);
+
+    await writeChangelogSection('1.0.0', '### Features\n- released feature', [], changelogPath);
+    const content = readFileSync(changelogPath, 'utf8');
+
+    expect(content).toContain('## [1.0.0]');
+    expect(content).toContain('- released feature');
+    expect(content).not.toContain('[Unreleased]');
+    expect(content).not.toContain('- unreleased feature');
+    // Previous version still present
+    expect(content).toContain('## [v0.9.0]');
+  });
+
+  it('removes [Unreleased] section even when it is the only section', async () => {
+    const existing = '# Changelog\n\n## [Unreleased]\n\n- wip stuff\n';
+    writeFileSync(changelogPath, existing);
+
+    await writeChangelogSection('2.0.0', '### Features\n- done', [], changelogPath);
+    const content = readFileSync(changelogPath, 'utf8');
+
+    expect(content).toContain('## [2.0.0]');
+    expect(content).not.toContain('[Unreleased]');
+    expect(content).not.toContain('- wip stuff');
+  });
+
   it('preserves existing [custom-log] blocks in section on re-generation', async () => {
     // Write initial version with a custom-log block
     const existing =

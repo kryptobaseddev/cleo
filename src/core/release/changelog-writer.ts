@@ -120,16 +120,43 @@ function extractExistingSection(changelog: string, version: string): string {
 }
 
 /**
+ * Remove any ## [Unreleased] section from the changelog.
+ * Called before inserting a versioned section so stale [Unreleased] blocks
+ * don't remain alongside the real release entry.
+ */
+function removeUnreleasedSection(changelog: string): string {
+  const unreleasedRe = /^## \[Unreleased\][^\n]*/im;
+  const match = unreleasedRe.exec(changelog);
+  if (!match) return changelog;
+
+  const before = changelog.slice(0, match.index);
+  const fromStart = changelog.slice(match.index);
+  const afterFirstLine = fromStart.indexOf('\n') + 1;
+  const nextSection = /^## /m.exec(fromStart.slice(afterFirstLine));
+
+  if (nextSection) {
+    const after = fromStart.slice(afterFirstLine + nextSection.index);
+    return (before + after).replace(/\n{3,}/g, '\n\n');
+  }
+  // [Unreleased] was the last section — remove it entirely
+  return before.replace(/\n+$/, '\n\n');
+}
+
+/**
  * Replace an existing section for version, or insert after the title heading.
+ * Also absorbs any [Unreleased] section, since the versioned section supersedes it.
  */
 function replaceOrInsertSection(changelog: string, version: string, newSection: string): string {
+  // Remove any [Unreleased] section so it doesn't coexist with the versioned one
+  const cleaned = removeUnreleasedSection(changelog);
+
   const escapedVersion = escapeRegex(version);
   const sectionStart = new RegExp(`^## \\[?${escapedVersion}\\]?`, 'm');
-  const startMatch = sectionStart.exec(changelog);
+  const startMatch = sectionStart.exec(cleaned);
 
   if (startMatch) {
-    const before = changelog.slice(0, startMatch.index);
-    const fromStart = changelog.slice(startMatch.index);
+    const before = cleaned.slice(0, startMatch.index);
+    const fromStart = cleaned.slice(startMatch.index);
     const afterFirstLine = fromStart.indexOf('\n') + 1;
     const nextSection = /^## /m.exec(fromStart.slice(afterFirstLine));
 
@@ -141,16 +168,16 @@ function replaceOrInsertSection(changelog: string, version: string, newSection: 
   }
 
   // Insert after top-level # heading if present
-  const titleMatch = /^# .+$/m.exec(changelog);
+  const titleMatch = /^# .+$/m.exec(cleaned);
   if (titleMatch) {
     const insertAt = titleMatch.index + titleMatch[0].length;
-    const rest = changelog.slice(insertAt);
+    const rest = cleaned.slice(insertAt);
     const trimmedRest = rest.startsWith('\n') ? rest.slice(1) : rest;
-    return changelog.slice(0, insertAt) + '\n\n' + newSection + trimmedRest;
+    return cleaned.slice(0, insertAt) + '\n\n' + newSection + trimmedRest;
   }
 
   // No existing content — prepend
-  return newSection + changelog;
+  return newSection + cleaned;
 }
 
 function escapeRegex(str: string): string {
