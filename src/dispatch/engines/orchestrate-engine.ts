@@ -8,9 +8,10 @@
  * @task T4784
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import type { Provider } from '@cleocode/caamp';
+import { analyzeDependencies } from '../../core/orchestration/analyze.js';
 import { buildBrainState } from '../../core/orchestration/bootstrap.js';
+import { estimateContext } from '../../core/orchestration/context.js';
 import { getCriticalPath } from '../../core/orchestration/critical-path.js';
 // Core module imports
 import {
@@ -25,10 +26,15 @@ import {
   startParallelExecution,
 } from '../../core/orchestration/parallel.js';
 import { getSkillContent } from '../../core/orchestration/skill-ops.js';
+import {
+  computeEpicStatus,
+  computeOverallStatus,
+  computeProgress,
+  computeStartupSummary,
+} from '../../core/orchestration/status.js';
 import { getUnblockOpportunities } from '../../core/orchestration/unblock.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
-import { computeWaves, getEnrichedWaves } from '../../core/orchestration/waves.js';
-import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
+import { getEnrichedWaves } from '../../core/orchestration/waves.js';
 import { resolveProjectRoot } from '../../core/platform.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
@@ -108,45 +114,14 @@ export async function orchestrateStatus(
       }
 
       const children = tasks.filter((t) => t.parentId === epicId);
-      const waves = computeWaves(children as unknown as Task[]);
+      const status = computeEpicStatus(epicId, epic.title, children as unknown as Task[]);
 
-      return {
-        success: true,
-        data: {
-          epicId,
-          epicTitle: epic.title,
-          totalTasks: children.length,
-          byStatus: {
-            pending: children.filter((t) => t.status === 'pending').length,
-            active: children.filter((t) => t.status === 'active').length,
-            blocked: children.filter((t) => t.status === 'blocked').length,
-            done: children.filter((t) => t.status === 'done').length,
-            cancelled: children.filter((t) => t.status === 'cancelled').length,
-          },
-          waves: waves.length,
-          currentWave: waves.find((w) => w.status !== 'completed')?.waveNumber || null,
-        },
-      };
+      return { success: true, data: status };
     }
 
     // No epicId - return overall status
-    const epics = tasks.filter(
-      (t) => !t.parentId && (t.type === 'epic' || tasks.some((c) => c.parentId === t.id)),
-    );
-
-    return {
-      success: true,
-      data: {
-        totalEpics: epics.length,
-        totalTasks: tasks.length,
-        byStatus: {
-          pending: tasks.filter((t) => t.status === 'pending').length,
-          active: tasks.filter((t) => t.status === 'active').length,
-          blocked: tasks.filter((t) => t.status === 'blocked').length,
-          done: tasks.filter((t) => t.status === 'done').length,
-        },
-      },
-    };
+    const status = computeOverallStatus(tasks as unknown as Task[]);
+    return { success: true, data: status };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -176,56 +151,13 @@ export async function orchestrateAnalyze(
     const accessor = await getAccessor(root);
     const result = await analyzeEpic(epicId, root, accessor);
 
-    // Add dependency graph and circular dep detection that core analyzeEpic provides
+    // Add dependency graph and circular dep detection via core analyze module
     const tasks = await loadTasks(root);
     const children = tasks.filter((t) => t.parentId === epicId);
-
-    // Build dependency graph
-    const graph = new Map<string, Set<string>>();
-    for (const task of children) {
-      if (!graph.has(task.id)) graph.set(task.id, new Set());
-      if (task.depends) {
-        for (const dep of task.depends) {
-          graph.get(task.id)!.add(dep);
-        }
-      }
-    }
-
-    // Find circular dependencies
-    const circularDeps: string[][] = [];
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
-
-    function dfs(taskId: string, path: string[]): void {
-      visited.add(taskId);
-      recursionStack.add(taskId);
-      const deps = graph.get(taskId) || new Set();
-      for (const dep of deps) {
-        if (!visited.has(dep)) {
-          dfs(dep, [...path, taskId]);
-        } else if (recursionStack.has(dep)) {
-          circularDeps.push([...path, taskId, dep]);
-        }
-      }
-      recursionStack.delete(taskId);
-    }
-
-    for (const task of children) {
-      if (!visited.has(task.id)) dfs(task.id, []);
-    }
-
-    // Missing deps
-    const childIds = new Set(children.map((t) => t.id));
-    const missingDeps: Array<{ taskId: string; missingDep: string }> = [];
-    for (const task of children) {
-      if (task.depends) {
-        for (const dep of task.depends) {
-          if (!childIds.has(dep) && !tasks.find((t) => t.id === dep && t.status === 'done')) {
-            missingDeps.push({ taskId: task.id, missingDep: dep });
-          }
-        }
-      }
-    }
+    const depAnalysis = analyzeDependencies(
+      children as unknown as Task[],
+      tasks as unknown as Task[],
+    );
 
     return {
       success: true,
@@ -234,11 +166,9 @@ export async function orchestrateAnalyze(
         epicTitle: tasks.find((t) => t.id === epicId)?.title || epicId,
         totalTasks: result.totalTasks,
         waves: result.waves,
-        circularDependencies: circularDeps,
-        missingDependencies: missingDeps,
-        dependencyGraph: Object.fromEntries(
-          Array.from(graph.entries()).map(([k, v]) => [k, Array.from(v)]),
-        ),
+        circularDependencies: depAnalysis.circularDependencies,
+        missingDependencies: depAnalysis.missingDependencies,
+        dependencyGraph: depAnalysis.dependencyGraph,
       },
     };
   } catch (err: unknown) {
@@ -370,37 +300,8 @@ export async function orchestrateContext(
       taskCount = tasks.filter((t) => t.parentId === epicId).length;
     }
 
-    const estimatedTokens = taskCount * 100;
-
-    const manifestPath = getCentralManifestPath(root);
-    let manifestEntries = 0;
-    if (existsSync(manifestPath)) {
-      try {
-        const content = readFileSync(manifestPath, 'utf-8');
-        manifestEntries = content.split('\n').filter((l) => l.trim()).length;
-      } catch {
-        // ignore
-      }
-    }
-
-    return {
-      success: true,
-      data: {
-        epicId: epicId || null,
-        taskCount,
-        manifestEntries,
-        estimatedTokens,
-        recommendation:
-          estimatedTokens > 5000
-            ? 'Consider using manifest summaries instead of full task details'
-            : 'Context usage is within recommended limits',
-        limits: {
-          orchestratorBudget: 10000,
-          maxFilesPerAgent: 3,
-          currentUsage: estimatedTokens,
-        },
-      },
-    };
+    const contextData = estimateContext(taskCount, root, epicId);
+    return { success: true, data: contextData };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -733,30 +634,16 @@ export async function orchestrateStartup(
     }
 
     const children = tasks.filter((t) => t.parentId === epicId);
-    const waves = computeWaves(children as unknown as Task[]);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
-    return {
-      success: true,
-      data: {
-        epicId,
-        epicTitle: epic.title,
-        initialized: true,
-        summary: {
-          totalTasks: children.length,
-          totalWaves: waves.length,
-          readyTasks: ready.length,
-          byStatus: {
-            pending: children.filter((t) => t.status === 'pending').length,
-            active: children.filter((t) => t.status === 'active').length,
-            blocked: children.filter((t) => t.status === 'blocked').length,
-            done: children.filter((t) => t.status === 'done').length,
-          },
-        },
-        firstWave: waves[0] || null,
-      },
-    };
+    const summary = computeStartupSummary(
+      epicId,
+      epic.title,
+      children as unknown as Task[],
+      ready.length,
+    );
+    return { success: true, data: summary };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);
@@ -920,10 +807,7 @@ export async function orchestrateCheck(projectRoot?: string): Promise<EngineResu
     const tasks = await loadTasks(root);
 
     const activeTasks = tasks.filter((t) => t.status === 'active');
-    const total = tasks.length;
-    const done = tasks.filter((t) => t.status === 'done').length;
-    const pending = tasks.filter((t) => t.status === 'pending').length;
-    const blocked = tasks.filter((t) => t.status === 'blocked').length;
+    const progress = computeProgress(tasks as unknown as Task[]);
 
     return {
       success: true,
@@ -936,14 +820,7 @@ export async function orchestrateCheck(projectRoot?: string): Promise<EngineResu
           startedAt: parallelState.startedAt || null,
         },
         activeTasks: activeTasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
-        progress: {
-          total,
-          done,
-          pending,
-          blocked,
-          active: activeTasks.length,
-          percentComplete: total > 0 ? Math.round((done / total) * 100) : 0,
-        },
+        progress,
       },
     };
   } catch (err: unknown) {
