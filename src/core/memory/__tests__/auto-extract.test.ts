@@ -29,15 +29,15 @@ vi.mock('../../../store/data-accessor.js', () => ({
 // ---- imports after mocks --------------------------------------------------
 
 import { getAccessor } from '../../../store/data-accessor.js';
-import { storeDecision } from '../decisions.js';
-import { storeLearning } from '../learnings.js';
-import { storePattern } from '../patterns.js';
+import type { SessionBridgeData } from '../../sessions/session-memory-bridge.js';
 import {
   extractSessionEndMemory,
   extractTaskCompletionMemory,
   resolveTaskDetails,
 } from '../auto-extract.js';
-import type { SessionBridgeData } from '../../sessions/session-memory-bridge.js';
+import { storeDecision } from '../decisions.js';
+import { storeLearning } from '../learnings.js';
+import { storePattern } from '../patterns.js';
 
 // ---- helpers --------------------------------------------------------------
 

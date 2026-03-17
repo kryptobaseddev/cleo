@@ -3,12 +3,15 @@
  * Extends projectContext.conventions with tool-level details.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProjectContext } from '../../../store/project-detect.js';
 import type { ConventionAnalysis } from '../index.js';
 
-export function analyzeConventions(projectRoot: string, projectContext: ProjectContext): ConventionAnalysis {
+export function analyzeConventions(
+  projectRoot: string,
+  projectContext: ProjectContext,
+): ConventionAnalysis {
   const conventions: ConventionAnalysis = {
     fileNaming: projectContext.conventions?.fileNaming ?? 'unknown',
     importStyle: projectContext.conventions?.importStyle ?? 'unknown',
@@ -42,7 +45,10 @@ function detectLinter(projectRoot: string): string | undefined {
   ) {
     return 'eslint';
   }
-  if (existsSync(join(projectRoot, '.oxlintrc.json')) || existsSync(join(projectRoot, 'oxlint.json'))) {
+  if (
+    existsSync(join(projectRoot, '.oxlintrc.json')) ||
+    existsSync(join(projectRoot, 'oxlint.json'))
+  ) {
     return 'oxlint';
   }
   try {
@@ -74,7 +80,10 @@ function detectFormatter(projectRoot: string): string | undefined {
     return 'prettier';
   }
   try {
-    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     if (pkg.prettier) return 'prettier';
   } catch {
     // ignore
@@ -124,7 +133,11 @@ function collectSampleFiles(dir: string, limit: number): string[] {
         if (EXCLUDED.has(entry)) continue;
         const fullPath = join(current, entry);
         if (entry.endsWith('.ts') || entry.endsWith('.js')) {
-          if (!entry.endsWith('.test.ts') && !entry.endsWith('.test.js') && !entry.endsWith('.spec.ts')) {
+          if (
+            !entry.endsWith('.test.ts') &&
+            !entry.endsWith('.test.js') &&
+            !entry.endsWith('.spec.ts')
+          ) {
             files.push(fullPath);
           }
         } else {

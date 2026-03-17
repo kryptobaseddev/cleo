@@ -252,7 +252,6 @@ import { registerAddCommand } from './commands/add.js';
 import { registerAdrCommand } from './commands/adr.js';
 // Wave 3: Register remaining commands (T4585)
 import { registerAnalyzeCommand } from './commands/analyze.js';
-import { registerMapCommand } from './commands/map.js';
 import { registerArchiveCommand } from './commands/archive.js';
 // Wave 1: Partial port fixes (T4555)
 import { registerArchiveStatsCommand } from './commands/archive-stats.js';
@@ -299,6 +298,7 @@ import { registerLabelsCommand } from './commands/labels.js';
 import { registerLifecycleCommand } from './commands/lifecycle.js';
 import { registerListCommand } from './commands/list.js';
 import { registerLogCommand } from './commands/log.js';
+import { registerMapCommand } from './commands/map.js';
 import { registerMcpInstallCommand } from './commands/mcp-install.js';
 // T4770: BRAIN memory commands (patterns, learnings)
 import { registerMemoryBrainCommand } from './commands/memory-brain.js';
