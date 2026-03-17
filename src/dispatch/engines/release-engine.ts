@@ -11,6 +11,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolveProjectRoot } from '../../core/platform.js';
 import { channelToDistTag, resolveChannelFromBranch } from '../../core/release/channel.js';
 import {
@@ -618,7 +619,53 @@ export async function releaseShip(
     logStep(4, 8, 'Generate CHANGELOG');
     await generateReleaseChangelog(version, () => loadTasks(projectRoot), projectRoot);
     const changelogPath = `${cwd}/CHANGELOG.md`;
+
+    // Verify CHANGELOG.md actually contains ## [VERSION] — CI will reject without it
+    const cleanVersion = version.replace(/^v/, '');
+    try {
+      const changelogContent = readFileSync(changelogPath, 'utf8');
+      if (!changelogContent.includes(`## [${cleanVersion}]`)) {
+        logStep(
+          4,
+          8,
+          'Generate CHANGELOG',
+          false,
+          `CHANGELOG.md missing ## [${cleanVersion}] section`,
+        );
+        return engineError(
+          'E_VALIDATION',
+          `CHANGELOG.md does not contain ## [${cleanVersion}] after generation. ` +
+            `This will cause the release workflow to fail.`,
+        );
+      }
+    } catch (err: unknown) {
+      const msg = (err as { message?: string }).message ?? String(err);
+      logStep(4, 8, 'Generate CHANGELOG', false, `Cannot read CHANGELOG.md: ${msg}`);
+      return engineError('E_GENERAL', `Cannot read CHANGELOG.md: ${msg}`);
+    }
     logStep(4, 8, 'Generate CHANGELOG', true);
+
+    // Step 4.5: Lint check — catch biome errors before committing
+    try {
+      execFileSync('npx', ['biome', 'check', '--no-errors-on-unmatched', cwd], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        timeout: 30_000,
+      });
+    } catch (err: unknown) {
+      const execErr = err as { stdout?: string; stderr?: string; status?: number };
+      if (execErr.status && execErr.status > 0) {
+        const output = (execErr.stdout ?? execErr.stderr ?? '').slice(0, 1000);
+        const errorMatch = output.match(/Found (\d+) error/);
+        const errorCount = errorMatch ? errorMatch[1] : 'unknown';
+        logStep(4, 8, 'Lint check', false, `${errorCount} biome error(s)`);
+        return engineError(
+          'E_VALIDATION',
+          `Biome lint check found ${errorCount} error(s). Fix them before releasing.\n${output}`,
+        );
+      }
+    }
 
     // Step 5: Git commit
     logStep(5, 8, 'Commit release');
