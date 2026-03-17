@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "1.0.0",
+  "version": "2026.3.34",
   "description": "CLEO core business logic — task management, sessions, brain memory, orchestration",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,9 +34,26 @@
   "engines": {
     "node": ">=24.0.0"
   },
+  "keywords": [
+    "cleo",
+    "task-management",
+    "ai-agents",
+    "core",
+    "business-logic"
+  ],
+  "author": "CLEO Development Team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/core"
+  },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md"
   ]
 }

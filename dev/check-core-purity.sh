@@ -14,6 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CORE_DIR="$PROJECT_ROOT/src/core"
+PKG_CORE_DIR="$PROJECT_ROOT/packages/core/src"
 
 if [[ ! -d "$CORE_DIR" ]]; then
   echo "ERROR: src/core/ directory not found at $CORE_DIR"
@@ -61,17 +62,49 @@ for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
     || true)
 done
 
+# Also check packages/core/src/ for upward imports (T5716)
+if [[ -d "$PKG_CORE_DIR" ]]; then
+  PKG_FORBIDDEN_PATTERNS=(
+    "from ['\"].*src/(cli)/"
+    "from ['\"].*src/(mcp)/"
+    "from ['\"].*src/(dispatch)/"
+  )
+
+  for pattern in "${PKG_FORBIDDEN_PATTERNS[@]}"; do
+    while IFS= read -r match; do
+      if [[ -n "$match" ]]; then
+        is_exception=false
+        for exception in "${KNOWN_EXCEPTIONS[@]}"; do
+          if [[ "$match" == *"$exception"* ]]; then
+            is_exception=true
+            break
+          fi
+        done
+
+        if [[ "$is_exception" == "false" ]]; then
+          VIOLATIONS=$((VIOLATIONS + 1))
+          VIOLATION_FILES+=("$match")
+        fi
+      fi
+    done < <(grep -rn --include="*.ts" -E "$pattern" "$PKG_CORE_DIR" \
+      | grep -v '__tests__/' \
+      | grep -v '\.test\.ts:' \
+      | grep -v '\.integration\.test\.ts:' \
+      || true)
+  done
+fi
+
 if [[ $VIOLATIONS -eq 0 ]]; then
-  echo "core-purity: PASS — src/core/ has no upward imports to cli/mcp/dispatch"
+  echo "core-purity: PASS — src/core/ and packages/core/src/ have no upward imports to cli/mcp/dispatch"
   if [[ ${#KNOWN_EXCEPTIONS[@]} -gt 0 ]]; then
     echo "  (${#KNOWN_EXCEPTIONS[@]} known exception(s) suppressed — fix incrementally)"
   fi
   exit 0
 fi
 
-echo "core-purity: FAIL — found $VIOLATIONS NEW upward import(s) in src/core/"
+echo "core-purity: FAIL — found $VIOLATIONS NEW upward import(s) in src/core/ or packages/core/src/"
 echo ""
-echo "src/core/ must not import from src/cli/, src/mcp/, or src/dispatch/."
+echo "Core must not import from src/cli/, src/mcp/, or src/dispatch/."
 echo "Move shared types/functions to src/core/ or packages/contracts/."
 echo ""
 echo "Violations:"
