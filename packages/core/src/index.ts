@@ -13,3 +13,7 @@
  */
 
 export * from '../../../src/core/index.js';
+
+// Cleo facade class for project-bound API access
+export { Cleo } from './cleo.js';
+export type { CleoTasksApi } from './cleo.js';
