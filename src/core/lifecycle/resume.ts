@@ -36,8 +36,12 @@
  */
 
 import { and, asc, desc, sql as drizzleSql, eq, inArray } from 'drizzle-orm';
-import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
+
+async function getDb(cwd?: string): ReturnType<typeof import('../../store/sqlite.js')['getDb']> {
+  const { getDb: _getDb } = await import('../../store/sqlite.js');
+  return _getDb(cwd);
+}
 import { ExitCode } from '../../types/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { Stage } from './stages.js';
