@@ -524,7 +524,7 @@ export async function toolsSkillUninstall(
  * Refresh all tracked skills that have updates available.
  */
 export async function toolsSkillRefresh(
-  _projectRoot: string,
+  projectRoot: string,
 ): Promise<
   EngineResult<{
     updated: string[];
@@ -555,7 +555,7 @@ export async function toolsSkillRefresh(
           name,
           providers,
           entry.isGlobal,
-          entry.projectDir,
+          entry.projectDir ?? projectRoot,
         );
         if (result.success) {
           updated.push(name);

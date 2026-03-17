@@ -442,7 +442,7 @@ export async function orchestrateSpawnExecute(
   adapterId?: string,
   protocolType?: string,
   projectRoot?: string,
-  _tier?: 0 | 1 | 2,
+  tier?: 0 | 1 | 2,
 ): Promise<EngineResult> {
   const cwd = projectRoot ?? process.cwd();
 
@@ -547,6 +547,7 @@ export async function orchestrateSpawnExecute(
         providerId: adapter.providerId,
         taskId,
         timing: result.timing,
+        tier: tier ?? null,
       },
     };
   } catch (error) {
