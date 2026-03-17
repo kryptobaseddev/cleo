@@ -22,7 +22,6 @@ import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from '../../store/brain-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import { searchBrain } from './brain-search.js';
 
@@ -246,6 +245,7 @@ export async function timelineBrain(
   const { anchor: anchorId, depthBefore = 3, depthAfter = 3 } = params;
 
   // Ensure DB is initialized
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -525,6 +525,7 @@ export async function observeBrain(
     .slice(0, 16);
 
   // Check for recent duplicate (same content within last 30 seconds)
+  const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   const nativeDb = getBrainNativeDb();
   if (nativeDb) {
     const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
@@ -619,6 +620,7 @@ export async function populateEmbeddings(
     return { processed: 0, skipped: 0 };
   }
 
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

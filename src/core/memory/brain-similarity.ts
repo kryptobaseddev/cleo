@@ -10,7 +10,6 @@
  */
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../../store/brain-sqlite.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 
 // ============================================================================
@@ -70,6 +69,9 @@ export async function searchSimilar(
   if (!queryVector) return [];
 
   // Ensure brain.db is initialized
+  const { getBrainDb, getBrainNativeDb, isBrainVecLoaded } = await import(
+    '../../store/brain-sqlite.js'
+  );
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return [];
