@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import writeFileAtomic from 'write-file-atomic';
-import { CleoError } from '../core/errors.js';
+import { CleoError } from '../primitives/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
 
 /**

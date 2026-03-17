@@ -6,7 +6,7 @@
  */
 
 import lockfile from 'proper-lockfile';
-import { CleoError } from '../core/errors.js';
+import { CleoError } from '../primitives/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
 
 /** Default lock options. */

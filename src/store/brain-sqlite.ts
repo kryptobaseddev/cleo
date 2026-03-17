@@ -20,7 +20,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import { getCleoDirAbsolute } from '../core/paths.js';
+import { getCleoDirAbsolute } from '../primitives/paths.js';
 import * as brainSchema from './brain-schema.js';
 import {
   createBatchCallback,

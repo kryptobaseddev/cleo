@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDir } from '../core/paths.js';
+import { getCleoDir } from '../primitives/paths.js';
 import { getNativeDb } from './sqlite.js';
 
 const MAX_SNAPSHOTS = 10;

@@ -14,7 +14,7 @@
  * @epic T4732
  */
 
-import { getLogger } from '../core/logger.js';
+import { getLogger } from '../primitives/logger.js';
 import type { Session } from '../types/session.js';
 import type { Task, TaskFile } from '../types/task.js';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
