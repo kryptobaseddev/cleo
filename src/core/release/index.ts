@@ -23,16 +23,16 @@ export { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.
 
 // Channel resolution
 export type { ChannelValidationResult, ReleaseChannel } from './channel.js';
-export {
-  channelToDistTag,
-  describeChannel,
-  resolveChannelFromBranch,
-  validateVersionChannel,
-} from './channel.js';
 // Note: getDefaultChannelConfig is exported from both channel.ts and release-config.ts
 // with different semantics. Use getDefaultBranchChannelConfig / getDefaultChannelConfig
 // via the release-config.ts version (dist-tag mapping).
-export { getDefaultChannelConfig as getDefaultBranchChannelConfig } from './channel.js';
+export {
+  channelToDistTag,
+  describeChannel,
+  getDefaultChannelConfig as getDefaultBranchChannelConfig,
+  resolveChannelFromBranch,
+  validateVersionChannel,
+} from './channel.js';
 
 // CI/CD generation
 export type { CIPlatform } from './ci.js';
@@ -46,7 +46,12 @@ export {
 } from './ci.js';
 
 // GitHub PR management
-export type { BranchProtectionResult, PRCreateOptions, PRResult, RepoIdentity } from './github-pr.js';
+export type {
+  BranchProtectionResult,
+  PRCreateOptions,
+  PRResult,
+  RepoIdentity,
+} from './github-pr.js';
 export {
   buildPRBody,
   createPullRequest,

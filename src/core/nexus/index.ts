@@ -31,9 +31,18 @@ export {
   orphanDetection,
   resolveCrossDeps,
 } from './deps.js';
+// Discovery - cross-project task discovery and search
+export {
+  type DiscoverResult,
+  discoverRelated,
+  extractKeywords,
+  type NexusDiscoverResult,
+  type NexusSearchResult,
+  type SearchResult,
+  searchAcrossProjects,
+} from './discover.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
-
 // Permissions - three-tier access control
 export {
   canExecute,
@@ -51,7 +60,6 @@ export {
   requirePermission,
   setPermission,
 } from './permissions.js';
-
 // Query - cross-project task resolution
 export {
   getCurrentProject,
@@ -95,7 +103,6 @@ export {
   readRegistryRequired,
   resetNexusDbState,
 } from './registry.js';
-
 // Sharing - multi-contributor .cleo/ state management
 export {
   // Operations
@@ -104,14 +111,3 @@ export {
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
-
-// Discovery - cross-project task discovery and search
-export {
-  discoverRelated,
-  type DiscoverResult,
-  extractKeywords,
-  type NexusDiscoverResult,
-  type NexusSearchResult,
-  searchAcrossProjects,
-  type SearchResult,
-} from './discover.js';

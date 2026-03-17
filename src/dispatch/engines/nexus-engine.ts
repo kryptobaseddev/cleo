@@ -328,9 +328,7 @@ export async function nexusSearch(
 /**
  * Initialize the nexus.
  */
-export async function nexusInitialize(): Promise<
-  EngineResult<{ message: string }>
-> {
+export async function nexusInitialize(): Promise<EngineResult<{ message: string }>> {
   try {
     await nexusInit();
     return engineSuccess({ message: 'NEXUS initialized successfully' });
@@ -372,9 +370,7 @@ export async function nexusUnregisterProject(
 /**
  * Sync a specific project or all projects.
  */
-export async function nexusSyncProject(
-  name?: string,
-): Promise<EngineResult<unknown>> {
+export async function nexusSyncProject(name?: string): Promise<EngineResult<unknown>> {
   try {
     if (name) {
       await nexusSync(name);

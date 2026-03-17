@@ -52,8 +52,8 @@ export * as spawn from './spawn/index.js';
 export * as stats from './stats/index.js';
 export * as sticky from './sticky/index.js';
 export * as system from './system/index.js';
-export * as tasks from './tasks/index.js';
 export * as taskWork from './task-work/index.js';
+export * as tasks from './tasks/index.js';
 export * as templates from './templates/index.js';
 export * as ui from './ui/index.js';
 export * as validation from './validation/index.js';
@@ -62,6 +62,97 @@ export * as validation from './validation/index.js';
 // Top-level utility re-exports (widely used, unique names)
 // ---------------------------------------------------------------------------
 
+// LAFS type guards (from types layer, re-exported for convenience)
+export type {
+  CleoResponse,
+  GatewayEnvelope,
+  GatewayError,
+  GatewayMeta,
+  GatewaySuccess,
+  LafsAlternative,
+  LafsErrorDetail,
+} from '../types/lafs.js';
+export { isGatewayEnvelope, isLafsError, isLafsSuccess } from '../types/lafs.js';
+// Audit
+export type { AuditEntry } from './audit.js';
+export { queryAudit } from './audit.js';
+// Audit prune
+export type { PruneResult } from './audit-prune.js';
+export { pruneAuditLog } from './audit-prune.js';
+// CAAMP bootstrap
+export { bootstrapCaamp } from './caamp-init.js';
+
+// Config
+export {
+  getConfigValue,
+  getRawConfig,
+  getRawConfigValue,
+  loadConfig,
+  parseConfigValue,
+  setConfigValue,
+} from './config.js';
+// Constants
+export { CORE_PROTECTED_FILES } from './constants.js';
+// Engine result type
+export type { EngineResult } from './engine-result.js';
+// Error catalog (RFC 9457)
+export type { ErrorDefinition } from './error-catalog.js';
+export {
+  ERROR_CATALOG,
+  getAllErrorDefinitions,
+  getErrorDefinition,
+  getErrorDefinitionByLafsCode,
+} from './error-catalog.js';
+// Error registry
+export type { CleoRegistryEntry } from './error-registry.js';
+export {
+  getCleoErrorRegistry,
+  getRegistryEntry,
+  getRegistryEntryByLafsCode,
+  isCleoRegisteredCode,
+} from './error-registry.js';
+// Errors
+export type { ProblemDetails } from './errors.js';
+export { CleoError } from './errors.js';
+// Git hooks
+export type { EnsureGitHooksOptions, HookCheckResult, ManagedHook } from './hooks.js';
+export { checkGitHooks, ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
+// Init
+export type { InitOptions, InitResult } from './init.js';
+export {
+  ensureInitialized,
+  getVersion,
+  initAgentDefinition,
+  initCoreSkills,
+  initMcpServer,
+  initNexusRegistration,
+  initProject,
+  isAutoInitEnabled,
+  updateDocs,
+} from './init.js';
+// Injection
+export type { InjectionCheckResult } from './injection.js';
+export {
+  buildContributorInjectionBlock,
+  checkInjection,
+  ensureInjection,
+  getInjectionTemplateContent,
+} from './injection.js';
+// JSON Schema validation
+export {
+  checkSchema,
+  validateAgainstSchema,
+  validateAgainstSchemaFile,
+} from './json-schema-validator.js';
+// Logger
+export type { LoggerConfig } from './logger.js';
+export { closeLogger, getLogDir, getLogger, initLogger } from './logger.js';
+// Output formatting (LAFS envelope)
+export type { FormatOptions, LafsEnvelope, LafsError, LafsSuccess } from './output.js';
+export { formatError, formatOutput, formatSuccess, pushWarning } from './output.js';
+// Pagination
+export type { PaginateInput } from './pagination.js';
+export { createPage, paginate } from './pagination.js';
 // Paths — foundational utilities used across the entire codebase
 export {
   getAgentOutputsAbsolute,
@@ -95,74 +186,6 @@ export {
   isProjectInitialized,
   resolveProjectPath,
 } from './paths.js';
-
-// Errors
-export type { ProblemDetails } from './errors.js';
-export { CleoError } from './errors.js';
-
-// Error catalog (RFC 9457)
-export type { ErrorDefinition } from './error-catalog.js';
-export {
-  ERROR_CATALOG,
-  getAllErrorDefinitions,
-  getErrorDefinition,
-  getErrorDefinitionByLafsCode,
-} from './error-catalog.js';
-
-// Error registry
-export type { CleoRegistryEntry } from './error-registry.js';
-export {
-  getCleoErrorRegistry,
-  getRegistryEntry,
-  getRegistryEntryByLafsCode,
-  isCleoRegisteredCode,
-} from './error-registry.js';
-
-// Config
-export {
-  getConfigValue,
-  getRawConfig,
-  getRawConfigValue,
-  loadConfig,
-  parseConfigValue,
-  setConfigValue,
-} from './config.js';
-
-// Output formatting (LAFS envelope)
-export type { LafsEnvelope, LafsError, LafsSuccess } from './output.js';
-export type { FormatOptions } from './output.js';
-export { formatError, formatOutput, formatSuccess, pushWarning } from './output.js';
-
-// LAFS type guards (from types layer, re-exported for convenience)
-export type {
-  CleoResponse,
-  GatewayEnvelope,
-  GatewayError,
-  GatewayMeta,
-  GatewaySuccess,
-  LafsAlternative,
-  LafsErrorDetail,
-} from '../types/lafs.js';
-export { isGatewayEnvelope, isLafsError, isLafsSuccess } from '../types/lafs.js';
-
-// JSON Schema validation
-export {
-  checkSchema,
-  validateAgainstSchema,
-  validateAgainstSchemaFile,
-} from './json-schema-validator.js';
-
-// Engine result type
-export type { EngineResult } from './engine-result.js';
-
-// Logger
-export type { LoggerConfig } from './logger.js';
-export { closeLogger, getLogDir, getLogger, initLogger } from './logger.js';
-
-// Pagination
-export type { PaginateInput } from './pagination.js';
-export { createPage, paginate } from './pagination.js';
-
 // Platform utilities
 export type { Platform, SystemInfo } from './platform.js';
 export {
@@ -172,8 +195,10 @@ export {
   dateDaysAgo,
   detectPlatform,
   generateRandomHex,
-  getFileSize,
+  // Store utilities re-exported via platform
+  getDataPath,
   getFileMtime,
+  getFileSize,
   getIsoTimestamp,
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
@@ -181,35 +206,26 @@ export {
   isoToEpoch,
   MINIMUM_NODE_MAJOR,
   PLATFORM,
-  requireTool,
-  sha256,
-  // Store utilities re-exported via platform
-  getDataPath,
   readJsonFile,
+  requireTool,
   resolveProjectRoot,
+  sha256,
   writeJsonFileAtomic,
 } from './platform.js';
-
 // Project info
 export type { ProjectInfo } from './project-info.js';
 export { getProjectInfo, getProjectInfoSync } from './project-info.js';
-
-// Init
-export type { InitOptions, InitResult } from './init.js';
+// Repair
+export type { RepairAction } from './repair.js';
 export {
-  ensureInitialized,
-  getVersion,
-  initAgentDefinition,
-  initCoreSkills,
-  initMcpServer,
-  initNexusRegistration,
-  initProject,
-  isAutoInitEnabled,
-  updateDocs,
-} from './init.js';
-
+  repairMissingCompletedAt,
+  repairMissingSizes,
+  runAllRepairs,
+} from './repair.js';
 // Scaffold
 export {
+  type CheckResult as ScaffoldCheckResult,
+  type CheckStatus,
   CLEO_GITIGNORE_FALLBACK,
   checkBrainDb,
   checkCleoGitRepo,
@@ -243,14 +259,9 @@ export {
   REQUIRED_CLEO_SUBDIRS,
   REQUIRED_GLOBAL_SUBDIRS,
   removeCleoFromRootGitignore,
+  type ScaffoldResult,
   stripCLEOBlocks,
 } from './scaffold.js';
-export {
-  type ScaffoldResult,
-  type CheckResult as ScaffoldCheckResult,
-  type CheckStatus,
-} from './scaffold.js';
-
 // Schema management
 export type { InstalledSchema, SchemaInstallResult, StalenessReport } from './schema-management.js';
 export {
@@ -262,41 +273,6 @@ export {
   listInstalledSchemas,
   resolveSchemaPath,
 } from './schema-management.js';
-
-// Audit
-export type { AuditEntry } from './audit.js';
-export { queryAudit } from './audit.js';
-
-// Audit prune
-export type { PruneResult } from './audit-prune.js';
-export { pruneAuditLog } from './audit-prune.js';
-
-// Git hooks
-export type { EnsureGitHooksOptions, HookCheckResult, ManagedHook } from './hooks.js';
-export { checkGitHooks, ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
-
-// Injection
-export type { InjectionCheckResult } from './injection.js';
-export {
-  buildContributorInjectionBlock,
-  checkInjection,
-  ensureInjection,
-  getInjectionTemplateContent,
-} from './injection.js';
-
-// CAAMP bootstrap
-export { bootstrapCaamp } from './caamp-init.js';
-
-// Constants
-export { CORE_PROTECTED_FILES } from './constants.js';
-
-// Repair
-export type { RepairAction } from './repair.js';
-export {
-  repairMissingSizes,
-  repairMissingCompletedAt,
-  runAllRepairs,
-} from './repair.js';
 
 // Upgrade
 export type { UpgradeAction, UpgradeResult } from './upgrade.js';

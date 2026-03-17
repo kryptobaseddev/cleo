@@ -12,16 +12,12 @@
  */
 
 import {
-  ProtocolExitCode,
-  type ProtocolRequest,
-  type ProtocolResponse,
-} from './protocol-types.js';
-import {
   PROTOCOL_RULES,
   type ProtocolRule,
   type ProtocolValidationResult,
   type ProtocolViolation,
 } from './protocol-rules.js';
+import { ProtocolExitCode, type ProtocolRequest, type ProtocolResponse } from './protocol-types.js';
 
 /**
  * Protocol types aligned with RCASD-IVTR+C lifecycle
@@ -343,7 +339,10 @@ export class ProtocolEnforcer {
   /**
    * Detect protocol type from request/response
    */
-  private detectProtocol(request: ProtocolRequest, _response: ProtocolResponse): ProtocolType | null {
+  private detectProtocol(
+    request: ProtocolRequest,
+    _response: ProtocolResponse,
+  ): ProtocolType | null {
     // Check params for explicit protocol
     if (request.params?.protocolType) {
       return request.params.protocolType as ProtocolType;

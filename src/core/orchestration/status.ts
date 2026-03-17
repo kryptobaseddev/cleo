@@ -81,11 +81,7 @@ export function countByStatus(tasks: Task[]): StatusCounts {
  * @param children - Child tasks of the epic
  * @returns Epic status with wave information
  */
-export function computeEpicStatus(
-  epicId: string,
-  epicTitle: string,
-  children: Task[],
-): EpicStatus {
+export function computeEpicStatus(epicId: string, epicTitle: string, children: Task[]): EpicStatus {
   const waves = computeWaves(children);
   const byStatus = countByStatus(children);
 

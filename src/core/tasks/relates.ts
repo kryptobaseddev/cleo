@@ -15,7 +15,7 @@ export async function suggestRelated(
   opts: { threshold?: number; cwd?: string },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(opts.cwd);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
   const data = await acc.loadTaskFile();
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
@@ -75,7 +75,7 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const fromTask = data.tasks.find((t) => t.id === from);
@@ -115,7 +115,7 @@ export async function listRelations(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {

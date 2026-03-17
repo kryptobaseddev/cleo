@@ -42,6 +42,7 @@ async function getDb(cwd?: string): ReturnType<typeof import('../../store/sqlite
   const { getDb: _getDb } = await import('../../store/sqlite.js');
   return _getDb(cwd);
 }
+
 import { ExitCode } from '../../types/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { Stage } from './stages.js';

@@ -12,6 +12,7 @@ import { getLogger } from '../../core/logger.js';
 
 // Re-export EngineResult from core (canonical location)
 export type { EngineResult } from '../../core/engine-result.js';
+
 import type { EngineResult } from '../../core/engine-result.js';
 
 /**

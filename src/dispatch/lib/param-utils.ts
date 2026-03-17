@@ -7,16 +7,16 @@
  * @task T5706
  */
 
+export type {
+  CommanderArgSplit,
+  JSONSchemaObject,
+  JsonSchemaProperty,
+  JsonSchemaType,
+} from '../../core/validation/param-utils.js';
 export {
   buildCommanderArgs,
   buildCommanderOptionString,
   buildMcpInputSchema,
   camelToKebab,
   validateRequiredParamsDef,
-} from '../../core/validation/param-utils.js';
-export type {
-  CommanderArgSplit,
-  JsonSchemaProperty,
-  JsonSchemaType,
-  JSONSchemaObject,
 } from '../../core/validation/param-utils.js';

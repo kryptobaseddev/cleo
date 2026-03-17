@@ -54,7 +54,7 @@ export async function checkEpicCompleteness(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<EpicCompletenessResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
   if (!data?.tasks) {
     return { hasIncomplete: false, epics: [], orphanTasks: [] };

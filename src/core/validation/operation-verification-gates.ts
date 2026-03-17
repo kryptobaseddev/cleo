@@ -14,11 +14,8 @@
  * @epic T2908
  */
 
+import { ProtocolEnforcer, type ProtocolType } from '../compliance/protocol-enforcement.js';
 import { ErrorCategory, ErrorSeverity, ProtocolExitCode } from '../compliance/protocol-types.js';
-import {
-  ProtocolEnforcer,
-  type ProtocolType,
-} from '../compliance/protocol-enforcement.js';
 import {
   validateLayer1Schema,
   validateLayer2Semantic,

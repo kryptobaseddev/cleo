@@ -18,7 +18,7 @@ export async function getRoadmap(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? await getAccessor(opts.cwd);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
   const data = await acc.loadTaskFile();
   const tasks = data?.tasks ?? [];
 

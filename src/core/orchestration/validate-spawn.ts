@@ -25,7 +25,7 @@ export async function validateSpawnReadiness(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<SpawnValidationResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];

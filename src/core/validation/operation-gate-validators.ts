@@ -22,8 +22,8 @@ import {
   SESSION_STATUSES,
   TASK_STATUSES,
 } from '../../store/status-registry.js';
-import { ErrorSeverity } from '../compliance/protocol-types.js';
 import type { ProtocolEnforcer } from '../compliance/protocol-enforcement.js';
+import { ErrorSeverity } from '../compliance/protocol-types.js';
 import {
   GateLayer,
   GateStatus,

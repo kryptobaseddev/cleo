@@ -34,7 +34,7 @@ export async function analyzeTaskPriority(
   },
   accessor?: DataAccessor,
 ): Promise<AnalysisResult> {
-  const acc = accessor ?? await getAccessor(opts.cwd);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
   const data = await acc.loadTaskFile();
   const tasks = data.tasks;
 

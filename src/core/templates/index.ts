@@ -7,16 +7,15 @@
  * @epic T5701
  */
 
-export {
-  generateTemplateConfig,
-  getTemplateForSubcommand,
-  parseIssueTemplates,
-  validateLabels,
-} from './parser.js';
-
 export type {
   IssueTemplate,
   TemplateConfig,
   TemplateResult,
   TemplateSection,
+} from './parser.js';
+export {
+  generateTemplateConfig,
+  getTemplateForSubcommand,
+  parseIssueTemplates,
+  validateLabels,
 } from './parser.js';

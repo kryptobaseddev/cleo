@@ -46,7 +46,7 @@ export async function currentTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const focus = data.focus ?? {};
@@ -73,7 +73,7 @@ export async function startTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   // Verify task exists
@@ -160,7 +160,7 @@ export async function stopTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const previousTask = data.focus?.currentTask ?? null;
@@ -218,7 +218,7 @@ export async function getWorkHistory(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const notes = data.focus?.sessionNotes ?? [];

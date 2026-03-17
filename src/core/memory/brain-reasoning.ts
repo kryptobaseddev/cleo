@@ -52,7 +52,7 @@ export async function reasonWhy(
   projectRoot: string,
   taskAccessor?: DataAccessor,
 ): Promise<CausalTrace> {
-  const acc = taskAccessor ?? await getAccessor(projectRoot);
+  const acc = taskAccessor ?? (await getAccessor(projectRoot));
   const data = await acc.loadTaskFile();
   const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 

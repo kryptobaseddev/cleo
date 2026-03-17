@@ -34,7 +34,7 @@ export async function showTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   // First, try to find in active tasks

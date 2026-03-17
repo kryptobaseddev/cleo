@@ -27,7 +27,7 @@ export async function getCriticalPath(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CriticalPathResult> {
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];

@@ -10,6 +10,7 @@ import type { Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { getExecutionWaves } from '../phases/deps.js';
 
+export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
 export {
   analyzeDependencies,
@@ -17,24 +18,21 @@ export {
   detectCircularDependencies,
   findMissingDependencies,
 } from './analyze.js';
-export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
-
-export { countManifestEntries, estimateContext } from './context.js';
 export type { ContextEstimation } from './context.js';
-
-export {
-  computeEpicStatus,
-  computeOverallStatus,
-  computeProgress,
-  computeStartupSummary,
-  countByStatus,
-} from './status.js';
+export { countManifestEntries, estimateContext } from './context.js';
 export type {
   EpicStatus,
   OverallStatus,
   ProgressMetrics,
   StartupSummary,
   StatusCounts,
+} from './status.js';
+export {
+  computeEpicStatus,
+  computeOverallStatus,
+  computeProgress,
+  computeStartupSummary,
+  countByStatus,
 } from './status.js';
 
 /** Orchestrator session state. */

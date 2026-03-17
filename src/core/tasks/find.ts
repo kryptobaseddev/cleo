@@ -99,7 +99,7 @@ export async function findTasks(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
   }
 
-  const acc = accessor ?? await getAccessor(cwd);
+  const acc = accessor ?? (await getAccessor(cwd));
   const data = await acc.loadTaskFile();
 
   let allTasks: Task[] = [...data.tasks];

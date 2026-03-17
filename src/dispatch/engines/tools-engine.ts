@@ -35,8 +35,8 @@ import { AdapterManager } from '../../core/adapters/index.js';
 import { clearSyncState, getSyncStatus } from '../../core/admin/sync.js';
 import { collectDiagnostics } from '../../core/issue/diagnostics.js';
 import { paginate } from '../../core/pagination.js';
-import { systemSync } from './system-engine.js';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
+import { systemSync } from './system-engine.js';
 
 // Re-export EngineResult for consumers
 export type { EngineResult };
@@ -117,15 +117,16 @@ export async function toolsSkillShow(
  */
 export async function toolsSkillFind(
   query?: string,
-): Promise<EngineResult<{ skills: Awaited<ReturnType<typeof discoverSkills>>; count: number; query: string }>> {
+): Promise<
+  EngineResult<{ skills: Awaited<ReturnType<typeof discoverSkills>>; count: number; query: string }>
+> {
   try {
     const q = (query ?? '').toLowerCase();
     const skills = await discoverSkills(getCanonicalSkillsDir());
     const filtered = q
       ? skills.filter(
           (s) =>
-            s.name.toLowerCase().includes(q) ||
-            s.metadata.description.toLowerCase().includes(q),
+            s.name.toLowerCase().includes(q) || s.metadata.description.toLowerCase().includes(q),
         )
       : skills;
     return engineSuccess({ skills: filtered, count: filtered.length, query: q });
@@ -137,9 +138,7 @@ export async function toolsSkillFind(
 /**
  * Get dispatch matrix entries for a skill.
  */
-export function toolsSkillDispatch(
-  name: string,
-): EngineResult<{
+export function toolsSkillDispatch(name: string): EngineResult<{
   skill: string;
   dispatch: {
     byTaskType: string[];
@@ -169,9 +168,7 @@ export function toolsSkillDispatch(
 /**
  * Verify a skill's installation and catalog status.
  */
-export async function toolsSkillVerify(
-  name: string,
-): Promise<
+export async function toolsSkillVerify(name: string): Promise<
   EngineResult<{
     skill: string;
     installed: boolean;
@@ -196,9 +193,7 @@ export async function toolsSkillVerify(
 /**
  * Get dependency tree for a skill.
  */
-export function toolsSkillDependencies(
-  name: string,
-): EngineResult<{
+export function toolsSkillDependencies(name: string): EngineResult<{
   skill: string;
   direct: ReturnType<typeof catalog.getSkillDependencies>;
   tree: ReturnType<typeof catalog.resolveDependencyTree>;
@@ -216,7 +211,11 @@ export function toolsSkillDependencies(
  * Get spawn-capable providers by capability.
  */
 export async function toolsSkillSpawnProviders(
-  capability?: 'supportsSubagents' | 'supportsProgrammaticSpawn' | 'supportsInterAgentComms' | 'supportsParallelSpawn',
+  capability?:
+    | 'supportsSubagents'
+    | 'supportsProgrammaticSpawn'
+    | 'supportsInterAgentComms'
+    | 'supportsParallelSpawn',
 ): Promise<EngineResult<{ providers: unknown[]; capability: string; count: number }>> {
   try {
     const { getProvidersBySpawnCapability } = await import('@cleocode/caamp');
@@ -523,9 +522,7 @@ export async function toolsSkillUninstall(
 /**
  * Refresh all tracked skills that have updates available.
  */
-export async function toolsSkillRefresh(
-  projectRoot: string,
-): Promise<
+export async function toolsSkillRefresh(projectRoot: string): Promise<
   EngineResult<{
     updated: string[];
     failed: Array<{ name: string; error: string }>;
@@ -672,14 +669,10 @@ export async function toolsProviderSupports(
 /**
  * Query hook providers for a specific event.
  */
-export async function toolsProviderHooks(
-  event: string,
-): Promise<EngineResult<unknown>> {
+export async function toolsProviderHooks(event: string): Promise<EngineResult<unknown>> {
   try {
     const { queryHookProviders } = await import('./hooks-engine.js');
-    const result = await queryHookProviders(
-      event as import('../../core/hooks/types.js').HookEvent,
-    );
+    const result = await queryHookProviders(event as import('../../core/hooks/types.js').HookEvent);
     return result;
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -706,8 +699,7 @@ export async function toolsProviderInject(
     }
     const resolvedScope = scope ?? 'project';
     const resolvedRefs = references ?? ['@AGENTS.md'];
-    const resolvedContent =
-      content ?? buildInjectionContent({ references: resolvedRefs });
+    const resolvedContent = content ?? buildInjectionContent({ references: resolvedRefs });
     const result = await injectAll(providers, projectRoot, resolvedScope, resolvedContent);
     const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
     return engineSuccess({ actions, count: actions.length });
@@ -723,9 +715,7 @@ export async function toolsProviderInject(
 /**
  * Get TodoWrite sync status.
  */
-export async function toolsTodowriteStatus(
-  projectRoot: string,
-): Promise<EngineResult<unknown>> {
+export async function toolsTodowriteStatus(projectRoot: string): Promise<EngineResult<unknown>> {
   try {
     const result = await getSyncStatus(projectRoot);
     return result;
@@ -770,9 +760,7 @@ export async function toolsTodowriteClear(
 /**
  * List all discovered adapters.
  */
-export function toolsAdapterList(
-  projectRoot: string,
-): EngineResult<{
+export function toolsAdapterList(projectRoot: string): EngineResult<{
   adapters: ReturnType<AdapterManager['listAdapters']>;
   count: number;
 }> {

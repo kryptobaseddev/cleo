@@ -6,6 +6,13 @@
  * @task T5706
  */
 
+export type {
+  CapabilityReport,
+  ExecutionMode,
+  GatewayType,
+  OperationCapability,
+  PreferredChannel,
+} from './capability-matrix.js';
 export {
   canRunNatively,
   generateCapabilityReport,
@@ -13,11 +20,4 @@ export {
   getNativeOperations,
   getOperationMode,
   requiresCLI,
-} from './capability-matrix.js';
-export type {
-  CapabilityReport,
-  ExecutionMode,
-  GatewayType,
-  OperationCapability,
-  PreferredChannel,
 } from './capability-matrix.js';
