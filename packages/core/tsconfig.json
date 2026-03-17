@@ -3,9 +3,9 @@
   "compilerOptions": {
     "rootDir": "../../",
     "outDir": "dist",
+    "composite": true,
     "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": false
+    "declarationMap": true
   },
   "include": ["src/**/*"]
 }
