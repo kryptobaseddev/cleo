@@ -327,6 +327,15 @@ export async function completeTask(
       /* Memory bridge refresh is best-effort */
     });
 
+  // Auto-extract memory from task completion (best-effort, T-audit)
+  import('../memory/auto-extract.js')
+    .then(({ extractTaskCompletionMemory }) =>
+      extractTaskCompletionMemory(cwd ?? process.cwd(), task),
+    )
+    .catch(() => {
+      /* Memory extraction is best-effort */
+    });
+
   return {
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
