@@ -16,11 +16,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  listMemoryResources,
-  readMemoryResource,
-} from '../../src/mcp/resources/index.js';
 import { estimateTokens, truncateToTokenBudget } from '../../src/mcp/resources/budget.js';
+import { listMemoryResources, readMemoryResource } from '../../src/mcp/resources/index.js';
 
 let tempDir: string;
 let cleoDir: string;
@@ -213,7 +210,8 @@ describe('Token Budget Truncation', () => {
 
   it('should truncate text exceeding budget', () => {
     // Create text that exceeds 10 tokens (~40 chars at 0.25 tokens/char)
-    const text = 'Line one\nLine two\nLine three\nLine four\nLine five\nLine six is a much longer line to exceed the budget';
+    const text =
+      'Line one\nLine two\nLine three\nLine four\nLine five\nLine six is a much longer line to exceed the budget';
     const result = truncateToTokenBudget(text, 10);
 
     expect(result).toContain('[Truncated:');

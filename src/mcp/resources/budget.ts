@@ -44,5 +44,12 @@ export function truncateToTokenBudget(text: string, budget?: number): string {
   const lastNewline = truncated.lastIndexOf('\n');
   const cutPoint = lastNewline > 0 ? lastNewline : maxChars;
 
-  return text.substring(0, cutPoint) + '\n\n[Truncated: ~' + estimated + ' tokens, budget: ' + maxTokens + ']';
+  return (
+    text.substring(0, cutPoint) +
+    '\n\n[Truncated: ~' +
+    estimated +
+    ' tokens, budget: ' +
+    maxTokens +
+    ']'
+  );
 }

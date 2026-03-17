@@ -10,6 +10,7 @@
  * @task T5671
  */
 
+import type { AgentRegistration, AgentTransport, MessageResult } from './transport.js';
 import type {
   Agent,
   AgentClass,
@@ -18,7 +19,6 @@ import type {
   Message,
   PrivacyTier,
 } from './types.js';
-import type { AgentRegistration, AgentTransport, MessageResult } from './transport.js';
 
 /**
  * Claude Code transport — wraps the current provider-specific messaging.
@@ -59,8 +59,7 @@ export class ClaudeCodeTransport implements AgentTransport {
     content: string,
     conversationId?: string,
   ): Promise<MessageResult> {
-    const resolvedConversationId =
-      conversationId ?? `cc-conv-${fromAgentId}-${toAgentId}`;
+    const resolvedConversationId = conversationId ?? `cc-conv-${fromAgentId}-${toAgentId}`;
     const now = new Date().toISOString();
     const messageId = `cc-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 

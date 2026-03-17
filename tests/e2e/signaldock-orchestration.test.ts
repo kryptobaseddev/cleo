@@ -97,9 +97,7 @@ describe('SignalDock Orchestration E2E', () => {
     const lead = await transport.register('lead', 'code_dev', 'private');
     const analyst = await transport.register('analyst', 'research', 'private');
 
-    const conv = await transport.createConversation(
-      [lead.agentId, analyst.agentId],
-    );
+    const conv = await transport.createConversation([lead.agentId, analyst.agentId]);
 
     // Lead sends question
     await transport.send(lead.agentId, analyst.agentId, 'Analyze module X', conv.id);

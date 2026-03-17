@@ -15,7 +15,6 @@ import { type ContextInjectionData, injectContext } from '../../core/sessions/co
 import type { FindSessionsParams, MinimalSessionRecord } from '../../core/sessions/find.js';
 import type { HandoffData } from '../../core/sessions/handoff.js';
 import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
-import { parseScope } from '../../core/sessions/index.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -27,6 +26,7 @@ import {
   getLastHandoff,
   getSessionHistory,
   getSessionStats,
+  parseScope,
   persistHandoff,
   recordAssumption,
   recordDecision,
@@ -354,9 +354,10 @@ export async function sessionStart(
       id: sessionId,
       status: 'active',
       name: params.name || `session-${sessionId}`,
-      scope: scope.type === 'global'
-        ? { type: 'global' }
-        : { type: scope.type, rootTaskId: scope.rootTaskId!, includeDescendants: true },
+      scope:
+        scope.type === 'global'
+          ? { type: 'global' }
+          : { type: scope.type, rootTaskId: scope.rootTaskId!, includeDescendants: true },
       taskWork: {
         taskId: startingTaskId,
         setAt: now,

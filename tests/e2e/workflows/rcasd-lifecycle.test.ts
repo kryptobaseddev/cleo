@@ -459,7 +459,13 @@ describe('RCASD-IVTR+C Lifecycle Stage Transitions', () => {
         data: {
           canProgress: true,
           prerequisitesMet: true,
-          requiredStages: ['research', 'consensus', 'architecture_decision', 'specification', 'decomposition'],
+          requiredStages: [
+            'research',
+            'consensus',
+            'architecture_decision',
+            'specification',
+            'decomposition',
+          ],
         },
       } as any);
 

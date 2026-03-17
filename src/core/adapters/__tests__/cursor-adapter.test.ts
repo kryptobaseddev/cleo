@@ -8,15 +8,15 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import {
   CursorAdapter,
   CursorHookProvider,
   CursorInstallProvider,
   createAdapter,
 } from '@cleocode/adapter-cursor';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('CursorAdapter', () => {
   let adapter: CursorAdapter;
@@ -187,7 +187,11 @@ describe('CursorInstallProvider', () => {
 
   it('does not duplicate references in legacy .cursorrules', async () => {
     const legacyPath = join(testDir, '.cursorrules');
-    writeFileSync(legacyPath, '@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n', 'utf-8');
+    writeFileSync(
+      legacyPath,
+      '@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n',
+      'utf-8',
+    );
 
     await install.ensureInstructionReferences(testDir);
 

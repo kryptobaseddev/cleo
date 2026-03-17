@@ -32,9 +32,7 @@ describe('Memory Bridge E2E', () => {
   });
 
   it('should generate memory bridge from brain.db with all data types', async () => {
-    const { generateMemoryBridgeContent } = await import(
-      '../../src/core/memory/memory-bridge.js'
-    );
+    const { generateMemoryBridgeContent } = await import('../../src/core/memory/memory-bridge.js');
     const { closeBrainDb } = await import('../../src/store/brain-sqlite.js');
     const { getBrainAccessor } = await import('../../src/store/brain-accessor.js');
     closeBrainDb();
@@ -90,9 +88,7 @@ describe('Memory Bridge E2E', () => {
   });
 
   it('should include all sections in bridge output', async () => {
-    const { generateMemoryBridgeContent } = await import(
-      '../../src/core/memory/memory-bridge.js'
-    );
+    const { generateMemoryBridgeContent } = await import('../../src/core/memory/memory-bridge.js');
     const { closeBrainDb } = await import('../../src/store/brain-sqlite.js');
     const { getBrainAccessor } = await import('../../src/store/brain-accessor.js');
     closeBrainDb();
@@ -162,9 +158,7 @@ describe('Memory Bridge E2E', () => {
   });
 
   it('should handle empty brain.db gracefully', async () => {
-    const { generateMemoryBridgeContent } = await import(
-      '../../src/core/memory/memory-bridge.js'
-    );
+    const { generateMemoryBridgeContent } = await import('../../src/core/memory/memory-bridge.js');
     const { closeBrainDb } = await import('../../src/store/brain-sqlite.js');
     closeBrainDb();
 
@@ -205,9 +199,7 @@ describe('Memory Bridge E2E', () => {
   });
 
   it('should respect config limits across all sections', async () => {
-    const { generateMemoryBridgeContent } = await import(
-      '../../src/core/memory/memory-bridge.js'
-    );
+    const { generateMemoryBridgeContent } = await import('../../src/core/memory/memory-bridge.js');
     const { closeBrainDb } = await import('../../src/store/brain-sqlite.js');
     const { getBrainAccessor } = await import('../../src/store/brain-accessor.js');
     closeBrainDb();

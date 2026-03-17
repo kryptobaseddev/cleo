@@ -3,9 +3,9 @@
  * @task T5240
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { discoverAdapterManifests, detectProvider } from '../discovery.js';
 import type { DetectionPattern } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { detectProvider, discoverAdapterManifests } from '../discovery.js';
 
 describe('discoverAdapterManifests', () => {
   it('returns empty array when adapters directory does not exist', () => {

@@ -10,6 +10,10 @@
 import * as esbuild from 'esbuild';
 import { spawnSync } from 'node:child_process';
 import { chmod } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const isWatch = process.argv.includes('--watch');
 
@@ -57,11 +61,27 @@ const buildOptions = {
       // This ensures adapters are included in the published npm tarball. (T5698)
       name: 'bundle-workspace-packages',
       setup(build) {
-        // Mark all bare-specifier imports as external EXCEPT @cleocode/*
-        build.onResolve({ filter: /^[^./]/ }, (args) => {
-          if (args.path.startsWith('@cleocode/')) {
-            return undefined; // Let esbuild resolve and bundle it
-          }
+        // Resolve @cleocode/adapter-* to source TypeScript directly.
+        // This avoids needing workspace dist/ builds and ensures adapters
+        // are bundled into the output for npm publish. (T5698)
+        const adapterMap = {
+          '@cleocode/adapter-claude-code': resolve(__dirname, 'packages/adapters/claude-code/src/index.ts'),
+          '@cleocode/adapter-opencode': resolve(__dirname, 'packages/adapters/opencode/src/index.ts'),
+          '@cleocode/adapter-cursor': resolve(__dirname, 'packages/adapters/cursor/src/index.ts'),
+          '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+          '@cleocode/shared': resolve(__dirname, 'packages/shared/src/index.ts'),
+        };
+
+        // Resolve @cleocode/* to source TypeScript
+        build.onResolve({ filter: /^@cleocode\// }, (args) => {
+          const mapped = adapterMap[args.path];
+          if (mapped) return { path: mapped };
+          return undefined;
+        });
+
+        // Mark all other bare-specifier imports as external
+        build.onResolve({ filter: /^[a-zA-Z@]/ }, (args) => {
+          if (args.path.startsWith('@cleocode/')) return undefined;
           return { path: args.path, external: true };
         });
       },

@@ -4,10 +4,10 @@
  * @task T5671
  */
 
-import type { AgentTransport } from './transport.js';
 import { ClaudeCodeTransport } from './claude-code-transport.js';
-import { SignalDockTransport } from './signaldock-transport.js';
 import type { SignalDockTransportConfig } from './signaldock-transport.js';
+import { SignalDockTransport } from './signaldock-transport.js';
+import type { AgentTransport } from './transport.js';
 
 /** Configuration for transport selection. */
 export interface TransportFactoryConfig {

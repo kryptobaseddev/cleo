@@ -20,11 +20,11 @@ export const ADAPTER_REGISTRY: Record<string, () => Promise<CLEOProviderAdapter>
     const { ClaudeCodeAdapter } = await import('@cleocode/adapter-claude-code');
     return new ClaudeCodeAdapter();
   },
-  'opencode': async () => {
+  opencode: async () => {
     const { OpenCodeAdapter } = await import('@cleocode/adapter-opencode');
     return new OpenCodeAdapter();
   },
-  'cursor': async () => {
+  cursor: async () => {
     const { CursorAdapter } = await import('@cleocode/adapter-cursor');
     return new CursorAdapter();
   },

@@ -49,7 +49,6 @@ import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
-
 // ---------------------------------------------------------------------------
 // NexusHandler
 // ---------------------------------------------------------------------------
@@ -264,7 +263,10 @@ export class NexusHandler implements DomainHandler {
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:nexus').error({ gateway: 'query', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:nexus').error(
+        { gateway: 'query', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'nexus', operation, error, startTime);
     }
   }
@@ -393,7 +395,10 @@ export class NexusHandler implements DomainHandler {
           return unsupportedOp('mutate', 'nexus', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:nexus').error({ gateway: 'mutate', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:nexus').error(
+        { gateway: 'mutate', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'nexus', operation, error, startTime);
     }
   }
@@ -810,5 +815,4 @@ export class NexusHandler implements DomainHandler {
       ...(page ? { page } : {}),
     };
   }
-
 }

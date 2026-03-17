@@ -280,7 +280,10 @@ export class AdapterManager {
   /**
    * Clean up hook registrations for an adapter.
    */
-  private async cleanupAdapterHooks(adapterId: string, adapter: CLEOProviderAdapter): Promise<void> {
+  private async cleanupAdapterHooks(
+    adapterId: string,
+    adapter: CLEOProviderAdapter,
+  ): Promise<void> {
     // Unregister from HookRegistry
     const cleanups = this.hookCleanups.get(adapterId);
     if (cleanups) {

@@ -155,7 +155,10 @@ export class SessionHandler implements DomainHandler {
           return unsupportedOp('query', 'session', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:session').error({ gateway: 'query', domain: 'session', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:session').error(
+        { gateway: 'query', domain: 'session', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'session', operation, error, startTime);
     }
   }
@@ -334,7 +337,10 @@ export class SessionHandler implements DomainHandler {
           return unsupportedOp('mutate', 'session', operation, startTime);
       }
     } catch (error) {
-      getLogger('domain:session').error({ gateway: 'mutate', domain: 'session', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:session').error(
+        { gateway: 'mutate', domain: 'session', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'session', operation, error, startTime);
     }
   }
@@ -358,5 +364,4 @@ export class SessionHandler implements DomainHandler {
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
-
 }

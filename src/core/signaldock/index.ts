@@ -4,13 +4,12 @@
  * @task T5671
  */
 
-export type { AgentTransport, AgentRegistration, MessageResult } from './transport.js';
-export type { SignalDockTransportConfig } from './signaldock-transport.js';
-export type { TransportFactoryConfig } from './factory.js';
-
-export { SignalDockTransport } from './signaldock-transport.js';
 export { ClaudeCodeTransport } from './claude-code-transport.js';
+export type { TransportFactoryConfig } from './factory.js';
 export { createTransport } from './factory.js';
+export type { SignalDockTransportConfig } from './signaldock-transport.js';
+export { SignalDockTransport } from './signaldock-transport.js';
+export type { AgentRegistration, AgentTransport, MessageResult } from './transport.js';
 
 export type {
   Agent,

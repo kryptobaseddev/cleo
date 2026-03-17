@@ -10,6 +10,7 @@
  * @task T5671
  */
 
+import type { AgentRegistration, AgentTransport, MessageResult } from './transport.js';
 import type {
   Agent,
   AgentClass,
@@ -22,7 +23,6 @@ import type {
   NewMessage,
   PrivacyTier,
 } from './types.js';
-import type { AgentRegistration, AgentTransport, MessageResult } from './transport.js';
 
 /** Configuration for SignalDockTransport. */
 export interface SignalDockTransportConfig {
@@ -83,10 +83,7 @@ export class SignalDockTransport implements AgentTransport {
     let convId = conversationId;
 
     if (!convId) {
-      const conversation = await this.createConversation(
-        [fromAgentId, toAgentId],
-        'private',
-      );
+      const conversation = await this.createConversation([fromAgentId, toAgentId], 'private');
       convId = conversation.id;
     }
 
@@ -108,12 +105,7 @@ export class SignalDockTransport implements AgentTransport {
   }
 
   async poll(agentId: string, _since?: string): Promise<Message[]> {
-    const messages = await this.request<Message[]>(
-      'GET',
-      '/messages/poll/new',
-      undefined,
-      agentId,
-    );
+    const messages = await this.request<Message[]>('GET', '/messages/poll/new', undefined, agentId);
     return messages;
   }
 
@@ -140,10 +132,7 @@ export class SignalDockTransport implements AgentTransport {
 
   async getAgent(agentId: string): Promise<Agent | null> {
     try {
-      return await this.request<Agent>(
-        'GET',
-        `/agents/${encodeURIComponent(agentId)}`,
-      );
+      return await this.request<Agent>('GET', `/agents/${encodeURIComponent(agentId)}`);
     } catch {
       return null;
     }
@@ -194,9 +183,7 @@ export class SignalDockTransport implements AgentTransport {
     const envelope = (await response.json()) as ApiResponse<T>;
 
     if (!envelope.success && envelope.error) {
-      throw new Error(
-        `SignalDock error [${envelope.error.code}]: ${envelope.error.message}`,
-      );
+      throw new Error(`SignalDock error [${envelope.error.code}]: ${envelope.error.message}`);
     }
 
     return envelope.data as T;

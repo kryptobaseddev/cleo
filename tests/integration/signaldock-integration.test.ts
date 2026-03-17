@@ -8,8 +8,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SignalDockTransport } from '../../src/core/signaldock/signaldock-transport.js';
 import type { SignalDockTransportConfig } from '../../src/core/signaldock/signaldock-transport.js';
+import { SignalDockTransport } from '../../src/core/signaldock/signaldock-transport.js';
 
 const DAEMON_URL = 'http://localhost:4000';
 
@@ -93,10 +93,7 @@ describe('SignalDock Integration (live daemon)', async () => {
     const b = await transport.register(`conv-b-${ts}`, 'code_dev', 'private');
     createdAgentIds.push(a.agentId, b.agentId);
 
-    const conv = await transport.createConversation(
-      [a.agentId, b.agentId],
-      'private',
-    );
+    const conv = await transport.createConversation([a.agentId, b.agentId], 'private');
 
     expect(conv.id).toBeTruthy();
     expect(conv.participants).toBeDefined();
@@ -109,10 +106,7 @@ describe('SignalDock Integration (live daemon)', async () => {
     const receiver = await transport.register(`receiver-${ts}`, 'code_dev', 'private');
     createdAgentIds.push(sender.agentId, receiver.agentId);
 
-    const conv = await transport.createConversation(
-      [sender.agentId, receiver.agentId],
-      'private',
-    );
+    const conv = await transport.createConversation([sender.agentId, receiver.agentId], 'private');
 
     const result = await transport.send(
       sender.agentId,

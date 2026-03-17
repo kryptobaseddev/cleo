@@ -65,9 +65,8 @@ import {
   releaseShow,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { dispatchMeta } from './_meta.js';
 import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
-
+import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
 // PipelineHandler
@@ -122,7 +121,10 @@ export class PipelineHandler implements DomainHandler {
         startTime,
       );
     } catch (error) {
-      getLogger('domain:pipeline').error({ gateway: 'query', domain: 'pipeline', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:pipeline').error(
+        { gateway: 'query', domain: 'pipeline', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'pipeline', operation, error, startTime);
     }
   }
@@ -165,7 +167,10 @@ export class PipelineHandler implements DomainHandler {
         startTime,
       );
     } catch (error) {
-      getLogger('domain:pipeline').error({ gateway: 'mutate', domain: 'pipeline', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:pipeline').error(
+        { gateway: 'mutate', domain: 'pipeline', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'pipeline', operation, error, startTime);
     }
   }
@@ -1033,5 +1038,4 @@ export class PipelineHandler implements DomainHandler {
         );
     }
   }
-
 }

@@ -179,9 +179,7 @@ describe('Memory Bridge', () => {
       }
 
       const content = await generateMemoryBridgeContent(tempDir, { maxDecisions: 3 });
-      const decisionLines = content
-        .split('\n')
-        .filter((line) => line.startsWith('- [D'));
+      const decisionLines = content.split('\n').filter((line) => line.startsWith('- [D'));
       expect(decisionLines).toHaveLength(3);
     });
 

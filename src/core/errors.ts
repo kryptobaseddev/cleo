@@ -170,7 +170,12 @@ export class CleoError extends Error {
   private getHttpStatus(): number {
     const c = this.code;
     if (c === 0 || c >= 100) return 200;
-    if (c === ExitCode.NOT_FOUND || c === ExitCode.PARENT_NOT_FOUND || c === ExitCode.SESSION_NOT_FOUND) return 404;
+    if (
+      c === ExitCode.NOT_FOUND ||
+      c === ExitCode.PARENT_NOT_FOUND ||
+      c === ExitCode.SESSION_NOT_FOUND
+    )
+      return 404;
     if (c >= 20 && c <= 29) return 409; // conflict
     if (c === ExitCode.LOCK_TIMEOUT) return 409;
     if (c >= 50 && c <= 54) return 429; // rate limit / context

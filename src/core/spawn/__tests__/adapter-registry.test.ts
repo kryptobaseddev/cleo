@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CLEOSpawnAdapter } from '../../../types/spawn.js';
 import {
-  SpawnAdapterRegistry,
   initializeDefaultAdapters,
+  SpawnAdapterRegistry,
   spawnRegistry,
 } from '../adapter-registry.js';
-import type { CLEOSpawnAdapter } from '../../../types/spawn.js';
 
 /**
  * Create a minimal mock CLEOSpawnAdapter for testing registry operations.
@@ -60,7 +60,10 @@ describe('SpawnAdapterRegistry', () => {
     registry.register(a1);
     registry.register(a2);
 
-    const ids = registry.list().map((a) => a.id).sort();
+    const ids = registry
+      .list()
+      .map((a) => a.id)
+      .sort();
     expect(ids).toEqual(['cc', 'oc']);
   });
 

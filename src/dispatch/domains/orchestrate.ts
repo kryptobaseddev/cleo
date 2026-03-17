@@ -183,7 +183,10 @@ export class OrchestrateHandler implements DomainHandler {
           );
       }
     } catch (error) {
-      getLogger('domain:orchestrate').error({ gateway: 'query', domain: 'orchestrate', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:orchestrate').error(
+        { gateway: 'query', domain: 'orchestrate', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'orchestrate', operation, error, startTime);
     }
   }
@@ -422,7 +425,10 @@ export class OrchestrateHandler implements DomainHandler {
           );
       }
     } catch (error) {
-      getLogger('domain:orchestrate').error({ gateway: 'mutate', domain: 'orchestrate', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:orchestrate').error(
+        { gateway: 'mutate', domain: 'orchestrate', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'orchestrate', operation, error, startTime);
     }
   }
@@ -451,5 +457,4 @@ export class OrchestrateHandler implements DomainHandler {
       ],
     };
   }
-
 }

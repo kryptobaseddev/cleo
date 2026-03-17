@@ -229,7 +229,12 @@ async function getActiveLearnings(): Promise<string> {
          ORDER BY confidence DESC, created_at DESC
          LIMIT 15`,
       )
-      .all() as unknown as Array<{ id: string; insight: string; confidence: number; created_at: string }>;
+      .all() as unknown as Array<{
+      id: string;
+      insight: string;
+      confidence: number;
+      created_at: string;
+    }>;
 
     if (rows.length === 0) {
       return '# Active Learnings\n\nNo learnings recorded yet.';
@@ -237,7 +242,8 @@ async function getActiveLearnings(): Promise<string> {
 
     const lines = ['# Active Learnings\n'];
     for (const row of rows) {
-      const conf = typeof row.confidence === 'number' ? row.confidence.toFixed(2) : String(row.confidence);
+      const conf =
+        typeof row.confidence === 'number' ? row.confidence.toFixed(2) : String(row.confidence);
       lines.push(`- [${row.id}] (confidence: ${conf}) ${(row.insight ?? '').substring(0, 120)}`);
     }
 
@@ -264,7 +270,13 @@ async function getActivePatterns(): Promise<string> {
          ORDER BY extracted_at DESC
          LIMIT 30`,
       )
-      .all() as unknown as Array<{ id: string; pattern: string; type: string; impact: string; extracted_at: string }>;
+      .all() as unknown as Array<{
+      id: string;
+      pattern: string;
+      type: string;
+      impact: string;
+      extracted_at: string;
+    }>;
 
     if (rows.length === 0) {
       return '# Active Patterns\n\nNo patterns recorded yet.';
@@ -279,7 +291,9 @@ async function getActivePatterns(): Promise<string> {
     if (followRows.length > 0) {
       lines.push('## Follow\n');
       for (const row of followRows) {
-        lines.push(`- [${row.id}] (${row.type}, ${row.impact ?? 'medium'}): ${(row.pattern ?? '').substring(0, 120)}`);
+        lines.push(
+          `- [${row.id}] (${row.type}, ${row.impact ?? 'medium'}): ${(row.pattern ?? '').substring(0, 120)}`,
+        );
       }
       lines.push('');
     }
@@ -287,7 +301,9 @@ async function getActivePatterns(): Promise<string> {
     if (avoidRows.length > 0) {
       lines.push('## Avoid\n');
       for (const row of avoidRows) {
-        lines.push(`- [${row.id}] AVOID (${row.type}, ${row.impact ?? 'medium'}): ${(row.pattern ?? '').substring(0, 120)}`);
+        lines.push(
+          `- [${row.id}] AVOID (${row.type}, ${row.impact ?? 'medium'}): ${(row.pattern ?? '').substring(0, 120)}`,
+        );
       }
     }
 
@@ -316,7 +332,8 @@ async function getSessionHandoff(): Promise<string> {
     if (h.lastTask) lines.push(`- **Last task**: ${h.lastTask}`);
     if (h.tasksCompleted.length > 0) lines.push(`- **Completed**: ${h.tasksCompleted.join(', ')}`);
     if (h.tasksCreated.length > 0) lines.push(`- **Created**: ${h.tasksCreated.join(', ')}`);
-    if (h.nextSuggested.length > 0) lines.push(`- **Next suggested**: ${h.nextSuggested.join(', ')}`);
+    if (h.nextSuggested.length > 0)
+      lines.push(`- **Next suggested**: ${h.nextSuggested.join(', ')}`);
     if (h.openBlockers.length > 0) lines.push(`- **Open blockers**: ${h.openBlockers.join(', ')}`);
     if (h.note) lines.push(`- **Note**: ${h.note}`);
 
