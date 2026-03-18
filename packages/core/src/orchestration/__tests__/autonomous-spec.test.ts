@@ -469,6 +469,7 @@ describe('Auto-dispatch protocol selection', () => {
       const task: Task = {
         id: 'T001',
         title: tc.title,
+        description: `Auto-dispatch test: ${tc.title}`,
         status: 'pending',
         priority: 'medium',
         labels: tc.labels,

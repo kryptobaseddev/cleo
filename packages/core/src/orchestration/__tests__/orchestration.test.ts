@@ -162,6 +162,7 @@ describe('autoDispatch', () => {
     const task: Task = {
       id: 'T001',
       title: 'Something',
+      description: 'A task with research label',
       status: 'pending',
       priority: 'medium',
       labels: ['research'],
@@ -174,6 +175,7 @@ describe('autoDispatch', () => {
     const task: Task = {
       id: 'T001',
       title: 'Something',
+      description: 'An epic-type task',
       status: 'pending',
       priority: 'medium',
       type: 'epic',
@@ -186,6 +188,7 @@ describe('autoDispatch', () => {
     const task: Task = {
       id: 'T001',
       title: 'Implement auth module',
+      description: 'Build the authentication module',
       status: 'pending',
       priority: 'medium',
       createdAt: '2026-01-01T00:00:00Z',
@@ -197,6 +200,7 @@ describe('autoDispatch', () => {
     const task: Task = {
       id: 'T001',
       title: 'Something generic',
+      description: 'A generic task without specific keywords',
       status: 'pending',
       priority: 'medium',
       createdAt: '2026-01-01T00:00:00Z',
