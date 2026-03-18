@@ -7,8 +7,7 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
-import { computeChecksum } from '../store/json.js';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
@@ -41,20 +40,17 @@ export async function archiveTasks(
   accessor?: DataAccessor,
 ): Promise<ArchiveTasksResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
   const includeCancelled = options.includeCancelled ?? true;
 
-  // Determine which tasks to archive
+  // Determine which tasks to archive using targeted queries
   let candidates: Task[];
 
   if (options.taskIds?.length) {
-    candidates = data.tasks.filter((t) => options.taskIds!.includes(t.id));
+    candidates = await acc.loadTasks(options.taskIds);
   } else {
-    candidates = data.tasks.filter((t) => {
-      if (t.status === 'done') return true;
-      if (includeCancelled && t.status === 'cancelled') return true;
-      return false;
-    });
+    const statuses: TaskStatus[] = includeCancelled ? ['done', 'cancelled'] : ['done'];
+    const { tasks } = await acc.queryTasks({ status: statuses });
+    candidates = tasks;
   }
 
   // Apply date filter
@@ -80,10 +76,8 @@ export async function archiveTasks(
 
     // Skip epics that have non-archived children
     if (task.type === 'epic') {
-      const activeChildren = data.tasks.filter(
-        (t) => t.parentId === task.id && t.status !== 'done' && t.status !== 'cancelled',
-      );
-      if (activeChildren.length > 0) {
+      const activeCount = await acc.countActiveChildren(task.id);
+      if (activeCount > 0) {
         skipped.push(task.id);
         continue;
       }
@@ -92,40 +86,26 @@ export async function archiveTasks(
     archived.push(task.id);
   }
 
+  // For total count, query active task count
+  const totalActive = await acc.countTasks();
+
   if (options.dryRun) {
     return {
       archived,
       skipped,
-      total: data.tasks.length,
+      total: totalActive,
       dryRun: true,
     };
   }
 
   if (archived.length === 0) {
-    return { archived: [], skipped, total: data.tasks.length };
+    return { archived: [], skipped, total: totalActive };
   }
 
-  // Move tasks to archive
-  const archivedSet = new Set(archived);
-  const tasksToArchive = data.tasks.filter((t) => archivedSet.has(t.id));
-  const remainingTasks = data.tasks.filter((t) => !archivedSet.has(t.id));
-
-  // Read/create archive file
-  let archiveData = await acc.loadArchive();
-  if (!archiveData) {
-    archiveData = { archivedTasks: [], version: '1.0.0' };
-  }
-
+  // Archive each task using targeted writes
   const now = new Date().toISOString();
-  for (const t of tasksToArchive) {
-    (t as Task & { archivedAt?: string }).archivedAt = now;
-    archiveData.archivedTasks.push(t);
-  }
-
-  // Update active task data
-  data.tasks = remainingTasks;
-  data._meta.checksum = computeChecksum(remainingTasks);
-  data.lastUpdated = now;
+  const archivedSet = new Set(archived);
+  const tasksToArchive = candidates.filter((t) => archivedSet.has(t.id));
 
   for (const t of tasksToArchive) {
     await acc.archiveSingleTask(t.id, {
@@ -133,6 +113,7 @@ export async function archiveTasks(
       archiveReason: t.status === 'cancelled' ? 'cancelled' : 'completed',
     });
   }
+
   await safeAppendLog(
     acc,
     {
@@ -148,5 +129,5 @@ export async function archiveTasks(
     cwd,
   );
 
-  return { archived, skipped, total: data.tasks.length + archived.length };
+  return { archived, skipped, total: totalActive };
 }

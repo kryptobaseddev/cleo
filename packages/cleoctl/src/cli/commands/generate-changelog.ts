@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';
 

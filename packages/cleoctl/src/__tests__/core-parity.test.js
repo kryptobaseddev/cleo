@@ -48,7 +48,7 @@ describe('Import Graph Verification (T4796)', () => {
                 // Match `from '...'` lines (handles multi-line imports)
                 // T5718: engines now import via @cleocode/core (not relative ../../core/)
                 const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
-                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes('../../../core/src/store/'));
+                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'));
                 // Every engine file should have at least one core/store import
                 expect(coreImports.length).toBeGreaterThanOrEqual(1);
             });
@@ -63,7 +63,7 @@ describe('Import Graph Verification (T4796)', () => {
                     .filter((line) => !line.includes("'node:"))
                     .filter((line) => !line.includes("'vitest"));
                 // Count @cleocode/core + store imports
-                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes('../../../core/src/store/'));
+                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'));
                 // Core imports should exist
                 if (fromLines.length > 0) {
                     expect(coreImports.length).toBeGreaterThanOrEqual(1);
@@ -77,7 +77,7 @@ describe('Import Graph Verification (T4796)', () => {
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'task-engine.ts'), 'utf-8');
         // Core task functions are now imported via @cleocode/core (T5718)
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         // Verify the key task functions are imported
         expect(content).toContain('addTask');
         expect(content).toContain('showTask');
@@ -91,7 +91,7 @@ describe('Import Graph Verification (T4796)', () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'session-engine.ts'), 'utf-8');
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         // Verify session and task-work functions are present
         // (session engine builds sessions via parseScope/generateSessionId rather than startSession/endSession)
         expect(content).toContain('parseScope');
@@ -104,7 +104,7 @@ describe('Import Graph Verification (T4796)', () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'lifecycle-engine.ts'), 'utf-8');
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         expect(content).toContain('getLifecycleStatus');
         expect(content).toContain('recordStageProgress');
     });
@@ -112,7 +112,7 @@ describe('Import Graph Verification (T4796)', () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'validate-engine.ts'), 'utf-8');
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         expect(content).toContain('coreValidateSchema');
         expect(content).toContain('coreValidateTask');
     });
@@ -120,7 +120,7 @@ describe('Import Graph Verification (T4796)', () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'system-engine.ts'), 'utf-8');
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         expect(content).toContain('getProjectStats');
         expect(content).toContain('getSystemHealth');
     });
@@ -128,7 +128,7 @@ describe('Import Graph Verification (T4796)', () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
         const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
-        expect(content).toContain("from '@cleocode/core'");
+        expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
         expect(content).toContain('analyzeEpic');
         expect(content).toContain('prepareSpawn');
     });

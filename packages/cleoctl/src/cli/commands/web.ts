@@ -10,7 +10,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CleoError, formatError, getCleoHome } from '@cleocode/core';
 // CLI-only: web command requires process spawn/PID management not suitable for dispatch
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';
 

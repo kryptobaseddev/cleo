@@ -35,17 +35,16 @@ export async function showTask(
   }
 
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
 
-  // First, try to find in active tasks
-  let task = data.tasks.find((t) => t.id === taskId);
+  // First, try to find in active tasks via targeted query
+  let task = await acc.loadSingleTask(taskId);
   let isArchived = false;
 
   // If not found in active tasks, check the archive
   if (!task) {
     const archive = await acc.loadArchive();
     if (archive) {
-      task = archive.archivedTasks.find((t) => t.id === taskId);
+      task = archive.archivedTasks.find((t) => t.id === taskId) ?? null;
       if (task) {
         isArchived = true;
       }
@@ -66,15 +65,16 @@ export async function showTask(
 
   // Add children (only check active tasks, archived tasks don't have active children)
   if (!isArchived) {
-    const children = data.tasks.filter((t) => t.parentId === taskId);
+    const children = await acc.getChildren(taskId);
     if (children.length > 0) {
       detail.children = children.map((c) => c.id);
     }
 
     // Add dependency status
     if (task.depends?.length) {
+      const depTasks = await acc.loadTasks(task.depends);
       detail.dependencyStatus = task.depends.map((depId) => {
-        const dep = data.tasks.find((t) => t.id === depId);
+        const dep = depTasks.find((t) => t.id === depId);
         return {
           id: depId,
           status: dep?.status ?? 'unknown',
@@ -92,23 +92,15 @@ export async function showTask(
     }
 
     // Add dependents: tasks that depend on this one
-    const dependents = data.tasks.filter((t) => t.depends?.includes(taskId)).map((t) => t.id);
-    if (dependents.length > 0) {
-      detail.dependents = dependents;
+    const dependentTasks = await acc.getDependents(taskId);
+    if (dependentTasks.length > 0) {
+      detail.dependents = dependentTasks.map((t) => t.id);
     }
 
-    // Build hierarchy path
-    const path: string[] = [taskId];
-    let currentId: string | null | undefined = task.parentId;
-    const visited = new Set<string>();
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      path.unshift(currentId);
-      const parent = data.tasks.find((t) => t.id === currentId);
-      currentId = parent?.parentId;
-    }
-    if (path.length > 1) {
-      detail.hierarchyPath = path;
+    // Build hierarchy path via recursive ancestor chain
+    const ancestors = await acc.getAncestorChain(taskId);
+    if (ancestors.length > 1) {
+      detail.hierarchyPath = ancestors.map((t) => t.id);
     }
   }
 

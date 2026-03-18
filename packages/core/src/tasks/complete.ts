@@ -7,12 +7,10 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task, VerificationGate, TaskRef } from '@cleocode/contracts';
 import { getRawConfigValue } from '../config.js';
 import { CleoError } from '../errors.js';
-import { getDependents, getUnresolvedDeps } from './dependency-check.js';
 
 /** Options for completing a task. */
 export interface CompleteTaskOptions {
@@ -119,16 +117,12 @@ export async function completeTask(
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
-  if (taskIdx === -1) {
+  const task = await acc.loadSingleTask(options.taskId);
+  if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
-
-  const task = data.tasks[taskIdx]!;
 
   const enforcement = await loadCompletionEnforcement(cwd);
 
@@ -139,10 +133,10 @@ export async function completeTask(
 
   // Check if task has incomplete dependencies
   if (task.depends?.length) {
-    const incompleteDeps = task.depends.filter((depId) => {
-      const dep = data.tasks.find((t) => t.id === depId);
-      return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-    });
+    const deps = await acc.loadTasks(task.depends);
+    const incompleteDeps = deps
+      .filter((d) => d.status !== 'done' && d.status !== 'cancelled')
+      .map((d) => d.id);
     if (incompleteDeps.length > 0) {
       throw new CleoError(
         ExitCode.DEPENDENCY_ERROR,
@@ -211,7 +205,7 @@ export async function completeTask(
   }
 
   // Check if task has incomplete children
-  const children = data.tasks.filter((t) => t.parentId === options.taskId);
+  const children = await acc.getChildren(options.taskId);
   const incompleteChildren = children.filter(
     (c) => c.status !== 'done' && c.status !== 'cancelled',
   );
@@ -249,32 +243,30 @@ export async function completeTask(
     task.notes.push(`Changeset: ${options.changeset}`);
   }
 
-  data.tasks[taskIdx] = task;
-
   // Check if parent epic should auto-complete
   const autoCompleted: string[] = [];
+  const autoCompletedTasks: Task[] = [];
   if (task.parentId) {
-    const parent = data.tasks.find((t) => t.id === task.parentId);
+    const parent = await acc.loadSingleTask(task.parentId);
     if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
-      const parentChildren = data.tasks.filter((t) => t.parentId === parent.id);
-      const allDone = parentChildren.every((c) => c.status === 'done' || c.status === 'cancelled');
+      const siblings = await acc.getChildren(parent.id);
+      // The current task is not yet 'done' in DB, so check by ID
+      const allDone = siblings.every(
+        (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
+      );
       if (allDone) {
         parent.status = 'done';
         parent.completedAt = now;
         parent.updatedAt = now;
         autoCompleted.push(parent.id);
+        autoCompletedTasks.push(parent);
       }
     }
   }
 
-  // Update checksum
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = now;
-
   await acc.upsertSingleTask(task);
-  for (const parentId of autoCompleted) {
-    const parent = data.tasks.find((t) => t.id === parentId);
-    if (parent) await acc.upsertSingleTask(parent);
+  for (const parentTask of autoCompletedTasks) {
+    await acc.upsertSingleTask(parentTask);
   }
   await safeAppendLog(
     acc,
@@ -292,12 +284,19 @@ export async function completeTask(
   );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
-  const dependents = getDependents(options.taskId, data.tasks);
+  const dependents = await acc.getDependents(options.taskId);
   const unblockedTasks: Array<Pick<TaskRef, 'id' | 'title'>> = [];
   for (const dep of dependents) {
     if (dep.status === 'done' || dep.status === 'cancelled') continue;
-    const stillUnresolved = getUnresolvedDeps(dep.id, data.tasks);
-    if (stillUnresolved.length === 0) {
+    if (dep.depends?.length) {
+      const depDeps = await acc.loadTasks(dep.depends);
+      const stillUnresolved = depDeps.filter(
+        (d) => d.id !== options.taskId && d.status !== 'done' && d.status !== 'cancelled',
+      );
+      if (stillUnresolved.length === 0) {
+        unblockedTasks.push({ id: dep.id, title: dep.title });
+      }
+    } else {
       unblockedTasks.push({ id: dep.id, title: dep.title });
     }
   }

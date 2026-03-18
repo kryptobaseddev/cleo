@@ -25,7 +25,7 @@ import {
   runUpgrade,
 } from '@cleocode/core/internal';
 // CLI-only: self-update requires file system ops and external process execution
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { BUILD_CONFIG } from '@cleocode/core/internal';
 import { ExitCode } from '@cleocode/contracts';
 import { createSelfUpdateProgress } from '../progress.js';

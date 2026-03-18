@@ -6,7 +6,7 @@
  */
 
 import { getProjectRoot } from '@cleocode/core';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerRefreshMemoryCommand(program: Command): void {
   program

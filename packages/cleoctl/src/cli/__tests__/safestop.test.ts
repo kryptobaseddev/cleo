@@ -5,7 +5,7 @@
  *  T4904
  */
 
-import { Command } from 'commander';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it, vi } from 'vitest';
 import { registerSafestopCommand } from '../commands/safestop.js';
 

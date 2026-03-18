@@ -415,6 +415,16 @@ function runMigrations(
 ): void {
   const migrationsFolder = resolveMigrationsFolder();
 
+  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  if (tableExists(nativeDb, 'tasks') && _dbPath) {
+    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    if (!existsSync(backupPath)) {
+      try {
+        copyFileSync(_dbPath, backupPath);
+      } catch { /* non-fatal */ }
+    }
+  }
+
   // Bootstrap existing databases that predate drizzle migrations (ADR-012 Step D).
   // These have tables (e.g., 'tasks') but no __drizzle_migrations record.
   // Mark the baseline migration as already applied so migrate() doesn't

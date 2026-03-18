@@ -3,7 +3,7 @@
  * @task T4454
  */
 
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';

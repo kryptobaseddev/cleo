@@ -3,7 +3,7 @@
  * @task T4551
  * @epic T4545
  */
-import { Command } from 'commander';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it, vi } from 'vitest';
 import { registerWebCommand } from '../commands/web.js';
 vi.mock('node:child_process', () => ({

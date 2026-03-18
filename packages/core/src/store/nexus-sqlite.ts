@@ -11,7 +11,7 @@
  * @task T5365
  */
 
-import { mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +78,16 @@ function runNexusMigrations(
   db: NodeSQLiteDatabase<typeof nexusSchema>,
 ): void {
   const migrationsFolder = resolveNexusMigrationsFolder();
+
+  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  if (tableExists(nativeDb, 'project_registry') && _nexusDbPath) {
+    const backupPath = _nexusDbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    if (!existsSync(backupPath)) {
+      try {
+        copyFileSync(_nexusDbPath, backupPath);
+      } catch { /* non-fatal */ }
+    }
+  }
 
   // Bootstrap existing databases that predate drizzle migrations.
   // Mark baseline migration as already applied if tables exist but

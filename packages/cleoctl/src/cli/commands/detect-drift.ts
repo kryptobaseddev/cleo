@@ -15,7 +15,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {

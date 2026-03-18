@@ -9,7 +9,7 @@
  */
 
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
  * Register the `migrate claude-mem` command under a migrate parent command.

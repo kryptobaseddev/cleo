@@ -31,7 +31,7 @@ function makeTask(overrides) {
 }
 function setupTasks(tasks) {
     getAccessor.mockResolvedValue({
-        loadTaskFile: vi.fn().mockResolvedValue({ tasks }),
+        queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
     });
 }
 describe('coreTaskDepends transitive hints', () => {

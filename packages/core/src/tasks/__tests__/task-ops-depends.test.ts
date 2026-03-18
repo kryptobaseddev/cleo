@@ -39,7 +39,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 
 function setupTasks(tasks: Task[]): void {
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
-    loadTaskFile: vi.fn().mockResolvedValue({ tasks }),
+    queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
   });
 }
 

@@ -15,14 +15,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 const thisFile = fileURLToPath(import.meta.url);
-const packageRoot = resolve(dirname(thisFile), '..', '..', '..');
+const packageRoot = resolve(dirname(thisFile), '..', '..');
 describe('CAAMP skill install + integrity (T4718)', () => {
     describe('CAAMP adapter module structure', () => {
         it('src/core/caamp/index.ts exists', () => {
-            expect(existsSync(join(packageRoot, 'src', 'core', 'caamp', 'index.ts'))).toBe(true);
+            expect(existsSync(join(packageRoot, 'src', 'caamp', 'index.ts'))).toBe(true);
         });
         it('src/core/caamp/adapter.ts exists', () => {
-            expect(existsSync(join(packageRoot, 'src', 'core', 'caamp', 'adapter.ts'))).toBe(true);
+            expect(existsSync(join(packageRoot, 'src', 'caamp', 'adapter.ts'))).toBe(true);
         });
         it('barrel export from caamp/index.ts re-exports all adapter functions', async () => {
             const caamp = await import('../caamp/index.js');

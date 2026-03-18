@@ -18,10 +18,10 @@ interface LabelInfo {
 /** List all labels with task counts. */
 export async function listLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelInfo[]> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
+  const { tasks } = await acc.queryTasks({});
   const labelMap: Record<string, LabelInfo> = {};
 
-  for (const task of data.tasks) {
+  for (const task of tasks) {
     for (const label of task.labels ?? []) {
       if (!labelMap[label]) {
         labelMap[label] = { label, count: 0, statuses: {} };
@@ -42,8 +42,7 @@ export async function showLabelTasks(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-  const tasks = data.tasks.filter((t) => (t.labels ?? []).includes(label));
+  const { tasks } = await acc.queryTasks({ label });
 
   if (tasks.length === 0) {
     throw new CleoError(ExitCode.NOT_FOUND, `No tasks found with label '${label}'`);

@@ -8,7 +8,7 @@
 
 import { readFileSync } from 'node:fs';
 import { measureTokenExchange, recordTokenExchange } from '@cleocode/core/internal';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

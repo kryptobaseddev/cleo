@@ -5,7 +5,7 @@
  * @epic T4454
  */
 
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**

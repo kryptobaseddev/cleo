@@ -14,7 +14,7 @@
  * @task T4900
  */
 
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
  * Register dynamically-generated commands onto the Commander program.

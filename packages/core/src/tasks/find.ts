@@ -7,7 +7,7 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type { Task, TaskQueryFilters, TaskStatus } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /** Minimal task info for search results. */
@@ -100,21 +100,25 @@ export async function findTasks(
   }
 
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
 
-  let allTasks: Task[] = [...data.tasks];
+  // Use targeted query with status filter when available
+  const filters: TaskQueryFilters = {};
+  if (options.status) {
+    filters.status = options.status;
+  }
+  const queryResult = await acc.queryTasks(filters);
+  let allTasks: Task[] = [...queryResult.tasks];
 
   // Include archive if requested
   if (options.includeArchive) {
     const archive = await acc.loadArchive();
     if (archive?.archivedTasks) {
-      allTasks = [...allTasks, ...archive.archivedTasks];
+      let archivedTasks = archive.archivedTasks as Task[];
+      if (options.status) {
+        archivedTasks = archivedTasks.filter((t) => t.status === options.status);
+      }
+      allTasks = [...allTasks, ...archivedTasks];
     }
-  }
-
-  // Apply status filter
-  if (options.status) {
-    allTasks = allTasks.filter((t) => t.status === options.status);
   }
 
   let results: FindResult[];

@@ -14,7 +14,7 @@ import {
   push,
   removeRemote,
 } from '@cleocode/core/internal';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';
 

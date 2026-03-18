@@ -9,11 +9,13 @@
  * @epic T5150
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-// Mock getAccessor — must be before imports
+// The task-engine imports listTasks, findTasks, toCompact, getAccessor from @cleocode/core/internal
+// which resolves to packages/core/src/internal.ts.
+// internal.ts re-exports from the actual source modules.
+// We mock the source modules directly so the re-exports pick up our mocks.
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn(),
 }));
-// Mock core list/find modules
 vi.mock('../../../../../core/src/tasks/list.js', () => ({
     listTasks: vi.fn(),
     toCompact: vi.fn((t) => ({
@@ -26,10 +28,10 @@ vi.mock('../../../../../core/src/tasks/list.js', () => ({
 vi.mock('../../../../../core/src/tasks/find.js', () => ({
     findTasks: vi.fn(),
 }));
-import { findTasks as coreFindTasks } from '@cleocode/core';
-import { listTasks as coreListTasks } from '@cleocode/core';
-import { toCompact } from '@cleocode/core/internal';
-import { getAccessor } from '@cleocode/core';
+import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { listTasks as coreListTasks } from '../../../../../core/src/tasks/list.js';
+import { findTasks as coreFindTasksFromFind } from '../../../../../core/src/tasks/find.js';
+import { toCompact } from '../../../../../core/src/tasks/list.js';
 import { taskFind, taskList } from '../../engines/task-engine.js';
 const MOCK_TASKS = [
     {
@@ -54,7 +56,7 @@ describe('taskFind filter passthrough', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(getAccessor).mockResolvedValue(mockAccessor);
-        vi.mocked(coreFindTasks).mockResolvedValue({
+        vi.mocked(coreFindTasksFromFind).mockResolvedValue({
             results: MOCK_TASKS,
             total: 2,
             query: 'test',
@@ -64,34 +66,34 @@ describe('taskFind filter passthrough', () => {
     it('passes only query and limit when no options given (backward compat)', async () => {
         const result = await taskFind('/mock/project', 'test', 10);
         expect(result.success).toBe(true);
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({
             query: 'test',
             limit: 10,
         }), '/mock/project', expect.anything());
     });
     it('defaults limit to 20 when not provided', async () => {
         await taskFind('/mock/project', 'test');
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }), '/mock/project', expect.anything());
     });
     it('passes status filter through to core', async () => {
         await taskFind('/mock/project', 'test', undefined, { status: 'active' });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), '/mock/project', expect.anything());
     });
     it('passes id filter through to core', async () => {
         await taskFind('/mock/project', '', undefined, { id: 'T00' });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ id: 'T00' }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ id: 'T00' }), '/mock/project', expect.anything());
     });
     it('passes exact flag through to core', async () => {
         await taskFind('/mock/project', 'exact match', undefined, { exact: true });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ exact: true }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ exact: true }), '/mock/project', expect.anything());
     });
     it('passes includeArchive through to core', async () => {
         await taskFind('/mock/project', 'old', undefined, { includeArchive: true });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ includeArchive: true }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ includeArchive: true }), '/mock/project', expect.anything());
     });
     it('passes offset through to core', async () => {
         await taskFind('/mock/project', 'page', undefined, { offset: 20 });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }), '/mock/project', expect.anything());
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }), '/mock/project', expect.anything());
     });
     it('passes all filters simultaneously', async () => {
         await taskFind('/mock/project', 'multi', 5, {
@@ -101,7 +103,7 @@ describe('taskFind filter passthrough', () => {
             includeArchive: true,
             offset: 10,
         });
-        expect(coreFindTasks).toHaveBeenCalledWith(expect.objectContaining({
+        expect(coreFindTasksFromFind).toHaveBeenCalledWith(expect.objectContaining({
             query: 'multi',
             limit: 5,
             id: 'T1',
@@ -179,11 +181,13 @@ describe('taskList compact mode', () => {
     it('returns canonical counts in the list envelope', async () => {
         const result = await taskList('/mock/project', { compact: false });
         expect(result.success).toBe(true);
-        expect(result.data).toEqual({
-            tasks: MOCK_TASKS,
-            total: 2,
-            filtered: 2,
-        });
+        expect(result.data).toBeDefined();
+        // tasksToRecords transforms tasks adding extra fields from the TaskRecord type
+        expect(result.data.total).toBe(2);
+        expect(result.data.filtered).toBe(2);
+        expect(result.data.tasks).toHaveLength(2);
+        expect(result.data.tasks[0]).toEqual(expect.objectContaining({ id: 'T001', title: 'Task one' }));
+        expect(result.data.tasks[1]).toEqual(expect.objectContaining({ id: 'T002', title: 'Task two' }));
         expect(result.page).toEqual({ mode: 'none' });
     });
     it('accepts no params at all (backward compat)', async () => {

@@ -16,7 +16,7 @@
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
-import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult, TaskRef, BottleneckTask } from '@cleocode/contracts';
+import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult, TaskRef, BottleneckTask, ProjectMeta } from '@cleocode/contracts';
 import { cancelTask } from './cancel-ops.js';
 import {
   detectCircularDeps,
@@ -64,8 +64,8 @@ const PRIORITY_SCORE: Record<string, number> = {
 
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
-  const data = await accessor.loadTaskFile();
-  return data.tasks;
+  const { tasks } = await accessor.queryTasks({});
+  return tasks;
 }
 
 function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): FlatTreeNode {
@@ -179,8 +179,8 @@ export async function coreTaskNext(
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
-  const taskFile = await accessor.loadTaskFile();
-  const currentPhase = taskFile.project?.currentPhase ?? null;
+  const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
+  const currentPhase = projectMeta?.currentPhase ?? null;
 
   const candidates = allTasks.filter(
     (t) => t.status === 'pending' && depsReady(t.depends, taskMap),
@@ -490,18 +490,14 @@ export async function coreTaskRelatesAdd(
   reason?: string,
 ): Promise<{ from: string; to: string; type: string; reason?: string; added: boolean }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const fromTask = current.tasks.find((t) => t.id === taskId);
+  const fromTask = await accessor.loadSingleTask(taskId);
   if (!fromTask) {
     throw new Error(`Task '${taskId}' not found`);
   }
 
-  const toTask = current.tasks.find((t) => t.id === relatedId);
-  if (!toTask) {
+  const toExists = await accessor.taskExists(relatedId);
+  if (!toExists) {
     throw new Error(`Task '${relatedId}' not found`);
   }
 
@@ -516,8 +512,7 @@ export async function coreTaskRelatesAdd(
   });
 
   fromTask.updatedAt = new Date().toISOString();
-  const fromTaskRef = current.tasks.find((t) => t.id === taskId)!;
-  await accessor.upsertSingleTask(fromTaskRef);
+  await accessor.upsertSingleTask(fromTask);
 
   // Persist to task_relations table (T5168)
   await accessor.addRelation(taskId, relatedId, type, reason);
@@ -638,12 +633,8 @@ export async function coreTaskRestore(
   params?: { cascade?: boolean; notes?: string },
 ): Promise<{ task: string; restored: string[]; count: number }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const task = current.tasks.find((t) => t.id === taskId);
+  const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -656,16 +647,15 @@ export async function coreTaskRestore(
 
   const tasksToRestore: TaskRecord[] = [task];
   if (params?.cascade) {
-    const findCancelledChildren = (parentId: string): void => {
-      const children = current.tasks.filter(
-        (t) => t.parentId === parentId && t.status === 'cancelled',
-      );
-      for (const child of children) {
+    const findCancelledChildren = async (parentId: string): Promise<void> => {
+      const children = await accessor.getChildren(parentId);
+      const cancelledChildren = children.filter((t) => t.status === 'cancelled');
+      for (const child of cancelledChildren) {
         tasksToRestore.push(child);
-        findCancelledChildren(child.id);
+        await findCancelledChildren(child.id);
       }
     };
-    findCancelledChildren(taskId);
+    await findCancelledChildren(taskId);
   }
 
   const now = new Date().toISOString();
@@ -683,8 +673,7 @@ export async function coreTaskRestore(
   }
 
   for (const t of tasksToRestore) {
-    const taskRef = current.tasks.find((ct) => ct.id === t.id)!;
-    await accessor.upsertSingleTask(taskRef);
+    await accessor.upsertSingleTask(t);
   }
 
   return { task: taskId, restored, count: restored.length };
@@ -810,19 +799,21 @@ export async function coreTaskReorder(
   position: number,
 ): Promise<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const task = current.tasks.find((t) => t.id === taskId);
+  const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
 
-  const allSiblings = current.tasks
-    .filter((t) => t.parentId === task.parentId)
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  // Get siblings: tasks with same parentId
+  const parentFilter = task.parentId
+    ? { parentId: task.parentId }
+    : {};
+  const { tasks: siblingCandidates } = await accessor.queryTasks(parentFilter);
+  // For root-level tasks (no parentId), filter to only those without a parentId
+  const allSiblings = task.parentId
+    ? siblingCandidates.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    : siblingCandidates.filter((t) => !t.parentId).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
   const currentIndex = allSiblings.findIndex((t) => t.id === taskId);
   const newIndex = Math.max(0, Math.min(position - 1, allSiblings.length - 1));
@@ -831,20 +822,12 @@ export async function coreTaskReorder(
   allSiblings.splice(newIndex, 0, task);
 
   const now = new Date().toISOString();
-  const modifiedSiblings: string[] = [];
   for (let i = 0; i < allSiblings.length; i++) {
-    const sibling = current.tasks.find((t) => t.id === allSiblings[i]!.id);
-    if (sibling) {
-      sibling.position = i + 1;
-      sibling.positionVersion = ((sibling.positionVersion as number | undefined) ?? 0) + 1;
-      sibling.updatedAt = now;
-      modifiedSiblings.push(sibling.id);
-    }
-  }
-
-  for (const sibId of modifiedSiblings) {
-    const sibRef = current.tasks.find((t) => t.id === sibId)!;
-    await accessor.upsertSingleTask(sibRef);
+    const sibling = allSiblings[i]!;
+    sibling.position = i + 1;
+    sibling.positionVersion = ((sibling.positionVersion as number | undefined) ?? 0) + 1;
+    sibling.updatedAt = now;
+    await accessor.upsertSingleTask(sibling);
   }
 
   return {
@@ -984,12 +967,8 @@ export async function coreTaskPromote(
   typeChanged: boolean;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const task = current.tasks.find((t) => t.id === taskId);
+  const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -1008,8 +987,7 @@ export async function coreTaskPromote(
     typeChanged = true;
   }
 
-  const promoteRef = current.tasks.find((t) => t.id === taskId)!;
-  await accessor.upsertSingleTask(promoteRef);
+  await accessor.upsertSingleTask(task);
 
   return { task: taskId, promoted: true, previousParent: oldParent, typeChanged };
 }
@@ -1028,12 +1006,8 @@ export async function coreTaskReopen(
   params?: { status?: string; reason?: string },
 ): Promise<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const task = current.tasks.find((t) => t.id === taskId);
+  const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -1060,8 +1034,7 @@ export async function coreTaskReopen(
     `[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`,
   );
 
-  const reopenRef = current.tasks.find((t) => t.id === taskId)!;
-  await accessor.upsertSingleTask(reopenRef);
+  await accessor.upsertSingleTask(task);
 
   return { task: taskId, reopened: true, previousStatus, newStatus: targetStatus };
 }

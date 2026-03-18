@@ -49,9 +49,9 @@ describe('archiveTasks', () => {
     expect(result.archived).toContain('T001');
     expect(result.archived).not.toContain('T002');
 
-    const updated = await accessor.loadTaskFile();
-    expect(updated.tasks).toHaveLength(1);
-    expect(updated.tasks[0].id).toBe('T002');
+    const { tasks: remaining } = await accessor.queryTasks({});
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('T002');
 
     const archive = await accessor.loadArchive();
     expect(archive).not.toBeNull();
@@ -153,8 +153,8 @@ describe('archiveTasks', () => {
     expect(result.archived).toContain('T001');
 
     // Verify no changes were made
-    const updated = await accessor.loadTaskFile();
-    expect(updated.tasks).toHaveLength(1);
+    const { tasks: remaining } = await accessor.queryTasks({});
+    expect(remaining).toHaveLength(1);
   });
 
   it('skips epics with active children', async () => {

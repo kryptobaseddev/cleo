@@ -9,7 +9,7 @@
  * @task T5128
  */
 
-import { mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
@@ -82,6 +82,16 @@ function runBrainMigrations(
   db: NodeSQLiteDatabase<typeof brainSchema>,
 ): void {
   const migrationsFolder = resolveBrainMigrationsFolder();
+
+  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
+    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    if (!existsSync(backupPath)) {
+      try {
+        copyFileSync(_dbPath, backupPath);
+      } catch { /* non-fatal */ }
+    }
+  }
 
   // Bootstrap existing databases that predate drizzle migrations.
   // Mark baseline migration as already applied if tables exist but

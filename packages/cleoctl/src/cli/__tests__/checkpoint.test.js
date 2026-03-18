@@ -17,7 +17,7 @@ vi.mock('../../../../core/src/paths.js', () => ({
     getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
 }));
 import { execFileSync } from 'node:child_process';
-import { Command } from 'commander';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { readJson } from '@cleocode/core/internal';
 import { registerCheckpointCommand } from '../commands/checkpoint.js';
 const mockExecFileSync = vi.mocked(execFileSync);

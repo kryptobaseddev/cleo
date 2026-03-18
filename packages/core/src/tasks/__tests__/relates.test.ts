@@ -52,8 +52,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
     await addRelation('T001', 'T002', 'blocks', 'T001 blocks T002', testDir, accessor);
 
     // Reload data from database to verify persistence
-    const taskFile = await accessor.loadTaskFile();
-    const task = taskFile.tasks.find((t) => t.id === 'T001');
+    const task = await accessor.loadSingleTask('T001');
 
     expect(task?.relates).toHaveLength(1);
     expect(task?.relates?.[0]).toEqual({
@@ -70,8 +69,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
     await accessor.close();
     accessor = await createSqliteDataAccessor(testDir);
 
-    const taskFile = await accessor.loadTaskFile();
-    const task = taskFile.tasks.find((t) => t.id === 'T001');
+    const task = await accessor.loadSingleTask('T001');
 
     expect(task?.relates).toHaveLength(1);
     expect(task?.relates?.[0]).toEqual({

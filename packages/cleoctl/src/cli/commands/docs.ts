@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CleoError, formatError, getAgentOutputsAbsolute } from '@cleocode/core/internal';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { readJson } from '@cleocode/core/internal';
 import { cliOutput } from '../renderers/index.js';
 

@@ -8,7 +8,7 @@ import { getAccessor } from '../store/data-accessor.js';
 
 import { depsReady } from './deps-ready.js';
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, ProjectMeta } from '@cleocode/contracts';
 type TaskRecord = Task;
 
 /** In-progress epic entry. */
@@ -67,8 +67,8 @@ const PRIORITY_SCORE: Record<string, number> = {
 
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
-  const data = await accessor.loadTaskFile();
-  return data.tasks;
+  const { tasks } = await accessor.queryTasks({});
+  return tasks;
 }
 
 /**
@@ -115,8 +115,8 @@ function findEpicId(task: TaskRecord, taskMap: Map<string, TaskRecord>): string 
  */
 async function getCurrentPhase(projectRoot: string): Promise<string | null> {
   const accessor = await getAccessor(projectRoot);
-  const data = await accessor.loadTaskFile();
-  return data?.project?.currentPhase ?? null;
+  const meta = await accessor.getMetaValue<ProjectMeta>('project_meta');
+  return meta?.currentPhase ?? null;
 }
 
 /**

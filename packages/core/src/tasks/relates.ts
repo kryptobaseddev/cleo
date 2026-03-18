@@ -17,15 +17,15 @@ export async function suggestRelated(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const acc = accessor ?? (await getAccessor(opts.cwd));
-  const data = await acc.loadTaskFile();
-  const task = data.tasks.find((t) => t.id === taskId);
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }
 
   const suggestions: Array<Pick<TaskRef, 'id' | 'title'> & { score: number; reason: string }> = [];
 
-  for (const other of data.tasks) {
+  for (const other of allTasks) {
     if (other.id === taskId) continue;
     let score = 0;
     const reasons: string[] = [];
@@ -77,15 +77,14 @@ export async function addRelation(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
 
-  const fromTask = data.tasks.find((t) => t.id === from);
-  if (!fromTask) {
+  const fromExists = await acc.taskExists(from);
+  if (!fromExists) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${from} not found`);
   }
 
-  const toTask = data.tasks.find((t) => t.id === to);
-  if (!toTask) {
+  const toExists = await acc.taskExists(to);
+  if (!toExists) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`);
   }
 
@@ -111,13 +110,12 @@ export async function listRelations(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-  const task = data.tasks.find((t) => t.id === taskId);
+  const task = await acc.loadSingleTask(taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }
 
-  // task.relates is populated from task_relations table by loadRelationsForTasks
+  // task.relates is populated from task_relations table by loadSingleTask
   const relates = task.relates ?? [];
   return {
     taskId,

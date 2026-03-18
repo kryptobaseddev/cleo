@@ -28,7 +28,6 @@ const sharedExternals = [
   'proper-lockfile',
   'write-file-atomic',
   '@modelcontextprotocol/sdk',
-  'commander',
   'pino',
   'pino-roll',
   'pino-pretty',

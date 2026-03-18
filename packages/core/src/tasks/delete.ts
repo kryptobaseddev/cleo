@@ -7,7 +7,6 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -35,20 +34,19 @@ export async function deleteTask(
   accessor?: DataAccessor,
 ): Promise<DeleteTaskResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
 
-  const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
-  if (taskIdx === -1) {
+  // Targeted load: fetch only the task being deleted
+  const task = await acc.loadSingleTask(options.taskId);
+  if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
 
-  const task = data.tasks[taskIdx]!;
   const cascadeDeleted: string[] = [];
 
-  // Check for children
-  const children = data.tasks.filter((t) => t.parentId === options.taskId);
+  // Check for children using targeted query
+  const children = await acc.getChildren(options.taskId);
   if (children.length > 0) {
     if (!options.cascade && !options.force) {
       throw new CleoError(
@@ -67,17 +65,11 @@ export async function deleteTask(
     }
 
     if (options.cascade) {
-      // Recursively find all descendants
-      const toDelete = new Set<string>([options.taskId]);
-      const queue: string[] = [options.taskId];
-      while (queue.length > 0) {
-        const parentId = queue.shift()!;
-        for (const t of data.tasks) {
-          if (t.parentId === parentId && !toDelete.has(t.id)) {
-            toDelete.add(t.id);
-            cascadeDeleted.push(t.id);
-            queue.push(t.id);
-          }
+      // Use CTE-based subtree query for all descendants
+      const subtree = await acc.getSubtree(options.taskId);
+      for (const t of subtree) {
+        if (t.id !== options.taskId) {
+          cascadeDeleted.push(t.id);
         }
       }
     } else if (options.force) {
@@ -85,15 +77,14 @@ export async function deleteTask(
       for (const child of children) {
         child.parentId = null;
         child.type = 'task';
+        await acc.upsertSingleTask(child);
       }
     }
   }
 
   // Check for dependents (other tasks depending on this one)
   if (!options.force) {
-    const dependents = data.tasks.filter(
-      (t) => t.depends?.includes(options.taskId) && t.id !== options.taskId,
-    );
+    const dependents = await acc.getDependents(options.taskId);
     if (dependents.length > 0) {
       throw new CleoError(
         ExitCode.HAS_DEPENDENTS,
@@ -103,61 +94,30 @@ export async function deleteTask(
     }
   }
 
-  // Determine tasks to move to archive
+  // Determine IDs to delete
   const idsToDelete = new Set<string>([options.taskId, ...cascadeDeleted]);
-  const tasksToArchive = data.tasks.filter((t) => idsToDelete.has(t.id));
-  const remainingTasks = data.tasks.filter((t) => !idsToDelete.has(t.id));
 
-  // Read/create archive
-  let archive = await acc.loadArchive();
-  if (!archive) {
-    archive = { archivedTasks: [], version: '1.0.0' };
-  }
-
-  // Move tasks to archive
+  // Archive each deleted task
   const now = new Date().toISOString();
-  for (const t of tasksToArchive) {
-    (t as Task & { archivedAt?: string }).archivedAt = now;
-    archive.archivedTasks.push(t);
-  }
-
-  // Clean up dependency references — track which tasks were modified
-  const depsModifiedIds = new Set<string>();
-  for (const t of remainingTasks) {
-    if (t.depends) {
-      const before = t.depends.length;
-      t.depends = t.depends.filter((d) => !idsToDelete.has(d));
-      if (t.depends.length !== before) depsModifiedIds.add(t.id);
-      if (t.depends.length === 0) delete t.depends;
-    }
-  }
-
-  // Update data
-  data.tasks = remainingTasks;
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = now;
-
-  // Fine-grained path: archive each deleted task
-  for (const t of tasksToArchive) {
-    await acc.archiveSingleTask(t.id, {
+  for (const id of idsToDelete) {
+    await acc.archiveSingleTask(id, {
       archivedAt: now,
       archiveReason: 'deleted',
     });
   }
-  // If force-orphaning children, upsert each orphaned child
-  if (options.force && !options.cascade && children.length > 0) {
-    for (const child of children) {
-      await acc.upsertSingleTask(child);
-    }
-  }
-  // Clean up dependency references on remaining tasks that were modified
-  if (depsModifiedIds.size > 0) {
-    for (const t of remainingTasks) {
-      if (depsModifiedIds.has(t.id)) {
-        await acc.upsertSingleTask(t);
+
+  // Clean up dependency references on tasks that depended on deleted tasks
+  for (const deletedId of idsToDelete) {
+    const dependents = await acc.getDependents(deletedId);
+    for (const dep of dependents) {
+      if (!idsToDelete.has(dep.id)) {
+        dep.depends = (dep.depends ?? []).filter((d) => !idsToDelete.has(d));
+        if (dep.depends.length === 0) delete dep.depends;
+        await acc.upsertSingleTask(dep);
       }
     }
   }
+
   await safeAppendLog(
     acc,
     {

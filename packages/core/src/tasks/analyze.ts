@@ -6,8 +6,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { computeChecksum } from '../store/json.js';
-import type { TaskAnalysisResult } from '@cleocode/contracts';
+import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
@@ -22,8 +21,7 @@ export async function analyzeTaskPriority(
   accessor?: DataAccessor,
 ): Promise<AnalysisResult> {
   const acc = accessor ?? (await getAccessor(opts.cwd));
-  const data = await acc.loadTaskFile();
-  const tasks = data.tasks;
+  const { tasks } = await acc.queryTasks({});
 
   // Build dependency graph
   const blocksMap: Record<string, string[]> = {};
@@ -88,10 +86,8 @@ export async function analyzeTaskPriority(
 
   let autoStarted = false;
   if (opts.autoStart && recommended) {
-    data.focus = { ...data.focus, currentTask: recommended.id };
-    data.lastUpdated = new Date().toISOString();
-    data._meta.checksum = computeChecksum(data.tasks);
-    await acc.saveTaskFile(data);
+    const currentFocus = await acc.getMetaValue<TaskWorkState>('focus_state');
+    await acc.setMetaValue('focus_state', { ...(currentFocus ?? {}), currentTask: recommended.id });
     autoStarted = true;
   }
 

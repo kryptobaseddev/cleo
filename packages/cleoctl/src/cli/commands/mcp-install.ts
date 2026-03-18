@@ -25,7 +25,7 @@ import {
   getMcpServerName,
 } from '@cleocode/core/internal';
 // CLI-only: mcp-install requires CAAMP provider detection and config file writes
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**

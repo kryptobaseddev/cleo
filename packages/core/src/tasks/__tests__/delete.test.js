@@ -36,9 +36,9 @@ describe('deleteTask', () => {
         const result = await deleteTask({ taskId: 'T001' }, env.tempDir, accessor);
         expect(result.deletedTask.id).toBe('T001');
         // Verify task removed from active tasks
-        const updated = await accessor.loadTaskFile();
-        expect(updated.tasks).toHaveLength(1);
-        expect(updated.tasks[0].id).toBe('T002');
+        const { tasks: remaining } = await accessor.queryTasks({});
+        expect(remaining).toHaveLength(1);
+        expect(remaining[0].id).toBe('T002');
         // Verify task added to archive
         const archive = await accessor.loadArchive();
         expect(archive).not.toBeNull();
@@ -100,8 +100,8 @@ describe('deleteTask', () => {
         const result = await deleteTask({ taskId: 'T001', cascade: true }, env.tempDir, accessor);
         expect(result.deletedTask.id).toBe('T001');
         expect(result.cascadeDeleted).toEqual(expect.arrayContaining(['T002', 'T003']));
-        const updated = await accessor.loadTaskFile();
-        expect(updated.tasks).toHaveLength(0);
+        const { tasks: remaining } = await accessor.queryTasks({});
+        expect(remaining).toHaveLength(0);
     });
     it('force deletes by orphaning children', async () => {
         await seedTasks(accessor, [
@@ -125,10 +125,10 @@ describe('deleteTask', () => {
         ]);
         const result = await deleteTask({ taskId: 'T001', force: true }, env.tempDir, accessor);
         expect(result.deletedTask.id).toBe('T001');
-        const updated = await accessor.loadTaskFile();
-        expect(updated.tasks).toHaveLength(1);
-        expect(updated.tasks[0].id).toBe('T002');
-        expect(updated.tasks[0].parentId).toBeFalsy();
+        const { tasks: remaining } = await accessor.queryTasks({});
+        expect(remaining).toHaveLength(1);
+        expect(remaining[0].id).toBe('T002');
+        expect(remaining[0].parentId).toBeFalsy();
     });
     it('throws when task has dependents without force', async () => {
         await seedTasks(accessor, [
@@ -176,8 +176,7 @@ describe('deleteTask', () => {
             },
         ]);
         await deleteTask({ taskId: 'T001', force: true }, env.tempDir, accessor);
-        const updated = await accessor.loadTaskFile();
-        const t002 = updated.tasks.find((t) => t.id === 'T002');
+        const t002 = await accessor.loadSingleTask('T002');
         expect(t002?.depends).toEqual(['T003']);
     });
 });

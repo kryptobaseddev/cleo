@@ -7,7 +7,6 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -87,16 +86,12 @@ export async function updateTask(
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
-  if (taskIdx === -1) {
+  const task = await acc.loadSingleTask(options.taskId);
+  if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
-
-  const task = data.tasks[taskIdx]!;
   const changes: string[] = [];
   const now = new Date().toISOString();
 
@@ -241,6 +236,7 @@ export async function updateTask(
     const currentParentId = task.parentId ?? null;
 
     if (newParentId !== currentParentId) {
+      const data = await acc.loadTaskFile();
       const result = await reparentTask(data, {
         taskId: options.taskId,
         newParentId,
@@ -259,11 +255,6 @@ export async function updateTask(
   }
 
   task.updatedAt = now;
-  data.tasks[taskIdx] = task;
-
-  // Update checksum
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = now;
 
   await acc.upsertSingleTask(task);
   await safeAppendLog(

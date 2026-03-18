@@ -13,7 +13,7 @@
  */
 
 import { CleoError, formatError, runUpgrade } from '@cleocode/core/internal';
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { createUpgradeProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';
 

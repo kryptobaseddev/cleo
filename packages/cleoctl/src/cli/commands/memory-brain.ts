@@ -10,7 +10,7 @@
  * @epic T4763
  */
 
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

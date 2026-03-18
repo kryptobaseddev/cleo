@@ -5,7 +5,7 @@
  */
 
 import type { LAFSPage } from '@cleocode/lafs-protocol';
-import type { DataAccessor } from '../store/data-accessor.js';
+import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
 import { paginate } from '../pagination.js';
 
@@ -70,45 +70,24 @@ export async function listTasks(
 ): Promise<ListTasksResult> {
   const dataAccessor =
     accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
-  const data = await dataAccessor.loadTaskFile();
 
-  let filtered = data.tasks;
+  // Build targeted query filters
+  const queryFilters: TaskQueryFilters = {
+    orderBy: 'position',
+  };
+  if (options.status) queryFilters.status = options.status;
+  if (options.priority) queryFilters.priority = options.priority;
+  if (options.type) queryFilters.type = options.type;
+  if (options.parentId) queryFilters.parentId = options.parentId;
+  if (options.phase) queryFilters.phase = options.phase;
+  if (options.label) queryFilters.label = options.label;
 
-  // Apply filters
-  if (options.status) {
-    filtered = filtered.filter((t) => t.status === options.status);
-  }
+  const queryResult = await dataAccessor.queryTasks(queryFilters);
+  let filtered = queryResult.tasks;
+  const filteredCount = queryResult.total;
 
-  if (options.priority) {
-    filtered = filtered.filter((t) => t.priority === options.priority);
-  }
-
-  if (options.type) {
-    filtered = filtered.filter((t) => t.type === options.type);
-  }
-
-  if (options.parentId) {
-    if (options.children) {
-      // Show direct children of the parent
-      filtered = filtered.filter((t) => t.parentId === options.parentId);
-    } else {
-      filtered = filtered.filter((t) => t.parentId === options.parentId);
-    }
-  }
-
-  if (options.phase) {
-    filtered = filtered.filter((t) => t.phase === options.phase);
-  }
-
-  if (options.label) {
-    filtered = filtered.filter((t) => t.labels?.includes(options.label!));
-  }
-
-  const total = data.tasks.length;
-  const filteredCount = filtered.length;
-
-  // Sort by position within parent groups
-  filtered.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  // Get total count of all tasks (unfiltered) for the response
+  const total = await dataAccessor.countTasks();
 
   const limit =
     options.limit === 0

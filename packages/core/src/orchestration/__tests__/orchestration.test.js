@@ -167,7 +167,7 @@ describe('autoDispatch', () => {
         const task = {
             id: 'T001',
             title: 'Something generic',
-            description: 'A generic task without specific keywords',
+            description: 'A generic task with no matching dispatch keywords',
             status: 'pending',
             priority: 'medium',
             createdAt: '2026-01-01T00:00:00Z',

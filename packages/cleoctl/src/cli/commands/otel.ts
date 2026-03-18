@@ -15,7 +15,7 @@ import {
   getRealTokenUsage,
 } from '@cleocode/core/internal';
 // CLI-only: no otel domain in dispatch (telemetry is local-only)
-import type { Command } from 'commander';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
