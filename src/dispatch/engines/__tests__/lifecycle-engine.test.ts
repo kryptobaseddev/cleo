@@ -6,9 +6,10 @@
  * @task T4475
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeLogger, initLogger } from '../../../core/logger.js';
 import { closeDb, resetDbState } from '../../../store/sqlite.js';
@@ -42,13 +43,21 @@ describe('Lifecycle Engine', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     closeLogger();
+    // Wait for pino worker thread to flush before deleting the log directory.
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
     closeDb();
     resetDbState();
     if (existsSync(TEST_ROOT)) {
-      rmSync(TEST_ROOT, { recursive: true, force: true });
+      // Race rm against an 8s timeout — fs.rm can block on macOS/Windows with locked files.
+      await Promise.race([
+        rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(
+          () => {},
+        ),
+        new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+      ]);
     }
   });
 
