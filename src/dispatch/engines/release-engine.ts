@@ -12,37 +12,35 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { resolveProjectRoot } from '../../core/platform.js';
-import { channelToDistTag, resolveChannelFromBranch } from '../../core/release/channel.js';
 import {
   buildPRBody,
+  bumpVersionFromConfig,
+  cancelRelease,
+  channelToDistTag,
+  checkDoubleListing,
+  checkEpicCompleteness,
+  commitRelease,
   createPullRequest,
-  isGhCliAvailable,
-  type PRResult,
-} from '../../core/release/github-pr.js';
-
-import { checkDoubleListing, checkEpicCompleteness } from '../../core/release/guards.js';
-import {
+  generateReleaseChangelog,
   getGitFlowConfig,
   getPushMode,
-  loadReleaseConfig,
-} from '../../core/release/release-config.js';
-import {
-  cancelRelease,
-  commitRelease,
-  generateReleaseChangelog,
+  getVersionBumpConfig,
+  isGhCliAvailable,
   listManifestReleases,
+  loadReleaseConfig,
   markReleasePushed,
+  type PRResult,
   prepareRelease,
   pushRelease,
   type ReleaseListOptions,
   type ReleaseTaskRecord,
+  resolveChannelFromBranch,
+  resolveProjectRoot,
   rollbackRelease,
   runReleaseGates,
   showManifestRelease,
   tagRelease,
-} from '../../core/release/release-manifest.js';
-import { bumpVersionFromConfig, getVersionBumpConfig } from '../../core/release/version-bump.js';
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 
 import { type EngineResult, engineError } from './_error.js';

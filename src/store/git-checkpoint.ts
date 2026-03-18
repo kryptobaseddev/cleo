@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { getCleoDir, getConfigPath } from '../core/paths.js';
+import { getCleoDir, getConfigPath } from '../primitives/paths.js';
 import { readJson } from './json.js';
 
 const execFileAsync = promisify(execFile);

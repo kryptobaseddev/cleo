@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getProjectRoot } from '../../core/paths.js';
+import { getProjectRoot } from '@cleocode/core';
 import type { RateLimitingConfig } from '../../mcp/lib/rate-limiter.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';

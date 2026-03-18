@@ -47,15 +47,16 @@ describe('Import Graph Verification (T4796)', () => {
 
   for (const file of ENGINE_FILES) {
     describe(`${file}`, () => {
-      it('imports from ../../core/ or ../../store/', async () => {
+      it('imports from @cleocode/core or ../../store/', async () => {
         const filePath = join(ENGINE_DIR, file);
         const content = await readFile(filePath, 'utf-8');
 
-        // Match `from '../../core/...'` lines (handles multi-line imports)
+        // Match `from '...'` lines (handles multi-line imports)
+        // T5718: engines now import via @cleocode/core (not relative ../../core/)
         const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
 
         const coreImports = fromLines.filter(
-          (line) => line.includes('../../core/') || line.includes('../../store/'),
+          (line) => line.includes("'@cleocode/core'") || line.includes('../../store/'),
         );
 
         // Every engine file should have at least one core/store import
@@ -67,16 +68,16 @@ describe('Import Graph Verification (T4796)', () => {
         const content = await readFile(filePath, 'utf-8');
 
         // Match all `from '...'` lines
+        // T5718: engines import core via @cleocode/core package
         const fromLines = content
           .split('\n')
           .filter((line) => line.match(/from\s+['"]/))
           .filter((line) => !line.includes("'node:"))
-          .filter((line) => !line.includes("'vitest"))
-          .filter((line) => !line.includes("'@cleocode"));
+          .filter((line) => !line.includes("'vitest"));
 
-        // Count core + store imports
+        // Count @cleocode/core + store imports
         const coreImports = fromLines.filter(
-          (line) => line.includes('../../core/') || line.includes('../../store/'),
+          (line) => line.includes("'@cleocode/core'") || line.includes('../../store/'),
         );
 
         // Core imports should exist
@@ -87,57 +88,77 @@ describe('Import Graph Verification (T4796)', () => {
     });
   }
 
-  it('task-engine.ts imports specific core CRUD functions', async () => {
+  it('task-engine.ts imports core CRUD functions via @cleocode/core', async () => {
     // task-engine.ts moved to src/dispatch/engines/task-engine.ts (T5100)
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'task-engine.ts'), 'utf-8');
 
-    // These core imports should exist for the shared-core pattern
-    expect(content).toContain("from '../../core/tasks/add.js'");
-    expect(content).toContain("from '../../core/tasks/show.js'");
-    expect(content).toContain("from '../../core/tasks/list.js'");
-    expect(content).toContain("from '../../core/tasks/find.js'");
-    expect(content).toContain("from '../../core/tasks/update.js'");
-    expect(content).toContain("from '../../core/tasks/delete.js'");
-    expect(content).toContain("from '../../core/tasks/archive.js'");
+    // Core task functions are now imported via @cleocode/core (T5718)
+    expect(content).toContain("from '@cleocode/core'");
+    // Verify the key task functions are imported
+    expect(content).toContain('addTask');
+    expect(content).toContain('showTask');
+    expect(content).toContain('listTasks');
+    expect(content).toContain('findTasks');
+    expect(content).toContain('updateTask');
+    expect(content).toContain('deleteTask');
+    expect(content).toContain('archiveTasks');
   });
 
-  it('dispatch session-engine.ts imports from core/sessions/ and core/task-work/', async () => {
+  it('dispatch session-engine.ts imports core session/task-work functions via @cleocode/core', async () => {
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'session-engine.ts'), 'utf-8');
 
-    expect(content).toContain("from '../../core/sessions/index.js'");
-    expect(content).toContain("from '../../core/task-work/index.js'");
+    expect(content).toContain("from '@cleocode/core'");
+    // Verify session and task-work functions are present
+    // (session engine builds sessions via parseScope/generateSessionId rather than startSession/endSession)
+    expect(content).toContain('parseScope');
+    expect(content).toContain('computeHandoff');
+    expect(content).toContain('startTask');
+    expect(content).toContain('stopTask');
   });
 
-  it('lifecycle-engine.ts imports from core/lifecycle/', async () => {
+  it('lifecycle-engine.ts imports core lifecycle functions via @cleocode/core', async () => {
     // lifecycle-engine.ts moved to src/dispatch/engines/lifecycle-engine.ts
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'lifecycle-engine.ts'), 'utf-8');
 
-    expect(content).toContain("from '../../core/lifecycle/index.js'");
+    expect(content).toContain("from '@cleocode/core'");
+    expect(content).toContain('getLifecycleStatus');
+    expect(content).toContain('recordStageProgress');
   });
 
-  it('validate-engine.ts imports from core/validation/', async () => {
+  it('validate-engine.ts imports core validation functions via @cleocode/core', async () => {
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'validate-engine.ts'), 'utf-8');
 
-    expect(content).toContain("from '../../core/validation/validate-ops.js'");
+    expect(content).toContain("from '@cleocode/core'");
+    expect(content).toContain('coreValidateSchema');
+    expect(content).toContain('coreValidateTask');
   });
 
-  it('system-engine.ts imports from core/stats/ and core/system/', async () => {
+  it('system-engine.ts imports core system functions via @cleocode/core', async () => {
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'system-engine.ts'), 'utf-8');
 
-    expect(content).toContain("from '../../core/stats/index.js'");
-    expect(content).toContain("from '../../core/system/");
+    expect(content).toContain("from '@cleocode/core'");
+    expect(content).toContain('getProjectStats');
+    expect(content).toContain('getSystemHealth');
   });
 
-  it('orchestrate-engine.ts imports from core/orchestration/', async () => {
+  it('orchestrate-engine.ts imports core orchestration functions via @cleocode/core', async () => {
+    // T5718: imports rewired from relative ../../core/ to @cleocode/core
     const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
 
-    expect(content).toContain("from '../../core/orchestration/index.js'");
+    expect(content).toContain("from '@cleocode/core'");
+    expect(content).toContain('analyzeEpic');
+    expect(content).toContain('prepareSpawn');
   });
 
   // research-engine.ts has been consolidated into core/memory/engine-compat.ts
@@ -255,7 +276,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -263,7 +284,10 @@ describe('Task CRUD Data Parity (T4796)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    await Promise.race([
+      rm(testDir, { recursive: true, force: true }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('taskShow returns same task data as core showTask', async () => {
@@ -451,7 +475,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -459,7 +483,10 @@ describe('Session Engine Delegation (T4796)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    await Promise.race([
+      rm(testDir, { recursive: true, force: true }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('sessionStatus returns valid EngineResult', async () => {
@@ -576,7 +603,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -584,7 +611,10 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    await Promise.race([
+      rm(testDir, { recursive: true, force: true }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('lifecycle-engine uses PIPELINE_STAGES from core/lifecycle/', async () => {

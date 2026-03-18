@@ -16,8 +16,8 @@
  * @epic T4732
  */
 
-import { getLogger } from '../core/logger.js';
-import { checkSequence, repairSequence } from '../core/sequence/index.js';
+import { getLogger } from '../primitives/logger.js';
+import { checkSequence, repairSequence } from '../primitives/sequence.js';
 import type { Session } from '../types/session.js';
 import type { TaskFile } from '../types/task.js';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';

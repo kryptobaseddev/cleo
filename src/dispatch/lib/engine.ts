@@ -20,7 +20,7 @@ export {
   pipelineManifestShow,
   pipelineManifestStats,
   readManifestEntries,
-} from '../../core/memory/pipeline-manifest-sqlite.js';
+} from '@cleocode/core';
 export type { Session as SessionRecord } from '../../types/session.js';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';

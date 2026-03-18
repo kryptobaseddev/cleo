@@ -1,9 +1,9 @@
 # CLEO Operation Constitution
 
-**Version**: 2026.3.8
+**Version**: 2026.3.17
 **Status**: APPROVED
-**Date**: 2026-03-08
-**Task**: T5612
+**Date**: 2026-03-17
+**Task**: T5721
 **Supersedes**: CLEO-OPERATIONS-REFERENCE.md
 
 ---
@@ -34,7 +34,48 @@ mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 
 ---
 
-## 3. Canonical Domains
+## 3. Operation Routing Architecture
+
+### Dispatch vs Core
+
+CLEO separates two distinct concerns:
+
+- **`@cleocode/core`** (`src/core/`) — business logic with a direct, typed function API. No string addressing. Usable standalone without any MCP or CLI layer.
+- **`src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates MCP/CLI requests into typed core function calls. NOT part of `@cleocode/core`.
+
+```
+MCP request: { domain: "tasks", operation: "add", params: {...} }
+  → src/dispatch/engines/task-engine.ts  (routing)
+    → @cleocode/core tasks.add()         (business logic)
+      → SQLite store                     (persistence)
+```
+
+### API Style Contrast
+
+```typescript
+// Core API — direct, typed (used by app developers via @cleocode/core):
+const cleo = await Cleo.init('./project');
+await cleo.tasks.add({ title: 'foo', description: 'bar' });
+
+// Dispatch API — string-addressed (used internally by MCP and CLI gateways):
+dispatch('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
+```
+
+### Package Boundary
+
+`src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer for string-based protocols (MCP, CLI). It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
+
+```
+@cleocode/cleo (CLI + MCP product)
+  ├── src/cli/       → Commander.js commands → dispatch → core API
+  ├── src/mcp/       → MCP protocol → dispatch → core API
+  ├── src/dispatch/  → string-addressed routing → core API  [stays in @cleocode/cleo]
+  └── @cleocode/core → typed function API  [standalone kernel]
+```
+
+---
+
+## 4. Canonical Domains
 
 CLEO defines exactly **10 canonical domains**. These are the runtime contract. Conceptual systems (BRAIN, LOOM, NEXUS, LAFS) are overlays, not domains.
 
@@ -62,7 +103,7 @@ export const CANONICAL_DOMAINS = [
 
 ---
 
-## 4. Canonical Verbs
+## 5. Canonical Verbs
 
 All operation names MUST use canonical verbs as defined in `docs/specs/VERB-STANDARDS.md`. The following verbs are approved for use in operation names:
 
@@ -108,7 +149,7 @@ Deprecated verbs (`create`, `get`, `search`, `query` as verb, `enable`, `disable
 
 ---
 
-## 5. Operation Model
+## 6. Operation Model
 
 Every operation is defined by the `OperationDef` interface:
 
@@ -131,7 +172,7 @@ interface OperationDef {
 **Field semantics:**
 
 - **gateway**: Determines which MCP tool handles the operation. Query operations MUST NOT modify state.
-- **tier**: Controls progressive disclosure. Agents start at tier 0 and escalate. See Section 7.
+- **tier**: Controls progressive disclosure. Agents start at tier 0 and escalate. See Section 8.
 - **idempotent**: When `true`, the operation is safe to retry on failure without side effects.
 - **requiredParams**: The dispatcher validates these are present before routing to the domain handler. Missing params return `E_INVALID_INPUT`.
 - **aliases**: Old operation names that still resolve to this definition. Aliases appear in gateway matrices for validation but route to the canonical handler.
@@ -139,7 +180,7 @@ interface OperationDef {
 
 ---
 
-## 6. Domain Operation Tables
+## 7. Domain Operation Tables
 
 ### 6.1 tasks (26 operations)
 
@@ -578,7 +619,7 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 
 ---
 
-## 7. Progressive Disclosure Contract
+## 8. Progressive Disclosure Contract
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
@@ -635,7 +676,7 @@ query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
 
 ---
 
-## 8. Injection Contract
+## 9. Injection Contract
 
 Protocol injection is performed via `admin.context.inject` (mutate gateway):
 
@@ -657,7 +698,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ---
 
-## 9. CLI/MCP Parity Rules
+## 10. CLI/MCP Parity Rules
 
 1. The same `{domain}.{operation}` semantics apply to both CLI and MCP.
 2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
@@ -667,7 +708,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ---
 
-## 10. Cross-Domain Moves and Plugin Boundaries
+## 11. Cross-Domain Moves and Plugin Boundaries
 
 ### Cross-Domain Moves (T5517 rationalization)
 
@@ -702,7 +743,7 @@ Six operations extracted from the core `tools` domain into the `ct-github-issues
 
 ---
 
-## 11. Tier Gate Invariant
+## 12. Tier Gate Invariant
 
 No tier-2 gate may exist without an explicit escalation path surfaced at tier 0.
 
@@ -731,7 +772,7 @@ When operations are hidden at tier 2 without visible escalation paths, agents si
 
 ---
 
-## 12. Validation and CI Enforcement
+## 13. Validation and CI Enforcement
 
 ### Request Validation
 
@@ -774,16 +815,16 @@ Operations failing questions 1, 4, or 5 without compensating answers to 2 or 3 M
 
 ---
 
-## 13. Change Control
+## 14. Change Control
 
 ### Adding Operations
 
 1. Add `OperationDef` entry to `OPERATIONS` array in `src/dispatch/registry.ts`.
 2. Implement handler in the appropriate domain handler (`src/dispatch/domains/`).
 3. Wire core logic in `src/core/`.
-4. Update this document (Section 6 tables).
+4. Update this document (Section 7 tables).
 5. Add tests for the new operation.
-6. Verify the operation satisfies the five challenge questions (Section 12).
+6. Verify the operation satisfies the five challenge questions (Section 13).
 
 ### Removing Operations
 
@@ -799,7 +840,7 @@ Operations failing questions 1, 4, or 5 without compensating answers to 2 or 3 M
 
 ---
 
-## 14. Appendix A: Error Codes
+## 15. Appendix A: Error Codes
 
 | Code | Meaning |
 |------|---------|
@@ -817,7 +858,7 @@ Error responses include machine-readable `code`, human-readable `message`, optio
 
 ---
 
-## 15. Appendix B: Field Naming Conventions
+## 16. Appendix B: Field Naming Conventions
 
 | Context | Convention | Example |
 |---------|-----------|---------|
@@ -831,7 +872,7 @@ Error responses include machine-readable `code`, human-readable `message`, optio
 
 ---
 
-## 16. Appendix C: Migration Reference (268→195 Rationalization)
+## 17. Appendix C: Migration Reference (268→195 Rationalization)
 
 Quick reference for agents and code calling removed operations.
 

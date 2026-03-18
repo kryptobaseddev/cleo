@@ -6,11 +6,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 import { computeWaves } from './waves.js';
 
 interface ParallelState {
@@ -65,9 +63,8 @@ export async function startParallelExecution(
     );
   }
 
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];
   const epic = tasks.find((t) => t.id === epicId);

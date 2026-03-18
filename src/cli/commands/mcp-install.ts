@@ -17,11 +17,15 @@ import {
   type McpServerConfig,
   type Provider,
 } from '@cleocode/caamp';
+import {
+  CleoError,
+  detectEnvMode,
+  formatError,
+  generateMcpServerEntry,
+  getMcpServerName,
+} from '@cleocode/core';
 // CLI-only: mcp-install requires CAAMP provider detection and config file writes
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../../core/mcp/index.js';
-import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**

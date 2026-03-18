@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { registerWebCommand } from '../commands/web.js';
 
 vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
   execFileSync: vi.fn(),
   spawn: vi.fn().mockReturnValue({
     pid: 12345,

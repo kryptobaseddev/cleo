@@ -63,16 +63,27 @@ describe('Session Memory', () => {
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       closeBrainDb();
     } catch {
-      // brain-sqlite may not be loaded
+      /* may not be loaded */
+    }
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch {
+      /* may not be loaded */
     }
     try {
       const { resetFts5Cache } = await import('../brain-search.js');
       resetFts5Cache();
     } catch {
-      // brain-search may not be loaded
+      /* may not be loaded */
     }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    // Race rm against an 8s timeout. On Windows, fs.rm can block indefinitely
+    // on locked SQLite WAL files — racing prevents the hook from timing out.
+    await Promise.race([
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   // ==========================================================================

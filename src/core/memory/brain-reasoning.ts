@@ -11,11 +11,8 @@
 
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import type { BrainDecisionRow } from '../../store/brain-schema.js';
-import { getBrainDb } from '../../store/brain-sqlite.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJsonRequired } from '../../store/json.js';
-import type { TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
 
@@ -55,9 +52,8 @@ export async function reasonWhy(
   projectRoot: string,
   taskAccessor?: DataAccessor,
 ): Promise<CausalTrace> {
-  const data = taskAccessor
-    ? ((await taskAccessor.loadTaskFile()) as TaskFile)
-    : await readJsonRequired<TaskFile>(getTaskPath(projectRoot));
+  const acc = taskAccessor ?? (await getAccessor(projectRoot));
+  const data = await acc.loadTaskFile();
   const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
   const completedStatuses = new Set(['done', 'cancelled']);
@@ -188,7 +184,8 @@ export async function reasonSimilar(
 ): Promise<SimilarEntry[]> {
   const maxResults = limit ?? 10;
 
-  // Load the source entry's text
+  // Load the source entry's text — initialize brain.db before accessor use
+  const { getBrainDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const accessor = await getBrainAccessor(projectRoot);
 

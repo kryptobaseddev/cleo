@@ -8,6 +8,7 @@
  * @epic T5267
  */
 
+import type { CreateStickyParams, ListStickiesParams, StickyNote } from '@cleocode/core';
 import {
   addSticky,
   archiveSticky,
@@ -18,12 +19,7 @@ import {
   getSticky,
   listStickies,
   purgeSticky,
-} from '../../core/sticky/index.js';
-import type {
-  CreateStickyParams,
-  ListStickiesParams,
-  StickyNote,
-} from '../../core/sticky/types.js';
+} from '@cleocode/core';
 import { type EngineResult, engineError } from './_error.js';
 
 // Re-export EngineResult for consumers

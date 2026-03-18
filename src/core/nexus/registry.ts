@@ -14,12 +14,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../../store/nexus-schema.js';
 import { nexusAuditLog, projectRegistry } from '../../store/nexus-schema.js';
-import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+// Re-export only: resetNexusDbState used by tests and index barrel.
+import { resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
@@ -128,6 +128,7 @@ interface NexusAuditFields {
  */
 async function writeNexusAudit(fields: NexusAuditFields): Promise<void> {
   try {
+    const { getNexusDb } = await import('../../store/nexus-sqlite.js');
     const db = await getNexusDb();
     await db.insert(nexusAuditLog).values({
       id: randomUUID(),
@@ -161,6 +162,7 @@ async function writeNexusAudit(fields: NexusAuditFields): Promise<void> {
  */
 export async function readRegistry(): Promise<NexusRegistryFile | null> {
   try {
+    const { getNexusDb } = await import('../../store/nexus-sqlite.js');
     const db = await getNexusDb();
     const rows = await db.select().from(projectRegistry);
     const projects: Record<string, NexusProject> = {};
@@ -208,7 +210,8 @@ export async function nexusInit(): Promise<void> {
   await mkdir(nexusHome, { recursive: true });
   await mkdir(cacheDir, { recursive: true });
 
-  // Initialize nexus.db (runs migrations)
+  // Initialize nexus.db (runs migrations) then check for legacy migration
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
   await getNexusDb();
 
   // Migrate legacy JSON if nexus.db is empty and JSON exists
@@ -288,6 +291,8 @@ export async function nexusRegister(
 
   // Ensure nexus.db is initialized
   await nexusInit();
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   // Check if already registered
@@ -382,6 +387,8 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
     throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
   }
 
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
   await db.delete(projectRegistry).where(eq(projectRegistry.projectHash, project.hash));
 
@@ -399,6 +406,7 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
  */
 export async function nexusList(): Promise<NexusProject[]> {
   try {
+    const { getNexusDb } = await import('../../store/nexus-sqlite.js');
     const db = await getNexusDb();
     const rows = await db.select().from(projectRegistry);
     return rows.map(rowToProject);
@@ -413,6 +421,8 @@ export async function nexusList(): Promise<NexusProject[]> {
  */
 export async function nexusGetProject(nameOrHash: string): Promise<NexusProject | null> {
   try {
+    const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+    const { eq, or } = await import('drizzle-orm');
     const db = await getNexusDb();
 
     // Try hash match first, then name
@@ -452,6 +462,8 @@ export async function nexusSync(nameOrHash: string): Promise<void> {
 
   const meta = await readProjectMeta(project.path);
   const now = new Date().toISOString();
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   await db
@@ -481,6 +493,8 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
   const projects = await nexusList();
   let synced = 0;
   let failed = 0;
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   for (const project of projects) {
@@ -525,6 +539,8 @@ export async function nexusSetPermission(
     throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
   }
 
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
   await db
     .update(projectRegistry)
@@ -565,6 +581,8 @@ export async function nexusReconcile(projectRoot: string): Promise<{
   }
 
   await nexusInit();
+  const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   const projectId = await readProjectId(projectRoot);

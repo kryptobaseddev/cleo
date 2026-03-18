@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuditEntry } from '../../../../dispatch/middleware/audit.js';
+import type { AuditEntry } from '../../audit.js';
 
 // Mock only the SQLite-dependent queryAudit; all other code is real
 const mocks = vi.hoisted(() => ({
@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   tempCleoDir: { value: '' },
 }));
 
-vi.mock('../../../dispatch/middleware/audit.js', () => ({
+vi.mock('../../audit.js', () => ({
   queryAudit: mocks.queryAudit,
 }));
 

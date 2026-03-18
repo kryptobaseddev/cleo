@@ -37,7 +37,21 @@ afterEach(async () => {
   } catch {
     /* ignore */
   }
-  await rm(tempDir, { recursive: true, force: true });
+  // Allow fire-and-forget async ops (e.g. bridgeSessionToMemory) to settle,
+  // then close any db connections they may have re-opened.
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+  try {
+    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    await closeAllDatabases();
+  } catch {
+    /* ignore */
+  }
+  // Race rm against an 8s timeout. On Windows, fs.rm can block indefinitely
+  // on locked SQLite WAL files — racing prevents the hook from timing out.
+  await Promise.race([
+    rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+  ]);
 });
 
 // ============================================================
@@ -249,7 +263,8 @@ describe('Session focus and notes', () => {
     await startSession({ name: 'Empty note', scope: 'global' }, tempDir);
     const ended = await endSession({}, tempDir);
 
-    expect(ended.notes).toEqual([]);
+    // SQLite round-trips empty arrays as undefined via safeParseJsonArray
+    expect(ended.notes ?? []).toEqual([]);
   });
 });
 

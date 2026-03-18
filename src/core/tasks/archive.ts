@@ -5,15 +5,14 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import {
   safeAppendLog,
   safeSaveArchive,
   safeSaveTaskFile,
 } from '../../store/data-safety-central.js';
-import { computeChecksum, readJson, readJsonRequired, saveJson } from '../../store/json.js';
-import type { Task, TaskFile } from '../../types/task.js';
-import { getArchivePath, getBackupDir, getTaskPath } from '../paths.js';
-import { logOperation } from './add.js';
+import { computeChecksum } from '../../store/json.js';
+import type { Task } from '../../types/task.js';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
@@ -45,13 +44,8 @@ export async function archiveTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ArchiveTasksResult> {
-  const taskPath = getTaskPath(cwd);
-  const archivePath = getArchivePath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
   const includeCancelled = options.includeCancelled ?? true;
 
   // Determine which tasks to archive
@@ -121,12 +115,7 @@ export async function archiveTasks(
   const remainingTasks = data.tasks.filter((t) => !archivedSet.has(t.id));
 
   // Read/create archive file
-  let archiveData: { archivedTasks: Task[]; version?: string } | null;
-  if (accessor) {
-    archiveData = await accessor.loadArchive();
-  } else {
-    archiveData = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
-  }
+  let archiveData = await acc.loadArchive();
   if (!archiveData) {
     archiveData = { archivedTasks: [], version: '1.0.0' };
   }
@@ -142,41 +131,32 @@ export async function archiveTasks(
   data._meta.checksum = computeChecksum(remainingTasks);
   data.lastUpdated = now;
 
-  if (accessor) {
-    if (accessor.archiveSingleTask) {
-      // Fine-grained path: archive each task individually
-      for (const t of tasksToArchive) {
-        await accessor.archiveSingleTask(t.id, {
-          archivedAt: now,
-          archiveReason: t.status === 'cancelled' ? 'cancelled' : 'completed',
-        });
-      }
-    } else {
-      await safeSaveTaskFile(accessor, data, cwd);
-      await safeSaveArchive(accessor, archiveData, cwd);
+  if (acc.archiveSingleTask) {
+    // Fine-grained path: archive each task individually
+    for (const t of tasksToArchive) {
+      await acc.archiveSingleTask(t.id, {
+        archivedAt: now,
+        archiveReason: t.status === 'cancelled' ? 'cancelled' : 'completed',
+      });
     }
-    await safeAppendLog(
-      accessor,
-      {
-        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-        timestamp: new Date().toISOString(),
-        action: 'tasks_archived',
-        taskId: archived.join(','),
-        actor: 'system',
-        details: { count: archived.length, ids: archived },
-        before: null,
-        after: { count: archived.length, ids: archived },
-      },
-      cwd,
-    );
   } else {
-    await saveJson(taskPath, data, { backupDir });
-    await saveJson(archivePath, archiveData, { backupDir });
-    await logOperation('tasks_archived', archived.join(','), {
-      count: archived.length,
-      ids: archived,
-    });
+    await safeSaveTaskFile(acc, data, cwd);
+    await safeSaveArchive(acc, archiveData, cwd);
   }
+  await safeAppendLog(
+    acc,
+    {
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'tasks_archived',
+      taskId: archived.join(','),
+      actor: 'system',
+      details: { count: archived.length, ids: archived },
+      before: null,
+      after: { count: archived.length, ids: archived },
+    },
+    cwd,
+  );
 
   return { archived, skipped, total: data.tasks.length + archived.length };
 }

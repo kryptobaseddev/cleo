@@ -13,11 +13,10 @@
  * @epic T5149
  */
 
-import type { EngineResult } from '../../dispatch/engines/_error.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import type { EngineResult } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
@@ -159,6 +158,7 @@ export async function memoryShow(entryId: string, projectRoot?: string): Promise
 export async function memoryBrainStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 
@@ -224,6 +224,7 @@ export async function memoryDecisionFind(
     const accessor = await getBrainAccessor(root);
 
     if (params.query) {
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
       await getBrainDb(root);
       const nativeDb = getBrainNativeDb();
 
@@ -569,6 +570,7 @@ export async function memoryLearningStats(projectRoot?: string): Promise<EngineR
 export async function memoryContradictions(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 
@@ -768,6 +770,7 @@ export async function memorySuperseded(
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 

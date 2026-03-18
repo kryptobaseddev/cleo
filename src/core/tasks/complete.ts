@@ -5,14 +5,13 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { safeAppendLog, safeSaveTaskData } from '../../store/data-safety-central.js';
-import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile, VerificationGate } from '../../types/task.js';
+import type { Task, VerificationGate } from '../../types/task.js';
 import { getRawConfigValue } from '../config.js';
 import { CleoError } from '../errors.js';
-import { getBackupDir, getTaskPath } from '../paths.js';
-import { logOperation } from './add.js';
 import { getDependents, getUnresolvedDeps } from './dependency-check.js';
 
 /** Options for completing a task. */
@@ -119,12 +118,8 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const taskPath = getTaskPath(cwd);
-  const backupDir = getBackupDir(cwd);
-
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
 
   const taskIdx = data.tasks.findIndex((t) => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -276,38 +271,30 @@ export async function completeTask(
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  if (accessor) {
-    if (accessor.upsertSingleTask) {
-      await accessor.upsertSingleTask(task);
-      // Also upsert auto-completed parent if any
-      for (const parentId of autoCompleted) {
-        const parent = data.tasks.find((t) => t.id === parentId);
-        if (parent) await accessor.upsertSingleTask(parent);
-      }
-    } else {
-      await safeSaveTaskData(accessor, data, cwd);
+  if (acc.upsertSingleTask) {
+    await acc.upsertSingleTask(task);
+    // Also upsert auto-completed parent if any
+    for (const parentId of autoCompleted) {
+      const parent = data.tasks.find((t) => t.id === parentId);
+      if (parent) await acc.upsertSingleTask(parent);
     }
-    await safeAppendLog(
-      accessor,
-      {
-        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-        timestamp: new Date().toISOString(),
-        action: 'task_completed',
-        taskId: options.taskId,
-        actor: 'system',
-        details: { title: task.title, previousStatus: before.status },
-        before: null,
-        after: { title: task.title, previousStatus: before.status },
-      },
-      cwd,
-    );
   } else {
-    await saveJson(taskPath, data, { backupDir });
-    await logOperation('task_completed', options.taskId, {
-      title: task.title,
-      previousStatus: before.status,
-    });
+    await safeSaveTaskData(acc, data, cwd);
   }
+  await safeAppendLog(
+    acc,
+    {
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_completed',
+      taskId: options.taskId,
+      actor: 'system',
+      details: { title: task.title, previousStatus: before.status },
+      before: null,
+      after: { title: task.title, previousStatus: before.status },
+    },
+    cwd,
+  );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
   const dependents = getDependents(options.taskId, data.tasks);

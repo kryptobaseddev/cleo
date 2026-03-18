@@ -13,8 +13,7 @@
  * @task T4844
  */
 
-import { getLogger } from '../../core/logger.js';
-import { getProjectInfoSync } from '../../core/project-info.js';
+import { getLogger, getProjectInfoSync } from '@cleocode/core';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -33,29 +32,10 @@ function resolveProjectHash(): string | null {
   return cachedProjectHash;
 }
 
-/**
- * Audit entry interface.
- * Retained for type compatibility with session-grade and system-engine.
- */
-export interface AuditEntry {
-  timestamp: string;
-  sessionId: string | null;
-  domain: string;
-  operation: string;
-  params: Record<string, unknown>;
-  result: {
-    success: boolean;
-    exitCode: number;
-    duration: number;
-  };
-  metadata: {
-    taskId?: string;
-    userId?: string;
-    source: 'mcp' | 'cli';
-    gateway?: 'mutate' | 'query';
-  };
-  error?: string;
-}
+// AuditEntry type re-exported from core (canonical location)
+export type { AuditEntry } from '@cleocode/core';
+
+import type { AuditEntry } from '@cleocode/core';
 
 /**
  * Check if the current context is a grade session.
@@ -210,68 +190,5 @@ export function createAudit(): Middleware {
   };
 }
 
-/**
- * Query audit entries from SQLite audit_log table.
- * Used by session-grade.ts for behavioral analysis.
- *
- * Returns entries ordered chronologically (ASC) to preserve
- * behavioral sequence for grading analysis.
- */
-export async function queryAudit(options?: {
-  sessionId?: string;
-  domain?: string;
-  operation?: string;
-  taskId?: string;
-  since?: string;
-  limit?: number;
-}): Promise<AuditEntry[]> {
-  try {
-    const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/tasks-schema.js');
-    const { and, eq, gte, or } = await import('drizzle-orm');
-
-    const db = await getDb(process.cwd());
-
-    // Use typed ORM query (not raw SQL) so drizzle returns named-field objects,
-    // not positional arrays (node:sqlite setReturnArrays causes raw SQL to lose field names).
-    const conditions = [];
-    if (options?.sessionId) conditions.push(eq(auditLog.sessionId, options.sessionId));
-    if (options?.domain) conditions.push(eq(auditLog.domain, options.domain));
-    if (options?.operation)
-      conditions.push(
-        or(eq(auditLog.operation, options.operation), eq(auditLog.action, options.operation))!,
-      );
-    if (options?.taskId) conditions.push(eq(auditLog.taskId, options.taskId));
-    if (options?.since) conditions.push(gte(auditLog.timestamp, options.since));
-
-    const limit = options?.limit ?? 1000;
-
-    const rows = await db
-      .select()
-      .from(auditLog)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(auditLog.timestamp)
-      .limit(limit);
-
-    return rows.map((row) => ({
-      timestamp: row.timestamp,
-      sessionId: row.sessionId,
-      domain: row.domain ?? 'unknown',
-      operation: row.operation ?? row.action,
-      params: row.detailsJson ? JSON.parse(row.detailsJson) : {},
-      result: {
-        success: row.success === 1,
-        exitCode: row.success === 1 ? 0 : 1,
-        duration: row.durationMs ?? 0,
-      },
-      metadata: {
-        taskId: row.taskId !== 'system' && row.taskId !== 'unknown' ? row.taskId : undefined,
-        source: (row.source as 'mcp' | 'cli') ?? 'mcp',
-        gateway: row.gateway as 'mutate' | 'query' | undefined,
-      },
-      error: row.errorMessage ?? undefined,
-    }));
-  } catch {
-    return [];
-  }
-}
+// queryAudit re-exported from core (canonical location)
+export { queryAudit } from '@cleocode/core';

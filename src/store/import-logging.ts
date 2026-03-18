@@ -9,7 +9,7 @@
  * @epic T4545
  */
 
-import { getLogPath } from '../core/paths.js';
+import { getLogPath } from '../primitives/paths.js';
 import { appendJsonl, readJson } from './json.js';
 
 /** Import package metadata extracted from the export file. */

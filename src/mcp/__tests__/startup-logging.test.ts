@@ -10,8 +10,8 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { closeLogger, getLogger, initLogger } from '@cleocode/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeLogger, getLogger, initLogger } from '../../core/logger.js';
 
 describe('MCP startup logging (T5310)', () => {
   let tempDir: string;
@@ -24,14 +24,14 @@ describe('MCP startup logging (T5310)', () => {
   }
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   });
 
-  it('getLogger returns fallback before initLogger is called', () => {
-    closeLogger();
+  it('getLogger returns fallback before initLogger is called', async () => {
+    await closeLogger();
     const pre = getLogger('mcp:startup');
     expect(pre).toBeDefined();
     // Fallback logger is at warn level

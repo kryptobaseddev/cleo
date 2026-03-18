@@ -2,51 +2,46 @@
  * Nexus Domain Handler (Dispatch Layer)
  *
  * Cross-project coordination via the BRAIN Network.
- * Delegates to src/core/nexus/ for all business logic.
+ * Delegates to nexus-engine which wraps src/core/nexus/ for all business logic.
  *
  * Also handles multi-contributor sharing operations (status, snapshot export/import).
  * Git CLI wrappers (remotes, push/pull, gitignore) removed in T5615.
  *
  * @epic T4820
- * @task T5671
+ * @task T5704
  */
 
-import { getLogger } from '../../core/logger.js';
+import { getLogger, getProjectRoot, type NexusPermissionLevel } from '@cleocode/core';
 import {
-  blockingAnalysis,
-  buildGlobalGraph,
-  criticalPath,
-  nexusDeps,
-  orphanDetection,
-} from '../../core/nexus/deps.js';
-import { setPermission } from '../../core/nexus/permissions.js';
-import { parseQuery, resolveTask, validateSyntax } from '../../core/nexus/query.js';
-import {
-  type NexusPermissionLevel,
-  nexusGetProject,
-  nexusInit,
-  nexusList,
-  nexusReconcile,
-  nexusRegister,
-  nexusSync,
-  nexusSyncAll,
-  nexusUnregister,
-  readRegistry,
-} from '../../core/nexus/registry.js';
-// Sharing core imports (merged from sharing domain)
-import { getSharingStatus } from '../../core/nexus/sharing/index.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
-import {
-  exportSnapshot,
-  getDefaultSnapshotPath,
-  importSnapshot,
-  readSnapshot,
-  writeSnapshot,
-} from '../../core/snapshot/index.js';
-import { getAccessor } from '../../store/data-accessor.js';
+  nexusBlockers,
+  nexusCriticalPath,
+  nexusDepsQuery,
+  nexusDiscover,
+  nexusGraph,
+  nexusInitialize,
+  nexusListProjects,
+  nexusOrphans,
+  nexusReconcileProject,
+  nexusRegisterProject,
+  nexusResolve,
+  nexusSearch,
+  nexusSetPermission,
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusShareStatus,
+  nexusShowProject,
+  nexusStatus,
+  nexusSyncProject,
+  nexusUnregisterProject,
+} from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult, unsupportedOp } from './_base.js';
+import {
+  errorResult,
+  getListParams,
+  handleErrorResult,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
@@ -70,32 +65,27 @@ export class NexusHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'status': {
-          const registry = await readRegistry();
-          const initialized = registry !== null;
-          const projectCount = initialized ? Object.keys(registry.projects).length : 0;
-          return this.successResponse('query', operation, startTime, {
-            initialized,
-            projectCount,
-            lastUpdated: registry?.lastUpdated ?? null,
-          });
+          const result = await nexusStatus();
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'list': {
-          const projects = await nexusList();
           const { limit, offset } = getListParams(params);
-          const page = paginate(projects, limit, offset);
-          return this.successResponse(
-            'query',
-            operation,
-            startTime,
-            {
-              projects: page.items,
-              count: projects.length,
-              total: projects.length,
-              filtered: projects.length,
+          const result = await nexusListProjects(limit, offset);
+          if (!result.success) {
+            return wrapResult(result, 'query', 'nexus', operation, startTime);
+          }
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: {
+              projects: result.data!.projects,
+              count: result.data!.count,
+              total: result.data!.total,
+              filtered: result.data!.filtered,
             },
-            page.page,
-          );
+            page: result.data!.page,
+          };
         }
 
         case 'show': {
@@ -110,18 +100,8 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          const project = await nexusGetProject(name);
-          if (!project) {
-            return errorResult(
-              'query',
-              'nexus',
-              operation,
-              'E_NOT_FOUND',
-              `Project not found: ${name}`,
-              startTime,
-            );
-          }
-          return this.successResponse('query', operation, startTime, project);
+          const result = await nexusShowProject(name);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'resolve': {
@@ -136,18 +116,8 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          if (!validateSyntax(query)) {
-            return errorResult(
-              'query',
-              'nexus',
-              operation,
-              'E_INVALID_INPUT',
-              `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`,
-              startTime,
-            );
-          }
-          const result = await resolveTask(query, params?.currentProject as string | undefined);
-          return this.successResponse('query', operation, startTime, result);
+          const result = await nexusResolve(query, params?.currentProject as string | undefined);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'deps': {
@@ -163,18 +133,18 @@ export class NexusHandler implements DomainHandler {
             );
           }
           const direction = (params?.direction as 'forward' | 'reverse') ?? 'forward';
-          const result = await nexusDeps(query, direction);
-          return this.successResponse('query', operation, startTime, result);
+          const result = await nexusDepsQuery(query, direction);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'graph': {
-          const graph = await buildGlobalGraph();
-          return this.successResponse('query', operation, startTime, graph);
+          const result = await nexusGraph();
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'path.show': {
-          const path = await criticalPath();
-          return this.successResponse('query', operation, startTime, path);
+          const result = await nexusCriticalPath();
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'blockers.show': {
@@ -189,26 +159,27 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          const analysis = await blockingAnalysis(query);
-          return this.successResponse('query', operation, startTime, analysis);
+          const result = await nexusBlockers(query);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'orphans.list': {
-          const orphans = await orphanDetection();
           const { limit, offset } = getListParams(params);
-          const page = paginate(orphans, limit, offset);
-          return this.successResponse(
-            'query',
-            operation,
-            startTime,
-            {
-              orphans: page.items,
-              count: orphans.length,
-              total: orphans.length,
-              filtered: orphans.length,
+          const result = await nexusOrphans(limit, offset);
+          if (!result.success) {
+            return wrapResult(result, 'query', 'nexus', operation, startTime);
+          }
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: {
+              orphans: result.data!.orphans,
+              count: result.data!.count,
+              total: result.data!.total,
+              filtered: result.data!.filtered,
             },
-            page.page,
-          );
+            page: result.data!.page,
+          };
         }
 
         case 'discover': {
@@ -225,13 +196,8 @@ export class NexusHandler implements DomainHandler {
           }
           const method = (params?.method as string) ?? 'auto';
           const limit = (params?.limit as number) ?? 10;
-          const results = await this.discoverRelatedTasks(query, method, limit);
-          return this.successResponse('query', operation, startTime, {
-            query,
-            method,
-            results,
-            total: results.length,
-          });
+          const result = await nexusDiscover(query, method, limit);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
         case 'search': {
@@ -248,16 +214,14 @@ export class NexusHandler implements DomainHandler {
           }
           const projectFilter = params?.project as string | undefined;
           const limit = (params?.limit as number) ?? 20;
-          const results = await this.searchAcrossProjects(pattern, projectFilter, limit);
-          return this.successResponse('query', operation, startTime, {
-            pattern,
-            results,
-            resultCount: results.length,
-          });
+          const result = await nexusSearch(pattern, projectFilter, limit);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
-        case 'share.status':
-          return this.queryShareStatus(startTime);
+        case 'share.status': {
+          const result = await nexusShareStatus(this.projectRoot);
+          return wrapResult(result, 'query', 'nexus', 'share.status', startTime);
+        }
 
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
@@ -281,10 +245,8 @@ export class NexusHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'init': {
-          await nexusInit();
-          return this.successResponse('mutate', operation, startTime, {
-            message: 'NEXUS initialized successfully',
-          });
+          const result = await nexusInitialize();
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
         case 'register': {
@@ -299,15 +261,12 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          const hash = await nexusRegister(
+          const result = await nexusRegisterProject(
             path,
             params?.name as string | undefined,
             (params?.permission as NexusPermissionLevel) ?? 'read',
           );
-          return this.successResponse('mutate', operation, startTime, {
-            hash,
-            message: `Project registered with hash: ${hash}`,
-          });
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
         case 'unregister': {
@@ -322,22 +281,14 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          await nexusUnregister(name);
-          return this.successResponse('mutate', operation, startTime, {
-            message: `Project unregistered: ${name}`,
-          });
+          const result = await nexusUnregisterProject(name);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
         case 'sync': {
           const name = params?.name as string | undefined;
-          if (name) {
-            await nexusSync(name);
-            return this.successResponse('mutate', operation, startTime, {
-              message: `Project synced: ${name}`,
-            });
-          }
-          const result = await nexusSyncAll();
-          return this.successResponse('mutate', operation, startTime, result);
+          const result = await nexusSyncProject(name);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
         case 'permission.set': {
@@ -373,23 +324,37 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          await setPermission(name, level as NexusPermissionLevel);
-          return this.successResponse('mutate', operation, startTime, {
-            message: `Permission for '${name}' set to '${level}'`,
-          });
+          const result = await nexusSetPermission(name, level as NexusPermissionLevel);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
         case 'reconcile': {
           const projectRoot = (params?.projectRoot as string) || process.cwd();
-          const result = await nexusReconcile(projectRoot);
-          return this.successResponse('mutate', operation, startTime, result);
+          const result = await nexusReconcileProject(projectRoot);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
-        case 'share.snapshot.export':
-          return this.mutateShareSnapshotExport(params, startTime);
+        case 'share.snapshot.export': {
+          const outputPath = params?.outputPath as string | undefined;
+          const result = await nexusShareSnapshotExport(this.projectRoot, outputPath);
+          return wrapResult(result, 'mutate', 'nexus', 'share.snapshot.export', startTime);
+        }
 
-        case 'share.snapshot.import':
-          return this.mutateShareSnapshotImport(params, startTime);
+        case 'share.snapshot.import': {
+          const inputPath = params?.inputPath as string;
+          if (!inputPath) {
+            return errorResult(
+              'mutate',
+              'nexus',
+              'share.snapshot.import',
+              'E_INVALID_INPUT',
+              'inputPath is required',
+              startTime,
+            );
+          }
+          const result = await nexusShareSnapshotImport(this.projectRoot, inputPath);
+          return wrapResult(result, 'mutate', 'nexus', 'share.snapshot.import', startTime);
+        }
 
         default:
           return unsupportedOp('mutate', 'nexus', operation, startTime);
@@ -433,386 +398,6 @@ export class NexusHandler implements DomainHandler {
         'permission.set',
         'reconcile',
       ],
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // Helpers
-  // -----------------------------------------------------------------------
-
-  // -----------------------------------------------------------------------
-  // Discovery & Search engines (moved from CLI, T5323/T5330)
-  // -----------------------------------------------------------------------
-
-  private async discoverRelatedTasks(
-    taskQuery: string,
-    method: string,
-    limit: number,
-  ): Promise<
-    Array<{
-      project: string;
-      taskId: string;
-      title: string;
-      score: number;
-      type: string;
-      reason: string;
-    }>
-  > {
-    if (!validateSyntax(taskQuery)) {
-      throw new Error(
-        `Invalid query syntax: ${taskQuery}. Expected: T001, project:T001, .:T001, or *:T001`,
-      );
-    }
-
-    const sourceTask = await resolveTask(taskQuery);
-    if (Array.isArray(sourceTask)) {
-      throw new Error('Wildcard queries not supported for discovery. Specify a single task.');
-    }
-
-    const sourceLabels = new Set(sourceTask.labels ?? []);
-    const sourceDesc = (sourceTask.description ?? '').toLowerCase();
-    const sourceTitle = (sourceTask.title ?? '').toLowerCase();
-    const sourceWords = this.extractKeywords(sourceTitle + ' ' + sourceDesc);
-    const parsed = parseQuery(taskQuery);
-
-    const registry = await readRegistry();
-    if (!registry) return [];
-
-    const candidates: Array<{
-      project: string;
-      taskId: string;
-      title: string;
-      score: number;
-      type: string;
-      reason: string;
-    }> = [];
-
-    for (const project of Object.values(registry.projects)) {
-      let tasks: Array<{
-        id: string;
-        title: string;
-        description?: string;
-        labels?: string[];
-        status: string;
-      }>;
-      try {
-        const accessor = await getAccessor(project.path);
-        const data = await accessor.loadTaskFile();
-        tasks = data.tasks ?? [];
-      } catch {
-        continue;
-      }
-
-      for (const task of tasks) {
-        if (task.id === parsed.taskId && project.name === parsed.project) continue;
-
-        let score = 0;
-        let matchType = 'none';
-        let reason = '';
-
-        if (method === 'labels' || method === 'auto') {
-          const taskLabels = task.labels ?? [];
-          const overlap = taskLabels.filter((l) => sourceLabels.has(l));
-          if (overlap.length > 0) {
-            const labelScore = overlap.length / Math.max(sourceLabels.size, taskLabels.length, 1);
-            if (method === 'labels' || labelScore > score) {
-              score = Math.max(score, labelScore);
-              matchType = 'labels';
-              reason = `Shared labels: ${overlap.join(', ')}`;
-            }
-          }
-        }
-
-        if (method === 'description' || method === 'auto') {
-          const taskDesc = ((task.description ?? '') + ' ' + (task.title ?? '')).toLowerCase();
-          const taskWords = this.extractKeywords(taskDesc);
-          const commonWords = sourceWords.filter((w) => taskWords.includes(w));
-          if (commonWords.length > 0) {
-            const descScore =
-              commonWords.length / Math.max(sourceWords.length, taskWords.length, 1);
-            if (descScore > score) {
-              score = descScore;
-              matchType = 'description';
-              reason = `Keyword match: ${commonWords.slice(0, 5).join(', ')}`;
-            }
-          }
-        }
-
-        if (score > 0) {
-          candidates.push({
-            project: project.name,
-            taskId: task.id,
-            title: task.title,
-            score: Math.round(score * 100) / 100,
-            type: matchType,
-            reason,
-          });
-        }
-      }
-    }
-
-    candidates.sort((a, b) => b.score - a.score);
-    return candidates.slice(0, limit);
-  }
-
-  private async searchAcrossProjects(
-    pattern: string,
-    projectFilter?: string,
-    limit = 20,
-  ): Promise<
-    Array<{
-      id: string;
-      title: string;
-      status: string;
-      priority?: string;
-      description?: string;
-      _project: string;
-    }>
-  > {
-    // Handle wildcard query syntax (*:T001) - delegate to resolveTask
-    if (/^\*:.+$/.test(pattern)) {
-      try {
-        const result = await resolveTask(pattern);
-        const tasks = Array.isArray(result) ? result : [result];
-        return tasks.slice(0, limit).map((t) => ({
-          id: t.id,
-          title: t.title,
-          status: t.status,
-          priority: t.priority,
-          description: t.description,
-          _project: t._project,
-        }));
-      } catch {
-        // Fall through to pattern search if resolveTask fails
-      }
-    }
-
-    const registry = await readRegistry();
-    if (!registry) return [];
-
-    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    const regexPattern = escaped.replace(/\*/g, '.*');
-    let regex: RegExp;
-    try {
-      regex = new RegExp(regexPattern, 'i');
-    } catch {
-      throw new Error(`Invalid search pattern: ${pattern}`);
-    }
-
-    const results: Array<{
-      id: string;
-      title: string;
-      status: string;
-      priority?: string;
-      description?: string;
-      _project: string;
-    }> = [];
-    const projectEntries = projectFilter
-      ? Object.values(registry.projects).filter((p) => p.name === projectFilter)
-      : Object.values(registry.projects);
-
-    if (projectFilter && projectEntries.length === 0) {
-      throw new Error(`Project not found in registry: ${projectFilter}`);
-    }
-
-    for (const project of projectEntries) {
-      let tasks: Array<{
-        id: string;
-        title: string;
-        description?: string;
-        status: string;
-        priority?: string;
-      }>;
-      try {
-        const accessor = await getAccessor(project.path);
-        const data = await accessor.loadTaskFile();
-        tasks = data.tasks ?? [];
-      } catch {
-        continue;
-      }
-
-      for (const task of tasks) {
-        const matchesId = regex.test(task.id);
-        const matchesTitle = regex.test(task.title);
-        const matchesDesc = regex.test(task.description ?? '');
-
-        if (matchesId || matchesTitle || matchesDesc) {
-          results.push({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            priority: task.priority,
-            description: task.description,
-            _project: project.name,
-          });
-        }
-      }
-    }
-
-    return results.slice(0, limit);
-  }
-
-  private extractKeywords(text: string): string[] {
-    const stopWords = new Set([
-      'the',
-      'a',
-      'an',
-      'is',
-      'are',
-      'was',
-      'were',
-      'be',
-      'been',
-      'being',
-      'have',
-      'has',
-      'had',
-      'do',
-      'does',
-      'did',
-      'will',
-      'would',
-      'could',
-      'should',
-      'may',
-      'might',
-      'shall',
-      'can',
-      'need',
-      'dare',
-      'to',
-      'of',
-      'in',
-      'for',
-      'on',
-      'with',
-      'at',
-      'by',
-      'from',
-      'as',
-      'into',
-      'through',
-      'during',
-      'before',
-      'after',
-      'above',
-      'below',
-      'and',
-      'but',
-      'or',
-      'nor',
-      'not',
-      'so',
-      'yet',
-      'both',
-      'either',
-      'neither',
-      'each',
-      'every',
-      'all',
-      'any',
-      'few',
-      'more',
-      'most',
-      'other',
-      'some',
-      'such',
-      'no',
-      'only',
-      'own',
-      'same',
-      'than',
-      'too',
-      'very',
-      'just',
-      'because',
-      'if',
-      'when',
-      'this',
-      'that',
-      'these',
-      'those',
-      'it',
-      'its',
-    ]);
-
-    return text
-      .replace(/[^a-z0-9\s-]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !stopWords.has(w));
-  }
-
-  // -----------------------------------------------------------------------
-  // Sharing operation helpers (extracted for routeByParam + backward-compat)
-  // -----------------------------------------------------------------------
-
-  private async queryShareStatus(startTime: number): Promise<DispatchResponse> {
-    const result = await getSharingStatus(this.projectRoot);
-    return {
-      _meta: dispatchMeta('query', 'nexus', 'share.status', startTime),
-      success: true,
-      data: result,
-    };
-  }
-
-  private async mutateShareSnapshotExport(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const snapshot = await exportSnapshot(this.projectRoot);
-    const outputPath = (params?.outputPath as string) ?? getDefaultSnapshotPath(this.projectRoot);
-    await writeSnapshot(snapshot, outputPath);
-    return {
-      _meta: dispatchMeta('mutate', 'nexus', 'share.snapshot.export', startTime),
-      success: true,
-      data: {
-        path: outputPath,
-        taskCount: snapshot._meta.taskCount,
-        checksum: snapshot._meta.checksum,
-      },
-    };
-  }
-
-  private async mutateShareSnapshotImport(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const inputPath = params?.inputPath as string;
-    if (!inputPath) {
-      return errorResult(
-        'mutate',
-        'nexus',
-        'share.snapshot.import',
-        'E_INVALID_INPUT',
-        'inputPath is required',
-        startTime,
-      );
-    }
-    const snapshot = await readSnapshot(inputPath);
-    const result = await importSnapshot(snapshot, this.projectRoot);
-    return {
-      _meta: dispatchMeta('mutate', 'nexus', 'share.snapshot.import', startTime),
-      success: true,
-      data: result,
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // Response helpers
-  // -----------------------------------------------------------------------
-
-  private successResponse(
-    gateway: string,
-    operation: string,
-    startTime: number,
-    data: unknown,
-    page?: import('@cleocode/lafs-protocol').LAFSPage,
-  ): DispatchResponse {
-    return {
-      _meta: dispatchMeta(gateway, 'nexus', operation, startTime),
-      success: true,
-      data,
-      ...(page ? { page } : {}),
     };
   }
 }

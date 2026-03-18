@@ -16,15 +16,17 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
 import { promisify } from 'node:util';
+import {
+  CleoError,
+  checkStorageMigration,
+  formatError,
+  getCleoHome,
+  getRuntimeDiagnostics,
+  runUpgrade,
+} from '@cleocode/core';
 // CLI-only: self-update requires file system ops and external process execution
 import type { Command } from 'commander';
 import { BUILD_CONFIG } from '../../config/build-config.js';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoHome } from '../../core/paths.js';
-import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
-import { checkStorageMigration } from '../../core/system/storage-preflight.js';
-import { runUpgrade } from '../../core/upgrade.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';

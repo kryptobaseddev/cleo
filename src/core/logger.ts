@@ -148,11 +148,22 @@ export function getLogDir(): string | null {
 
 /**
  * Flush and close the logger. Call during graceful shutdown.
+ *
+ * Returns a Promise that resolves once the pino transport worker thread
+ * has processed all pending writes. Callers that cannot await (e.g. sync
+ * shutdown handlers) may fire-and-forget safely — the underlying flush
+ * will still occur before the process exits.
  */
-export function closeLogger(): void {
-  if (rootLogger) {
-    rootLogger.flush();
-  }
-  rootLogger = null;
-  currentLogDir = null;
+export function closeLogger(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (rootLogger) {
+      rootLogger.flush(() => {
+        rootLogger = null;
+        currentLogDir = null;
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
 }

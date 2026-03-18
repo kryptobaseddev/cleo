@@ -8,9 +8,8 @@
  * @epic T5267
  */
 
+import { CleoError, formatError } from '@cleocode/core';
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';

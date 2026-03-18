@@ -5,8 +5,8 @@
  */
 // CLI-only: no dispatch equivalent for environment diagnostics
 
+import { getRuntimeDiagnostics } from '@cleocode/core';
 import type { Command } from 'commander';
-import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**

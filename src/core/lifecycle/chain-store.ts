@@ -8,9 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
 import { warpChainInstances, warpChains } from '../../store/chain-schema.js';
-import { getDb } from '../../store/sqlite.js';
 import type { GateResult, WarpChain, WarpChainInstance } from '../../types/warp-chain.js';
 import { validateChain } from '../validation/chain-validation.js';
 
@@ -50,6 +48,7 @@ export async function addChain(chain: WarpChain, projectRoot: string): Promise<v
     throw new Error(`Chain validation failed: ${validation.errors.join('; ')}`);
   }
 
+  const { getDb } = await import('../../store/sqlite.js');
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
@@ -71,6 +70,8 @@ export async function addChain(chain: WarpChain, projectRoot: string): Promise<v
  * @task T5403
  */
 export async function showChain(id: string, projectRoot: string): Promise<WarpChain | null> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.select().from(warpChains).where(eq(warpChains.id, id));
 
@@ -84,6 +85,7 @@ export async function showChain(id: string, projectRoot: string): Promise<WarpCh
  * @task T5403
  */
 export async function listChains(projectRoot: string): Promise<WarpChain[]> {
+  const { getDb } = await import('../../store/sqlite.js');
   const db = await getDb(projectRoot);
   const rows = await db.select().from(warpChains);
   return rows.map((row) => JSON.parse(row.definition) as WarpChain);
@@ -158,6 +160,7 @@ export async function createInstance(
   const variables = params.variables ?? {};
   const stageToTask = params.stageToTask ?? {};
 
+  const { getDb } = await import('../../store/sqlite.js');
   const db = await getDb(projectRoot);
   await db.insert(warpChainInstances).values({
     id,
@@ -194,6 +197,8 @@ export async function showInstance(
   id: string,
   projectRoot: string,
 ): Promise<WarpChainInstance | null> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.select().from(warpChainInstances).where(eq(warpChainInstances.id, id));
 
@@ -220,6 +225,8 @@ export async function listInstanceGateResults(
   id: string,
   projectRoot: string,
 ): Promise<GateResult[]> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.select().from(warpChainInstances).where(eq(warpChainInstances.id, id));
 
@@ -285,6 +292,8 @@ export async function advanceInstance(
     }
   }
 
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 

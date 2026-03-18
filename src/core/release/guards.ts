@@ -9,9 +9,8 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
-import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { Task } from '../../types/task.js';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {
@@ -55,9 +54,8 @@ export async function checkEpicCompleteness(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<EpicCompletenessResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
   if (!data?.tasks) {
     return { hasIncomplete: false, epics: [], orphanTasks: [] };
   }
