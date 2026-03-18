@@ -26,7 +26,7 @@ import {
   coreValidateSchema,
   coreValidateTask,
   resolveProjectRoot,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { type EngineResult, engineError } from './_error.js';
 
 /**
@@ -259,7 +259,7 @@ import {
   validateDecompositionTask,
   validateImplementationTask,
   validateSpecificationTask,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 
 interface ProtocolValidationParams {
   mode: 'task' | 'manifest';
@@ -456,8 +456,8 @@ export async function validateProtocolSpecification(
 // Gate Verification (T5327)
 // ============================================================================
 
-import { getAccessor } from '@cleocode/core';
-import { computeChecksum } from '@cleocode/core';
+import { getAccessor } from '@cleocode/core/internal';
+import { computeChecksum } from '@cleocode/core/internal';
 import type { TaskVerification, VerificationGate } from '@cleocode/contracts';
 
 const VALID_GATES: VerificationGate[] = [

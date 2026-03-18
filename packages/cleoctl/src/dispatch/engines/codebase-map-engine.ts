@@ -20,7 +20,7 @@ export async function mapCodebase(
   },
 ): Promise<EngineResult> {
   try {
-    const { mapCodebase: coreMapCodebase } = await import('@cleocode/core');
+    const { mapCodebase: coreMapCodebase } = await import('@cleocode/core/internal');
 
     const result = await coreMapCodebase(projectRoot, {
       focus: options?.focus as

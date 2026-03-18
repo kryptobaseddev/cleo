@@ -22,7 +22,7 @@ import {
   recordStageProgress,
   resetStage,
   skipStageWithReason,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
 
 // ============================================================================

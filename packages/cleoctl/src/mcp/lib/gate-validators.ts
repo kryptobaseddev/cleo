@@ -22,4 +22,4 @@ export {
   validateWorkflowGateName,
   validateWorkflowGateStatus,
   validateWorkflowGateUpdate,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

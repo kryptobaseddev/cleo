@@ -42,7 +42,7 @@ import {
   setPermission,
   validateSyntax,
   writeSnapshot,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
 
 // Re-export EngineResult for consumers

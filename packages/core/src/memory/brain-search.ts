@@ -11,7 +11,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 /** Type-safe wrapper for StatementSync.all(). */
-function typedAll<T extends Record<string, unknown>>(db: DatabaseSync, sql: string, ...params: (string | number | null)[]): T[] {
+function typedAll<T>(db: DatabaseSync, sql: string, ...params: (string | number | null)[]): T[] {
   return db.prepare(sql).all(...params) as T[];
 }
 import { getBrainAccessor } from '../store/brain-accessor.js';

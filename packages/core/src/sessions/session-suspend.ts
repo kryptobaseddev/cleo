@@ -43,7 +43,7 @@ export async function suspendSession(
   const now = new Date().toISOString();
 
   session.status = 'suspended';
-  (session as unknown as Record<string, unknown>).suspendedAt = now;
+  Object.assign(session, { suspendedAt: now });
 
   if (session.stats) {
     session.stats.suspendCount = (session.stats.suspendCount || 0) + 1;
@@ -58,7 +58,7 @@ export async function suspendSession(
   if (current._meta?.activeSession === sessionId) {
     current._meta.activeSession = null;
     current._meta.generation = (current._meta.generation || 0) + 1;
-    (current as Record<string, unknown>).lastUpdated = now;
+    current.lastUpdated = now;
     await accessor.saveTaskFile(taskData);
   }
 

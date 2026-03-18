@@ -15,7 +15,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getAgentsHome, getCleoHome } from '@cleocode/core';
+import { getAgentsHome, getCleoHome } from '@cleocode/core/internal';
 import type { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';
 
@@ -131,7 +131,7 @@ export function registerInstallGlobalCommand(program: Command): void {
         // Step 4: Update MCP server configs
         try {
           const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import(
-            '@cleocode/core'
+            '@cleocode/core/internal'
           );
           const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
           type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
@@ -165,7 +165,7 @@ export function registerInstallGlobalCommand(program: Command): void {
         // Step 5: Install CLEO core skills globally
         try {
           if (!isDryRun) {
-            const { initCoreSkills } = await import('@cleocode/core');
+            const { initCoreSkills } = await import('@cleocode/core/internal');
             await initCoreSkills(created, warnings);
           } else {
             created.push('core skills (would install/update)');
@@ -178,7 +178,7 @@ export function registerInstallGlobalCommand(program: Command): void {
 
         // Step 6: Install provider adapters (plugin registration, etc.)
         try {
-          const { AdapterManager } = await import('@cleocode/core');
+          const { AdapterManager } = await import('@cleocode/core/internal');
           const thisFileStep6 = fileURLToPath(import.meta.url);
           const packageRootStep6 = resolve(dirname(thisFileStep6), '..', '..', '..');
           const manager = AdapterManager.getInstance(packageRootStep6);

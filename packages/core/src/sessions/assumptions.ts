@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import type { AssumptionRecord, TaskFileExt } from './types.js';
+import type { AssumptionRecord } from './types.js';
 
 export interface RecordAssumptionParams {
   sessionId?: string;
@@ -39,9 +39,8 @@ export async function recordAssumption(
 
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
 
-  const sessionId = params.sessionId || current._meta?.activeSession || 'default';
+  const sessionId = params.sessionId || taskData._meta?.activeSession || 'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
 

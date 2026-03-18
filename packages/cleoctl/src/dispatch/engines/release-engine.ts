@@ -40,8 +40,8 @@ import {
   runReleaseGates,
   showManifestRelease,
   tagRelease,
-} from '@cleocode/core';
-import { getAccessor } from '@cleocode/core';
+} from '@cleocode/core/internal';
+import { getAccessor } from '@cleocode/core/internal';
 
 import { type EngineResult, engineError } from './_error.js';
 
@@ -437,8 +437,8 @@ export async function releaseShip(
           cwd,
         );
         // Set epicId on the newly created record (prepareRelease doesn't accept it)
-        const { getDb } = await import('@cleocode/core');
-        const { releaseManifests } = await import('@cleocode/core');
+        const { getDb } = await import('@cleocode/core/internal');
+        const { releaseManifests } = await import('@cleocode/core/internal');
         const { eq } = await import('drizzle-orm');
         const normalizedVer = version.startsWith('v') ? version : `v${version}`;
         const db = await getDb(cwd);

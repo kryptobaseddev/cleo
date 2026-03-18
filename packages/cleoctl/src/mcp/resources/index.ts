@@ -191,7 +191,7 @@ export async function readMemoryResource(
  */
 async function getRecentObservations(): Promise<string> {
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core');
+    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
     await getBrainDb(process.cwd());
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Recent Observations\n\nBrain database not available.';
@@ -227,7 +227,7 @@ async function getRecentObservations(): Promise<string> {
  */
 async function getActiveLearnings(): Promise<string> {
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core');
+    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
     await getBrainDb(process.cwd());
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Active Learnings\n\nBrain database not available.';
@@ -268,7 +268,7 @@ async function getActiveLearnings(): Promise<string> {
  */
 async function getActivePatterns(): Promise<string> {
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core');
+    const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
     await getBrainDb(process.cwd());
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Active Patterns\n\nBrain database not available.';
@@ -328,7 +328,7 @@ async function getActivePatterns(): Promise<string> {
  */
 async function getSessionHandoff(): Promise<string> {
   try {
-    const { getLastHandoff } = await import('@cleocode/core');
+    const { getLastHandoff } = await import('@cleocode/core/internal');
     const result = await getLastHandoff(process.cwd());
 
     if (!result) {

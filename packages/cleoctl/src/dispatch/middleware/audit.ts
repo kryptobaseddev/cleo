@@ -13,7 +13,7 @@
  * @task T4844
  */
 
-import { getLogger, getProjectInfoSync } from '@cleocode/core';
+import { getLogger, getProjectInfoSync } from '@cleocode/core/internal';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -33,9 +33,9 @@ function resolveProjectHash(): string | null {
 }
 
 // AuditEntry type re-exported from core (canonical location)
-export type { AuditEntry } from '@cleocode/core';
+export type { AuditEntry } from '@cleocode/core/internal';
 
-import type { AuditEntry } from '@cleocode/core';
+import type { AuditEntry } from '@cleocode/core/internal';
 
 /**
  * Check if the current context is a grade session.
@@ -75,9 +75,9 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
  */
 async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<void> {
   try {
-    const { getDb } = await import('@cleocode/core');
-    const { auditLog } = await import('@cleocode/core');
-    const { AuditLogInsertSchema } = await import('@cleocode/core');
+    const { getDb } = await import('@cleocode/core/internal');
+    const { auditLog } = await import('@cleocode/core/internal');
+    const { AuditLogInsertSchema } = await import('@cleocode/core/internal');
     const { randomUUID } = await import('node:crypto');
 
     const payload = {
@@ -191,4 +191,4 @@ export function createAudit(): Middleware {
 }
 
 // queryAudit re-exported from core (canonical location)
-export { queryAudit } from '@cleocode/core';
+export { queryAudit } from '@cleocode/core/internal';

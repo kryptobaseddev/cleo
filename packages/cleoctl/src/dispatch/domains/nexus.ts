@@ -11,7 +11,7 @@
  * @task T5704
  */
 
-import { getLogger, getProjectRoot, type NexusPermissionLevel } from '@cleocode/core';
+import { getLogger, getProjectRoot, type NexusPermissionLevel } from '@cleocode/core/internal';
 import {
   nexusBlockers,
   nexusCriticalPath,

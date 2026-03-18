@@ -8,7 +8,7 @@
  * @epic T4545
  */
 
-import { CleoError, formatError, mergeTodoWriteState } from '@cleocode/core';
+import { CleoError, formatError, mergeTodoWriteState } from '@cleocode/core/internal';
 import type { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';
 

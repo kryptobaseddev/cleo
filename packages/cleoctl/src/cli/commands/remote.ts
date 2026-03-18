@@ -13,7 +13,7 @@ import {
   pull,
   push,
   removeRemote,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import type { Command } from 'commander';
 import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';

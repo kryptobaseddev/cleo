@@ -20,7 +20,7 @@ export {
   pipelineManifestShow,
   pipelineManifestStats,
   readManifestEntries,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 export type { Session as SessionRecord } from '@cleocode/contracts';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';

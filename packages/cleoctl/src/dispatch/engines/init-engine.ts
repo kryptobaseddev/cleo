@@ -15,7 +15,7 @@ import {
   getVersion as coreGetVersion,
   initProject as coreInitProject,
   isAutoInitEnabled as coreIsAutoInitEnabled,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { type EngineResult, engineError } from './_error.js';
 
 /**

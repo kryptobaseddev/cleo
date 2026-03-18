@@ -8,7 +8,7 @@
  * @epic T5237
  */
 
-import { type HookEvent, isProviderHookEvent, type ProviderHookEvent } from '@cleocode/core';
+import { type HookEvent, isProviderHookEvent, type ProviderHookEvent } from '@cleocode/core/internal';
 import { type EngineResult, engineSuccess } from './_error.js';
 
 /**

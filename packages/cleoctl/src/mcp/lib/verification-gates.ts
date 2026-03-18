@@ -18,7 +18,7 @@ export {
   VerificationGate,
   WORKFLOW_GATE_DEFINITIONS,
   WORKFLOW_GATE_SEQUENCE,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 
 export type {
   GateLayer,
@@ -32,4 +32,4 @@ export type {
   WorkflowGateState,
   WorkflowGateStatus,
   WorkflowGateTracker,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

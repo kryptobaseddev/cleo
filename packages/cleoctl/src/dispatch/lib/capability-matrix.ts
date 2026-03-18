@@ -13,7 +13,7 @@ export type {
   GatewayType,
   OperationCapability,
   PreferredChannel,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 export {
   canRunNatively,
   generateCapabilityReport,
@@ -21,4 +21,4 @@ export {
   getNativeOperations,
   getOperationMode,
   requiresCLI,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

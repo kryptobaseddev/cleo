@@ -28,6 +28,36 @@ importers:
         specifier: ^4.0.18
         version: 4.1.0(@types/node@22.19.15)(vite@8.0.0(@types/node@22.19.15)(yaml@2.8.2))
 
+  packages/adapters/claude-code:
+    dependencies:
+      '@cleocode/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.11
+        version: 22.19.15
+
+  packages/adapters/cursor:
+    dependencies:
+      '@cleocode/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.11
+        version: 22.19.15
+
+  packages/adapters/opencode:
+    dependencies:
+      '@cleocode/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.11
+        version: 22.19.15
+
   packages/cleoctl:
     dependencies:
       '@cleocode/caamp':

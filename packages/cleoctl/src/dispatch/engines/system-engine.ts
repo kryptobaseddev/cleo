@@ -35,8 +35,8 @@ import {
   restoreBackup,
   safestop,
   uncancelTask,
-} from '@cleocode/core';
-import { getAccessor } from '@cleocode/core';
+} from '@cleocode/core/internal';
+import { getAccessor } from '@cleocode/core/internal';
 import { type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 
@@ -55,7 +55,7 @@ export type {
   SafestopResult as SafestopData,
   SystemMetricsResult as MetricsData,
   UncancelResult as UncancelData,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 export type RuntimeData = RuntimeDiagnostics;
 
 // ===== Dashboard Data type (re-exported for consumers) =====
@@ -407,7 +407,7 @@ export async function systemStats(
  */
 export async function systemLabels(
   projectRoot: string,
-): Promise<EngineResult<import('@cleocode/core').LabelsResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').LabelsResult>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await getLabels(projectRoot, accessor);
@@ -425,7 +425,7 @@ export async function systemLabels(
 export async function systemArchiveStats(
   projectRoot: string,
   params?: { period?: number },
-): Promise<EngineResult<import('@cleocode/core').ArchiveStatsResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').ArchiveStatsResult>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await getArchiveStats({ period: params?.period, cwd: projectRoot }, accessor);
@@ -495,8 +495,8 @@ async function queryAuditLogSqlite(
       };
     }
 
-    const { getDb } = await import('@cleocode/core');
-    const { auditLog } = await import('@cleocode/core');
+    const { getDb } = await import('@cleocode/core/internal');
+    const { auditLog } = await import('@cleocode/core/internal');
     const { sql } = await import('drizzle-orm');
 
     const db = await getDb(projectRoot);
@@ -761,7 +761,7 @@ export async function systemSequence(
   projectRoot: string,
   params?: { action?: 'show' | 'check' },
 ): Promise<EngineResult<SequenceData | Record<string, unknown>>> {
-  const { showSequence, checkSequence } = await import('@cleocode/core');
+  const { showSequence, checkSequence } = await import('@cleocode/core/internal');
   try {
     const action = params?.action ?? 'show';
     if (action === 'check') {
@@ -791,7 +791,7 @@ export async function systemSequence(
  */
 export async function systemInjectGenerate(
   projectRoot?: string,
-): Promise<EngineResult<import('@cleocode/core').InjectGenerateResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').InjectGenerateResult>> {
   try {
     const root = projectRoot || process.cwd();
     const accessor = await getAccessor(root);
@@ -811,7 +811,7 @@ export async function systemInjectGenerate(
 export async function systemMetrics(
   projectRoot: string,
   params?: { scope?: string; since?: string },
-): Promise<EngineResult<import('@cleocode/core').SystemMetricsResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').SystemMetricsResult>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await getSystemMetrics(projectRoot, params, accessor);
@@ -830,7 +830,7 @@ export async function systemMetrics(
 export function systemHealth(
   projectRoot: string,
   params?: { detailed?: boolean },
-): EngineResult<import('@cleocode/core').HealthResult> {
+): EngineResult<import('@cleocode/core/internal').HealthResult> {
   try {
     const result = getSystemHealth(projectRoot, params);
     return { success: true, data: result };
@@ -848,7 +848,7 @@ export function systemHealth(
 export async function systemDiagnostics(
   projectRoot: string,
   params?: { checks?: string[] },
-): Promise<EngineResult<import('@cleocode/core').DiagnosticsResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').DiagnosticsResult>> {
   try {
     const result = await getSystemDiagnostics(projectRoot, params);
     return { success: true, data: result };
@@ -1103,7 +1103,7 @@ export function systemCompliance(
 export function systemBackup(
   projectRoot: string,
   params?: { type?: string; note?: string },
-): EngineResult<import('@cleocode/core').BackupResult> {
+): EngineResult<import('@cleocode/core/internal').BackupResult> {
   try {
     const result = createBackup(projectRoot, params);
     return { success: true, data: result };
@@ -1121,7 +1121,7 @@ export function systemBackup(
 export function systemRestore(
   projectRoot: string,
   params: { backupId: string; force?: boolean },
-): EngineResult<import('@cleocode/core').RestoreResult> {
+): EngineResult<import('@cleocode/core/internal').RestoreResult> {
   try {
     const result = restoreBackup(projectRoot, params);
     return { success: true, data: result };
@@ -1149,8 +1149,8 @@ export async function backupRestore(
   }>
 > {
   try {
-    const { getBackupDir, getTaskPath, getConfigPath } = await import('@cleocode/core');
-    const { restoreFromBackup, listBackups } = await import('@cleocode/core');
+    const { getBackupDir, getTaskPath, getConfigPath } = await import('@cleocode/core/internal');
+    const { restoreFromBackup, listBackups } = await import('@cleocode/core/internal');
 
     const backupDir = getBackupDir(projectRoot);
 
@@ -1216,7 +1216,7 @@ export async function backupRestore(
 export async function systemMigrate(
   projectRoot: string,
   params?: { target?: string; dryRun?: boolean },
-): Promise<EngineResult<import('@cleocode/core').MigrateResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').MigrateResult>> {
   try {
     const result = await getMigrationStatus(projectRoot, params);
     return { success: true, data: result };
@@ -1235,7 +1235,7 @@ export async function systemMigrate(
 export async function systemCleanup(
   projectRoot: string,
   params: { target: string; olderThan?: string; dryRun?: boolean },
-): Promise<EngineResult<import('@cleocode/core').CleanupResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').CleanupResult>> {
   try {
     const result = await cleanupSystem(projectRoot, params);
     return { success: true, data: result };
@@ -1254,7 +1254,7 @@ export async function systemCleanup(
 export async function systemAudit(
   projectRoot: string,
   params?: { scope?: string; fix?: boolean },
-): Promise<EngineResult<import('@cleocode/core').AuditResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').AuditResult>> {
   try {
     const result = await auditData(projectRoot, params);
     return { success: true, data: result };
@@ -1306,7 +1306,7 @@ export function systemSafestop(
     noSessionEnd?: boolean;
     dryRun?: boolean;
   },
-): EngineResult<import('@cleocode/core').SafestopResult> {
+): EngineResult<import('@cleocode/core/internal').SafestopResult> {
   try {
     const result = safestop(projectRoot, params);
     return { success: true, data: result };
@@ -1324,7 +1324,7 @@ export function systemSafestop(
 export async function systemUncancel(
   projectRoot: string,
   params: { taskId: string; cascade?: boolean; notes?: string; dryRun?: boolean },
-): Promise<EngineResult<import('@cleocode/core').UncancelResult>> {
+): Promise<EngineResult<import('@cleocode/core/internal').UncancelResult>> {
   try {
     const result = await uncancelTask(projectRoot, params);
     return { success: true, data: result };
@@ -1342,8 +1342,8 @@ export async function systemUncancel(
  */
 export async function systemDoctor(
   projectRoot: string,
-): Promise<EngineResult<import('@cleocode/core').DoctorReport>> {
-  const { coreDoctorReport } = await import('@cleocode/core');
+): Promise<EngineResult<import('@cleocode/core/internal').DoctorReport>> {
+  const { coreDoctorReport } = await import('@cleocode/core/internal');
   try {
     const result = await coreDoctorReport(projectRoot);
     return { success: true, data: result };
@@ -1360,8 +1360,8 @@ export async function systemDoctor(
  */
 export async function systemFix(
   projectRoot: string,
-): Promise<EngineResult<import('@cleocode/core').FixResult[]>> {
-  const { runDoctorFixes } = await import('@cleocode/core');
+): Promise<EngineResult<import('@cleocode/core/internal').FixResult[]>> {
+  const { runDoctorFixes } = await import('@cleocode/core/internal');
   try {
     const result = await runDoctorFixes(projectRoot);
     return { success: true, data: result };

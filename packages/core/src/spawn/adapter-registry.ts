@@ -192,8 +192,8 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {
         instanceId: result.instanceId,
-        output: result.output,
-        exitCode: result.exitCode,
+        output: result.output ?? "",
+        exitCode: result.exitCode ?? 0,
         status: result.status as CLEOSpawnResult['status'],
         taskId: result.taskId,
         providerId: result.providerId,
@@ -208,8 +208,8 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
       const results: SpawnResult[] = await delegate.listRunning();
       return results.map((r) => ({
         instanceId: r.instanceId,
-        output: r.output,
-        exitCode: r.exitCode,
+        output: r.output ?? "",
+        exitCode: r.exitCode ?? 0,
         status: r.status as CLEOSpawnResult['status'],
         taskId: r.taskId,
         providerId: r.providerId,

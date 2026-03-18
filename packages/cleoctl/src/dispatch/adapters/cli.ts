@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { autoRecordDispatchTokenUsage, getProjectRoot } from '@cleocode/core';
+import { autoRecordDispatchTokenUsage, getProjectRoot } from '@cleocode/core/internal';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
@@ -78,7 +78,7 @@ export function getCliDispatcher(): Dispatcher {
  */
 async function lookupCliSession(): Promise<string | null> {
   try {
-    const { getActiveSession } = await import('@cleocode/core');
+    const { getActiveSession } = await import('@cleocode/core/internal');
     const session = await getActiveSession();
     return session?.id ?? null;
   } catch {

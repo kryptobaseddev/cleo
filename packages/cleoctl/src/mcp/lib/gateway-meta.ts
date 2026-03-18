@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getCurrentSessionId } from '@cleocode/core';
+import { getCurrentSessionId } from '@cleocode/core/internal';
 import type { GatewayMeta } from '@cleocode/contracts';
 
 /**

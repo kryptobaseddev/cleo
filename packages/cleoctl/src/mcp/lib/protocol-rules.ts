@@ -16,4 +16,4 @@ export {
   type ProtocolViolation,
   type RequirementLevel,
   type ViolationSeverity,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

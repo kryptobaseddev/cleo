@@ -45,7 +45,7 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
     const currentSession = sessions.find((s) => s.id === currentActiveId);
     if (currentSession && currentSession.status === 'active') {
       currentSession.status = 'suspended';
-      (currentSession as unknown as Record<string, unknown>).suspendedAt = now;
+      Object.assign(currentSession, { suspendedAt: now });
       if (currentSession.stats) {
         currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
       }
@@ -54,7 +54,7 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
 
   // Activate the target session
   targetSession.status = 'active';
-  (targetSession as unknown as Record<string, unknown>).suspendedAt = null;
+  Object.assign(targetSession, { suspendedAt: null });
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 

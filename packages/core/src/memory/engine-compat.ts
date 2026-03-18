@@ -241,7 +241,7 @@ export async function memoryDecisionFind(
         ORDER BY created_at DESC
         LIMIT ?
       `)
-        .all(likePattern, likePattern, limit) as unknown as Array<Record<string, unknown>>;
+        .all(likePattern, likePattern, limit);
 
       return { success: true, data: { decisions: rows, total: rows.length } };
     }

@@ -12,7 +12,7 @@
  * @epic T4454
  */
 
-import { CleoError, formatError, runUpgrade } from '@cleocode/core';
+import { CleoError, formatError, runUpgrade } from '@cleocode/core/internal';
 import type { Command } from 'commander';
 import { createUpgradeProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';

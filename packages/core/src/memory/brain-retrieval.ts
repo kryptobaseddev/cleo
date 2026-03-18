@@ -17,6 +17,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
@@ -24,6 +25,11 @@ import type {
 } from '../store/brain-schema.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import { searchBrain } from './brain-search.js';
+
+/** Type-safe wrapper for StatementSync.all(). */
+function typedAll<T>(db: DatabaseSync, sql: string, ...params: (string | number | null)[]): T[] {
+  return db.prepare(sql).all(...params) as T[];
+}
 
 // ============================================================================
 // Types
@@ -304,8 +310,7 @@ export async function timelineBrain(
 
   // UNION ALL across all 4 tables to get chronological neighbors.
   // Excludes the anchor itself.
-  const beforeRows = nativeDb
-    .prepare(`
+  const beforeRows = typedAll<TimelineNeighbor>(nativeDb, `
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at < ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at < ? AND id != ?
@@ -315,21 +320,19 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at < ? AND id != ?
     ORDER BY date DESC
     LIMIT ?
-  `)
-    .all(
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      depthBefore,
-    ) as unknown as TimelineNeighbor[];
+  `,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    depthBefore,
+  );
 
-  const afterRows = nativeDb
-    .prepare(`
+  const afterRows = typedAll<TimelineNeighbor>(nativeDb, `
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at > ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at > ? AND id != ?
@@ -339,18 +342,17 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at > ? AND id != ?
     ORDER BY date ASC
     LIMIT ?
-  `)
-    .all(
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      depthAfter,
-    ) as unknown as TimelineNeighbor[];
+  `,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    depthAfter,
+  );
 
   return {
     anchor: { id: anchorId, type: anchorType, data: anchorData },

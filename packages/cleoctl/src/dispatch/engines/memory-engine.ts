@@ -33,4 +33,4 @@ export {
   memorySuperseded,
   memoryTimeline,
   memoryUnlink,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

@@ -47,6 +47,11 @@ const DEFAULT_CONFIG: MemoryBridgeConfig = {
   includeAntiPatterns: true,
 };
 
+/** Type-safe wrapper for StatementSync.all(). */
+function typedAll<T>(db: DatabaseSync, sql: string, ...params: (string | number | null)[]): T[] {
+  return db.prepare(sql).all(...params) as T[];
+}
+
 /** Raw row shapes from native SQL queries. */
 interface DecisionRow {
   id: string;
@@ -262,11 +267,9 @@ async function getLastHandoffSafe(
 
 function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
   try {
-    return db
-      .prepare(
-        'SELECT id, decision, created_at FROM brain_decisions ORDER BY created_at DESC LIMIT ?',
-      )
-      .all(limit) as unknown as DecisionRow[];
+    return typedAll<DecisionRow>(db,
+      'SELECT id, decision, created_at FROM brain_decisions ORDER BY created_at DESC LIMIT ?',
+      limit);
   } catch {
     return [];
   }
@@ -274,14 +277,12 @@ function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
 
 function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): LearningRow[] {
   try {
-    return db
-      .prepare(
-        `SELECT id, insight, confidence, created_at FROM brain_learnings
+    return typedAll<LearningRow>(db,
+      `SELECT id, insight, confidence, created_at FROM brain_learnings
          WHERE CAST(confidence AS REAL) >= 0.6
          ORDER BY confidence DESC, created_at DESC
          LIMIT ?`,
-      )
-      .all(limit) as unknown as LearningRow[];
+      limit);
   } catch {
     return [];
   }
@@ -289,11 +290,9 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
 
 function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRow[] {
   try {
-    return db
-      .prepare(
-        'SELECT id, pattern, type, impact, extracted_at FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC LIMIT ?',
-      )
-      .all(type, limit) as unknown as PatternRow[];
+    return typedAll<PatternRow>(db,
+      'SELECT id, pattern, type, impact, extracted_at FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC LIMIT ?',
+      type, limit);
   } catch {
     return [];
   }
@@ -301,17 +300,15 @@ function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRo
 
 function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRow[] {
   try {
-    return db
-      .prepare(
-        `SELECT id, title, type, created_at FROM brain_observations
+    return typedAll<ObservationRow>(db,
+      `SELECT id, title, type, created_at FROM brain_observations
          WHERE type != 'change'
            AND title NOT LIKE 'File changed:%'
            AND title NOT LIKE 'Task start:%'
            AND title NOT LIKE 'Task complete:%'
            AND title NOT LIKE '[hook]%'
          ORDER BY created_at DESC LIMIT ?`,
-      )
-      .all(limit) as unknown as ObservationRow[];
+      limit);
   } catch {
     return [];
   }

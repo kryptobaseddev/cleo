@@ -13,7 +13,7 @@ import {
   getOtelStatus,
   getOtelSummary,
   getRealTokenUsage,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 // CLI-only: no otel domain in dispatch (telemetry is local-only)
 import type { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';

@@ -43,9 +43,9 @@ import {
   suspendSession,
   switchSession,
   type TaskWorkHistoryEntry,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 // ... existing imports ...
-import { getAccessor } from '@cleocode/core';
+import { getAccessor } from '@cleocode/core/internal';
 import { getExitCodeName } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import type { TaskWorkState } from '@cleocode/contracts';
@@ -605,10 +605,10 @@ export async function sessionResume(
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
     let memoryContext:
-      | import('@cleocode/core').SessionMemoryContext
+      | import('@cleocode/core/internal').SessionMemoryContext
       | undefined;
     try {
-      const { getSessionMemoryContext } = await import('@cleocode/core');
+      const { getSessionMemoryContext } = await import('@cleocode/core/internal');
       const scopeType = session.scope?.type;
       const rootTaskId = session.scope?.rootTaskId;
       memoryContext = await getSessionMemoryContext(projectRoot, {
@@ -1024,7 +1024,7 @@ export async function sessionComputeDebrief(
     });
 
     // Persist both handoffJson and debriefJson
-    const { persistHandoff: corePersistHandoff } = await import('@cleocode/core');
+    const { persistHandoff: corePersistHandoff } = await import('@cleocode/core/internal');
     await corePersistHandoff(projectRoot, sessionId, debrief.handoff);
 
     // Persist debriefJson via session update

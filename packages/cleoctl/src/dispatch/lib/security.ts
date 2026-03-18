@@ -7,8 +7,8 @@
  * @task T5706
  */
 
-export type { RateLimitConfig, RateLimitResult } from '@cleocode/core';
-export type { SecurityError } from '@cleocode/core';
+export type { RateLimitConfig, RateLimitResult } from '@cleocode/core/internal';
+export type { SecurityError } from '@cleocode/core/internal';
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
@@ -24,4 +24,4 @@ export {
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
   validateEnum,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';

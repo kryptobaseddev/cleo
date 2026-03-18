@@ -9,11 +9,11 @@
  */
 
 import type { Command } from 'commander';
-import type { ArchiveReportType } from '@cleocode/core';
+import type { ArchiveReportType } from '@cleocode/core/internal';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 // Re-export analyzeArchive as getArchiveStats for backward compat with tests
-export { analyzeArchive as getArchiveStats } from '@cleocode/core';
+export { analyzeArchive as getArchiveStats } from '@cleocode/core/internal';
 
 /**
  * Register the archive-stats command.

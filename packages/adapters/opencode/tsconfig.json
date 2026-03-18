@@ -17,8 +17,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "composite": true,
+    "types": ["node"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"],
+  "references": [
+    { "path": "../../contracts" }
+  ]
 }

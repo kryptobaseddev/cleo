@@ -15,7 +15,7 @@ import {
   listTesseraTemplates,
   paginate,
   showTessera,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import {
   orchestrateAnalyze,
   orchestrateBootstrap,

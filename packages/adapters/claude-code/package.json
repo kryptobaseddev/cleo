@@ -16,7 +16,10 @@
     "build:check": "tsc --noEmit"
   },
   "dependencies": {
-    "@cleocode/contracts": "1.0.0"
+    "@cleocode/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11"
   },
   "license": "MIT",
   "files": [

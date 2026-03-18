@@ -244,7 +244,7 @@ import {
   getNodeVersionInfo,
   loadConfig as loadCoreConfig,
   MINIMUM_NODE_MAJOR,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { registerAddCommand } from './commands/add.js';
 // ADR-017: ADR validation, listing, and sync
 import { registerAdrCommand } from './commands/adr.js';
@@ -564,7 +564,7 @@ program.hook('preAction', async () => {
     initCliLogger(process.cwd(), config.logging);
 
     // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
-    const { pruneAuditLog } = await import('@cleocode/core');
+    const { pruneAuditLog } = await import('@cleocode/core/internal');
     pruneAuditLog(join(process.cwd(), '.cleo'), config.logging).catch(() => {
       /* non-blocking */
     });

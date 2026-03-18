@@ -37,7 +37,7 @@ import {
   collectDiagnostics,
   getSyncStatus,
   paginate,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
 import { systemSync } from './system-engine.js';
 
@@ -390,7 +390,7 @@ export async function toolsSkillPrecedenceShow(): Promise<
 > {
   try {
     const { getSkillsMapWithPrecedence } = await import(
-      '@cleocode/core'
+      '@cleocode/core/internal'
     );
     const map = getSkillsMapWithPrecedence();
     return engineSuccess({ precedenceMap: map });
@@ -409,7 +409,7 @@ export async function toolsSkillPrecedenceResolve(
 ): Promise<EngineResult<{ providerId: string; scope: string; paths: unknown }>> {
   try {
     const { resolveSkillPathsForProvider } = await import(
-      '@cleocode/core'
+      '@cleocode/core/internal'
     );
     const paths = await resolveSkillPathsForProvider(providerId, scope, projectRoot);
     return engineSuccess({ providerId, scope, paths });
@@ -448,7 +448,7 @@ export async function toolsSkillInstall(
     const providerIds = providers.map((p) => p.id);
 
     const { determineInstallationTargets } = await import(
-      '@cleocode/core'
+      '@cleocode/core/internal'
     );
     const targets = await determineInstallationTargets({
       skillName: name,
@@ -675,7 +675,7 @@ export async function toolsProviderSupports(
 export async function toolsProviderHooks(event: string): Promise<EngineResult<unknown>> {
   try {
     const { queryHookProviders } = await import('./hooks-engine.js');
-    const result = await queryHookProviders(event as import('@cleocode/core').HookEvent);
+    const result = await queryHookProviders(event as import('@cleocode/core/internal').HookEvent);
     return result;
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

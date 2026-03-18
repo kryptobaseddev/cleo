@@ -16,7 +16,7 @@ import {
   getTemplateForSubcommand as coreGetTemplateForSubcommand,
   parseIssueTemplates as coreParseIssueTemplates,
   templates,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import type { EngineResult } from './_error.js';
 
 // Re-export types directly from core
@@ -24,7 +24,7 @@ export type {
   IssueTemplate,
   TemplateConfig,
   TemplateSection,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 
 /**
  * Adapt a core TemplateResult to an EngineResult.
@@ -55,7 +55,7 @@ function adaptResult<T>(result: {
  */
 export function parseIssueTemplates(
   projectRoot: string,
-): EngineResult<import('@cleocode/core').TemplateConfig> {
+): EngineResult<import('@cleocode/core/internal').TemplateConfig> {
   return adaptResult(coreParseIssueTemplates(projectRoot));
 }
 
@@ -65,7 +65,7 @@ export function parseIssueTemplates(
 export function getTemplateForSubcommand(
   projectRoot: string,
   subcommand: string,
-): EngineResult<import('@cleocode/core').IssueTemplate> {
+): EngineResult<import('@cleocode/core/internal').IssueTemplate> {
   return adaptResult(coreGetTemplateForSubcommand(projectRoot, subcommand));
 }
 
@@ -74,7 +74,7 @@ export function getTemplateForSubcommand(
  */
 export async function generateTemplateConfig(
   projectRoot: string,
-): Promise<EngineResult<import('@cleocode/core').TemplateConfig>> {
+): Promise<EngineResult<import('@cleocode/core/internal').TemplateConfig>> {
   return adaptResult(await coreGenerateTemplateConfig(projectRoot));
 }
 

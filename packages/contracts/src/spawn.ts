@@ -22,8 +22,10 @@ export interface SpawnResult {
   instanceId: string;
   taskId: string;
   providerId: string;
-  output: string;
-  exitCode: number;
+  /** Output captured from the spawned process. Optional for detached/fire-and-forget spawns. */
+  output?: string;
+  /** Exit code of the spawned process. Optional for detached/fire-and-forget spawns. */
+  exitCode?: number;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   startTime: string;
   endTime?: string;

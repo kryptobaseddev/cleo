@@ -11,7 +11,7 @@
  * @epic T4820
  */
 
-import { getLogger, getProjectRoot, paginate, validateChain } from '@cleocode/core';
+import { getLogger, getProjectRoot, paginate, validateChain } from '@cleocode/core/internal';
 import type { WarpChain } from '@cleocode/contracts';
 
 import {
@@ -265,7 +265,7 @@ export class CheckHandler implements DomainHandler {
 
         // T5615: grade ops moved from admin to check
         case 'grade': {
-          const { gradeSession } = await import('@cleocode/core');
+          const { gradeSession } = await import('@cleocode/core/internal');
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
             return errorResult(
@@ -288,7 +288,7 @@ export class CheckHandler implements DomainHandler {
         }
 
         case 'grade.list': {
-          const { readGrades } = await import('@cleocode/core');
+          const { readGrades } = await import('@cleocode/core/internal');
           const limit = typeof params?.limit === 'number' ? params.limit : undefined;
           const offset = typeof params?.offset === 'number' ? params.offset : undefined;
           const allGrades = await readGrades(undefined, this.projectRoot);
@@ -365,7 +365,7 @@ export class CheckHandler implements DomainHandler {
         }
 
         case 'compliance.sync': {
-          const { syncComplianceMetrics } = await import('@cleocode/core');
+          const { syncComplianceMetrics } = await import('@cleocode/core/internal');
           const result = await syncComplianceMetrics({
             force: params?.force as boolean | undefined,
             cwd: this.projectRoot,

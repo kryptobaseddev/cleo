@@ -8,14 +8,14 @@
  * @epic T3125
  */
 
-import { normalizeTaskId } from '@cleocode/core';
+import { normalizeTaskId } from '@cleocode/core/internal';
 import { isAbsolute, normalize, relative, resolve } from 'path';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
   TASK_STATUSES,
 } from '@cleocode/contracts';
-import { TASK_PRIORITIES } from '@cleocode/core';
+import { TASK_PRIORITIES } from '@cleocode/core/internal';
 
 /**
  * Security validation error thrown when input fails sanitization

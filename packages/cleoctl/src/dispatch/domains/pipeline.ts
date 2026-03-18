@@ -28,7 +28,7 @@ import {
   type ReleaseListOptions,
   resolveChannelFromBranch,
   showChain,
-} from '@cleocode/core';
+} from '@cleocode/core/internal';
 import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
   lifecycleCheck,

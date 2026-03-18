@@ -54,8 +54,8 @@ import {
   coreTaskUnarchive,
   updateTask as coreUpdateTask,
   toCompact,
-} from '@cleocode/core';
-import { getAccessor } from '@cleocode/core';
+} from '@cleocode/core/internal';
+import { getAccessor } from '@cleocode/core/internal';
 import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineError } from './_error.js';
 
@@ -179,7 +179,7 @@ export interface MinimalTaskRecord {
 }
 
 // Re-export CompactTask from core for consumers
-export type { CompactTask } from '@cleocode/core';
+export type { CompactTask } from '@cleocode/core/internal';
 
 // EngineResult imported from ./_error.js (canonical source)
 export type { EngineResult } from './_error.js';
@@ -1286,7 +1286,7 @@ export async function taskImport(
  */
 
 export async function taskPlan(projectRoot: string): Promise<EngineResult> {
-  const { coreTaskPlan } = await import('@cleocode/core');
+  const { coreTaskPlan } = await import('@cleocode/core/internal');
   try {
     const result = await coreTaskPlan(projectRoot);
     return { success: true, data: result };
@@ -1308,7 +1308,7 @@ export async function taskRelatesFind(
   },
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const { suggestRelated, discoverRelated } = await import('@cleocode/core');
+    const { suggestRelated, discoverRelated } = await import('@cleocode/core/internal');
     const accessor = await getAccessor(projectRoot);
     const mode = params?.mode ?? 'suggest';
 
@@ -1338,7 +1338,7 @@ export async function taskLabelList(
   projectRoot: string,
 ): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
   try {
-    const { listLabels } = await import('@cleocode/core');
+    const { listLabels } = await import('@cleocode/core/internal');
     const accessor = await getAccessor(projectRoot);
     const labels = await listLabels(projectRoot, accessor);
     return { success: true, data: { labels, count: labels.length } };
@@ -1356,7 +1356,7 @@ export async function taskLabelShow(
   label: string,
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const { showLabelTasks } = await import('@cleocode/core');
+    const { showLabelTasks } = await import('@cleocode/core/internal');
     const accessor = await getAccessor(projectRoot);
     const result = await showLabelTasks(label, projectRoot, accessor);
     return { success: true, data: result };
