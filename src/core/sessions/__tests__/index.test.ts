@@ -52,18 +52,12 @@ describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
     } catch {
       /* may not be loaded */
     }
-    // Best-effort cleanup — abort after 10s to avoid hook timeout on Windows.
-    try {
-      await rm(tempDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-        retryDelay: 300,
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      /* ignore */
-    }
+    // Race rm against an 8s timeout. On Windows, fs.rm can block indefinitely
+    // on locked SQLite WAL files — racing prevents the hook from timing out.
+    await Promise.race([
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('calls bridgeSessionToMemory with derived end-session payload', async () => {
