@@ -58,7 +58,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
     "@cleocode/lafs-protocol": "^1.7.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.15-859cf75",
+    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
     "env-paths": "^4.0.0",
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
@@ -177,7 +177,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
 | `ajv` | `^8.18.0` | JSON Schema validation |
 | `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
-| `drizzle-orm` | `1.0.0-beta.15-859cf75` | ORM for lifecycle, brain, and nexus SQLite tables (beta version) |
+| `drizzle-orm` | `1.0.0-beta.18-7eb39f0` | ORM for lifecycle, brain, and nexus SQLite tables (beta version) |
 | `env-paths` | `^4.0.0` | Platform-appropriate config/data paths |
 | `pino` | `^10.3.1` | Structured logger |
 | `pino-roll` | `^4.0.0` | Rolling log file transport |
@@ -188,7 +188,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 
 ### 4.3 Dependency Notes
 
-- `drizzle-orm` is at a beta version (`1.0.0-beta.15-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`.
+- `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`. Pre-release semver ranges (`^`) do not work correctly — always pin to the exact version.
 - SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/sqlite-proxy`. This is zero-dependency — no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
 - `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
 - `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `src/core/output.ts`.
