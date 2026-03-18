@@ -140,7 +140,7 @@ describe('Claude-mem Migration', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -148,7 +148,7 @@ describe('Claude-mem Migration', () => {
 
   it('should import observations from claude-mem.db', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -198,7 +198,7 @@ describe('Claude-mem Migration', () => {
     expect(result.dryRun).toBe(false);
 
     // Verify observations in brain.db
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const rows = nativeDb.prepare('SELECT * FROM brain_observations ORDER BY id').all() as Array<
       Record<string, unknown>
@@ -213,7 +213,7 @@ describe('Claude-mem Migration', () => {
 
   it('should create brain_decisions for decision-typed observations', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -244,7 +244,7 @@ describe('Claude-mem Migration', () => {
     expect(result.errors).toHaveLength(0);
 
     // Verify decisions in brain.db
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const decisions = nativeDb.prepare('SELECT * FROM brain_decisions ORDER BY id').all() as Array<
       Record<string, unknown>
@@ -259,7 +259,7 @@ describe('Claude-mem Migration', () => {
 
   it('should create brain_learnings from session summaries', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -290,7 +290,7 @@ describe('Claude-mem Migration', () => {
     expect(result.errors).toHaveLength(0);
 
     // Verify learnings in brain.db
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const learnings = nativeDb.prepare('SELECT * FROM brain_learnings ORDER BY id').all() as Array<
       Record<string, unknown>
@@ -311,7 +311,7 @@ describe('Claude-mem Migration', () => {
 
   it('should be idempotent — skip already-imported entries on re-run', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -340,7 +340,7 @@ describe('Claude-mem Migration', () => {
 
   it('should support dry run without inserting data', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -363,7 +363,7 @@ describe('Claude-mem Migration', () => {
     expect(result.learningsImported).toBe(1);
 
     // Verify nothing was actually inserted
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const obs = nativeDb.prepare('SELECT COUNT(*) as cnt FROM brain_observations').get() as Record<
       string,
@@ -386,7 +386,7 @@ describe('Claude-mem Migration', () => {
 
   it('should apply project tag override', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -402,7 +402,7 @@ describe('Claude-mem Migration', () => {
 
     expect(result.observationsImported).toBe(1);
 
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const row = nativeDb
       .prepare('SELECT project FROM brain_observations WHERE id = ?')
@@ -412,7 +412,7 @@ describe('Claude-mem Migration', () => {
 
   it('should throw if source database does not exist', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     await expect(
@@ -422,7 +422,7 @@ describe('Claude-mem Migration', () => {
 
   it('should handle observations with all fields populated', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -446,7 +446,7 @@ describe('Claude-mem Migration', () => {
     expect(result.observationsImported).toBe(1);
     expect(result.errors).toHaveLength(0);
 
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const row = nativeDb
       .prepare('SELECT * FROM brain_observations WHERE id = ?')
@@ -466,7 +466,7 @@ describe('Claude-mem Migration', () => {
 
   it('should map unknown observation types to discovery', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -479,7 +479,7 @@ describe('Claude-mem Migration', () => {
     const result = await migrateClaudeMem(tempDir, { sourcePath: claudeMemDbPath });
     expect(result.observationsImported).toBe(1);
 
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const row = nativeDb
       .prepare('SELECT type FROM brain_observations WHERE id = ?')
@@ -489,7 +489,7 @@ describe('Claude-mem Migration', () => {
 
   it('should handle decisions with null narrative using fallback rationale', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -501,7 +501,7 @@ describe('Claude-mem Migration', () => {
     const result = await migrateClaudeMem(tempDir, { sourcePath: claudeMemDbPath });
     expect(result.decisionsImported).toBe(1);
 
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const row = nativeDb
       .prepare('SELECT rationale FROM brain_decisions WHERE id = ?')
@@ -511,7 +511,7 @@ describe('Claude-mem Migration', () => {
 
   it('should handle session summaries with JSON array learned field', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);
@@ -526,7 +526,7 @@ describe('Claude-mem Migration', () => {
     const result = await migrateClaudeMem(tempDir, { sourcePath: claudeMemDbPath });
     expect(result.learningsImported).toBe(1);
 
-    const { getBrainNativeDb } = await import('../../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
     const row = nativeDb
       .prepare('SELECT insight FROM brain_learnings WHERE id = ?')
@@ -536,7 +536,7 @@ describe('Claude-mem Migration', () => {
 
   it('should skip session summaries with empty or whitespace-only learned field', async () => {
     const { migrateClaudeMem } = await import('../claude-mem-migration.js');
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     closeBrainDb();
 
     const sourceDb = createClaudeMemFixture(claudeMemDbPath);

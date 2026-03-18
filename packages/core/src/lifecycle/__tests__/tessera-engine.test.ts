@@ -81,12 +81,12 @@ describe('Tessera engine', () => {
     const cleoDir = join(tempDir, '.cleo');
     process.env['CLEO_DIR'] = cleoDir;
 
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });

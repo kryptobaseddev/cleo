@@ -7,12 +7,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@cleocode/contracts';
 
 // Mock the data accessor
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
 // Mock file-utils since loadAllTasks path goes through it indirectly
-vi.mock('../../../store/file-utils.js', () => ({
+vi.mock('../../store/file-utils.js', () => ({
   readJsonFile: vi.fn(() => null),
   getDataPath: vi.fn((_root: string, file: string) => `/mock/${file}`),
 }));
@@ -22,7 +22,7 @@ vi.mock('../deps-ready.js', () => ({
   depsReady: vi.fn(() => true),
 }));
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { coreTaskDepends } from '../task-ops.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {

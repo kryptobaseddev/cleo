@@ -22,7 +22,7 @@ describe('Brain Search', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
     const { resetFts5Cache } = await import('../brain-search.js');
     closeBrainDb();
     resetFts5Cache();
@@ -33,7 +33,7 @@ describe('Brain Search', () => {
   describe('ensureFts5Tables', () => {
     it('should create FTS5 virtual tables successfully', async () => {
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../../store/brain-sqlite.js'
+        '../../store/brain-sqlite.js'
       );
       const { ensureFts5Tables, resetFts5Cache } = await import('../brain-search.js');
       closeBrainDb();
@@ -61,7 +61,7 @@ describe('Brain Search', () => {
   describe('searchBrain', () => {
     it('should return empty results for empty query', async () => {
       const { searchBrain } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
       closeBrainDb();
 
       const result = await searchBrain(tempDir, '');
@@ -72,8 +72,8 @@ describe('Brain Search', () => {
 
     it('should find decisions by text search', async () => {
       const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -100,8 +100,8 @@ describe('Brain Search', () => {
 
     it('should find patterns by text search', async () => {
       const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -120,8 +120,8 @@ describe('Brain Search', () => {
 
     it('should find learnings by text search', async () => {
       const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -140,8 +140,8 @@ describe('Brain Search', () => {
 
     it('should respect limit option', async () => {
       const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -162,8 +162,8 @@ describe('Brain Search', () => {
 
     it('should filter by specific tables', async () => {
       const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -198,7 +198,7 @@ describe('Brain Search', () => {
         '../brain-search.js'
       );
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../../store/brain-sqlite.js'
+        '../../store/brain-sqlite.js'
       );
       closeBrainDb();
       resetFts5Cache();

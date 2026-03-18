@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DataAccessor } from '../store/data-accessor.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import type { Task, TaskFile } from '@cleocode/contracts';
 import { getDashboard, rankBlockedTask } from '../index.js';
 

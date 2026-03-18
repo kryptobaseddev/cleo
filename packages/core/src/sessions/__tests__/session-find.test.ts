@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { DataAccessor } from '../store/data-accessor.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import type { Session } from '@cleocode/contracts';
 import { findSessions } from '../find.js';
 

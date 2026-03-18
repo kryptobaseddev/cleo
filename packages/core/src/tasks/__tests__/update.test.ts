@@ -11,8 +11,8 @@ import {
   createTestDb,
   seedTasks,
   type TestDbEnv,
-} from '../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+} from '../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { updateTask } from '../update.js';
 
 describe('updateTask', () => {

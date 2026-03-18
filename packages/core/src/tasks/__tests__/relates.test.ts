@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createSqliteDataAccessor } from '../store/sqlite-data-accessor.js';
+import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import type { Task } from '@cleocode/contracts';
 import { addRelation, listRelations } from '../relates.js';
 

@@ -32,7 +32,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
-    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
     await closeAllDatabases();
   } catch {
     /* ignore */
@@ -41,7 +41,7 @@ afterEach(async () => {
   // then close any db connections they may have re-opened.
   await new Promise<void>((resolve) => setTimeout(resolve, 300));
   try {
-    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
     await closeAllDatabases();
   } catch {
     /* ignore */

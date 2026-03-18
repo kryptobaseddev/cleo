@@ -70,7 +70,7 @@ let testDir: string;
 let cleoDir: string;
 
 async function ensureTaskExists(taskId: string): Promise<void> {
-  const { getDb, getNativeDb } = await import('../../../store/sqlite.js');
+  const { getDb, getNativeDb } = await import('../../store/sqlite.js');
   await getDb();
   getNativeDb()!
     .prepare(
@@ -196,7 +196,7 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
   afterEach(async () => {
     // Close ALL SQLite connections before cleanup — Windows locks open files
     try {
-      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* module may not be loaded */
@@ -1193,7 +1193,7 @@ describe('T4798 Epic Completion Validation', () => {
 
   afterEach(async () => {
     try {
-      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* ignore */

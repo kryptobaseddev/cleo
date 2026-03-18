@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
 
 // Mock data-accessor before importing cleanup module
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock('../../config.js', () => ({
   getRawConfigValue: vi.fn(),
 }));
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { getRawConfigValue } from '../../config.js';
 import { cleanupSessions } from '../session-cleanup.js';
 

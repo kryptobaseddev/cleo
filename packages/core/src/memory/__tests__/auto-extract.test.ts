@@ -22,13 +22,13 @@ vi.mock('../decisions.js', () => ({
 }));
 
 // Mock getAccessor used inside auto-extract for pattern detection
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
 // ---- imports after mocks --------------------------------------------------
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { SessionBridgeData } from '../../sessions/session-memory-bridge.js';
 import {
   extractSessionEndMemory,

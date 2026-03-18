@@ -63,12 +63,12 @@ describe('WarpChain chain-store', () => {
     const cleoDir = join(tempDir, '.cleo');
     process.env['CLEO_DIR'] = cleoDir;
 
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -190,8 +190,8 @@ describe('WarpChain chain-store', () => {
   });
 
   it('enforces DB foreign key for chain instances', async () => {
-    const { getDb } = await import('../../../store/sqlite.js');
-    const { warpChainInstances } = await import('../../../store/chain-schema.js');
+    const { getDb } = await import('../../store/sqlite.js');
+    const { warpChainInstances } = await import('../../store/chain-schema.js');
 
     const db = await getDb(tempDir);
 
@@ -286,8 +286,8 @@ describe('WarpChain chain-store', () => {
     const { addChain, createInstance, advanceInstance, showInstance } = await import(
       '../chain-store.js'
     );
-    const { getDb } = await import('../../../store/sqlite.js');
-    const { warpChainInstances } = await import('../../../store/chain-schema.js');
+    const { getDb } = await import('../../store/sqlite.js');
+    const { warpChainInstances } = await import('../../store/chain-schema.js');
     const chain = makeMinimalChain();
     await addChain(chain, tempDir);
 

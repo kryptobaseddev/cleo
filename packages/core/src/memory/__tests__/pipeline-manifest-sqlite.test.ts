@@ -103,7 +103,7 @@ describe('pipeline-manifest-sqlite', () => {
   });
 
   afterEach(async () => {
-    const { resetDbState } = await import('../../../store/sqlite.js');
+    const { resetDbState } = await import('../../store/sqlite.js');
     resetDbState();
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });

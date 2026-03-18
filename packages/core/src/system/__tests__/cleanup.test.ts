@@ -8,8 +8,8 @@ async function insertAuditRows(
   projectRoot: string,
   rows: { id: string; timestamp: string; action: string; taskId: string }[],
 ): Promise<void> {
-  const { getDb } = await import('../../../store/sqlite.js');
-  const { auditLog } = await import('../../../store/tasks-schema.js');
+  const { getDb } = await import('../../store/sqlite.js');
+  const { auditLog } = await import('../../store/tasks-schema.js');
   const db = await getDb(projectRoot);
 
   for (const row of rows) {
@@ -27,8 +27,8 @@ async function insertAuditRows(
 }
 
 async function countAuditRows(projectRoot: string): Promise<number> {
-  const { getDb } = await import('../../../store/sqlite.js');
-  const { auditLog } = await import('../../../store/tasks-schema.js');
+  const { getDb } = await import('../../store/sqlite.js');
+  const { auditLog } = await import('../../store/tasks-schema.js');
   const db = await getDb(projectRoot);
   const rows = await db.select().from(auditLog);
   return rows.length;
@@ -45,12 +45,12 @@ describe('cleanupSystem logs target', () => {
     cleoDir = join(projectRoot, '.cleo');
     await mkdir(cleoDir, { recursive: true });
 
-    const { getDb } = await import('../../../store/sqlite.js');
+    const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
   });
 
   afterEach(async () => {
-    const { resetDbState } = await import('../../../store/sqlite.js');
+    const { resetDbState } = await import('../../store/sqlite.js');
     resetDbState();
     await rm(tempDir, { recursive: true, force: true });
   });

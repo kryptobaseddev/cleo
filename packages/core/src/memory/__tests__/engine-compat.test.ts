@@ -80,7 +80,7 @@ describe('Memory Engine Compat', () => {
 
   afterEach(async () => {
     try {
-      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* ignore */
@@ -129,7 +129,7 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
 
   afterEach(async () => {
     try {
-      const { resetDbState } = await import('../../../store/sqlite.js');
+      const { resetDbState } = await import('../../store/sqlite.js');
       resetDbState();
     } catch {
       /* ignore */

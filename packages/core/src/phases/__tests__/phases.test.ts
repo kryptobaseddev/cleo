@@ -9,8 +9,8 @@ import {
   createTestDb,
   makeTaskFile,
   type TestDbEnv,
-} from '../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+} from '../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import type { Task } from '@cleocode/contracts';
 import {
   completePhase,

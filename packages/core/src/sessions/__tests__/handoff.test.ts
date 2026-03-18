@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
 
 // Mock data-accessor before importing handoff module
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
   createDataAccessor: vi.fn(),
 }));
@@ -22,7 +22,7 @@ vi.mock('../decisions.js', () => ({
   getDecisionLog: vi.fn().mockResolvedValue([]),
 }));
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { computeHandoff, getLastHandoff } from '../handoff.js';
 
 // ---------------------------------------------------------------------------

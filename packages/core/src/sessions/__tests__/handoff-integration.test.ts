@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data accessor
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock('../decisions.js', () => ({
   getDecisionLog: vi.fn().mockResolvedValue([]),
 }));
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { Session, SessionScope } from '@cleocode/contracts';
 import { computeBriefing } from '../briefing.js';
 import { computeHandoff, getHandoff, getLastHandoff, persistHandoff } from '../handoff.js';

@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
   createDataAccessor: vi.fn(),
 }));
@@ -14,7 +14,7 @@ vi.mock('../handoff.js', () => ({
   getLastHandoff: vi.fn().mockResolvedValue(null),
 }));
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 
 function setupMockAccessor(
