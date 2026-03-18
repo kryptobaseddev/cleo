@@ -251,7 +251,7 @@ export class SessionHandler implements DomainHandler {
               if (debriefResult?.success && debriefResult.data) {
                 try {
                   const { persistSessionMemory } = await import(
-                    '../../core/memory/session-memory.js'
+                    '@cleocode/core/memory/session-memory.js'
                   );
                   await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
                 } catch {

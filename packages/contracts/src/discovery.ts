@@ -15,6 +15,11 @@ export interface AdapterManifest {
   provider: string;
   /** Relative path to the main adapter module */
   entryPoint: string;
+  /**
+   * Resolved absolute path to the adapter package root.
+   * Populated at discovery time by discoverAdapterManifests().
+   */
+  packagePath: string;
   capabilities: AdapterCapabilities;
   detectionPatterns: DetectionPattern[];
 }

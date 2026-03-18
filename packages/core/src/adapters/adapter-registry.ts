@@ -1,31 +1,74 @@
 /**
- * Static adapter registry — maps adapter IDs to async factory functions.
+ * Dynamic adapter loading utilities.
  *
- * Replaces dynamic import() of file paths in AdapterManager.activate()
- * to ensure adapters work in both dev (TypeScript) and prod (esbuild bundle).
+ * Replaces the former static ADAPTER_REGISTRY with discovery-based loading.
+ * Adapters are found via discoverAdapterManifests() and loaded dynamically
+ * using each manifest's packagePath and entryPoint.
  *
- * Uses lazy imports to avoid eagerly loading adapter code (which pulls in
- * node:child_process etc.) at module evaluation time.
- *
- * Note: esbuild must NOT externalize @cleocode/adapter-* packages.
- * The build.mjs config uses a custom plugin to bundle them inline.
+ * Zero hardcoded adapter package names — everything derives from manifests.
  *
  * @task T5698
  */
 
-import type { CLEOProviderAdapter } from '@cleocode/contracts';
+import { join } from 'node:path';
+import type { AdapterManifest, CLEOProviderAdapter } from '@cleocode/contracts';
 
-export const ADAPTER_REGISTRY: Record<string, () => Promise<CLEOProviderAdapter>> = {
-  'claude-code': async () => {
-    const { ClaudeCodeAdapter } = await import('@cleocode/adapter-claude-code');
-    return new ClaudeCodeAdapter();
-  },
-  opencode: async () => {
-    const { OpenCodeAdapter } = await import('@cleocode/adapter-opencode');
-    return new OpenCodeAdapter();
-  },
-  cursor: async () => {
-    const { CursorAdapter } = await import('@cleocode/adapter-cursor');
-    return new CursorAdapter();
-  },
-};
+/**
+ * Validate that a loaded module export implements the CLEOProviderAdapter interface.
+ * Checks for required methods and properties without relying on instanceof.
+ */
+export function isValidAdapter(adapter: unknown): adapter is CLEOProviderAdapter {
+  if (adapter === null || typeof adapter !== 'object') return false;
+  const obj = adapter as Record<string, unknown>;
+  return (
+    typeof obj.id === 'string' &&
+    typeof obj.name === 'string' &&
+    typeof obj.version === 'string' &&
+    typeof obj.initialize === 'function' &&
+    typeof obj.dispose === 'function' &&
+    typeof obj.healthCheck === 'function' &&
+    obj.capabilities !== null &&
+    typeof obj.capabilities === 'object'
+  );
+}
+
+/**
+ * Dynamically load and instantiate an adapter from its manifest.
+ *
+ * Uses the manifest's packagePath to resolve the adapter module,
+ * then looks for a `createAdapter()` factory or a default export class.
+ *
+ * @param manifest - The adapter manifest with a resolved packagePath
+ * @returns A CLEOProviderAdapter instance
+ * @throws If the module cannot be loaded or does not export a valid adapter
+ */
+export async function loadAdapterFromManifest(
+  manifest: AdapterManifest,
+): Promise<CLEOProviderAdapter> {
+  const modulePath = join(manifest.packagePath, manifest.entryPoint);
+  const adapterModule = await import(modulePath);
+
+  // Prefer createAdapter() factory (all adapter packages export this)
+  if (typeof adapterModule.createAdapter === 'function') {
+    const adapter = adapterModule.createAdapter();
+    if (isValidAdapter(adapter)) return adapter;
+    throw new Error(
+      `createAdapter() in ${manifest.id} did not return a valid CLEOProviderAdapter`,
+    );
+  }
+
+  // Fall back to default export (may be a class constructor)
+  if (adapterModule.default) {
+    const DefaultExport = adapterModule.default;
+    if (typeof DefaultExport === 'function') {
+      const adapter = new DefaultExport();
+      if (isValidAdapter(adapter)) return adapter;
+    } else if (isValidAdapter(DefaultExport)) {
+      return DefaultExport;
+    }
+  }
+
+  throw new Error(
+    `Adapter module for ${manifest.id} does not export createAdapter() or a valid default`,
+  );
+}

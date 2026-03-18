@@ -1,0 +1,26 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Anthropic Claude Code CLI",
+  "provider": "claude-code",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": true,
+    "supportedHookEvents": ["onSessionStart", "onSessionEnd", "onToolStart", "onToolComplete", "onError"],
+    "supportsSpawn": true,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": true,
+    "instructionFilePattern": "CLAUDE.md",
+    "supportsContextMonitor": true,
+    "supportsStatusline": true,
+    "supportsProviderPaths": true,
+    "supportsTransport": true
+  },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "CLAUDE_CODE_ENTRYPOINT", "description": "Claude Code sets this env var" },
+    { "type": "file", "pattern": ".claude/settings.json", "description": "Claude Code config directory" },
+    { "type": "cli", "pattern": "claude", "description": "Claude CLI available in PATH" }
+  ]
+}

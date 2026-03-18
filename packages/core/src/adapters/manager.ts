@@ -14,7 +14,7 @@ import type {
 import { hooks } from '../hooks/registry.js';
 import type { HookEvent, HookPayload } from '../hooks/types.js';
 import { getLogger } from '../logger.js';
-import { ADAPTER_REGISTRY } from './adapter-registry.js';
+import { loadAdapterFromManifest } from './adapter-registry.js';
 import { detectProvider, discoverAdapterManifests } from './discovery.js';
 
 const log = getLogger('adapter-manager');
@@ -93,7 +93,7 @@ export class AdapterManager {
 
   /**
    * Load and initialize an adapter by manifest ID.
-   * Uses the static adapter registry for reliable bundled operation.
+   * Dynamically imports from the manifest's packagePath — no hardcoded adapters.
    */
   async activate(adapterId: string): Promise<CLEOProviderAdapter> {
     const manifest = this.manifests.get(adapterId);
@@ -108,14 +108,9 @@ export class AdapterManager {
       return existing;
     }
 
-    // Static registry lookup (replaces dynamic import)
-    const factory = ADAPTER_REGISTRY[adapterId];
-    if (!factory) {
-      throw new Error(`No adapter registered in static registry: ${adapterId}`);
-    }
-
     try {
-      const adapter = await factory();
+      // Dynamic import from discovered package path — no hardcoded adapters
+      const adapter = await loadAdapterFromManifest(manifest);
       await adapter.initialize(this.projectRoot);
       this.adapters.set(adapterId, adapter);
       this.activeId = adapterId;

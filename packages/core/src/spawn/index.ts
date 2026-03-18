@@ -12,6 +12,7 @@ export {
   getProvidersWithSpawnCapability,
   hasParallelSpawnProvider,
   initializeDefaultAdapters,
+  initializeSpawnAdapters,
   SpawnAdapterRegistry,
   spawnRegistry,
 } from './adapter-registry.js';

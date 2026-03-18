@@ -29,11 +29,14 @@ export function discoverAdapterManifests(projectRoot: string): AdapterManifest[]
   }
 
   for (const dir of entries) {
-    const manifestPath = join(adaptersDir, dir, 'manifest.json');
+    const adapterDir = join(adaptersDir, dir);
+    const manifestPath = join(adapterDir, 'manifest.json');
     if (!existsSync(manifestPath)) continue;
     try {
       const raw = readFileSync(manifestPath, 'utf-8');
       const manifest = JSON.parse(raw) as AdapterManifest;
+      // Resolve and attach the absolute package path for dynamic import
+      manifest.packagePath = resolve(adapterDir);
       manifests.push(manifest);
     } catch {
       // Skip malformed manifests

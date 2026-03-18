@@ -227,36 +227,61 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
 }
 
 /**
+ * Initialize spawn adapters dynamically from discovered adapter manifests.
+ *
+ * Scans all discovered manifests for adapters with `capabilities.supportsSpawn`,
+ * dynamically imports their spawn provider, and bridges it into the spawn registry.
+ *
+ * Zero hardcoded adapter names — everything derives from manifests.
+ *
+ * @param manifests - Discovered adapter manifests (from AdapterManager.discover())
+ * @returns Promise that resolves when initialization is complete
+ */
+export async function initializeSpawnAdapters(
+  manifests: import('@cleocode/contracts').AdapterManifest[],
+): Promise<void> {
+  for (const manifest of manifests) {
+    if (!manifest.capabilities?.supportsSpawn) continue;
+    if (spawnRegistry.hasAdapterForProvider(manifest.provider)) continue;
+
+    try {
+      const { join } = await import('node:path');
+      const modulePath = join(manifest.packagePath, manifest.entryPoint);
+      const adapterModule = await import(modulePath);
+
+      // Look for an exported spawn provider class — convention: <Name>SpawnProvider
+      let SpawnProviderClass: (new () => AdapterSpawnProvider) | undefined;
+      for (const [exportName, exportValue] of Object.entries(adapterModule)) {
+        if (
+          exportName.endsWith('SpawnProvider') &&
+          typeof exportValue === 'function'
+        ) {
+          SpawnProviderClass = exportValue as new () => AdapterSpawnProvider;
+          break;
+        }
+      }
+
+      if (SpawnProviderClass) {
+        const provider = new SpawnProviderClass();
+        spawnRegistry.register(bridgeSpawnAdapter(manifest.provider, provider));
+      }
+    } catch {
+      // Adapter not installed or doesn't have spawn provider — skip
+    }
+  }
+}
+
+/**
  * Initialize the registry with default adapters.
  *
- * Dynamically imports spawn providers from the adapter packages
- * (packages/adapters/claude-code/ and packages/adapters/opencode/)
- * and wraps them as CLEOSpawnAdapters via the bridge function.
+ * Legacy entry point that discovers adapters from the project root
+ * and delegates to initializeSpawnAdapters(). Maintains backward
+ * compatibility for callers that don't have manifests handy.
  *
  * @returns Promise that resolves when initialization is complete
  */
 export async function initializeDefaultAdapters(): Promise<void> {
-  if (!spawnRegistry.hasAdapterForProvider('claude-code')) {
-    try {
-      const { ClaudeCodeSpawnProvider } = await import(
-        /* webpackIgnore: true */
-        '@cleocode/adapter-claude-code'
-      );
-      spawnRegistry.register(bridgeSpawnAdapter('claude-code', new ClaudeCodeSpawnProvider()));
-    } catch {
-      // Adapter package not available — skip registration
-    }
-  }
-
-  if (!spawnRegistry.hasAdapterForProvider('opencode')) {
-    try {
-      const { OpenCodeSpawnProvider } = await import(
-        /* webpackIgnore: true */
-        '@cleocode/adapter-opencode'
-      );
-      spawnRegistry.register(bridgeSpawnAdapter('opencode', new OpenCodeSpawnProvider()));
-    } catch {
-      // Adapter package not available — skip registration
-    }
-  }
+  const { discoverAdapterManifests } = await import('../adapters/discovery.js');
+  const manifests = discoverAdapterManifests(process.cwd());
+  await initializeSpawnAdapters(manifests);
 }

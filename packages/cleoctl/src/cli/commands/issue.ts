@@ -8,7 +8,7 @@
 
 import { execFileSync } from 'node:child_process';
 import type { Command } from 'commander';
-import { BUILD_CONFIG } from '../../config/build-config.js';
+import { BUILD_CONFIG } from '@cleocode/core/config/build-config.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

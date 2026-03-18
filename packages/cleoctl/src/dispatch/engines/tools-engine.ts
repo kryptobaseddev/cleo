@@ -390,7 +390,7 @@ export async function toolsSkillPrecedenceShow(): Promise<
 > {
   try {
     const { getSkillsMapWithPrecedence } = await import(
-      '../../core/skills/precedence-integration.js'
+      '@cleocode/core/skills/precedence-integration.js'
     );
     const map = getSkillsMapWithPrecedence();
     return engineSuccess({ precedenceMap: map });
@@ -409,7 +409,7 @@ export async function toolsSkillPrecedenceResolve(
 ): Promise<EngineResult<{ providerId: string; scope: string; paths: unknown }>> {
   try {
     const { resolveSkillPathsForProvider } = await import(
-      '../../core/skills/precedence-integration.js'
+      '@cleocode/core/skills/precedence-integration.js'
     );
     const paths = await resolveSkillPathsForProvider(providerId, scope, projectRoot);
     return engineSuccess({ providerId, scope, paths });
@@ -448,7 +448,7 @@ export async function toolsSkillInstall(
     const providerIds = providers.map((p) => p.id);
 
     const { determineInstallationTargets } = await import(
-      '../../core/skills/precedence-integration.js'
+      '@cleocode/core/skills/precedence-integration.js'
     );
     const targets = await determineInstallationTargets({
       skillName: name,
