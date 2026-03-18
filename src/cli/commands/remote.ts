@@ -5,16 +5,16 @@
  */
 
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
 import {
+  CleoError,
+  formatError,
   addRemote,
-  getSyncStatus,
+  getRemoteSyncStatus as getSyncStatus,
   listRemotes,
   pull,
   push,
   removeRemote,
-} from '../../core/remote/index.js';
+} from '@cleocode/core';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
 

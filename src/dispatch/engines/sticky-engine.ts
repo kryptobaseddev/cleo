@@ -18,12 +18,12 @@ import {
   getSticky,
   listStickies,
   purgeSticky,
-} from '../../core/sticky/index.js';
+} from '@cleocode/core';
 import type {
   CreateStickyParams,
   ListStickiesParams,
   StickyNote,
-} from '../../core/sticky/types.js';
+} from '@cleocode/core';
 import { type EngineResult, engineError } from './_error.js';
 
 // Re-export EngineResult for consumers

@@ -13,8 +13,7 @@
  * @task T4844
  */
 
-import { getLogger } from '../../core/logger.js';
-import { getProjectInfoSync } from '../../core/project-info.js';
+import { getLogger, getProjectInfoSync } from '@cleocode/core';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -34,9 +33,9 @@ function resolveProjectHash(): string | null {
 }
 
 // AuditEntry type re-exported from core (canonical location)
-export type { AuditEntry } from '../../core/audit.js';
+export type { AuditEntry } from '@cleocode/core';
 
-import type { AuditEntry } from '../../core/audit.js';
+import type { AuditEntry } from '@cleocode/core';
 
 /**
  * Check if the current context is a grade session.
@@ -192,4 +191,4 @@ export function createAudit(): Middleware {
 }
 
 // queryAudit re-exported from core (canonical location)
-export { queryAudit } from '../../core/audit.js';
+export { queryAudit } from '@cleocode/core';

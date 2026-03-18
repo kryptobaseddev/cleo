@@ -15,45 +15,51 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { getRoadmap } from '../../core/roadmap/index.js';
-import { repairSequence } from '../../core/sequence/index.js';
-// Core module imports
-import { getDashboard, getProjectStats } from '../../core/stats/index.js';
-import { getArchiveStats } from '../../core/system/archive-stats.js';
-import { auditData } from '../../core/system/audit.js';
-import { createBackup, restoreBackup } from '../../core/system/backup.js';
-import { cleanupSystem } from '../../core/system/cleanup.js';
-import { getSystemDiagnostics, getSystemHealth } from '../../core/system/health.js';
-import { generateInjection } from '../../core/system/inject-generate.js';
-import { getLabels } from '../../core/system/labels.js';
-import { getSystemMetrics } from '../../core/system/metrics.js';
-import { getMigrationStatus } from '../../core/system/migrate.js';
-import { getRuntimeDiagnostics, type RuntimeDiagnostics } from '../../core/system/runtime.js';
-import { safestop, uncancelTask } from '../../core/system/safestop.js';
+import {
+  type RuntimeDiagnostics,
+  auditData,
+  cleanupSystem,
+  createBackup,
+  generateInjection,
+  getArchiveStats,
+  getDashboard,
+  getLabels,
+  getMigrationStatus,
+  getProjectStats,
+  getRoadmap,
+  getRuntimeDiagnostics,
+  getSystemDiagnostics,
+  getSystemHealth,
+  getSystemMetrics,
+  repairSequence,
+  restoreBackup,
+  safestop,
+  uncancelTask,
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 import { type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 
-export type { ArchiveStatsResult as ArchiveStatsData } from '../../core/system/archive-stats.js';
-export type { AuditResult as AuditData } from '../../core/system/audit.js';
+export type { ArchiveStatsResult as ArchiveStatsData } from '@cleocode/core';
+export type { AuditResult as AuditData } from '@cleocode/core';
 export type {
   BackupResult as BackupData,
   RestoreResult as RestoreData,
-} from '../../core/system/backup.js';
-export type { CleanupResult as CleanupData } from '../../core/system/cleanup.js';
+} from '@cleocode/core';
+export type { CleanupResult as CleanupData } from '@cleocode/core';
 export type {
   DiagnosticsResult as DiagnosticsData,
   HealthResult as HealthData,
-} from '../../core/system/health.js';
-export type { InjectGenerateResult as InjectGenerateData } from '../../core/system/inject-generate.js';
+} from '@cleocode/core';
+export type { InjectGenerateResult as InjectGenerateData } from '@cleocode/core';
 // Re-export types for downstream consumers
-export type { LabelsResult as LabelsData } from '../../core/system/labels.js';
-export type { SystemMetricsResult as MetricsData } from '../../core/system/metrics.js';
-export type { MigrateResult as MigrateData } from '../../core/system/migrate.js';
+export type { LabelsResult as LabelsData } from '@cleocode/core';
+export type { SystemMetricsResult as MetricsData } from '@cleocode/core';
+export type { MigrateResult as MigrateData } from '@cleocode/core';
 export type {
   SafestopResult as SafestopData,
   UncancelResult as UncancelData,
-} from '../../core/system/safestop.js';
+} from '@cleocode/core';
 export type RuntimeData = RuntimeDiagnostics;
 
 // ===== Dashboard Data type (re-exported for consumers) =====

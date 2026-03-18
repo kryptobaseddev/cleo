@@ -1,7 +1,7 @@
 # @cleocode/core Package Specification
 
 **Version**: 2026.3.17
-**Status**: DRAFT
+**Status**: APPROVED
 **Date**: 2026-03-17
 **Task**: T5714
 **Epic**: T5701

@@ -11,8 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
-import { autoRecordDispatchTokenUsage } from '../../core/metrics/token-service.js';
-import { getProjectRoot } from '../../core/paths.js';
+import { autoRecordDispatchTokenUsage, getProjectRoot } from '@cleocode/core';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';

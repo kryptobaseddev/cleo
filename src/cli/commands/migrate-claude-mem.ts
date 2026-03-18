@@ -9,8 +9,7 @@
  */
 
 import type { Command } from 'commander';
-import { migrateClaudeMem } from '../../core/memory/claude-mem-migration.js';
-import { getProjectRoot } from '../../core/paths.js';
+import { migrateClaudeMem, getProjectRoot } from '@cleocode/core';
 
 /**
  * Register the `migrate claude-mem` command under a migrate parent command.

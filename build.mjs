@@ -69,7 +69,9 @@ const buildOptions = {
           '@cleocode/adapter-opencode': resolve(__dirname, 'packages/adapters/opencode/src/index.ts'),
           '@cleocode/adapter-cursor': resolve(__dirname, 'packages/adapters/cursor/src/index.ts'),
           '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
-          '@cleocode/core': resolve(__dirname, 'packages/core/src/index.ts'),
+          // T5723: main bundle uses src/core/index.ts directly (avoids export* resolution issues)
+          // packages/core/src/index.ts is only used for the corePackageBuildOptions standalone bundle
+          '@cleocode/core': resolve(__dirname, 'src/core/index.ts'),
         };
 
         // Resolve @cleocode/* to source TypeScript

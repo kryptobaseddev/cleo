@@ -6,9 +6,7 @@
  */
 
 import type { Command } from 'commander';
-import { loadConfig } from '../../core/config.js';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
+import { loadConfig, CleoError, formatError } from '@cleocode/core';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

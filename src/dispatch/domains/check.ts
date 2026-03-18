@@ -11,10 +11,7 @@
  * @epic T4820
  */
 
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
-import { validateChain } from '../../core/validation/chain-validation.js';
+import { getLogger, paginate, getProjectRoot, validateChain } from '@cleocode/core';
 import type { WarpChain } from '../../types/warp-chain.js';
 
 import {

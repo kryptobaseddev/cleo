@@ -7,4 +7,30 @@
  * @task T5674
  */
 
-export * from '../../core/memory/engine-compat.js';
+export {
+  memoryBrainStats,
+  memoryContradictions,
+  memoryDecisionFind,
+  memoryDecisionStore,
+  memoryFetch,
+  memoryFind,
+  memoryGraphAdd,
+  memoryGraphNeighbors,
+  memoryGraphRemove,
+  memoryGraphShow,
+  memoryLearningFind,
+  memoryLearningStats,
+  memoryLearningStore,
+  memoryLink,
+  memoryObserve,
+  memoryPatternFind,
+  memoryPatternStats,
+  memoryPatternStore,
+  memoryReasonSimilar,
+  memoryReasonWhy,
+  memorySearchHybrid,
+  memoryShow,
+  memorySuperseded,
+  memoryTimeline,
+  memoryUnlink,
+} from '@cleocode/core';

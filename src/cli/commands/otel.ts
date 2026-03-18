@@ -6,16 +6,16 @@
 
 // CLI-only: no otel domain in dispatch (telemetry is local-only)
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
 import {
+  CleoError,
   clearOtelData,
   getOtelSessions,
   getOtelSpawns,
   getOtelStatus,
   getOtelSummary,
   getRealTokenUsage,
-} from '../../core/otel/index.js';
-import { formatError } from '../../core/output.js';
+  formatError,
+} from '@cleocode/core';
 import { cliOutput } from '../renderers/index.js';
 
 /**

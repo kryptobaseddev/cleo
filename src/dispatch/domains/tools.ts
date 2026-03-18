@@ -16,8 +16,7 @@
  * @task T5703
  */
 
-import { getLogger } from '../../core/logger.js';
-import { getProjectRoot } from '../../core/paths.js';
+import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
   toolsAdapterActivate,
   toolsAdapterDetect,

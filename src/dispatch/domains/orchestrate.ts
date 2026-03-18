@@ -12,10 +12,10 @@ import {
   instantiateTessera,
   listTesseraTemplates,
   showTessera,
-} from '../../core/lifecycle/tessera-engine.js';
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
+  getLogger,
+  paginate,
+  getProjectRoot,
+} from '@cleocode/core';
 import {
   orchestrateAnalyze,
   orchestrateBootstrap,

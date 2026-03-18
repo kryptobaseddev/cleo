@@ -6,7 +6,7 @@
  */
 
 import type { Command } from 'commander';
-import { getProjectRoot } from '../../core/paths.js';
+import { getProjectRoot } from '@cleocode/core';
 
 export function registerObserveCommand(program: Command): void {
   program

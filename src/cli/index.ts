@@ -238,15 +238,13 @@ class GroupedHelp extends Help {
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 // Centralized pino logger
-import { loadConfig as loadCoreConfig } from '../core/config.js';
-// Startup guard: fail fast if Node.js version is below minimum
 import {
+  loadConfig as loadCoreConfig,
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
   MINIMUM_NODE_MAJOR,
-} from '../core/platform.js';
-// Core: pre-flight migration check (@task T4699)
-import { checkStorageMigration } from '../core/system/storage-preflight.js';
+  checkStorageMigration,
+} from '@cleocode/core';
 import { registerAddCommand } from './commands/add.js';
 // ADR-017: ADR validation, listing, and sync
 import { registerAdrCommand } from './commands/adr.js';

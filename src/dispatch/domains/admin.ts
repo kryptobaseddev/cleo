@@ -14,36 +14,32 @@
  * @task T5671
  */
 
-import { exportTasks } from '../../core/admin/export.js';
-import { exportTasksPackage } from '../../core/admin/export-tasks.js';
-import { computeHelp } from '../../core/admin/help.js';
-import { importTasks } from '../../core/admin/import.js';
-import { importTasksPackage } from '../../core/admin/import-tasks.js';
 import {
+  exportTasks,
+  exportTasksPackage,
+  computeHelp,
+  importTasks,
+  importTasksPackage,
   findAdrs,
   listAdrs,
   showAdr,
   syncAdrsToDb,
   validateAllAdrs,
-} from '../../core/adrs/index.js';
-import { getLogger } from '../../core/logger.js';
-import {
+  getLogger,
   clearTokenUsage,
   deleteTokenUsage,
   listTokenUsage,
   recordTokenExchange,
   showTokenUsage,
   summarizeTokenUsage,
-} from '../../core/metrics/token-service.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
-import {
+  paginate,
+  getProjectRoot,
   exportSnapshot,
   getDefaultSnapshotPath,
   importSnapshot,
   readSnapshot,
   writeSnapshot,
-} from '../../core/snapshot/index.js';
+} from '@cleocode/core';
 import {
   backupRestore,
   configGet,

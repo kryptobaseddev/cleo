@@ -6,7 +6,7 @@
  */
 
 import type { Command } from 'commander';
-import { createPage } from '../../core/pagination.js';
+import { createPage } from '@cleocode/core';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';

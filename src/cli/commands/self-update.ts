@@ -19,12 +19,14 @@ import { promisify } from 'node:util';
 // CLI-only: self-update requires file system ops and external process execution
 import type { Command } from 'commander';
 import { BUILD_CONFIG } from '../../config/build-config.js';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoHome } from '../../core/paths.js';
-import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
-import { checkStorageMigration } from '../../core/system/storage-preflight.js';
-import { runUpgrade } from '../../core/upgrade.js';
+import {
+  CleoError,
+  formatError,
+  getCleoHome,
+  getRuntimeDiagnostics,
+  checkStorageMigration,
+  runUpgrade,
+} from '@cleocode/core';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';

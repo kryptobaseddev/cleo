@@ -20,11 +20,11 @@ import {
   criticalPath,
   nexusDeps,
   orphanDetection,
-} from '../../core/nexus/deps.js';
-import { discoverRelated, searchAcrossProjects } from '../../core/nexus/discover.js';
-import { setPermission } from '../../core/nexus/permissions.js';
-import { resolveTask, validateSyntax } from '../../core/nexus/query.js';
-import {
+  discoverRelated,
+  searchAcrossProjects,
+  setPermission,
+  resolveTask,
+  validateSyntax,
   type NexusPermissionLevel,
   nexusGetProject,
   nexusInit,
@@ -35,16 +35,14 @@ import {
   nexusSyncAll,
   nexusUnregister,
   readRegistry,
-} from '../../core/nexus/registry.js';
-import { getSharingStatus } from '../../core/nexus/sharing/index.js';
-import { paginate } from '../../core/pagination.js';
-import {
+  getSharingStatus,
+  paginate,
   exportSnapshot,
   getDefaultSnapshotPath,
   importSnapshot,
   readSnapshot,
   writeSnapshot,
-} from '../../core/snapshot/index.js';
+} from '@cleocode/core';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
 
 // Re-export EngineResult for consumers

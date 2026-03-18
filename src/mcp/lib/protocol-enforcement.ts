@@ -14,4 +14,4 @@ export {
   ProtocolType,
   protocolEnforcer,
   type ViolationLogEntry,
-} from '../../core/compliance/protocol-enforcement.js';
+} from '@cleocode/core';
