@@ -17,20 +17,20 @@
 
 import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs-protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
-import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
+import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
+import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 import {
   createTestDb,
   makeTaskFile,
   type TestDbEnv,
-} from '../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+} from '../../../core/src/store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../core/src/store/data-accessor.js';
 import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
-import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode } from '../error-registry.js';
-import { CleoError } from '../errors.js';
-import { formatError, formatSuccess, pushWarning } from '../output.js';
-import { createPage, paginate } from '../pagination.js';
-import { validateHierarchyPlacement } from '../tasks/hierarchy-policy.js';
+import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode } from '../../../core/src/error-registry.js';
+import { CleoError } from '../../../core/src/errors.js';
+import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
+import { createPage, paginate } from '../../../core/src/pagination.js';
+import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
 
 // ============================
 // FULL LAFS ENVELOPE VALIDATION

@@ -38,7 +38,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ===========================================================================
 
 // --- task-engine mocks ---
-vi.mock('../../dispatch/engines/task-engine.js', () => ({
+vi.mock('../dispatch/engines/task-engine.js', () => ({
   taskShow: vi.fn(),
   taskList: vi.fn(),
   taskFind: vi.fn(),
@@ -64,7 +64,7 @@ vi.mock('../../dispatch/engines/task-engine.js', () => ({
 }));
 
 // --- session-engine mocks (hosts taskStart/taskStop/taskCurrentGet) ---
-vi.mock('../../dispatch/engines/session-engine.js', () => ({
+vi.mock('../dispatch/engines/session-engine.js', () => ({
   sessionStatus: vi.fn(),
   sessionList: vi.fn(),
   sessionShow: vi.fn(),
@@ -84,7 +84,7 @@ vi.mock('../../dispatch/engines/session-engine.js', () => ({
 }));
 
 // --- system-engine mocks ---
-vi.mock('../../dispatch/engines/system-engine.js', () => ({
+vi.mock('../dispatch/engines/system-engine.js', () => ({
   systemDash: vi.fn(),
   systemStats: vi.fn(),
   systemLog: vi.fn(),
@@ -101,7 +101,7 @@ vi.mock('../../dispatch/engines/system-engine.js', () => ({
 }));
 
 // --- lifecycle-engine mocks ---
-vi.mock('../../dispatch/engines/lifecycle-engine.js', () => ({
+vi.mock('../dispatch/engines/lifecycle-engine.js', () => ({
   lifecycleStatus: vi.fn(),
   lifecycleHistory: vi.fn(),
   lifecycleGates: vi.fn(),
@@ -127,7 +127,7 @@ vi.mock('../../dispatch/engines/lifecycle-engine.js', () => ({
 }));
 
 // --- orchestrate-engine mocks ---
-vi.mock('../../dispatch/engines/orchestrate-engine.js', () => ({
+vi.mock('../dispatch/engines/orchestrate-engine.js', () => ({
   orchestrateStatus: vi.fn(),
   orchestrateAnalyze: vi.fn(),
   orchestrateReady: vi.fn(),
@@ -147,7 +147,7 @@ vi.mock('../../dispatch/engines/orchestrate-engine.js', () => ({
 }));
 
 // --- validate-engine mocks ---
-vi.mock('../../dispatch/engines/validate-engine.js', () => ({
+vi.mock('../dispatch/engines/validate-engine.js', () => ({
   validateSchemaOp: vi.fn(),
   validateTask: vi.fn(),
   validateProtocol: vi.fn(),
@@ -164,7 +164,7 @@ vi.mock('../../dispatch/engines/validate-engine.js', () => ({
 }));
 
 // --- release-engine mocks ---
-vi.mock('../../dispatch/engines/release-engine.js', () => ({
+vi.mock('../dispatch/engines/release-engine.js', () => ({
   releasePrepare: vi.fn(),
   releaseChangelog: vi.fn(),
   releaseList: vi.fn(),
@@ -214,7 +214,7 @@ vi.mock('../../core/memory/pipeline-manifest-sqlite.js', () => ({
 }));
 
 // --- dispatch/lib/engine (config + init) ---
-vi.mock('../../dispatch/lib/engine.js', () => {
+vi.mock('../dispatch/lib/engine.js', () => {
   return {
     // Tasks
     taskShow: vi.fn(),
@@ -242,7 +242,7 @@ vi.mock('../../dispatch/lib/engine.js', () => {
 });
 
 // --- template-parser mocks ---
-vi.mock('../../dispatch/engines/template-parser.js', () => ({
+vi.mock('../dispatch/engines/template-parser.js', () => ({
   parseIssueTemplates: vi.fn(),
   getTemplateForSubcommand: vi.fn(),
   generateTemplateConfig: vi.fn(),
@@ -255,62 +255,62 @@ vi.mock('../../core/paths.js', () => ({
 }));
 
 // --- MCP-only middleware (passthrough stubs to avoid blocking tests) ---
-vi.mock('../../dispatch/middleware/rate-limiter.js', () => ({
+vi.mock('../dispatch/middleware/rate-limiter.js', () => ({
   createRateLimiter: vi.fn(
     () =>
       async (
-        _req: import('../../dispatch/types.js').DispatchRequest,
-        next: import('../../dispatch/types.js').DispatchNext,
+        _req: import('../dispatch/types.js').DispatchRequest,
+        next: import('../dispatch/types.js').DispatchNext,
       ) =>
         next(),
   ),
 }));
 
-vi.mock('../../dispatch/middleware/verification-gates.js', () => ({
+vi.mock('../dispatch/middleware/verification-gates.js', () => ({
   createVerificationGates: vi.fn(
     () =>
       async (
-        _req: import('../../dispatch/types.js').DispatchRequest,
-        next: import('../../dispatch/types.js').DispatchNext,
+        _req: import('../dispatch/types.js').DispatchRequest,
+        next: import('../dispatch/types.js').DispatchNext,
       ) =>
         next(),
   ),
 }));
 
-vi.mock('../../dispatch/middleware/protocol-enforcement.js', () => ({
+vi.mock('../dispatch/middleware/protocol-enforcement.js', () => ({
   createProtocolEnforcement: vi.fn(
     () =>
       async (
-        _req: import('../../dispatch/types.js').DispatchRequest,
-        next: import('../../dispatch/types.js').DispatchNext,
+        _req: import('../dispatch/types.js').DispatchRequest,
+        next: import('../dispatch/types.js').DispatchNext,
       ) =>
         next(),
   ),
 }));
 
-vi.mock('../../dispatch/middleware/audit.js', () => ({
+vi.mock('../dispatch/middleware/audit.js', () => ({
   createAudit: vi.fn(
     () =>
       async (
-        _req: import('../../dispatch/types.js').DispatchRequest,
-        next: import('../../dispatch/types.js').DispatchNext,
+        _req: import('../dispatch/types.js').DispatchRequest,
+        next: import('../dispatch/types.js').DispatchNext,
       ) =>
         next(),
   ),
 }));
 
 // --- MCP rate-limiter config dependency ---
-vi.mock('../../mcp/lib/rate-limiter.js', () => ({
+vi.mock('../mcp/lib/rate-limiter.js', () => ({
   RateLimiter: vi.fn(),
   createRateLimiter: vi.fn(),
 }));
 
 // --- security (sanitizer) ---
-vi.mock('../../dispatch/lib/security.js', () => ({
+vi.mock('../dispatch/lib/security.js', () => ({
   sanitizeParams: vi.fn((p: Record<string, unknown>) => p),
 }));
 
-vi.mock('../../mcp/lib/security.js', () => ({
+vi.mock('../mcp/lib/security.js', () => ({
   sanitizeParams: vi.fn((p: Record<string, unknown>) => p),
 }));
 
@@ -318,10 +318,10 @@ vi.mock('../../mcp/lib/security.js', () => ({
 // Imports (AFTER all vi.mock() calls)
 // ===========================================================================
 
-import { dispatchRaw, resetCliDispatcher } from '../../dispatch/adapters/cli.js';
-import { handleMcpToolCall, resetMcpDispatcher } from '../../dispatch/adapters/mcp.js';
-import { SessionHandler } from '../../dispatch/domains/session.js';
-import { TasksHandler } from '../../dispatch/domains/tasks.js';
+import { dispatchRaw, resetCliDispatcher } from '../dispatch/adapters/cli.js';
+import { handleMcpToolCall, resetMcpDispatcher } from '../dispatch/adapters/mcp.js';
+import { SessionHandler } from '../dispatch/domains/session.js';
+import { TasksHandler } from '../dispatch/domains/tasks.js';
 import {
   sessionList,
   sessionStart,
@@ -336,7 +336,7 @@ import {
   taskStart,
   taskStop,
   taskUpdate,
-} from '../../dispatch/lib/engine.js';
+} from '../dispatch/lib/engine.js';
 
 // ===========================================================================
 // Helpers

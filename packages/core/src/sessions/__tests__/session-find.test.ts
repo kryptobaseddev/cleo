@@ -184,7 +184,7 @@ describe('findSessions (T5119)', () => {
 describe('sessionList budget enforcement (T5120, T5121)', () => {
   // We test the engine function directly
   // Need to use dynamic import because the engine has side effects
-  let sessionList: typeof import('../../../dispatch/engines/session-engine.js').sessionList;
+  let sessionList: typeof import('../../../../cleoctl/src/dispatch/engines/session-engine.js').sessionList;
   let getAccessorMock: ReturnType<typeof vi.fn>;
 
   // Create sessions for testing
@@ -200,7 +200,7 @@ describe('sessionList budget enforcement (T5120, T5121)', () => {
 
   it('defaults to limit=10 when no limit provided', async () => {
     // Import the engine module and mock getAccessor
-    const engineModule = await import('../../../dispatch/engines/session-engine.js');
+    const engineModule = await import('../../../../cleoctl/src/dispatch/engines/session-engine.js');
     sessionList = engineModule.sessionList;
 
     // We test via the actual function — since it needs getAccessor,

@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeLogger, initLogger } from '../logger.js';
+import { closeLogger, initLogger } from '../../../core/src/logger.js';
 
 // ============================================================================
 // Section 1: Import Graph Verification
@@ -56,7 +56,7 @@ describe('Import Graph Verification (T4796)', () => {
         const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
 
         const coreImports = fromLines.filter(
-          (line) => line.includes("'@cleocode/core'") || line.includes('../store/'),
+          (line) => line.includes("'@cleocode/core'") || line.includes('../../../core/src/store/'),
         );
 
         // Every engine file should have at least one core/store import
@@ -77,7 +77,7 @@ describe('Import Graph Verification (T4796)', () => {
 
         // Count @cleocode/core + store imports
         const coreImports = fromLines.filter(
-          (line) => line.includes("'@cleocode/core'") || line.includes('../store/'),
+          (line) => line.includes("'@cleocode/core'") || line.includes('../../../core/src/store/'),
         );
 
         // Core imports should exist
@@ -183,8 +183,8 @@ async function createTestProject(
   await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
 
   // Seed tasks into SQLite via the task store
-  const { getDb } = await import('../store/sqlite.js');
-  const { createTask } = await import('../store/task-store.js');
+  const { getDb } = await import('../../../core/src/store/sqlite.js');
+  const { createTask } = await import('../../../core/src/store/task-store.js');
   await getDb(testDir);
 
   const tasks = (tasksJson as { tasks: Array<Record<string, unknown>> }).tasks ?? [];
@@ -279,7 +279,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
     await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
-      const { closeAllDatabases } = await import('../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../../core/src/store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* ignore */
@@ -292,8 +292,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow returns same task data as core showTask', async () => {
     const { showTask } = await import('../tasks/show.js');
-    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
-    const { getAccessor } = await import('../store/data-accessor.js');
+    const { taskShow } = await import('../dispatch/engines/task-engine.js');
+    const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
 
@@ -316,8 +316,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow and core showTask both fail for missing task', async () => {
     const { showTask } = await import('../tasks/show.js');
-    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
-    const { getAccessor } = await import('../store/data-accessor.js');
+    const { taskShow } = await import('../dispatch/engines/task-engine.js');
+    const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
 
@@ -333,8 +333,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList returns same tasks as core listTasks', async () => {
     const { listTasks } = await import('../tasks/list.js');
-    const { taskList } = await import('../../dispatch/engines/task-engine.js');
-    const { getAccessor } = await import('../store/data-accessor.js');
+    const { taskList } = await import('../dispatch/engines/task-engine.js');
+    const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
 
@@ -359,8 +359,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList with status filter matches core listTasks filter', async () => {
     const { listTasks } = await import('../tasks/list.js');
-    const { taskList } = await import('../../dispatch/engines/task-engine.js');
-    const { getAccessor } = await import('../store/data-accessor.js');
+    const { taskList } = await import('../dispatch/engines/task-engine.js');
+    const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
 
@@ -378,8 +378,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskFind returns same results as core findTasks', async () => {
     const { findTasks } = await import('../tasks/find.js');
-    const { taskFind } = await import('../../dispatch/engines/task-engine.js');
-    const { getAccessor } = await import('../store/data-accessor.js');
+    const { taskFind } = await import('../dispatch/engines/task-engine.js');
+    const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
 
@@ -400,7 +400,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskCreate produces a valid task via engine', async () => {
-    const { taskCreate } = await import('../../dispatch/engines/task-engine.js');
+    const { taskCreate } = await import('../dispatch/engines/task-engine.js');
 
     // Engine create
     const engineResult = await taskCreate(testDir, {
@@ -478,7 +478,7 @@ describe('Session Engine Delegation (T4796)', () => {
     await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
-      const { closeAllDatabases } = await import('../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../../core/src/store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* ignore */
@@ -490,7 +490,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   it('sessionStatus returns valid EngineResult', async () => {
-    const { sessionStatus } = await import('../../dispatch/engines/session-engine.js');
+    const { sessionStatus } = await import('../dispatch/engines/session-engine.js');
 
     const result = await sessionStatus(testDir);
 
@@ -500,7 +500,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   it('sessionList returns valid EngineResult with canonical list metadata', async () => {
-    const { sessionList } = await import('../../dispatch/engines/session-engine.js');
+    const { sessionList } = await import('../dispatch/engines/session-engine.js');
 
     const result = await sessionList(testDir);
 
@@ -516,7 +516,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   it('sessionStart creates session and returns EngineResult', async () => {
-    const { sessionStart } = await import('../../dispatch/engines/session-engine.js');
+    const { sessionStart } = await import('../dispatch/engines/session-engine.js');
 
     const result = await sessionStart(testDir, {
       scope: 'epic:T010',
@@ -533,7 +533,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('sessionStart then sessionEnd round-trip works', async () => {
     const { sessionStart, sessionEnd, sessionStatus } = await import(
-      '../../dispatch/engines/session-engine.js'
+      '../dispatch/engines/session-engine.js'
     );
 
     // Start session
@@ -556,7 +556,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('taskStart and taskStop delegate to core/task-work/', async () => {
     const { taskStart, taskStop, taskCurrentGet } = await import(
-      '../../dispatch/engines/session-engine.js'
+      '../dispatch/engines/session-engine.js'
     );
 
     // Start working on a task
@@ -606,7 +606,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
-      const { closeAllDatabases } = await import('../store/sqlite.js');
+      const { closeAllDatabases } = await import('../../../core/src/store/sqlite.js');
       await closeAllDatabases();
     } catch {
       /* ignore */
@@ -618,7 +618,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   it('lifecycle-engine uses PIPELINE_STAGES from core/lifecycle/', async () => {
-    const engineMod = await import('../../dispatch/engines/lifecycle-engine.js');
+    const engineMod = await import('../dispatch/engines/lifecycle-engine.js');
     const coreMod = await import('../lifecycle/index.js');
 
     // Engine function uses PIPELINE_STAGES from core for status
@@ -630,7 +630,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   it('lifecycleStatus returns valid result for uninitialized epic', async () => {
-    const { lifecycleStatus } = await import('../../dispatch/engines/lifecycle-engine.js');
+    const { lifecycleStatus } = await import('../dispatch/engines/lifecycle-engine.js');
 
     const result = await lifecycleStatus('T100', testDir);
 
@@ -646,7 +646,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleProgress records stage and lifecycleStatus reflects it', async () => {
     const { lifecycleProgress, lifecycleStatus } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
+      '../dispatch/engines/lifecycle-engine.js'
     );
 
     // Record research as completed
@@ -672,7 +672,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   it('lifecyclePrerequisites returns valid data', async () => {
-    const { lifecyclePrerequisites } = await import('../../dispatch/engines/lifecycle-engine.js');
+    const { lifecyclePrerequisites } = await import('../dispatch/engines/lifecycle-engine.js');
 
     const result = await lifecyclePrerequisites('specification', testDir);
 
@@ -684,7 +684,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleCheck validates prerequisites correctly', async () => {
     const { lifecycleCheck, lifecycleProgress } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
+      '../dispatch/engines/lifecycle-engine.js'
     );
 
     // Check specification without completing research
@@ -708,7 +708,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleSkip records skip with reason', async () => {
     const { lifecycleSkip, lifecycleHistory } = await import(
-      '../../dispatch/engines/lifecycle-engine.js'
+      '../dispatch/engines/lifecycle-engine.js'
     );
 
     const skipResult = await lifecycleSkip(
@@ -764,7 +764,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   }
 
   it('task engine error results have E_ prefixed codes', async () => {
-    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
+    const { taskShow } = await import('../dispatch/engines/task-engine.js');
 
     // This will fail because no project dir is set up
     const result = await taskShow('/nonexistent', 'T999');
@@ -775,7 +775,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   });
 
   it('session engine error results have E_ prefixed codes', async () => {
-    const { sessionStatus } = await import('../../dispatch/engines/session-engine.js');
+    const { sessionStatus } = await import('../dispatch/engines/session-engine.js');
 
     const result = await sessionStatus('/nonexistent');
     assertEngineResult(result);
@@ -785,7 +785,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   });
 
   it('lifecycle engine error results have E_ prefixed codes', async () => {
-    const { lifecycleStatus } = await import('../../dispatch/engines/lifecycle-engine.js');
+    const { lifecycleStatus } = await import('../dispatch/engines/lifecycle-engine.js');
 
     // Empty epicId should fail
     const result = await lifecycleStatus('');

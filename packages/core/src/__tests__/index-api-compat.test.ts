@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import * as api from '../../index.js';
+import * as api from '../index.js';
 
 describe('package-root migration API compatibility', () => {
   it('keeps legacy migration exports at package root', () => {

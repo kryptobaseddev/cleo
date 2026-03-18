@@ -10,11 +10,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
+import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
-import { formatError, formatSuccess } from '../output.js';
-import { createPage } from '../pagination.js';
+import { CleoError } from '../../../core/src/errors.js';
+import { formatError, formatSuccess } from '../../../core/src/output.js';
+import { createPage } from '../../../core/src/pagination.js';
 
 /**
  * Canonical LAFS success envelope shape.
