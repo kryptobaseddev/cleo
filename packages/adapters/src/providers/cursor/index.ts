@@ -1,5 +1,5 @@
 /**
- * @cleocode/adapter-cursor
+ * Cursor provider adapter.
  *
  * CLEO provider adapter for Cursor AI code editor.
  * Default export is the adapter class for dynamic loading by AdapterManager.

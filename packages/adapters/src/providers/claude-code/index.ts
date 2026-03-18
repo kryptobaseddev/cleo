@@ -1,5 +1,5 @@
 /**
- * @cleocode/adapter-claude-code
+ * Claude Code provider adapter.
  *
  * CLEO provider adapter for Anthropic Claude Code CLI.
  * Default export is the adapter class for dynamic loading by AdapterManager.

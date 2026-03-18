@@ -1,7 +1,7 @@
 {
-  "name": "@cleocode/adapter-opencode",
-  "version": "1.0.0",
-  "description": "CLEO adapter for OpenCode AI coding assistant",
+  "name": "@cleocode/adapters",
+  "version": "2.0.0",
+  "description": "Unified provider adapters for CLEO (Claude Code, OpenCode, Cursor)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,13 +18,15 @@
   "dependencies": {
     "@cleocode/contracts": "workspace:*"
   },
-  "devDependencies": {
-    "@types/node": "^22.19.11"
-  },
   "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "files": [
     "dist",
-    "src",
-    "manifest.json"
-  ]
+    "src"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.19.15"
+  }
 }

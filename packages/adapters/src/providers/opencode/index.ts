@@ -1,5 +1,5 @@
 /**
- * @cleocode/adapter-opencode
+ * OpenCode provider adapter.
  *
  * CLEO provider adapter for OpenCode AI coding assistant.
  * Default export is the adapter class for dynamic loading by AdapterManager.
