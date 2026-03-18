@@ -43,18 +43,12 @@ describe('Brain Retrieval', () => {
       /* may not be loaded */
     }
     delete process.env['CLEO_DIR'];
-    // Best-effort cleanup — abort after 10s to avoid hook timeout on Windows.
-    try {
-      await rm(tempDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-        retryDelay: 300,
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      /* ignore */
-    }
+    // Race rm against an 8s timeout. On Windows, fs.rm can block indefinitely
+    // on locked SQLite WAL files — racing prevents the hook from timing out.
+    await Promise.race([
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   // ==========================================================================
