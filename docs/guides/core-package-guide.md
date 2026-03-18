@@ -71,7 +71,7 @@ The CLI adapter (Commander.js), MCP server, dispatch routing layer, and `SqliteD
 npm install @cleocode/core
 ```
 
-All runtime dependencies (`@cleocode/contracts`, `@cleocode/caamp`, `@cleocode/lafs-protocol`, `drizzle-orm`, `sql.js`, etc.) are included as direct dependencies and install automatically.
+All runtime dependencies (`@cleocode/contracts`, `@cleocode/caamp`, `@cleocode/lafs-protocol`, `drizzle-orm`, etc.) are included as direct dependencies and install automatically. SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) — no native modules needed.
 
 ---
 

@@ -28,11 +28,15 @@ describe('Memory Bridge', () => {
     try {
       const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
       closeBrainDb();
-    } catch { /* may not be loaded */ }
+    } catch {
+      /* may not be loaded */
+    }
     try {
       const { closeDb } = await import('../../../store/sqlite.js');
       closeDb();
-    } catch { /* may not be loaded */ }
+    } catch {
+      /* may not be loaded */
+    }
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
