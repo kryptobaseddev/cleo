@@ -30,7 +30,7 @@ export default defineConfig({
           name: "unit",
           include: ["src/**/*.test.ts", "packages/**/*.test.ts"],
           exclude: [
-            "node_modules",
+            "**/node_modules/**",
             "dist",
             "src/**/*.integration.test.ts",
             "src/**/*e2e*.test.ts",
@@ -46,7 +46,7 @@ export default defineConfig({
         test: {
           name: "integration",
           include: ["src/**/*.integration.test.ts", "tests/integration/**/*.test.ts"],
-          exclude: ["node_modules", "dist", ...excluded],
+          exclude: ["**/node_modules/**", "dist", ...excluded],
           sequence: { groupOrder: 2 },
         },
       },
@@ -59,7 +59,7 @@ export default defineConfig({
             "src/**/*e2e*.test.ts",
             "src/mcp/__tests__/e2e/**/*.test.ts",
           ],
-          exclude: ["node_modules", "dist", ...excluded],
+          exclude: ["**/node_modules/**", "dist", ...excluded],
           testTimeout: 60_000,
           sequence: { groupOrder: 3 },
         },
