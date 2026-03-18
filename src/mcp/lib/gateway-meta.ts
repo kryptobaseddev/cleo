@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getCurrentSessionId } from '../../core/sessions/context-alert.js';
+import { getCurrentSessionId } from '@cleocode/core';
 import type { GatewayMeta } from '../../types/lafs.js';
 
 /**

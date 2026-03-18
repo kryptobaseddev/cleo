@@ -8,8 +8,8 @@
  * @epic T3125
  */
 
+import { normalizeTaskId } from '@cleocode/core';
 import { isAbsolute, normalize, relative, resolve } from 'path';
-import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,

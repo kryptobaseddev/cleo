@@ -1,9 +1,9 @@
 # CLEO System Flow Atlas
 
-**Version**: 2026.3.4
+**Version**: 2026.3.18
 **Status**: APPROVED
-**Date**: 2026-03-04
-**Task**: T5250
+**Date**: 2026-03-18
+**Task**: T5250, T5722
 
 ---
 
@@ -105,7 +105,71 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 
 ---
 
-## 3. End-to-End Request Flow
+## 3. Package Boundary
+
+`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the CLI and MCP protocol layers:
+
+```
++-----------------------------------------------------------+
+|                   @cleocode/cleo                          |
+|  (assembled CLI + MCP product, published on npm)          |
+|                                                           |
+|  +--------+   +--------+                                  |
+|  |  CLI   |   |  MCP   |  <-- adapter layers              |
+|  | (86 cmds)  |(query/ |                                  |
+|  |        |   | mutate)|                                  |
+|  +---+----+   +---+----+                                  |
+|      |            |                                        |
+|      v            v                                        |
+|  +---+--------------+----+                                 |
+|  |   src/dispatch/       |  <-- thin routing layer        |
+|  +----------+------------+                                 |
+|             |                                              |
+|  +----------+------------------------------------------+  |
+|  |                @cleocode/core                        |  |
+|  |  (standalone package — installable independently)    |  |
+|  |                                                      |  |
+|  |  The four canonical systems implemented as modules:  |  |
+|  |  BRAIN → memory/          LOOM → lifecycle/          |  |
+|  |  NEXUS → nexus/ (partial) LAFS → output.ts (envelopes)|  |
+|  |                                                      |  |
+|  |  Domains: tasks, sessions, memory, orchestration,    |  |
+|  |           lifecycle, release, admin + 30+ modules    |  |
+|  |                                                      |  |
+|  |  @cleocode/contracts (types only, zero runtime deps) |  |
+|  +------------------------------------------------------+  |
+|                                                           |
+|  +------------------------------------------------------+  |
+|  |  Store Layer  (SQLite via Drizzle ORM)                |  |
+|  |  tasks.db   brain.db   nexus.db                       |  |
+|  +------------------------------------------------------+  |
++-----------------------------------------------------------+
+```
+
+### Consumer Patterns for @cleocode/core
+
+Consumers who install `@cleocode/core` directly (without `@cleocode/cleo`) can use it three ways:
+
+```typescript
+// Facade pattern
+const cleo = await Cleo.init('./project');
+await cleo.tasks.add({ title: 'foo', description: 'bar' });
+await cleo.sessions.start({ name: 'sess', scope: 'T123' });
+
+// Tree-shaking pattern
+import { addTask, startSession, observeBrain } from '@cleocode/core';
+
+// Custom store pattern
+import { Cleo } from '@cleocode/core';
+import type { DataAccessor } from '@cleocode/core';
+const cleo = await Cleo.init('./project', { store: myAccessor });
+```
+
+See `docs/specs/CORE-PACKAGE-SPEC.md` for the normative contract.
+
+---
+
+## 4. End-to-End Request Flow
 
 Every CLEO operation follows the same path through the dispatch architecture:
 
@@ -182,7 +246,7 @@ In autonomous operation, the same path may be entered from The Hearth, advanced 
 
 ---
 
-## 4. Domain Interaction Graph
+## 5. Domain Interaction Graph
 
 Domains interact with each other through core business logic, not directly. The following shows the primary data flow relationships:
 
@@ -245,7 +309,7 @@ Domains interact with each other through core business logic, not directly. The 
 
 ---
 
-## 5. Data Stores and Ownership Boundaries
+## 6. Data Stores and Ownership Boundaries
 
 | Store | Owner Domain | Format | Location | Purpose |
 |-------|-------------|--------|----------|---------|
@@ -268,7 +332,7 @@ Domains interact with each other through core business logic, not directly. The 
 
 ---
 
-## 6. LOOM Distillation Flow
+## 7. LOOM Distillation Flow
 
 LOOM is the conceptual system that manages the lifecycle pipeline and artifact ledger. The distillation flow describes how artifacts in `MANIFEST.jsonl` feed into brain.db observations.
 
@@ -318,7 +382,7 @@ Research / Implementation Work
 
 ---
 
-## 7. Query/Mutate Flow Examples
+## 8. Query/Mutate Flow Examples
 
 ### Example 1: memory.find (query)
 
@@ -385,7 +449,7 @@ Flow:
 
 ---
 
-## 8. Progressive Disclosure in Practice
+## 9. Progressive Disclosure in Practice
 
 Progressive disclosure minimizes the cognitive load on agents by starting with a small operation set and expanding on demand.
 
@@ -419,7 +483,7 @@ Step 4: Agent stores a new learning
 
 ---
 
-## 9. Failure and Recovery Paths
+## 10. Failure and Recovery Paths
 
 ### Atomic Write Pattern
 
@@ -471,7 +535,7 @@ Operation Fails
 
 ---
 
-## 10. Observability and Audit Trails
+## 11. Observability and Audit Trails
 
 ### Audit Log
 
@@ -514,7 +578,7 @@ Every `DispatchResponse` includes `_meta` with:
 
 ---
 
-## 11. Canonical Invariants
+## 12. Canonical Invariants
 
 These rules MUST always hold true in a correct CLEO installation:
 
@@ -533,7 +597,7 @@ These rules MUST always hold true in a correct CLEO installation:
 
 ---
 
-## 12. Glossary
+## 13. Glossary
 
 | Term | Definition |
 |------|-----------|
@@ -560,6 +624,7 @@ These rules MUST always hold true in a correct CLEO installation:
 ## References
 
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` -- Normative operation reference
+- `docs/specs/CORE-PACKAGE-SPEC.md` -- @cleocode/core standalone package contract
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md` -- BRAIN capability specification
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract

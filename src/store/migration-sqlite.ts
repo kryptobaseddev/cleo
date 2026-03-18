@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
-import { getCleoDirAbsolute } from '../core/paths.js';
+import { getCleoDirAbsolute } from '../primitives/paths.js';
 import type { Session } from '../types/session.js';
 import type { Task } from '../types/task.js';
 import {

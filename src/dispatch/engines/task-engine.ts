@@ -17,16 +17,17 @@
 
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
-import { addTask as coreAddTask } from '../../core/tasks/add.js';
-import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
-import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
-import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
-import { findTasks as coreFindTasks } from '../../core/tasks/find.js';
-import { type CompactTask, listTasks as coreListTasks, toCompact } from '../../core/tasks/list.js';
-import { showTask as coreShowTask } from '../../core/tasks/show.js';
-// Non-CRUD core operations
 import {
+  type CompactTask,
+  // Non-CRUD core operations
   type ComplexityFactor,
+  addTask as coreAddTask,
+  archiveTasks as coreArchiveTasks,
+  completeTask as coreCompleteTask,
+  deleteTask as coreDeleteTask,
+  findTasks as coreFindTasks,
+  listTasks as coreListTasks,
+  showTask as coreShowTask,
   coreTaskAnalyze,
   coreTaskBatchValidate,
   coreTaskBlockers,
@@ -51,9 +52,10 @@ import {
   coreTaskStats,
   coreTaskTree,
   coreTaskUnarchive,
+  updateTask as coreUpdateTask,
   type TaskTreeNode,
-} from '../../core/tasks/task-ops.js';
-import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+  toCompact,
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
 import { type EngineResult, engineError } from './_error.js';
@@ -147,7 +149,7 @@ export interface MinimalTaskRecord {
 }
 
 // Re-export CompactTask from core for consumers
-export type { CompactTask } from '../../core/tasks/list.js';
+export type { CompactTask } from '@cleocode/core';
 
 // EngineResult imported from ./_error.js (canonical source)
 export type { EngineResult } from './_error.js';

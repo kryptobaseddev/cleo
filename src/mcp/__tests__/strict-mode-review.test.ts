@@ -11,9 +11,8 @@
  * @epic T4663
  */
 
+import { CleoError, formatError, formatSuccess } from '@cleocode/core';
 import { describe, expect, it } from 'vitest';
-import { CleoError } from '../../core/errors.js';
-import { formatError, formatSuccess } from '../../core/output.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { DEFAULT_CONFIG, DEFAULT_PROTOCOL_VALIDATION } from '../lib/defaults.js';
 import { createGatewayMeta } from '../lib/gateway-meta.js';

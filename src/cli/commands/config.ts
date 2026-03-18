@@ -5,10 +5,8 @@
  * @task T4795
  */
 
+import { CleoError, formatError, loadConfig } from '@cleocode/core';
 import type { Command } from 'commander';
-import { loadConfig } from '../../core/config.js';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

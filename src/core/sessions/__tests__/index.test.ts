@@ -22,7 +22,7 @@ vi.mock('../../hooks/registry.js', () => ({
 
 import { endSession, startSession } from '../index.js';
 
-describe('sessions index memory bridge wiring', () => {
+describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -40,7 +40,24 @@ describe('sessions index memory bridge wiring', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      closeBrainDb();
+    } catch {
+      /* may not be loaded */
+    }
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch {
+      /* may not be loaded */
+    }
+    // Race rm against an 8s timeout. On Windows, fs.rm can block indefinitely
+    // on locked SQLite WAL files — racing prevents the hook from timing out.
+    await Promise.race([
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('calls bridgeSessionToMemory with derived end-session payload', async () => {

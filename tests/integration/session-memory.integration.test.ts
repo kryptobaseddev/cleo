@@ -73,16 +73,22 @@ describe('Session Memory Integration', () => {
       const { closeBrainDb } = await import('../../src/store/brain-sqlite.js');
       closeBrainDb();
     } catch {
-      // brain-sqlite may not be loaded
+      /* may not be loaded */
+    }
+    try {
+      const { closeDb } = await import('../../src/store/sqlite.js');
+      closeDb();
+    } catch {
+      /* may not be loaded */
     }
     try {
       const { resetFts5Cache } = await import('../../src/core/memory/brain-search.js');
       resetFts5Cache();
     } catch {
-      // brain-search may not be loaded
+      /* may not be loaded */
     }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   // ==========================================================================

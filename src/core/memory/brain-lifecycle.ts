@@ -13,7 +13,6 @@
 
 import { createHash } from 'node:crypto';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 
 /** Result from applying temporal decay. */
 export interface DecayResult {
@@ -42,6 +41,7 @@ export async function applyTemporalDecay(
   const olderThanDays = options?.olderThanDays ?? 30;
 
   // Ensure brain.db is initialized
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -234,6 +234,7 @@ export async function consolidateMemories(
   const olderThanDays = options?.olderThanDays ?? 90;
   const minClusterSize = options?.minClusterSize ?? 3;
 
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

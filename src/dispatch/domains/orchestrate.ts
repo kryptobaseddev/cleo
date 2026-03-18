@@ -9,13 +9,13 @@
  */
 
 import {
+  getLogger,
+  getProjectRoot,
   instantiateTessera,
   listTesseraTemplates,
+  paginate,
   showTessera,
-} from '../../core/lifecycle/tessera-engine.js';
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
+} from '@cleocode/core';
 import {
   orchestrateAnalyze,
   orchestrateBootstrap,

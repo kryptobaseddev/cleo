@@ -1,4 +1,4 @@
-import { ProtocolEnforcer } from '../../mcp/lib/protocol-enforcement.js';
+import { ProtocolEnforcer } from '@cleocode/core';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**

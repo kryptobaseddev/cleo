@@ -481,8 +481,9 @@ vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
   })),
 }));
 
-// child_process (for pipeline release.channel.show)
+// child_process (for pipeline release.channel.show + git-checkpoint)
 vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
   execFileSync: vi.fn(() => 'main\n'),
 }));
 

@@ -15,8 +15,8 @@
 import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AuditEntry } from '../../dispatch/middleware/audit.js';
-import { queryAudit } from '../../dispatch/middleware/audit.js';
+import type { AuditEntry } from '../audit.js';
+import { queryAudit } from '../audit.js';
 import { getCleoDirAbsolute } from '../paths.js';
 
 export interface DimensionScore {

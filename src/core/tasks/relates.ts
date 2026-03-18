@@ -5,11 +5,9 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJsonRequired } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 
 /** Suggest related tasks based on shared attributes. */
 export async function suggestRelated(
@@ -17,9 +15,8 @@ export async function suggestRelated(
   opts: { threshold?: number; cwd?: string },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(opts.cwd));
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const data = await acc.loadTaskFile();
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
@@ -78,9 +75,8 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
 
   const fromTask = data.tasks.find((t) => t.id === from);
   if (!fromTask) {
@@ -93,8 +89,8 @@ export async function addRelation(
   }
 
   // Persist to task_relations table via accessor (T5168 fix)
-  if (accessor?.addRelation) {
-    await accessor.addRelation(from, to, type, reason);
+  if (acc.addRelation) {
+    await acc.addRelation(from, to, type, reason);
   } else {
     // Fallback: use task-store direct write for non-accessor path
     const { addRelation: storeAddRelation } = await import('../../store/task-store.js');
@@ -119,9 +115,8 @@ export async function listRelations(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);

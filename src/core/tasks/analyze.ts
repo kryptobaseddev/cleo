@@ -5,10 +5,9 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { safeSaveTaskFile } from '../../store/data-safety-central.js';
-import { computeChecksum, readJsonRequired, saveJson } from '../../store/json.js';
-import type { TaskFile } from '../../types/task.js';
-import { getBackupDir, getTaskPath } from '../paths.js';
+import { computeChecksum } from '../../store/json.js';
 
 export interface AnalysisResult {
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
@@ -35,10 +34,8 @@ export async function analyzeTaskPriority(
   },
   accessor?: DataAccessor,
 ): Promise<AnalysisResult> {
-  const taskPath = getTaskPath(opts.cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const data = await acc.loadTaskFile();
   const tasks = data.tasks;
 
   // Build dependency graph
@@ -107,11 +104,7 @@ export async function analyzeTaskPriority(
     data.focus = { ...data.focus, currentTask: recommended.id };
     data.lastUpdated = new Date().toISOString();
     data._meta.checksum = computeChecksum(data.tasks);
-    if (accessor) {
-      await safeSaveTaskFile(accessor, data, opts.cwd);
-    } else {
-      await saveJson(taskPath, data, { backupDir: getBackupDir(opts.cwd) });
-    }
+    await safeSaveTaskFile(acc, data, opts.cwd);
     autoStarted = true;
   }
 

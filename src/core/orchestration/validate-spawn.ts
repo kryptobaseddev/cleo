@@ -4,9 +4,7 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
-import type { TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 export interface ValidationIssue {
   code: string;
@@ -27,9 +25,8 @@ export async function validateSpawnReadiness(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<SpawnValidationResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
+  const acc = accessor ?? (await getAccessor(cwd));
+  const data = await acc.loadTaskFile();
 
   const tasks = data?.tasks ?? [];
   const task = tasks.find((t) => t.id === taskId);

@@ -3,41 +3,54 @@
  *
  * Consolidates MCP domains issues, skills, and providers into a single
  * "tools" domain with dot-prefixed operation names. All operations delegate
- * to src/core/ or native engine functions -- no MCP coupling.
+ * to the tools-engine which wraps src/core/ calls.
  *
  * Sub-domains:
  *   issue.*      - Issue diagnostics (templates/create extracted to ct-github-issues)
  *   skill.*      - Skill discovery, dispatch, catalog
  *   provider.*   - CAAMP provider registry
  *   todowrite.*  - TodoWrite sync state (moved from admin domain, T5615)
+ *   adapter.*    - Provider adapter management
  *
  * @epic T4820
- * @task T5671
+ * @task T5703
  */
 
+import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
-  buildInjectionContent,
-  catalog,
-  checkAllInjections,
-  checkAllSkillUpdates,
-  detectAllProviders,
-  discoverSkill,
-  discoverSkills,
-  getAllProviders,
-  getCanonicalSkillsDir,
-  getInstalledProviders,
-  getTrackedSkills,
-  injectAll,
-  installSkill,
-  removeSkill,
-} from '@cleocode/caamp';
-import { AdapterManager } from '../../core/adapters/index.js';
-import { clearSyncState, getSyncStatus } from '../../core/admin/sync.js';
-import { collectDiagnostics } from '../../core/issue/diagnostics.js';
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
-import { systemSync } from '../engines/system-engine.js';
+  toolsAdapterActivate,
+  toolsAdapterDetect,
+  toolsAdapterDispose,
+  toolsAdapterHealth,
+  toolsAdapterList,
+  toolsAdapterShow,
+  toolsIssueDiagnostics,
+  toolsProviderDetect,
+  toolsProviderHooks,
+  toolsProviderInject,
+  toolsProviderInjectStatus,
+  toolsProviderList,
+  toolsProviderSupports,
+  toolsSkillCatalogInfo,
+  toolsSkillCatalogProfiles,
+  toolsSkillCatalogProtocols,
+  toolsSkillCatalogResources,
+  toolsSkillDependencies,
+  toolsSkillDispatch,
+  toolsSkillFind,
+  toolsSkillInstall,
+  toolsSkillList,
+  toolsSkillPrecedenceResolve,
+  toolsSkillPrecedenceShow,
+  toolsSkillRefresh,
+  toolsSkillShow,
+  toolsSkillSpawnProviders,
+  toolsSkillUninstall,
+  toolsSkillVerify,
+  toolsTodowriteClear,
+  toolsTodowriteStatus,
+  toolsTodowriteSync,
+} from '../engines/tools-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   errorResult,
@@ -191,12 +204,8 @@ export class ToolsHandler implements DomainHandler {
   ): DispatchResponse {
     switch (sub) {
       case 'diagnostics': {
-        const diag = collectDiagnostics();
-        return {
-          _meta: dispatchMeta('query', 'tools', 'issue.diagnostics', startTime),
-          success: true,
-          data: diag,
-        };
+        const result = toolsIssueDiagnostics();
+        return wrapResult(result, 'query', 'tools', 'issue.diagnostics', startTime);
       }
 
       default:
@@ -227,19 +236,21 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'list': {
-        const skills = await discoverSkills(getCanonicalSkillsDir());
         const { limit, offset } = getListParams(params);
-        const page = paginate(skills, limit, offset);
+        const result = await toolsSkillList(limit, offset);
+        if (!result.success) {
+          return wrapResult(result, 'query', 'tools', 'skill.list', startTime);
+        }
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.list', startTime),
           success: true,
           data: {
-            skills: page.items,
-            count: skills.length,
-            total: skills.length,
-            filtered: skills.length,
+            skills: result.data!.skills,
+            count: result.data!.count,
+            total: result.data!.total,
+            filtered: result.data!.filtered,
           },
-          page: page.page,
+          page: result.data!.page,
         };
       }
       case 'show': {
@@ -254,38 +265,13 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const skill = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
-        if (!skill) {
-          return errorResult(
-            'query',
-            'tools',
-            'skill.show',
-            'E_SKILL_NOT_FOUND',
-            `Skill not found: ${name}`,
-            startTime,
-          );
-        }
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.show', startTime),
-          success: true,
-          data: { skill },
-        };
+        const result = await toolsSkillShow(name);
+        return wrapResult(result, 'query', 'tools', 'skill.show', startTime);
       }
       case 'find': {
-        const query = ((params?.query as string | undefined) ?? '').toLowerCase();
-        const skills = await discoverSkills(getCanonicalSkillsDir());
-        const filtered = query
-          ? skills.filter(
-              (s) =>
-                s.name.toLowerCase().includes(query) ||
-                s.metadata.description.toLowerCase().includes(query),
-            )
-          : skills;
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.find', startTime),
-          success: true,
-          data: { skills: filtered, count: filtered.length, query },
-        };
+        const query = params?.query as string | undefined;
+        const result = await toolsSkillFind(query);
+        return wrapResult(result, 'query', 'tools', 'skill.find', startTime);
       }
       case 'dispatch': {
         const name = params?.name as string | undefined;
@@ -299,23 +285,8 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const matrix = catalog.getDispatchMatrix();
-        const entry = {
-          byTaskType: Object.entries(matrix.by_task_type)
-            .filter(([, skill]) => skill === name)
-            .map(([k]) => k),
-          byKeyword: Object.entries(matrix.by_keyword)
-            .filter(([, skill]) => skill === name)
-            .map(([k]) => k),
-          byProtocol: Object.entries(matrix.by_protocol)
-            .filter(([, skill]) => skill === name)
-            .map(([k]) => k),
-        };
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.dispatch', startTime),
-          success: true,
-          data: { skill: name, dispatch: entry },
-        };
+        const result = toolsSkillDispatch(name);
+        return wrapResult(result, 'query', 'tools', 'skill.dispatch', startTime);
       }
       case 'verify': {
         const name = params?.name as string | undefined;
@@ -329,18 +300,8 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const installed = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
-        const catalogEntry = catalog.getSkill(name);
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.verify', startTime),
-          success: true,
-          data: {
-            skill: name,
-            installed: !!installed,
-            inCatalog: !!catalogEntry,
-            installPath: installed ? `${getCanonicalSkillsDir()}/${name}` : null,
-          },
-        };
+        const result = await toolsSkillVerify(name);
+        return wrapResult(result, 'query', 'tools', 'skill.verify', startTime);
       }
       case 'dependencies': {
         const name = params?.name as string | undefined;
@@ -354,13 +315,8 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const direct = catalog.getSkillDependencies(name);
-        const tree = catalog.resolveDependencyTree([name]);
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.dependencies', startTime),
-          success: true,
-          data: { skill: name, direct, tree },
-        };
+        const result = toolsSkillDependencies(name);
+        return wrapResult(result, 'query', 'tools', 'skill.dependencies', startTime);
       }
 
       case 'spawn.providers': {
@@ -370,24 +326,8 @@ export class ToolsHandler implements DomainHandler {
           | 'supportsInterAgentComms'
           | 'supportsParallelSpawn'
           | undefined;
-        const { getProvidersBySpawnCapability } = await import('@cleocode/caamp');
-
-        if (capability) {
-          const providers = getProvidersBySpawnCapability(capability);
-          return {
-            _meta: dispatchMeta('query', 'tools', 'skill.spawn.providers', startTime),
-            success: true,
-            data: { providers, capability, count: providers.length },
-          };
-        }
-
-        // Return all spawn-capable providers if no specific capability provided
-        const providers = getProvidersBySpawnCapability('supportsSubagents');
-        return {
-          _meta: dispatchMeta('query', 'tools', 'skill.spawn.providers', startTime),
-          success: true,
-          data: { providers, capability: 'supportsSubagents', count: providers.length },
-        };
+        const result = await toolsSkillSpawnProviders(capability);
+        return wrapResult(result, 'query', 'tools', 'skill.spawn.providers', startTime);
       }
 
       // Merged: skill.catalog (absorbs catalog.protocols/profiles/resources/info via type param)
@@ -396,10 +336,64 @@ export class ToolsHandler implements DomainHandler {
           params,
           'type',
           {
-            protocols: () => this.querySkillCatalogProtocols(params, startTime),
-            profiles: () => this.querySkillCatalogProfiles(params, startTime),
-            resources: () => this.querySkillCatalogResources(params, startTime),
-            info: () => this.querySkillCatalogInfo(startTime),
+            protocols: () => {
+              const { limit, offset } = getListParams(params);
+              const result = toolsSkillCatalogProtocols(limit, offset);
+              if (!result.success) {
+                return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
+              }
+              return {
+                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                success: true,
+                data: {
+                  protocols: result.data!.protocols,
+                  count: result.data!.count,
+                  total: result.data!.total,
+                  filtered: result.data!.filtered,
+                },
+                page: result.data!.page,
+              } as DispatchResponse;
+            },
+            profiles: () => {
+              const { limit, offset } = getListParams(params);
+              const result = toolsSkillCatalogProfiles(limit, offset);
+              if (!result.success) {
+                return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
+              }
+              return {
+                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                success: true,
+                data: {
+                  profiles: result.data!.profiles,
+                  count: result.data!.count,
+                  total: result.data!.total,
+                  filtered: result.data!.filtered,
+                },
+                page: result.data!.page,
+              } as DispatchResponse;
+            },
+            resources: () => {
+              const { limit, offset } = getListParams(params);
+              const result = toolsSkillCatalogResources(limit, offset);
+              if (!result.success) {
+                return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
+              }
+              return {
+                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                success: true,
+                data: {
+                  resources: result.data!.resources,
+                  count: result.data!.count,
+                  total: result.data!.total,
+                  filtered: result.data!.filtered,
+                },
+                page: result.data!.page,
+              } as DispatchResponse;
+            },
+            info: () => {
+              const result = toolsSkillCatalogInfo();
+              return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
+            },
           },
           'info',
         );
@@ -407,159 +401,23 @@ export class ToolsHandler implements DomainHandler {
 
       // Merged: skill.precedence (absorbs precedence.show/resolve via action param)
       case 'precedence': {
-        return routeByParam(
-          params,
-          'action',
-          {
-            show: () => this.querySkillPrecedenceShow(startTime),
-            resolve: () => this.querySkillPrecedenceResolve(params, startTime),
-          },
-          'show',
-        );
+        const action = (params?.action as string) ?? 'show';
+        if (action === 'show') {
+          const result = await toolsSkillPrecedenceShow();
+          return wrapResult(result, 'query', 'tools', 'skill.precedence', startTime);
+        }
+        if (action === 'resolve') {
+          const providerId = params?.providerId as string;
+          const scope = (params?.scope as 'global' | 'project') || 'global';
+          const result = await toolsSkillPrecedenceResolve(providerId, scope, this.projectRoot);
+          return wrapResult(result, 'query', 'tools', 'skill.precedence', startTime);
+        }
+        return unsupportedOp('query', 'tools', `skill.precedence`, startTime);
       }
 
       default:
         return unsupportedOp('query', 'tools', `skill.${sub}`, startTime);
     }
-  }
-
-  // -----------------------------------------------------------------------
-  // Skill catalog helpers
-  // -----------------------------------------------------------------------
-
-  private querySkillCatalogProtocols(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): DispatchResponse {
-    const protocols = catalog.listProtocols();
-    const details = protocols.map((name) => ({
-      name,
-      path: catalog.getProtocolPath(name) ?? null,
-    }));
-    const { limit, offset } = getListParams(params);
-    const page = paginate(details, limit, offset);
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
-      success: true,
-      data: {
-        protocols: page.items,
-        count: details.length,
-        total: details.length,
-        filtered: details.length,
-      },
-      page: page.page,
-    };
-  }
-
-  private querySkillCatalogProfiles(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): DispatchResponse {
-    const profileNames = catalog.listProfiles();
-    const profiles = profileNames.map((name) => {
-      const profile = catalog.getProfile(name);
-      return {
-        name,
-        description: profile?.description ?? '',
-        extends: profile?.extends,
-        skillCount: profile?.skills.length ?? 0,
-        skills: profile?.skills ?? [],
-      };
-    });
-    const { limit, offset } = getListParams(params);
-    const page = paginate(profiles, limit, offset);
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
-      success: true,
-      data: {
-        profiles: page.items,
-        count: profiles.length,
-        total: profiles.length,
-        filtered: profiles.length,
-      },
-      page: page.page,
-    };
-  }
-
-  private querySkillCatalogResources(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): DispatchResponse {
-    const resources = catalog.listSharedResources();
-    const details = resources.map((name) => ({
-      name,
-      path: catalog.getSharedResourcePath(name) ?? null,
-    }));
-    const { limit, offset } = getListParams(params);
-    const page = paginate(details, limit, offset);
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
-      success: true,
-      data: {
-        resources: page.items,
-        count: details.length,
-        total: details.length,
-        filtered: details.length,
-      },
-      page: page.page,
-    };
-  }
-
-  private querySkillCatalogInfo(startTime: number): DispatchResponse {
-    const available = catalog.isCatalogAvailable();
-    const version = available ? catalog.getVersion() : null;
-    const libraryRoot = available ? catalog.getLibraryRoot() : null;
-    const skillCount = available ? catalog.getSkills().length : 0;
-    const protocolCount = available ? catalog.listProtocols().length : 0;
-    const profileCount = available ? catalog.listProfiles().length : 0;
-
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
-      success: true,
-      data: {
-        available,
-        version,
-        libraryRoot,
-        skillCount,
-        protocolCount,
-        profileCount,
-      },
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // Skill precedence helpers
-  // -----------------------------------------------------------------------
-
-  private async querySkillPrecedenceShow(startTime: number): Promise<DispatchResponse> {
-    const { getSkillsMapWithPrecedence } = await import(
-      '../../core/skills/precedence-integration.js'
-    );
-    const map = getSkillsMapWithPrecedence();
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.precedence', startTime),
-      success: true,
-      data: { precedenceMap: map },
-    };
-  }
-
-  private async querySkillPrecedenceResolve(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const providerId = params?.providerId as string;
-    const scope = (params?.scope as 'global' | 'project') || 'global';
-
-    const { resolveSkillPathsForProvider } = await import(
-      '../../core/skills/precedence-integration.js'
-    );
-    const paths = await resolveSkillPathsForProvider(providerId, scope, this.projectRoot);
-
-    return {
-      _meta: dispatchMeta('query', 'tools', 'skill.precedence', startTime),
-      success: true,
-      data: { providerId, scope, paths },
-    };
   }
 
   // -----------------------------------------------------------------------
@@ -571,20 +429,6 @@ export class ToolsHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const providers = getInstalledProviders();
-    const isGlobal = params?.isGlobal !== false;
-
-    if (providers.length === 0) {
-      return errorResult(
-        'mutate',
-        'tools',
-        `skill.${sub}`,
-        'E_PROVIDER_NOT_FOUND',
-        'No installed providers available',
-        startTime,
-      );
-    }
-
     switch (sub) {
       case 'install': {
         const name = params?.name as string | undefined;
@@ -598,41 +442,10 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const source = (params?.source as string | undefined) ?? `library:${name}`;
-        const providerIds = providers.map((p) => p.id);
-
-        const { determineInstallationTargets } = await import(
-          '../../core/skills/precedence-integration.js'
-        );
-        const targets = await determineInstallationTargets({
-          skillName: name,
-          source,
-          targetProviders: providerIds,
-          projectRoot: isGlobal ? undefined : this.projectRoot,
-        });
-
-        const results = [];
-        const errors = [];
-
-        for (const target of targets) {
-          const provider = providers.find((p) => p.id === target.providerId);
-          if (!provider) continue;
-          const result = await installSkill(source, name, [provider], isGlobal, this.projectRoot);
-          results.push({ providerId: target.providerId, ...result });
-          if (!result.success) {
-            errors.push(`${target.providerId}: ${result.errors.join('; ')}`);
-          }
-        }
-
-        const allSuccess = results.length > 0 && results.every((r) => r.success);
-        return {
-          _meta: dispatchMeta('mutate', 'tools', 'skill.install', startTime),
-          success: allSuccess,
-          data: { results, targets: targets.map((t) => t.providerId) },
-          error: allSuccess
-            ? undefined
-            : { code: 'E_INSTALL_FAILED', message: errors.join('; ') || 'Skill install failed' },
-        };
+        const source = params?.source as string | undefined;
+        const isGlobal = params?.isGlobal as boolean | undefined;
+        const result = await toolsSkillInstall(name, this.projectRoot, source, isGlobal);
+        return wrapResult(result, 'mutate', 'tools', 'skill.install', startTime);
       }
       case 'uninstall': {
         const name = params?.name as string | undefined;
@@ -646,58 +459,13 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const result = await removeSkill(name, providers, isGlobal, this.projectRoot);
-        const ok = result.removed.length > 0 && result.errors.length === 0;
-        return {
-          _meta: dispatchMeta('mutate', 'tools', 'skill.uninstall', startTime),
-          success: ok,
-          data: { removed: result.removed, errors: result.errors },
-          error: ok
-            ? undefined
-            : {
-                code: 'E_UNINSTALL_FAILED',
-                message: result.errors.join('; ') || 'Skill uninstall failed',
-              },
-        };
+        const isGlobal = params?.isGlobal as boolean | undefined;
+        const result = await toolsSkillUninstall(name, this.projectRoot, isGlobal);
+        return wrapResult(result, 'mutate', 'tools', 'skill.uninstall', startTime);
       }
       case 'refresh': {
-        const tracked = await getTrackedSkills();
-        const updates = await checkAllSkillUpdates();
-        const updated: string[] = [];
-        const failed: Array<{ name: string; error: string }> = [];
-
-        for (const [name, status] of Object.entries(updates)) {
-          if (!status.hasUpdate) continue;
-          const entry = tracked[name];
-          if (!entry) continue;
-          const source = entry.sourceType === 'library' ? `library:${name}` : entry.source;
-          try {
-            const result = await installSkill(
-              source,
-              name,
-              providers,
-              entry.isGlobal,
-              entry.projectDir,
-            );
-            if (result.success) {
-              updated.push(name);
-            } else {
-              failed.push({ name, error: result.errors.join('; ') || 'refresh failed' });
-            }
-          } catch (err) {
-            failed.push({ name, error: err instanceof Error ? err.message : String(err) });
-          }
-        }
-
-        return {
-          _meta: dispatchMeta('mutate', 'tools', 'skill.refresh', startTime),
-          success: failed.length === 0,
-          data: { updated, failed, checked: Object.keys(updates).length },
-          error:
-            failed.length === 0
-              ? undefined
-              : { code: 'E_REFRESH_FAILED', message: `${failed.length} skill refreshes failed` },
-        };
+        const result = await toolsSkillRefresh(this.projectRoot);
+        return wrapResult(result, 'mutate', 'tools', 'skill.refresh', startTime);
       }
 
       default:
@@ -716,39 +484,32 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'list': {
-        const providers = getAllProviders();
         const { limit, offset } = getListParams(params);
-        const page = paginate(providers, limit, offset);
+        const result = toolsProviderList(limit, offset);
+        if (!result.success) {
+          return wrapResult(result, 'query', 'tools', 'provider.list', startTime);
+        }
         return {
           _meta: dispatchMeta('query', 'tools', 'provider.list', startTime),
           success: true,
           data: {
-            providers: page.items,
-            count: providers.length,
-            total: providers.length,
-            filtered: providers.length,
+            providers: result.data!.providers,
+            count: result.data!.count,
+            total: result.data!.total,
+            filtered: result.data!.filtered,
           },
-          page: page.page,
+          page: result.data!.page,
         };
       }
       case 'detect': {
-        const detected = detectAllProviders();
-        return {
-          _meta: dispatchMeta('query', 'tools', 'provider.detect', startTime),
-          success: true,
-          data: { providers: detected, count: detected.length },
-        };
+        const result = toolsProviderDetect();
+        return wrapResult(result, 'query', 'tools', 'provider.detect', startTime);
       }
       case 'inject.status': {
-        const providers = getInstalledProviders();
-        const scope = (params?.scope as 'project' | 'global' | undefined) ?? 'project';
+        const scope = params?.scope as 'project' | 'global' | undefined;
         const content = params?.content as string | undefined;
-        const checks = await checkAllInjections(providers, this.projectRoot, scope, content);
-        return {
-          _meta: dispatchMeta('query', 'tools', 'provider.inject.status', startTime),
-          success: true,
-          data: { checks, count: checks.length },
-        };
+        const result = await toolsProviderInjectStatus(this.projectRoot, scope, content);
+        return wrapResult(result, 'query', 'tools', 'provider.inject.status', startTime);
       }
       case 'supports': {
         const providerId = params?.providerId as string | undefined;
@@ -763,13 +524,8 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const { providerSupportsById } = await import('@cleocode/caamp');
-        const supported = providerSupportsById(providerId, capability);
-        return {
-          _meta: dispatchMeta('query', 'tools', 'provider.supports', startTime),
-          success: true,
-          data: { providerId, capability, supported },
-        };
+        const result = await toolsProviderSupports(providerId, capability);
+        return wrapResult(result, 'query', 'tools', 'provider.supports', startTime);
       }
 
       case 'hooks': {
@@ -784,10 +540,7 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const { queryHookProviders } = await import('../engines/hooks-engine.js');
-        const result = await queryHookProviders(
-          event as import('../../core/hooks/types.js').HookEvent,
-        );
+        const result = await toolsProviderHooks(event);
         return wrapResult(result, 'query', 'tools', 'provider.hooks', startTime);
       }
 
@@ -807,28 +560,11 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'inject': {
-        const providers = getInstalledProviders();
-        if (providers.length === 0) {
-          return errorResult(
-            'mutate',
-            'tools',
-            'provider.inject',
-            'E_PROVIDER_NOT_FOUND',
-            'No installed providers available',
-            startTime,
-          );
-        }
-        const scope = (params?.scope as 'project' | 'global' | undefined) ?? 'project';
-        const references = (params?.references as string[] | undefined) ?? ['@AGENTS.md'];
-        const content =
-          (params?.content as string | undefined) ?? buildInjectionContent({ references });
-        const result = await injectAll(providers, this.projectRoot, scope, content);
-        const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
-        return {
-          _meta: dispatchMeta('mutate', 'tools', 'provider.inject', startTime),
-          success: true,
-          data: { actions, count: actions.length },
-        };
+        const scope = params?.scope as 'project' | 'global' | undefined;
+        const references = params?.references as string[] | undefined;
+        const content = params?.content as string | undefined;
+        const result = await toolsProviderInject(this.projectRoot, scope, references, content);
+        return wrapResult(result, 'mutate', 'tools', 'provider.inject', startTime);
       }
 
       default:
@@ -847,7 +583,7 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'status': {
-        const result = await getSyncStatus(this.projectRoot);
+        const result = await toolsTodowriteStatus(this.projectRoot);
         return wrapResult(result, 'query', 'tools', 'todowrite.status', startTime);
       }
 
@@ -867,13 +603,16 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'sync': {
-        const result = systemSync(this.projectRoot, params as { direction?: string } | undefined);
+        const result = toolsTodowriteSync(
+          this.projectRoot,
+          params as { direction?: string } | undefined,
+        );
         return wrapResult(result, 'mutate', 'tools', 'todowrite.sync', startTime);
       }
 
       case 'clear': {
         const dryRun = params?.dryRun as boolean | undefined;
-        const result = await clearSyncState(this.projectRoot, dryRun);
+        const result = await toolsTodowriteClear(this.projectRoot, dryRun);
         return wrapResult(result, 'mutate', 'tools', 'todowrite.clear', startTime);
       }
 
@@ -891,16 +630,10 @@ export class ToolsHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): DispatchResponse {
-    const manager = AdapterManager.getInstance(this.projectRoot);
-
     switch (sub) {
       case 'list': {
-        const adapters = manager.listAdapters();
-        return {
-          _meta: dispatchMeta('query', 'tools', 'adapter.list', startTime),
-          success: true,
-          data: { adapters, count: adapters.length },
-        };
+        const result = toolsAdapterList(this.projectRoot);
+        return wrapResult(result, 'query', 'tools', 'adapter.list', startTime);
       }
       case 'show': {
         const id = params?.id as string | undefined;
@@ -914,49 +647,17 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        const manifest = manager.getManifest(id);
-        const adapter = manager.get(id);
-        if (!manifest) {
-          return errorResult(
-            'query',
-            'tools',
-            'adapter.show',
-            'E_NOT_FOUND',
-            `Adapter not found: ${id}`,
-            startTime,
-          );
-        }
-        return {
-          _meta: dispatchMeta('query', 'tools', 'adapter.show', startTime),
-          success: true,
-          data: {
-            manifest,
-            initialized: !!adapter,
-            active: manager.getActiveId() === id,
-          },
-        };
+        const result = toolsAdapterShow(this.projectRoot, id);
+        return wrapResult(result, 'query', 'tools', 'adapter.show', startTime);
       }
       case 'detect': {
-        manager.discover();
-        const detected = manager.detectActive();
-        return {
-          _meta: dispatchMeta('query', 'tools', 'adapter.detect', startTime),
-          success: true,
-          data: { detected, count: detected.length },
-        };
+        const result = toolsAdapterDetect(this.projectRoot);
+        return wrapResult(result, 'query', 'tools', 'adapter.detect', startTime);
       }
       case 'health': {
         const id = params?.id as string | undefined;
-        // Return synchronous "pending" — health checks are async but we
-        // keep the query interface synchronous. Callers that need real
-        // health data should use the mutate gateway or call healthCheck directly.
-        const adapters = manager.listAdapters();
-        const filtered = id ? adapters.filter((a) => a.id === id) : adapters;
-        return {
-          _meta: dispatchMeta('query', 'tools', 'adapter.health', startTime),
-          success: true,
-          data: { adapters: filtered, count: filtered.length },
-        };
+        const result = toolsAdapterHealth(this.projectRoot, id);
+        return wrapResult(result, 'query', 'tools', 'adapter.health', startTime);
       }
       default:
         return unsupportedOp('query', 'tools', `adapter.${sub}`, startTime);
@@ -972,8 +673,6 @@ export class ToolsHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const manager = AdapterManager.getInstance(this.projectRoot);
-
     switch (sub) {
       case 'activate': {
         const id = params?.id as string | undefined;
@@ -987,45 +686,13 @@ export class ToolsHandler implements DomainHandler {
             startTime,
           );
         }
-        try {
-          // Ensure manifests are discovered first
-          if (!manager.getManifest(id)) {
-            manager.discover();
-          }
-          const adapter = await manager.activate(id);
-          return {
-            _meta: dispatchMeta('mutate', 'tools', 'adapter.activate', startTime),
-            success: true,
-            data: {
-              id,
-              name: adapter.name,
-              version: adapter.version,
-              active: true,
-            },
-          };
-        } catch (err) {
-          return errorResult(
-            'mutate',
-            'tools',
-            'adapter.activate',
-            'E_ADAPTER_ACTIVATE_FAILED',
-            err instanceof Error ? err.message : String(err),
-            startTime,
-          );
-        }
+        const result = await toolsAdapterActivate(this.projectRoot, id);
+        return wrapResult(result, 'mutate', 'tools', 'adapter.activate', startTime);
       }
       case 'dispose': {
         const id = params?.id as string | undefined;
-        if (id) {
-          await manager.disposeAdapter(id);
-        } else {
-          await manager.dispose();
-        }
-        return {
-          _meta: dispatchMeta('mutate', 'tools', 'adapter.dispose', startTime),
-          success: true,
-          data: { disposed: id ?? 'all' },
-        };
+        const result = await toolsAdapterDispose(this.projectRoot, id);
+        return wrapResult(result, 'mutate', 'tools', 'adapter.dispose', startTime);
       }
       default:
         return unsupportedOp('mutate', 'tools', `adapter.${sub}`, startTime);

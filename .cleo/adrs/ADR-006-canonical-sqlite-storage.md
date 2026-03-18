@@ -164,7 +164,7 @@ CREATE TABLE project_registry (
 
 - **Engine**: SQLite via Node built-in `node:sqlite` (`DatabaseSync`) with WAL enabled for cross-process concurrency and multi-agent safety.
 - **Runtime Requirement**: Node.js `>=24.0.0` (enforced via `package.json` engines).
-- **ORM**: `drizzle-orm` v1.0.0-beta (floor: beta.15) for strict TypeScript schema definition, type-safe query building, and consolidated validation. `drizzle-kit` v1.0.0-beta for migration tooling.
+- **ORM**: `drizzle-orm` v1.0.0-beta (floor: beta.18) for strict TypeScript schema definition, type-safe query building, and consolidated validation. `drizzle-kit` v1.0.0-beta (floor: beta.18) for migration tooling with native `node:sqlite` support.
 - **Validation**: Schema-derived Zod validation via `drizzle-orm/zod` (consolidated into the main package in Drizzle v1). Separate `drizzle-zod` package MUST NOT be installed.
 
 ## 6. Related ADRs and Decision Trail

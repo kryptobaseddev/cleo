@@ -17,7 +17,7 @@ import {
   setPhase as coreSetPhase,
   showPhase as coreShowPhase,
   startPhase as coreStartPhase,
-} from '../../core/phases/index.js';
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 import { type EngineResult, engineError } from './_error.js';
 

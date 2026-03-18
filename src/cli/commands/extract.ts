@@ -7,11 +7,9 @@
 
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { CleoError, formatError, getCleoDir } from '@cleocode/core';
 // CLI-only: extract implements TodoWrite state merge logic not suitable for dispatch
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoDir } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { computeChecksum, readJson } from '../../store/json.js';
 import { ExitCode } from '../../types/exit-codes.js';

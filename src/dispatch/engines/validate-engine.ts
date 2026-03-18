@@ -10,7 +10,6 @@
  * @epic T4654
  */
 
-import { resolveProjectRoot } from '../../core/platform.js';
 import {
   type CoherenceIssue,
   coreBatchValidate,
@@ -26,7 +25,8 @@ import {
   coreValidateProtocol,
   coreValidateSchema,
   coreValidateTask,
-} from '../../core/validation/validate-ops.js';
+  resolveProjectRoot,
+} from '@cleocode/core';
 import { type EngineResult, engineError } from './_error.js';
 
 /**
@@ -250,24 +250,16 @@ export function validateTestCoverage(projectRoot?: string): EngineResult {
 
 import {
   checkConsensusManifest,
-  validateConsensusTask,
-} from '../../core/validation/protocols/consensus.js';
-import {
   checkContributionManifest,
-  validateContributionTask,
-} from '../../core/validation/protocols/contribution.js';
-import {
   checkDecompositionManifest,
-  validateDecompositionTask,
-} from '../../core/validation/protocols/decomposition.js';
-import {
   checkImplementationManifest,
-  validateImplementationTask,
-} from '../../core/validation/protocols/implementation.js';
-import {
   checkSpecificationManifest,
+  validateConsensusTask,
+  validateContributionTask,
+  validateDecompositionTask,
+  validateImplementationTask,
   validateSpecificationTask,
-} from '../../core/validation/protocols/specification.js';
+} from '@cleocode/core';
 
 interface ProtocolValidationParams {
   mode: 'task' | 'manifest';

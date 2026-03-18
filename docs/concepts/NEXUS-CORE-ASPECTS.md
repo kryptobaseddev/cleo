@@ -215,3 +215,33 @@ Tome keeps what mattered in a form worth returning to.
 All of it turns around the NEXUS Core.
 
 That is the language the system deserves.
+
+---
+
+## Workshop Concepts to @cleocode/core Module Mapping
+
+The workshop vocabulary maps to concrete module paths inside `@cleocode/core`. This table is for implementers and agents who need to cross-reference narrative concepts with the actual code that governs them.
+
+| Workshop Concept | @cleocode/core Module Path | Description |
+|------------------|---------------------------|-------------|
+| **The Hearth** | `src/core/sessions/`, `src/core/orchestration/` | Active session surface and orchestration context |
+| **Living BRAIN** | `src/core/memory/` | brain.db observations, patterns, learnings, decisions — all retrieval and storage |
+| **The Loom (lifecycle)** | `src/core/lifecycle/` | RCASD-IVTR+C lifecycle gate enforcement |
+| **Threads** | `src/core/tasks/` | Task CRUD, hierarchy, dependency graph, completion semantics |
+| **Tapestries / Cascade** | `src/core/orchestration/` | Wave planning, multi-agent coordination, orchestration status |
+| **The Proving** | `src/core/validation/` | Schema, semantic, referential, and state-machine validation |
+| **Tome** | `src/core/research/`, `src/core/adrs/` | Manifest ledger and ADR management |
+| **Cogs** | `src/core/skills/` | Skill discovery, dispatch, installation, and marketplace |
+| **The Sweep / Refinery** | `src/core/validation/`, `src/core/lifecycle/` | Compliance checking and gate convergence |
+| **Nexus (cross-project)** | `src/core/nexus/` | Cross-project registry, permissions, dependency graph |
+| **Sticky Notes (Catchers)** | `src/core/sticky/` | Ephemeral capture before formal classification |
+| **Conduit** | `src/core/signaldock/` | Agent transport protocol (LAFS envelopes, A2A delegation) |
+| **Watchers** | `src/core/orchestration/`, `src/core/system/health.ts` | Long-running health patrol and gate monitoring |
+| **Release (Cascade exit)** | `src/core/release/` | Version bumps, changelog, artifact publishing |
+| **Admin (Keepers)** | `src/core/system/`, `src/core/config.ts` | Backups, migration, cleanup, configuration |
+
+### Standalone Access
+
+`@cleocode/core` is published as a standalone npm package (Epic T5701). Consumers can reach any of the modules above directly without installing the full `@cleocode/cleo` product.
+
+See `docs/specs/CORE-PACKAGE-SPEC.md` for the public API contract and consumer patterns.

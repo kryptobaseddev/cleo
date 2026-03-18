@@ -4,8 +4,7 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
-import { getArchivePath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 export interface ArchiveStatsResult {
   totalArchived: number;
@@ -42,9 +41,8 @@ export async function getArchiveStats(
   const periodDays = opts.period ?? 30;
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
-  const archive = accessor
-    ? ((await accessor.loadArchive()) as unknown as ArchiveFile | null)
-    : await readJson<ArchiveFile>(getArchivePath(opts.cwd));
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const archive = (await acc.loadArchive()) as unknown as ArchiveFile | null;
 
   if (!archive?.archivedTasks) {
     return {

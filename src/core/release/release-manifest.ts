@@ -13,8 +13,6 @@ import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, count, desc, eq } from 'drizzle-orm';
-import { readJson } from '../../store/json.js';
-import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
@@ -31,6 +29,11 @@ import {
   loadReleaseConfig,
 } from './release-config.js';
 import { getVersionBumpConfig } from './version-bump.js';
+
+async function getDb(cwd?: string): ReturnType<typeof import('../../store/sqlite.js')['getDb']> {
+  const { getDb: _getDb } = await import('../../store/sqlite.js');
+  return _getDb(cwd);
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -1031,7 +1034,13 @@ export interface PushPolicy {
  */
 async function readPushPolicy(cwd?: string): Promise<PushPolicy | undefined> {
   const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
-  const config = await readJson<Record<string, unknown>>(configPath);
+  let config: Record<string, unknown> | undefined;
+  try {
+    const raw = await readFile(configPath, 'utf-8');
+    config = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
   if (!config) return undefined;
   const release = config.release as Record<string, unknown> | undefined;
   if (!release) return undefined;
@@ -1225,7 +1234,13 @@ export async function migrateReleasesJsonToSqlite(
     latest?: string;
   }
 
-  const raw = await readJson<LegacyReleasesIndex>(releasesPath);
+  let raw: LegacyReleasesIndex | undefined;
+  try {
+    const contents = await readFile(releasesPath, 'utf-8');
+    raw = JSON.parse(contents) as LegacyReleasesIndex;
+  } catch {
+    return { migrated: 0 };
+  }
   if (!raw || !Array.isArray(raw.releases)) {
     return { migrated: 0 };
   }

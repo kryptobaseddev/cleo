@@ -16,7 +16,6 @@ import type {
   BrainObservationRow,
   BrainPatternRow,
 } from '../../store/brain-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
 
@@ -285,6 +284,7 @@ export async function searchBrain(
   }
 
   // Ensure brain.db is initialized
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

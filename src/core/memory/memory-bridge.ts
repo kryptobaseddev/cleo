@@ -24,7 +24,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
+import type { DatabaseSync } from 'node:sqlite';
 import { getLastHandoff } from '../sessions/handoff.js';
 
 /** Configuration for memory bridge content generation. */
@@ -87,6 +87,7 @@ export async function generateMemoryBridgeContent(
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   // Ensure brain.db is initialized
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -259,10 +260,7 @@ async function getLastHandoffSafe(
   }
 }
 
-function queryRecentDecisions(
-  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
-  limit: number,
-): DecisionRow[] {
+function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
   try {
     return db
       .prepare(
@@ -274,10 +272,7 @@ function queryRecentDecisions(
   }
 }
 
-function queryHighConfidenceLearnings(
-  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
-  limit: number,
-): LearningRow[] {
+function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): LearningRow[] {
   try {
     return db
       .prepare(
@@ -292,11 +287,7 @@ function queryHighConfidenceLearnings(
   }
 }
 
-function queryPatterns(
-  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
-  type: string,
-  limit: number,
-): PatternRow[] {
+function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRow[] {
   try {
     return db
       .prepare(
@@ -308,10 +299,7 @@ function queryPatterns(
   }
 }
 
-function queryRecentObservations(
-  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
-  limit: number,
-): ObservationRow[] {
+function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRow[] {
   try {
     return db
       .prepare(

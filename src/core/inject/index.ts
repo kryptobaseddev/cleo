@@ -12,11 +12,10 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { readJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
-import { getTaskPath } from '../paths.js';
 
 // CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 
@@ -88,9 +87,8 @@ export async function injectTasks(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(opts.cwd));
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const data = await acc.loadTaskFile();
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project');
   }

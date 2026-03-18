@@ -8,7 +8,7 @@
  * @epic T5671
  */
 
-import type { ProblemDetails } from '../../core/errors.js';
+import type { ProblemDetails } from '@cleocode/core';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 

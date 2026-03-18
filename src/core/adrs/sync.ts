@@ -14,8 +14,6 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
-import { getDb } from '../../store/sqlite.js';
 import { adrTaskLinks, architectureDecisions } from '../../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrSyncResult } from './types.js';
@@ -76,6 +74,8 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
     return result;
   }
 
+  const { getDb } = await import('../../store/sqlite.js');
+  const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 

@@ -20,9 +20,6 @@ import {
 } from '../../paths.js';
 import type { ComplianceResult, ManifestEntry, ManifestValidationResult } from '../types.js';
 
-// validateReturnMessage used for protocol validation in validate_return_message
-// import { validateReturnMessage } from '../validation.js';
-
 // ============================================================================
 // Constants
 // ============================================================================

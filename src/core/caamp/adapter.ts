@@ -55,9 +55,9 @@ import {
 // EngineResult type (re-exported from canonical source)
 // ============================================================
 
-export type { EngineResult } from '../../dispatch/engines/_error.js';
+export type { EngineResult } from '../engine-result.js';
 
-import type { EngineResult } from '../../dispatch/engines/_error.js';
+import type { EngineResult } from '../engine-result.js';
 
 // ============================================================
 // Provider Operations

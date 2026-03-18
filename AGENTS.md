@@ -91,21 +91,50 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 
 ## Architecture: Dispatch-First + Shared Core
 
-CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route through a central dispatch layer to `src/core/`:
+CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route through a central dispatch layer to `src/core/` (published as `@cleocode/core`):
 
 ```
-MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
-     query (118 ops)                                                                       (86 commands)
-     mutate (89 ops)
+MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► @cleocode/core ◄── src/cli/commands/
+     query (119 ops)                                                    (src/core/)              (86 commands)
+     mutate (90 ops)
 ```
 
 - **MCP is PRIMARY**: 2 tools, 209 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 86 commands for human use and fallback
-- **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
+- **src/core/ is CANONICAL**: All business logic lives here, published as `@cleocode/core`. Both MCP and CLI delegate to it.
 - **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
 - **src/mcp/engine/ is a barrel**: Re-exports from `src/dispatch/engines/` for backward compatibility
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - **Verb standards**: `docs/specs/VERB-STANDARDS.md` (add, show, find, list, etc.)
+
+### Package Distribution
+
+| Package | npm | Purpose | Consumers |
+|---------|-----|---------|-----------|
+| `@cleocode/core` | `npm i @cleocode/core` | Standalone business logic kernel with default SQLite store | App developers wanting programmatic task/session/memory API |
+| `@cleocode/cleo` | `npm i -g @cleocode/cleo` | Full CLI + MCP product | Solo developers and AI coding agents |
+| `@cleocode/contracts` | `npm i @cleocode/contracts` | Type-only interfaces (DataAccessor, Task, Session) | Custom store backend implementers |
+| `@cleocode/caamp` | Internal | Provider ecosystem bridge | Adapter developers |
+| `@cleocode/lafs-protocol` | Internal | Response envelope format | Core internals |
+
+### Dependency Graph
+
+```
+@cleocode/cleo (CLI + MCP)
+  ├── src/cli/       → Commander.js commands → core API
+  ├── src/mcp/       → MCP protocol → core API
+  ├── src/dispatch/  → operation routing → core API
+  └── @cleocode/core (standalone kernel)
+        ├── @cleocode/contracts (types)
+        ├── @cleocode/caamp (providers)
+        ├── @cleocode/lafs-protocol (envelopes)
+        ├── drizzle-orm + node:sqlite (Node.js 24+ built-in SQLite)
+        └── 38+ domain modules (tasks, sessions, memory, etc.)
+```
+
+**Two consumer profiles:**
+- **Consumer A** — "I want CLEO's task/session/memory system in my app": install `@cleocode/core`, use `Cleo.init()`
+- **Consumer B** — "I want CLEO with a different storage backend": implement the `DataAccessor` interface from `@cleocode/contracts`
 
 ### Provider Adapter System
 
@@ -113,7 +142,6 @@ CLEO uses a **provider adapter architecture** for vendor-neutral portability. Pr
 
 ```
 packages/contracts/       # Type-only interfaces (CLEOProviderAdapter, etc.)
-packages/shared/          # Runtime utilities for adapters (observation formatter, CLI wrapper)
 packages/adapters/        # One package per provider
   claude-code/            #   Full adapter (hooks + spawn + install)
   opencode/               #   Full adapter (hooks + spawn + install)
@@ -145,8 +173,8 @@ CLEO's brain memory system uses a three-layer approach that works with any provi
 
 ```
 packages/             # npm workspace packages
+  packages/core/      #   @cleocode/core — standalone business logic kernel (published)
   packages/contracts/ #   Type-only adapter interfaces (@cleocode/contracts)
-  packages/shared/    #   Runtime utilities for adapters (@cleocode/shared)
   packages/adapters/  #   Provider adapters (claude-code, opencode, cursor)
   packages/ct-skills/ #   CLEO skills (ct-memory, etc.)
   packages/ct-agents/ #   CLEO agent protocols
@@ -180,8 +208,9 @@ lib/                  # Legacy Bash helpers (deprecated, pending removal)
 
 ### Key Architecture Principles
 - **MCP is the PRIMARY entry point**; CLI is the backup interface
-- **src/core/** is the single source of truth for all business logic
+- **src/core/** is the single source of truth for all business logic — published externally as `@cleocode/core`
 - **Both CLI and MCP** delegate to `src/core/` (shared-core pattern, verified by T4565/T4566 audit)
+- **src/dispatch/** stays inside `@cleocode/cleo` — it is the string-addressed routing adapter layer, not part of core
 - **src/dispatch/engines/** is the canonical engine layer: translate params -> call core -> format response
 - **src/mcp/engine/** is a thin barrel of re-exports from `src/dispatch/engines/` (backward compatibility)
 - **src/cli/commands/** contains thin handlers: parse args -> call core -> format output
@@ -399,6 +428,26 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ## Key Files & Entry Points
 
+### Consumer Usage Patterns
+
+```typescript
+// @cleocode/core — Programmatic API (standalone, no MCP/CLI needed)
+import { Cleo } from '@cleocode/core';
+const cleo = await Cleo.init('./project');
+await cleo.tasks.add({ title: 'foo', description: 'bar' });
+await cleo.sessions.start({ name: 'my-session', scope: 'T123' });
+await cleo.memory.observe({ text: 'important finding' });
+
+// @cleocode/cleo — MCP (for AI agents) or CLI (for humans)
+// MCP: query tasks.find, mutate tasks.add
+// CLI: cleo add "title" --description "desc"
+```
+
+### @cleocode/core Package Entry Points
+- `packages/core/src/cleo.ts` - Cleo facade class (standalone entry point with all 7 domain APIs)
+- `packages/core/src/index.ts` - Core barrel exports + DataAccessor type (tree-shakeable)
+- `packages/core/dist/index.js` - Esbuild standalone bundle (zero back-refs to @cleocode/cleo)
+
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
 - `src/mcp/gateways/query.ts` - 119 query operations (CANONICAL operation registry)
@@ -418,7 +467,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/cli/commands/current.ts` - Show currently active task
 - `src/cli/commands/session.ts` - Session management
 
-### Core Business Logic
+### Core Business Logic (`src/core/` = `@cleocode/core`)
 - `src/core/tasks/` - Task CRUD, hierarchy, dependencies
 - `src/core/task-work/` - Active task tracking (start/stop/current)
 - `src/core/sessions/` - Session lifecycle
@@ -436,7 +485,6 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### Provider Adapter Packages
 - `packages/contracts/` - Type-only adapter interfaces (zero runtime dependencies)
-- `packages/shared/` - Shared runtime utilities for adapter implementations
 - `packages/adapters/claude-code/` - Claude Code adapter (hooks + spawn + install)
 - `packages/adapters/opencode/` - OpenCode adapter (hooks + spawn + install)
 - `packages/adapters/cursor/` - Cursor adapter (install only)

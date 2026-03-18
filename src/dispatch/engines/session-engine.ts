@@ -8,36 +8,42 @@
  * @epic T4654
  */
 
-import { CleoError } from '../../core/errors.js';
-import { paginate } from '../../core/pagination.js';
-import type { SessionBriefing } from '../../core/sessions/briefing.js';
-import { type ContextInjectionData, injectContext } from '../../core/sessions/context-inject.js';
-import type { FindSessionsParams, MinimalSessionRecord } from '../../core/sessions/find.js';
-import type { HandoffData } from '../../core/sessions/handoff.js';
-import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
 import {
   archiveSessions,
+  CleoError,
+  type ContextInjectionData,
   cleanupSessions,
   computeBriefing,
+  computeDebrief,
   computeHandoff,
+  currentTask,
+  type DebriefData,
+  type DecisionRecord,
+  type FindSessionsParams,
   findSessions,
+  generateSessionId,
   getContextDrift,
   getDecisionLog,
   getLastHandoff,
   getSessionHistory,
   getSessionStats,
+  getTaskHistory,
+  type HandoffData,
+  injectContext,
+  type MinimalSessionRecord,
+  paginate,
   parseScope,
   persistHandoff,
   recordAssumption,
   recordDecision,
+  type SessionBriefing,
   showSession,
+  startTask,
+  stopTask,
   suspendSession,
   switchSession,
-} from '../../core/sessions/index.js';
-import { generateSessionId } from '../../core/sessions/session-id.js';
-import type { DecisionRecord } from '../../core/sessions/types.js';
-import type { TaskWorkHistoryEntry } from '../../core/task-work/index.js';
-import { currentTask, getTaskHistory, startTask, stopTask } from '../../core/task-work/index.js';
+  type TaskWorkHistoryEntry,
+} from '@cleocode/core';
 // ... existing imports ...
 import { getAccessor } from '../../store/data-accessor.js';
 import { getExitCodeName } from '../../types/exit-codes.js';
