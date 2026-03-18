@@ -9,7 +9,7 @@
 
 import * as esbuild from 'esbuild';
 import { spawnSync } from 'node:child_process';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -148,6 +148,13 @@ async function fixCoreDeclarations() {
 
   // 1. Fix cleo.d.ts — rewrite broken monorepo-relative paths
   const cleoSrc = resolve(distDir, 'packages/core/src/cleo.d.ts');
+  // Skip if tsc didn't emit declarations (e.g. Windows CI where tsc may fail silently)
+  try {
+    await access(cleoSrc);
+  } catch {
+    console.warn('Skipping fixCoreDeclarations: tsc did not emit', cleoSrc);
+    return;
+  }
   let cleoContent = await readFile(cleoSrc, 'utf-8');
   cleoContent = cleoContent.replaceAll('../../../src/', './');
   await writeFile(resolve(distDir, 'cleo.d.ts'), cleoContent, 'utf-8');
