@@ -16,7 +16,7 @@
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
-import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult } from '@cleocode/contracts';
+import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult, TaskRef, BottleneckTask } from '@cleocode/contracts';
 import { cancelTask } from './cancel-ops.js';
 import {
   detectCircularDeps,
@@ -291,7 +291,7 @@ export async function coreTaskBlockers(
     depends?: string[];
     blockingChain: string[];
   }>;
-  criticalBlockers: Array<{ id: string; title: string; blocksCount: number }>;
+  criticalBlockers: BottleneckTask[];
   summary: string;
   total: number;
   limit: number;
@@ -1159,8 +1159,8 @@ export async function coreTaskComplexityEstimate(
 export async function coreTaskDepsOverview(projectRoot: string): Promise<{
   totalTasks: number;
   tasksWithDeps: number;
-  blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
-  readyTasks: Array<{ id: string; title: string; status: string }>;
+  blockedTasks: Array<TaskRef & { unblockedBy: string[] }>;
+  readyTasks: TaskRef[];
   validation: { valid: boolean; errorCount: number; warningCount: number };
 }> {
   const allTasks = await loadAllTasks(projectRoot);
@@ -1208,14 +1208,14 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
  */
 export async function coreTaskDepsCycles(projectRoot: string): Promise<{
   hasCycles: boolean;
-  cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+  cycles: Array<{ path: string[]; tasks: Array<Pick<TaskRef, 'id' | 'title'>> }>;
 }> {
   const allTasks = await loadAllTasks(projectRoot);
   const tasksAsTask = allTasks;
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   const visited = new Set<string>();
-  const cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }> = [];
+  const cycles: Array<{ path: string[]; tasks: Array<Pick<TaskRef, 'id' | 'title'>> }> = [];
 
   for (const task of allTasks) {
     if (visited.has(task.id)) continue;
@@ -1257,10 +1257,10 @@ export async function coreTaskDepends(
 ): Promise<{
   taskId: string;
   direction: string;
-  upstream: Array<{ id: string; title: string; status: string }>;
-  downstream: Array<{ id: string; title: string; status: string }>;
+  upstream: TaskRef[];
+  downstream: TaskRef[];
   unresolvedChain: number;
-  leafBlockers: Array<{ id: string; title: string; status: string }>;
+  leafBlockers: TaskRef[];
   allDepsReady: boolean;
   hint?: string;
   upstreamTree?: FlatTreeNode[];
@@ -1274,7 +1274,7 @@ export async function coreTaskDepends(
 
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
-  const upstream: Array<{ id: string; title: string; status: string }> = [];
+  const upstream: TaskRef[] = [];
   if (direction === 'upstream' || direction === 'both') {
     for (const depId of task.depends ?? []) {
       const dep = taskMap.get(depId);
@@ -1284,7 +1284,7 @@ export async function coreTaskDepends(
     }
   }
 
-  const downstream: Array<{ id: string; title: string; status: string }> = [];
+  const downstream: TaskRef[] = [];
   if (direction === 'downstream' || direction === 'both') {
     for (const t of allTasks) {
       if (t.depends?.includes(taskId)) {

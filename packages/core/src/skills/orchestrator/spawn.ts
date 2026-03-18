@@ -161,7 +161,7 @@ export function canParallelize(
   cwd?: string,
 ): {
   canParallelize: boolean;
-  conflicts: Array<{ id: string; dependsOn: string[] }>;
+  conflicts: Array<Pick<Task, 'id'> & { dependsOn: string[] }>;
   safeToSpawn: string[];
 } {
   if (taskIds.length === 0) {
@@ -177,7 +177,7 @@ export function canParallelize(
   const tasks: Task[] = data.tasks ?? [];
   const taskIdSet = new Set(taskIds);
 
-  const conflicts: Array<{ id: string; dependsOn: string[] }> = [];
+  const conflicts: Array<Pick<Task, 'id'> & { dependsOn: string[] }> = [];
   const safeToSpawn: string[] = [];
 
   for (const tid of taskIds) {

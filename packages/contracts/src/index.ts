@@ -251,6 +251,7 @@ export type {
   ContextResult,
   SequenceResult,
   TaskRef,
+  TaskRefPriority,
   LeveragedTask,
   BottleneckTask,
   TaskAnalysisResult,

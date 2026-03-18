@@ -7,6 +7,7 @@
  * @epic T5267
  */
 
+import type { Session } from '@cleocode/contracts';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { ConvertedTarget } from './types.js';
 
@@ -257,7 +258,7 @@ export async function convertStickyToSessionNote(
       };
     }
 
-    const session = sessions.find((s: { id: string }) => s.id === targetSessionId);
+    const session = sessions.find((s: Session) => s.id === targetSessionId);
     if (!session) {
       return {
         success: false,

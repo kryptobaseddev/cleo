@@ -293,7 +293,7 @@ export async function completeTask(
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
   const dependents = getDependents(options.taskId, data.tasks);
-  const unblockedTasks: Array<{ id: string; title: string }> = [];
+  const unblockedTasks: Array<Pick<TaskRef, 'id' | 'title'>> = [];
   for (const dep of dependents) {
     if (dep.status === 'done' || dep.status === 'cancelled') continue;
     const stillUnresolved = getUnresolvedDeps(dep.id, data.tasks);

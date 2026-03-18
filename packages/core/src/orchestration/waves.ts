@@ -5,7 +5,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRef } from '@cleocode/contracts';
 
 export interface Wave {
   waveNumber: number;
@@ -15,7 +15,7 @@ export interface Wave {
 
 export interface EnrichedWave {
   waveNumber: number;
-  tasks: Array<{ id: string; title: string; status: string }>;
+  tasks: TaskRef[];
   status: 'pending' | 'in_progress' | 'completed';
 }
 

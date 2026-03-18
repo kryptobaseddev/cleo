@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
 import { getCleoDirAbsolute, getSessionsPath, getTaskPath } from '../../paths.js';
 import type {
   DependencyAnalysis,
@@ -406,7 +406,7 @@ export async function getNextTask(
 export async function getReadyTasks(
   epicId: string,
   cwd?: string,
-): Promise<Array<{ id: string; title: string; priority?: string }>> {
+): Promise<TaskRefPriority[]> {
   const analysis = await analyzeDependencies(epicId, cwd);
   const readyIds = new Set(analysis.readyToSpawn.map((t) => t.id));
 
@@ -470,9 +470,9 @@ export async function generateHitlSummary(
     pending = 0,
     active = 0,
     blocked = 0;
-  let completedTasks: Array<{ id: string; title: string }> = [];
-  let remainingTasks: Array<{ id: string; title: string; status: string; priority?: string }> = [];
-  let readyToSpawn: Array<{ id: string; title: string; priority?: string }> = [];
+  let completedTasks: Array<Pick<TaskRef, 'id' | 'title'>> = [];
+  let remainingTasks: Array<TaskRef & { priority?: string }> = [];
+  let readyToSpawn: TaskRefPriority[] = [];
 
   if (existsSync(taskPath) && epicId) {
     const data = JSON.parse(readFileSync(taskPath, 'utf-8'));

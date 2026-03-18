@@ -6,7 +6,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRef } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getExecutionWaves } from '../phases/deps.js';
 
@@ -71,7 +71,7 @@ export interface AnalysisResult {
   totalTasks: number;
   waves: Array<{
     wave: number;
-    tasks: Array<{ id: string; title: string; status: string }>;
+    tasks: TaskRef[];
   }>;
   readyTasks: string[];
   blockedTasks: string[];

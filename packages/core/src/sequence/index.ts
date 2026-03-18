@@ -10,6 +10,7 @@ import { createDataAccessor, type DataAccessor } from '../store/data-accessor.js
 import { setMetaValue } from '../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../store/tasks-schema.js';
 import { ExitCode } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 const SEQUENCE_META_KEY = 'task_id_sequence';
@@ -145,7 +146,7 @@ async function readSequence(cwd?: string, accessor?: DataAccessor): Promise<Sequ
   return maybeMigrateLegacySequence(fromDb, cwd, accessor);
 }
 
-function getMaxIdFromTasks(tasks: Array<{ id: string }>): number {
+function getMaxIdFromTasks(tasks: Array<Pick<Task, 'id'>>): number {
   let max = 0;
   for (const t of tasks) {
     const match = t.id.match(/^T(\d+)$/);
@@ -171,7 +172,7 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
   };
 }
 
-async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Array<{ id: string }>> {
+async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Array<Pick<Task, 'id'>>> {
   let localAccessor: DataAccessor | null = null;
   const activeAccessor = accessor ?? (await createDataAccessor(undefined, cwd));
   if (!accessor) {

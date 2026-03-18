@@ -61,7 +61,7 @@ export interface TaskDepsResult {
 /** Execution wave (group of parallelizable tasks). */
 export interface ExecutionWave {
   wave: number;
-  tasks: Array<{ id: string; title: string; status: string; depends: string[] }>;
+  tasks: Array<TaskRef & { depends: string[] }>;
 }
 
 /** Critical path result. */

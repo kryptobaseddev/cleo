@@ -7,6 +7,7 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
+import type { TaskRef } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /** Suggest related tasks based on shared attributes. */
@@ -22,7 +23,7 @@ export async function suggestRelated(
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }
 
-  const suggestions: Array<{ id: string; title: string; score: number; reason: string }> = [];
+  const suggestions: Array<Pick<TaskRef, 'id' | 'title'> & { score: number; reason: string }> = [];
 
   for (const other of data.tasks) {
     if (other.id === taskId) continue;

@@ -5,6 +5,8 @@
  * @task T4516
  */
 
+import type { TaskRef, TaskRefPriority } from '@cleocode/contracts';
+
 // Re-export CAAMP types where they overlap with CLEO's domain
 export type {
   CtDispatchMatrix,
@@ -283,9 +285,9 @@ export interface HitlSummary {
     total: number;
     percentComplete: number;
   };
-  completedTasks: Array<{ id: string; title: string }>;
-  remainingTasks: Array<{ id: string; title: string; status: string; priority?: string }>;
-  readyToSpawn: Array<{ id: string; title: string; priority?: string }>;
+  completedTasks: Array<Pick<TaskRef, 'id' | 'title'>>;
+  remainingTasks: Array<TaskRef & { priority?: string }>;
+  readyToSpawn: TaskRefPriority[];
   handoff: {
     resumeCommand: string;
     nextSteps: string[];

@@ -157,6 +157,9 @@ export interface TaskRef {
   status: string;
 }
 
+/** Task reference with optional priority (used in orchestrator/HITL contexts). */
+export type TaskRefPriority = Pick<TaskRef, 'id' | 'title'> & { priority?: string };
+
 /** Task with leverage score for prioritization. */
 export interface LeveragedTask {
   id: string;

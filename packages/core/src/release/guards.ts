@@ -10,7 +10,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRef } from '@cleocode/contracts';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {
@@ -20,7 +20,7 @@ export interface EpicCompletenessResult {
     epicTitle: string;
     totalChildren: number;
     includedChildren: number;
-    missingChildren: Array<{ id: string; title: string; status: string }>;
+    missingChildren: TaskRef[];
   }>;
   orphanTasks: string[];
 }
