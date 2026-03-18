@@ -145,3 +145,60 @@ export interface SequenceResult {
   checksum: string;
   nextId: string;
 }
+
+// ============================================================================
+// Task Analysis & Dependency Result Types
+// ============================================================================
+
+/** Compact task reference used across analysis and dependency results. */
+export interface TaskRef {
+  id: string;
+  title: string;
+  status: string;
+}
+
+/** Task with leverage score for prioritization. */
+export interface LeveragedTask {
+  id: string;
+  title: string;
+  leverage: number;
+  reason?: string;
+}
+
+/** Bottleneck task — blocks other tasks. */
+export interface BottleneckTask {
+  id: string;
+  title: string;
+  blocksCount: number;
+}
+
+/** Task analysis result from tasks.analyze. */
+export interface TaskAnalysisResult {
+  recommended: (LeveragedTask & { reason: string }) | null;
+  bottlenecks: BottleneckTask[];
+  tiers: {
+    critical: LeveragedTask[];
+    high: LeveragedTask[];
+    normal: LeveragedTask[];
+  };
+  metrics: {
+    totalTasks: number;
+    actionable: number;
+    blocked: number;
+    avgLeverage: number;
+  };
+}
+
+/** Single task dependency result from tasks.deps. */
+export interface TaskDepsResult {
+  taskId: string;
+  dependsOn: TaskRef[];
+  dependedOnBy: TaskRef[];
+  unresolvedDeps: string[];
+  allDepsReady: boolean;
+}
+
+/** Completion result — unblocked tasks after completing a task. */
+export interface CompleteTaskUnblocked {
+  unblockedTasks?: TaskRef[];
+}

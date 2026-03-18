@@ -9,7 +9,7 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task, TaskFile, TaskRef } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /**
@@ -52,10 +52,10 @@ export interface DepsOverviewResult {
 
 /** Single task dependency result. */
 export interface TaskDepsResult {
-  task: { id: string; title: string; status: string };
-  upstream: Array<{ id: string; title: string; status: string }>;
-  downstream: Array<{ id: string; title: string; status: string }>;
-  blockedBy: Array<{ id: string; title: string; status: string }>;
+  task: TaskRef;
+  upstream: TaskRef[];
+  downstream: TaskRef[];
+  blockedBy: TaskRef[];
 }
 
 /** Execution wave (group of parallelizable tasks). */
@@ -66,7 +66,7 @@ export interface ExecutionWave {
 
 /** Critical path result. */
 export interface CriticalPathResult {
-  path: Array<{ id: string; title: string; status: string }>;
+  path: TaskRef[];
   length: number;
 }
 

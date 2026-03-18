@@ -18,6 +18,11 @@ import { getBrainAccessor } from '../store/brain-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { EngineResult } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
+import type {
+  BrainEntrySummary,
+  ContradictionDetail,
+  SupersededEntry,
+} from '@cleocode/contracts';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
 import {
@@ -639,13 +644,6 @@ export async function memoryContradictions(projectRoot?: string): Promise<Engine
       created_at: string;
     }>;
 
-    interface ContradictionDetail {
-      entryA: { id: string; type: string; content: string; createdAt: string };
-      entryB: { id: string; type: string; content: string; createdAt: string };
-      context?: string;
-      conflictDetails: string;
-    }
-
     const contradictions: ContradictionDetail[] = [];
     const seenPairs = new Set<string>();
 
@@ -778,15 +776,11 @@ export async function memorySuperseded(
       return { success: true, data: { superseded: [] } };
     }
 
-    const superseded: Array<{
-      oldEntry: { id: string; type: string; createdAt: string; summary: string };
-      replacement: { id: string; type: string; createdAt: string; summary: string };
-      grouping: string;
-    }> = [];
+    const superseded: SupersededEntry[] = [];
 
     // Helper to normalize and group by key
     const addSuperseded = (
-      entries: Array<{ id: string; type: string; createdAt: string; summary: string }>,
+      entries: BrainEntrySummary[],
       groupKey: string,
     ) => {
       if (entries.length < 2) return;
@@ -806,10 +800,7 @@ export async function memorySuperseded(
     };
 
     // === DECISIONS: Group by type + contextTaskId/contextEpicId ===
-    const decisionGroups = new Map<
-      string,
-      Array<{ id: string; type: string; createdAt: string; summary: string }>
-    >();
+    const decisionGroups = new Map<string, BrainEntrySummary[]>();
     const decisionQuery = params?.type
       ? `SELECT id, type, decision, context_task_id, context_epic_id, created_at
           FROM brain_decisions WHERE type = ? ORDER BY created_at DESC`
@@ -842,10 +833,7 @@ export async function memorySuperseded(
     }
 
     // === PATTERNS: Group by type + context (first 100 chars for similarity) ===
-    const patternGroups = new Map<
-      string,
-      Array<{ id: string; type: string; createdAt: string; summary: string }>
-    >();
+    const patternGroups = new Map<string, BrainEntrySummary[]>();
     const patternQuery = params?.type
       ? `SELECT id, type, pattern, context, extracted_at
           FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC`
@@ -878,10 +866,7 @@ export async function memorySuperseded(
     }
 
     // === LEARNINGS: Group by source + applicableTypes ===
-    const learningGroups = new Map<
-      string,
-      Array<{ id: string; type: string; createdAt: string; summary: string }>
-    >();
+    const learningGroups = new Map<string, BrainEntrySummary[]>();
     const learningQuery = `SELECT id, source, insight, applicable_types_json, created_at
         FROM brain_learnings ORDER BY created_at DESC`;
     const learnings = nativeDb.prepare(learningQuery).all() as Array<{
@@ -911,10 +896,7 @@ export async function memorySuperseded(
     }
 
     // === OBSERVATIONS: Group by type + project ===
-    const observationGroups = new Map<
-      string,
-      Array<{ id: string; type: string; createdAt: string; summary: string }>
-    >();
+    const observationGroups = new Map<string, BrainEntrySummary[]>();
     const observationQuery = params?.type
       ? `SELECT id, type, title, project, created_at
           FROM brain_observations WHERE type = ? ORDER BY created_at DESC`

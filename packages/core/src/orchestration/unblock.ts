@@ -5,7 +5,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRef } from '@cleocode/contracts';
 
 export interface HighImpactTask {
   taskId: string;
@@ -17,7 +17,7 @@ export interface HighImpactTask {
 export interface SingleBlockerTask {
   taskId: string;
   title: string;
-  remainingBlocker: { id: string; title: string };
+  remainingBlocker: Pick<TaskRef, 'id' | 'title'>;
 }
 
 export interface CommonBlocker {

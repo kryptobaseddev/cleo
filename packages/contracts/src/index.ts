@@ -236,7 +236,7 @@ export type {
   TodoWriteMergeResult,
 } from './todowrite.js';
 
-// === Result Types (Dashboard, Stats, Log, Context, Sequence) ===
+// === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
   TaskSummary,
   LabelCount,
@@ -250,7 +250,21 @@ export type {
   LogQueryResult,
   ContextResult,
   SequenceResult,
+  TaskRef,
+  LeveragedTask,
+  BottleneckTask,
+  TaskAnalysisResult,
+  TaskDepsResult,
+  CompleteTaskUnblocked,
 } from './results.js';
+
+// === Brain/Memory Types ===
+export type {
+  BrainEntryRef,
+  BrainEntrySummary,
+  ContradictionDetail,
+  SupersededEntry,
+} from './brain.js';
 
 // === TaskRecord Types (string-widened for dispatch/LAFS) ===
 export type {

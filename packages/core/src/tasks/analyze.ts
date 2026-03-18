@@ -7,21 +7,9 @@
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
+import type { TaskAnalysisResult } from '@cleocode/contracts';
 
-export interface AnalysisResult {
-  recommended: { id: string; title: string; leverage: number; reason: string } | null;
-  bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
-  tiers: {
-    critical: Array<{ id: string; title: string; leverage: number }>;
-    high: Array<{ id: string; title: string; leverage: number }>;
-    normal: Array<{ id: string; title: string; leverage: number }>;
-  };
-  metrics: {
-    totalTasks: number;
-    actionable: number;
-    blocked: number;
-    avgLeverage: number;
-  };
+export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
 }
 

@@ -5,11 +5,9 @@
  */
 
 import { getAccessor } from '../store/data-accessor.js';
-import type { TaskRow } from '../store/tasks-schema.js';
 
 import { depsReady } from './deps-ready.js';
 
-// Internal task record — use contracts Task type directly
 import type { Task } from '@cleocode/contracts';
 type TaskRecord = Task;
 
@@ -22,7 +20,7 @@ export interface InProgressEpic {
 }
 
 /** Ready task entry with leverage analysis. */
-export interface ReadyTask extends Pick<TaskRow, 'id' | 'title' | 'priority'> {
+export interface ReadyTask extends Pick<Task, 'id' | 'title' | 'priority'> {
   epicId: string;
   leverage: number;
   score: number;
@@ -30,13 +28,13 @@ export interface ReadyTask extends Pick<TaskRow, 'id' | 'title' | 'priority'> {
 }
 
 /** Blocked task entry. */
-export interface BlockedTask extends Pick<TaskRow, 'id' | 'title'> {
+export interface BlockedTask extends Pick<Task, 'id' | 'title'> {
   blockedBy: string[];
   blocksCount: number;
 }
 
 /** Open bug entry. */
-export interface OpenBug extends Pick<TaskRow, 'id' | 'title' | 'priority'> {
+export interface OpenBug extends Pick<Task, 'id' | 'title' | 'priority'> {
   epicId: string;
 }
 

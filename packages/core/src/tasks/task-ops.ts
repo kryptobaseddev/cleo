@@ -16,7 +16,7 @@
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult } from '@cleocode/contracts';
 import { cancelTask } from './cancel-ops.js';
 import {
   detectCircularDeps,
@@ -414,13 +414,7 @@ export async function coreTaskTree(
 export async function coreTaskDeps(
   projectRoot: string,
   taskId: string,
-): Promise<{
-  taskId: string;
-  dependsOn: Array<{ id: string; title: string; status: string }>;
-  dependedOnBy: Array<{ id: string; title: string; status: string }>;
-  unresolvedDeps: string[];
-  allDepsReady: boolean;
-}> {
+): Promise<TaskDepsResult> {
   const allTasks = await loadAllTasks(projectRoot);
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
@@ -543,22 +537,7 @@ export async function coreTaskAnalyze(
   projectRoot: string,
   taskId?: string,
   params?: { tierLimit?: number },
-): Promise<{
-  recommended: { id: string; title: string; leverage: number; reason: string } | null;
-  bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
-  tiers: {
-    critical: Array<{ id: string; title: string; leverage: number }>;
-    high: Array<{ id: string; title: string; leverage: number }>;
-    normal: Array<{ id: string; title: string; leverage: number }>;
-  };
-  metrics: {
-    totalTasks: number;
-    actionable: number;
-    blocked: number;
-    avgLeverage: number;
-  };
-  tierLimit: number;
-}> {
+): Promise<TaskAnalysisResult & { tierLimit: number }> {
   const allTasks = await loadAllTasks(projectRoot);
   const effectiveTierLimit = params?.tierLimit ?? 10;
 

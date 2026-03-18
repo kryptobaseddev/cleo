@@ -9,7 +9,7 @@ import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
 import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, VerificationGate } from '@cleocode/contracts';
+import type { Task, VerificationGate, TaskRef } from '@cleocode/contracts';
 import { getRawConfigValue } from '../config.js';
 import { CleoError } from '../errors.js';
 import { getDependents, getUnresolvedDeps } from './dependency-check.js';
@@ -25,7 +25,7 @@ export interface CompleteTaskOptions {
 export interface CompleteTaskResult {
   task: Task;
   autoCompleted?: string[];
-  unblockedTasks?: Array<{ id: string; title: string }>;
+  unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
 }
 
 interface CompletionEnforcement {
