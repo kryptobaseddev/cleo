@@ -10,7 +10,6 @@ import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { toTaskFileExt } from './types.js';
-import type { TaskFileExt } from './types.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -53,7 +52,7 @@ export async function getContextDrift(
 ): Promise<ContextDriftResult> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
 
   // Find the active session (or specified session)
   let session: Session | undefined;

@@ -9,7 +9,6 @@
 import { getAccessor } from '../store/data-accessor.js';
 import { getRawConfigValue } from '../config.js';
 import { toTaskFileExt } from './types.js';
-import type { TaskFileExt } from './types.js';
 
 /** Default auto-end threshold when no config is set (7 days). */
 const DEFAULT_AUTO_END_DAYS = 7;
@@ -28,7 +27,7 @@ export async function cleanupSessions(
 ): Promise<{ removed: string[]; autoEnded: string[]; cleaned: boolean }> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 

@@ -10,7 +10,6 @@ import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { toTaskFileExt } from './types.js';
-import type { TaskFileExt } from './types.js';
 
 /**
  * Switch to a different session.
@@ -20,7 +19,7 @@ import type { TaskFileExt } from './types.js';
 export async function switchSession(projectRoot: string, sessionId: string): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 
@@ -46,7 +45,7 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
     const currentSession = sessions.find((s) => s.id === currentActiveId);
     if (currentSession && currentSession.status === 'active') {
       currentSession.status = 'suspended';
-      (currentSession as unknown as Record<string, unknown>).suspendedAt = now;
+      Object.assign(currentSession, { suspendedAt: now });
       if (currentSession.stats) {
         currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
       }
@@ -55,7 +54,7 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
 
   // Activate the target session
   targetSession.status = 'active';
-  (targetSession as unknown as Record<string, unknown>).suspendedAt = null;
+  Object.assign(targetSession, { suspendedAt: null });
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 

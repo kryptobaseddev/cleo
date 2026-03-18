@@ -22,6 +22,7 @@ import type { Session } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
+import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 /**
@@ -137,7 +138,7 @@ export async function computeBriefing(
 ): Promise<SessionBriefing> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
   const tasks = current.tasks || [];
 
   // Build task map for quick lookups

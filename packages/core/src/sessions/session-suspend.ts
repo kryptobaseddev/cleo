@@ -10,7 +10,6 @@ import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { toTaskFileExt } from './types.js';
-import type { TaskFileExt } from './types.js';
 
 /**
  * Suspend an active session.
@@ -24,7 +23,7 @@ export async function suspendSession(
 ): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 
@@ -44,7 +43,7 @@ export async function suspendSession(
   const now = new Date().toISOString();
 
   session.status = 'suspended';
-  (session as unknown as Record<string, unknown>).suspendedAt = now;
+  Object.assign(session, { suspendedAt: now });
 
   if (session.stats) {
     session.stats.suspendCount = (session.stats.suspendCount || 0) + 1;

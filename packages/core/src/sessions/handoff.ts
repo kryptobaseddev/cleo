@@ -80,7 +80,7 @@ export async function computeHandoff(
 
   // Load task data for scope analysis
   const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
+  const current = toTaskFileExt(taskData);
 
   // Get decisions recorded during this session
   const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });
@@ -230,12 +230,11 @@ function getScopeTaskIds(session: Session, current: TaskFileExt): Set<string> {
 
     addDescendants(rootId);
 
-    // Include explicitTaskIds if present in scope (runtime safe access for engine-layer sessions)
-    const explicitIds = (session.scope as unknown as Record<string, unknown>).explicitTaskIds;
-    if (Array.isArray(explicitIds)) {
-      explicitIds.forEach((id) => {
-        if (typeof id === 'string') taskIds.add(id);
-      });
+    // Include explicitTaskIds if present in scope
+    if (session.scope.explicitTaskIds) {
+      for (const id of session.scope.explicitTaskIds) {
+        taskIds.add(id);
+      }
     }
   }
 
@@ -299,7 +298,7 @@ export async function getHandoff(
  */
 export async function getLastHandoff(
   projectRoot: string,
-  scope?: { type: string; epicId?: string },
+  scope?: { type: string; epicId?: string; rootTaskId?: string },
 ): Promise<{ sessionId: string; handoff: HandoffData } | null> {
   const accessor = await getAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
@@ -314,7 +313,7 @@ export async function getLastHandoff(
         return s.scope.type === 'global';
       }
       // Match against both epicId and rootTaskId for cross-layer compatibility
-      const scopeRootId = scope.epicId ?? (scope as unknown as Record<string, unknown>).rootTaskId;
+      const scopeRootId = scope.epicId ?? scope.rootTaskId;
       const sessionRootId = s.scope.rootTaskId ?? s.scope.epicId;
       return s.scope.type === scope.type && sessionRootId === scopeRootId;
     });
