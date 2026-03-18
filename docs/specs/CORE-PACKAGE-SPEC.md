@@ -1,6 +1,6 @@
 # @cleocode/core Package Specification
 
-**Version**: 2.0.0
+**Version**: 3.0.0
 **Status**: APPROVED
 **Date**: 2026-03-18
 **Task**: T5714
@@ -18,6 +18,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
 
 - **Standalone**: Importable without the `@cleocode/cleoctl` product package
 - **Adapter-neutral**: No imports from `packages/cleoctl/` (CLI, MCP, or dispatch)
+- **Two-tier barrel**: Public API (`index.ts`) for external consumers, internal API (`internal.ts`) for `@cleocode/cleoctl`
 - **Bundled storage**: The default SQLite store ships inside `packages/core/src/store/`
 - **Dependency-injected storage**: Core modules accept a `DataAccessor` parameter for custom backends
 - **ESM-first**: Full ES module package (`"type": "module"`, `.js` import paths)
@@ -32,14 +33,16 @@ This specification defines the public contract for `@cleocode/core`, the standal
 | Package name | `@cleocode/core` |
 | Registry | npm (`@cleocode` scope) |
 | Version scheme | Semver (v2.0.0 for restructured monorepo) |
-| Entry point | `dist/index.js` (compiled from `packages/core/src/index.ts`) |
-| Type declarations | `dist/index.d.ts` |
+| Public entry point | `dist/index.js` (compiled from `packages/core/src/index.ts`) |
+| Internal entry point | `dist/internal.js` (compiled from `packages/core/src/internal.ts`) |
+| Type declarations | `dist/index.d.ts`, `dist/internal.d.ts` |
 | Module format | ES modules (`"type": "module"`) |
 | Minimum Node.js | 24 |
 | TypeScript | 6.0.1-rc targeting ES2025 |
+| Package manager | pnpm (workspace protocol) |
 | License | MIT |
 
-### Package.json Shape (Target)
+### Package.json Shape
 
 ```json
 {
@@ -52,6 +55,14 @@ This specification defines the public contract for `@cleocode/core`, the standal
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./internal": {
+      "import": "./dist/internal.js",
+      "types": "./dist/internal.d.ts"
+    },
+    "./*": {
+      "import": "./dist/*.js",
+      "types": "./dist/*.d.ts"
     }
   },
   "dependencies": {
@@ -62,205 +73,389 @@ This specification defines the public contract for `@cleocode/core`, the standal
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.18-7eb39f0",
     "env-paths": "^4.0.0",
+    "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
     "write-file-atomic": "^6.0.0",
     "yaml": "^2.8.2",
-    "zod": "^3.24.0"
+    "zod": "^3.25.76"
   }
 }
 ```
 
+### Subpath Exports
+
+The package exposes three export conditions:
+
+| Subpath | Purpose | Audience |
+|---------|---------|----------|
+| `"."` | Public API -- stable contract for external consumers | Anyone installing `@cleocode/core` |
+| `"./internal"` | Internal API -- superset of public, additional symbols for `@cleocode/cleoctl` | Only `@cleocode/cleoctl` |
+| `"./*"` | Deep imports -- escape hatch for advanced consumers (no stability guarantees) | Power users, adapters |
+
+External consumers MUST import from `@cleocode/core` (the `"."` entry). The `"./internal"` entry is explicitly for the `@cleocode/cleoctl` product package and carries no stability guarantees beyond what the public API provides.
+
 ---
 
-## 3. Module Structure
+## 3. Two-Tier Barrel Architecture
 
-The barrel export (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 40 modules, their role, and whether they require a `DataAccessor` at runtime.
+### 3.1 Public Barrel (`index.ts`, ~235 lines)
 
-### 3.1 Domain Namespace Modules
+The public barrel re-exports all symbols intended for external consumers:
+
+1. **All `@cleocode/contracts` types** via `export * from '@cleocode/contracts'`
+2. **41 namespace re-exports** (one per domain/submodule)
+3. **Store factory functions** (`createDataAccessor`, `getAccessor`)
+4. **Top-level utility exports** (errors, config, logger, paths, platform, output, pagination, init, scaffold, audit, validation, project info, constants)
+5. **Flat function re-exports** for direct imports (Pattern 3 -- tree-shakeable)
+6. **Cleo facade class** and domain API interfaces
+
+### 3.2 Internal Barrel (`internal.ts`, ~622 lines)
+
+The internal barrel is a strict superset of the public API:
+
+```typescript
+// Re-export the entire public API
+export * from './index.js';
+
+// Extended flat exports required by @cleocode/cleoctl
+export { computeHelp } from './admin/help.js';
+export { exportTasks } from './admin/export.js';
+// ... ~600 additional symbols
+```
+
+The internal barrel provides:
+
+- Fine-grained function exports from every domain (admin, ADRs, compliance, lifecycle, memory, metrics, nexus, orchestration, OTel, phases, pipeline, release, remote, routing, security, sessions, skills, snapshot, sticky, stats, system, tasks, task-work, templates, validation)
+- Store internals (`getDb`, `getBrainDb`, schema tables, validation schemas)
+- Test helpers (`closeAllDatabases`, `closeDb`, `resetDbState`, `createSqliteDataAccessor`)
+- Type exports for domain-specific result shapes
+
+---
+
+## 4. Module Structure
+
+The public barrel (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 41 namespaces, their role, and whether they require a `DataAccessor` at runtime.
+
+### 4.1 Domain Namespace Modules
 
 | Namespace | Source path | Role | Requires DataAccessor |
 |-----------|------------|------|----------------------|
-| `tasks` | `packages/core/src/tasks/` | Task CRUD, hierarchy, dependency validation, search | Yes |
-| `sessions` | `packages/core/src/sessions/` | Session lifecycle, handoff, debrief, decisions | Yes |
-| `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval | No (uses brain.db directly) |
-| `orchestration` | `packages/core/src/orchestration/` | Dependency graph, wave analysis, progress metrics | Yes |
-| `lifecycle` | `packages/core/src/lifecycle/` | RCASD-IVTR+C gate enforcement, stage transitions | Yes (SQLite lifecycle tables) |
-| `release` | `packages/core/src/release/` | Changelog computation, version bump, ship pipeline | Yes |
-| `admin` | `packages/core/src/admin/` | Dashboard, health check, configuration map | Yes |
-| `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
 | `adapters` | `packages/core/src/adapters/` | Provider adapter discovery, detection, lifecycle | No |
+| `admin` | `packages/core/src/admin/` | Dashboard, health check, configuration map | Yes |
+| `adrs` | `packages/core/src/adrs/` | Architecture Decision Record management | No |
 | `caamp` | `packages/core/src/caamp/` | CAAMP wrapper -- provider capability API, spawn, skill routing | No |
-| `signaldock` | `packages/core/src/signaldock/` | Inter-agent messaging transport (provider-neutral) | No |
-| `spawn` | `packages/core/src/spawn/` | Subagent spawn coordination, registry | No |
-| `skills` | `packages/core/src/skills/` | Skill routing table, precedence integration | No |
+| `codebaseMap` | `packages/core/src/codebase-map/` | Codebase structure analysis and module graph | No |
+| `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
 | `context` | `packages/core/src/context/` | Context window drift monitoring and alerts | No |
 | `coreHooks` | `packages/core/src/hooks/` | Lifecycle hook dispatch registry | No |
-| `pipeline` | `packages/core/src/pipeline/` | RCASD pipeline coordination and status | Yes |
-| `phases` | `packages/core/src/phases/` | Execution wave computation, dependency maps | Yes |
-| `taskWork` | `packages/core/src/task-work/` | Active task tracking (start, stop, current) | Yes |
-| `research` | `packages/core/src/research/` | Research manifest operations, contradiction detection | Partial |
-| `nexus` | `packages/core/src/nexus/` | Cross-project registry operations (nexus.db) | No (uses nexus.db) |
-| `metrics` | `packages/core/src/metrics/` | Telemetry, value tracking, provider detection | No |
-| `observability` | `packages/core/src/observability/` | Structured observability reporting | No |
-| `otel` | `packages/core/src/otel/` | OpenTelemetry integration, token usage recording | No |
-| `migration` | `packages/core/src/migration/` | Schema version detection and migration execution | Yes (SQLite) |
-| `validation` | `packages/core/src/validation/` | Anti-hallucination validators, schema checks | No |
-| `roadmap` | `packages/core/src/roadmap/` | Roadmap and milestone tracking | Yes |
-| `security` | `packages/core/src/security/` | Permission checks and access audit | No |
-| `sequence` | `packages/core/src/sequence/` | Ordered operation sequencing | No |
-| `snapshot` | `packages/core/src/snapshot/` | Project state snapshot creation and restore | Yes |
-| `stats` | `packages/core/src/stats/` | Task and session statistics aggregation | Yes |
-| `sticky` | `packages/core/src/sticky/` | Sticky notes (persistent context anchors) | No |
+| `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
 | `inject` | `packages/core/src/inject/` | AGENTS.md / CLAUDE.md content injection | No |
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
+| `lifecycle` | `packages/core/src/lifecycle/` | RCASD-IVTR+C gate enforcement, stage transitions | Yes (SQLite lifecycle tables) |
+| `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval | No (uses brain.db directly) |
+| `metrics` | `packages/core/src/metrics/` | Telemetry, value tracking, provider detection | No |
+| `migration` | `packages/core/src/migration/` | Schema version detection and migration execution | Yes (SQLite) |
+| `nexus` | `packages/core/src/nexus/` | Cross-project registry operations (nexus.db) | No (uses nexus.db) |
+| `observability` | `packages/core/src/observability/` | Structured observability reporting | No |
+| `orchestration` | `packages/core/src/orchestration/` | Dependency graph, wave analysis, progress metrics | Yes |
+| `otel` | `packages/core/src/otel/` | OpenTelemetry integration, token usage recording | No |
+| `phases` | `packages/core/src/phases/` | Execution wave computation, dependency maps | Yes |
+| `pipeline` | `packages/core/src/pipeline/` | RCASD pipeline coordination and status | Yes |
+| `release` | `packages/core/src/release/` | Changelog computation, version bump, ship pipeline | Yes |
 | `remote` | `packages/core/src/remote/` | Remote sync push/pull operations | No |
-| `codebaseMap` | `packages/core/src/codebase-map/` | Codebase structure analysis and module graph | No |
-| `adrs` | `packages/core/src/adrs/` | Architecture Decision Record management | No |
-| `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
+| `research` | `packages/core/src/research/` | Research manifest operations, contradiction detection | Partial |
+| `roadmap` | `packages/core/src/roadmap/` | Roadmap and milestone tracking | Yes |
 | `routing` | `packages/core/src/routing/` | Internal operation routing utilities | No |
+| `security` | `packages/core/src/security/` | Permission checks and access audit | No |
+| `sequence` | `packages/core/src/sequence/` | Ordered operation sequencing | No |
+| `sessions` | `packages/core/src/sessions/` | Session lifecycle, handoff, debrief, decisions | Yes |
+| `signaldock` | `packages/core/src/signaldock/` | Inter-agent messaging transport (provider-neutral) | No |
+| `skills` | `packages/core/src/skills/` | Skill routing table, precedence integration | No |
+| `snapshot` | `packages/core/src/snapshot/` | Project state snapshot creation and restore | Yes |
+| `spawn` | `packages/core/src/spawn/` | Subagent spawn coordination, registry | No |
+| `stats` | `packages/core/src/stats/` | Task and session statistics aggregation | Yes |
+| `sticky` | `packages/core/src/sticky/` | Sticky notes (persistent context anchors) | No |
+| `system` | `packages/core/src/system/` | System and environment checks | No |
+| `taskWork` | `packages/core/src/task-work/` | Active task tracking (start, stop, current) | Yes |
+| `tasks` | `packages/core/src/tasks/` | Task CRUD, hierarchy, dependency validation, search | Yes |
 | `templates` | `packages/core/src/templates/` | Template file management and rendering | No |
 | `ui` | `packages/core/src/ui/` | Output rendering helpers (tables, trees) | No |
-| `system` | `packages/core/src/system/` | System and environment checks | No |
+| `validation` | `packages/core/src/validation/` | Anti-hallucination validators, schema checks | No |
 
-### 3.2 Top-Level Utility Exports
+### 4.2 Store Layer Exports
+
+The following store functions are exported directly from the public barrel:
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `createDataAccessor` | `packages/core/src/store/data-accessor.ts` | Factory: create a `DataAccessor` for a given project path |
+| `getAccessor` | `packages/core/src/store/data-accessor.ts` | Cached factory: get-or-create a `DataAccessor` |
+
+### 4.3 Top-Level Utility Exports
 
 The following symbols are exported directly from the barrel (no namespace required):
 
 | Export | Source | Purpose |
 |--------|--------|---------|
-| `CleoError` | `packages/core/src/errors.ts` | Error class with exit code and RFC 9457 details |
-| `ProblemDetails` (type) | `packages/core/src/errors.ts` | RFC 9457 Problem Details interface |
-| `ERROR_CATALOG` | `packages/core/src/error-catalog.ts` | Map of all registered error definitions |
-| `getErrorDefinition` | `packages/core/src/error-catalog.ts` | Look up an error definition by ExitCode |
-| `formatSuccess` | `packages/core/src/output.ts` | Wrap a result in a LAFS success envelope |
-| `formatError` | `packages/core/src/output.ts` | Wrap an error in a LAFS error envelope |
-| `formatOutput` | `packages/core/src/output.ts` | Format-agnostic output (auto-selects JSON or text) |
-| `pushWarning` | `packages/core/src/output.ts` | Attach a warning to the next envelope |
-| `LafsEnvelope` (type) | `packages/core/src/output.ts` | Union of `LafsSuccess` and `LafsError` |
-| `loadConfig` | `packages/core/src/config.ts` | Load CLEO config from `.cleo/config.json` |
-| `getConfigValue` | `packages/core/src/config.ts` | Read a typed config key |
-| `setConfigValue` | `packages/core/src/config.ts` | Write a config key atomically |
-| `getCleoDir` | `packages/core/src/paths.ts` | Relative `.cleo` path for a project |
-| `getCleoDirAbsolute` | `packages/core/src/paths.ts` | Absolute `.cleo` path for a project |
-| `getProjectRoot` | `packages/core/src/paths.ts` | Resolve absolute project root |
-| `getTaskPath` | `packages/core/src/paths.ts` | Absolute path to `tasks.db` |
-| `isProjectInitialized` | `packages/core/src/paths.ts` | Check whether `.cleo/` structure exists |
-| `getLogger` | `packages/core/src/logger.ts` | Get the active logger instance |
-| `initLogger` | `packages/core/src/logger.ts` | Initialize logger with config |
-| `validateAgainstSchema` | `packages/core/src/json-schema-validator.ts` | Validate data against a JSON Schema |
-| `checkSchema` | `packages/core/src/json-schema-validator.ts` | Run schema check and return boolean |
-| `getSystemInfo` | `packages/core/src/platform.ts` | Collect Node, OS, and platform details |
-| `sha256` | `packages/core/src/platform.ts` | Hash a string or buffer with SHA-256 |
-| `getIsoTimestamp` | `packages/core/src/platform.ts` | Current time as ISO 8601 string |
-| `initProject` | `packages/core/src/init.ts` | Full project initialization (scaffold + schema) |
-| `ensureInitialized` | `packages/core/src/init.ts` | Idempotent initialization check |
-| `ensureCleoStructure` | `packages/core/src/scaffold.ts` | Create `.cleo/` subdirectory structure |
-| `paginate` | `packages/core/src/pagination.ts` | Slice an array into a paginated result |
-| `createPage` | `packages/core/src/pagination.ts` | Build a typed page object |
-| `ExitCode` | `packages/core/src/types/exit-codes.ts` | Numeric exit code enum (re-exported from contracts) |
-| `bootstrapCaamp` | `packages/core/src/caamp-init.ts` | Initialize CAAMP with provider detection |
+| `CleoError` | `errors.ts` | Error class with exit code and RFC 9457 details |
+| `ProblemDetails` (type) | `errors.ts` | RFC 9457 Problem Details interface |
+| `ERROR_CATALOG` | `error-catalog.ts` | Map of all registered error definitions |
+| `getErrorDefinition` | `error-catalog.ts` | Look up an error definition by ExitCode |
+| `getAllErrorDefinitions` | `error-catalog.ts` | Get all error definitions |
+| `getErrorDefinitionByLafsCode` | `error-catalog.ts` | Look up by LAFS error code |
+| `ErrorDefinition` (type) | `error-catalog.ts` | Shape of an error definition entry |
+| `getCleoErrorRegistry` | `error-registry.ts` | Get the full error registry |
+| `getRegistryEntry` | `error-registry.ts` | Look up a registry entry by code |
+| `getRegistryEntryByLafsCode` | `error-registry.ts` | Look up by LAFS code |
+| `isCleoRegisteredCode` | `error-registry.ts` | Check if an exit code is registered |
+| `formatSuccess` | `output.ts` | Wrap a result in a LAFS success envelope |
+| `formatError` | `output.ts` | Wrap an error in a LAFS error envelope |
+| `formatOutput` | `output.ts` | Format-agnostic output (auto-selects JSON or text) |
+| `pushWarning` | `output.ts` | Attach a warning to the next envelope |
+| `FormatOptions` (type) | `output.ts` | Options for output formatting |
+| `loadConfig` | `config.ts` | Load CLEO config from `.cleo/config.json` |
+| `getConfigValue` | `config.ts` | Read a typed config key |
+| `setConfigValue` | `config.ts` | Write a config key atomically |
+| `getRawConfig` | `config.ts` | Read raw config without validation |
+| `getRawConfigValue` | `config.ts` | Read a raw config key |
+| `parseConfigValue` | `config.ts` | Parse a config value from string input |
+| `getCleoDir` | `paths.ts` | Relative `.cleo` path for a project |
+| `getCleoDirAbsolute` | `paths.ts` | Absolute `.cleo` path for a project |
+| `getCleoHome` | `paths.ts` | Global `~/.cleo` path |
+| `getConfigPath` | `paths.ts` | Absolute path to project config.json |
+| `getGlobalConfigPath` | `paths.ts` | Absolute path to global config.json |
+| `getProjectRoot` | `paths.ts` | Resolve absolute project root |
+| `isProjectInitialized` | `paths.ts` | Check whether `.cleo/` structure exists |
+| `resolveProjectPath` | `paths.ts` | Resolve a path relative to project root |
+| `getLogger` | `logger.ts` | Get the active logger instance |
+| `initLogger` | `logger.ts` | Initialize logger with config |
+| `closeLogger` | `logger.ts` | Close logger and flush |
+| `getLogDir` | `logger.ts` | Get the log directory path |
+| `LoggerConfig` (type) | `logger.ts` | Logger configuration shape |
+| `validateAgainstSchema` | `json-schema-validator.ts` | Validate data against a JSON Schema |
+| `checkSchema` | `json-schema-validator.ts` | Run schema check and return boolean |
+| `getSystemInfo` | `platform.ts` | Collect Node, OS, and platform details |
+| `sha256` | `platform.ts` | Hash a string or buffer with SHA-256 |
+| `getIsoTimestamp` | `platform.ts` | Current time as ISO 8601 string |
+| `detectPlatform` | `platform.ts` | Detect the current platform |
+| `PLATFORM` | `platform.ts` | Platform constant |
+| `MINIMUM_NODE_MAJOR` | `platform.ts` | Minimum Node.js major version constant |
+| `Platform` (type) | `platform.ts` | Platform type definition |
+| `SystemInfo` (type) | `platform.ts` | System info shape |
+| `initProject` | `init.ts` | Full project initialization (scaffold + schema) |
+| `ensureInitialized` | `init.ts` | Idempotent initialization check |
+| `getVersion` | `init.ts` | Get CLEO version string |
+| `InitOptions` (type) | `init.ts` | Initialization options shape |
+| `InitResult` (type) | `init.ts` | Initialization result shape |
+| `ensureCleoStructure` | `scaffold.ts` | Create `.cleo/` subdirectory structure |
+| `ensureGlobalHome` | `scaffold.ts` | Create global `~/.cleo/` structure |
+| `ensureGlobalScaffold` | `scaffold.ts` | Scaffold global templates and schemas |
+| `ensureSqliteDb` | `scaffold.ts` | Ensure SQLite database exists |
+| `fileExists` | `scaffold.ts` | Check if a file exists |
+| `getCleoVersion` | `scaffold.ts` | Get CLEO version from package.json |
+| `getPackageRoot` | `scaffold.ts` | Get the package root directory |
+| `paginate` | `pagination.ts` | Slice an array into a paginated result |
+| `createPage` | `pagination.ts` | Build a typed page object |
+| `queryAudit` | `audit.ts` | Query the audit log |
+| `pruneAuditLog` | `audit-prune.ts` | Prune old audit log entries |
+| `getProjectInfo` | `project-info.ts` | Get project info asynchronously |
+| `getProjectInfoSync` | `project-info.ts` | Get project info synchronously |
+| `ProjectInfo` (type) | `project-info.ts` | Project info shape |
+| `CORE_PROTECTED_FILES` | `constants.ts` | List of protected `.cleo/` files |
+| `EngineResult` (type) | `engine-result.ts` | Engine result shape for dispatch layer |
+
+### 4.4 Flat Function Re-exports (Pattern 3)
+
+For tree-shakeable direct imports:
+
+| Function | Source | Purpose |
+|----------|--------|---------|
+| `addTask` | `tasks/add.ts` | Create a new task |
+| `archiveTasks` | `tasks/archive.ts` | Archive completed tasks |
+| `completeTask` | `tasks/complete.ts` | Complete a task |
+| `deleteTask` | `tasks/delete.ts` | Delete a task |
+| `findTasks` | `tasks/find.ts` | Search tasks with filters |
+| `listTasks` | `tasks/list.ts` | List tasks with pagination |
+| `showTask` | `tasks/show.ts` | Show task details |
+| `updateTask` | `tasks/update.ts` | Update task fields |
+| `normalizeTaskId` | `tasks/id-generator.ts` | Normalize a task ID |
+| `startSession` | `sessions/index.ts` | Start a new session |
+| `endSession` | `sessions/index.ts` | End the active session |
+| `sessionStatus` | `sessions/index.ts` | Get session status |
+| `resumeSession` | `sessions/index.ts` | Resume a suspended session |
+| `listSessions` | `sessions/index.ts` | List sessions |
+| `observeBrain` | `memory/brain-retrieval.ts` | Save an observation to brain.db |
+| `searchBrainCompact` | `memory/brain-retrieval.ts` | Compact brain search |
+| `fetchBrainEntries` | `memory/brain-retrieval.ts` | Fetch full brain entries by ID |
+| `timelineBrain` | `memory/brain-retrieval.ts` | Timeline view around an anchor |
+| `searchBrain` | `memory/brain-search.ts` | Full-text brain search |
+| `startTask` | `task-work/index.ts` | Start working on a task |
+| `stopTask` | `task-work/index.ts` | Stop working on the current task |
+| `currentTask` | `task-work/index.ts` | Get the current active task |
+| `HookRegistry` | `hooks/registry.ts` | Hook registry class |
+| `hooks` | `hooks/registry.ts` | Default hook registry instance |
+| `AdapterManager` | `adapters/index.ts` | Adapter discovery and lifecycle manager |
+| `Cleo` | `cleo.ts` | Facade class for project-bound API |
 
 ---
 
-## 4. Dependencies
+## 5. Cleo Facade Class
 
-### 4.1 Dependencies
+The `Cleo` class provides a project-bound API covering all 10 canonical domains. It is the recommended entry point for external consumers.
 
-`@cleocode/contracts` uses `workspace:*` within the pnpm monorepo. `@cleocode/caamp` and `@cleocode/lafs-protocol` are bundled as direct dependencies (not peers) for simplicity. Consumers installing `@cleocode/core` from npm receive all three automatically.
-
-### 4.2 Runtime Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@cleocode/caamp` | `^1.7.0` | Provider capability API, spawn coordination |
-| `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
-| `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
-| `ajv` | `^8.18.0` | JSON Schema validation |
-| `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
-| `drizzle-orm` | `1.0.0-beta.18-7eb39f0` | ORM for lifecycle, brain, and nexus SQLite tables (beta version) |
-| `env-paths` | `^4.0.0` | Platform-appropriate config/data paths |
-| `pino` | `^10.3.1` | Structured logger |
-| `pino-roll` | `^4.0.0` | Rolling log file transport |
-| `proper-lockfile` | `^4.1.2` | File locking for atomic writes |
-| `write-file-atomic` | `^6.0.0` | Atomic file write operations |
-| `yaml` | `^2.8.2` | YAML parsing and serialization |
-| `zod` | `^3.24.0` | Runtime validation schemas (used via drizzle-orm Zod integration) |
-
-### 4.3 Dependency Notes
-
-- `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleoctl`. Pre-release semver ranges (`^`) do not work correctly -- always pin to the exact version.
-- SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/sqlite-proxy`. This is zero-dependency -- no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
-- `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
-- `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `packages/core/src/output.ts`.
-- `zod` is used for drizzle-orm Zod validation schemas (`createInsertSchema`/`createSelectSchema` from `drizzle-orm/zod`).
-
----
-
-## 5. Export Contract
-
-### 5.1 Public API
-
-All symbols exported from `packages/core/src/index.ts` are public API. Consumers MUST import only from `@cleocode/core` (the package root). Imports from internal subpaths (e.g., `@cleocode/core/tasks/add`) are not part of the public contract and may change without notice.
-
-### 5.2 Stability Levels
-
-| Stability | Meaning | Examples |
-|-----------|---------|---------|
-| **Stable** | No breaking changes without major version bump | `tasks.*`, `sessions.*`, `CleoError`, `formatSuccess` |
-| **Beta** | May change between minor versions | `signaldock.*`, `orchestration.spawnWave`, `otel.*` |
-| **Internal** | Not for external consumers; may be removed | `coreMcp.*`, `routing.*`, `coreHooks.*` |
-
-### 5.3 What Is NOT Public API
-
-The following are internal implementation details, not part of the public contract:
-
-- Anything imported from `packages/core/src/store/` directly (use `DataAccessor` instead)
-- Any `__tests__/` files or test utilities
-- Files prefixed with `_` (internal convention)
-- `packages/core/src/sessions/context-alert.ts` (session context singleton -- internal)
-
----
-
-## 6. DataAccessor Contract
-
-Core modules that persist data accept an optional `DataAccessor` parameter. This is the primary extension point for custom storage backends.
-
-### 6.1 Interface
-
-The `DataAccessor` interface is defined in `@cleocode/contracts` (`packages/contracts/`). Factory functions that construct the default SQLite-backed accessor live in `packages/core/src/store/`.
+### 5.1 Initialization
 
 ```typescript
-// From @cleocode/contracts
+// Standard initialization (uses bundled SQLite store)
+const cleo = await Cleo.init('./my-project');
+
+// Custom store backend
+const cleo = await Cleo.init('./my-project', { store: myCustomAccessor });
+
+// Synchronous construction (defers store creation to first call)
+const cleo = Cleo.forProject('./my-project');
+```
+
+### 5.2 Domain APIs
+
+The facade exposes 10 domain getter properties:
+
+| Property | Interface | Methods |
+|----------|-----------|---------|
+| `cleo.tasks` | `TasksAPI` | `add`, `find`, `show`, `list`, `update`, `complete`, `delete`, `archive` |
+| `cleo.sessions` | `SessionsAPI` | `start`, `end`, `status`, `resume`, `list`, `find`, `show`, `suspend`, `briefing`, `handoff`, `gc`, `recordDecision`, `recordAssumption`, `contextDrift`, `decisionLog`, `lastHandoff` |
+| `cleo.memory` | `MemoryAPI` | `observe`, `find`, `fetch`, `timeline`, `search`, `hybridSearch` |
+| `cleo.orchestration` | `OrchestrationAPI` | `start`, `analyze`, `readyTasks`, `nextTask`, `context`, `dependencyGraph`, `epicStatus`, `progress` |
+| `cleo.lifecycle` | `LifecycleAPI` | `status`, `startStage`, `completeStage`, `skipStage`, `checkGate`, `history`, `resetStage`, `passGate`, `failGate`, `stages` |
+| `cleo.release` | `ReleaseAPI` | `prepare`, `commit`, `tag`, `push`, `rollback`, `calculateVersion`, `bumpVersion` |
+| `cleo.admin` | `AdminAPI` | `export`, `import` |
+| `cleo.sticky` | `StickyAPI` | `add`, `show`, `list`, `archive`, `purge`, `convert` |
+| `cleo.nexus` | `NexusAPI` | `init`, `register`, `unregister`, `list`, `show`, `sync`, `discover`, `search`, `setPermission`, `sharingStatus` |
+
+The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The 10th domain in the canonical Circle of Ten (`check`) maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
+
+---
+
+## 6. Contract Types
+
+### 6.1 Task Type
+
+`Task` is defined in `@cleocode/contracts` (`packages/contracts/src/task.ts`). Key design decisions:
+
+- **`description` is REQUIRED** (non-optional `string`) -- CLEO's anti-hallucination rules reject tasks without a description and require it to differ from the title
+- **`title` is REQUIRED** (non-optional `string`, max 120 characters)
+- **`status` is REQUIRED** (must be a valid `TaskStatus` enum value)
+- **`priority` is REQUIRED** (defaults to `'medium'` on creation)
+- **`createdAt` is REQUIRED** (ISO 8601, must not be in the future)
+
+### 6.2 Discriminated Union Types
+
+Status-narrowed types provide compile-time guarantees:
+
+| Type | Status | Required Fields |
+|------|--------|----------------|
+| `CompletedTask` | `'done'` | `completedAt: string` |
+| `CancelledTask` | `'cancelled'` | `cancelledAt: string`, `cancellationReason: string` |
+
+### 6.3 TaskCreate Input Type
+
+`TaskCreate` is the input type for `addTask()`. Only `title` and `description` are required. All other fields have sensible defaults (`status: 'pending'`, `priority: 'medium'`, `size: 'medium'`, `type` inferred from parent context).
+
+### 6.4 Contract Types from @cleocode/contracts
+
+The public barrel re-exports all types from `@cleocode/contracts` via `export * from '@cleocode/contracts'`. Key type categories:
+
+| Category | Types |
+|----------|-------|
+| Task types | `Task`, `TaskCreate`, `CompletedTask`, `CancelledTask`, `TaskPriority`, `TaskType`, `TaskSize`, `TaskStatus`, `TaskRelation`, `TaskVerification`, `TaskProvenance`, `TaskFile`, `ProjectMeta`, `Phase`, `Release` |
+| Session types | `Session`, `SessionScope`, `SessionStats`, `SessionView`, `SessionStartResult` |
+| Brain/memory types | `BrainEntryRef`, `BrainEntrySummary`, `ContradictionDetail`, `SupersededEntry` |
+| Archive types | `ArchivedTask`, `ArchiveMetadata`, `ArchiveFile`, `ArchiveFields`, `ArchiveSummaryReport`, `ArchiveCycleTimesReport`, `ArchiveTrendsReport` |
+| Result types | `TaskRef`, `TaskAnalysisResult`, `TaskDepsResult`, `DashboardResult`, `StatsResult`, `SequenceResult`, `ContextResult`, `CompleteTaskUnblocked` |
+| LAFS types | `LafsSuccess`, `LafsError`, `LafsEnvelope`, `LAFSMeta`, `LAFSPage`, `Warning`, `MVILevel`, `GatewayEnvelope` |
+| DataAccessor | `DataAccessor`, `TaskQueryFilters`, `QueryTasksResult`, `TaskFieldUpdates`, `TransactionAccessor` |
+| Exit codes | `ExitCode`, `isErrorCode`, `isSuccessCode`, `getExitCodeName` |
+| Config types | `CleoConfig`, `HierarchyConfig`, `SessionConfig`, `LifecycleConfig`, `BackupConfig` |
+| Status registry | `TASK_STATUSES`, `SESSION_STATUSES`, `STATUS_REGISTRY`, `isValidStatus` |
+| Adapter types | `CLEOProviderAdapter`, `AdapterManifest`, `DetectionPattern`, `AdapterCapabilities` |
+| WarpChain types | `WarpChain`, `WarpChainInstance`, `WarpStage`, `ChainShape`, `GateContract` |
+| Tessera types | `TesseraTemplate`, `TesseraVariable`, `TesseraInstantiationInput` |
+| TodoWrite types | `TodoWriteItem`, `TodoWriteState`, `TodoWriteMergeResult` |
+| Spawn types | `CLEOSpawnContext`, `CLEOSpawnResult`, `CLEOSpawnAdapter` |
+| Operations types | `ops` namespace (wire-format types for dispatch/LAFS, namespaced to avoid collision with domain types) |
+
+---
+
+## 7. DataAccessor Contract
+
+Core modules that persist data accept a `DataAccessor` parameter. This is the primary extension point for custom storage backends.
+
+### 7.1 Interface
+
+The `DataAccessor` interface is defined in `@cleocode/contracts` (`packages/contracts/src/data-accessor.ts`). Factory functions that construct the default SQLite-backed accessor live in `packages/core/src/store/`.
+
+All methods are **required** (non-optional) unless explicitly noted:
+
+```typescript
 interface DataAccessor {
   readonly engine: 'sqlite';
 
-  // Task file (read-modify-write pattern)
+  // ---- Task data (file-level read-modify-write) ----
   loadTaskFile(): Promise<TaskFile>;
   saveTaskFile(data: TaskFile): Promise<void>;
 
-  // Archive file
+  // ---- Archive data ----
   loadArchive(): Promise<ArchiveFile | null>;
   saveArchive(data: ArchiveFile): Promise<void>;
 
-  // Session collection
+  // ---- Session data ----
   loadSessions(): Promise<Session[]>;
   saveSessions(sessions: Session[]): Promise<void>;
 
-  // Append-only audit log
+  // ---- Audit log ----
   appendLog(entry: Record<string, unknown>): Promise<void>;
 
-  // Resource cleanup
+  // ---- Lifecycle ----
   close(): Promise<void>;
 
-  // Optional fine-grained operations (T5034)
-  upsertSingleTask?(task: Task): Promise<void>;
-  archiveSingleTask?(taskId: string, fields: ArchiveFields): Promise<void>;
+  // ---- Fine-grained task operations ----
+  upsertSingleTask(task: Task): Promise<void>;
+  archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
+  removeSingleTask(taskId: string): Promise<void>;
+  loadSingleTask(taskId: string): Promise<Task | null>;
+  addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
+
+  // ---- Metadata (schema_meta KV store) ----
+  getMetaValue<T>(key: string): Promise<T | null>;
+  setMetaValue(key: string, value: unknown): Promise<void>;
+  getSchemaVersion(): Promise<string | null>;
+
+  // ---- Targeted query methods ----
+  queryTasks(filters: TaskQueryFilters): Promise<QueryTasksResult>;
+  countTasks(filters?: { status?: TaskStatus | TaskStatus[]; parentId?: string }): Promise<number>;
+  getChildren(parentId: string): Promise<Task[]>;
+  countChildren(parentId: string): Promise<number>;
+  countActiveChildren(parentId: string): Promise<number>;
+  getAncestorChain(taskId: string): Promise<Task[]>;
+  getSubtree(rootId: string): Promise<Task[]>;
+  getDependents(taskId: string): Promise<Task[]>;
+  getDependencyChain(taskId: string): Promise<string[]>;
+  taskExists(taskId: string): Promise<boolean>;
+  loadTasks(taskIds: string[]): Promise<Task[]>;
+
+  // ---- Targeted write methods ----
+  updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T>;
+
+  // ---- Optional session operations (phased introduction) ----
+  upsertSingleSession?(session: Session): Promise<void>;
+  removeSingleSession?(sessionId: string): Promise<void>;
 }
 ```
 
-### 6.2 Usage Pattern
+### 7.2 Usage Pattern
 
 Core functions accept `accessor` as the last parameter:
 
@@ -274,13 +469,93 @@ async function addTask(
 
 When `accessor` is `undefined`, the function resolves via `getAccessor(cwd)` -- a function in `packages/core/src/store/data-accessor.ts` that constructs a `SqliteDataAccessor` from the bundled store layer.
 
-### 6.3 Implementing a Custom Backend
+### 7.3 TransactionAccessor
 
-Consumers that want to use `@cleocode/core` with a non-SQLite store (e.g., in-memory, Postgres, remote API) MUST implement `DataAccessor` from `@cleocode/contracts` and inject it at every call site. The `engine` discriminant is currently always `'sqlite'` in the reference implementation, but a custom implementation SHOULD set it to a unique identifier.
+The `transaction()` method provides a write-only subset of `DataAccessor` methods within a SQLite transaction (`BEGIN IMMEDIATE / COMMIT / ROLLBACK`):
+
+```typescript
+interface TransactionAccessor {
+  upsertSingleTask(task: Task): Promise<void>;
+  archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
+  removeSingleTask(taskId: string): Promise<void>;
+  setMetaValue(key: string, value: unknown): Promise<void>;
+  updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  appendLog(entry: Record<string, unknown>): Promise<void>;
+}
+```
+
+### 7.4 Implementing a Custom Backend
+
+Consumers that want to use `@cleocode/core` with a non-SQLite store (e.g., in-memory, Postgres, remote API) MUST implement `DataAccessor` from `@cleocode/contracts` and inject it at every call site or via `Cleo.init('./project', { store: myAccessor })`. The `engine` discriminant is currently always `'sqlite'` in the reference implementation, but a custom implementation SHOULD set it to a unique identifier.
 
 ---
 
-## 7. Core Purity Rules
+## 8. Export Contract
+
+### 8.1 Public API
+
+All symbols exported from `packages/core/src/index.ts` are public API. Consumers MUST import only from `@cleocode/core` (the package root). Imports from internal subpaths (e.g., `@cleocode/core/internal`) are not part of the public contract.
+
+### 8.2 Stability Levels
+
+| Stability | Meaning | Examples |
+|-----------|---------|---------|
+| **Stable** | No breaking changes without major version bump | `tasks.*`, `sessions.*`, `memory.*`, `CleoError`, `formatSuccess`, `Cleo` facade |
+| **Beta** | May change between minor versions | `signaldock.*`, `orchestration.spawnWave`, `otel.*`, `spawn.*` |
+| **Internal** | Not for external consumers; may be removed | `coreMcp.*`, `routing.*`, `coreHooks.*` |
+
+### 8.3 What Is NOT Public API
+
+The following are internal implementation details, not part of the public contract:
+
+- Everything in `@cleocode/core/internal` (the internal barrel)
+- Anything imported from `packages/core/src/store/` directly (use `DataAccessor` or the exported factory functions)
+- Any `__tests__/` files or test utilities
+- Files prefixed with `_` (internal convention)
+- `packages/core/src/sessions/context-alert.ts` (session context singleton -- internal)
+
+---
+
+## 9. Dependencies
+
+### 9.1 Runtime Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@cleocode/caamp` | `^1.7.0` | Provider capability API, spawn coordination |
+| `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
+| `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+| `ajv` | `^8.18.0` | JSON Schema validation |
+| `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
+| `drizzle-orm` | `1.0.0-beta.18-7eb39f0` | ORM for lifecycle, brain, and nexus SQLite tables (beta, pinned) |
+| `env-paths` | `^4.0.0` | Platform-appropriate config/data paths |
+| `js-tiktoken` | `^1.0.21` | Token counting for context window management |
+| `pino` | `^10.3.1` | Structured logger |
+| `pino-roll` | `^4.0.0` | Rolling log file transport |
+| `proper-lockfile` | `^4.1.2` | File locking for atomic writes |
+| `write-file-atomic` | `^6.0.0` | Atomic file write operations |
+| `yaml` | `^2.8.2` | YAML parsing and serialization |
+| `zod` | `^3.25.76` | Runtime validation schemas (used via drizzle-orm Zod integration) |
+
+### 9.2 Dev Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@types/proper-lockfile` | `^4.1.4` | Type definitions for proper-lockfile |
+| `@types/write-file-atomic` | `^4.0.3` | Type definitions for write-file-atomic |
+
+### 9.3 Dependency Notes
+
+- `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleoctl`. Pre-release semver ranges (`^`) do not work correctly -- always pin to the exact version.
+- SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/node-sqlite`. This is zero-dependency -- no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
+- `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
+- `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `packages/core/src/output.ts`.
+- `zod` is used for drizzle-orm Zod validation schemas (`createInsertSchema`/`createSelectSchema` from `drizzle-orm/zod`).
+- `js-tiktoken` provides fast WASM-based token counting for context window drift monitoring and token budget management.
+
+---
+
+## 10. Core Purity Rules
 
 `packages/core/src/` MUST NOT import from:
 
@@ -290,7 +565,7 @@ Consumers that want to use `@cleocode/core` with a non-SQLite store (e.g., in-me
 | `packages/cleoctl/src/mcp/` | MCP adapter code (MCP SDK tool definitions) |
 | `packages/cleoctl/src/dispatch/` | Routing layer -- core should not know about dispatch |
 
-### 7.1 Allowed Store Imports
+### 10.1 Allowed Store Imports
 
 The store is bundled inside `packages/core/src/store/`. Core modules MAY import from `./store/` (relative within the package) since the store ships as part of core. This is a key change from the prior architecture where the store was external.
 
@@ -299,13 +574,40 @@ The following store imports are permitted within `packages/core/src/`:
 - `packages/core/src/store/atomic.ts` -- for modules that own files outside the main task/session store (e.g., research manifest, memory bridge)
 - `packages/core/src/store/brain-*.ts` -- for `packages/core/src/memory/` modules that own brain.db
 - `packages/core/src/store/sqlite.ts` -- for `packages/core/src/lifecycle/` (owns lifecycle tables in tasks.db)
-- `packages/core/src/store/data-accessor.ts` -- the `DataAccessor` interface re-export and `getAccessor()` fallback
+- `packages/core/src/store/data-accessor.ts` -- the `DataAccessor` factory and `getAccessor()` fallback
 
 These rules are enforced by a CI purity gate. Exceptions MUST be registered in the known-exceptions allowlist with justification.
 
 ---
 
-## 8. CAAMP Role
+## 11. Adapter System
+
+Provider adapters are consolidated into a single `@cleocode/adapters` package:
+
+| Package | Purpose |
+|---------|---------|
+| `@cleocode/adapters` | Unified provider adapters for Claude Code, OpenCode, Cursor |
+
+The adapter system uses manifest-based discovery:
+
+1. Each provider has a `manifest.json` declaring `detectionPatterns` (env vars, files, CLI availability)
+2. `AdapterManager` in `packages/core/src/adapters/` scans manifests at startup
+3. Detection runs the declared patterns to identify the active provider
+4. The matching adapter is activated, providing hooks, spawn mechanics, and installation support
+
+Adapter contracts are defined in `@cleocode/contracts`:
+
+- `CLEOProviderAdapter` -- main adapter interface
+- `AdapterHookProvider` -- lifecycle hook dispatch
+- `AdapterSpawnProvider` -- subagent spawn mechanics
+- `AdapterInstallProvider` -- provider installation
+- `AdapterPathProvider` -- provider-specific paths
+- `AdapterContextMonitorProvider` -- context window monitoring
+- `AdapterTransportProvider` -- inter-agent transport
+
+---
+
+## 12. CAAMP Role
 
 CAAMP (Central AI Agent Managed Packages) handles provider-level orchestration. Within `@cleocode/core`, the `caamp` namespace wraps the `@cleocode/caamp` API to provide:
 
@@ -319,11 +621,9 @@ CAAMP (Central AI Agent Managed Packages) handles provider-level orchestration. 
 | Dual-scope install | `dualScopeConfigure(config)` | `packages/core/src/caamp/` |
 | Batch install | `batchInstallWithRollback(options)` | `packages/core/src/caamp/` |
 
-CAAMP is initialized via `bootstrapCaamp(projectDir)`, which detects the active provider, activates the matching adapter, and wires skill routing. This is called automatically by `initProject()` and `startSession()`.
-
 ---
 
-## 9. SignalDock Role
+## 13. SignalDock Role
 
 SignalDock is the inter-agent messaging transport within `@cleocode/core`. It provides a provider-neutral channel for agents in multi-wave orchestration to exchange messages without coupling to a specific AI platform API.
 
@@ -338,18 +638,18 @@ SignalDock is used internally by the `spawn` and `orchestration` modules. Extern
 
 ---
 
-## 10. LAFS Response Envelope
+## 14. LAFS Response Envelope
 
 All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs-protocol`.
 
-### 10.1 Envelope Variants
+### 14.1 Envelope Variants
 
 | Type | `success` | Contains |
 |------|-----------|---------|
 | `LafsSuccess<T>` | `true` | `data: T`, `_meta: LAFSMeta`, optional `page: LAFSPage` |
 | `LafsError` | `false` | `error: LAFSError`, `_meta: LAFSMeta` |
 
-### 10.2 _meta Fields
+### 14.2 _meta Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -358,96 +658,164 @@ All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. 
 | `sessionId` | `string \| null` | Active CLEO session ID if any |
 | `warnings` | `Warning[]` | Deprecation or informational notices |
 
-### 10.3 Core Output API
+### 14.3 Core Output API
 
 ```typescript
-// Successful result
 formatSuccess<T>(data: T, options?: FormatOptions): LafsSuccess<T>
-
-// Error result (accepts Error, CleoError, or unknown)
 formatError(err: unknown, options?: FormatOptions): LafsError
-
-// Format-agnostic (selects JSON or text based on options)
 formatOutput(data: unknown, options?: FormatOptions): string
-
-// Attach a warning to the next envelope
 pushWarning(warning: Warning): void
 ```
 
 ---
 
-## 11. Versioning Policy
+## 15. Versioning Policy
 
-### 11.1 Version Scheme
+### 15.1 Version Scheme
 
 `@cleocode/core` uses semver starting from v2.0.0 for the restructured monorepo. The prior CalVer scheme (`YYYY.MM.PATCH`) applied to the pre-extraction era.
 
-### 11.2 Semver Promises
+### 15.2 Semver Promises
 
 | Stability Level | Promise |
 |----------------|---------|
 | **Stable** exports | No removal or signature change without major version bump |
 | **Beta** exports | May change in any minor release; changes noted in changelog |
-| **Internal** exports | No guarantees; may be removed without notice |
+| **Internal** exports (via `./internal`) | No guarantees; may be removed without notice |
 
-### 11.3 Deprecation Process
+### 15.3 Deprecation Process
 
 1. Mark the symbol with a `@deprecated` JSDoc tag and a `pushWarning` call in the implementation
 2. Add the deprecation to the changelog and release notes
 3. Remove after one minor version cycle (minimum)
 
-### 11.4 Relationship to @cleocode/cleoctl
+### 15.4 Relationship to @cleocode/cleoctl
 
 `@cleocode/cleoctl` (`@latest`) depends on `@cleocode/core` and will always pin to a compatible version. Consumers upgrading `@cleocode/core` independently MUST ensure they use a version that `@cleocode/cleoctl` also supports, or accept that the versions may diverge.
 
 ---
 
-## 12. Examples
+## 16. Build Architecture
 
-### Initialization check before calling core operations
+### 16.1 TypeScript Configuration
 
-```typescript
-import { isProjectInitialized, ensureInitialized } from '@cleocode/core';
+| Setting | Value |
+|---------|-------|
+| `target` | ES2025 |
+| `module` | NodeNext |
+| `moduleResolution` | NodeNext |
+| `strict` | true |
+| `declaration` | true |
+| `declarationMap` | true |
+| `sourceMap` | true |
+| `composite` | true |
+| `isolatedModules` | true |
 
-const projectDir = '/path/to/project';
+### 16.2 Project References
 
-if (!isProjectInitialized(projectDir)) {
-  await ensureInitialized(projectDir);
+`packages/core/tsconfig.json` declares a project reference to `packages/contracts`:
+
+```json
+{
+  "references": [
+    { "path": "../contracts" }
+  ]
 }
 ```
 
-### Reading config values
+This ensures contracts are built before core in composite builds.
+
+### 16.3 Published Files
+
+The `files` field restricts what ships to npm:
+
+```json
+{
+  "files": ["dist", "src"]
+}
+```
+
+Both compiled output (`dist/`) and source (`src/`) are published. Source inclusion enables source-map navigation and IDE go-to-definition for consumers.
+
+---
+
+## 17. Examples
+
+### Facade pattern (recommended)
 
 ```typescript
-import { loadConfig, getConfigValue } from '@cleocode/core';
+import { Cleo } from '@cleocode/core';
 
-const config = await loadConfig(projectDir);
-const mode = getConfigValue(config, 'lifecycle.enforcement', 'advisory');
+const cleo = await Cleo.init('./my-project');
+
+// Tasks
+await cleo.tasks.add({ title: 'Build API', description: 'REST endpoints for user service' });
+const result = await cleo.tasks.find({ status: 'pending' });
+
+// Sessions
+await cleo.sessions.start({ name: 'sprint-1', scope: 'T100' });
+
+// Memory
+await cleo.memory.observe({ text: 'Auth uses JWT with RS256', title: 'Auth discovery' });
+const hits = await cleo.memory.find({ query: 'authentication', limit: 5 });
+```
+
+### Namespace imports
+
+```typescript
+import { tasks, sessions, memory } from '@cleocode/core';
+
+await tasks.addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
+```
+
+### Direct function imports (tree-shakeable)
+
+```typescript
+import { addTask, startSession, observeBrain } from '@cleocode/core';
+
+await addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
+```
+
+### Custom store backend
+
+```typescript
+import { Cleo } from '@cleocode/core';
+import type { DataAccessor } from '@cleocode/core';
+
+class MyPostgresAccessor implements DataAccessor {
+  readonly engine = 'postgres' as any; // custom engine identifier
+  // ... implement all required methods
+}
+
+const cleo = await Cleo.init('./my-project', { store: new MyPostgresAccessor() });
 ```
 
 ### Lifecycle gate check before completing a task
 
 ```typescript
-import { lifecycle, tasks } from '@cleocode/core';
+import { lifecycle, tasks, CleoError, ExitCode } from '@cleocode/core';
 
-// Check the current lifecycle gate
-const gate = await lifecycle.checkGate(taskId, 'ready', projectDir, accessor);
+const gate = await lifecycle.checkGate(taskId, 'ready', projectDir);
 
 if (!gate.canProgress) {
   throw new CleoError(ExitCode.LIFECYCLE_GATE_FAILED, gate.reason);
 }
 
-// Gate passed -- safe to complete
 await tasks.completeTask({ taskId }, projectDir, accessor);
 ```
 
 ---
 
-## 13. References
+## 18. References
 
-- `packages/core/src/index.ts` -- barrel export (canonical module list)
+- `packages/core/src/index.ts` -- public barrel export (~235 lines)
+- `packages/core/src/internal.ts` -- internal barrel export (~622 lines)
+- `packages/core/src/cleo.ts` -- Cleo facade class (10 domain APIs)
 - `packages/core/src/store/data-accessor.ts` -- `DataAccessor` factory functions
-- `packages/contracts/src/index.ts` -- `@cleocode/contracts` public API (`DataAccessor` interface)
+- `packages/contracts/src/index.ts` -- `@cleocode/contracts` public API
+- `packages/contracts/src/data-accessor.ts` -- `DataAccessor` interface definition
+- `packages/contracts/src/task.ts` -- `Task`, `TaskCreate`, `CompletedTask`, `CancelledTask` types
+- `packages/adapters/` -- `@cleocode/adapters` unified provider package
 - `docs/guides/core-package-guide.md` -- consumer guide with code examples
 - `docs/specs/CAAMP-INTEGRATION-SPEC.md` -- CAAMP integration details
 - `docs/adrs/ADR-001-provider-adapter-architecture.md` -- adapter architecture rationale

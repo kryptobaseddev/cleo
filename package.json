@@ -8,19 +8,25 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "pnpm -r --filter @cleocode/contracts run build && pnpm -r --filter @cleocode/core run build && pnpm -r --filter @cleocode/cleoctl run build",
+    "build": "node build.mjs",
+    "build:types": "tsc -b",
     "build:contracts": "pnpm -r --filter @cleocode/contracts run build",
     "build:core": "pnpm -r --filter @cleocode/core run build",
     "build:cleoctl": "pnpm -r --filter @cleocode/cleoctl run build",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "clean": "rm -rf packages/*/dist"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "@biomejs/biome"]
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^22.19.11",
+    "esbuild": "^0.27.4",
     "typescript": "6.0.1-rc",
     "vitest": "^4.0.18"
   },

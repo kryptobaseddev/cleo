@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0.0",
+  "detectedAt": "2026-03-18T19:55:33.269Z",
+  "projectTypes": [
+    "node"
+  ],
+  "primaryType": "node",
+  "monorepo": true,
+  "testing": {
+    "framework": "vitest",
+    "command": "pnpm run test",
+    "testFilePatterns": [
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "**/*.spec.ts"
+    ]
+  },
+  "build": {
+    "command": "pnpm run build"
+  },
+  "directories": {
+    "docs": "docs"
+  },
+  "conventions": {
+    "importStyle": "esm",
+    "typeSystem": "TypeScript strict"
+  },
+  "llmHints": {
+    "preferredTestStyle": "Vitest with describe/it blocks",
+    "typeSystem": "TypeScript strict mode",
+    "commonPatterns": [
+      "Use pnpm for all package operations",
+      "Use ES module imports (import/export)",
+      "Include .js extension in import paths (ESM convention)",
+      "Use explicit return types on exported functions",
+      "Use describe/it blocks with expect assertions",
+      "This is a monorepo — respect package boundaries"
+    ],
+    "avoidPatterns": [
+      "Do not use npm — this project uses pnpm",
+      "Use pnpm dlx instead of npx",
+      "Do not use CommonJS require()",
+      "Do not use any type — strict mode is enabled",
+      "Do not import across package boundaries without explicit dependencies"
+    ]
+  }
+}
