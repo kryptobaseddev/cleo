@@ -1,36 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock core nexus modules before importing the handler
-vi.mock('../../../../../core/src/nexus/registry.js', () => ({
-  nexusInit: vi.fn(),
-  nexusRegister: vi.fn(),
-  nexusUnregister: vi.fn(),
-  nexusList: vi.fn(),
-  nexusSync: vi.fn(),
-  nexusSyncAll: vi.fn(),
-  nexusGetProject: vi.fn(),
-  readRegistry: vi.fn(),
-  getNexusHome: vi.fn(() => '/mock/.cleo/nexus'),
-}));
-
-vi.mock('../../../../../core/src/nexus/query.js', () => ({
-  resolveTask: vi.fn(),
-  validateSyntax: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/nexus/deps.js', () => ({
-  nexusDeps: vi.fn(),
-  buildGlobalGraph: vi.fn(),
-  criticalPath: vi.fn(),
-  blockingAnalysis: vi.fn(),
-  orphanDetection: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/nexus/permissions.js', () => ({
-  setPermission: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/logger.js', () => ({
+// Mock getProjectRoot and getLogger used by the handler constructor/error paths
+vi.mock('@cleocode/core/internal', () => ({
+  getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
     error: vi.fn(),
     warn: vi.fn(),
@@ -39,11 +11,46 @@ vi.mock('../../../../../core/src/logger.js', () => ({
   })),
 }));
 
-import { blockingAnalysis, buildGlobalGraph, criticalPath, nexusDeps, orphanDetection } from '@cleocode/core/internal';
-import { setPermission } from '@cleocode/core/internal';
-import { resolveTask, validateSyntax } from '@cleocode/core/internal';
-import { nexusSync, nexusSyncAll, nexusUnregister, readRegistry } from '@cleocode/core/internal';
-import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core/internal';
+// Mock the nexus-engine (used by the handler)
+vi.mock('../../engines/nexus-engine.js', () => ({
+  nexusStatus: vi.fn(),
+  nexusListProjects: vi.fn(),
+  nexusShowProject: vi.fn(),
+  nexusResolve: vi.fn(),
+  nexusDepsQuery: vi.fn(),
+  nexusGraph: vi.fn(),
+  nexusCriticalPath: vi.fn(),
+  nexusBlockers: vi.fn(),
+  nexusOrphans: vi.fn(),
+  nexusDiscover: vi.fn(),
+  nexusSearch: vi.fn(),
+  nexusInitialize: vi.fn(),
+  nexusRegisterProject: vi.fn(),
+  nexusUnregisterProject: vi.fn(),
+  nexusSyncProject: vi.fn(),
+  nexusSetPermission: vi.fn(),
+  nexusReconcileProject: vi.fn(),
+  nexusShareStatus: vi.fn(),
+  nexusShareSnapshotExport: vi.fn(),
+  nexusShareSnapshotImport: vi.fn(),
+}));
+
+import {
+  nexusBlockers,
+  nexusCriticalPath,
+  nexusDepsQuery,
+  nexusGraph,
+  nexusInitialize,
+  nexusListProjects,
+  nexusOrphans,
+  nexusRegisterProject,
+  nexusResolve,
+  nexusSetPermission,
+  nexusShowProject,
+  nexusStatus,
+  nexusSyncProject,
+  nexusUnregisterProject,
+} from '../../engines/nexus-engine.js';
 import { NexusHandler } from '../nexus.js';
 
 describe('NexusHandler', () => {
@@ -60,7 +67,10 @@ describe('NexusHandler', () => {
 
   describe('query: status', () => {
     it('returns initialized=false when registry does not exist', async () => {
-      vi.mocked(readRegistry).mockResolvedValue(null);
+      vi.mocked(nexusStatus).mockResolvedValue({
+        success: true,
+        data: { initialized: false, projectCount: 0, lastUpdated: null },
+      });
 
       const result = await handler.query('status');
 
@@ -73,25 +83,9 @@ describe('NexusHandler', () => {
     });
 
     it('returns initialized=true with project count when registry exists', async () => {
-      vi.mocked(readRegistry).mockResolvedValue({
-        schemaVersion: '1.0.0',
-        lastUpdated: '2026-03-01T00:00:00.000Z',
-        projects: {
-          abc123def456: {
-            hash: 'abc123def456',
-            projectId: 'project-a',
-            path: '/projects/a',
-            name: 'project-a',
-            registeredAt: '2026-03-01T00:00:00.000Z',
-            lastSeen: '2026-03-01T00:00:00.000Z',
-            healthStatus: 'unknown',
-            healthLastCheck: null,
-            permissions: 'read',
-            lastSync: '2026-03-01T00:00:00.000Z',
-            taskCount: 5,
-            labels: [],
-          },
-        },
+      vi.mocked(nexusStatus).mockResolvedValue({
+        success: true,
+        data: { initialized: true, projectCount: 1, lastUpdated: '2026-03-01T00:00:00.000Z' },
       });
 
       const result = await handler.query('status');
@@ -107,7 +101,17 @@ describe('NexusHandler', () => {
 
   describe('query: list', () => {
     it('returns empty list when no projects registered', async () => {
-      vi.mocked(nexusList).mockResolvedValue([]);
+      vi.mocked(nexusListProjects).mockResolvedValue({
+        success: true,
+        data: {
+          projects: [],
+          count: 0,
+          total: 0,
+          filtered: 0,
+          page: { mode: 'none' as const },
+        },
+        page: { mode: 'none' as const },
+      });
 
       const result = await handler.query('list');
 
@@ -117,29 +121,37 @@ describe('NexusHandler', () => {
     });
 
     it('returns registered projects', async () => {
-      const projects = [
-        {
-          hash: 'abc123def456',
-          projectId: 'project-a',
-          path: '/projects/a',
-          name: 'project-a',
-          registeredAt: '2026-03-01T00:00:00.000Z',
-          lastSeen: '2026-03-01T00:00:00.000Z',
-          healthStatus: 'unknown' as const,
-          healthLastCheck: null,
-          permissions: 'read' as const,
-          lastSync: '2026-03-01T00:00:00.000Z',
-          taskCount: 5,
-          labels: ['bug'],
+      const project = {
+        hash: 'abc123def456',
+        projectId: 'project-a',
+        path: '/projects/a',
+        name: 'project-a',
+        registeredAt: '2026-03-01T00:00:00.000Z',
+        lastSeen: '2026-03-01T00:00:00.000Z',
+        healthStatus: 'unknown' as const,
+        healthLastCheck: null,
+        permissions: 'read' as const,
+        lastSync: '2026-03-01T00:00:00.000Z',
+        taskCount: 5,
+        labels: ['bug'],
+      };
+      vi.mocked(nexusListProjects).mockResolvedValue({
+        success: true,
+        data: {
+          projects: [project],
+          count: 1,
+          total: 1,
+          filtered: 1,
+          page: { mode: 'offset' as const, limit: 1, offset: 0, hasMore: false, total: 1 },
         },
-      ];
-      vi.mocked(nexusList).mockResolvedValue(projects);
+        page: { mode: 'offset' as const, limit: 1, offset: 0, hasMore: false, total: 1 },
+      });
 
       const result = await handler.query('list', { limit: 1, offset: 0 });
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual({
-        projects: [projects[0]],
+        projects: [project],
         count: 1,
         total: 1,
         filtered: 1,
@@ -163,7 +175,10 @@ describe('NexusHandler', () => {
     });
 
     it('returns error when project not found', async () => {
-      vi.mocked(nexusGetProject).mockResolvedValue(null);
+      vi.mocked(nexusShowProject).mockResolvedValue({
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: 'Project not found: nonexistent' },
+      });
 
       const result = await handler.query('show', { name: 'nonexistent' });
 
@@ -186,7 +201,10 @@ describe('NexusHandler', () => {
         taskCount: 5,
         labels: [],
       };
-      vi.mocked(nexusGetProject).mockResolvedValue(project);
+      vi.mocked(nexusShowProject).mockResolvedValue({
+        success: true,
+        data: project,
+      });
 
       const result = await handler.query('show', { name: 'project-a' });
 
@@ -203,23 +221,11 @@ describe('NexusHandler', () => {
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
-    it('returns error for invalid query syntax', async () => {
-      vi.mocked(validateSyntax).mockReturnValue(false);
-
-      const result = await handler.query('resolve', { query: 'bad-query' });
-
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
-    });
-
     it('resolves a valid query', async () => {
-      vi.mocked(validateSyntax).mockReturnValue(true);
-      vi.mocked(resolveTask).mockResolvedValue({
-        id: 'T001',
-        title: 'Test task',
-        status: 'pending',
-        _project: 'my-project',
-      } as Awaited<ReturnType<typeof resolveTask>>);
+      vi.mocked(nexusResolve).mockResolvedValue({
+        success: true,
+        data: { id: 'T001', title: 'Test task', status: 'pending', _project: 'my-project' },
+      });
 
       const result = await handler.query('resolve', { query: 'my-project:T001' });
 
@@ -236,25 +242,23 @@ describe('NexusHandler', () => {
     });
 
     it('returns dependency analysis', async () => {
-      vi.mocked(nexusDeps).mockResolvedValue({
-        task: 'project-a:T001',
-        project: 'project-a',
-        depends: [],
-        blocking: [],
+      vi.mocked(nexusDepsQuery).mockResolvedValue({
+        success: true,
+        data: { task: 'project-a:T001', project: 'project-a', depends: [], blocking: [] },
       });
 
       const result = await handler.query('deps', { query: 'project-a:T001' });
 
       expect(result.success).toBe(true);
-      expect(nexusDeps).toHaveBeenCalledWith('project-a:T001', 'forward');
+      expect(nexusDepsQuery).toHaveBeenCalledWith('project-a:T001', 'forward');
     });
   });
 
   describe('query: graph', () => {
     it('returns global dependency graph', async () => {
-      vi.mocked(buildGlobalGraph).mockResolvedValue({
-        nodes: [],
-        edges: [],
+      vi.mocked(nexusGraph).mockResolvedValue({
+        success: true,
+        data: { nodes: [], edges: [] },
       });
 
       const result = await handler.query('graph');
@@ -266,16 +270,19 @@ describe('NexusHandler', () => {
 
   describe('query: path.show', () => {
     it('returns critical path analysis', async () => {
-      vi.mocked(criticalPath).mockResolvedValue({
-        criticalPath: [{ query: 'project-a:T001', title: 'Task 1' }],
-        length: 1,
-        blockedBy: 'project-a:T001',
+      vi.mocked(nexusCriticalPath).mockResolvedValue({
+        success: true,
+        data: {
+          criticalPath: [{ query: 'project-a:T001', title: 'Task 1' }],
+          length: 1,
+          blockedBy: 'project-a:T001',
+        },
       });
 
       const result = await handler.query('path.show');
 
       expect(result.success).toBe(true);
-      expect(criticalPath).toHaveBeenCalled();
+      expect(nexusCriticalPath).toHaveBeenCalled();
     });
   });
 
@@ -288,22 +295,25 @@ describe('NexusHandler', () => {
     });
 
     it('returns blocking impact analysis', async () => {
-      vi.mocked(blockingAnalysis).mockResolvedValue({
-        task: 'project-a:T001',
-        blocking: [{ query: 'project-b:T002', project: 'project-b' }],
-        impactScore: 1,
+      vi.mocked(nexusBlockers).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'project-a:T001',
+          blocking: [{ query: 'project-b:T002', project: 'project-b' }],
+          impactScore: 1,
+        },
       });
 
       const result = await handler.query('blockers.show', { query: 'project-a:T001' });
 
       expect(result.success).toBe(true);
-      expect(blockingAnalysis).toHaveBeenCalledWith('project-a:T001');
+      expect(nexusBlockers).toHaveBeenCalledWith('project-a:T001');
     });
   });
 
   describe('query: orphans.list', () => {
     it('returns orphaned dependency list', async () => {
-      vi.mocked(orphanDetection).mockResolvedValue([
+      const orphanData = [
         {
           sourceProject: 'project-a',
           sourceTask: 'T001',
@@ -311,21 +321,24 @@ describe('NexusHandler', () => {
           targetTask: 'T999',
           reason: 'task_not_found',
         },
-      ]);
+      ];
+      vi.mocked(nexusOrphans).mockResolvedValue({
+        success: true,
+        data: {
+          orphans: orphanData,
+          count: 1,
+          total: 1,
+          filtered: 1,
+          page: { mode: 'none' as const },
+        },
+        page: { mode: 'none' as const },
+      });
 
       const result = await handler.query('orphans.list');
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual({
-        orphans: [
-          {
-            sourceProject: 'project-a',
-            sourceTask: 'T001',
-            targetProject: 'project-b',
-            targetTask: 'T999',
-            reason: 'task_not_found',
-          },
-        ],
+        orphans: orphanData,
         count: 1,
         total: 1,
         filtered: 1,
@@ -340,12 +353,15 @@ describe('NexusHandler', () => {
 
   describe('mutate: init', () => {
     it('initializes NEXUS successfully', async () => {
-      vi.mocked(nexusInit).mockResolvedValue(undefined);
+      vi.mocked(nexusInitialize).mockResolvedValue({
+        success: true,
+        data: { message: 'NEXUS initialized successfully' },
+      });
 
       const result = await handler.mutate('init');
 
       expect(result.success).toBe(true);
-      expect(nexusInit).toHaveBeenCalled();
+      expect(nexusInitialize).toHaveBeenCalled();
     });
   });
 
@@ -358,12 +374,15 @@ describe('NexusHandler', () => {
     });
 
     it('registers a project successfully', async () => {
-      vi.mocked(nexusRegister).mockResolvedValue('abc123def456');
+      vi.mocked(nexusRegisterProject).mockResolvedValue({
+        success: true,
+        data: { hash: 'abc123def456', message: 'Project registered with hash: abc123def456' },
+      });
 
       const result = await handler.mutate('register', { path: '/projects/a', name: 'project-a' });
 
       expect(result.success).toBe(true);
-      expect(nexusRegister).toHaveBeenCalledWith('/projects/a', 'project-a', 'read');
+      expect(nexusRegisterProject).toHaveBeenCalledWith('/projects/a', 'project-a', 'read');
       expect((result.data as { hash: string }).hash).toBe('abc123def456');
     });
   });
@@ -377,18 +396,24 @@ describe('NexusHandler', () => {
     });
 
     it('unregisters a project successfully', async () => {
-      vi.mocked(nexusUnregister).mockResolvedValue(undefined);
+      vi.mocked(nexusUnregisterProject).mockResolvedValue({
+        success: true,
+        data: { message: 'Project unregistered: project-a' },
+      });
 
       const result = await handler.mutate('unregister', { name: 'project-a' });
 
       expect(result.success).toBe(true);
-      expect(nexusUnregister).toHaveBeenCalledWith('project-a');
+      expect(nexusUnregisterProject).toHaveBeenCalledWith('project-a');
     });
   });
 
   describe('mutate: sync', () => {
     it('syncs all projects when name is omitted', async () => {
-      vi.mocked(nexusSyncAll).mockResolvedValue({ synced: 3, failed: 0 });
+      vi.mocked(nexusSyncProject).mockResolvedValue({
+        success: true,
+        data: { synced: 3, failed: 0 },
+      });
 
       const result = await handler.mutate('sync', {});
 
@@ -397,12 +422,15 @@ describe('NexusHandler', () => {
     });
 
     it('syncs a project successfully when name is provided', async () => {
-      vi.mocked(nexusSync).mockResolvedValue(undefined);
+      vi.mocked(nexusSyncProject).mockResolvedValue({
+        success: true,
+        data: { message: 'Project synced: project-a' },
+      });
 
       const result = await handler.mutate('sync', { name: 'project-a' });
 
       expect(result.success).toBe(true);
-      expect(nexusSync).toHaveBeenCalledWith('project-a');
+      expect(nexusSyncProject).toHaveBeenCalledWith('project-a');
     });
   });
 
@@ -429,12 +457,15 @@ describe('NexusHandler', () => {
     });
 
     it('sets permission successfully', async () => {
-      vi.mocked(setPermission).mockResolvedValue(undefined);
+      vi.mocked(nexusSetPermission).mockResolvedValue({
+        success: true,
+        data: { message: "Permission for 'project-a' set to 'write'" },
+      });
 
       const result = await handler.mutate('permission.set', { name: 'project-a', level: 'write' });
 
       expect(result.success).toBe(true);
-      expect(setPermission).toHaveBeenCalledWith('project-a', 'write');
+      expect(nexusSetPermission).toHaveBeenCalledWith('project-a', 'write');
     });
   });
 
@@ -498,8 +529,8 @@ describe('NexusHandler', () => {
   // -----------------------------------------------------------------------
 
   describe('error handling', () => {
-    it('catches and wraps errors from core functions', async () => {
-      vi.mocked(nexusList).mockRejectedValue(new Error('Database connection failed'));
+    it('catches and wraps errors from engine functions', async () => {
+      vi.mocked(nexusListProjects).mockRejectedValue(new Error('Database connection failed'));
 
       const result = await handler.query('list');
 

@@ -298,10 +298,11 @@ export type { CreateStickyParams, ListStickiesParams, StickyNote } from './stick
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 export { gitCheckpoint, gitCheckpointStatus, isCleoGitInitialized } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
-export { getDb } from './store/sqlite.js';
+export { getDb, getNativeDb } from './store/sqlite.js';
 export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
-export { getActiveSession } from './store/session-store.js';
-export { auditLog, releaseManifests } from './store/tasks-schema.js';
+export { createSession, getActiveSession } from './store/session-store.js';
+export { createTask } from './store/task-store.js';
+export { auditLog, releaseManifests, tasks, taskDependencies } from './store/tasks-schema.js';
 export { AuditLogInsertSchema } from './store/validation-schemas.js';
 
 // System
