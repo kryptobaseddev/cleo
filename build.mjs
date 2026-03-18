@@ -60,7 +60,7 @@ function workspacePlugin(name, inlineMap) {
       });
 
       // Only externalize packages in the sharedExternals list
-      // Everything else gets bundled (pino, drizzle-orm, commander, etc.)
+      // Everything else gets bundled (pino, drizzle-orm, citty, etc.)
       build.onResolve({ filter: /^[a-zA-Z@]/ }, (args) => {
         if (args.path.startsWith('@cleocode/')) return undefined;
         if (externalSet.has(args.path)) return { path: args.path, external: true };

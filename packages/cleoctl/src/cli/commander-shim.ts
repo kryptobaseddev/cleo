@@ -60,6 +60,7 @@ export class ShimCommand {
   _action?: (...args: unknown[]) => Promise<void> | void;
   _subcommands: ShimCommand[] = [];
   _parent?: ShimCommand;
+  _isDefault = false;
 
   /** Commander-compatible property: list of registered subcommands. */
   get commands(): ShimCommand[] {
@@ -75,9 +76,10 @@ export class ShimCommand {
   }
 
   /** Register a subcommand. Returns the new subcommand for chaining. */
-  command(nameAndArgs: string): ShimCommand {
+  command(nameAndArgs: string, opts?: { isDefault?: boolean }): ShimCommand {
     const sub = new ShimCommand(nameAndArgs);
     sub._parent = this;
+    if (opts?.isDefault) sub._isDefault = true;
     this._subcommands.push(sub);
     return sub;
   }

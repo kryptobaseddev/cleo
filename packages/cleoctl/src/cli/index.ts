@@ -212,8 +212,10 @@ function shimToCitty(shim: ShimCommand): ReturnType<typeof defineCommand> {
 
   // Sub-subcommands (e.g. session start, session stop, compliance summary)
   const subCommands: Record<string, ReturnType<typeof defineCommand>> = {};
+  let defaultSub: ShimCommand | undefined;
   for (const sub of shim._subcommands) {
     subCommands[sub._name] = shimToCitty(sub);
+    if (sub._isDefault) defaultSub = sub;
     // Register aliases as additional entries pointing to the same command
     for (const alias of sub._aliases) {
       subCommands[alias] = shimToCitty(sub);
@@ -230,6 +232,25 @@ function shimToCitty(shim: ShimCommand): ReturnType<typeof defineCommand> {
     async run({ args }) {
       // Run pre-action hooks
       await runPreActionHooks(shim._name);
+
+      // citty always runs the parent's run() even when a subcommand was matched.
+      // Detect if a subcommand was selected by checking process.argv for subcommand names.
+      if (Object.keys(subCommands).length > 0) {
+        const subNames = new Set(Object.keys(subCommands));
+        const argv = process.argv.slice(2);
+        // Find the position of this command in argv, then check if next arg is a subcommand
+        const cmdIdx = argv.indexOf(shim._name);
+        const nextArg = cmdIdx >= 0 ? argv[cmdIdx + 1] : undefined;
+        if (nextArg && subNames.has(nextArg)) {
+          // A subcommand was matched — citty already ran it, skip parent run
+          return;
+        }
+        // No subcommand matched — if there's a default, run it
+        if (!shim._action && defaultSub?._action) {
+          await defaultSub._action({}, defaultSub);
+          return;
+        }
+      }
 
       if (shim._action) {
         // Reconstruct the Commander-style call signature:
