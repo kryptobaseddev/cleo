@@ -9,6 +9,7 @@ import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 export interface ContextDriftResult {

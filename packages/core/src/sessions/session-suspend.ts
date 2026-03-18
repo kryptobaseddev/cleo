@@ -9,6 +9,7 @@ import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 /**
@@ -43,7 +44,7 @@ export async function suspendSession(
   const now = new Date().toISOString();
 
   session.status = 'suspended';
-  Object.assign(session, { suspendedAt: now });
+  (session as unknown as Record<string, unknown>).suspendedAt = now;
 
   if (session.stats) {
     session.stats.suspendCount = (session.stats.suspendCount || 0) + 1;
@@ -58,7 +59,7 @@ export async function suspendSession(
   if (current._meta?.activeSession === sessionId) {
     current._meta.activeSession = null;
     current._meta.generation = (current._meta.generation || 0) + 1;
-    current.lastUpdated = now;
+    (current as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
   }
 

@@ -8,6 +8,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { getRawConfigValue } from '../config.js';
+import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 /** Default auto-end threshold when no config is set (7 days). */

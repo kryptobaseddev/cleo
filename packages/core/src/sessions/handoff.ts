@@ -20,6 +20,7 @@ import { ExitCode } from '@cleocode/contracts';
 import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getDecisionLog } from './decisions.js';
+import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 const execFileAsync = promisify(execFile);
