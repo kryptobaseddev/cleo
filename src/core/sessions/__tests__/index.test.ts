@@ -40,7 +40,15 @@ describe('sessions index memory bridge wiring', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      closeBrainDb();
+    } catch { /* may not be loaded */ }
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* may not be loaded */ }
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('calls bridgeSessionToMemory with derived end-session payload', async () => {

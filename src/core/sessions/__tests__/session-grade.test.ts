@@ -62,7 +62,15 @@ describe('gradeSession', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      closeBrainDb();
+    } catch { /* may not be loaded */ }
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* may not be loaded */ }
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   // ------ Edge cases ------
@@ -761,7 +769,15 @@ describe('readGrades', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+      closeBrainDb();
+    } catch { /* may not be loaded */ }
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* may not be loaded */ }
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('returns empty array when GRADES.jsonl does not exist', async () => {
