@@ -3,6 +3,7 @@
  * @task T5240
  */
 
+import { tmpdir } from 'node:os';
 import type { DetectionPattern } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
@@ -42,7 +43,7 @@ describe('detectProvider', () => {
 
   it('detects file pattern when file exists', () => {
     const patterns: DetectionPattern[] = [
-      { type: 'file', pattern: '/tmp', description: 'tmp directory exists' },
+      { type: 'file', pattern: tmpdir(), description: 'tmp directory exists' },
     ];
     expect(detectProvider(patterns)).toBe(true);
   });
@@ -57,7 +58,7 @@ describe('detectProvider', () => {
   it('returns true if any pattern matches', () => {
     const patterns: DetectionPattern[] = [
       { type: 'env', pattern: 'NONEXISTENT_VAR_1', description: 'Miss' },
-      { type: 'file', pattern: '/tmp', description: 'Hit' },
+      { type: 'file', pattern: tmpdir(), description: 'Hit' },
     ];
     expect(detectProvider(patterns)).toBe(true);
   });

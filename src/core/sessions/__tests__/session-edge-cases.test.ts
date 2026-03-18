@@ -37,7 +37,21 @@ afterEach(async () => {
   } catch {
     /* ignore */
   }
-  await rm(tempDir, { recursive: true, force: true });
+  // Allow fire-and-forget async ops (e.g. bridgeSessionToMemory) to settle,
+  // then close any db connections they may have re-opened.
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+  try {
+    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    await closeAllDatabases();
+  } catch {
+    /* ignore */
+  }
+  // Best-effort cleanup — abort after 10s to avoid hook timeout on Windows.
+  try {
+    await rm(tempDir, { recursive: true, force: true, signal: AbortSignal.timeout(10_000) });
+  } catch {
+    /* ignore */
+  }
 });
 
 // ============================================================
