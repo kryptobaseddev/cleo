@@ -1,8 +1,9 @@
 /**
  * Cleo — standalone facade for @cleocode/core
  *
- * Provides a project-bound API covering all 10 domains: tasks, sessions,
- * memory, orchestration, lifecycle, release, and admin.
+ * Provides a project-bound API covering all 10 canonical domains:
+ * tasks, sessions, memory, orchestration, lifecycle, release, admin,
+ * check, sticky, and nexus.
  *
  * @example
  * // Pattern 1: Full instance
@@ -27,6 +28,7 @@ import { findTasks } from '../../../src/core/tasks/find.js';
 import { listTasks } from '../../../src/core/tasks/list.js';
 import { showTask } from '../../../src/core/tasks/show.js';
 import { updateTask } from '../../../src/core/tasks/update.js';
+import type { TaskPriority, TaskSize, TaskStatus, TaskType } from '../../../src/types/task.js';
 
 // Sessions
 import {
@@ -55,7 +57,9 @@ import {
   searchBrainCompact,
   timelineBrain,
 } from '../../../src/core/memory/brain-retrieval.js';
+import type { BrainObservationType } from '../../../src/core/memory/brain-retrieval.js';
 import { hybridSearch, searchBrain } from '../../../src/core/memory/brain-search.js';
+import type { HybridSearchOptions } from '../../../src/core/memory/brain-search.js';
 
 // Orchestration
 import {
@@ -68,6 +72,7 @@ import {
   getReadyTasks,
   startOrchestration,
 } from '../../../src/core/orchestration/index.js';
+import type { Task } from '../../../src/types/task.js';
 
 // Lifecycle
 import {
@@ -97,6 +102,47 @@ import {
 // Admin
 import { exportTasks } from '../../../src/core/admin/export.js';
 import { importTasks } from '../../../src/core/admin/import.js';
+import type { ImportParams } from '../../../src/core/admin/import.js';
+
+// Check / Validation
+import {
+  coreCoherenceCheck,
+  coreComplianceRecord,
+  coreComplianceSummary,
+  coreTestRun,
+  coreTestStatus,
+  coreValidateManifest,
+  coreValidateProtocol,
+  coreValidateReport,
+  coreValidateSchema,
+  coreValidateTask,
+} from '../../../src/core/validation/validate-ops.js';
+import { getArchiveStats } from '../../../src/core/system/archive-stats.js';
+
+// Sticky
+import {
+  addSticky,
+  archiveSticky,
+  convertStickyToMemory,
+  convertStickyToTask,
+  getSticky,
+  listStickies,
+  purgeSticky,
+} from '../../../src/core/sticky/index.js';
+
+// Nexus
+import { discoverRelated, searchAcrossProjects } from '../../../src/core/nexus/discover.js';
+import { setPermission } from '../../../src/core/nexus/permissions.js';
+import {
+  nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusRegister,
+  nexusSync,
+  nexusSyncAll,
+  nexusUnregister,
+} from '../../../src/core/nexus/registry.js';
+import { getSharingStatus } from '../../../src/core/nexus/sharing/index.js';
 
 // Store
 import { createDataAccessor, getAccessor } from '../../../src/store/data-accessor.js';
@@ -117,19 +163,19 @@ export interface TasksAPI {
     title: string;
     description: string;
     parent?: string;
-    priority?: string;
-    type?: string;
-    size?: string;
+    priority?: TaskPriority;
+    type?: TaskType;
+    size?: TaskSize;
     phase?: string;
     labels?: string[];
     depends?: string[];
     notes?: string;
   }): Promise<unknown>;
-  find(params: { query?: string; id?: string; status?: string; limit?: number }): Promise<unknown>;
+  find(params: { query?: string; id?: string; status?: TaskStatus; limit?: number }): Promise<unknown>;
   show(taskId: string): Promise<unknown>;
   list(params?: {
-    status?: string;
-    priority?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
     parentId?: string;
     phase?: string;
     limit?: number;
@@ -137,8 +183,8 @@ export interface TasksAPI {
   update(params: {
     taskId: string;
     title?: string;
-    status?: string;
-    priority?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
     description?: string;
     notes?: string;
   }): Promise<unknown>;
@@ -187,11 +233,11 @@ export interface SessionsAPI {
 }
 
 export interface MemoryAPI {
-  observe(params: { text: string; title?: string; type?: string }): Promise<unknown>;
+  observe(params: { text: string; title?: string; type?: BrainObservationType }): Promise<unknown>;
   find(params: {
     query: string;
     limit?: number;
-    tables?: string[];
+    tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
   }): Promise<unknown>;
   fetch(params: { ids: string[] }): Promise<unknown>;
   timeline(params: {
@@ -200,7 +246,7 @@ export interface MemoryAPI {
     depthAfter?: number;
   }): Promise<unknown>;
   search(query: string, options?: { limit?: number }): Promise<unknown>;
-  hybridSearch(query: string, options?: unknown): Promise<unknown>;
+  hybridSearch(query: string, options?: HybridSearchOptions): Promise<unknown>;
 }
 
 export interface OrchestrationAPI {
@@ -209,9 +255,9 @@ export interface OrchestrationAPI {
   readyTasks(epicId: string): Promise<unknown>;
   nextTask(epicId: string): Promise<unknown>;
   context(epicId: string): Promise<unknown>;
-  dependencyGraph(tasks: unknown[]): unknown;
-  epicStatus(epicId: string, title: string, children: unknown[]): unknown;
-  progress(tasks: unknown[]): unknown;
+  dependencyGraph(tasks: Task[]): unknown;
+  epicStatus(epicId: string, title: string, children: Task[]): unknown;
+  progress(tasks: Task[]): unknown;
 }
 
 export interface LifecycleAPI {
@@ -228,18 +274,92 @@ export interface LifecycleAPI {
 }
 
 export interface ReleaseAPI {
-  prepare(params: unknown): Promise<unknown>;
-  commit(params: unknown): Promise<unknown>;
-  tag(params: unknown): Promise<unknown>;
-  push(params: unknown): Promise<unknown>;
-  rollback(params: unknown): Promise<unknown>;
+  prepare(params: { version: string; tasks?: string[]; notes?: string }): Promise<unknown>;
+  commit(params: { version: string }): Promise<unknown>;
+  tag(params: { version: string }): Promise<unknown>;
+  push(params: { version: string; remote?: string; explicitPush?: boolean }): Promise<unknown>;
+  rollback(params: { version: string; reason?: string }): Promise<unknown>;
   calculateVersion(current: string, bumpType: string): string;
   bumpVersion(): Promise<unknown>;
 }
 
 export interface AdminAPI {
-  export(params?: unknown): Promise<unknown>;
-  import(params: unknown): Promise<unknown>;
+  export(params?: Record<string, unknown>): Promise<unknown>;
+  import(params: Omit<ImportParams, 'cwd'>): Promise<unknown>;
+}
+
+export interface CheckAPI {
+  /** Run comprehensive validation report. */
+  schema(params?: { type?: string; data?: unknown }): Promise<unknown>;
+  /** Validate a task against protocol compliance rules. */
+  protocol(params?: { protocolType?: string; taskId?: string }): Promise<unknown>;
+  /** Validate a single task against anti-hallucination rules. */
+  task(params?: { taskId?: string }): Promise<unknown>;
+  /** Validate manifest JSONL entries. */
+  manifest(): Promise<unknown>;
+  /** Cross-validate task graph for consistency. */
+  coherence(): Promise<unknown>;
+  /** Get aggregated compliance metrics. */
+  complianceSummary(): Promise<unknown>;
+  /** Record a compliance check result. */
+  complianceRecord(params: {
+    taskId: string;
+    result: string;
+    protocol?: string;
+    violations?: Array<{ code: string; message: string; severity: string }>;
+  }): Promise<unknown>;
+  /** Check test suite availability. */
+  test(): Promise<unknown>;
+  /** Execute test suite via subprocess. */
+  testRun(params?: { scope?: string; pattern?: string; parallel?: boolean }): Promise<unknown>;
+  /** Get archive statistics. */
+  archiveStats(params?: { period?: number }): Promise<unknown>;
+}
+
+export interface StickyAPI {
+  /** Create a new sticky note. */
+  add(params: { content: string; tags?: string[]; priority?: string; color?: string }): Promise<unknown>;
+  /** Get a sticky note by ID. */
+  show(stickyId: string): Promise<unknown>;
+  /** List sticky notes with optional filters. */
+  list(params?: { status?: string; color?: string; priority?: string; limit?: number }): Promise<unknown>;
+  /** Archive a sticky note (soft delete). */
+  archive(stickyId: string): Promise<unknown>;
+  /** Permanently delete a sticky note. */
+  purge(stickyId: string): Promise<unknown>;
+  /** Convert a sticky note to a task or memory entry. */
+  convert(params: {
+    stickyId: string;
+    targetType: 'task' | 'memory' | 'task_note' | 'session_note';
+    title?: string;
+    memoryType?: string;
+    taskId?: string;
+  }): Promise<unknown>;
+}
+
+export interface NexusAPI {
+  /** Initialize the NEXUS directory structure and database. */
+  init(): Promise<unknown>;
+  /** Register a project in the global registry. */
+  register(params: { path: string; name?: string; permissions?: string }): Promise<unknown>;
+  /** Unregister a project from the global registry. */
+  unregister(params: { name: string }): Promise<unknown>;
+  /** List all registered projects. */
+  list(): Promise<unknown>;
+  /** Get a project by name or hash. */
+  show(params: { name: string }): Promise<unknown>;
+  /** Sync a single project's metadata, or all projects. */
+  sync(params?: { name?: string }): Promise<unknown>;
+  /** Resolve a cross-project task query (e.g. "project:T001"). */
+  resolve(params: { query: string }): Promise<unknown>;
+  /** Discover related tasks across projects. */
+  discover(params: { query: string; method?: string; limit?: number }): Promise<unknown>;
+  /** Search for tasks across all registered projects. */
+  search(params: { pattern: string; project?: string; limit?: number }): Promise<unknown>;
+  /** Set the permission level for a registered project. */
+  setPermission(params: { name: string; level: 'read' | 'write' | 'execute' }): Promise<unknown>;
+  /** Get sharing status for .cleo/ files. */
+  sharingStatus(): Promise<unknown>;
 }
 
 // ============================================================================
@@ -307,9 +427,9 @@ export class Cleo {
             title: params.title,
             description: params.description,
             parentId: params.parent,
-            priority: params.priority as never,
-            type: params.type as never,
-            size: params.size as never,
+            priority: params.priority,
+            type: params.type,
+            size: params.size,
             phase: params.phase,
             labels: params.labels,
             depends: params.depends,
@@ -323,7 +443,7 @@ export class Cleo {
           {
             query: params.query,
             id: params.id,
-            status: params.status as never,
+            status: params.status,
             limit: params.limit,
           },
           root,
@@ -333,8 +453,8 @@ export class Cleo {
       list: (params) =>
         listTasks(
           {
-            status: params?.status as never,
-            priority: params?.priority as never,
+            status: params?.status,
+            priority: params?.priority,
             parentId: params?.parentId,
             phase: params?.phase,
             limit: params?.limit,
@@ -347,8 +467,8 @@ export class Cleo {
           {
             taskId: params.taskId,
             title: params.title,
-            status: params.status as never,
-            priority: params.priority as never,
+            status: params.status,
+            priority: params.priority,
             description: params.description,
             notes: params.notes,
           },
@@ -445,13 +565,13 @@ export class Cleo {
         observeBrain(root, {
           text: params.text,
           title: params.title,
-          type: params.type as never,
+          type: params.type,
         }),
       find: (params) =>
         searchBrainCompact(root, {
           query: params.query,
           limit: params.limit,
-          tables: params.tables as never,
+          tables: params.tables,
         }),
       fetch: (params) => fetchBrainEntries(root, { ids: params.ids }),
       timeline: (params) =>
@@ -461,7 +581,7 @@ export class Cleo {
           depthAfter: params.depthAfter,
         }),
       search: (query, options) => searchBrain(root, query, { limit: options?.limit }),
-      hybridSearch: (query, options) => hybridSearch(query, root, options as never),
+      hybridSearch: (query, options) => hybridSearch(query, root, options),
     };
   }
 
@@ -478,10 +598,10 @@ export class Cleo {
       readyTasks: (epicId) => getReadyTasks(epicId, root, store),
       nextTask: (epicId) => getNextTask(epicId, root, store),
       context: (epicId) => getOrchestratorContext(epicId, root, store),
-      dependencyGraph: (tasks) => buildDependencyGraph(tasks as never),
+      dependencyGraph: (tasks) => buildDependencyGraph(tasks),
       epicStatus: (epicId, title, children) =>
-        computeEpicStatus(epicId, title, children as never),
-      progress: (tasks) => computeProgress(tasks as never),
+        computeEpicStatus(epicId, title, children),
+      progress: (tasks) => computeProgress(tasks),
     };
   }
 
@@ -514,13 +634,18 @@ export class Cleo {
   get release(): ReleaseAPI {
     const root = this.projectRoot;
     return {
-      prepare: (params) => prepareRelease(params as never),
-      commit: (params) => commitRelease(params as never),
-      tag: (params) => tagRelease(params as never),
-      push: (params) => pushRelease(params as never),
-      rollback: (params) => rollbackRelease(params as never),
-      calculateVersion: (current, bumpType) =>
-        calculateNewVersion(current, bumpType as never),
+      prepare: (params) => {
+        const { version, tasks, notes } = params;
+        return prepareRelease(version, tasks, notes, async () => [], root);
+      },
+      commit: (params) => commitRelease(params.version, root),
+      tag: (params) => tagRelease(params.version, root),
+      push: (params) =>
+        pushRelease(params.version, params.remote, root, {
+          explicitPush: params.explicitPush,
+        }),
+      rollback: (params) => rollbackRelease(params.version, params.reason, root),
+      calculateVersion: (current, bumpType) => calculateNewVersion(current, bumpType),
       bumpVersion: () => bumpVersionFromConfig(root),
     };
   }
@@ -532,8 +657,136 @@ export class Cleo {
   get admin(): AdminAPI {
     const root = this.projectRoot;
     return {
-      export: (params) => exportTasks({ cwd: root, ...(params as object) }),
-      import: (params) => importTasks({ cwd: root, ...(params as object) } as never),
+      export: (params) => exportTasks({ cwd: root, ...params }),
+      import: (params) => importTasks({ ...params, cwd: root }),
+    };
+  }
+
+  // ==========================================================================
+  // Check domain
+  // ==========================================================================
+
+  get check(): CheckAPI {
+    const root = this.projectRoot;
+    const store = this._store ?? undefined;
+    return {
+      schema: (params) =>
+        params?.type
+          ? coreValidateSchema(params.type, params?.data, root)
+          : coreValidateReport(root),
+      protocol: (params) =>
+        coreValidateProtocol(params?.taskId ?? '', params?.protocolType, root),
+      task: (params) => coreValidateTask(params?.taskId ?? '', root),
+      manifest: () => Promise.resolve(coreValidateManifest(root)),
+      coherence: () => coreCoherenceCheck(root),
+      complianceSummary: () => Promise.resolve(coreComplianceSummary(root)),
+      complianceRecord: (params) =>
+        Promise.resolve(
+          coreComplianceRecord(
+            params.taskId,
+            params.result,
+            params.protocol,
+            params.violations,
+            root,
+          ),
+        ),
+      test: () => Promise.resolve(coreTestStatus(root)),
+      testRun: (params) =>
+        Promise.resolve(
+          coreTestRun(
+            params as { scope?: string; pattern?: string; parallel?: boolean } | undefined,
+            root,
+          ),
+        ),
+      archiveStats: (params) => getArchiveStats({ period: params?.period, cwd: root }, store),
+    };
+  }
+
+  // ==========================================================================
+  // Sticky domain
+  // ==========================================================================
+
+  get sticky(): StickyAPI {
+    const root = this.projectRoot;
+    return {
+      add: (params) =>
+        addSticky(
+          {
+            content: params.content,
+            tags: params.tags,
+            priority: params.priority as 'low' | 'medium' | 'high' | undefined,
+            color: params.color as
+              | 'yellow'
+              | 'blue'
+              | 'green'
+              | 'red'
+              | 'purple'
+              | undefined,
+          },
+          root,
+        ),
+      show: (stickyId) => getSticky(stickyId, root),
+      list: (params) =>
+        listStickies(
+          {
+            status: params?.status as 'active' | 'converted' | 'archived' | undefined,
+            color: params?.color as
+              | 'yellow'
+              | 'blue'
+              | 'green'
+              | 'red'
+              | 'purple'
+              | undefined,
+            priority: params?.priority as 'low' | 'medium' | 'high' | undefined,
+            limit: params?.limit,
+          },
+          root,
+        ),
+      archive: (stickyId) => archiveSticky(stickyId, root),
+      purge: (stickyId) => purgeSticky(stickyId, root),
+      convert: (params) => {
+        const { stickyId, targetType, title, memoryType, taskId } = params;
+        if (targetType === 'task') {
+          return convertStickyToTask(stickyId, title, root);
+        }
+        if (targetType === 'memory') {
+          return convertStickyToMemory(stickyId, memoryType, root);
+        }
+        // task_note and session_note handled via dynamic import in convert.ts
+        // fall back to task convert for unknown types
+        return convertStickyToTask(stickyId, title, root);
+      },
+    };
+  }
+
+  // ==========================================================================
+  // Nexus domain
+  // ==========================================================================
+
+  get nexus(): NexusAPI {
+    return {
+      init: () => nexusInit(),
+      register: (params) =>
+        nexusRegister(
+          params.path,
+          params.name,
+          params.permissions as 'read' | 'write' | 'execute' | undefined,
+        ),
+      unregister: (params) => nexusUnregister(params.name),
+      list: () => nexusList(),
+      show: (params) => nexusGetProject(params.name),
+      sync: (params) => (params?.name ? nexusSync(params.name) : nexusSyncAll()),
+      resolve: async (params) => {
+        const { resolveTask } = await import('../../../src/core/nexus/query.js');
+        return resolveTask(params.query);
+      },
+      discover: (params) =>
+        discoverRelated(params.query, params.method, params.limit),
+      search: (params) =>
+        searchAcrossProjects(params.pattern, params.project, params.limit),
+      setPermission: (params) =>
+        setPermission(params.name, params.level as 'read' | 'write' | 'execute'),
+      sharingStatus: () => getSharingStatus(),
     };
   }
 }

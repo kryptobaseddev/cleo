@@ -9,7 +9,7 @@
 
 import * as esbuild from 'esbuild';
 import { spawnSync } from 'node:child_process';
-import { chmod } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -128,6 +128,47 @@ const corePackageBuildOptions = {
   ],
 };
 
+/**
+ * Fix TypeScript declaration entry points for packages/core after tsc emit.
+ *
+ * tsc places declarations relative to the monorepo rootDir, so it generates:
+ *   packages/core/dist/packages/core/src/cleo.d.ts  (paths: ../../../src/*)
+ *   packages/core/dist/packages/core/src/index.d.ts (paths: ../../../src/*)
+ *
+ * Neither is usable from dist/ directly. This function:
+ *   1. Reads the tsc-generated cleo.d.ts and rewrites ../../../src/ → ./
+ *      so all its imports resolve within dist/, then writes it to dist/cleo.d.ts
+ *   2. Overwrites dist/index.d.ts with a corrected barrel that re-exports
+ *      from the self-contained ./core/index.js and ./cleo.js paths.
+ *
+ * @epic T5716
+ */
+async function fixCoreDeclarations() {
+  const distDir = resolve(__dirname, 'packages/core/dist');
+
+  // 1. Fix cleo.d.ts — rewrite broken monorepo-relative paths
+  const cleoSrc = resolve(distDir, 'packages/core/src/cleo.d.ts');
+  let cleoContent = await readFile(cleoSrc, 'utf-8');
+  cleoContent = cleoContent.replaceAll('../../../src/', './');
+  await writeFile(resolve(distDir, 'cleo.d.ts'), cleoContent, 'utf-8');
+
+  // 2. Rewrite dist/index.d.ts with correct relative paths
+  const indexContent = `// @cleocode/core — generated declaration entry point
+export * from './core/index.js';
+export { Cleo } from './cleo.js';
+export type { AdminAPI, CheckAPI, CleoInitOptions, CleoTasksApi, LifecycleAPI, MemoryAPI, NexusAPI, OrchestrationAPI, ReleaseAPI, SessionsAPI, StickyAPI, TasksAPI } from './cleo.js';
+export { addTask, archiveTasks, completeTask, deleteTask, findTasks, listTasks, showTask, updateTask } from './core/tasks/index.js';
+export { endSession, listSessions, resumeSession, sessionStatus, startSession } from './core/sessions/index.js';
+export { fetchBrainEntries, observeBrain, searchBrainCompact, timelineBrain } from './core/memory/brain-retrieval.js';
+export { searchBrain } from './core/memory/brain-search.js';
+export type { DataAccessor } from './store/data-accessor.js';
+export { createDataAccessor, getAccessor } from './store/data-accessor.js';
+`;
+  await writeFile(resolve(distDir, 'index.d.ts'), indexContent, 'utf-8');
+
+  console.log('Fixed: packages/core/dist/index.d.ts and packages/core/dist/cleo.d.ts');
+}
+
 // Generate build config before compilation
 generateBuildConfig();
 
@@ -147,6 +188,8 @@ if (isWatch) {
     ['tsc', '--project', 'packages/core/tsconfig.json', '--emitDeclarationOnly', '--noEmit', 'false'],
     { stdio: 'inherit', encoding: 'utf-8' },
   );
+  // Fix broken monorepo-relative paths in declaration entry points
+  await fixCoreDeclarations();
   console.log('Done: packages/core/dist/index.js');
 } else {
   await esbuild.build(buildOptions);
@@ -163,6 +206,8 @@ if (isWatch) {
     ['tsc', '--project', 'packages/core/tsconfig.json', '--emitDeclarationOnly', '--noEmit', 'false'],
     { stdio: 'inherit', encoding: 'utf-8' },
   );
+  // Fix broken monorepo-relative paths in declaration entry points
+  await fixCoreDeclarations();
   console.log('Done: packages/core/dist/index.js');
 
   console.log('Build complete.');

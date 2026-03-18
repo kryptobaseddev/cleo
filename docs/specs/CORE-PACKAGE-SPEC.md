@@ -1,8 +1,8 @@
 # @cleocode/core Package Specification
 
-**Version**: 2026.3.17
+**Version**: 2026.3.18
 **Status**: APPROVED
-**Date**: 2026-03-17
+**Date**: 2026-03-18
 **Task**: T5714
 **Epic**: T5701
 
@@ -31,8 +31,8 @@ This specification defines the public contract for `@cleocode/core`, the standal
 | Package name | `@cleocode/core` |
 | Registry | npm (`@cleocode` scope) |
 | Version scheme | CalVer (`YYYY.MM.PATCH`) |
-| Entry point | `dist/core/index.js` (compiled from `src/core/index.ts`) |
-| Type declarations | `dist/core/index.d.ts` |
+| Entry point | `dist/index.js` (compiled from `src/core/index.ts`) |
+| Type declarations | `dist/index.d.ts` |
 | Module format | ES modules (`"type": "module"`) |
 | Minimum Node.js | 24 |
 | License | MIT |
@@ -44,22 +44,29 @@ This specification defines the public contract for `@cleocode/core`, the standal
   "name": "@cleocode/core",
   "version": "2026.3.0",
   "type": "module",
-  "main": "dist/core/index.js",
-  "types": "dist/core/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/core/index.js",
-      "types": "./dist/core/index.d.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
-  "peerDependencies": {
-    "@cleocode/contracts": ">=2026.3.0",
-    "@cleocode/caamp": ">=1.6.0",
-    "@cleocode/lafs-protocol": ">=1.0.0"
-  },
   "dependencies": {
-    "drizzle-orm": ">=1.0.0",
-    "better-sqlite3": ">=9.0.0"
+    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/contracts": "*",
+    "@cleocode/lafs-protocol": "^1.7.0",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "drizzle-orm": "1.0.0-beta.15-859cf75",
+    "env-paths": "^4.0.0",
+    "pino": "^10.3.1",
+    "pino-roll": "^4.0.0",
+    "proper-lockfile": "^4.1.2",
+    "sql.js": "^1.14.0",
+    "write-file-atomic": "^6.0.0",
+    "yaml": "^2.8.2",
+    "zod": "^3.24.0"
   }
 }
 ```
@@ -158,30 +165,36 @@ The following symbols are exported directly from the barrel (no namespace requir
 
 ## 4. Dependencies
 
-### 4.1 Peer Dependencies
+### 4.1 Dependencies
 
-Peer dependencies are required at runtime but not bundled with `@cleocode/core`.
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@cleocode/contracts` | `>=2026.3.0` | Type-only adapter interfaces, `ExitCode` enum, config types |
-| `@cleocode/caamp` | `>=1.6.0` | Provider capability API, spawn coordination |
-| `@cleocode/lafs-protocol` | `>=1.0.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+`@cleocode/contracts`, `@cleocode/caamp`, and `@cleocode/lafs-protocol` are bundled as direct dependencies (not peers) for workspace simplicity. Consumers installing `@cleocode/core` from npm receive all three automatically.
 
 ### 4.2 Runtime Dependencies
 
-These are bundled or declared as dependencies (not peers).
-
-| Package | Purpose |
-|---------|---------|
-| `drizzle-orm` | ORM for lifecycle and brain SQLite tables |
-| `better-sqlite3` | SQLite driver (used by lifecycle, brain, nexus modules) |
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@cleocode/caamp` | `^1.7.0` | Provider capability API, spawn coordination |
+| `@cleocode/contracts` | `*` | Type-only adapter interfaces, `ExitCode` enum, config types |
+| `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+| `ajv` | `^8.18.0` | JSON Schema validation |
+| `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
+| `drizzle-orm` | `1.0.0-beta.15-859cf75` | ORM for lifecycle, brain, and nexus SQLite tables (beta version) |
+| `env-paths` | `^4.0.0` | Platform-appropriate config/data paths |
+| `pino` | `^10.3.1` | Structured logger |
+| `pino-roll` | `^4.0.0` | Rolling log file transport |
+| `proper-lockfile` | `^4.1.2` | File locking for atomic writes |
+| `sql.js` | `^1.14.0` | SQLite driver (WebAssembly, used by lifecycle, brain, nexus modules) |
+| `write-file-atomic` | `^6.0.0` | Atomic file write operations |
+| `yaml` | `^2.8.2` | YAML parsing and serialization |
+| `zod` | `^3.24.0` | Runtime validation schemas (used via drizzle-orm Zod integration) |
 
 ### 4.3 Dependency Notes
 
-- `drizzle-orm` and `better-sqlite3` are used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
+- `drizzle-orm` is at a beta version (`1.0.0-beta.15-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`.
+- `sql.js` (WebAssembly SQLite) is used instead of `better-sqlite3` to avoid native compilation requirements. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
 - `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
 - `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `src/core/output.ts`.
+- `zod` is used for drizzle-orm Zod validation schemas (`createInsertSchema`/`createSelectSchema` from `drizzle-orm/zod`).
 
 ---
 
