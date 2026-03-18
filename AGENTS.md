@@ -128,7 +128,7 @@ MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ �
         ├── @cleocode/contracts (types)
         ├── @cleocode/caamp (providers)
         ├── @cleocode/lafs-protocol (envelopes)
-        ├── drizzle-orm + sql.js (bundled SQLite)
+        ├── drizzle-orm + node:sqlite (Node.js 24+ built-in SQLite)
         └── 38+ domain modules (tasks, sessions, memory, etc.)
 ```
 

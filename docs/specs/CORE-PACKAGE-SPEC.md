@@ -63,7 +63,6 @@ This specification defines the public contract for `@cleocode/core`, the standal
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
-    "sql.js": "^1.14.0",
     "write-file-atomic": "^6.0.0",
     "yaml": "^2.8.2",
     "zod": "^3.24.0"
@@ -183,7 +182,6 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `pino` | `^10.3.1` | Structured logger |
 | `pino-roll` | `^4.0.0` | Rolling log file transport |
 | `proper-lockfile` | `^4.1.2` | File locking for atomic writes |
-| `sql.js` | `^1.14.0` | SQLite driver (WebAssembly, used by lifecycle, brain, nexus modules) |
 | `write-file-atomic` | `^6.0.0` | Atomic file write operations |
 | `yaml` | `^2.8.2` | YAML parsing and serialization |
 | `zod` | `^3.24.0` | Runtime validation schemas (used via drizzle-orm Zod integration) |
@@ -191,7 +189,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 ### 4.3 Dependency Notes
 
 - `drizzle-orm` is at a beta version (`1.0.0-beta.15-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`.
-- `sql.js` (WebAssembly SQLite) is used instead of `better-sqlite3` to avoid native compilation requirements. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
+- SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/sqlite-proxy`. This is zero-dependency — no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
 - `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
 - `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `src/core/output.ts`.
 - `zod` is used for drizzle-orm Zod validation schemas (`createInsertSchema`/`createSelectSchema` from `drizzle-orm/zod`).
