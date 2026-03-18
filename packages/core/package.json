@@ -1,0 +1,43 @@
+{
+  "name": "@cleocode/core",
+  "version": "2.0.0",
+  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/lafs-protocol": "^1.7.0",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
+    "env-paths": "^4.0.0",
+    "pino": "^10.3.1",
+    "pino-roll": "^4.0.0",
+    "proper-lockfile": "^4.1.2",
+    "write-file-atomic": "^6.0.0",
+    "yaml": "^2.8.2"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
