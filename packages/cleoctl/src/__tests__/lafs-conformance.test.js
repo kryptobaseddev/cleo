@@ -329,7 +329,7 @@ describe('LAFS Integration with Core Modules', () => {
         await env.cleanup();
     });
     it('addTask result produces valid full LAFS envelope (no operation)', async () => {
-        const { addTask } = await import('../tasks/add.js');
+        const { addTask } = await import('../../../core/src/tasks/add.js');
         const result = await addTask({ title: 'New task', description: 'LAFS conformance test task' }, env.tempDir, accessor);
         const json = formatSuccess({ task: result.task });
         expect(isValidLafsEnvelope(json).valid).toBe(true);
@@ -338,7 +338,7 @@ describe('LAFS Integration with Core Modules', () => {
         expect(validation.valid).toBe(true);
     });
     it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
-        const { addTask } = await import('../tasks/add.js');
+        const { addTask } = await import('../../../core/src/tasks/add.js');
         const result = await addTask({ title: 'Full LAFS task', description: 'LAFS envelope with explicit operation' }, env.tempDir, accessor);
         const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
         const envelope = JSON.parse(json);
@@ -346,13 +346,13 @@ describe('LAFS Integration with Core Modules', () => {
         expect(validation.valid).toBe(true);
     });
     it('listPhases result produces valid LAFS', async () => {
-        const { listPhases } = await import('../phases/index.js');
+        const { listPhases } = await import('../../../core/src/phases/index.js');
         const result = await listPhases(env.tempDir, accessor);
         const json = formatSuccess(result);
         expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
     it('error from showTask produces valid LAFS', async () => {
-        const { showTask } = await import('../tasks/show.js');
+        const { showTask } = await import('../../../core/src/tasks/show.js');
         try {
             await showTask('T999', env.tempDir, accessor);
         }

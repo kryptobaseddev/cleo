@@ -4,3 +4,6 @@ dist/
 .pnpm-debug.log
 coverage/
 .test-*
+.cleo/tasks.db*
+.cleo/brain.db*
+.cleo/logs/

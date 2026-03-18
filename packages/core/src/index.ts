@@ -211,6 +211,17 @@ export {
 } from './memory/brain-retrieval.js';
 export { searchBrain } from './memory/brain-search.js';
 
+// Migration (flat re-exports for backward compatibility)
+export {
+  compareSemver,
+  detectVersion,
+  getMigrationStatus,
+  runAllMigrations,
+  runMigration,
+} from './migration/index.js';
+export { checkStorageMigration } from './system/storage-preflight.js';
+export { getMigrationStatus as getSystemMigrationStatus } from './system/migrate.js';
+
 // Reconciliation
 export { reconcile } from './reconciliation/index.js';
 

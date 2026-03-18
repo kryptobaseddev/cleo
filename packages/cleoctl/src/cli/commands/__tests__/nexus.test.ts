@@ -229,8 +229,8 @@ describe('nexus status (core integration)', () => {
     await nexusRegister(projectDirA, 'alpha', 'read');
     await nexusRegister(projectDirB, 'beta', 'write');
 
-    const { readRegistry } = await import('@cleocode/core/internal');
-    const registry = await readRegistry();
+    const { nexusReadRegistry } = await import('@cleocode/core/internal');
+    const registry = await nexusReadRegistry();
     expect(registry).not.toBeNull();
     expect(Object.keys(registry!.projects)).toHaveLength(2);
     expect(registry!.schemaVersion).toBe('1.0.0');

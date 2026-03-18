@@ -8,9 +8,48 @@ importers:
 
   .:
     dependencies:
+      '@cleocode/caamp':
+        specifier: ^1.7.0
+        version: 1.7.0
+      '@cleocode/lafs-protocol':
+        specifier: ^1.7.0
+        version: 1.7.0
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.27.1
+        version: 1.27.1(zod@3.25.76)
+      ajv:
+        specifier: ^8.18.0
+        version: 8.18.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.18.0)
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
+      drizzle-orm:
+        specifier: 1.0.0-beta.18-7eb39f0
+        version: 1.0.0-beta.18-7eb39f0(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76)
+      env-paths:
+        specifier: ^4.0.0
+        version: 4.0.0
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      pino-roll:
+        specifier: ^4.0.0
+        version: 4.0.0
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
+      write-file-atomic:
+        specifier: ^6.0.0
+        version: 6.0.0
+      yaml:
+        specifier: ^2.8.2
+        version: 2.8.2
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -70,6 +109,18 @@ importers:
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      pino-roll:
+        specifier: ^4.0.0
+        version: 4.0.0
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
+      write-file-atomic:
+        specifier: ^6.0.0
+        version: 6.0.0
 
   packages/contracts: {}
 

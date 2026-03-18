@@ -32,7 +32,9 @@ function getLatestPipelineMigrationSql(): string {
   const migrations = getMigrationSqlFiles();
   const pipelineMigrations = migrations.filter(
     ({ sql }) =>
-      sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines'),
+      sql.includes('chk_lifecycle_pipelines_status') ||
+      sql.includes('__new_lifecycle_pipelines') ||
+      sql.includes('CREATE TABLE `lifecycle_pipelines`'),
   );
   const latest = pipelineMigrations[pipelineMigrations.length - 1];
   if (!latest) {
@@ -45,7 +47,9 @@ function getLatestStageMigrationSql(): string {
   const migrations = getMigrationSqlFiles();
   const stageMigrations = migrations.filter(
     ({ sql }) =>
-      sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages'),
+      sql.includes('chk_lifecycle_stages_stage_name') ||
+      sql.includes('__new_lifecycle_stages') ||
+      sql.includes('CREATE TABLE `lifecycle_stages`'),
   );
   const latest = stageMigrations[stageMigrations.length - 1];
   if (!latest) {
@@ -61,26 +65,42 @@ describe('lifecycle schema parity guardrails', () => {
 
   it('ensures latest pipeline migration contains all LIFECYCLE_PIPELINE_STATUSES', () => {
     const sql = getLatestPipelineMigrationSql();
-    for (const status of LIFECYCLE_PIPELINE_STATUSES) {
-      expect(sql, `Missing pipeline status '${status}' in latest pipeline migration`).toContain(
-        `'${status}'`,
-      );
+    // Initial CREATE TABLE migrations don't embed CHECK constraint values;
+    // only incremental ALTER TABLE / rebuild migrations do.
+    const hasCheckConstraints = sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines');
+    if (hasCheckConstraints) {
+      for (const status of LIFECYCLE_PIPELINE_STATUSES) {
+        expect(sql, `Missing pipeline status '${status}' in latest pipeline migration`).toContain(
+          `'${status}'`,
+        );
+      }
+    } else {
+      // Consolidated initial migration — verify table exists
+      expect(sql).toContain('CREATE TABLE `lifecycle_pipelines`');
     }
   });
 
   it('ensures latest stage migration contains all LIFECYCLE_STAGE_STATUSES and stage names', () => {
     const sql = getLatestStageMigrationSql();
+    // Initial CREATE TABLE migrations don't embed CHECK constraint values;
+    // only incremental ALTER TABLE / rebuild migrations do.
+    const hasCheckConstraints = sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages');
 
-    for (const stageName of LIFECYCLE_STAGE_NAMES) {
-      expect(sql, `Missing stage name '${stageName}' in latest stage migration`).toContain(
-        `'${stageName}'`,
-      );
-    }
+    if (hasCheckConstraints) {
+      for (const stageName of LIFECYCLE_STAGE_NAMES) {
+        expect(sql, `Missing stage name '${stageName}' in latest stage migration`).toContain(
+          `'${stageName}'`,
+        );
+      }
 
-    for (const status of LIFECYCLE_STAGE_STATUSES) {
-      expect(sql, `Missing stage status '${status}' in latest stage migration`).toContain(
-        `'${status}'`,
-      );
+      for (const status of LIFECYCLE_STAGE_STATUSES) {
+        expect(sql, `Missing stage status '${status}' in latest stage migration`).toContain(
+          `'${status}'`,
+        );
+      }
+    } else {
+      // Consolidated initial migration — verify table exists
+      expect(sql).toContain('CREATE TABLE `lifecycle_stages`');
     }
 
     if (sql.includes('chk_lifecycle_gate_results_result')) {

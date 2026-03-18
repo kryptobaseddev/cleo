@@ -1,0 +1,39 @@
+# .cleo/.gitignore — Deny-by-default for CLEO project data
+# Ignore everything, then explicitly allow only tracked files.
+
+# Step 1: Ignore everything
+*
+
+# Allow list
+!.gitignore
+!config.json
+!project-context.json
+!project-info.json
+!setup-otel.sh
+!DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
+!adrs/
+!adrs/**
+!rcasd/
+!rcasd/**
+!agent-outputs/
+!agent-outputs/**
+
+# Explicit deny safety net
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+log.json
+bypass-log.json
+qa-log.json
+.deps-cache/
+.context-alert-state.json
+.context-state*.json
+context-states/
+.git-checkpoint-state
+.migration-state.json
+migrations.json
+sync/
+metrics/
+.backups/
+backups/

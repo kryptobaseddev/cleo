@@ -152,11 +152,11 @@ export { generateProjectHash } from './nexus/hash.js';
 
 /**
  * Resolve the package root directory (where schemas/ and templates/ live).
- * scaffold.ts lives in src/core/, so 2 levels up reaches the package root.
+ * scaffold.ts lives in packages/core/src/, so 1 level up reaches the package root.
  */
 export function getPackageRoot(): string {
   const thisFile = fileURLToPath(import.meta.url);
-  return resolve(dirname(thisFile), '..', '..');
+  return resolve(dirname(thisFile), '..');
 }
 
 /**

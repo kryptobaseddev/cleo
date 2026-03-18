@@ -39,7 +39,7 @@ describe('Import Graph Verification (T4796)', () => {
     // orchestrate-engine.ts deleted — moved to src/dispatch/engines/orchestrate-engine.ts (T5108)
     // validate-engine.ts deleted — moved to src/dispatch/engines/validate-engine.ts (T5109-T5111)
     ];
-    const ENGINE_DIR = join(process.cwd(), 'src', 'mcp', 'engine');
+    const ENGINE_DIR = join(process.cwd(), 'packages', 'cleoctl', 'src', 'mcp', 'engine');
     for (const file of ENGINE_FILES) {
         describe(`${file}`, () => {
             it('imports from @cleocode/core or ../../store/', async () => {
@@ -74,7 +74,7 @@ describe('Import Graph Verification (T4796)', () => {
     it('task-engine.ts imports core CRUD functions via @cleocode/core', async () => {
         // task-engine.ts moved to src/dispatch/engines/task-engine.ts (T5100)
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'task-engine.ts'), 'utf-8');
         // Core task functions are now imported via @cleocode/core (T5718)
         expect(content).toContain("from '@cleocode/core'");
@@ -89,7 +89,7 @@ describe('Import Graph Verification (T4796)', () => {
     });
     it('dispatch session-engine.ts imports core session/task-work functions via @cleocode/core', async () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'session-engine.ts'), 'utf-8');
         expect(content).toContain("from '@cleocode/core'");
         // Verify session and task-work functions are present
@@ -102,7 +102,7 @@ describe('Import Graph Verification (T4796)', () => {
     it('lifecycle-engine.ts imports core lifecycle functions via @cleocode/core', async () => {
         // lifecycle-engine.ts moved to src/dispatch/engines/lifecycle-engine.ts
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'lifecycle-engine.ts'), 'utf-8');
         expect(content).toContain("from '@cleocode/core'");
         expect(content).toContain('getLifecycleStatus');
@@ -110,7 +110,7 @@ describe('Import Graph Verification (T4796)', () => {
     });
     it('validate-engine.ts imports core validation functions via @cleocode/core', async () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'validate-engine.ts'), 'utf-8');
         expect(content).toContain("from '@cleocode/core'");
         expect(content).toContain('coreValidateSchema');
@@ -118,7 +118,7 @@ describe('Import Graph Verification (T4796)', () => {
     });
     it('system-engine.ts imports core system functions via @cleocode/core', async () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'system-engine.ts'), 'utf-8');
         expect(content).toContain("from '@cleocode/core'");
         expect(content).toContain('getProjectStats');
@@ -126,7 +126,7 @@ describe('Import Graph Verification (T4796)', () => {
     });
     it('orchestrate-engine.ts imports core orchestration functions via @cleocode/core', async () => {
         // T5718: imports rewired from relative ../../core/ to @cleocode/core
-        const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
+        const dispatchEngineDir = join(process.cwd(), 'packages', 'cleoctl', 'src', 'dispatch', 'engines');
         const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
         expect(content).toContain("from '@cleocode/core'");
         expect(content).toContain('analyzeEpic');

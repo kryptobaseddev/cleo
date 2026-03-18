@@ -1,0 +1,24 @@
+{
+  "version": "2.10.0",
+  "output": {
+    "defaultFormat": "json",
+    "showColor": true,
+    "showUnicode": true,
+    "dateFormat": "relative"
+  },
+  "backup": {
+    "maxOperationalBackups": 10,
+    "maxSafetyBackups": 5
+  },
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 0
+  },
+  "session": {
+    "autoStart": false,
+    "multiSession": false
+  },
+  "lifecycle": {
+    "mode": "strict"
+  }
+}

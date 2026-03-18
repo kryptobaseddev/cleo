@@ -22,22 +22,25 @@ const isWatch = process.argv.includes('--watch');
 // ---------------------------------------------------------------------------
 // Shared externals — these are NOT bundled, consumers install them separately
 // ---------------------------------------------------------------------------
+// ALL npm dependencies are external — only @cleocode/* workspace packages are bundled inline.
+// This matches the old repo pattern: npm deps are imported at runtime from node_modules.
 const sharedExternals = [
-  '@cleocode/caamp',
-  '@cleocode/lafs-protocol',
-  'drizzle-orm',
-  'pino',
-  'pino-roll',
-  'commander',
-  '@modelcontextprotocol/sdk',
   'proper-lockfile',
   'write-file-atomic',
+  '@modelcontextprotocol/sdk',
+  'commander',
+  'pino',
+  'pino-roll',
+  'pino-pretty',
+  'drizzle-orm',
   'ajv',
   'ajv-formats',
   'env-paths',
   'yaml',
   'zod',
   'js-tiktoken',
+  '@cleocode/caamp',
+  '@cleocode/lafs-protocol',
 ];
 
 // ---------------------------------------------------------------------------
@@ -45,6 +48,7 @@ const sharedExternals = [
 // externalizes everything else.
 // ---------------------------------------------------------------------------
 function workspacePlugin(name, inlineMap) {
+  const externalSet = new Set(sharedExternals);
   return {
     name,
     setup(build) {
@@ -52,14 +56,17 @@ function workspacePlugin(name, inlineMap) {
       build.onResolve({ filter: /^@cleocode\// }, (args) => {
         const mapped = inlineMap[args.path];
         if (mapped) return { path: mapped };
-        // Not in inline map → external
+        // Unmapped @cleocode/* → external (e.g. @cleocode/caamp, @cleocode/lafs-protocol)
         return { path: args.path, external: true };
       });
 
-      // Mark all other bare-specifier imports as external
+      // Only externalize packages in the sharedExternals list
+      // Everything else gets bundled (pino, drizzle-orm, commander, etc.)
       build.onResolve({ filter: /^[a-zA-Z@]/ }, (args) => {
         if (args.path.startsWith('@cleocode/')) return undefined;
-        return { path: args.path, external: true };
+        if (externalSet.has(args.path)) return { path: args.path, external: true };
+        // Bundle it
+        return undefined;
       });
     },
   };

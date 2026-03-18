@@ -35,7 +35,10 @@ export function getGitignoreTemplate(): string {
   try {
     const thisFile = fileURLToPath(import.meta.url);
     const packageRoot = join(thisFile, '..', '..', '..', '..');
-    const templatePath = join(packageRoot, 'templates', 'cleo-gitignore');
+    // Try package-local templates first, then monorepo root
+    const localTemplatePath = join(packageRoot, 'templates', 'cleo-gitignore');
+    const monorepoTemplatePath = join(packageRoot, '..', '..', 'templates', 'cleo-gitignore');
+    const templatePath = existsSync(localTemplatePath) ? localTemplatePath : monorepoTemplatePath;
 
     if (existsSync(templatePath)) {
       return readFileSync(templatePath, 'utf-8');
