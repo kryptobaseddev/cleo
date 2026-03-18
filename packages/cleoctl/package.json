@@ -18,12 +18,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cleocode/core": "workspace:*",
-    "@cleocode/contracts": "workspace:*",
     "@cleocode/caamp": "^1.7.0",
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
     "@cleocode/lafs-protocol": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "commander": "^12.1.0",
+    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
     "js-tiktoken": "^1.0.21"
   },
   "engines": {

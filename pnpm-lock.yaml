@@ -48,6 +48,9 @@ importers:
       commander:
         specifier: ^12.1.0
         version: 12.1.0
+      drizzle-orm:
+        specifier: 1.0.0-beta.18-7eb39f0
+        version: 1.0.0-beta.18-7eb39f0(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76)
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
