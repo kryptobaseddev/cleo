@@ -48,28 +48,6 @@ export interface ComplianceEntry {
   agent?: string;
 }
 
-/** Task-like record used across validation operations. */
-interface TaskRecord {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  type?: string;
-  phase?: string;
-  createdAt: string;
-  updatedAt: string | null;
-  completedAt?: string | null;
-  cancelledAt?: string | null;
-  parentId?: string | null;
-  depends?: string[];
-  relates?: Array<{ taskId: string; type: string; reason?: string }>;
-  files?: string[];
-  acceptance?: string[];
-  notes?: string[];
-  labels?: string[];
-  [key: string]: unknown;
-}
 
 /** Coherence issue found during graph validation. */
 export interface CoherenceIssue {
@@ -479,14 +457,14 @@ export async function coreValidateTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
-  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
+  const taskData = await accessor.loadTaskFile();
+  const archiveData = await accessor.loadArchive();
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
-  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
+  const allTasks: Task[] = [...(taskData.tasks || []), ...(archiveData?.archivedTasks || [])];
 
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
@@ -496,18 +474,18 @@ export async function coreValidateTask(
   const violations: RuleViolation[] = [];
 
   violations.push(...validateTitleDescription(task.title, task.description));
-  violations.push(...validateTimestamps(task as any));
+  violations.push(...validateTimestamps(task));
 
   const allIds = new Set(allTasks.map((t) => t.id));
   violations.push(...validateIdUniqueness(task.id, allIds));
 
-  const allDescriptions = allTasks.filter((t) => t.id !== task.id).map((t) => t.description);
-  violations.push(...validateNoDuplicateDescription(task.description, allDescriptions));
+  const allDescriptions = allTasks.filter((t) => t.id !== task.id).map((t) => t.description ?? '');
+  violations.push(...validateNoDuplicateDescription(task.description ?? '', allDescriptions));
 
   if (task.parentId) {
     const parent = allTasks.find((t) => t.id === task.parentId);
     if (parent) {
-      violations.push(...validateHierarchy(task.parentId, allTasks as any));
+      violations.push(...validateHierarchy(task.parentId, allTasks));
     }
   }
 
@@ -543,7 +521,7 @@ export async function coreValidateProtocol(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile();
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
@@ -845,7 +823,7 @@ export function coreComplianceRecord(
   taskId: string,
   result: string,
   protocol: string | undefined,
-  violations: Array<{ code: string; message: string; severity: string }> | undefined,
+  violations: Array<{ code: string; message: string; severity: 'error' | 'warning' }> | undefined,
   projectRoot: string,
 ): { recorded: boolean; taskId: string; result: string; protocol: string } {
   if (!taskId || !result) {
@@ -869,7 +847,7 @@ export function coreComplianceRecord(
     taskId,
     protocol: protocol || 'generic',
     result: result as 'pass' | 'fail' | 'partial',
-    violations: violations as any,
+    violations,
     linkedTask: taskId,
   };
 
@@ -927,7 +905,7 @@ export async function coreCoherenceCheck(
   projectRoot: string,
 ): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile();
 
   if (!taskData || !taskData.tasks) {
     throw new Error('No task data found (SQLite store unavailable)');
@@ -958,7 +936,7 @@ export async function coreCoherenceCheck(
   const reportedCycles = new Set<string>();
   for (const task of tasks) {
     if (task.depends && task.depends.length > 0) {
-      const cycle = detectCircularDeps(task.id, tasks as unknown as Task[]);
+      const cycle = detectCircularDeps(task.id, tasks);
       if (cycle.length > 0) {
         const cycleKey = [...cycle].sort().join(',');
         if (!reportedCycles.has(cycleKey)) {
@@ -1169,14 +1147,14 @@ export async function coreBatchValidate(projectRoot: string): Promise<{
   }>;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile();
 
   if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
-  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
-  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
+  const archiveData = await accessor.loadArchive();
+  const allTasks: Task[] = [...(taskData.tasks || []), ...(archiveData?.archivedTasks || [])];
 
   const results: Array<{
     taskId: string;
@@ -1189,22 +1167,22 @@ export async function coreBatchValidate(projectRoot: string): Promise<{
   let totalErrors = 0;
   let totalWarnings = 0;
   const allIds = new Set(allTasks.map((t) => t.id));
-  const allDescriptions = allTasks.map((t) => t.description);
+  const allDescriptions = allTasks.map((t) => t.description ?? '');
 
   for (const task of allTasks) {
     const violations: RuleViolation[] = [];
 
     violations.push(...validateTitleDescription(task.title, task.description));
-    violations.push(...validateTimestamps(task as any));
+    violations.push(...validateTimestamps(task));
     violations.push(...validateIdUniqueness(task.id, allIds));
 
     const otherDescs = allDescriptions.filter((_, i) => allTasks[i]!.id !== task.id);
-    violations.push(...validateNoDuplicateDescription(task.description, otherDescs));
+    violations.push(...validateNoDuplicateDescription(task.description ?? "", otherDescs));
 
     if (task.parentId) {
       const parent = allTasks.find((t) => t.id === task.parentId);
       if (parent) {
-        violations.push(...validateHierarchy(task.parentId, allTasks as any));
+        violations.push(...validateHierarchy(task.parentId, allTasks));
       }
     }
 

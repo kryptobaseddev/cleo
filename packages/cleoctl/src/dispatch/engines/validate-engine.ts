@@ -157,7 +157,7 @@ export function validateComplianceRecord(
   taskId: string,
   result: string,
   protocol?: string,
-  violations?: Array<{ code: string; message: string; severity: string }>,
+  violations?: Array<{ code: string; message: string; severity: 'warning' | 'error' }>,
   projectRoot?: string,
 ): EngineResult {
   try {

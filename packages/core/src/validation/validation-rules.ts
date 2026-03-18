@@ -29,9 +29,9 @@ interface TaskLike {
   description?: string;
   status?: string;
   createdAt?: string;
-  updatedAt?: string;
-  completedAt?: string;
-  cancelledAt?: string;
+  updatedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
   parentId?: string | null;
   type?: string;
 }
@@ -82,7 +82,7 @@ export function validateTimestamps(task: TaskLike): RuleViolation[] {
   // Allow 5 minutes of clock skew
   const threshold = new Date(now.getTime() + 5 * 60 * 1000);
 
-  const timestampFields: Array<[string, string | undefined]> = [
+  const timestampFields: Array<[string, string | null | undefined]> = [
     ['createdAt', task.createdAt],
     ['updatedAt', task.updatedAt],
     ['completedAt', task.completedAt],

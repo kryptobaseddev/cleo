@@ -349,7 +349,7 @@ export class CheckHandler implements DomainHandler {
             result,
             params?.protocol as string | undefined,
             params?.violations as
-              | Array<{ code: string; message: string; severity: string }>
+              | Array<{ code: string; message: string; severity: 'error' | 'warning' }>
               | undefined,
             this.projectRoot,
           );
