@@ -15,7 +15,7 @@ describe('initLogger', () => {
   }
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -87,8 +87,8 @@ describe('initLogger', () => {
     expect(bindings).not.toHaveProperty('projectHash');
   });
 
-  it('getLogger returns fallback stderr logger before init', () => {
-    closeLogger();
+  it('getLogger returns fallback stderr logger before init', async () => {
+    await closeLogger();
     const fallback = getLogger('pre-init');
 
     expect(fallback).toBeDefined();

@@ -276,10 +276,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
-    // Wait for pino worker thread to flush — pino.transport() writes async;
-    // deleting the log dir before it finishes throws an unhandled ENOENT.
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -478,10 +475,7 @@ describe('Session Engine Delegation (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
-    // Wait for pino worker thread to flush — pino.transport() writes async;
-    // deleting the log dir before it finishes throws an unhandled ENOENT.
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -609,10 +603,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   });
 
   afterEach(async () => {
-    closeLogger();
-    // Wait for pino worker thread to flush — pino.transport() writes async;
-    // deleting the log dir before it finishes throws an unhandled ENOENT.
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');

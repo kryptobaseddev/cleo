@@ -24,14 +24,14 @@ describe('MCP startup logging (T5310)', () => {
   }
 
   afterEach(async () => {
-    closeLogger();
+    await closeLogger();
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   });
 
-  it('getLogger returns fallback before initLogger is called', () => {
-    closeLogger();
+  it('getLogger returns fallback before initLogger is called', async () => {
+    await closeLogger();
     const pre = getLogger('mcp:startup');
     expect(pre).toBeDefined();
     // Fallback logger is at warn level

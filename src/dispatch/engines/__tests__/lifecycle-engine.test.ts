@@ -45,9 +45,7 @@ describe('Lifecycle Engine', () => {
 
   afterEach(async () => {
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
-    closeLogger();
-    // Wait for pino worker thread to flush before deleting the log directory.
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await closeLogger();
     closeDb();
     resetDbState();
     if (existsSync(TEST_ROOT)) {
