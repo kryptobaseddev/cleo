@@ -11,8 +11,7 @@
  * @task T5671
  */
 
-import { getLogger } from '../../core/logger.js';
-import { getProjectRoot } from '../../core/paths.js';
+import { getLogger, getProjectRoot } from '@cleocode/core';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
   sessionBriefing,

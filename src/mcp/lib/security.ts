@@ -9,7 +9,7 @@
  */
 
 import { isAbsolute, normalize, relative, resolve } from 'path';
-import { normalizeTaskId } from '../../core/tasks/id-generator.js';
+import { normalizeTaskId } from '@cleocode/core';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,

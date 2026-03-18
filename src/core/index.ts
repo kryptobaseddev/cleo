@@ -277,3 +277,571 @@ export {
 // Upgrade
 export type { UpgradeAction, UpgradeResult } from './upgrade.js';
 export { runUpgrade } from './upgrade.js';
+
+// ---------------------------------------------------------------------------
+// Flat re-exports for dispatch layer (T5718)
+// These are in addition to the namespace re-exports above, allowing
+// dispatch engines to use: import { addTask } from '@cleocode/core'
+// ---------------------------------------------------------------------------
+
+// Adapters
+export { AdapterManager } from './adapters/index.js';
+
+// Admin submodules (sync not in admin/index.ts)
+export { exportTasks } from './admin/export.js';
+export { exportTasksPackage } from './admin/export-tasks.js';
+export { computeHelp } from './admin/help.js';
+export { importTasks } from './admin/import.js';
+export { importTasksPackage } from './admin/import-tasks.js';
+export { clearSyncState, getSyncStatus } from './admin/sync.js';
+
+// ADRs
+export {
+  findAdrs,
+  listAdrs,
+  showAdr,
+  syncAdrsToDb,
+  validateAllAdrs,
+} from './adrs/index.js';
+
+// Compliance (protocol enforcement)
+export { ProtocolEnforcer, ProtocolType, protocolEnforcer } from './compliance/protocol-enforcement.js';
+export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
+
+// Compliance (protocol rules)
+export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
+export type {
+  ProtocolRule,
+  ProtocolValidationResult,
+  ProtocolViolation,
+  RequirementLevel,
+  ViolationSeverity,
+} from './compliance/protocol-rules.js';
+
+// Hooks singleton and registry
+export { HookRegistry, hooks } from './hooks/registry.js';
+
+// Hooks types
+export type { HookEvent, ProviderHookEvent } from './hooks/types.js';
+export { isProviderHookEvent } from './hooks/types.js';
+
+// Issue diagnostics
+export { collectDiagnostics } from './issue/diagnostics.js';
+
+// Lifecycle (flat re-exports alongside namespace)
+export {
+  checkGate,
+  checkStagePrerequisites,
+  failGate,
+  getLifecycleGates,
+  getLifecycleHistory,
+  getLifecycleStatus,
+  getStagePrerequisites,
+  listEpicsWithLifecycle,
+  passGate,
+  recordStageProgress,
+  resetStage,
+  skipStageWithReason,
+} from './lifecycle/index.js';
+
+// Lifecycle chain-store
+export {
+  addChain,
+  advanceInstance,
+  createInstance,
+  listChains,
+  showChain,
+} from './lifecycle/chain-store.js';
+
+// Lifecycle tessera-engine
+export {
+  instantiateTessera,
+  listTesseraTemplates,
+  showTessera,
+} from './lifecycle/tessera-engine.js';
+
+// Memory engine-compat (memory ops via engine layer)
+export {
+  memoryBrainStats,
+  memoryContradictions,
+  memoryDecisionFind,
+  memoryDecisionStore,
+  memoryFetch,
+  memoryFind,
+  memoryGraphAdd,
+  memoryGraphNeighbors,
+  memoryGraphRemove,
+  memoryGraphShow,
+  memoryLearningFind,
+  memoryLearningStats,
+  memoryLearningStore,
+  memoryLink,
+  memoryObserve,
+  memoryPatternFind,
+  memoryPatternStats,
+  memoryPatternStore,
+  memoryReasonSimilar,
+  memoryReasonWhy,
+  memorySearchHybrid,
+  memoryShow,
+  memorySuperseded,
+  memoryTimeline,
+  memoryUnlink,
+} from './memory/engine-compat.js';
+
+// Memory pipeline manifest
+export type { ManifestEntry } from './memory/pipeline-manifest-sqlite.js';
+export {
+  filterEntries,
+  pipelineManifestAppend,
+  pipelineManifestArchive,
+  pipelineManifestFind,
+  pipelineManifestList,
+  pipelineManifestPending,
+  pipelineManifestShow,
+  pipelineManifestStats,
+  readManifestEntries,
+} from './memory/pipeline-manifest-sqlite.js';
+
+// Metrics token service
+export {
+  autoRecordDispatchTokenUsage,
+  clearTokenUsage,
+  deleteTokenUsage,
+  listTokenUsage,
+  recordTokenExchange,
+  showTokenUsage,
+  summarizeTokenUsage,
+} from './metrics/token-service.js';
+
+// Nexus submodules
+export {
+  blockingAnalysis,
+  buildGlobalGraph,
+  criticalPath,
+  nexusDeps,
+  orphanDetection,
+} from './nexus/deps.js';
+export { discoverRelated, searchAcrossProjects } from './nexus/discover.js';
+export { setPermission } from './nexus/permissions.js';
+export { resolveTask, validateSyntax } from './nexus/query.js';
+export type { NexusPermissionLevel } from './nexus/registry.js';
+export {
+  nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusReconcile,
+  nexusRegister,
+  nexusSync,
+  nexusSyncAll,
+  nexusUnregister,
+  readRegistry,
+} from './nexus/registry.js';
+export { getSharingStatus } from './nexus/sharing/index.js';
+
+// Orchestration submodules (flat re-exports alongside namespace)
+export { analyzeDependencies } from './orchestration/analyze.js';
+export { buildBrainState } from './orchestration/bootstrap.js';
+export { estimateContext } from './orchestration/context.js';
+export { getCriticalPath } from './orchestration/critical-path.js';
+export {
+  analyzeEpic,
+  getNextTask,
+  getReadyTasks,
+  prepareSpawn,
+} from './orchestration/index.js';
+export {
+  endParallelExecution,
+  getParallelStatus,
+  startParallelExecution,
+} from './orchestration/parallel.js';
+export { getSkillContent } from './orchestration/skill-ops.js';
+export {
+  computeEpicStatus,
+  computeOverallStatus,
+  computeProgress,
+  computeStartupSummary,
+} from './orchestration/status.js';
+export { getUnblockOpportunities } from './orchestration/unblock.js';
+export { validateSpawnReadiness } from './orchestration/validate-spawn.js';
+export { getEnrichedWaves } from './orchestration/waves.js';
+
+// Phases
+export {
+  type ListPhasesResult,
+  advancePhase,
+  completePhase,
+  deletePhase,
+  listPhases,
+  renamePhase,
+  setPhase,
+  showPhase,
+  startPhase,
+} from './phases/index.js';
+
+// Release submodules (flat re-exports alongside namespace)
+export {
+  channelToDistTag,
+  describeChannel,
+  resolveChannelFromBranch,
+} from './release/channel.js';
+export type { PRResult } from './release/github-pr.js';
+export {
+  buildPRBody,
+  createPullRequest,
+  isGhCliAvailable,
+} from './release/github-pr.js';
+export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
+export {
+  getGitFlowConfig,
+  getPushMode,
+  loadReleaseConfig,
+} from './release/release-config.js';
+export type { ReleaseListOptions, ReleaseTaskRecord } from './release/release-manifest.js';
+export {
+  cancelRelease,
+  commitRelease,
+  generateReleaseChangelog,
+  listManifestReleases,
+  markReleasePushed,
+  prepareRelease,
+  pushRelease,
+  rollbackRelease,
+  runReleaseGates,
+  showManifestRelease,
+  tagRelease,
+} from './release/release-manifest.js';
+export { bumpVersionFromConfig, getVersionBumpConfig } from './release/version-bump.js';
+
+// Roadmap
+export { getRoadmap } from './roadmap/index.js';
+
+// Routing
+export type {
+  CapabilityReport,
+  ExecutionMode,
+  GatewayType,
+  OperationCapability,
+  PreferredChannel,
+} from './routing/capability-matrix.js';
+export {
+  canRunNatively,
+  generateCapabilityReport,
+  getCapabilityMatrix,
+  getNativeOperations,
+  getOperationMode,
+  requiresCLI,
+} from './routing/capability-matrix.js';
+
+// Security input sanitization
+export type { RateLimitConfig, RateLimitResult } from './security/input-sanitization.js';
+export {
+  ALL_VALID_STATUSES,
+  DEFAULT_RATE_LIMITS,
+  RateLimiter,
+  SecurityError,
+  VALID_DOMAINS,
+  VALID_GATEWAYS,
+  VALID_LIFECYCLE_STAGE_STATUSES,
+  VALID_MANIFEST_STATUSES,
+  VALID_PRIORITIES,
+  ensureArray,
+  sanitizeContent,
+  sanitizeParams,
+  sanitizePath,
+  sanitizeTaskId,
+  validateEnum,
+} from './security/input-sanitization.js';
+
+// Sequence
+export { repairSequence } from './sequence/index.js';
+
+// Sessions submodules (flat alongside namespace)
+export {
+  archiveSessions,
+  cleanupSessions,
+  computeBriefing,
+  computeHandoff,
+  endSession,
+  findSessions,
+  gcSessions,
+  getContextDrift,
+  getDecisionLog,
+  getLastHandoff,
+  getSessionHistory,
+  getSessionStats,
+  listSessions,
+  parseScope,
+  persistHandoff,
+  readSessions,
+  recordAssumption,
+  recordDecision,
+  resumeSession,
+  saveSessions,
+  sessionStatus,
+  showSession,
+  startSession,
+  suspendSession,
+  switchSession,
+} from './sessions/index.js';
+export type { ContextInjectionData } from './sessions/context-inject.js';
+export { injectContext } from './sessions/context-inject.js';
+export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
+export type {
+  ComputeDebriefOptions,
+  DebriefData,
+  DebriefDecision,
+  HandoffData,
+} from './sessions/handoff.js';
+export { computeDebrief } from './sessions/handoff.js';
+export { generateSessionId } from './sessions/session-id.js';
+export type { DecisionRecord } from './sessions/types.js';
+export type { SessionBriefing } from './sessions/briefing.js';
+// Sessions context alert (session ID access)
+export { getCurrentSessionId } from './sessions/context-alert.js';
+
+// Snapshot
+export {
+  exportSnapshot,
+  getDefaultSnapshotPath,
+  importSnapshot,
+  readSnapshot,
+  writeSnapshot,
+} from './snapshot/index.js';
+
+// Stats
+export { getDashboard, getProjectStats } from './stats/index.js';
+
+// Sticky
+export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
+export {
+  addSticky,
+  archiveSticky,
+  convertStickyToMemory,
+  convertStickyToSessionNote,
+  convertStickyToTask,
+  convertStickyToTaskNote,
+  getSticky,
+  listStickies,
+  purgeSticky,
+} from './sticky/index.js';
+
+// System submodules (flat re-exports alongside namespace)
+export type { ArchiveStatsResult } from './system/archive-stats.js';
+export { getArchiveStats } from './system/archive-stats.js';
+export type { AuditResult } from './system/audit.js';
+export { auditData } from './system/audit.js';
+export type { BackupResult, RestoreResult } from './system/backup.js';
+export { createBackup, restoreBackup } from './system/backup.js';
+export type { CleanupResult } from './system/cleanup.js';
+export { cleanupSystem } from './system/cleanup.js';
+export type { DiagnosticsResult, HealthResult, StartupHealthResult } from './system/health.js';
+export { getSystemDiagnostics, getSystemHealth, startupHealthCheck } from './system/health.js';
+export type { InjectGenerateResult } from './system/inject-generate.js';
+export { generateInjection } from './system/inject-generate.js';
+export type { LabelsResult } from './system/labels.js';
+export { getLabels } from './system/labels.js';
+export type { SystemMetricsResult } from './system/metrics.js';
+export { getSystemMetrics } from './system/metrics.js';
+export type { MigrateResult } from './system/migrate.js';
+export { getMigrationStatus } from './system/migrate.js';
+export type { RuntimeDiagnostics } from './system/runtime.js';
+export { getRuntimeDiagnostics } from './system/runtime.js';
+export type { SafestopResult, UncancelResult } from './system/safestop.js';
+export { safestop, uncancelTask } from './system/safestop.js';
+
+// Task work
+export type { TaskWorkHistoryEntry } from './task-work/index.js';
+export { currentTask, getTaskHistory, startTask, stopTask } from './task-work/index.js';
+
+// Tasks submodules (flat re-exports alongside namespace)
+export { addTask } from './tasks/add.js';
+export { archiveTasks } from './tasks/archive.js';
+export { completeTask } from './tasks/complete.js';
+export { deleteTask } from './tasks/delete.js';
+export { findTasks } from './tasks/find.js';
+export type { CompactTask } from './tasks/list.js';
+export { listTasks, toCompact } from './tasks/list.js';
+export { showTask } from './tasks/show.js';
+export type {
+  ComplexityFactor,
+  TaskTreeNode,
+} from './tasks/task-ops.js';
+export {
+  coreTaskAnalyze,
+  coreTaskBatchValidate,
+  coreTaskBlockers,
+  coreTaskCancel,
+  coreTaskComplexityEstimate,
+  coreTaskDepends,
+  coreTaskDeps,
+  coreTaskDepsCycles,
+  coreTaskDepsOverview,
+  coreTaskExport,
+  coreTaskHistory,
+  coreTaskImport,
+  coreTaskLint,
+  coreTaskNext,
+  coreTaskPromote,
+  coreTaskRelates,
+  coreTaskRelatesAdd,
+  coreTaskReopen,
+  coreTaskReorder,
+  coreTaskReparent,
+  coreTaskRestore,
+  coreTaskStats,
+  coreTaskTree,
+  coreTaskUnarchive,
+} from './tasks/task-ops.js';
+export { updateTask } from './tasks/update.js';
+// Tasks ID generator
+export { normalizeTaskId } from './tasks/id-generator.js';
+
+// Templates parser
+export type {
+  IssueTemplate,
+  TemplateConfig,
+  TemplateSection,
+} from './templates/parser.js';
+export {
+  generateTemplateConfig,
+  getTemplateForSubcommand,
+  parseIssueTemplates,
+  validateLabels,
+} from './templates/parser.js';
+
+// Validation submodules (flat re-exports alongside namespace)
+export { validateChain } from './validation/chain-validation.js';
+export {
+  createVerificationGate,
+  GATE_SEQUENCE,
+  GateLayer,
+  GateStatus,
+  getWorkflowGateDefinition,
+  isValidWorkflowGateName,
+  VerificationGate,
+  WORKFLOW_GATE_DEFINITIONS,
+  WORKFLOW_GATE_SEQUENCE,
+  WorkflowGateName,
+  WorkflowGateTracker,
+} from './validation/operation-verification-gates.js';
+export type {
+  GateViolation,
+  LayerResult,
+  OperationContext,
+  VerificationResult,
+  WorkflowGateAgent,
+  WorkflowGateDefinition,
+  WorkflowGateState,
+  WorkflowGateStatus,
+} from './validation/operation-verification-gates.js';
+// Gate validators
+export {
+  GATE_VALIDATION_RULES,
+  isFieldRequired,
+  VALID_WORKFLOW_AGENTS,
+  VALID_WORKFLOW_GATE_STATUSES,
+  validateLayer1Schema,
+  validateLayer2Semantic,
+  validateLayer3Referential,
+  validateLayer4Protocol,
+  validateWorkflowGateName,
+  validateWorkflowGateStatus,
+  validateWorkflowGateUpdate,
+} from './validation/operation-gate-validators.js';
+export type {
+  CommanderArgSplit,
+  JSONSchemaObject,
+  JsonSchemaProperty,
+  JsonSchemaType,
+} from './validation/param-utils.js';
+export {
+  buildCommanderArgs,
+  buildCommanderOptionString,
+  buildMcpInputSchema,
+  camelToKebab,
+  validateRequiredParamsDef,
+} from './validation/param-utils.js';
+export {
+  checkConsensusManifest,
+  validateConsensusTask,
+} from './validation/protocols/consensus.js';
+export {
+  checkContributionManifest,
+  validateContributionTask,
+} from './validation/protocols/contribution.js';
+export {
+  checkDecompositionManifest,
+  validateDecompositionTask,
+} from './validation/protocols/decomposition.js';
+export {
+  checkImplementationManifest,
+  validateImplementationTask,
+} from './validation/protocols/implementation.js';
+export {
+  checkSpecificationManifest,
+  validateSpecificationTask,
+} from './validation/protocols/specification.js';
+export type { CoherenceIssue } from './validation/validate-ops.js';
+export {
+  coreBatchValidate,
+  coreCoherenceCheck,
+  coreComplianceRecord,
+  coreComplianceSummary,
+  coreComplianceViolations,
+  coreTestCoverage,
+  coreTestRun,
+  coreTestStatus,
+  coreValidateManifest,
+  coreValidateOutput,
+  coreValidateProtocol,
+  coreValidateSchema,
+  coreValidateTask,
+} from './validation/validate-ops.js';
+
+// ---------------------------------------------------------------------------
+// Additional flat re-exports for CLI layer (T5719)
+// ---------------------------------------------------------------------------
+
+// System storage preflight
+export type { PreflightResult } from './system/storage-preflight.js';
+export { checkStorageMigration } from './system/storage-preflight.js';
+
+// Memory claude-mem migration
+export type {
+  ClaudeMemMigrationOptions,
+  ClaudeMemMigrationResult,
+} from './memory/claude-mem-migration.js';
+export { migrateClaudeMem } from './memory/claude-mem-migration.js';
+
+// MCP server entry generation
+export type { McpEnvMode } from './mcp/index.js';
+export { detectEnvMode, generateMcpServerEntry, getMcpServerName } from './mcp/index.js';
+
+// Metrics token service (measureTokenExchange not yet flat-exported)
+export { measureTokenExchange } from './metrics/token-service.js';
+
+// Remote git operations (prefixed to avoid conflict with admin getSyncStatus)
+export type { PullResult, PushResult, RemoteConfig, RemoteInfo } from './remote/index.js';
+export {
+  addRemote,
+  getCurrentBranch,
+  listRemotes,
+  pull,
+  push,
+  removeRemote,
+  getSyncStatus as getRemoteSyncStatus,
+} from './remote/index.js';
+
+// OTel operations
+export {
+  clearOtelData,
+  getOtelSessions,
+  getOtelSpawns,
+  getOtelStatus,
+  getOtelSummary,
+  getRealTokenUsage,
+} from './otel/index.js';
+
+// Validation doctor checks (flat re-export)
+export { checkRootGitignore } from './validation/doctor/checks.js';

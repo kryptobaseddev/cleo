@@ -16,7 +16,7 @@ import {
   getTemplateForSubcommand as coreGetTemplateForSubcommand,
   parseIssueTemplates as coreParseIssueTemplates,
   validateLabels as coreValidateLabels,
-} from '../../core/templates/parser.js';
+} from '@cleocode/core';
 import type { EngineResult } from './_error.js';
 
 // Re-export types directly from core
@@ -24,7 +24,7 @@ export type {
   IssueTemplate,
   TemplateConfig,
   TemplateSection,
-} from '../../core/templates/parser.js';
+} from '@cleocode/core';
 
 /**
  * Adapt a core TemplateResult to an EngineResult.

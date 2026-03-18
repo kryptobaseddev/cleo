@@ -7,7 +7,7 @@
  * @task T4815
  */
 
-import { getRawConfig, getRawConfigValue, setConfigValue } from '../../core/config.js';
+import { getRawConfig, getRawConfigValue, setConfigValue } from '@cleocode/core';
 import { type EngineResult, engineError } from './_error.js';
 
 /**

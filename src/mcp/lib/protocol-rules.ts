@@ -16,4 +16,4 @@ export {
   type ProtocolViolation,
   type RequirementLevel,
   type ViolationSeverity,
-} from '../../core/compliance/protocol-rules.js';
+} from '@cleocode/core';

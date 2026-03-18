@@ -13,9 +13,7 @@
  */
 
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { runUpgrade } from '../../core/upgrade.js';
+import { CleoError, formatError, runUpgrade } from '@cleocode/core';
 import { createUpgradeProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';
 

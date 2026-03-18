@@ -12,11 +12,11 @@ export type {
   JSONSchemaObject,
   JsonSchemaProperty,
   JsonSchemaType,
-} from '../../core/validation/param-utils.js';
+} from '@cleocode/core';
 export {
   buildCommanderArgs,
   buildCommanderOptionString,
   buildMcpInputSchema,
   camelToKebab,
   validateRequiredParamsDef,
-} from '../../core/validation/param-utils.js';
+} from '@cleocode/core';

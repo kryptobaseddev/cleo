@@ -16,7 +16,7 @@
 
 import type { LAFSEnvelope } from '@cleocode/lafs-protocol';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs-protocol';
-import { type FormatOptions, formatSuccess } from '../../core/output.js';
+import { type FormatOptions, formatSuccess } from '@cleocode/core';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
 import { normalizeForHuman } from './normalizer.js';

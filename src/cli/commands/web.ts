@@ -10,9 +10,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 // CLI-only: web command requires process spawn/PID management not suitable for dispatch
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoHome } from '../../core/paths.js';
+import { CleoError, formatError, getCleoHome } from '@cleocode/core';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
 

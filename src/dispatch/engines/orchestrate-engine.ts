@@ -9,33 +9,29 @@
  */
 
 import type { Provider } from '@cleocode/caamp';
-import { analyzeDependencies } from '../../core/orchestration/analyze.js';
-import { buildBrainState } from '../../core/orchestration/bootstrap.js';
-import { estimateContext } from '../../core/orchestration/context.js';
-import { getCriticalPath } from '../../core/orchestration/critical-path.js';
 // Core module imports
 import {
+  analyzeDependencies,
+  buildBrainState,
+  estimateContext,
+  getCriticalPath,
   analyzeEpic,
   getNextTask,
   getReadyTasks,
   prepareSpawn,
-} from '../../core/orchestration/index.js';
-import {
   endParallelExecution,
   getParallelStatus,
   startParallelExecution,
-} from '../../core/orchestration/parallel.js';
-import { getSkillContent } from '../../core/orchestration/skill-ops.js';
-import {
+  getSkillContent,
   computeEpicStatus,
   computeOverallStatus,
   computeProgress,
   computeStartupSummary,
-} from '../../core/orchestration/status.js';
-import { getUnblockOpportunities } from '../../core/orchestration/unblock.js';
-import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
-import { getEnrichedWaves } from '../../core/orchestration/waves.js';
-import { resolveProjectRoot } from '../../core/platform.js';
+  getUnblockOpportunities,
+  validateSpawnReadiness,
+  getEnrichedWaves,
+  resolveProjectRoot,
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
 import type { CLEOSpawnAdapter, CLEOSpawnContext } from '../../types/spawn.js';

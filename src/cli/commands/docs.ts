@@ -8,9 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getAgentOutputsAbsolute } from '../../core/paths.js';
+import { CleoError, formatError, getAgentOutputsAbsolute } from '@cleocode/core';
 import { readJson } from '../../store/json.js';
 import { cliOutput } from '../renderers/index.js';
 

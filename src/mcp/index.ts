@@ -16,7 +16,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { hooks } from '../core/hooks/registry.js';
+import { hooks } from '@cleocode/core';
 import { handleMcpToolCall, initMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { registerMutateTool } from './gateways/mutate.js';
 import { registerQueryTool } from './gateways/query.js';
@@ -27,11 +27,11 @@ import { loadConfig } from './lib/config.js';
 import { registerMemoryResources } from './resources/index.js';
 import '../core/hooks/handlers/index.js';
 import { join } from 'node:path';
-import { pruneAuditLog } from '../core/audit-prune.js';
-import { closeLogger, getLogger, initLogger } from '../core/logger.js';
-import { autoRecordDispatchTokenUsage } from '../core/metrics/token-service.js';
-import { getProjectInfoSync } from '../core/project-info.js';
-import { getCleoVersion } from '../core/scaffold.js';
+import { pruneAuditLog } from '@cleocode/core';
+import { closeLogger, getLogger, initLogger } from '@cleocode/core';
+import { autoRecordDispatchTokenUsage } from '@cleocode/core';
+import { getProjectInfoSync } from '@cleocode/core';
+import { getCleoVersion } from '@cleocode/core';
 import { setJobManager } from './lib/job-manager-accessor.js';
 
 /**
@@ -57,7 +57,7 @@ let startupLog = getLogger('mcp:startup');
 async function main(): Promise<void> {
   // Startup guard: fail fast if Node.js version is below minimum
   const { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } = await import(
-    '../core/platform.js'
+    '@cleocode/core'
   );
   const nodeInfo = getNodeVersionInfo();
   if (!nodeInfo.meetsMinimum) {
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
     // ~/.cleo/ infrastructure and detects project init/upgrade needs.
     let startupState: 'healthy' | 'needs_init' | 'needs_upgrade' = 'healthy';
     try {
-      const { startupHealthCheck } = await import('../core/system/health.js');
+      const { startupHealthCheck } = await import('@cleocode/core');
       const healthResult = await startupHealthCheck();
       startupState = healthResult.state;
 
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     );
 
     // Fire-and-forget audit log pruning (T5339)
-    import('../core/config.js')
+    import('@cleocode/core')
       .then(({ loadConfig: loadCoreConfig }) =>
         loadCoreConfig().then((coreConfig) => pruneAuditLog(cleoDir, coreConfig.logging)),
       )

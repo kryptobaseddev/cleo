@@ -12,22 +12,19 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { resolveProjectRoot } from '../../core/platform.js';
-import { channelToDistTag, resolveChannelFromBranch } from '../../core/release/channel.js';
 import {
+  resolveProjectRoot,
+  channelToDistTag,
+  resolveChannelFromBranch,
   buildPRBody,
   createPullRequest,
   isGhCliAvailable,
   type PRResult,
-} from '../../core/release/github-pr.js';
-
-import { checkDoubleListing, checkEpicCompleteness } from '../../core/release/guards.js';
-import {
+  checkDoubleListing,
+  checkEpicCompleteness,
   getGitFlowConfig,
   getPushMode,
   loadReleaseConfig,
-} from '../../core/release/release-config.js';
-import {
   cancelRelease,
   commitRelease,
   generateReleaseChangelog,
@@ -41,8 +38,9 @@ import {
   runReleaseGates,
   showManifestRelease,
   tagRelease,
-} from '../../core/release/release-manifest.js';
-import { bumpVersionFromConfig, getVersionBumpConfig } from '../../core/release/version-bump.js';
+  bumpVersionFromConfig,
+  getVersionBumpConfig,
+} from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 
 import { type EngineResult, engineError } from './_error.js';

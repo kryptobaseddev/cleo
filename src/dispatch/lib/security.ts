@@ -7,7 +7,7 @@
  * @task T5706
  */
 
-export type { RateLimitConfig, RateLimitResult } from '../../core/security/input-sanitization.js';
+export type { RateLimitConfig, RateLimitResult } from '@cleocode/core';
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
@@ -24,4 +24,4 @@ export {
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
   validateEnum,
-} from '../../core/security/input-sanitization.js';
+} from '@cleocode/core';

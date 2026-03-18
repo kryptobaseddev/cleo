@@ -20,17 +20,15 @@ import {
   createInstance,
   listChains,
   showChain,
-} from '../../core/lifecycle/chain-store.js';
-import { getLogger } from '../../core/logger.js';
-import { paginate } from '../../core/pagination.js';
-import { getProjectRoot } from '../../core/paths.js';
-import type { ListPhasesResult } from '../../core/phases/index.js';
-import {
+  getLogger,
+  paginate,
+  getProjectRoot,
+  type ListPhasesResult,
   channelToDistTag,
   describeChannel,
   resolveChannelFromBranch,
-} from '../../core/release/channel.js';
-import type { ReleaseListOptions } from '../../core/release/release-manifest.js';
+  type ReleaseListOptions,
+} from '@cleocode/core';
 import type { GateResult, WarpChain } from '../../types/warp-chain.js';
 import {
   lifecycleCheck,

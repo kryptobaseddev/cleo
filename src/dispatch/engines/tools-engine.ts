@@ -31,10 +31,13 @@ import {
   installSkill,
   removeSkill,
 } from '@cleocode/caamp';
-import { AdapterManager } from '../../core/adapters/index.js';
-import { clearSyncState, getSyncStatus } from '../../core/admin/sync.js';
-import { collectDiagnostics } from '../../core/issue/diagnostics.js';
-import { paginate } from '../../core/pagination.js';
+import {
+  AdapterManager,
+  clearSyncState,
+  collectDiagnostics,
+  getSyncStatus,
+  paginate,
+} from '@cleocode/core';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
 import { systemSync } from './system-engine.js';
 

@@ -21,9 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { type InitOptions, initProject } from '../../core/init.js';
-import { formatError } from '../../core/output.js';
+import { CleoError, type InitOptions, initProject, formatError } from '@cleocode/core';
 import { cliOutput } from '../renderers/index.js';
 
 /**

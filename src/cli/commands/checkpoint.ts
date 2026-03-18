@@ -7,9 +7,7 @@
 // CLI-only: git checkpoint has no dispatch route (git operations not suitable for MCP)
 
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoDir } from '../../core/paths.js';
+import { CleoError, formatError, getCleoDir } from '@cleocode/core';
 import {
   gitCheckpoint,
   gitCheckpointStatus,

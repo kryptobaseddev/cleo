@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '../../../core/nexus/index.js';
+import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 import { closeAllDatabases, resetDbState } from '../../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';

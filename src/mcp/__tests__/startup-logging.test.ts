@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeLogger, getLogger, initLogger } from '../../core/logger.js';
+import { closeLogger, getLogger, initLogger } from '@cleocode/core';
 
 describe('MCP startup logging (T5310)', () => {
   let tempDir: string;

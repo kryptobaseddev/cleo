@@ -8,8 +8,7 @@
  */
 
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
+import { CleoError, formatError } from '@cleocode/core';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';

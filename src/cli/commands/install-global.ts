@@ -16,7 +16,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
-import { getAgentsHome, getCleoHome } from '../../core/paths.js';
+import { getAgentsHome, getCleoHome } from '@cleocode/core';
 import { cliOutput } from '../renderers/index.js';
 
 export function registerInstallGlobalCommand(program: Command): void {

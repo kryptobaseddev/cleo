@@ -1,4 +1,4 @@
-import { createVerificationGate as legacyCreateGate } from '../../core/validation/operation-verification-gates.js';
+import { createVerificationGate as legacyCreateGate } from '@cleocode/core';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 export function createVerificationGates(strictMode: boolean = true): Middleware {

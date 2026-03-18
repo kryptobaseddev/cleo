@@ -13,7 +13,7 @@ export type {
   GatewayType,
   OperationCapability,
   PreferredChannel,
-} from '../../core/routing/capability-matrix.js';
+} from '@cleocode/core';
 export {
   canRunNatively,
   generateCapabilityReport,
@@ -21,4 +21,4 @@ export {
   getNativeOperations,
   getOperationMode,
   requiresCLI,
-} from '../../core/routing/capability-matrix.js';
+} from '@cleocode/core';
