@@ -19,7 +19,7 @@ export function extractAdrId(filename: string): string {
 
 /** Parse bold-key frontmatter pattern: **Key**: value */
 export function parseFrontmatter(content: string): AdrFrontmatter {
-  const frontmatter: Record<string, string> = {};
+  const entries: Array<[string, string]> = [];
   const lines = content.split('\n');
 
   // Parse lines until first --- separator (skip H1 title)
@@ -27,11 +27,14 @@ export function parseFrontmatter(content: string): AdrFrontmatter {
     if (line.trim() === '---') break;
     const match = line.match(/^\*\*([^*]+)\*\*:\s*(.+)$/);
     if (match) {
-      frontmatter[match[1]!.trim()] = match[2]!.trim();
+      entries.push([match[1]!.trim(), match[2]!.trim()]);
     }
   }
 
-  return frontmatter as unknown as AdrFrontmatter;
+  // The parsed key-value pairs are structurally an AdrFrontmatter at runtime.
+  // Use Partial first (overlap) then assert the full type.
+  const partial: Partial<AdrFrontmatter> = Object.fromEntries(entries);
+  return partial as AdrFrontmatter;
 }
 
 /** Extract H1 title from markdown */

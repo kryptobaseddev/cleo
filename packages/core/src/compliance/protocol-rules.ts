@@ -171,7 +171,7 @@ const CONSENSUS_RULES: ProtocolRule[] = [
     validate: (_entry, data) => {
       const votingMatrix = data?.votingMatrix as Record<string, unknown> | undefined;
       if (!votingMatrix) return false;
-      const options = votingMatrix.options as unknown[];
+      const options = votingMatrix.options;
       return Array.isArray(options) && options.length >= 2;
     },
   },

@@ -811,7 +811,7 @@ export async function exportToJson(cwd?: string): Promise<{
     status: 'done' as const,
     priority: (row.priority ?? 'medium') as Task['priority'],
     createdAt: row.createdAt,
-    description: row.description ?? undefined,
+    description: row.description ?? '',
     updatedAt: row.updatedAt,
     completedAt: row.completedAt ?? undefined,
   }));

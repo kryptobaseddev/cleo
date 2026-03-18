@@ -10,6 +10,7 @@
  */
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -58,34 +59,26 @@ export async function discoverReleaseTasks(
   const tasks: ChangelogTask[] = [];
 
   // Collect tasks from both active and archive sources
-  const dataSources: Array<{ tasks: Array<Record<string, unknown>> }> = [];
+  const dataSources: Array<{ tasks: Task[] }> = [];
 
   if (accessor) {
     const taskData = await accessor.loadTaskFile();
-    if (taskData?.tasks)
-      dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
+    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks });
     const archiveData = await accessor.loadArchive();
-    if (archiveData?.archivedTasks)
-      dataSources.push({
-        tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>>,
-      });
+    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks });
   } else {
     const dataAccessor = await getAccessor(cwd);
     const taskData = await dataAccessor.loadTaskFile();
-    if (taskData?.tasks)
-      dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
+    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks });
     const archiveData = await dataAccessor.loadArchive();
-    if (archiveData?.archivedTasks)
-      dataSources.push({
-        tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>>,
-      });
+    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks });
   }
 
   for (const data of dataSources) {
     for (const task of data.tasks) {
-      const id = task.id as string;
-      const status = task.status as string;
-      const completedAt = task.completedAt as string | undefined;
+      const id = task.id;
+      const status = task.status;
+      const completedAt = task.completedAt;
 
       // Only completed tasks
       if (status !== 'done') continue;
@@ -99,9 +92,9 @@ export async function discoverReleaseTasks(
 
       tasks.push({
         id,
-        title: task.title as string,
-        labels: (task.labels as string[]) ?? [],
-        parentId: task.parentId as string | undefined,
+        title: task.title,
+        labels: task.labels ?? [],
+        parentId: task.parentId ?? undefined,
         completedAt,
       });
     }

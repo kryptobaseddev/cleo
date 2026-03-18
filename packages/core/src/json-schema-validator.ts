@@ -4,23 +4,23 @@
  * @task T4458
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-import type { ValidateFunction } from 'ajv';
-import AjvModule from 'ajv';
-import addFormatsModule from 'ajv-formats';
+import type { ValidateFunction, Ajv as AjvInstance } from 'ajv';
+import { default as AjvImport } from 'ajv';
+import { default as addFormatsImport } from 'ajv-formats';
 import { readJson } from './store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from './errors.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
-const Ajv = (AjvModule as any).default ?? AjvModule;
-const addFormats = (addFormatsModule as any).default ?? addFormatsModule;
+const ajvMod = AjvImport as Record<string, unknown>;
+const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (opts?: Record<string, unknown>) => AjvInstance;
+const fmtMod = addFormatsImport as Record<string, unknown>;
+const addFormats = (typeof fmtMod.default === 'function' ? fmtMod.default : addFormatsImport) as (ajv: AjvInstance) => AjvInstance;
 
 /** Singleton ajv instance. */
-let ajvInstance: any = null;
+let ajvInstance: AjvInstance | null = null;
 
-function getAjv(): any {
+function getAjv(): AjvInstance {
   if (!ajvInstance) {
     ajvInstance = new Ajv({
       allErrors: true,

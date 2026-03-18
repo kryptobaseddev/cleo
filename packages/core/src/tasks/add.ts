@@ -20,16 +20,21 @@ import {
   validateHierarchyPlacement,
 } from './hierarchy-policy.js';
 
-/** Options for creating a task. */
+/**
+ * Options for creating a task.
+ *
+ * `description` is **required** per CLEO's anti-hallucination rules —
+ * every task must have both a title and a description, and they must differ.
+ */
 export interface AddTaskOptions {
   title: string;
+  description: string;
   status?: TaskStatus;
   priority?: TaskPriority;
   type?: TaskType;
   parentId?: string | null;
   size?: TaskSize;
   phase?: string;
-  description?: string;
   labels?: string[];
   files?: string[];
   acceptance?: string[];
@@ -540,6 +545,7 @@ export async function addTask(
   const task: Task = {
     id: taskId,
     title: options.title,
+    description: options.description,
     status,
     priority,
     type: taskType,
@@ -553,7 +559,6 @@ export async function addTask(
 
   // Add optional fields
   if (phase) task.phase = phase;
-  if (options.description) task.description = options.description;
   if (options.labels?.length) task.labels = options.labels.map((l) => l.trim());
   if (options.files?.length) task.files = options.files.map((f) => f.trim());
   if (options.acceptance?.length) task.acceptance = options.acceptance.map((a) => a.trim());

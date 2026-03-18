@@ -3,6 +3,20 @@
  *
  * Consolidates types from src/types/task.ts and packages/contracts/src/task-types.ts.
  *
+ * ## Type Safety Design
+ *
+ * - {@link Task} represents a fully-materialized task as stored in the database.
+ *   Fields that CLEO's anti-hallucination rules require at runtime are marked as
+ *   required (non-optional) so the type system enforces what the business rules demand.
+ *
+ * - {@link TaskCreate} represents the input for creating a new task. Only fields the
+ *   caller MUST supply are required; everything else has sensible defaults applied
+ *   by the `addTask` function.
+ *
+ * - {@link CompletedTask} and {@link CancelledTask} are discriminated union types
+ *   that narrow `Task` for status-specific contexts where additional fields become
+ *   required (e.g., `completedAt` is required when `status = 'done'`).
+ *
  * @epic T4454
  * @task T4456
  */
@@ -83,37 +97,204 @@ export interface TaskRelation {
   reason?: string;
 }
 
-/** A single CLEO task. */
+/**
+ * A single CLEO task as stored in the database.
+ *
+ * Fields marked as required are enforced by CLEO's anti-hallucination validation
+ * at runtime. Making them required here ensures the type system catches violations
+ * at compile time rather than deferring to runtime checks.
+ */
 export interface Task {
+  /** Unique task identifier. Must match pattern `T\d{3,}` (e.g., T001, T5800). */
   id: string;
+
+  /** Human-readable task title. Required, max 120 characters. */
   title: string;
+
+  /**
+   * Task description. **Required** — CLEO's anti-hallucination rules reject tasks
+   * without a description, and require it to differ from the title.
+   */
+  description: string;
+
+  /** Current task status. Must be a valid {@link TaskStatus} enum value. */
   status: TaskStatus;
+
+  /** Task priority level. Defaults to `'medium'` on creation. */
   priority: TaskPriority;
+
+  /** Task type in hierarchy. Inferred from parent context if not specified. */
   type?: TaskType;
+
+  /** ID of the parent task. `null` for root-level tasks. */
   parentId?: string | null;
+
+  /** Sort position within sibling scope. */
   position?: number | null;
+
+  /** Optimistic concurrency version for position changes. */
   positionVersion?: number;
+
+  /** Relative scope sizing (small/medium/large). NOT a time estimate. */
   size?: TaskSize | null;
+
+  /** Phase slug this task belongs to. */
   phase?: string;
-  description?: string;
+
+  /** File paths associated with this task. */
   files?: string[];
+
+  /** Acceptance criteria for completion. */
   acceptance?: string[];
+
+  /** IDs of tasks this task depends on. */
   depends?: string[];
+
+  /** Related task entries (non-dependency relationships). */
   relates?: TaskRelation[];
+
+  /** Epic lifecycle state. Only meaningful when `type = 'epic'`. */
   epicLifecycle?: EpicLifecycle | null;
+
+  /** When true, epic will not auto-complete when all children are done. */
   noAutoComplete?: boolean | null;
+
+  /** Reason the task is blocked (free-form text). */
   blockedBy?: string;
+
+  /** Timestamped notes appended during task lifecycle. */
   notes?: string[];
+
+  /** Classification labels for filtering and grouping. */
   labels?: string[];
+
+  /** Task origin/provenance category. */
   origin?: TaskOrigin | null;
+
+  /** ISO 8601 timestamp of task creation. Must not be in the future. */
   createdAt: string;
+
+  /** ISO 8601 timestamp of last update. Set automatically on mutation. */
   updatedAt?: string | null;
+
+  /**
+   * ISO 8601 timestamp of task completion. Set when `status` transitions to `'done'`.
+   * See {@link CompletedTask} for the status-narrowed type where this is required.
+   */
   completedAt?: string;
+
+  /**
+   * ISO 8601 timestamp of task cancellation. Set when `status` transitions to `'cancelled'`.
+   * See {@link CancelledTask} for the status-narrowed type where this is required.
+   */
   cancelledAt?: string;
+
+  /**
+   * Reason for cancellation. Required when `status = 'cancelled'`.
+   * See {@link CancelledTask} for the status-narrowed type where this is required.
+   */
   cancellationReason?: string;
+
+  /** Verification pipeline state. */
   verification?: TaskVerification | null;
+
+  /** Provenance tracking (who created/modified, which session). */
   provenance?: TaskProvenance | null;
 }
+
+// ---------------------------------------------------------------------------
+// Input types for task creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Input type for creating a new task via `addTask()`.
+ *
+ * Only the fields the caller MUST provide are required. All other fields
+ * have sensible defaults applied by the creation logic:
+ * - `status` defaults to `'pending'`
+ * - `priority` defaults to `'medium'`
+ * - `type` is inferred from parent context
+ * - `size` defaults to `'medium'`
+ */
+export interface TaskCreate {
+  /** Human-readable task title. Required, max 120 characters. */
+  title: string;
+
+  /**
+   * Task description. **Required** — CLEO's anti-hallucination rules reject tasks
+   * without a description, and require it to differ from the title.
+   */
+  description: string;
+
+  /** Initial status. Defaults to `'pending'`. */
+  status?: TaskStatus;
+
+  /** Priority level. Defaults to `'medium'`. */
+  priority?: TaskPriority;
+
+  /** Task type. Inferred from parent context if not specified. */
+  type?: TaskType;
+
+  /** Parent task ID for hierarchy placement. */
+  parentId?: string | null;
+
+  /** Relative scope sizing. Defaults to `'medium'`. */
+  size?: TaskSize;
+
+  /** Phase slug to assign. Inherited from project.currentPhase if not specified. */
+  phase?: string;
+
+  /** Classification labels. */
+  labels?: string[];
+
+  /** File paths associated with this task. */
+  files?: string[];
+
+  /** Acceptance criteria. */
+  acceptance?: string[];
+
+  /** IDs of tasks this task depends on. */
+  depends?: string[];
+
+  /** Initial note to attach. */
+  notes?: string;
+
+  /** Sort position. Auto-calculated if not specified. */
+  position?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Status-narrowed types (discriminated unions)
+// ---------------------------------------------------------------------------
+
+/**
+ * A task with `status = 'done'`. Narrows {@link Task} to require `completedAt`.
+ *
+ * Use this type when you need to guarantee a completed task has its completion
+ * timestamp — for example, in cycle-time calculations or archive operations.
+ */
+export type CompletedTask = Task & {
+  /** Discriminant: status is always `'done'` for a completed task. */
+  status: 'done';
+  /** ISO 8601 timestamp of completion. Required for done tasks. */
+  completedAt: string;
+};
+
+/**
+ * A task with `status = 'cancelled'`. Narrows {@link Task} to require
+ * `cancelledAt` and `cancellationReason`.
+ *
+ * Use this type when processing cancelled tasks where the cancellation
+ * metadata is guaranteed to be present.
+ */
+export type CancelledTask = Task & {
+  /** Discriminant: status is always `'cancelled'` for a cancelled task. */
+  status: 'cancelled';
+  /** ISO 8601 timestamp of cancellation. Required for cancelled tasks. */
+  cancelledAt: string;
+  /** Reason for cancellation. Required for cancelled tasks (min 5 chars). */
+  cancellationReason: string;
+};
 
 /** Phase status. */
 export type PhaseStatus = 'pending' | 'active' | 'completed';

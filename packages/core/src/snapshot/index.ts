@@ -210,7 +210,7 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
         parentId: snapshotTask.parentId,
         size: snapshotTask.size as Task['size'],
         phase: snapshotTask.phase,
-        description: snapshotTask.description,
+        description: snapshotTask.description ?? '',
         depends: snapshotTask.depends,
         labels: snapshotTask.labels,
         createdAt: snapshotTask.createdAt,

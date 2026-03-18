@@ -527,10 +527,10 @@ export async function ensureProjectContext(
     );
     if (existsSync(schemaPath)) {
       const AjvModule = await import('ajv');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Ajv = (AjvModule as any).default ?? AjvModule;
+      const ajvMod = AjvModule as Record<string, unknown>;
+      const AjvClass = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvModule.default) as new (opts?: Record<string, unknown>) => { validate(schema: unknown, data: unknown): boolean; errors?: unknown[] | null };
       const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
-      const ajv = new Ajv({ strict: false });
+      const ajv = new AjvClass({ strict: false });
       const valid = ajv.validate(schema, context);
       if (!valid) {
         // eslint-disable-next-line no-console

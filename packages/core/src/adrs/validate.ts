@@ -8,11 +8,12 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import AjvModule from 'ajv';
+import type { Ajv as AjvInstance } from 'ajv';
+import { default as AjvImport } from 'ajv';
 
 // Handle ESM/CJS interop for Ajv
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Ajv = (AjvModule as any).default ?? AjvModule;
+const ajvMod = AjvImport as Record<string, unknown>;
+const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (opts?: Record<string, unknown>) => AjvInstance;
 
 import { parseAdrFile } from './parse.js';
 

@@ -24,7 +24,7 @@ export function rowToTask(row: TaskRow): Task {
     size: (row.size as TaskSize) ?? undefined,
     position: row.position ?? undefined,
     positionVersion: row.positionVersion ?? undefined,
-    description: row.description ?? undefined,
+    description: row.description ?? '',
     labels: safeParseJsonArray(row.labelsJson),
     notes: safeParseJsonArray(row.notesJson),
     acceptance: safeParseJsonArray(row.acceptanceJson),

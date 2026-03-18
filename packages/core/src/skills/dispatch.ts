@@ -132,7 +132,7 @@ function dispatchByCatalog(task: Task): DispatchResult | null {
   if (!matrix) return null;
 
   // Check by task type if available
-  const taskType = (task as unknown as Record<string, unknown>)['type'] as string | undefined;
+  const taskType = task.type;
   if (taskType && matrix.by_task_type[taskType]) {
     const skillName = matrix.by_task_type[taskType];
     const protocol = matrix.by_protocol[taskType] as SkillProtocolType | undefined;
@@ -167,7 +167,7 @@ function dispatchByCatalog(task: Task): DispatchResult | null {
  */
 function dispatchByType(task: Task): DispatchResult | null {
   // Look for type indicators in labels or description
-  const taskType = (task as unknown as Record<string, unknown>)['type'] as string | undefined;
+  const taskType = task.type;
   if (!taskType) return null;
 
   const mapping = TYPE_PROTOCOL_MAP[taskType.toLowerCase()];
