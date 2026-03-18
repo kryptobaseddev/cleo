@@ -53,7 +53,6 @@ import {
   coreTaskTree,
   coreTaskUnarchive,
   updateTask as coreUpdateTask,
-  type TaskTreeNode,
   toCompact,
 } from '@cleocode/core';
 import { getAccessor } from '@cleocode/core';
@@ -80,7 +79,38 @@ const TASK_COMPLETE_EXIT_TO_ENGINE_CODE: Record<number, string> = {
  * @epic T4654
  */
 function taskToRecord(task: Task): TaskRecord {
-  return task as unknown as TaskRecord;
+  // Task union-typed fields (status, priority, origin, etc.) widen to string in TaskRecord.
+  // Some fields have structural mismatches (blockedBy: string vs string[], etc.)
+  // so we explicitly map each field rather than relying on spread.
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description ?? '',
+    status: task.status,
+    priority: task.priority,
+    type: task.type,
+    phase: task.phase,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt ?? null,
+    completedAt: task.completedAt ?? null,
+    cancelledAt: task.cancelledAt ?? null,
+    parentId: task.parentId,
+    position: task.position,
+    positionVersion: task.positionVersion,
+    depends: task.depends,
+    relates: task.relates,
+    files: task.files,
+    acceptance: task.acceptance,
+    notes: task.notes,
+    labels: task.labels,
+    size: task.size ?? null,
+    epicLifecycle: task.epicLifecycle ?? null,
+    noAutoComplete: task.noAutoComplete ?? null,
+    verification: task.verification ? (task.verification as Record<string, unknown>) : null,
+    origin: task.origin ?? null,
+    cancellationReason: task.cancellationReason,
+    blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
+  };
 }
 
 /**
@@ -90,7 +120,7 @@ function taskToRecord(task: Task): TaskRecord {
  * @epic T4654
  */
 function tasksToRecords(tasks: Task[]): TaskRecord[] {
-  return tasks as unknown as TaskRecord[];
+  return tasks.map(taskToRecord);
 }
 
 /**
@@ -647,7 +677,7 @@ export async function taskBlockers(
 export async function taskTree(
   projectRoot: string,
   taskId?: string,
-): Promise<EngineResult<{ tree: TaskTreeNode[]; totalNodes: number }>> {
+): Promise<EngineResult> {
   try {
     const result = await coreTaskTree(projectRoot, taskId);
     return { success: true, data: result };
@@ -1024,19 +1054,7 @@ export async function taskDepends(
   taskId: string,
   direction: 'upstream' | 'downstream' | 'both' = 'both',
   tree?: boolean,
-): Promise<
-  EngineResult<{
-    taskId: string;
-    direction: string;
-    upstream: Array<{ id: string; title: string; status: string }>;
-    downstream: Array<{ id: string; title: string; status: string }>;
-    unresolvedChain: number;
-    leafBlockers: Array<{ id: string; title: string; status: string }>;
-    allDepsReady: boolean;
-    hint?: string;
-    upstreamTree?: TaskTreeNode[];
-  }>
-> {
+): Promise<EngineResult> {
   try {
     const result = await coreTaskDepends(
       projectRoot,

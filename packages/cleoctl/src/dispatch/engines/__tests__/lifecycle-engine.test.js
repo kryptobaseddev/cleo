@@ -10,7 +10,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeLogger, initLogger } from '@cleocode/core/logger.js';
+import { closeLogger, initLogger } from '@cleocode/core';
 import { closeDb, resetDbState } from '@cleocode/core';
 import { lifecycleCheck, lifecycleGateFail, lifecycleGatePass, lifecycleHistory, lifecyclePrerequisites, lifecycleProgress, lifecycleReset, lifecycleSkip, lifecycleStatus, } from '../lifecycle-engine.js';
 let TEST_ROOT = '';

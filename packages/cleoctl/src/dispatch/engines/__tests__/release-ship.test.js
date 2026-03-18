@@ -63,7 +63,7 @@ describe('release.ship', () => {
         await setupTestDb();
         writeConfig({ release: { push: { enabled: true, requireCleanTree: false } } });
         // Re-apply default mock values after any per-test overrides
-        const manifest = await import('@cleocode/core/release/release-manifest.js');
+        const manifest = await import('@cleocode/core');
         vi.mocked(manifest.runReleaseGates).mockResolvedValue({
             version: '2026.3.99',
             allPassed: true,
@@ -114,7 +114,7 @@ describe('release.ship', () => {
     });
     it('gate failure returns error with gate details', async () => {
         // Override the default mock for this specific test
-        const manifest = await import('@cleocode/core/release/release-manifest.js');
+        const manifest = await import('@cleocode/core');
         vi.mocked(manifest.runReleaseGates).mockResolvedValueOnce({
             version: '2026.3.99',
             allPassed: false,

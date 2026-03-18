@@ -56,7 +56,7 @@ export function registerListCommand(program: Command): void {
         (Array.isArray(rawData)
           ? { tasks: rawData, total: rawData.length }
           : (rawData as Record<string, unknown>)) ?? {};
-      const tasks = (data?.tasks as unknown[]) ?? [];
+      const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
 
       if (tasks.length === 0) {
         cliOutput(data, { command: 'list', message: 'No tasks found', operation: 'tasks.list' });

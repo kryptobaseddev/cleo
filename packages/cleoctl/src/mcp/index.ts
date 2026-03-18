@@ -25,7 +25,8 @@ import { enforceBudget } from './lib/budget.js';
 import { QueryCache } from './lib/cache.js';
 import { loadConfig } from './lib/config.js';
 import { registerMemoryResources } from './resources/index.js';
-import '../core/hooks/handlers/index.js';
+// Hook handlers are auto-registered via @cleocode/core module evaluation
+// (core/hooks/index.ts re-exports handlers/index.ts which triggers registration)
 import { join } from 'node:path';
 import {
   autoRecordDispatchTokenUsage,
@@ -342,11 +343,21 @@ async function main(): Promise<void> {
         // Apply LAFS token budget enforcement (@task T4701)
         const tokenBudget = params?.tokenBudget as number | undefined;
         if (tokenBudget) {
+          const budgetInput: Record<string, unknown> = {
+            _meta: result._meta,
+            success: result.success,
+            data: result.data,
+            error: result.error,
+          };
           const { response: enforced, enforcement } = enforceBudget(
-            result as unknown as Record<string, unknown>,
+            budgetInput,
             tokenBudget,
           );
-          result = enforced as unknown as typeof result;
+          result = {
+            ...result,
+            data: enforced['data'],
+            _meta: { ...result._meta, ...(enforced['_meta'] as Record<string, unknown> ?? {}) },
+          };
           reqLog.debug(
             {
               estimatedTokens: enforcement.estimatedTokens,

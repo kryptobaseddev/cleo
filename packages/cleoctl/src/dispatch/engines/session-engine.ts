@@ -407,7 +407,7 @@ export async function sessionStart(
       taskData._meta.generation = (taskData._meta.generation || 0) + 1;
     }
 
-    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
+    taskData.lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
     // Write to sessions store so resume/suspend can find the session.
@@ -460,10 +460,8 @@ export async function sessionStart(
           // Try debriefJson first (rich data), then handoffJson (basic)
           if (pred.debriefJson) {
             previousDebrief = JSON.parse(pred.debriefJson as string) as DebriefData;
-          } else if ((pred as unknown as Record<string, unknown>).handoffJson) {
-            previousHandoff = JSON.parse(
-              (pred as unknown as Record<string, unknown>).handoffJson as string,
-            ) as HandoffData;
+          } else if (pred.handoffJson) {
+            previousHandoff = JSON.parse(pred.handoffJson) as HandoffData;
           }
           // Always mark consumed regardless of debrief vs handoff
           pred.handoffConsumedAt = new Date().toISOString();
@@ -528,7 +526,7 @@ export async function sessionEnd(
       taskData._meta.generation = (taskData._meta.generation || 0) + 1;
     }
 
-    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
+    taskData.lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
     // Update session record in SQLite
@@ -600,7 +598,7 @@ export async function sessionResume(
       taskData.focus.currentTask = session.taskWork.taskId;
     }
 
-    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
+    taskData.lastUpdated = now;
 
     await accessor.saveTaskFile(taskData);
     await accessor.saveSessions(sessions);
@@ -1070,11 +1068,9 @@ export async function sessionDebriefShow(
     }
 
     // Fall back to handoffJson
-    if (typeof (session as unknown as Record<string, unknown>).handoffJson === 'string') {
+    if (typeof session.handoffJson === 'string') {
       try {
-        const handoff = JSON.parse(
-          (session as unknown as Record<string, unknown>).handoffJson as string,
-        );
+        const handoff = JSON.parse(session.handoffJson);
         return { success: true, data: { handoff, fallback: true } };
       } catch {
         // No data available

@@ -11,7 +11,7 @@
 import type { Provider } from '@cleocode/caamp';
 // Core module imports
 import {
-  analyzeDependencies,
+  orchestrationAnalyzeDependencies as analyzeDependencies,
   analyzeEpic,
   buildBrainState,
   computeEpicStatus,
@@ -20,11 +20,11 @@ import {
   computeStartupSummary,
   endParallelExecution,
   estimateContext,
-  getCriticalPath,
+  orchestrationGetCriticalPath as getCriticalPath,
   getEnrichedWaves,
-  getNextTask,
+  orchestrationGetNextTask as getNextTask,
   getParallelStatus,
-  getReadyTasks,
+  orchestrationGetReadyTasks as getReadyTasks,
   getSkillContent,
   getUnblockOpportunities,
   prepareSpawn,
@@ -38,7 +38,6 @@ import type { CLEOSpawnAdapter, CLEOSpawnContext } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineError } from './_error.js';
 import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
-import type { TaskRecord } from './task-engine.js';
 
 type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
 
@@ -80,12 +79,12 @@ interface HandoffFailureDetails {
 /**
  * Load all tasks from task data.
  */
-async function loadTasks(projectRoot?: string): Promise<TaskRecord[]> {
+async function loadTasks(projectRoot?: string): Promise<Task[]> {
   const root = projectRoot || resolveProjectRoot();
   try {
     const accessor = await getAccessor(root);
     const taskData = await accessor.loadTaskFile();
-    return (taskData as any)?.tasks || [];
+    return taskData?.tasks ?? [];
   } catch {
     return [];
   }
@@ -110,13 +109,13 @@ export async function orchestrateStatus(
       }
 
       const children = tasks.filter((t) => t.parentId === epicId);
-      const status = computeEpicStatus(epicId, epic.title, children as unknown as Task[]);
+      const status = computeEpicStatus(epicId, epic.title, children);
 
       return { success: true, data: status };
     }
 
     // No epicId - return overall status
-    const status = computeOverallStatus(tasks as unknown as Task[]);
+    const status = computeOverallStatus(tasks);
     return { success: true, data: status };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
@@ -151,8 +150,8 @@ export async function orchestrateAnalyze(
     const tasks = await loadTasks(root);
     const children = tasks.filter((t) => t.parentId === epicId);
     const depAnalysis = analyzeDependencies(
-      children as unknown as Task[],
-      tasks as unknown as Task[],
+      children,
+      tasks,
     );
 
     return {
@@ -520,7 +519,7 @@ export async function orchestrateSpawnExecute(
       taskId: spawnContext.taskId,
       protocol: protocolType || spawnContext.protocol,
       prompt: spawnContext.prompt,
-      provider,
+      provider: provider.id,
       options: {
         prompt: spawnContext.prompt,
       },
@@ -637,7 +636,7 @@ export async function orchestrateStartup(
     const summary = computeStartupSummary(
       epicId,
       epic.title,
-      children as unknown as Task[],
+      children,
       ready.length,
     );
     return { success: true, data: summary };
@@ -804,7 +803,7 @@ export async function orchestrateCheck(projectRoot?: string): Promise<EngineResu
     const tasks = await loadTasks(root);
 
     const activeTasks = tasks.filter((t) => t.status === 'active');
-    const progress = computeProgress(tasks as unknown as Task[]);
+    const progress = computeProgress(tasks);
 
     return {
       success: true,

@@ -18,7 +18,7 @@ import { basename, join } from 'node:path';
 import {
   auditData,
   cleanupSystem,
-  createBackup,
+  systemCreateBackup as createBackup,
   generateInjection,
   getArchiveStats,
   getDashboard,
@@ -922,7 +922,7 @@ export async function systemRoadmap(
       },
       accessor,
     );
-    return { success: true, data: result as unknown as RoadmapData };
+    return { success: true, data: result as RoadmapData };
   } catch (err: unknown) {
     return engineError('E_NOT_INITIALIZED', (err as Error).message);
   }

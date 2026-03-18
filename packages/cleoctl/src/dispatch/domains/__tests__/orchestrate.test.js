@@ -29,7 +29,7 @@ vi.mock('../../../core/lifecycle/tessera-engine.js', () => ({
 vi.mock('../../../core/lifecycle/chain-store.js', () => ({
     showChain: vi.fn(),
 }));
-import { listTesseraTemplates } from '@cleocode/core/lifecycle/tessera-engine.js';
+import { listTesseraTemplates } from '@cleocode/core';
 import { OrchestrateHandler } from '../orchestrate.js';
 describe('OrchestrateHandler operations', () => {
     let handler;

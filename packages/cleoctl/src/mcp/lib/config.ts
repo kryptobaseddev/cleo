@@ -215,31 +215,30 @@ export function loadConfig(projectRoot?: string): MCPConfig {
   // Load from file (overrides defaults)
   const fileConfig = loadFromFile(projectRoot);
   // Merge nested objects carefully
-  if (fileConfig.lifecycleEnforcement) {
-    config.lifecycleEnforcement = {
-      ...config.lifecycleEnforcement,
-      ...fileConfig.lifecycleEnforcement,
-    };
-    delete (fileConfig as any).lifecycleEnforcement;
+  // Destructure nested config fields to merge them deeply, then spread the rest shallowly
+  const {
+    lifecycleEnforcement: fileLc,
+    protocolValidation: filePv,
+    rateLimiting: fileRl,
+    ...restFileConfig
+  } = fileConfig;
+
+  if (fileLc) {
+    config.lifecycleEnforcement = { ...config.lifecycleEnforcement, ...fileLc };
   }
-  if (fileConfig.protocolValidation) {
-    config.protocolValidation = {
-      ...config.protocolValidation,
-      ...fileConfig.protocolValidation,
-    };
-    delete (fileConfig as any).protocolValidation;
+  if (filePv) {
+    config.protocolValidation = { ...config.protocolValidation, ...filePv };
   }
-  if (fileConfig.rateLimiting) {
+  if (fileRl) {
     config.rateLimiting = {
       ...config.rateLimiting,
-      ...fileConfig.rateLimiting,
-      query: { ...config.rateLimiting.query, ...fileConfig.rateLimiting.query },
-      mutate: { ...config.rateLimiting.mutate, ...fileConfig.rateLimiting.mutate },
-      spawn: { ...config.rateLimiting.spawn, ...fileConfig.rateLimiting.spawn },
+      ...fileRl,
+      query: { ...config.rateLimiting.query, ...fileRl.query },
+      mutate: { ...config.rateLimiting.mutate, ...fileRl.mutate },
+      spawn: { ...config.rateLimiting.spawn, ...fileRl.spawn },
     };
-    delete (fileConfig as any).rateLimiting;
   }
-  Object.assign(config, fileConfig);
+  Object.assign(config, restFileConfig);
 
   // Load from environment (overrides file and defaults)
   for (const key of Object.keys(DEFAULT_CONFIG) as Array<keyof MCPConfig>) {

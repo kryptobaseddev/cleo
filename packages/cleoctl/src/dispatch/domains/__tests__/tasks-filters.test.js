@@ -26,8 +26,8 @@ vi.mock('../../../core/tasks/list.js', () => ({
 vi.mock('../../../core/tasks/find.js', () => ({
     findTasks: vi.fn(),
 }));
-import { findTasks as coreFindTasks } from '@cleocode/core/tasks/find.js';
-import { listTasks as coreListTasks, toCompact } from '@cleocode/core/tasks/list.js';
+import { findTasks as coreFindTasks } from '@cleocode/core';
+import { listTasks as coreListTasks, toCompact } from '@cleocode/core';
 import { getAccessor } from '@cleocode/core';
 import { taskFind, taskList } from '../../engines/task-engine.js';
 const MOCK_TASKS = [

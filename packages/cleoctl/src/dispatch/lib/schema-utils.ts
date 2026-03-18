@@ -12,9 +12,38 @@
  *  T4901
  */
 
-import { OPERATIONS } from '../registry.js';
+import { OPERATIONS, type OperationDef } from '../registry.js';
 import type { Gateway } from '../types.js';
-import { buildMcpInputSchema, type JSONSchemaObject } from './param-utils.js';
+import { type JSONSchemaObject, type JsonSchemaProperty, type JsonSchemaType } from './param-utils.js';
+
+/**
+ * Build an MCP input schema directly from cleoctl's OperationDef.
+ *
+ * This duplicates the logic from core's buildMcpInputSchema to avoid
+ * type incompatibility between cleoctl's ParamDef and core's ParamDef
+ * (they are structurally compatible at runtime but TypeScript treats
+ * them as distinct types across project references).
+ */
+function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
+  const properties: Record<string, JsonSchemaProperty> = {};
+  const required: string[] = [];
+
+  for (const param of def.params ?? []) {
+    if (param.mcp?.hidden) continue;
+
+    const prop: JsonSchemaProperty = {
+      type: param.type as JsonSchemaType,
+      description: param.description,
+    };
+
+    if (param.mcp?.enum) prop.enum = [...param.mcp.enum];
+
+    properties[param.name] = prop;
+    if (param.required) required.push(param.name);
+  }
+
+  return { type: 'object', properties, required };
+}
 
 /**
  * Permissive fallback schema returned when an operation has no declared params.

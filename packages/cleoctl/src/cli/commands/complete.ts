@@ -30,15 +30,17 @@ export function registerCompleteCommand(program: Command): void {
         handleRawError(response, { command: 'complete', operation: 'tasks.complete' });
       }
 
-      const data = response.data as Record<string, unknown>;
+      const data = response.data as Record<string, unknown> | undefined;
       // Engine may return {task: {...}} or the task record directly
       const task = data?.task ?? data;
       const output: Record<string, unknown> = { task };
-      if ((data?.autoCompleted as unknown[] | undefined)?.length) {
-        output['autoCompleted'] = data['autoCompleted'];
+      const autoCompleted = data?.autoCompleted;
+      if (Array.isArray(autoCompleted) && autoCompleted.length > 0) {
+        output['autoCompleted'] = autoCompleted;
       }
-      if ((data?.unblockedTasks as unknown[] | undefined)?.length) {
-        output['unblockedTasks'] = data['unblockedTasks'];
+      const unblockedTasks = data?.unblockedTasks;
+      if (Array.isArray(unblockedTasks) && unblockedTasks.length > 0) {
+        output['unblockedTasks'] = unblockedTasks;
       }
 
       cliOutput(output, { command: 'complete', operation: 'tasks.complete' });

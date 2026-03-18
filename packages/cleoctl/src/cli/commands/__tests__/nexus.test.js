@@ -164,7 +164,7 @@ describe('nexus query (core integration)', () => {
     it('should resolve a task from a named project', async () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
-        const { resolveTask } = await import('@cleocode/core/nexus/index.js');
+        const { resolveTask } = await import('@cleocode/core');
         const result = await resolveTask('alpha:T001');
         expect(Array.isArray(result)).toBe(false);
         if (!Array.isArray(result)) {
@@ -177,7 +177,7 @@ describe('nexus query (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'read');
-        const { resolveTask } = await import('@cleocode/core/nexus/index.js');
+        const { resolveTask } = await import('@cleocode/core');
         const results = await resolveTask('*:T001');
         expect(Array.isArray(results)).toBe(true);
         if (Array.isArray(results)) {
@@ -192,7 +192,7 @@ describe('nexus status (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'write');
-        const { readRegistry } = await import('@cleocode/core/nexus/index.js');
+        const { readRegistry } = await import('@cleocode/core');
         const registry = await readRegistry();
         expect(registry).not.toBeNull();
         expect(Object.keys(registry.projects)).toHaveLength(2);
@@ -234,7 +234,7 @@ describe('nexus sync (core integration)', () => {
                 description: 'A brand new feature task',
             },
         ]);
-        const { nexusSync } = await import('@cleocode/core/nexus/index.js');
+        const { nexusSync } = await import('@cleocode/core');
         await nexusSync('alpha');
         const project = await nexusGetProject('alpha');
         expect(project.taskCount).toBe(4);
@@ -244,7 +244,7 @@ describe('nexus sync (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'read');
-        const { nexusSyncAll } = await import('@cleocode/core/nexus/index.js');
+        const { nexusSyncAll } = await import('@cleocode/core');
         const result = await nexusSyncAll();
         expect(result.synced).toBe(2);
         expect(result.failed).toBe(0);
@@ -254,7 +254,7 @@ describe('nexus deps (core integration)', () => {
     it('should report forward dependencies', async () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
-        const { nexusDeps } = await import('@cleocode/core/nexus/index.js');
+        const { nexusDeps } = await import('@cleocode/core');
         const result = await nexusDeps('alpha:T003', 'forward');
         expect(result.task).toBe('alpha:T003');
         expect(result.depends.length).toBeGreaterThanOrEqual(1);

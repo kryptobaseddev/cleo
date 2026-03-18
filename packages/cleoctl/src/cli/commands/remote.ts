@@ -8,7 +8,7 @@ import {
   addRemote,
   CleoError,
   formatError,
-  getRemoteSyncStatus as getSyncStatus,
+  getRemoteSyncStatus as getRemoteGitStatus,
   listRemotes,
   pull,
   push,
@@ -210,7 +210,7 @@ export function registerRemoteCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const remoteName = opts['remote'] as string;
-        const status = await getSyncStatus(remoteName);
+        const status = await getRemoteGitStatus(remoteName);
 
         let message: string;
         if (status.ahead === 0 && status.behind === 0) {

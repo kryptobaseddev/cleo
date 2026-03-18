@@ -59,12 +59,12 @@ interface TaskRecord {
 }
 
 /** Tree node representation for task hierarchy. */
-export interface TaskTreeNode {
+export interface FlatTreeNode {
   id: string;
   title: string;
   status: string;
   type?: string;
-  children: TaskTreeNode[];
+  children: FlatTreeNode[];
 }
 
 /** Complexity factor. */
@@ -91,7 +91,7 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   return data.tasks as unknown as TaskRecord[];
 }
 
-function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): TaskTreeNode {
+function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): FlatTreeNode {
   const children = (childrenMap.get(task.id) ?? []).map((child) =>
     buildTreeNode(child, childrenMap),
   );
@@ -108,11 +108,11 @@ function buildUpstreamTree(
   taskId: string,
   taskMap: Map<string, TaskRecord>,
   visited: Set<string> = new Set(),
-): TaskTreeNode[] {
+): FlatTreeNode[] {
   const task = taskMap.get(taskId);
   if (!task?.depends?.length) return [];
 
-  const nodes: TaskTreeNode[] = [];
+  const nodes: FlatTreeNode[] = [];
   for (const depId of task.depends) {
     if (visited.has(depId)) continue;
     visited.add(depId);
@@ -131,7 +131,7 @@ function buildUpstreamTree(
   return nodes;
 }
 
-function countNodes(nodes: TaskTreeNode[]): number {
+function countNodes(nodes: FlatTreeNode[]): number {
   let count = nodes.length;
   for (const node of nodes) {
     count += countNodes(node.children);
@@ -395,7 +395,7 @@ export async function coreTaskBlockers(
 export async function coreTaskTree(
   projectRoot: string,
   taskId?: string,
-): Promise<{ tree: TaskTreeNode[]; totalNodes: number }> {
+): Promise<{ tree: FlatTreeNode[]; totalNodes: number }> {
   const allTasks = await loadAllTasks(projectRoot);
 
   if (taskId) {
@@ -1302,7 +1302,7 @@ export async function coreTaskDepends(
   leafBlockers: Array<{ id: string; title: string; status: string }>;
   allDepsReady: boolean;
   hint?: string;
-  upstreamTree?: TaskTreeNode[];
+  upstreamTree?: FlatTreeNode[];
 }> {
   const allTasks = await loadAllTasks(projectRoot);
 
@@ -1350,7 +1350,7 @@ export async function coreTaskDepends(
       : undefined;
 
   // Optional upstream tree
-  let upstreamTree: TaskTreeNode[] | undefined;
+  let upstreamTree: FlatTreeNode[] | undefined;
   if (options?.tree) {
     upstreamTree = buildUpstreamTree(taskId, taskMap);
   }

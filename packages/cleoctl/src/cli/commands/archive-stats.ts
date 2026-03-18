@@ -10,6 +10,13 @@ import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { getAccessor } from '@cleocode/core';
 
+/** Archive metadata attached to archived task records. */
+interface ArchiveMeta {
+  archivedAt?: string;
+  cycleTimeDays?: number;
+  archiveSource?: string;
+}
+
 /** Archived task shape (subset of fields used for stats). */
 interface ArchivedTask {
   id: string;
@@ -18,14 +25,27 @@ interface ArchivedTask {
   priority?: string;
   phase?: string;
   labels?: string[];
-  _archive?: {
-    archivedAt?: string;
-    cycleTimeDays?: number;
-    archiveSource?: string;
-  };
+  _archive?: ArchiveMeta;
+}
+
+/** Raw archived task record with optional _archive metadata. */
+interface RawArchivedRecord {
+  id: string;
+  title: string;
+  status: string;
+  priority?: string;
+  phase?: string;
+  labels?: string[];
+  _archive?: ArchiveMeta;
+  [key: string]: unknown;
 }
 
 type ReportType = 'summary' | 'by-phase' | 'by-label' | 'by-priority' | 'cycle-times' | 'trends';
+
+/** Type guard for tasks with archive metadata. */
+function hasArchiveMeta(t: unknown): t is RawArchivedRecord {
+  return typeof t === 'object' && t !== null && '_archive' in t;
+}
 
 /**
  * Filter tasks by date range on archivedAt.
@@ -260,7 +280,17 @@ export async function getArchiveStats(opts: {
     };
   }
 
-  const tasks = data.archivedTasks as unknown as ArchivedTask[];
+  // Archive records include _archive metadata not present on the base Task type.
+  // Extract known fields and access _archive through property lookup on the raw object.
+  const tasks: ArchivedTask[] = data.archivedTasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    priority: t.priority,
+    phase: t.phase,
+    labels: t.labels,
+    _archive: hasArchiveMeta(t) ? t._archive : undefined,
+  }));
   const filtered = filterByDate(tasks, opts.since, opts.until);
   const reportType = opts.report ?? 'summary';
 

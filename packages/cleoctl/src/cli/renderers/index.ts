@@ -183,7 +183,17 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     try {
       const stub: LAFSEnvelope = {
         $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-        _meta: {} as unknown as LAFSEnvelope['_meta'],
+        _meta: {
+          specVersion: '',
+          schemaVersion: '',
+          timestamp: '',
+          operation: '',
+          requestId: '',
+          transport: 'cli',
+          strict: false,
+          mvi: 'standard',
+          contextVersion: 0,
+        },
         success: true,
         result: data as LAFSEnvelope['result'],
       };

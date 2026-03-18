@@ -15,7 +15,7 @@ import {
   generateTemplateConfig as coreGenerateTemplateConfig,
   getTemplateForSubcommand as coreGetTemplateForSubcommand,
   parseIssueTemplates as coreParseIssueTemplates,
-  validateLabels as coreValidateLabels,
+  templates,
 } from '@cleocode/core';
 import type { EngineResult } from './_error.js';
 
@@ -85,5 +85,5 @@ export function validateLabels(
   labels: string[],
   repoLabels: string[],
 ): EngineResult<{ existing: string[]; missing: string[] }> {
-  return adaptResult(coreValidateLabels(labels, repoLabels));
+  return adaptResult(templates.validateLabels(labels, repoLabels));
 }

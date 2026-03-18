@@ -30,10 +30,11 @@ export function registerDeleteCommand(program: Command): void {
         handleRawError(response, { command: 'delete', operation: 'tasks.delete' });
       }
 
-      const data = response.data as Record<string, unknown>;
+      const data = response.data as Record<string, unknown> | undefined;
       const output: Record<string, unknown> = { deletedTask: data?.deletedTask };
-      if ((data?.cascadeDeleted as unknown[] | undefined)?.length) {
-        output['cascadeDeleted'] = data['cascadeDeleted'];
+      const cascadeDeleted = data?.cascadeDeleted;
+      if (Array.isArray(cascadeDeleted) && cascadeDeleted.length > 0) {
+        output['cascadeDeleted'] = cascadeDeleted;
       }
 
       cliOutput(output, { command: 'delete', operation: 'tasks.delete' });

@@ -490,16 +490,7 @@ export async function releaseShip(
     }
 
     // Prefer metadata from gates result if available (B4 populates this)
-    const gateMetadata = (
-      gatesResult as unknown as {
-        metadata?: {
-          requiresPR?: boolean;
-          targetBranch?: string;
-          currentBranch?: string;
-          channel?: string;
-        };
-      }
-    ).metadata;
+    const gateMetadata = gatesResult.metadata;
     const requiresPRFromGates = gateMetadata?.requiresPR ?? false;
     const targetBranchFromGates = gateMetadata?.targetBranch;
     if (gateMetadata?.currentBranch) {

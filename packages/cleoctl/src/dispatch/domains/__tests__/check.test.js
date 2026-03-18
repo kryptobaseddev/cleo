@@ -26,7 +26,7 @@ vi.mock('../../../core/paths.js', () => ({
 vi.mock('../../../core/validation/chain-validation.js', () => ({
     validateChain: vi.fn(),
 }));
-import { validateChain } from '@cleocode/core/validation/chain-validation.js';
+import { validateChain } from '@cleocode/core';
 import { CheckHandler } from '../check.js';
 function makeForkJoinChain() {
     return {

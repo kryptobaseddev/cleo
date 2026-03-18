@@ -191,15 +191,22 @@ export class SessionHandler implements DomainHandler {
             grade: params?.grade as boolean | undefined,
           });
           // Enrich successful result with top-level sessionId for easy extraction
-          if (result.success && result.data) {
-            const session = result.data as unknown as Record<string, unknown>;
-            result.data = { ...session, sessionId: session.id } as unknown as typeof result.data;
+          if (
+            result.success &&
+            result.data !== null &&
+            result.data !== undefined &&
+            typeof result.data === 'object'
+          ) {
+            const sessionData = result.data;
+            const sessionId = sessionData.id;
+            // Enrich with sessionId alias for easy extraction
+            result = { ...result, data: { ...sessionData, sessionId } };
 
             // T4959: Bind session to process-scoped context (MCP path)
             try {
               const scopeParts = scope.split(':');
               bindSession({
-                sessionId: session.id as string,
+                sessionId,
                 scope: {
                   type: scopeParts[0] ?? 'global',
                   epicId: scopeParts[1],
@@ -209,7 +216,7 @@ export class SessionHandler implements DomainHandler {
             } catch {
               // Already bound — log and continue (session was still created)
               getLogger('domain:session').warn(
-                { sessionId: session.id },
+                { sessionId },
                 'Session context already bound, skipping bindSession',
               );
             }

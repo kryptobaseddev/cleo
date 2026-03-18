@@ -255,7 +255,7 @@ import {
   checkImplementationManifest,
   checkSpecificationManifest,
   validateConsensusTask,
-  validateContributionTask,
+  validateContributionProtocol as validateContributionTask,
   validateDecompositionTask,
   validateImplementationTask,
   validateSpecificationTask,

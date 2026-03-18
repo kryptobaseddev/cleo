@@ -191,7 +191,7 @@ export function renderList(data: Record<string, unknown>, quiet: boolean): strin
 
 /** Render search results. */
 export function renderFind(data: Record<string, unknown>, quiet: boolean): string {
-  const results = (data['results'] as Array<Record<string, unknown>> | undefined) ?? [];
+  const results = (data['results'] as Task[] | undefined) ?? [];
   const total = (data['total'] as number | undefined) ?? results.length;
 
   if (results.length === 0) {
@@ -200,10 +200,7 @@ export function renderFind(data: Record<string, unknown>, quiet: boolean): strin
 
   if (quiet) {
     return results
-      .map((r) => {
-        const t = r as unknown as Task;
-        return `${t.id} ${t.title}`;
-      })
+      .map((t) => `${t.id} ${t.title}`)
       .join('\n');
   }
 
@@ -211,8 +208,7 @@ export function renderFind(data: Record<string, unknown>, quiet: boolean): strin
   lines.push(`${BOLD}Found ${total} result${total !== 1 ? 's' : ''}${NC}`);
   lines.push('');
 
-  for (const r of results) {
-    const t = r as unknown as Task;
+  for (const t of results) {
     const sCol = statusColor(t.status);
     const sSym = statusSymbol(t.status);
     const pCol = priorityColor(t.priority);

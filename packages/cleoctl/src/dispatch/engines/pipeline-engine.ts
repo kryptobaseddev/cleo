@@ -30,8 +30,9 @@ import { type EngineResult, engineError } from './_error.js';
  */
 export async function phaseList(projectRoot?: string): Promise<EngineResult> {
   try {
-    const accessor = await getAccessor(projectRoot);
-    const data = await coreListPhases(undefined, accessor);
+    const root = projectRoot ?? process.cwd();
+    const accessor = await getAccessor(root);
+    const data = await coreListPhases(root, accessor);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;
@@ -44,8 +45,9 @@ export async function phaseList(projectRoot?: string): Promise<EngineResult> {
  */
 export async function phaseShow(phaseId?: string, projectRoot?: string): Promise<EngineResult> {
   try {
-    const accessor = await getAccessor(projectRoot);
-    const data = await coreShowPhase(phaseId, undefined, accessor);
+    const root = projectRoot ?? process.cwd();
+    const accessor = await getAccessor(root);
+    const data = await coreShowPhase(root, phaseId, accessor);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;

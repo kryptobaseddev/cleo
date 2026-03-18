@@ -51,7 +51,17 @@ export function createFieldFilter(): Middleware {
     if (_fields?.length && response.success && response.data !== undefined) {
       const stub: LAFSEnvelope = {
         $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-        _meta: response._meta as unknown as LAFSEnvelope['_meta'],
+        _meta: {
+          specVersion: '',
+          schemaVersion: '',
+          timestamp: response._meta.timestamp,
+          operation: response._meta.operation,
+          requestId: response._meta.requestId,
+          transport: 'mcp',
+          strict: true,
+          mvi: 'standard',
+          contextVersion: 0,
+        },
         success: true,
         result: response.data as LAFSEnvelope['result'],
       };

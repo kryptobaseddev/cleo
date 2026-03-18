@@ -428,8 +428,10 @@ export { bumpVersionFromConfig, getVersionBumpConfig } from './release/version-b
 
 // Remote
 export { listRemotes, pull, push, removeRemote } from './remote/index.js';
-// Alias for cleoctl compatibility
-export { getSyncStatus as getRemoteSyncStatus } from './admin/sync.js';
+// Alias for cleoctl compatibility (admin sync status)
+export { getSyncStatus as getAdminSyncStatus } from './admin/sync.js';
+// Remote git sync status (ahead/behind/branch)
+export { getSyncStatus as getRemoteSyncStatus } from './remote/index.js';
 
 // Routing
 export {
@@ -582,7 +584,7 @@ export {
   coreTaskTree,
   coreTaskUnarchive,
 } from './tasks/task-ops.js';
-export type { ComplexityFactor } from './tasks/task-ops.js';
+export type { ComplexityFactor, FlatTreeNode } from './tasks/task-ops.js';
 
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
@@ -660,7 +662,7 @@ export type { CoherenceIssue } from './validation/validate-ops.js';
 
 // Validation — protocols
 export { checkConsensusManifest, validateConsensusTask } from './validation/protocols/consensus.js';
-export { checkContributionManifest } from './validation/protocols/contribution.js';
+export { checkContributionManifest, validateContributionTask as validateContributionProtocol } from './validation/protocols/contribution.js';
 export { checkDecompositionManifest, validateDecompositionTask } from './validation/protocols/decomposition.js';
 export { checkImplementationManifest, validateImplementationTask } from './validation/protocols/implementation.js';
 export { checkSpecificationManifest, validateSpecificationTask } from './validation/protocols/specification.js';
@@ -723,3 +725,79 @@ export {
   VALID_MANIFEST_STATUSES,
 } from './security/input-sanitization.js';
 export { TASK_PRIORITIES } from './store/tasks-schema.js';
+
+// ---------------------------------------------------------------------------
+// Additional flat exports (required by @cleocode/cleoctl)
+// ---------------------------------------------------------------------------
+
+// Build config
+export { BUILD_CONFIG } from './config/build-config.js';
+export type { BuildConfig } from './config/build-config.js';
+
+// Init (additional)
+export { initCoreSkills } from './init.js';
+
+// Memory (additional)
+export { writeMemoryBridge } from './memory/memory-bridge.js';
+export { persistSessionMemory } from './memory/session-memory.js';
+export { getSessionMemoryContext } from './memory/session-memory.js';
+export type { SessionMemoryContext } from './memory/session-memory.js';
+
+// Scaffold (additional)
+export { ensureContributorMcp, ensureProjectContext, ensureGlobalTemplates } from './scaffold.js';
+
+// Sequence (additional)
+export { showSequence, checkSequence } from './sequence/index.js';
+
+// Codebase map (additional)
+export { mapCodebase } from './codebase-map/index.js';
+
+// Sessions — grading
+export { gradeSession, readGrades } from './sessions/session-grade.js';
+
+// Compliance (additional)
+export { syncComplianceMetrics } from './compliance/index.js';
+
+// System — doctor
+export { coreDoctorReport, runDoctorFixes } from './system/health.js';
+export type { DoctorReport, FixResult } from './system/health.js';
+
+// System — backup (different from store/backup.ts)
+export { createBackup as systemCreateBackup } from './system/backup.js';
+
+// Paths (additional)
+export { getBackupDir, getTaskPath } from './paths.js';
+
+// Tasks — plan, labels, suggests
+export { coreTaskPlan } from './tasks/plan.js';
+export { suggestRelated } from './tasks/relates.js';
+export { listLabels, showLabelTasks } from './tasks/labels.js';
+
+// Skills — precedence
+export { getSkillsMapWithPrecedence, resolveSkillPathsForProvider, determineInstallationTargets } from './skills/precedence-integration.js';
+
+// Orchestration — core versions (different signatures from skills versions)
+export {
+  getReadyTasks as orchestrationGetReadyTasks,
+  getNextTask as orchestrationGetNextTask,
+} from './orchestration/index.js';
+export type { TaskReadiness } from './orchestration/index.js';
+export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
+export type { DependencyAnalysis } from './orchestration/analyze.js';
+export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';
+
+// Spawn
+export { initializeDefaultAdapters, spawnRegistry } from './spawn/adapter-registry.js';
+
+// Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
+export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
+// Nexus — discoverRelated (exported as nexusDiscoverRelated to avoid name clash with tasks discoverRelated)
+export { discoverRelated as nexusDiscoverRelated } from './nexus/discover.js';
+// Nexus — searchAcrossProjects
+export { searchAcrossProjects as nexusSearchAcrossProjects } from './nexus/discover.js';
+
+// Compliance — protocol types
+export { ProtocolType } from './compliance/protocol-enforcement.js';
+
+// Verification gates — enums/classes
+export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';

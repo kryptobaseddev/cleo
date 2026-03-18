@@ -43,8 +43,8 @@ vi.mock('../../../core/task-work/index.js', () => ({
     startTask: vi.fn(),
     stopTask: vi.fn(),
 }));
-import { CleoError } from '@cleocode/core/errors.js';
-import { getLastHandoff } from '@cleocode/core/sessions/index.js';
+import { CleoError } from '@cleocode/core';
+import { getLastHandoff } from '@cleocode/core';
 import { ExitCode } from '@cleocode/contracts';
 import { sessionHandoff } from '../session-engine.js';
 const mockGetLastHandoff = vi.mocked(getLastHandoff);

@@ -52,7 +52,7 @@ export function registerFindCommand(program: Command): void {
         (Array.isArray(rawData)
           ? { results: rawData, total: rawData.length }
           : (rawData as Record<string, unknown>)) ?? {};
-      const results = (data?.results as unknown[]) ?? [];
+      const results = Array.isArray(data?.results) ? data.results : [];
 
       if (results.length === 0) {
         cliOutput(data, {
