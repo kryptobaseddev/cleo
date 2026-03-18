@@ -61,9 +61,9 @@ vi.mock('../../../core/tasks/task-ops.js', () => ({
   coreTaskImport: vi.fn(),
 }));
 
-import { completeTask as coreCompleteTask } from '@cleocode/core/tasks/complete.js';
-import { showTask } from '@cleocode/core/tasks/show.js';
-import { updateTask } from '@cleocode/core/tasks/update.js';
+import { completeTask as coreCompleteTask } from '@cleocode/core';
+import { showTask } from '@cleocode/core';
+import { updateTask } from '@cleocode/core';
 import { getAccessor } from '@cleocode/core';
 import { taskComplete } from '../task-engine.js';
 

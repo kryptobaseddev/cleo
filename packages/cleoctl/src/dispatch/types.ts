@@ -203,7 +203,7 @@ export interface DispatchError {
   /** Alternative actions the caller can try. */
   alternatives?: Array<{ action: string; command: string }>;
   /** RFC 9457 Problem Details (optional, populated from CleoError.toProblemDetails()). */
-  problemDetails?: import('@cleocode/core/errors.js').ProblemDetails;
+  problemDetails?: import('@cleocode/core').ProblemDetails;
 }
 
 /**

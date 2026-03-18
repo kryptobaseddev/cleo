@@ -1268,7 +1268,7 @@ export async function taskImport(
  */
 
 export async function taskPlan(projectRoot: string): Promise<EngineResult> {
-  const { coreTaskPlan } = await import('@cleocode/core/tasks/plan.js');
+  const { coreTaskPlan } = await import('@cleocode/core');
   try {
     const result = await coreTaskPlan(projectRoot);
     return { success: true, data: result };
@@ -1290,7 +1290,7 @@ export async function taskRelatesFind(
   },
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const { suggestRelated, discoverRelated } = await import('@cleocode/core/tasks/relates.js');
+    const { suggestRelated, discoverRelated } = await import('@cleocode/core');
     const accessor = await getAccessor(projectRoot);
     const mode = params?.mode ?? 'suggest';
 
@@ -1320,7 +1320,7 @@ export async function taskLabelList(
   projectRoot: string,
 ): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
   try {
-    const { listLabels } = await import('@cleocode/core/tasks/labels.js');
+    const { listLabels } = await import('@cleocode/core');
     const accessor = await getAccessor(projectRoot);
     const labels = await listLabels(projectRoot, accessor);
     return { success: true, data: { labels, count: labels.length } };
@@ -1338,7 +1338,7 @@ export async function taskLabelShow(
   label: string,
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const { showLabelTasks } = await import('@cleocode/core/tasks/labels.js');
+    const { showLabelTasks } = await import('@cleocode/core');
     const accessor = await getAccessor(projectRoot);
     const result = await showLabelTasks(label, projectRoot, accessor);
     return { success: true, data: result };

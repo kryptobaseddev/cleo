@@ -564,7 +564,7 @@ program.hook('preAction', async () => {
     initCliLogger(process.cwd(), config.logging);
 
     // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
-    const { pruneAuditLog } = await import('@cleocode/core/audit-prune.js');
+    const { pruneAuditLog } = await import('@cleocode/core');
     pruneAuditLog(join(process.cwd(), '.cleo'), config.logging).catch(() => {
       /* non-blocking */
     });

@@ -19,7 +19,7 @@ export function registerObserveCommand(program: Command): void {
     )
     .action(async (text: string, opts: { title?: string; type?: string }) => {
       const projectDir = getProjectRoot();
-      const { observeBrain } = await import('@cleocode/core/memory/brain-retrieval.js');
+      const { observeBrain } = await import('@cleocode/core');
 
       try {
         const result = await observeBrain(projectDir, {

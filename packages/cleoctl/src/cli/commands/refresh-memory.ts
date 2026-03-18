@@ -14,7 +14,7 @@ export function registerRefreshMemoryCommand(program: Command): void {
     .description('Regenerate .cleo/memory-bridge.md from brain.db')
     .action(async () => {
       const projectDir = getProjectRoot();
-      const { writeMemoryBridge } = await import('@cleocode/core/memory/memory-bridge.js');
+      const { writeMemoryBridge } = await import('@cleocode/core');
       const result = await writeMemoryBridge(projectDir);
 
       if (result.written) {

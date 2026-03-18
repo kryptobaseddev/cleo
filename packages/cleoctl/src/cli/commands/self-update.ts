@@ -26,7 +26,7 @@ import {
 } from '@cleocode/core';
 // CLI-only: self-update requires file system ops and external process execution
 import type { Command } from 'commander';
-import { BUILD_CONFIG } from '@cleocode/core/config/build-config.js';
+import { BUILD_CONFIG } from '@cleocode/core';
 import { ExitCode } from '@cleocode/contracts';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';

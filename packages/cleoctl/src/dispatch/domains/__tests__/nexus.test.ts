@@ -45,9 +45,9 @@ import {
   criticalPath,
   nexusDeps,
   orphanDetection,
-} from '@cleocode/core/nexus/deps.js';
-import { setPermission } from '@cleocode/core/nexus/permissions.js';
-import { resolveTask, validateSyntax } from '@cleocode/core/nexus/query.js';
+} from '@cleocode/core';
+import { setPermission } from '@cleocode/core';
+import { resolveTask, validateSyntax } from '@cleocode/core';
 import {
   nexusGetProject,
   nexusInit,
@@ -57,7 +57,7 @@ import {
   nexusSyncAll,
   nexusUnregister,
   readRegistry,
-} from '@cleocode/core/nexus/registry.js';
+} from '@cleocode/core';
 import { NexusHandler } from '../nexus.js';
 
 describe('NexusHandler', () => {

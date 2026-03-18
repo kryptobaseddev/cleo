@@ -265,7 +265,7 @@ export class CheckHandler implements DomainHandler {
 
         // T5615: grade ops moved from admin to check
         case 'grade': {
-          const { gradeSession } = await import('@cleocode/core/sessions/session-grade.js');
+          const { gradeSession } = await import('@cleocode/core');
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
             return errorResult(
@@ -288,7 +288,7 @@ export class CheckHandler implements DomainHandler {
         }
 
         case 'grade.list': {
-          const { readGrades } = await import('@cleocode/core/sessions/session-grade.js');
+          const { readGrades } = await import('@cleocode/core');
           const limit = typeof params?.limit === 'number' ? params.limit : undefined;
           const offset = typeof params?.offset === 'number' ? params.offset : undefined;
           const allGrades = await readGrades(undefined, this.projectRoot);
@@ -365,7 +365,7 @@ export class CheckHandler implements DomainHandler {
         }
 
         case 'compliance.sync': {
-          const { syncComplianceMetrics } = await import('@cleocode/core/compliance/index.js');
+          const { syncComplianceMetrics } = await import('@cleocode/core');
           const result = await syncComplianceMetrics({
             force: params?.force as boolean | undefined,
             cwd: this.projectRoot,

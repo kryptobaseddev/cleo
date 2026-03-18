@@ -41,7 +41,7 @@ vi.mock('../../core/nexus/registry.js', () => ({
   nexusRegister: vi.fn(async () => {}),
 }));
 
-import { ensureInitialized } from '@cleocode/core/init.js';
+import { ensureInitialized } from '@cleocode/core';
 
 describe('MCP auto-init: ensureInitialized() (T4694)', () => {
   let testDir: string;

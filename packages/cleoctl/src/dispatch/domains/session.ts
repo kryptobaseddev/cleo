@@ -228,7 +228,7 @@ export class SessionHandler implements DomainHandler {
               // T4959: Compute rich debrief (superset of handoff)
               let debriefResult: {
                 success: boolean;
-                data?: import('@cleocode/core/sessions/handoff.js').DebriefData;
+                data?: import('@cleocode/core').DebriefData;
               } | null = null;
               try {
                 debriefResult = await sessionComputeDebrief(this.projectRoot, sessionId, {
@@ -251,7 +251,7 @@ export class SessionHandler implements DomainHandler {
               if (debriefResult?.success && debriefResult.data) {
                 try {
                   const { persistSessionMemory } = await import(
-                    '@cleocode/core/memory/session-memory.js'
+                    '@cleocode/core'
                   );
                   await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
                 } catch {

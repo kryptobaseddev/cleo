@@ -35,7 +35,7 @@ vi.mock('../../../store/data-accessor.js', () => ({
 }));
 
 vi.mock('../../../core/sessions/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@cleocode/core/sessions/index.js')>();
+  const actual = await importOriginal<typeof import('@cleocode/core')>();
   return {
     ...actual,
     // Keep findSessions real — it's the core logic we're testing through the engine

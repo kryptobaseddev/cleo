@@ -664,3 +664,62 @@ export { checkContributionManifest } from './validation/protocols/contribution.j
 export { checkDecompositionManifest, validateDecompositionTask } from './validation/protocols/decomposition.js';
 export { checkImplementationManifest, validateImplementationTask } from './validation/protocols/implementation.js';
 export { checkSpecificationManifest, validateSpecificationTask } from './validation/protocols/specification.js';
+
+// Validation — chain validation
+export { validateChain } from './validation/chain-validation.js';
+
+// Validation — verification gates (additional)
+export { createVerificationGate } from './validation/operation-verification-gates.js';
+export type { VerificationResult } from './validation/operation-verification-gates.js';
+
+// ---------------------------------------------------------------------------
+// Additional flat exports (TS2724 resolution for @cleocode/cleoctl)
+// ---------------------------------------------------------------------------
+
+// Remote (additional)
+export { addRemote } from './remote/index.js';
+
+// Sticky (additional)
+export { addSticky } from './sticky/create.js';
+export { getSticky } from './sticky/index.js';
+
+// Orchestration (additional)
+export { buildBrainState } from './orchestration/bootstrap.js';
+
+// Phases (additional)
+export { completePhase } from './phases/index.js';
+
+// Tasks (additional — stats)
+export { coreTaskStats } from './tasks/task-ops.js';
+
+// Sessions (additional)
+export { findSessions } from './sessions/find.js';
+export { getSessionStats, suspendSession } from './sessions/index.js';
+
+// OTel (additional)
+export { getOtelStatus } from './otel/index.js';
+
+// Roadmap
+export { getRoadmap } from './roadmap/index.js';
+
+// Lifecycle (additional)
+export { listTesseraTemplates } from './lifecycle/tessera-engine.js';
+
+// System (additional)
+export type { MigrateResult } from './system/index.js';
+
+// Snapshot (additional)
+export { readSnapshot } from './snapshot/index.js';
+
+// Store (additional)
+export { resolveProjectRoot } from './store/file-utils.js';
+
+// Release (additional)
+export { tagRelease } from './release/release-manifest.js';
+
+// Security (additional)
+export {
+  VALID_LIFECYCLE_STAGE_STATUSES,
+  VALID_MANIFEST_STATUSES,
+} from './security/input-sanitization.js';
+export { TASK_PRIORITIES } from './store/tasks-schema.js';

@@ -318,7 +318,7 @@ async function getActivePatterns(): Promise<string> {
  */
 async function getSessionHandoff(): Promise<string> {
   try {
-    const { getLastHandoff } = await import('@cleocode/core/sessions/handoff.js');
+    const { getLastHandoff } = await import('@cleocode/core');
     const result = await getLastHandoff(process.cwd());
 
     if (!result) {

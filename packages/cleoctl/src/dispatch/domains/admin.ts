@@ -863,7 +863,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'detect': {
           const { ensureProjectContext, ensureContributorMcp } = await import(
-            '@cleocode/core/scaffold.js'
+            '@cleocode/core'
           );
           const contextResult = await ensureProjectContext(this.projectRoot, { force: true });
           const mcpResult = await ensureContributorMcp(this.projectRoot);
@@ -1013,7 +1013,7 @@ export class AdminHandler implements DomainHandler {
         // admin.install.global — refresh global CLEO setup (T4916)
         case 'install.global': {
           const { ensureGlobalScaffold, ensureGlobalTemplates } = await import(
-            '@cleocode/core/scaffold.js'
+            '@cleocode/core'
           );
           const scaffoldResult = await ensureGlobalScaffold();
           const templateResult = await ensureGlobalTemplates();

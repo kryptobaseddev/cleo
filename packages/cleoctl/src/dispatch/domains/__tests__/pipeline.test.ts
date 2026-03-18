@@ -58,7 +58,7 @@ import {
   createInstance,
   listChains,
   showChain,
-} from '@cleocode/core/lifecycle/chain-store.js';
+} from '@cleocode/core';
 import { phaseList, releaseList } from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 

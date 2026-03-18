@@ -344,7 +344,7 @@ export async function orchestrateSpawnSelectProvider(
 
   try {
     const { initializeDefaultAdapters, spawnRegistry } = await import(
-      '@cleocode/core/spawn/adapter-registry.js'
+      '@cleocode/core'
     );
     const { getAllProviders, getProvidersBySpawnCapability, providerSupportsById } = await import(
       '@cleocode/caamp'
@@ -445,7 +445,7 @@ export async function orchestrateSpawnExecute(
   try {
     // Get spawn registry
     const { initializeDefaultAdapters, spawnRegistry } = await import(
-      '@cleocode/core/spawn/adapter-registry.js'
+      '@cleocode/core'
     );
     await initializeDefaultAdapters();
 
@@ -484,7 +484,7 @@ export async function orchestrateSpawnExecute(
     }
 
     // Prepare spawn context (reuse existing prepareSpawn logic)
-    const { prepareSpawn } = await import('@cleocode/core/orchestration/index.js');
+    const { prepareSpawn } = await import('@cleocode/core');
     const accessor = await getAccessor(cwd);
     const spawnContext = await prepareSpawn(taskId, cwd, accessor);
 
