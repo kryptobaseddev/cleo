@@ -19,13 +19,16 @@ export * from '../../../src/core/index.js';
 export { Cleo } from './cleo.js';
 export type {
   AdminAPI,
+  CheckAPI,
   CleoInitOptions,
   CleoTasksApi,
   LifecycleAPI,
   MemoryAPI,
+  NexusAPI,
   OrchestrationAPI,
   ReleaseAPI,
   SessionsAPI,
+  StickyAPI,
   TasksAPI,
 } from './cleo.js';
 
