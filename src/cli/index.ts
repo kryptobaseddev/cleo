@@ -239,11 +239,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 // Centralized pino logger
 import {
-  loadConfig as loadCoreConfig,
+  checkStorageMigration,
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
+  loadConfig as loadCoreConfig,
   MINIMUM_NODE_MAJOR,
-  checkStorageMigration,
 } from '@cleocode/core';
 import { registerAddCommand } from './commands/add.js';
 // ADR-017: ADR validation, listing, and sync

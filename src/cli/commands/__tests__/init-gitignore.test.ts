@@ -9,8 +9,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkRootGitignore } from '@cleocode/core';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let testDir: string;
 

@@ -5,10 +5,10 @@
  * @epic T5716
  */
 
+export type { ErrorDefinition } from '../core/error-catalog.js';
 export {
   ERROR_CATALOG,
   getAllErrorDefinitions,
   getErrorDefinition,
   getErrorDefinitionByLafsCode,
 } from '../core/error-catalog.js';
-export type { ErrorDefinition } from '../core/error-catalog.js';

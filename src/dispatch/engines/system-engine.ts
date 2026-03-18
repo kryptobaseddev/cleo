@@ -16,7 +16,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
-  type RuntimeDiagnostics,
   auditData,
   cleanupSystem,
   createBackup,
@@ -31,6 +30,7 @@ import {
   getSystemDiagnostics,
   getSystemHealth,
   getSystemMetrics,
+  type RuntimeDiagnostics,
   repairSequence,
   restoreBackup,
   safestop,
@@ -40,24 +40,20 @@ import { getAccessor } from '../../store/data-accessor.js';
 import { type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 
-export type { ArchiveStatsResult as ArchiveStatsData } from '@cleocode/core';
-export type { AuditResult as AuditData } from '@cleocode/core';
+// Re-export types for downstream consumers
 export type {
+  ArchiveStatsResult as ArchiveStatsData,
+  AuditResult as AuditData,
   BackupResult as BackupData,
-  RestoreResult as RestoreData,
-} from '@cleocode/core';
-export type { CleanupResult as CleanupData } from '@cleocode/core';
-export type {
+  CleanupResult as CleanupData,
   DiagnosticsResult as DiagnosticsData,
   HealthResult as HealthData,
-} from '@cleocode/core';
-export type { InjectGenerateResult as InjectGenerateData } from '@cleocode/core';
-// Re-export types for downstream consumers
-export type { LabelsResult as LabelsData } from '@cleocode/core';
-export type { SystemMetricsResult as MetricsData } from '@cleocode/core';
-export type { MigrateResult as MigrateData } from '@cleocode/core';
-export type {
+  InjectGenerateResult as InjectGenerateData,
+  LabelsResult as LabelsData,
+  MigrateResult as MigrateData,
+  RestoreResult as RestoreData,
   SafestopResult as SafestopData,
+  SystemMetricsResult as MetricsData,
   UncancelResult as UncancelData,
 } from '@cleocode/core';
 export type RuntimeData = RuntimeDiagnostics;

@@ -303,13 +303,13 @@ export {
   syncAdrsToDb,
   validateAllAdrs,
 } from './adrs/index.js';
-
-// Compliance (protocol enforcement)
-export { ProtocolEnforcer, ProtocolType, protocolEnforcer } from './compliance/protocol-enforcement.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
-
-// Compliance (protocol rules)
-export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
+// Compliance (protocol enforcement)
+export {
+  ProtocolEnforcer,
+  ProtocolType,
+  protocolEnforcer,
+} from './compliance/protocol-enforcement.js';
 export type {
   ProtocolRule,
   ProtocolValidationResult,
@@ -317,6 +317,8 @@ export type {
   RequirementLevel,
   ViolationSeverity,
 } from './compliance/protocol-rules.js';
+// Compliance (protocol rules)
+export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
 
 // Hooks singleton and registry
 export { HookRegistry, hooks } from './hooks/registry.js';
@@ -327,7 +329,14 @@ export { isProviderHookEvent } from './hooks/types.js';
 
 // Issue diagnostics
 export { collectDiagnostics } from './issue/diagnostics.js';
-
+// Lifecycle chain-store
+export {
+  addChain,
+  advanceInstance,
+  createInstance,
+  listChains,
+  showChain,
+} from './lifecycle/chain-store.js';
 // Lifecycle (flat re-exports alongside namespace)
 export {
   checkGate,
@@ -343,15 +352,6 @@ export {
   resetStage,
   skipStageWithReason,
 } from './lifecycle/index.js';
-
-// Lifecycle chain-store
-export {
-  addChain,
-  advanceInstance,
-  createInstance,
-  listChains,
-  showChain,
-} from './lifecycle/chain-store.js';
 
 // Lifecycle tessera-engine
 export {
@@ -468,10 +468,10 @@ export { getEnrichedWaves } from './orchestration/waves.js';
 
 // Phases
 export {
-  type ListPhasesResult,
   advancePhase,
   completePhase,
   deletePhase,
+  type ListPhasesResult,
   listPhases,
   renamePhase,
   setPhase,
@@ -538,24 +538,36 @@ export type { RateLimitConfig, RateLimitResult } from './security/input-sanitiza
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
+  ensureArray,
   RateLimiter,
   SecurityError,
+  sanitizeContent,
+  sanitizeParams,
+  sanitizePath,
+  sanitizeTaskId,
   VALID_DOMAINS,
   VALID_GATEWAYS,
   VALID_LIFECYCLE_STAGE_STATUSES,
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
-  ensureArray,
-  sanitizeContent,
-  sanitizeParams,
-  sanitizePath,
-  sanitizeTaskId,
   validateEnum,
 } from './security/input-sanitization.js';
 
 // Sequence
 export { repairSequence } from './sequence/index.js';
-
+export type { SessionBriefing } from './sessions/briefing.js';
+// Sessions context alert (session ID access)
+export { getCurrentSessionId } from './sessions/context-alert.js';
+export type { ContextInjectionData } from './sessions/context-inject.js';
+export { injectContext } from './sessions/context-inject.js';
+export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
+export type {
+  ComputeDebriefOptions,
+  DebriefData,
+  DebriefDecision,
+  HandoffData,
+} from './sessions/handoff.js';
+export { computeDebrief } from './sessions/handoff.js';
 // Sessions submodules (flat alongside namespace)
 export {
   archiveSessions,
@@ -584,21 +596,8 @@ export {
   suspendSession,
   switchSession,
 } from './sessions/index.js';
-export type { ContextInjectionData } from './sessions/context-inject.js';
-export { injectContext } from './sessions/context-inject.js';
-export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
-export type {
-  ComputeDebriefOptions,
-  DebriefData,
-  DebriefDecision,
-  HandoffData,
-} from './sessions/handoff.js';
-export { computeDebrief } from './sessions/handoff.js';
 export { generateSessionId } from './sessions/session-id.js';
 export type { DecisionRecord } from './sessions/types.js';
-export type { SessionBriefing } from './sessions/briefing.js';
-// Sessions context alert (session ID access)
-export { getCurrentSessionId } from './sessions/context-alert.js';
 
 // Snapshot
 export {
@@ -611,9 +610,6 @@ export {
 
 // Stats
 export { getDashboard, getProjectStats } from './stats/index.js';
-
-// Sticky
-export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
 export {
   addSticky,
   archiveSticky,
@@ -625,6 +621,8 @@ export {
   listStickies,
   purgeSticky,
 } from './sticky/index.js';
+// Sticky
+export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
 
 // System submodules (flat re-exports alongside namespace)
 export type { ArchiveStatsResult } from './system/archive-stats.js';
@@ -660,6 +658,8 @@ export { archiveTasks } from './tasks/archive.js';
 export { completeTask } from './tasks/complete.js';
 export { deleteTask } from './tasks/delete.js';
 export { findTasks } from './tasks/find.js';
+// Tasks ID generator
+export { normalizeTaskId } from './tasks/id-generator.js';
 export type { CompactTask } from './tasks/list.js';
 export { listTasks, toCompact } from './tasks/list.js';
 export { showTask } from './tasks/show.js';
@@ -694,8 +694,6 @@ export {
   coreTaskUnarchive,
 } from './tasks/task-ops.js';
 export { updateTask } from './tasks/update.js';
-// Tasks ID generator
-export { normalizeTaskId } from './tasks/id-generator.js';
 
 // Templates parser
 export type {
@@ -712,29 +710,6 @@ export {
 
 // Validation submodules (flat re-exports alongside namespace)
 export { validateChain } from './validation/chain-validation.js';
-export {
-  createVerificationGate,
-  GATE_SEQUENCE,
-  GateLayer,
-  GateStatus,
-  getWorkflowGateDefinition,
-  isValidWorkflowGateName,
-  VerificationGate,
-  WORKFLOW_GATE_DEFINITIONS,
-  WORKFLOW_GATE_SEQUENCE,
-  WorkflowGateName,
-  WorkflowGateTracker,
-} from './validation/operation-verification-gates.js';
-export type {
-  GateViolation,
-  LayerResult,
-  OperationContext,
-  VerificationResult,
-  WorkflowGateAgent,
-  WorkflowGateDefinition,
-  WorkflowGateState,
-  WorkflowGateStatus,
-} from './validation/operation-verification-gates.js';
 // Gate validators
 export {
   GATE_VALIDATION_RULES,
@@ -749,6 +724,29 @@ export {
   validateWorkflowGateStatus,
   validateWorkflowGateUpdate,
 } from './validation/operation-gate-validators.js';
+export type {
+  GateViolation,
+  LayerResult,
+  OperationContext,
+  VerificationResult,
+  WorkflowGateAgent,
+  WorkflowGateDefinition,
+  WorkflowGateState,
+  WorkflowGateStatus,
+} from './validation/operation-verification-gates.js';
+export {
+  createVerificationGate,
+  GATE_SEQUENCE,
+  GateLayer,
+  GateStatus,
+  getWorkflowGateDefinition,
+  isValidWorkflowGateName,
+  VerificationGate,
+  WORKFLOW_GATE_DEFINITIONS,
+  WORKFLOW_GATE_SEQUENCE,
+  WorkflowGateName,
+  WorkflowGateTracker,
+} from './validation/operation-verification-gates.js';
 export type {
   CommanderArgSplit,
   JSONSchemaObject,
@@ -803,9 +801,9 @@ export {
 // Additional flat re-exports for CLI layer (T5719)
 // ---------------------------------------------------------------------------
 
-// System storage preflight
-export type { PreflightResult } from './system/storage-preflight.js';
-export { checkStorageMigration } from './system/storage-preflight.js';
+// MCP server entry generation
+export type { McpEnvMode } from './mcp/index.js';
+export { detectEnvMode, generateMcpServerEntry, getMcpServerName } from './mcp/index.js';
 
 // Memory claude-mem migration
 export type {
@@ -813,26 +811,8 @@ export type {
   ClaudeMemMigrationResult,
 } from './memory/claude-mem-migration.js';
 export { migrateClaudeMem } from './memory/claude-mem-migration.js';
-
-// MCP server entry generation
-export type { McpEnvMode } from './mcp/index.js';
-export { detectEnvMode, generateMcpServerEntry, getMcpServerName } from './mcp/index.js';
-
 // Metrics token service (measureTokenExchange not yet flat-exported)
 export { measureTokenExchange } from './metrics/token-service.js';
-
-// Remote git operations (prefixed to avoid conflict with admin getSyncStatus)
-export type { PullResult, PushResult, RemoteConfig, RemoteInfo } from './remote/index.js';
-export {
-  addRemote,
-  getCurrentBranch,
-  listRemotes,
-  pull,
-  push,
-  removeRemote,
-  getSyncStatus as getRemoteSyncStatus,
-} from './remote/index.js';
-
 // OTel operations
 export {
   clearOtelData,
@@ -842,6 +822,20 @@ export {
   getOtelSummary,
   getRealTokenUsage,
 } from './otel/index.js';
+// Remote git operations (prefixed to avoid conflict with admin getSyncStatus)
+export type { PullResult, PushResult, RemoteConfig, RemoteInfo } from './remote/index.js';
+export {
+  addRemote,
+  getCurrentBranch,
+  getSyncStatus as getRemoteSyncStatus,
+  listRemotes,
+  pull,
+  push,
+  removeRemote,
+} from './remote/index.js';
+// System storage preflight
+export type { PreflightResult } from './system/storage-preflight.js';
+export { checkStorageMigration } from './system/storage-preflight.js';
 
 // Validation doctor checks (flat re-export)
 export { checkRootGitignore } from './validation/doctor/checks.js';

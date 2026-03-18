@@ -4,17 +4,17 @@
  * @task T4884
  */
 
-import type { Command } from 'commander';
 import {
+  addRemote,
   CleoError,
   formatError,
-  addRemote,
   getRemoteSyncStatus as getSyncStatus,
   listRemotes,
   pull,
   push,
   removeRemote,
 } from '@cleocode/core';
+import type { Command } from 'commander';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
 

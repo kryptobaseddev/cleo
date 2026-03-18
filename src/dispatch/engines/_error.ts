@@ -8,7 +8,7 @@
  * to numeric exit codes. It mirrors ERROR_CODE_TO_EXIT in cli.ts.
  */
 
-import { getLogger, type EngineResult } from '@cleocode/core';
+import { type EngineResult, getLogger } from '@cleocode/core';
 
 // Re-export EngineResult from core (canonical location)
 export type { EngineResult } from '@cleocode/core';

@@ -20,8 +20,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CleoError, formatError, type InitOptions, initProject } from '@cleocode/core';
 import type { Command } from 'commander';
-import { CleoError, type InitOptions, initProject, formatError } from '@cleocode/core';
 import { cliOutput } from '../renderers/index.js';
 
 /**

@@ -4,18 +4,18 @@
  * @epic T4454
  */
 
-// CLI-only: no otel domain in dispatch (telemetry is local-only)
-import type { Command } from 'commander';
 import {
   CleoError,
   clearOtelData,
+  formatError,
   getOtelSessions,
   getOtelSpawns,
   getOtelStatus,
   getOtelSummary,
   getRealTokenUsage,
-  formatError,
 } from '@cleocode/core';
+// CLI-only: no otel domain in dispatch (telemetry is local-only)
+import type { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';
 
 /**

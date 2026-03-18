@@ -13,10 +13,10 @@
  * @see MCP-SERVER-SPECIFICATION.md for complete API documentation
  */
 
+import { hooks } from '@cleocode/core';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { hooks } from '@cleocode/core';
 import { handleMcpToolCall, initMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { registerMutateTool } from './gateways/mutate.js';
 import { registerQueryTool } from './gateways/query.js';
@@ -27,11 +27,15 @@ import { loadConfig } from './lib/config.js';
 import { registerMemoryResources } from './resources/index.js';
 import '../core/hooks/handlers/index.js';
 import { join } from 'node:path';
-import { pruneAuditLog } from '@cleocode/core';
-import { closeLogger, getLogger, initLogger } from '@cleocode/core';
-import { autoRecordDispatchTokenUsage } from '@cleocode/core';
-import { getProjectInfoSync } from '@cleocode/core';
-import { getCleoVersion } from '@cleocode/core';
+import {
+  autoRecordDispatchTokenUsage,
+  closeLogger,
+  getCleoVersion,
+  getLogger,
+  getProjectInfoSync,
+  initLogger,
+  pruneAuditLog,
+} from '@cleocode/core';
 import { setJobManager } from './lib/job-manager-accessor.js';
 
 /**

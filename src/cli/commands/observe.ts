@@ -5,8 +5,8 @@
  * Provides CLI parity for the MCP `mutate memory observe` operation.
  */
 
-import type { Command } from 'commander';
 import { getProjectRoot } from '@cleocode/core';
+import type { Command } from 'commander';
 
 export function registerObserveCommand(program: Command): void {
   program

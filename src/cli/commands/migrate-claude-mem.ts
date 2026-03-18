@@ -8,8 +8,8 @@
  * @task T5143
  */
 
+import { getProjectRoot, migrateClaudeMem } from '@cleocode/core';
 import type { Command } from 'commander';
-import { migrateClaudeMem, getProjectRoot } from '@cleocode/core';
 
 /**
  * Register the `migrate claude-mem` command under a migrate parent command.
