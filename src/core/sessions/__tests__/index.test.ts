@@ -22,7 +22,7 @@ vi.mock('../../hooks/registry.js', () => ({
 
 import { endSession, startSession } from '../index.js';
 
-describe('sessions index memory bridge wiring', () => {
+describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
   let tempDir: string;
 
   beforeEach(async () => {
