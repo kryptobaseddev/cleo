@@ -610,6 +610,9 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   afterEach(async () => {
     closeLogger();
+    // Wait for pino worker thread to flush — pino.transport() writes async;
+    // deleting the log dir before it finishes throws an unhandled ENOENT.
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
     delete process.env['CLEO_DIR'];
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -617,7 +620,10 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    await Promise.race([
+      rm(testDir, { recursive: true, force: true }).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+    ]);
   });
 
   it('lifecycle-engine uses PIPELINE_STAGES from core/lifecycle/', async () => {
