@@ -11,6 +11,7 @@
 
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
+import type { BrainKnnRow } from './brain-row-types.js';
 
 // ============================================================================
 // Types
@@ -80,7 +81,7 @@ export async function searchSimilar(
   if (!isBrainVecLoaded()) return [];
 
   // Run KNN query against vec0 table
-  let knnRows: Array<{ id: string; distance: number }>;
+  let knnRows: BrainKnnRow[];
   try {
     knnRows = nativeDb
       .prepare(
@@ -89,7 +90,7 @@ export async function searchSimilar(
       .all(
         new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
         maxResults,
-      ) as Array<{ id: string; distance: number }>;
+      ) as unknown as BrainKnnRow[];
   } catch {
     // vec0 query failed — table may not exist or extension not loaded
     return [];

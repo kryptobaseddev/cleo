@@ -11,6 +11,7 @@
 
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { BrainDecisionRow } from '../store/brain-schema.js';
+import type { BrainDecisionNode } from './brain-row-types.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { searchBrain } from './brain-search.js';
@@ -24,7 +25,7 @@ export interface BlockerNode {
   taskId: string;
   status: string;
   reason?: string;
-  decisions: Array<{ id: string; title: string; rationale?: string }>;
+  decisions: BrainDecisionNode[];
 }
 
 export interface CausalTrace {
@@ -98,7 +99,7 @@ export async function reasonWhy(
       const dep = taskMap.get(depId)!;
 
       // Query brain decisions related to this blocker
-      let decisions: Array<{ id: string; title: string; rationale?: string }> = [];
+      let decisions: BrainDecisionNode[] = [];
       if (accessor) {
         const relatedDecisions = await findDecisionsForTask(accessor, depId);
         decisions = relatedDecisions.map((d) => ({
