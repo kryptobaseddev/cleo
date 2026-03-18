@@ -3,19 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/contracts",
-    "packages/core",
-    "packages/cleoctl"
-  ],
+  "packageManager": "pnpm@10.30.0",
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "npm run build -w packages/contracts && npm run build -w packages/core && npm run build -w packages/cleoctl",
-    "build:contracts": "npm run build -w packages/contracts",
-    "build:core": "npm run build -w packages/core",
-    "build:cleoctl": "npm run build -w packages/cleoctl",
+    "build": "pnpm -r --filter @cleocode/contracts run build && pnpm -r --filter @cleocode/core run build && pnpm -r --filter @cleocode/cleoctl run build",
+    "build:contracts": "pnpm -r --filter @cleocode/contracts run build",
+    "build:core": "pnpm -r --filter @cleocode/core run build",
+    "build:cleoctl": "pnpm -r --filter @cleocode/cleoctl run build",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "lint": "biome check .",
@@ -25,7 +21,11 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^22.19.11",
-    "typescript": "^5.9.3",
+    "typescript": "6.0.1-rc",
     "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "js-tiktoken": "^1.0.21",
+    "zod": "^3.25.76"
   }
 }

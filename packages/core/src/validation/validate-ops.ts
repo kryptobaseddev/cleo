@@ -1,0 +1,1266 @@
+/**
+ * Core validation operations - business logic extracted from validate-engine.ts.
+ *
+ * These are pure business logic functions that throw on failure and return
+ * data directly (no EngineResult wrapper). The engine layer wraps these
+ * in try/catch to produce EngineResult.
+ *
+ * @task T4786
+ * @epic T4654
+ */
+
+import { execFileSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { getAccessor } from '../store/data-accessor.js';
+import { computeChecksum } from '../store/json.js';
+import { TASK_STATUSES } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
+import { getManifestPath as getCentralManifestPath } from '../paths.js';
+import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
+import { validateSchema as ajvValidateSchema } from './schema-validator.js';
+import {
+  hasErrors,
+  type RuleViolation,
+  validateHierarchy,
+  validateIdUniqueness,
+  validateNoDuplicateDescription,
+  validateTimestamps,
+  validateTitleDescription,
+} from './validation-rules.js';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/** Compliance entry stored in COMPLIANCE.jsonl */
+export interface ComplianceEntry {
+  timestamp: string;
+  taskId: string;
+  protocol: string;
+  result: 'pass' | 'fail' | 'partial';
+  violations?: Array<{
+    code: string;
+    message: string;
+    severity: 'error' | 'warning';
+  }>;
+  linkedTask?: string;
+  agent?: string;
+}
+
+/** Task-like record used across validation operations. */
+interface TaskRecord {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  type?: string;
+  phase?: string;
+  createdAt: string;
+  updatedAt: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  parentId?: string | null;
+  depends?: string[];
+  relates?: Array<{ taskId: string; type: string; reason?: string }>;
+  files?: string[];
+  acceptance?: string[];
+  notes?: string[];
+  labels?: string[];
+  [key: string]: unknown;
+}
+
+/** Coherence issue found during graph validation. */
+export interface CoherenceIssue {
+  type: string;
+  taskId: string;
+  message: string;
+  severity: 'error' | 'warning' | 'info';
+}
+
+// ============================================================================
+// Comprehensive Validate Report
+// ============================================================================
+
+export interface ValidateCheckDetail {
+  check: string;
+  status: 'ok' | 'error' | 'warning';
+  message: string;
+}
+
+export interface ValidateReportResult {
+  valid: boolean;
+  schemaVersion: string;
+  errors: number;
+  warnings: number;
+  details: ValidateCheckDetail[];
+}
+
+/**
+ * Run comprehensive validation report on tasks database — checks business rules,
+ * dependencies, checksums, data integrity, and schema compliance.
+ * @task T4795
+ */
+export async function coreValidateReport(projectRoot: string): Promise<ValidateReportResult> {
+  const accessor = await getAccessor(projectRoot);
+  const data = await accessor.loadTaskFile();
+
+  const details: ValidateCheckDetail[] = [];
+  let errors = 0;
+  let warnings = 0;
+
+  const addOk = (check: string, message: string) => {
+    details.push({ check, status: 'ok', message });
+  };
+  const addError = (check: string, message: string) => {
+    details.push({ check, status: 'error', message });
+    errors++;
+  };
+  const addWarn = (check: string, message: string) => {
+    details.push({ check, status: 'warning', message });
+    warnings++;
+  };
+
+  // 1. JSON syntax (already parsed above)
+  addOk('json_syntax', 'JSON syntax valid');
+
+  // 2. Check duplicate task IDs
+  const idCounts = new Map<string, number>();
+  for (const t of data.tasks) {
+    idCounts.set(t.id, (idCounts.get(t.id) ?? 0) + 1);
+  }
+  const duplicateIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
+  if (duplicateIds.length > 0) {
+    addError(
+      'duplicate_ids_todo',
+      `Duplicate task IDs in tasks database: ${duplicateIds.join(', ')}`,
+    );
+  } else {
+    addOk('duplicate_ids_todo', 'No duplicate task IDs in tasks database');
+  }
+
+  // 2b. Cross-file duplicates with archive
+  const archive = await accessor.loadArchive();
+  if (archive && archive.archivedTasks.length > 0) {
+    const archiveIds = new Set(archive.archivedTasks.map((t) => t.id));
+    const todoIds = new Set(data.tasks.map((t) => t.id));
+    const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
+    if (crossDups.length > 0) {
+      addError(
+        'duplicate_ids_cross',
+        `IDs exist in both tasks database and archive: ${crossDups.join(', ')}`,
+      );
+    } else {
+      addOk('duplicate_ids_cross', 'No cross-file duplicate IDs');
+    }
+  }
+
+  // 3. Active task limit
+  const activeTasks = data.tasks.filter((t) => t.status === 'active');
+  if (activeTasks.length > 1) {
+    addError('active_task', `Too many active tasks: ${activeTasks.length}. Maximum allowed: 1`);
+  } else if (activeTasks.length === 1) {
+    addOk('active_task', 'Single active task');
+  } else {
+    addOk('active_task', 'No active tasks');
+  }
+
+  // 4. Dependencies exist
+  const taskIds = new Set(data.tasks.map((t) => t.id));
+  const missingDeps: string[] = [];
+  for (const t of data.tasks) {
+    if (t.depends) {
+      for (const depId of t.depends) {
+        if (!taskIds.has(depId)) missingDeps.push(depId);
+      }
+    }
+  }
+  if (missingDeps.length > 0) {
+    addError(
+      'dependencies',
+      `Missing dependency references: ${[...new Set(missingDeps)].join(', ')}`,
+    );
+  } else {
+    addOk('dependencies', 'All dependencies exist');
+  }
+
+  // 5. Circular dependencies
+  const depResult = validateDependencies(data.tasks);
+  const circularErrors = depResult.errors.filter((e) => e.code === 'E_CIRCULAR_DEP');
+  if (circularErrors.length > 0) {
+    for (const err of circularErrors) {
+      addError('circular_deps', err.message);
+    }
+  } else {
+    addOk('circular_deps', 'No circular dependencies');
+  }
+
+  // 6. Blocked tasks have blockedBy
+  const blockedNoReason = data.tasks.filter((t) => t.status === 'blocked' && !t.blockedBy);
+  if (blockedNoReason.length > 0) {
+    addError(
+      'blocked_reasons',
+      `${blockedNoReason.length} blocked task(s) missing blockedBy reason`,
+    );
+  } else {
+    addOk('blocked_reasons', 'All blocked tasks have reasons');
+  }
+
+  // 7. Done tasks have completedAt
+  const doneNoDate = data.tasks.filter((t) => t.status === 'done' && !t.completedAt);
+  if (doneNoDate.length > 0) {
+    addError('completed_at', `${doneNoDate.length} done task(s) missing completedAt`);
+  } else {
+    addOk('completed_at', 'All done tasks have completedAt');
+  }
+
+  // 8. Schema version
+  const schemaVersion = data._meta?.schemaVersion;
+  if (!schemaVersion) {
+    addError('schema_version', 'Missing ._meta.schemaVersion field. Run: cleo upgrade');
+  } else {
+    addOk('schema_version', `Schema version compatible (${schemaVersion})`);
+  }
+
+  // 9. Required fields
+  const missingFieldTasks = data.tasks.filter(
+    (t) => !t.id || !t.title || !t.status || !t.priority || !t.createdAt,
+  );
+  if (missingFieldTasks.length > 0) {
+    for (const t of missingFieldTasks) {
+      const missing = [];
+      if (!t.id) missing.push('id');
+      if (!t.title) missing.push('title');
+      if (!t.status) missing.push('status');
+      if (!t.priority) missing.push('priority');
+      if (!t.createdAt) missing.push('createdAt');
+      addError('required_fields', `Task ${t.id ?? '(unknown)'} missing: ${missing.join(', ')}`);
+    }
+  } else {
+    addOk('required_fields', 'All tasks have required fields');
+  }
+
+  // 10. Focus matches active task
+  const focusTask = data.focus?.currentTask;
+  const activeTaskId = activeTasks[0]?.id ?? null;
+  if (focusTask && focusTask !== activeTaskId) {
+    addError(
+      'focus_match',
+      `focus.currentTask (${focusTask}) doesn't match active task (${activeTaskId ?? 'none'})`,
+    );
+  } else {
+    addOk('focus_match', 'Focus matches active task');
+  }
+
+  // 11. Checksum
+  const storedChecksum = data._meta?.checksum;
+  if (storedChecksum) {
+    const computed = computeChecksum(data.tasks);
+    if (storedChecksum !== computed) {
+      addError('checksum', `Checksum mismatch: stored=${storedChecksum}, computed=${computed}`);
+    } else {
+      addOk('checksum', 'Checksum valid');
+    }
+  } else {
+    addWarn('checksum', 'No checksum found');
+  }
+
+  // 12. Missing size fields
+  const missingSizeTasks = data.tasks.filter((t) => !t.size);
+  if (missingSizeTasks.length > 0) {
+    addWarn('missing_sizes', `${missingSizeTasks.length} task(s) missing size field`);
+  } else {
+    addOk('missing_sizes', 'All tasks have size field');
+  }
+
+  // 13. Stale tasks (pending > 30 days)
+  const staleDays = 30;
+  const staleThreshold = Date.now() - staleDays * 86400 * 1000;
+  const staleTasks = data.tasks.filter(
+    (t) =>
+      t.status === 'pending' && t.createdAt && new Date(t.createdAt).getTime() < staleThreshold,
+  );
+  if (staleTasks.length > 0) {
+    addWarn('stale_tasks', `${staleTasks.length} task(s) pending for >${staleDays} days`);
+  }
+
+  return {
+    valid: errors === 0,
+    schemaVersion: schemaVersion ?? 'unknown',
+    errors,
+    warnings,
+    details,
+  };
+}
+
+// ============================================================================
+// Validate and Fix
+// ============================================================================
+
+import { type RepairAction, runAllRepairs } from '../repair.js';
+
+/** Result from validate + fix operation. */
+export interface ValidateAndFixResult extends ValidateReportResult {
+  repairsApplied: number;
+  repairs: RepairAction[];
+}
+
+/**
+ * Run validation report, then apply data repairs for fixable issues.
+ * Calls runAllRepairs() from src/core/repair.ts (same repairs used by `upgrade`).
+ * @task T4795
+ */
+export async function coreValidateAndFix(
+  projectRoot: string,
+  dryRun: boolean = false,
+): Promise<ValidateAndFixResult> {
+  // Repairs operate directly on SQLite — no TaskFile loading required
+  const repairs = await runAllRepairs(projectRoot, dryRun);
+  const applied = repairs.filter((r) => r.status === 'applied');
+
+  // Run validation report after repairs
+  const report = await coreValidateReport(projectRoot);
+
+  return {
+    ...report,
+    repairsApplied: applied.length,
+    repairs,
+  };
+}
+
+// ============================================================================
+// Schema Validation
+// ============================================================================
+
+/** Read a JSON file, returning parsed data or null. */
+function readJsonFile<T = unknown>(filePath: string): T | null {
+  try {
+    const raw = readFileSync(filePath, 'utf-8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate data against a schema type.
+ *
+ * For SQLite-backed types (todo, archive, sessions, log), queries rows
+ * directly from SQLite and validates with drizzle-zod schemas.
+ * For config type, uses AJV against the JSON schema file.
+ * If raw `data` is provided, validates directly with AJV (backward compat).
+ *
+ * @task T4786
+ */
+export async function coreValidateSchema(
+  type: string,
+  data: unknown | undefined,
+  projectRoot: string,
+): Promise<{ type: string; valid: boolean; errors: unknown[]; errorCount: number }> {
+  if (!type) {
+    throw new Error('type is required (todo, config, archive, log, sessions)');
+  }
+
+  const validTypes = ['todo', 'config', 'archive', 'log', 'sessions'];
+  if (!validTypes.includes(type)) {
+    throw new Error(`Unknown schema type: ${type}. Valid types: ${validTypes.join(', ')}`);
+  }
+
+  // Config type: AJV against JSON schema file (not stored in SQLite)
+  if (type === 'config') {
+    const filePath = join(projectRoot, '.cleo', 'config.json');
+    if (!existsSync(filePath)) {
+      throw new Error('File not found: .cleo/config.json');
+    }
+    const configData = data ?? readJsonFile(filePath);
+    const result = ajvValidateSchema('config', configData);
+    return { type, valid: result.valid, errors: result.errors, errorCount: result.errors.length };
+  }
+
+  // SQLite-backed types: query rows and validate with drizzle-zod
+  return validateSqliteRows(type, projectRoot);
+}
+
+/** Collect validation errors from a Zod safeParse result for a given row. */
+function collectZodErrors(
+  result: {
+    success: boolean;
+    error?: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code: string }> };
+  },
+  rowId: string,
+): Array<{ path: string; message: string; keyword: string; rowId: string }> {
+  if (result.success) return [];
+  return (result.error?.issues ?? []).map((issue) => ({
+    path: `/${rowId}/` + issue.path.map(String).join('/'),
+    message: issue.message,
+    keyword: issue.code,
+    rowId,
+  }));
+}
+
+/**
+ * Query rows from SQLite and validate each against the drizzle-zod select schema.
+ */
+async function validateSqliteRows(
+  type: string,
+  projectRoot: string,
+): Promise<{ type: string; valid: boolean; errors: unknown[]; errorCount: number }> {
+  const { getDb } = await import('../store/sqlite.js');
+  const schemaTable = await import('../store/tasks-schema.js');
+  const zodSchemas = await import('../store/validation-schemas.js');
+  const { ne, eq } = await import('drizzle-orm');
+
+  const db = await getDb(projectRoot);
+  const errors: Array<{ path: string; message: string; keyword: string; rowId: string }> = [];
+
+  switch (type) {
+    case 'todo': {
+      const rows = await db
+        .select()
+        .from(schemaTable.tasks)
+        .where(ne(schemaTable.tasks.status, 'archived'));
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'archive': {
+      const rows = await db
+        .select()
+        .from(schemaTable.tasks)
+        .where(eq(schemaTable.tasks.status, 'archived'));
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'sessions': {
+      const rows = await db.select().from(schemaTable.sessions);
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectSessionSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'log': {
+      const rows = await db.select().from(schemaTable.auditLog).limit(1000);
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectAuditLogSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    default:
+      throw new Error(`Unknown SQLite type: ${type}`);
+  }
+
+  return { type, valid: errors.length === 0, errors, errorCount: errors.length };
+}
+
+// ============================================================================
+// Task Validation (Anti-Hallucination)
+// ============================================================================
+
+/**
+ * Validate a single task against anti-hallucination rules.
+ * @task T4786
+ */
+export async function coreValidateTask(
+  taskId: string,
+  projectRoot: string,
+): Promise<{
+  taskId: string;
+  valid: boolean;
+  violations: RuleViolation[];
+  errorCount: number;
+  warningCount: number;
+}> {
+  if (!taskId) {
+    throw new Error('taskId is required');
+  }
+
+  const accessor = await getAccessor(projectRoot);
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
+
+  if (!taskData) {
+    throw new Error('Task data not found (SQLite store unavailable)');
+  }
+
+  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
+
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found`);
+  }
+
+  const violations: RuleViolation[] = [];
+
+  violations.push(...validateTitleDescription(task.title, task.description));
+  violations.push(...validateTimestamps(task as any));
+
+  const allIds = new Set(allTasks.map((t) => t.id));
+  violations.push(...validateIdUniqueness(task.id, allIds));
+
+  const allDescriptions = allTasks.filter((t) => t.id !== task.id).map((t) => t.description);
+  violations.push(...validateNoDuplicateDescription(task.description, allDescriptions));
+
+  if (task.parentId) {
+    const parent = allTasks.find((t) => t.id === task.parentId);
+    if (parent) {
+      violations.push(...validateHierarchy(task.parentId, allTasks as any));
+    }
+  }
+
+  return {
+    taskId,
+    valid: !hasErrors(violations),
+    violations,
+    errorCount: violations.filter((v) => v.severity === 'error').length,
+    warningCount: violations.filter((v) => v.severity === 'warning').length,
+  };
+}
+
+// ============================================================================
+// Protocol Validation
+// ============================================================================
+
+/**
+ * Check basic protocol compliance for a task.
+ * @task T4786
+ */
+export async function coreValidateProtocol(
+  taskId: string,
+  protocolType: string | undefined,
+  projectRoot: string,
+): Promise<{
+  taskId: string;
+  protocolType: string;
+  compliant: boolean;
+  violations: Array<{ code: string; message: string; severity: string }>;
+}> {
+  if (!taskId) {
+    throw new Error('taskId is required');
+  }
+
+  const accessor = await getAccessor(projectRoot);
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+
+  if (!taskData) {
+    throw new Error('Task data not found (SQLite store unavailable)');
+  }
+
+  const task = taskData.tasks?.find((t) => t.id === taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found`);
+  }
+
+  const violations: Array<{ code: string; message: string; severity: string }> = [];
+
+  if (!task.title) {
+    violations.push({
+      code: 'P_MISSING_TITLE',
+      message: 'Task title is missing',
+      severity: 'error',
+    });
+  }
+  if (!task.description) {
+    violations.push({
+      code: 'P_MISSING_DESCRIPTION',
+      message: 'Task description is missing',
+      severity: 'error',
+    });
+  }
+  if (task.title === task.description) {
+    violations.push({
+      code: 'P_SAME_TITLE_DESC',
+      message: 'Title and description must be different',
+      severity: 'error',
+    });
+  }
+
+  if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
+    violations.push({
+      code: 'P_INVALID_STATUS',
+      message: `Invalid status: ${task.status}. Valid: ${TASK_STATUSES.join(', ')}`,
+      severity: 'error',
+    });
+  }
+
+  return {
+    taskId,
+    protocolType: protocolType || 'generic',
+    compliant: violations.filter((v) => v.severity === 'error').length === 0,
+    violations,
+  };
+}
+
+// ============================================================================
+// Manifest Validation
+// ============================================================================
+
+/**
+ * Validate manifest JSONL entries for required fields.
+ * @task T4786
+ */
+export function coreValidateManifest(projectRoot: string): {
+  valid: boolean;
+  totalEntries: number;
+  validEntries: number;
+  invalidEntries: number;
+  errors: Array<{ line: number; entryId: string; errors: string[] }>;
+  message?: string;
+} {
+  const manifestPath = getCentralManifestPath(projectRoot);
+
+  if (!existsSync(manifestPath)) {
+    return {
+      valid: true,
+      totalEntries: 0,
+      validEntries: 0,
+      invalidEntries: 0,
+      errors: [],
+      message: 'No manifest file found',
+    };
+  }
+
+  const content = readFileSync(manifestPath, 'utf-8');
+  const lines = content.split('\n').filter((l) => l.trim());
+
+  let validCount = 0;
+  let invalidCount = 0;
+  const errors: Array<{ line: number; entryId: string; errors: string[] }> = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      const entry = JSON.parse(lines[i]!);
+      const entryErrors: string[] = [];
+
+      if (!entry.id) entryErrors.push('missing id');
+      if (!entry.file) entryErrors.push('missing file');
+      if (!entry.title) entryErrors.push('missing title');
+      if (!entry.date) entryErrors.push('missing date');
+      if (!entry.status) entryErrors.push('missing status');
+      if (!entry.agent_type) entryErrors.push('missing agent_type');
+      if (!entry.topics) entryErrors.push('missing topics');
+      if (entry.actionable === undefined) entryErrors.push('missing actionable');
+
+      if (entryErrors.length > 0) {
+        invalidCount++;
+        errors.push({ line: i + 1, entryId: entry.id || `line-${i + 1}`, errors: entryErrors });
+      } else {
+        validCount++;
+      }
+    } catch {
+      invalidCount++;
+      errors.push({ line: i + 1, entryId: `line-${i + 1}`, errors: ['invalid JSON'] });
+    }
+  }
+
+  return {
+    valid: invalidCount === 0,
+    totalEntries: lines.length,
+    validEntries: validCount,
+    invalidEntries: invalidCount,
+    errors,
+  };
+}
+
+// ============================================================================
+// Output Validation
+// ============================================================================
+
+/**
+ * Validate an output file for required sections.
+ * @task T4786
+ */
+export function coreValidateOutput(
+  filePath: string,
+  taskId: string | undefined,
+  projectRoot: string,
+): {
+  filePath: string;
+  valid: boolean;
+  issues: Array<{ code: string; message: string; severity: string }>;
+  fileSize: number;
+  lineCount: number;
+} {
+  if (!filePath) {
+    throw new Error('filePath is required');
+  }
+
+  const fullPath = resolve(projectRoot, filePath);
+
+  if (!existsSync(fullPath)) {
+    throw new Error(`Output file not found: ${filePath}`);
+  }
+
+  const content = readFileSync(fullPath, 'utf-8');
+  const issues: Array<{ code: string; message: string; severity: string }> = [];
+
+  if (!content.includes('# ')) {
+    issues.push({
+      code: 'O_MISSING_TITLE',
+      message: 'Output file should have a markdown title',
+      severity: 'warning',
+    });
+  }
+
+  if (taskId && !content.includes(taskId)) {
+    issues.push({
+      code: 'O_MISSING_TASK_REF',
+      message: `Output file should reference task ${taskId}`,
+      severity: 'warning',
+    });
+  }
+
+  if (!content.includes('## Summary') && !content.includes('## summary')) {
+    issues.push({
+      code: 'O_MISSING_SUMMARY',
+      message: 'Output file should have a Summary section',
+      severity: 'warning',
+    });
+  }
+
+  return {
+    filePath,
+    valid: issues.filter((i) => i.severity === 'error').length === 0,
+    issues,
+    fileSize: content.length,
+    lineCount: content.split('\n').length,
+  };
+}
+
+// ============================================================================
+// Compliance Summary
+// ============================================================================
+
+/** Parse COMPLIANCE.jsonl entries. */
+function parseComplianceEntries(projectRoot: string): ComplianceEntry[] {
+  const compliancePath = join(projectRoot, '.cleo', 'metrics', 'COMPLIANCE.jsonl');
+
+  if (!existsSync(compliancePath)) {
+    return [];
+  }
+
+  const content = readFileSync(compliancePath, 'utf-8');
+  const entries: ComplianceEntry[] = [];
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch {}
+  }
+
+  return entries;
+}
+
+/**
+ * Get aggregated compliance metrics.
+ * @task T4786
+ */
+export function coreComplianceSummary(projectRoot: string): {
+  total: number;
+  pass: number;
+  fail: number;
+  partial: number;
+  passRate: number;
+  byProtocol: Record<string, { pass: number; fail: number; partial: number }>;
+} {
+  const entries = parseComplianceEntries(projectRoot);
+
+  const pass = entries.filter((e) => e.result === 'pass').length;
+  const fail = entries.filter((e) => e.result === 'fail').length;
+  const partial = entries.filter((e) => e.result === 'partial').length;
+  const total = entries.length;
+
+  const byProtocol: Record<string, { pass: number; fail: number; partial: number }> = {};
+  for (const entry of entries) {
+    if (!byProtocol[entry.protocol]) {
+      byProtocol[entry.protocol] = { pass: 0, fail: 0, partial: 0 };
+    }
+    byProtocol[entry.protocol]![entry.result]++;
+  }
+
+  return {
+    total,
+    pass,
+    fail,
+    partial,
+    passRate: total > 0 ? Math.round((pass / total) * 100) : 0,
+    byProtocol,
+  };
+}
+
+// ============================================================================
+// Compliance Violations
+// ============================================================================
+
+/**
+ * List compliance violations.
+ * @task T4786
+ */
+export function coreComplianceViolations(
+  limit: number | undefined,
+  projectRoot: string,
+): {
+  violations: Array<{
+    timestamp: string;
+    taskId: string;
+    protocol: string;
+    result: string;
+    violations?: ComplianceEntry['violations'];
+  }>;
+  total: number;
+} {
+  const entries = parseComplianceEntries(projectRoot);
+  let violations = entries.filter((e) => e.result === 'fail' || e.result === 'partial');
+
+  if (limit && limit > 0) {
+    violations = violations.slice(-limit);
+  }
+
+  return {
+    violations: violations.map((v) => ({
+      timestamp: v.timestamp,
+      taskId: v.taskId,
+      protocol: v.protocol,
+      result: v.result,
+      violations: v.violations,
+    })),
+    total: violations.length,
+  };
+}
+
+// ============================================================================
+// Compliance Record
+// ============================================================================
+
+/**
+ * Record a compliance check result to COMPLIANCE.jsonl.
+ * @task T4786
+ */
+export function coreComplianceRecord(
+  taskId: string,
+  result: string,
+  protocol: string | undefined,
+  violations: Array<{ code: string; message: string; severity: string }> | undefined,
+  projectRoot: string,
+): { recorded: boolean; taskId: string; result: string; protocol: string } {
+  if (!taskId || !result) {
+    throw new Error('taskId and result are required');
+  }
+
+  const validResults = ['pass', 'fail', 'partial'];
+  if (!validResults.includes(result)) {
+    throw new Error(`Invalid result: ${result}. Valid: ${validResults.join(', ')}`);
+  }
+
+  const compliancePath = join(projectRoot, '.cleo', 'metrics', 'COMPLIANCE.jsonl');
+  const dir = dirname(compliancePath);
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  const entry: ComplianceEntry = {
+    timestamp: new Date().toISOString(),
+    taskId,
+    protocol: protocol || 'generic',
+    result: result as 'pass' | 'fail' | 'partial',
+    violations: violations as any,
+    linkedTask: taskId,
+  };
+
+  appendFileSync(compliancePath, JSON.stringify(entry) + '\n', 'utf-8');
+
+  return {
+    recorded: true,
+    taskId,
+    result,
+    protocol: protocol || 'generic',
+  };
+}
+
+// ============================================================================
+// Test Status
+// ============================================================================
+
+/**
+ * Check test suite availability.
+ * @task T4786
+ */
+export function coreTestStatus(projectRoot: string): {
+  batsTests: { available: boolean; directory: string | null };
+  mcpTests: { available: boolean; directory: string | null };
+  message: string;
+} {
+  const testDir = join(projectRoot, 'tests');
+  const mcpTestDir = join(projectRoot, 'src', 'mcp', '__tests__');
+
+  const hasBatsTests = existsSync(testDir);
+  const hasMcpTests = existsSync(mcpTestDir);
+
+  return {
+    batsTests: {
+      available: hasBatsTests,
+      directory: hasBatsTests ? 'tests/' : null,
+    },
+    mcpTests: {
+      available: hasMcpTests,
+      directory: hasMcpTests ? 'src/mcp/__tests__/' : null,
+    },
+    message: 'Use validate.test.run to execute tests',
+  };
+}
+
+// ============================================================================
+// Coherence Check
+// ============================================================================
+
+/**
+ * Cross-validate task graph for consistency.
+ * @task T4786
+ */
+export async function coreCoherenceCheck(
+  projectRoot: string,
+): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
+  const accessor = await getAccessor(projectRoot);
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+
+  if (!taskData || !taskData.tasks) {
+    throw new Error('No task data found (SQLite store unavailable)');
+  }
+
+  const tasks = taskData.tasks;
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const issues: CoherenceIssue[] = [];
+
+  // 1. Done tasks with incomplete subtasks
+  for (const task of tasks) {
+    if (task.status === 'done') {
+      const incompleteChildren = tasks.filter(
+        (t) => t.parentId === task.id && t.status !== 'done' && t.status !== 'cancelled',
+      );
+      for (const child of incompleteChildren) {
+        issues.push({
+          type: 'done_with_incomplete_subtask',
+          taskId: task.id,
+          message: `Task ${task.id} is done but child ${child.id} ("${child.title}") has status "${child.status}"`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
+  // 2. Dependency cycles
+  const reportedCycles = new Set<string>();
+  for (const task of tasks) {
+    if (task.depends && task.depends.length > 0) {
+      const cycle = detectCircularDeps(task.id, tasks as unknown as Task[]);
+      if (cycle.length > 0) {
+        const cycleKey = [...cycle].sort().join(',');
+        if (!reportedCycles.has(cycleKey)) {
+          reportedCycles.add(cycleKey);
+          issues.push({
+            type: 'dependency_cycle',
+            taskId: task.id,
+            message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Orphaned references — query taskDependencies directly to catch refs filtered
+  //    out by loadDependenciesForTasks (which strips non-existent dependsOn IDs).
+  try {
+    const { getDb } = await import('../store/sqlite.js');
+    const schemaTable = await import('../store/tasks-schema.js');
+    const db = await getDb(projectRoot);
+    const allDepRows = await db.select().from(schemaTable.taskDependencies).all();
+    for (const dep of allDepRows) {
+      if (!taskMap.has(dep.dependsOn)) {
+        issues.push({
+          type: 'orphaned_dependency',
+          taskId: dep.taskId,
+          message: `Task ${dep.taskId} depends on non-existent task ${dep.dependsOn}`,
+          severity: 'error',
+        });
+      }
+    }
+  } catch {
+    // Fall back to task.depends if direct DB query unavailable
+    for (const task of tasks) {
+      if (task.depends) {
+        for (const depId of task.depends) {
+          if (!taskMap.has(depId)) {
+            issues.push({
+              type: 'orphaned_dependency',
+              taskId: task.id,
+              message: `Task ${task.id} depends on non-existent task ${depId}`,
+              severity: 'error',
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Stale tasks
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  for (const task of tasks) {
+    if (task.status === 'active') {
+      const lastUpdate = task.updatedAt || task.createdAt;
+      if (lastUpdate) {
+        const ageMs = now - new Date(lastUpdate).getTime();
+        if (ageMs > thirtyDaysMs) {
+          const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+          issues.push({
+            type: 'stale_task',
+            taskId: task.id,
+            message: `Task ${task.id} has been active for ${ageDays} days without update`,
+            severity: 'warning',
+          });
+        }
+      }
+    }
+  }
+
+  // 5. Status inconsistencies
+  for (const task of tasks) {
+    if (task.parentId && (task.status === 'active' || task.status === 'pending')) {
+      const parent = taskMap.get(task.parentId);
+      if (parent && (parent.status === 'done' || parent.status === 'cancelled')) {
+        issues.push({
+          type: 'status_inconsistency',
+          taskId: task.id,
+          message: `Task ${task.id} is "${task.status}" but parent ${parent.id} is "${parent.status}"`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
+  // 6. Duplicate titles
+  const titleMap = new Map<string, string[]>();
+  for (const task of tasks) {
+    const titleLower = task.title.toLowerCase().trim();
+    if (!titleMap.has(titleLower)) {
+      titleMap.set(titleLower, []);
+    }
+    titleMap.get(titleLower)!.push(task.id);
+  }
+  for (const [title, ids] of titleMap) {
+    if (ids.length > 1) {
+      issues.push({
+        type: 'duplicate_title',
+        taskId: ids[0]!,
+        message: `Duplicate title "${title}" found on tasks: ${ids.join(', ')}`,
+        severity: 'info',
+      });
+    }
+  }
+
+  return {
+    coherent: issues.filter((i) => i.severity === 'error').length === 0,
+    issues,
+  };
+}
+
+// ============================================================================
+// Test Run
+// ============================================================================
+
+/**
+ * Execute test suite via subprocess.
+ * @task T4786
+ */
+export function coreTestRun(
+  params: { scope?: string; pattern?: string; parallel?: boolean } | undefined,
+  projectRoot: string,
+): {
+  ran: boolean;
+  runner?: string;
+  output?: unknown;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  passed?: boolean;
+  message?: string;
+} {
+  const hasVitest = existsSync(join(projectRoot, 'node_modules', '.bin', 'vitest'));
+  const hasBats = existsSync(join(projectRoot, 'tests'));
+
+  if (!hasVitest && !hasBats) {
+    return {
+      ran: false,
+      message: 'No test runner found (vitest or bats tests/ directory)',
+    };
+  }
+
+  try {
+    const args: string[] = ['vitest', 'run', '--reporter=json'];
+
+    if (params?.scope) {
+      args.push(params.scope);
+    }
+
+    if (params?.pattern) {
+      args.push('--testNamePattern', params.pattern);
+    }
+
+    const result = execFileSync('npx', args, {
+      cwd: projectRoot,
+      timeout: 120000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result);
+    } catch {
+      parsed = null;
+    }
+
+    return {
+      ran: true,
+      runner: 'vitest',
+      output: parsed || result.slice(0, 2000),
+      exitCode: 0,
+    };
+  } catch (error: unknown) {
+    const execError = error as { status?: number; stdout?: string; stderr?: string };
+    return {
+      ran: true,
+      runner: 'vitest',
+      exitCode: execError.status || 1,
+      stdout: (execError.stdout || '').slice(0, 2000),
+      stderr: (execError.stderr || '').slice(0, 2000),
+      passed: false,
+    };
+  }
+}
+
+// ============================================================================
+// Batch Validate
+// ============================================================================
+
+/**
+ * Batch validate all tasks against schema and rules.
+ * @task T4786
+ */
+export async function coreBatchValidate(projectRoot: string): Promise<{
+  totalTasks: number;
+  validTasks: number;
+  invalidTasks: number;
+  totalErrors: number;
+  totalWarnings: number;
+  results: Array<{
+    taskId: string;
+    valid: boolean;
+    errorCount: number;
+    warningCount: number;
+    violations: RuleViolation[];
+  }>;
+}> {
+  const accessor = await getAccessor(projectRoot);
+  const taskData = (await accessor.loadTaskFile()) as unknown as { tasks: TaskRecord[] };
+
+  if (!taskData) {
+    throw new Error('Task data not found (SQLite store unavailable)');
+  }
+
+  const archiveData = (await accessor.loadArchive()) as unknown as { tasks: TaskRecord[] } | null;
+  const allTasks = [...(taskData.tasks || []), ...(archiveData?.tasks || [])];
+
+  const results: Array<{
+    taskId: string;
+    valid: boolean;
+    errorCount: number;
+    warningCount: number;
+    violations: RuleViolation[];
+  }> = [];
+
+  let totalErrors = 0;
+  let totalWarnings = 0;
+  const allIds = new Set(allTasks.map((t) => t.id));
+  const allDescriptions = allTasks.map((t) => t.description);
+
+  for (const task of allTasks) {
+    const violations: RuleViolation[] = [];
+
+    violations.push(...validateTitleDescription(task.title, task.description));
+    violations.push(...validateTimestamps(task as any));
+    violations.push(...validateIdUniqueness(task.id, allIds));
+
+    const otherDescs = allDescriptions.filter((_, i) => allTasks[i]!.id !== task.id);
+    violations.push(...validateNoDuplicateDescription(task.description, otherDescs));
+
+    if (task.parentId) {
+      const parent = allTasks.find((t) => t.id === task.parentId);
+      if (parent) {
+        violations.push(...validateHierarchy(task.parentId, allTasks as any));
+      }
+    }
+
+    const errors = violations.filter((v) => v.severity === 'error').length;
+    const warnings = violations.filter((v) => v.severity === 'warning').length;
+    totalErrors += errors;
+    totalWarnings += warnings;
+
+    results.push({
+      taskId: task.id,
+      valid: errors === 0,
+      errorCount: errors,
+      warningCount: warnings,
+      violations,
+    });
+  }
+
+  return {
+    totalTasks: allTasks.length,
+    validTasks: results.filter((r) => r.valid).length,
+    invalidTasks: results.filter((r) => !r.valid).length,
+    totalErrors,
+    totalWarnings,
+    results: results.filter((r) => !r.valid),
+  };
+}
+
+// ============================================================================
+// Test Coverage
+// ============================================================================
+
+/**
+ * Get test coverage metrics.
+ * @task T4786
+ */
+export function coreTestCoverage(projectRoot: string): {
+  available: boolean;
+  message?: string;
+  [key: string]: unknown;
+} {
+  const coveragePath = join(projectRoot, 'coverage', 'coverage-summary.json');
+
+  if (!existsSync(coveragePath)) {
+    return {
+      available: false,
+      message: 'No coverage data found. Run tests with coverage first.',
+    };
+  }
+
+  const coverageData = readJsonFile<Record<string, unknown>>(coveragePath);
+  if (!coverageData) {
+    throw new Error('Failed to read coverage data');
+  }
+
+  return {
+    available: true,
+    ...coverageData,
+  };
+}

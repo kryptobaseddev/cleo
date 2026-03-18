@@ -16,18 +16,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cleocode/contracts": "workspace:*",
     "@cleocode/caamp": "^1.7.0",
+    "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs-protocol": "^1.7.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.18-7eb39f0",
     "env-paths": "^4.0.0",
+    "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
     "write-file-atomic": "^6.0.0",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -39,5 +41,9 @@
   "files": [
     "dist",
     "src"
-  ]
+  ],
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/write-file-atomic": "^4.0.3"
+  }
 }
