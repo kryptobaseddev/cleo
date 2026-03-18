@@ -14,8 +14,8 @@ import {
   CursorAdapter,
   CursorHookProvider,
   CursorInstallProvider,
-  createAdapter,
-} from '@cleocode/adapter-cursor';
+  createCursorAdapter as createAdapter,
+} from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('CursorAdapter', () => {

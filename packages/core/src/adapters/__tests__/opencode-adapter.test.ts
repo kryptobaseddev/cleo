@@ -11,12 +11,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createAdapter,
+  createOpenCodeAdapter as createAdapter,
   OpenCodeAdapter,
   OpenCodeHookProvider,
   OpenCodeInstallProvider,
   OpenCodeSpawnProvider,
-} from '@cleocode/adapter-opencode';
+} from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('OpenCodeAdapter', () => {

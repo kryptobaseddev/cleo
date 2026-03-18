@@ -15,8 +15,8 @@ import {
   ClaudeCodeHookProvider,
   ClaudeCodeInstallProvider,
   ClaudeCodeSpawnProvider,
-  createAdapter,
-} from '@cleocode/adapter-claude-code';
+  createClaudeCodeAdapter as createAdapter,
+} from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('ClaudeCodeAdapter', () => {
