@@ -106,7 +106,7 @@ function taskToRecord(task: Task): TaskRecord {
     size: task.size ?? null,
     epicLifecycle: task.epicLifecycle ?? null,
     noAutoComplete: task.noAutoComplete ?? null,
-    verification: task.verification ? (task.verification as Record<string, unknown>) : null,
+    verification: task.verification ? { ...task.verification } : null,
     origin: task.origin ?? null,
     cancellationReason: task.cancellationReason,
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
@@ -154,7 +154,7 @@ export interface TaskRecord {
   size?: string | null;
   epicLifecycle?: string | null;
   noAutoComplete?: boolean | null;
-  verification?: Record<string, unknown> | null;
+  verification?: import('@cleocode/contracts').TaskVerification | null;
   origin?: string | null;
   createdBy?: string | null;
   validatedBy?: string | null;

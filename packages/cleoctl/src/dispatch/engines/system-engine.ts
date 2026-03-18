@@ -911,7 +911,7 @@ export function systemHelp(
 export async function systemRoadmap(
   projectRoot: string,
   params?: { includeHistory?: boolean; upcomingOnly?: boolean },
-): Promise<EngineResult<RoadmapData>> {
+): Promise<EngineResult> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await getRoadmap(
@@ -922,7 +922,7 @@ export async function systemRoadmap(
       },
       accessor,
     );
-    return { success: true, data: result as RoadmapData };
+    return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_NOT_INITIALIZED', (err as Error).message);
   }

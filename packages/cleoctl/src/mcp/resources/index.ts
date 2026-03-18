@@ -14,8 +14,18 @@
  * @task T5240
  */
 
+import type { StatementSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+
+/**
+ * Execute a prepared statement and return typed rows.
+ * node:sqlite's StatementSync.all() returns unknown[], so this helper
+ * provides a single narrowing point instead of scattering casts.
+ */
+function typedAll<T>(stmt: StatementSync): T[] {
+  return stmt.all() as T[];
+}
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   ListResourcesRequestSchema,
@@ -186,14 +196,14 @@ async function getRecentObservations(): Promise<string> {
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Recent Observations\n\nBrain database not available.';
 
-    const rows = nativeDb
-      .prepare(
+    const rows = typedAll<{ id: string; type: string; title: string; created_at: string }>(
+      nativeDb.prepare(
         `SELECT id, type, title, created_at
          FROM brain_observations
          ORDER BY created_at DESC
          LIMIT 15`,
-      )
-      .all() as unknown as Array<{ id: string; type: string; title: string; created_at: string }>;
+      ),
+    );
 
     if (rows.length === 0) {
       return '# Recent Observations\n\nNo observations recorded yet.';
@@ -222,19 +232,19 @@ async function getActiveLearnings(): Promise<string> {
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Active Learnings\n\nBrain database not available.';
 
-    const rows = nativeDb
-      .prepare(
-        `SELECT id, insight, confidence, created_at
-         FROM brain_learnings
-         ORDER BY confidence DESC, created_at DESC
-         LIMIT 15`,
-      )
-      .all() as unknown as Array<{
+    const rows = typedAll<{
       id: string;
       insight: string;
       confidence: number;
       created_at: string;
-    }>;
+    }>(
+      nativeDb.prepare(
+        `SELECT id, insight, confidence, created_at
+         FROM brain_learnings
+         ORDER BY confidence DESC, created_at DESC
+         LIMIT 15`,
+      ),
+    );
 
     if (rows.length === 0) {
       return '# Active Learnings\n\nNo learnings recorded yet.';
@@ -263,20 +273,20 @@ async function getActivePatterns(): Promise<string> {
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return '# Active Patterns\n\nBrain database not available.';
 
-    const rows = nativeDb
-      .prepare(
-        `SELECT id, pattern, type, impact, extracted_at
-         FROM brain_patterns
-         ORDER BY extracted_at DESC
-         LIMIT 30`,
-      )
-      .all() as unknown as Array<{
+    const rows = typedAll<{
       id: string;
       pattern: string;
       type: string;
       impact: string;
       extracted_at: string;
-    }>;
+    }>(
+      nativeDb.prepare(
+        `SELECT id, pattern, type, impact, extracted_at
+         FROM brain_patterns
+         ORDER BY extracted_at DESC
+         LIMIT 30`,
+      ),
+    );
 
     if (rows.length === 0) {
       return '# Active Patterns\n\nNo patterns recorded yet.';

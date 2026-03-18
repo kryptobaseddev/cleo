@@ -57,7 +57,7 @@ export function createFieldFilter(): Middleware {
           timestamp: response._meta.timestamp,
           operation: response._meta.operation,
           requestId: response._meta.requestId,
-          transport: 'mcp',
+          transport: 'sdk',
           strict: true,
           mvi: 'standard',
           contextVersion: 0,

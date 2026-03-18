@@ -183,7 +183,7 @@ export class SessionHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await sessionStart(this.projectRoot, {
+          let result = await sessionStart(this.projectRoot, {
             scope,
             name: params?.name as string | undefined,
             autoStart: params?.autoStart as boolean | undefined,
@@ -200,7 +200,8 @@ export class SessionHandler implements DomainHandler {
             const sessionData = result.data;
             const sessionId = sessionData.id;
             // Enrich with sessionId alias for easy extraction
-            result = { ...result, data: { ...sessionData, sessionId } };
+            // Use Object.assign to add the alias without violating Session type
+            Object.assign(sessionData, { sessionId });
 
             // T4959: Bind session to process-scoped context (MCP path)
             try {
