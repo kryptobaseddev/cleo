@@ -187,7 +187,7 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
         taskId: context.taskId,
         prompt: context.prompt,
         workingDirectory: context.workingDirectory,
-        options: context.options as unknown as Record<string, unknown> | undefined,
+        options: context.options,
       };
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {

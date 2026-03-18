@@ -467,7 +467,7 @@ export async function addTask(
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
       if (!data.project) {
-        (data as unknown as Record<string, unknown>).project = { name: '', phases: {} };
+        data.project = { name: '', phases: {} };
       }
       if (!data.project.phases) data.project.phases = {};
       data.project.phases[phase] = { order, name, status: 'pending' as const };

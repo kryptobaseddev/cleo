@@ -45,7 +45,7 @@ function isSeedSequence(value: SequenceState): boolean {
 function readLegacySequenceFile(path: string): SequenceState | null {
   if (!existsSync(path)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
     return isValidSequenceState(parsed) ? parsed : null;
   } catch {
     return null;
@@ -87,7 +87,7 @@ async function readSequenceFromDb(
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed: unknown = JSON.parse(raw);
     return isValidSequenceState(parsed) ? parsed : null;
   } catch {
     return null;

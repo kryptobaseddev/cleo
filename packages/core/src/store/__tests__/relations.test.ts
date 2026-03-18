@@ -35,6 +35,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -42,6 +43,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -83,6 +85,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -90,6 +93,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -97,6 +101,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task3: Task = {
         id: 'T003',
         title: 'Task 3',
+        description: 'Description for task 3',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -133,6 +138,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'archived',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -140,6 +146,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -170,6 +177,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -177,6 +185,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -200,6 +209,7 @@ describe('Task Relations Persistence (T5168)', () => {
         const target: Task = {
           id: `T${100 + i}`,
           title: `Target ${i}`,
+          description: `Description for target ${i}`,
           status: 'pending' as const,
           priority: 'medium' as const,
           createdAt: new Date().toISOString(),
@@ -217,6 +227,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -224,6 +235,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -241,6 +253,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -248,6 +261,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -267,6 +281,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -274,6 +289,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -299,6 +315,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -306,6 +323,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -330,6 +348,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task1: Task = {
         id: 'T001',
         title: 'Task 1',
+        description: 'Description for task 1',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -337,6 +356,7 @@ describe('Task Relations Persistence (T5168)', () => {
       const task2: Task = {
         id: 'T002',
         title: 'Task 2',
+        description: 'Description for task 2',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),

@@ -83,24 +83,10 @@ export async function uncancelTask(
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.db found');
   }
 
-  let taskFile: {
-    tasks: Array<{
-      id: string;
-      status: string;
-      parentId?: string | null;
-      notes?: Array<{ text: string; timestamp: string }>;
-    }>;
-  };
   const accessor = await getAccessor(projectRoot);
+  let taskFile;
   try {
-    taskFile = (await accessor.loadTaskFile()) as unknown as {
-      tasks: Array<{
-        id: string;
-        status: string;
-        parentId?: string | null;
-        notes?: Array<{ text: string; timestamp: string }>;
-      }>;
-    };
+    taskFile = await accessor.loadTaskFile();
   } catch {
     throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
   }
@@ -123,7 +109,7 @@ export async function uncancelTask(
     task.status = 'pending';
     if (params.notes) {
       if (!task.notes) task.notes = [];
-      task.notes.push({ text: params.notes, timestamp: new Date().toISOString() });
+      task.notes.push(`[${new Date().toISOString()}] ${params.notes}`);
     }
     if (params.cascade) {
       for (const t of taskFile.tasks) {
@@ -133,9 +119,7 @@ export async function uncancelTask(
         }
       }
     }
-    await accessor.saveTaskFile(
-      taskFile as unknown as Awaited<ReturnType<typeof accessor.loadTaskFile>>,
-    );
+    await accessor.saveTaskFile(taskFile);
   } else if (params.cascade) {
     cascadeCount = taskFile.tasks.filter(
       (t) => t.parentId === params.taskId && t.status === 'cancelled',

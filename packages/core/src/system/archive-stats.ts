@@ -3,6 +3,7 @@
  * @task T4783
  */
 
+import type { ArchivedTask } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -17,22 +18,6 @@ export interface ArchiveStatsResult {
   lastArchived: string | null;
 }
 
-interface ArchiveTask {
-  createdAt?: string;
-  completedAt?: string;
-  _archive?: {
-    archivedAt?: string;
-    reason?: string;
-  };
-}
-
-interface ArchiveFile {
-  _meta?: {
-    lastArchived: string | null;
-  };
-  archivedTasks: ArchiveTask[];
-}
-
 /** Get archive statistics. */
 export async function getArchiveStats(
   opts: { period?: number; cwd?: string },
@@ -42,7 +27,7 @@ export async function getArchiveStats(
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
   const acc = accessor ?? (await getAccessor(opts.cwd));
-  const archive = (await acc.loadArchive()) as unknown as ArchiveFile | null;
+  const archive = await acc.loadArchive();
 
   if (!archive?.archivedTasks) {
     return {
@@ -54,12 +39,13 @@ export async function getArchiveStats(
     };
   }
 
-  const archived = archive.archivedTasks;
+  // ArchivedTask extends Task with _archive metadata; safe narrowing from Task[]
+  const archived = archive.archivedTasks as ArchivedTask[];
 
   // By reason
   const byReason: Record<string, number> = {};
   for (const t of archived) {
-    const reason = t._archive?.reason || 'unknown';
+    const reason = t._archive?.archiveReason || 'unknown';
     byReason[reason] = (byReason[reason] ?? 0) + 1;
   }
 
@@ -85,7 +71,14 @@ export async function getArchiveStats(
     return archivedAt && archivedAt >= cutoff;
   }).length;
 
-  const lastArchived = archive._meta?.lastArchived ?? null;
+  // Find the most recent archived-at timestamp
+  let lastArchived: string | null = null;
+  for (const t of archived) {
+    const at = t._archive?.archivedAt;
+    if (at && (!lastArchived || at > lastArchived)) {
+      lastArchived = at;
+    }
+  }
 
   return {
     totalArchived: archived.length,

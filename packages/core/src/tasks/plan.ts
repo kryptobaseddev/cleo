@@ -9,17 +9,9 @@ import type { TaskRow } from '../store/tasks-schema.js';
 
 import { depsReady } from './deps-ready.js';
 
-// Internal task record — subset of Drizzle TaskRow for plan computation
-type TaskRecord = Pick<
-  TaskRow,
-  'id' | 'title' | 'status' | 'priority' | 'type' | 'phase' | 'parentId' | 'createdAt'
-> & {
-  labels?: string[];
-  origin?: string;
-  depends?: string[];
-  blockedBy?: string;
-  [key: string]: unknown;
-};
+// Internal task record — use contracts Task type directly
+import type { Task } from '@cleocode/contracts';
+type TaskRecord = Task;
 
 /** In-progress epic entry. */
 export interface InProgressEpic {
@@ -78,7 +70,7 @@ const PRIORITY_SCORE: Record<string, number> = {
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
   const data = await accessor.loadTaskFile();
-  return data.tasks as unknown as TaskRecord[];
+  return data.tasks;
 }
 
 /**

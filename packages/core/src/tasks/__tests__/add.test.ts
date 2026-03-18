@@ -219,7 +219,7 @@ describe('addTask (integration)', () => {
   });
 
   it('creates a task with default values', async () => {
-    const result = await addTask({ title: 'Test task' }, env.tempDir, accessor);
+    const result = await addTask({ title: 'Test task', description: 'A test task for defaults' }, env.tempDir, accessor);
     expect(result.task.id).toBe('T001');
     expect(result.task.title).toBe('Test task');
     expect(result.task.status).toBe('pending');
@@ -252,38 +252,38 @@ describe('addTask (integration)', () => {
   });
 
   it('generates sequential IDs', async () => {
-    const r1 = await addTask({ title: 'Task 1' }, env.tempDir, accessor);
-    const r2 = await addTask({ title: 'Task 2' }, env.tempDir, accessor);
+    const r1 = await addTask({ title: 'Task 1', description: 'First task' }, env.tempDir, accessor);
+    const r2 = await addTask({ title: 'Task 2', description: 'Second task' }, env.tempDir, accessor);
     expect(r1.task.id).toBe('T001');
     expect(r2.task.id).toBe('T002');
   });
 
   it('detects duplicates', async () => {
-    await addTask({ title: 'Duplicate me' }, env.tempDir, accessor);
-    const r2 = await addTask({ title: 'Duplicate me' }, env.tempDir, accessor);
+    await addTask({ title: 'Duplicate me', description: 'Duplicate detection test' }, env.tempDir, accessor);
+    const r2 = await addTask({ title: 'Duplicate me', description: 'Duplicate detection test' }, env.tempDir, accessor);
     expect(r2.duplicate).toBe(true);
     expect(r2.task.id).toBe('T001'); // Returns existing
   });
 
   it('handles dry run', async () => {
-    const result = await addTask({ title: 'Dry run task', dryRun: true }, env.tempDir, accessor);
+    const result = await addTask({ title: 'Dry run task', description: 'Testing dry run mode', dryRun: true }, env.tempDir, accessor);
     expect(result.dryRun).toBe(true);
     expect(result.task.id).toBe('T001');
   });
 
   it('validates parent hierarchy', async () => {
     // Create parent
-    await addTask({ title: 'Parent', type: 'epic' }, env.tempDir, accessor);
+    await addTask({ title: 'Parent', description: 'Parent epic task', type: 'epic' }, env.tempDir, accessor);
 
     // Create child
-    const child = await addTask({ title: 'Child', parentId: 'T001' }, env.tempDir, accessor);
+    const child = await addTask({ title: 'Child', description: 'Child of parent epic', parentId: 'T001' }, env.tempDir, accessor);
     expect(child.task.parentId).toBe('T001');
     expect(child.task.type).toBe('task');
   });
 
   it('rejects invalid parent', async () => {
     await expect(
-      addTask({ title: 'Child', parentId: 'T999' }, env.tempDir, accessor),
+      addTask({ title: 'Child', description: 'Child with invalid parent', parentId: 'T999' }, env.tempDir, accessor),
     ).rejects.toThrow('not found');
   });
 });

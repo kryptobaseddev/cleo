@@ -197,7 +197,9 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
     }
   }
 
-  return merged as unknown as CleoConfig;
+  // merged starts from DEFAULTS (CleoConfig) and is built via deep merge.
+  // Partial<CleoConfig> provides the structural overlap for a safe assertion.
+  return merged as Partial<CleoConfig> as CleoConfig;
 }
 
 /**
@@ -234,7 +236,7 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
   }
 
   // Fall back to defaults
-  const defaultVal = getNestedValue(DEFAULTS as unknown as Record<string, unknown>, path);
+  const defaultVal = getNestedValue({ ...DEFAULTS } as Record<string, unknown>, path);
   return { value: defaultVal as T, source: 'default' as ConfigSource };
 }
 

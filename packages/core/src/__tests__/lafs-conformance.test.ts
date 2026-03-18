@@ -377,7 +377,7 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('addTask result produces valid full LAFS envelope (no operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
-    const result = await addTask({ title: 'New task' }, env.tempDir, accessor);
+    const result = await addTask({ title: 'New task', description: 'LAFS conformance test task' }, env.tempDir, accessor);
     const json = formatSuccess({ task: result.task });
     expect(isValidLafsEnvelope(json).valid).toBe(true);
     const envelope = JSON.parse(json);
@@ -387,7 +387,7 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
-    const result = await addTask({ title: 'Full LAFS task' }, env.tempDir, accessor);
+    const result = await addTask({ title: 'Full LAFS task', description: 'LAFS envelope with explicit operation' }, env.tempDir, accessor);
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
     const envelope = JSON.parse(json);
     const validation = validateEnvelope(envelope);

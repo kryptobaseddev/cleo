@@ -26,6 +26,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
     const task1: Task = {
       id: 'T001',
       title: 'First task',
+      description: 'Description for first task',
       status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
@@ -33,6 +34,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
     const task2: Task = {
       id: 'T002',
       title: 'Second task',
+      description: 'Description for second task',
       status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),

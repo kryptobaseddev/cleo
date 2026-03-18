@@ -215,7 +215,7 @@ export async function setPhase(
 
   // Update current phase
   if (!data.project) {
-    (data as unknown as Record<string, unknown>).project = { name: '', phases: {} };
+    data.project = { name: '', phases: {} };
   }
   data.project.currentPhase = options.slug;
   data.lastUpdated = new Date().toISOString();

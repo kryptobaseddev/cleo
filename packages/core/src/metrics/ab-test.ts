@@ -188,7 +188,7 @@ export async function endABTest(
     'end',
     currentTest.testName,
     currentTest.variant,
-    summary as unknown as Record<string, unknown>,
+    { ...summary } as Record<string, unknown>,
     cwd,
   );
 

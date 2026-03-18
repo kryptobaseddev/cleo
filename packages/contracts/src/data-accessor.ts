@@ -13,6 +13,7 @@
  * @epic T4454
  */
 
+import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
 import type {
   Task,
@@ -32,7 +33,7 @@ export interface ArchiveFields {
 
 /** Archive file structure. */
 export interface ArchiveFile {
-  archivedTasks: Task[];
+  archivedTasks: ArchivedTask[];
   version?: string;
 }
 

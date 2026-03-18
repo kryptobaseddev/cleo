@@ -304,7 +304,7 @@ export async function endTokenSession(cwd?: string): Promise<TokenSessionSummary
     total,
     'session',
     undefined,
-    summary as unknown as Record<string, unknown>,
+    { ...summary } as Record<string, unknown>,
     cwd,
   );
 
