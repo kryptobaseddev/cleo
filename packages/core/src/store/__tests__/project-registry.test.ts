@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { generateProjectHash } from '../../core/nexus/hash.js';
+import { generateProjectHash } from '../../nexus/hash.js';
 
 describe('generateProjectHash', () => {
   it('should generate a 12-character hex hash', () => {

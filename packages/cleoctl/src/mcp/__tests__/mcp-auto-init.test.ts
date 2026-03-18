@@ -79,7 +79,7 @@ describe('MCP auto-init: ensureInitialized() (T4694)', () => {
       delete process.env['CLEO_AUTO_INIT'];
     }
     try {
-      const { closeAllDatabases } = await import('@cleocode/core');
+      const { closeAllDatabases } = await import('@cleocode/core/internal');
       await closeAllDatabases();
     } catch {
       /* ignore */

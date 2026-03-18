@@ -14,7 +14,7 @@ import { detectProjectType } from '../project-detect.js';
 
 // ─── Schema validator setup ───────────────────────────────────────────────────
 const schemaPath = fileURLToPath(
-  new URL('../../../schemas/project-context.schema.json', import.meta.url),
+  new URL('../../../../../schemas/project-context.schema.json', import.meta.url),
 );
 const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
 const ajv = new Ajv({ strict: false });

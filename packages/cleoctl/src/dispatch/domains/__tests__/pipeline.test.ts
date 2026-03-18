@@ -53,7 +53,7 @@ vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
   advanceInstance: vi.fn(),
 }));
 
-import { addChain, createInstance, listChains, showChain } from '@cleocode/core';
+import { addChain, createInstance, listChains, showChain } from '@cleocode/core/internal';
 import { phaseList, releaseList } from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 

@@ -39,10 +39,10 @@ vi.mock('../../../../../core/src/logger.js', () => ({
   })),
 }));
 
-import { blockingAnalysis, buildGlobalGraph, criticalPath, nexusDeps, orphanDetection } from '@cleocode/core';
+import { blockingAnalysis, buildGlobalGraph, criticalPath, nexusDeps, orphanDetection } from '@cleocode/core/internal';
 import { setPermission } from '@cleocode/core/internal';
 import { resolveTask, validateSyntax } from '@cleocode/core/internal';
-import { nexusSync, nexusSyncAll, nexusUnregister, readRegistry } from '@cleocode/core';
+import { nexusSync, nexusSyncAll, nexusUnregister, readRegistry } from '@cleocode/core/internal';
 import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core/internal';
 import { NexusHandler } from '../nexus.js';
 

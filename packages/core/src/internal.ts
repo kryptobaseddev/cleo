@@ -439,20 +439,20 @@ export type { LayerResult, OperationContext } from './validation/operation-verif
 // Validation — operation verification gates
 export {
   GATE_SEQUENCE,
+  GateLayer,
   getWorkflowGateDefinition,
   isValidWorkflowGateName,
   WORKFLOW_GATE_DEFINITIONS,
   WORKFLOW_GATE_SEQUENCE,
+  WorkflowGateName,
+  WorkflowGateTracker,
 } from './validation/operation-verification-gates.js';
 export type {
-  GateLayer,
   GateViolation,
   WorkflowGateAgent,
   WorkflowGateDefinition,
-  WorkflowGateName,
   WorkflowGateState,
   WorkflowGateStatus,
-  WorkflowGateTracker,
 } from './validation/operation-verification-gates.js';
 
 // Validation — validate-ops

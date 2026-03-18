@@ -34,6 +34,9 @@ vi.mock('../../../../../core/src/sessions/index.js', () => ({
 
 vi.mock('../../../../../core/src/sessions/handoff.js', () => ({
   computeDebrief: vi.fn(),
+  computeHandoff: vi.fn(),
+  getLastHandoff: vi.fn(),
+  persistHandoff: vi.fn(),
 }));
 
 vi.mock('../../../../../core/src/sessions/session-id.js', () => ({

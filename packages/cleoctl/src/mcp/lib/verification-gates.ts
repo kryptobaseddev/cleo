@@ -12,24 +12,24 @@
 export {
   createVerificationGate,
   GATE_SEQUENCE,
+  GateLayer,
   GateStatus,
   getWorkflowGateDefinition,
   isValidWorkflowGateName,
   VerificationGate,
   WORKFLOW_GATE_DEFINITIONS,
   WORKFLOW_GATE_SEQUENCE,
+  WorkflowGateName,
+  WorkflowGateTracker,
 } from '@cleocode/core/internal';
 
 export type {
-  GateLayer,
   GateViolation,
   LayerResult,
   OperationContext,
   VerificationResult,
   WorkflowGateAgent,
   WorkflowGateDefinition,
-  WorkflowGateName,
   WorkflowGateState,
   WorkflowGateStatus,
-  WorkflowGateTracker,
 } from '@cleocode/core/internal';

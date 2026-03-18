@@ -291,7 +291,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskShow returns same task data as core showTask', async () => {
-    const { showTask } = await import('../tasks/show.js');
+    const { showTask } = await import('../../../core/src/tasks/show.js');
     const { taskShow } = await import('../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
@@ -315,7 +315,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskShow and core showTask both fail for missing task', async () => {
-    const { showTask } = await import('../tasks/show.js');
+    const { showTask } = await import('../../../core/src/tasks/show.js');
     const { taskShow } = await import('../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
@@ -332,7 +332,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskList returns same tasks as core listTasks', async () => {
-    const { listTasks } = await import('../tasks/list.js');
+    const { listTasks } = await import('../../../core/src/tasks/list.js');
     const { taskList } = await import('../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
@@ -358,7 +358,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskList with status filter matches core listTasks filter', async () => {
-    const { listTasks } = await import('../tasks/list.js');
+    const { listTasks } = await import('../../../core/src/tasks/list.js');
     const { taskList } = await import('../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
@@ -377,7 +377,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskFind returns same results as core findTasks', async () => {
-    const { findTasks } = await import('../tasks/find.js');
+    const { findTasks } = await import('../../../core/src/tasks/find.js');
     const { taskFind } = await import('../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
@@ -619,7 +619,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycle-engine uses PIPELINE_STAGES from core/lifecycle/', async () => {
     const engineMod = await import('../dispatch/engines/lifecycle-engine.js');
-    const coreMod = await import('../lifecycle/index.js');
+    const coreMod = await import('../../../core/src/lifecycle/index.js');
 
     // Engine function uses PIPELINE_STAGES from core for status
     const result = await engineMod.lifecycleStatus('NONEXISTENT', testDir);

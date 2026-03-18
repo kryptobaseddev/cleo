@@ -35,8 +35,8 @@ let CLEO_DIR: string;
 async function seedTasks(testRoot: string, tasks: any[]): Promise<void> {
   const cleoDir = join(testRoot, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
-  const { getDb } = await import('@cleocode/core');
-  const { createTask } = await import('@cleocode/core');
+  const { getDb } = await import('@cleocode/core/internal');
+  const { createTask } = await import('@cleocode/core/internal');
   await getDb(testRoot);
 
   for (const task of tasks) {
@@ -114,7 +114,7 @@ describe('Orchestrate Engine', () => {
 
   afterEach(async () => {
     try {
-      const { closeAllDatabases } = await import('@cleocode/core');
+      const { closeAllDatabases } = await import('@cleocode/core/internal');
       await closeAllDatabases();
     } catch {
       /* ignore */
