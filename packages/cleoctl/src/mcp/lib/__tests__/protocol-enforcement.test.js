@@ -5,7 +5,7 @@
  * @epic T2908
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ProtocolEnforcer } from '../protocol-enforcement.js';
+import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
 describe('ProtocolEnforcer', () => {
     let enforcer;
     beforeEach(() => {

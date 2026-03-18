@@ -1,5 +1,5 @@
 /**
- * Tests for archive-stats CLI command core logic.
+ * Tests for archive analytics (core logic, invoked via CLI re-export).
  * @task T4555
  * @epic T4545
  */

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { VALIDATION_RULES, validateLayer1Schema } from '../gate-validators.js';
+import { GateStatus } from '../verification-gates.js';
 describe('MCP Priority Validation (T4572)', () => {
     describe('validateLayer1Schema - priority field', () => {
         describe('string priorities (canonical format)', () => {

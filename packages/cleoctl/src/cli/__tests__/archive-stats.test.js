@@ -1,24 +1,10 @@
 /**
- * Tests for archive-stats CLI command core logic.
+ * Tests for archive analytics (core logic, invoked via CLI re-export).
  * @task T4555
  * @epic T4545
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getArchiveStats } from '../commands/archive-stats.js';
-// Mock the data accessor used by getArchiveStats
-const mockLoadArchive = vi.fn();
-vi.mock('../../store/data-accessor.js', () => ({
-    getAccessor: vi.fn().mockResolvedValue({
-        engine: 'sqlite',
-        loadArchive: (...args) => mockLoadArchive(...args),
-        close: vi.fn(),
-    }),
-}));
-vi.mock('../../core/paths.js', () => ({
-    getArchivePath: (cwd) => '.cleo/tasks-archive.json',
-    getCleoDirAbsolute: (cwd) => (cwd ? `${cwd}/.cleo` : '.cleo'),
-    getTaskPath: (cwd) => (cwd ? `${cwd}/.cleo/tasks.json` : '.cleo/tasks.json'),
-}));
+import { analyzeArchive } from '@cleocode/core';
 const SAMPLE_ARCHIVE = {
     archivedTasks: [
         {
@@ -62,27 +48,49 @@ const SAMPLE_ARCHIVE = {
         },
     ],
 };
-describe('getArchiveStats', () => {
+function createMockAccessor(archiveData = null) {
+    return {
+        engine: 'sqlite',
+        loadArchive: vi.fn().mockResolvedValue(archiveData),
+        close: vi.fn(),
+        // Stub remaining DataAccessor methods — only loadArchive is used by analyzeArchive
+        loadTaskFile: vi.fn(),
+        saveTodoFile: vi.fn(),
+        saveArchive: vi.fn(),
+        loadSessions: vi.fn(),
+        saveSessions: vi.fn(),
+        loadSingleTask: vi.fn(),
+        queryTasks: vi.fn(),
+        getSubtree: vi.fn(),
+        upsertTask: vi.fn(),
+        deleteTask: vi.fn(),
+        upsertSession: vi.fn(),
+        deleteSession: vi.fn(),
+        transaction: vi.fn(),
+    };
+}
+describe('analyzeArchive', () => {
+    let accessor;
     beforeEach(() => {
         vi.clearAllMocks();
+        accessor = createMockAccessor(null);
     });
     it('returns empty result when no archive exists', async () => {
-        mockLoadArchive.mockResolvedValue(null);
-        const result = await getArchiveStats({});
+        const result = await analyzeArchive({}, accessor);
         expect(result.report).toBe('summary');
         expect(result.data.totalArchived).toBe(0);
     });
     it('returns summary by default', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({});
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({}, accessor);
         expect(result.report).toBe('summary');
         const data = result.data;
         expect(data.totalArchived).toBe(3);
         expect(data.averageCycleTime).toBe(6);
     });
     it('returns by-phase report', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ report: 'by-phase' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ report: 'by-phase' }, accessor);
         expect(result.report).toBe('by-phase');
         const data = result.data;
         expect(data.length).toBe(2);
@@ -90,23 +98,23 @@ describe('getArchiveStats', () => {
         expect(alpha?.count).toBe(2);
     });
     it('returns by-label report', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ report: 'by-label' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ report: 'by-label' }, accessor);
         expect(result.report).toBe('by-label');
         const data = result.data;
         const feature = data.find((d) => d.label === 'feature');
         expect(feature?.count).toBe(1);
     });
     it('returns by-priority report', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ report: 'by-priority' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ report: 'by-priority' }, accessor);
         expect(result.report).toBe('by-priority');
         const data = result.data;
         expect(data.length).toBe(3);
     });
     it('returns cycle-times report with statistics', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ report: 'cycle-times' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ report: 'cycle-times' }, accessor);
         expect(result.report).toBe('cycle-times');
         const data = result.data;
         expect(data.count).toBe(3);
@@ -115,28 +123,28 @@ describe('getArchiveStats', () => {
         expect(data.avg).toBe(6);
     });
     it('returns trends report', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ report: 'trends' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ report: 'trends' }, accessor);
         expect(result.report).toBe('trends');
         const data = result.data;
         expect(data.totalPeriod).toBe(3);
         expect(data.byDay.length).toBe(3);
     });
     it('filters by since date', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ since: '2026-02-01' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ since: '2026-02-01' }, accessor);
         const data = result.data;
         expect(data.totalArchived).toBe(1);
     });
     it('filters by until date', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ until: '2026-01-20' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ until: '2026-01-20' }, accessor);
         const data = result.data;
         expect(data.totalArchived).toBe(2);
     });
     it('applies both since and until filters', async () => {
-        mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
-        const result = await getArchiveStats({ since: '2026-01-16', until: '2026-01-25' });
+        accessor = createMockAccessor(SAMPLE_ARCHIVE);
+        const result = await analyzeArchive({ since: '2026-01-16', until: '2026-01-25' }, accessor);
         const data = result.data;
         expect(data.totalArchived).toBe(1);
     });

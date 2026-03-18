@@ -203,6 +203,63 @@ export type {
   TesseraInstantiationInput,
 } from './tessera.js';
 
+// === Archive Types ===
+export type {
+  ArchiveMetadata,
+  ArchivedTask,
+  ArchiveReportType,
+  ArchiveSummaryReport,
+  ArchivePhaseEntry,
+  ArchiveLabelEntry,
+  ArchivePriorityEntry,
+  CycleTimeDistribution,
+  CycleTimePercentiles,
+  ArchiveCycleTimesReport,
+  ArchiveDailyTrend,
+  ArchiveMonthlyTrend,
+  ArchiveTrendsReport,
+  ArchiveStatsEnvelope,
+} from './archive.js';
+
+// === TodoWrite Types ===
+export type {
+  TodoWriteItemStatus,
+  TodoWriteItem,
+  TodoWriteState,
+  TodoWriteSyncSessionState,
+  TodoWriteChangeSet,
+  TodoWriteChangeAction,
+  TodoWriteChange,
+  TodoWriteMergeResult,
+} from './todowrite.js';
+
+// === Result Types (Dashboard, Stats, Log, Context, Sequence) ===
+export type {
+  TaskSummary,
+  LabelCount,
+  DashboardResult,
+  StatsCurrentState,
+  StatsCompletionMetrics,
+  StatsActivityMetrics,
+  StatsAllTime,
+  StatsCycleTimes,
+  StatsResult,
+  LogQueryResult,
+  ContextResult,
+  SequenceResult,
+} from './results.js';
+
+// === TaskRecord Types (string-widened for dispatch/LAFS) ===
+export type {
+  TaskRecordRelation,
+  ValidationHistoryEntry,
+  TaskRecord,
+  MinimalTaskRecord,
+} from './task-record.js';
+
+// === Session Start Result ===
+export type { SessionStartResult } from './session.js';
+
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 

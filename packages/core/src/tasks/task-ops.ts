@@ -16,6 +16,7 @@
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import { cancelTask } from './cancel-ops.js';
 import {
   detectCircularDeps,
@@ -31,32 +32,8 @@ import { depsReady } from './deps-ready.js';
 // Types (shared)
 // ============================================================================
 
-/** Task record shape expected from the data layer. */
-interface TaskRecord {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  type?: string;
-  phase?: string;
-  createdAt: string;
-  updatedAt: string | null;
-  completedAt?: string | null;
-  cancelledAt?: string | null;
-  cancellationReason?: string;
-  parentId?: string | null;
-  position?: number | null;
-  positionVersion?: number;
-  depends?: string[];
-  relates?: Array<{ taskId: string; type: string; reason?: string }>;
-  files?: string[];
-  acceptance?: string[];
-  notes?: string[];
-  labels?: string[];
-  size?: string | null;
-  [key: string]: unknown;
-}
+/** Task record shape expected from the data layer — alias for the contracts Task type. */
+type TaskRecord = Task;
 
 /** Tree node representation for task hierarchy. */
 export interface FlatTreeNode {
@@ -88,7 +65,7 @@ const PRIORITY_SCORE: Record<string, number> = {
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
   const data = await accessor.loadTaskFile();
-  return data.tasks as unknown as TaskRecord[];
+  return data.tasks;
 }
 
 function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): FlatTreeNode {
@@ -337,7 +314,7 @@ export async function coreTaskBlockers(
       }),
   );
 
-  const tasksAsTask = allTasks as unknown as import('@cleocode/contracts').Task[];
+  const tasksAsTask = allTasks;
   const blockerInfos = [
     ...blockedTasks.map((t) => ({
       id: t.id,
@@ -460,7 +437,7 @@ export async function coreTaskDeps(
       const dep = taskMap.get(depId);
       return dep ? { id: dep.id, title: dep.title, status: dep.status } : null;
     })
-    .filter((d): d is { id: string; title: string; status: string } => d !== null);
+    .filter((d) => d !== null);
 
   const dependedOnBy = allTasks
     .filter((t) => t.depends?.includes(taskId))
@@ -524,7 +501,7 @@ export async function coreTaskRelatesAdd(
     throw new Error('No valid task data found');
   }
 
-  const fromTask = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+  const fromTask = current.tasks.find((t) => t.id === taskId);
   if (!fromTask) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -687,7 +664,7 @@ export async function coreTaskRestore(
     throw new Error('No valid task data found');
   }
 
-  const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+  const task = current.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -705,7 +682,7 @@ export async function coreTaskRestore(
         (t) => t.parentId === parentId && t.status === 'cancelled',
       );
       for (const child of children) {
-        tasksToRestore.push(child as unknown as TaskRecord);
+        tasksToRestore.push(child);
         findCancelledChildren(child.id);
       }
     };
@@ -717,7 +694,7 @@ export async function coreTaskRestore(
 
   for (const t of tasksToRestore) {
     t.status = 'pending';
-    t.cancelledAt = null;
+    t.cancelledAt = undefined;
     t.cancellationReason = undefined;
     t.updatedAt = now;
 
@@ -809,23 +786,28 @@ export async function coreTaskUnarchive(
     throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
-  const task = archive.archivedTasks[taskIndex] as TaskRecord & {
-    _archive?: Record<string, unknown>;
-  };
+  const task = archive.archivedTasks[taskIndex];
 
-  delete task._archive;
+  // Remove archive metadata if present on the raw record
+  if ('_archive' in task) {
+    Reflect.deleteProperty(task, '_archive');
+  }
 
   if (!params?.preserveStatus) {
-    const targetStatus = params?.status || 'pending';
-    task.status = targetStatus;
+    const rawStatus = params?.status || 'pending';
+    if (!(TASK_STATUSES as readonly string[]).includes(rawStatus)) {
+      throw new Error(`Invalid status: ${rawStatus}`);
+    }
+    // rawStatus is validated above as a member of TASK_STATUSES
+    const targetStatus = rawStatus as TaskStatus;
     if (targetStatus !== 'done') {
-      task.completedAt = null;
+      task.completedAt = undefined;
     }
   }
 
   task.updatedAt = new Date().toISOString();
 
-  (taskFile.tasks as unknown as TaskRecord[]).push(task);
+  taskFile.tasks.push(task);
   archive.archivedTasks.splice(taskIndex, 1);
 
   // Fine-grained: upsert the restored task (now active), remove from archive
@@ -920,7 +902,7 @@ export async function coreTaskReparent(
   }
 
   const taskMap = new Map(current.tasks.map((t) => [t.id, t]));
-  const task = taskMap.get(taskId) as TaskRecord | undefined;
+  const task = taskMap.get(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -949,7 +931,7 @@ export async function coreTaskReparent(
   }
 
   // Check circular reference
-  let ancestor: TaskRecord | undefined = newParent as unknown as TaskRecord;
+  let ancestor: TaskRecord | undefined = newParent;
   while (ancestor) {
     if (ancestor.id === taskId) {
       throw new Error(
@@ -957,16 +939,16 @@ export async function coreTaskReparent(
       );
     }
     if (!ancestor.parentId) break;
-    ancestor = taskMap.get(ancestor.parentId) as unknown as TaskRecord | undefined;
+    ancestor = taskMap.get(ancestor.parentId);
     if (!ancestor) break;
   }
 
   // Check depth limit
   let parentDepth = 0;
-  let cur: TaskRecord | undefined = newParent as unknown as TaskRecord;
+  let cur: TaskRecord | undefined = newParent;
   while (cur?.parentId) {
     parentDepth++;
-    cur = taskMap.get(cur.parentId) as unknown as TaskRecord | undefined;
+    cur = taskMap.get(cur.parentId);
     if (!cur || parentDepth > 10) break;
   }
   const reparentLimits = getHierarchyLimits(projectRoot);
@@ -1028,7 +1010,7 @@ export async function coreTaskPromote(
     throw new Error('No valid task data found');
   }
 
-  const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+  const task = current.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -1072,7 +1054,7 @@ export async function coreTaskReopen(
     throw new Error('No valid task data found');
   }
 
-  const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+  const task = current.tasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -1089,8 +1071,8 @@ export async function coreTaskReopen(
   }
 
   const previousStatus = task.status;
-  task.status = targetStatus;
-  task.completedAt = null;
+  task.status = targetStatus as TaskStatus;
+  task.completedAt = undefined;
   task.updatedAt = new Date().toISOString();
 
   if (!task.notes) task.notes = [];
@@ -1203,7 +1185,7 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
   validation: { valid: boolean; errorCount: number; warningCount: number };
 }> {
   const allTasks = await loadAllTasks(projectRoot);
-  const tasksAsTask = allTasks as unknown as import('@cleocode/contracts').Task[];
+  const tasksAsTask = allTasks;
 
   const tasksWithDeps = allTasks.filter((t) => t.depends && t.depends.length > 0);
   const blocked = getBlockedTasks(tasksAsTask);
@@ -1250,7 +1232,7 @@ export async function coreTaskDepsCycles(projectRoot: string): Promise<{
   cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
 }> {
   const allTasks = await loadAllTasks(projectRoot);
-  const tasksAsTask = allTasks as unknown as import('@cleocode/contracts').Task[];
+  const tasksAsTask = allTasks;
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   const visited = new Set<string>();
@@ -1333,7 +1315,7 @@ export async function coreTaskDepends(
   }
 
   // Transitive dependency hints
-  const tasksAsTask = allTasks as unknown as import('@cleocode/contracts').Task[];
+  const tasksAsTask = allTasks;
   const transitiveIds = getTransitiveBlockers(taskId, tasksAsTask);
   const unresolvedChain = transitiveIds.length;
 
@@ -1846,11 +1828,11 @@ export async function coreTaskImport(
 
   let importTasks: TaskRecord[] = [];
   if (Array.isArray(importData)) {
-    importTasks = importData as TaskRecord[];
+    importTasks = importData;
   } else if (typeof importData === 'object' && importData !== null) {
     const data = importData as Record<string, unknown>;
     if (Array.isArray(data.tasks)) {
-      importTasks = data.tasks as TaskRecord[];
+      importTasks = data.tasks;
     }
   }
 
@@ -1871,7 +1853,7 @@ export async function coreTaskImport(
     if (!Number.isNaN(num) && num > nextIdNum) nextIdNum = num;
   }
 
-  const tasksList = current.tasks as unknown as TaskRecord[];
+  const tasksList = current.tasks;
 
   for (const importTask of importTasks) {
     if (!importTask.id || !importTask.title) {

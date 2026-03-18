@@ -68,6 +68,17 @@ export interface Session {
 }
 
 /**
+ * Result of a session start operation.
+ *
+ * The `sessionId` field is a convenience alias for `session.id`,
+ * provided for consumers that expect it at the top level of the result.
+ */
+export interface SessionStartResult {
+  session: Session;
+  sessionId: string;
+}
+
+/**
  * SessionView — typed wrapper over Session[] with collection helpers.
  *
  * Provides discoverable query methods for common session lookups.

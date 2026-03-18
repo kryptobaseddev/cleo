@@ -3,6 +3,35 @@
  * @task T4783
  */
 
+export type {
+  AnalyzeArchiveOptions,
+  AnalyticsTask,
+  ArchiveAnalyticsResult,
+  ArchiveMetadata,
+  ArchiveReportDataMap,
+  ArchiveReportType,
+  CycleTimeDistribution,
+  CycleTimePercentiles,
+  CycleTimesReportData,
+  DailyArchiveEntry,
+  EmptyArchiveData,
+  LabelFrequencyEntry,
+  MonthlyArchiveEntry,
+  PhaseGroupEntry,
+  PriorityGroupEntry,
+  SummaryReportData,
+  TrendsReportData,
+} from './archive-analytics.js';
+export {
+  analyzeArchive,
+  byLabelReport,
+  byPhaseReport,
+  byPriorityReport,
+  cycleTimesReport,
+  filterByDate,
+  summaryReport,
+  trendsReport,
+} from './archive-analytics.js';
 export type { ArchiveStatsResult } from './archive-stats.js';
 export { getArchiveStats } from './archive-stats.js';
 export type { AuditIssue, AuditResult } from './audit.js';

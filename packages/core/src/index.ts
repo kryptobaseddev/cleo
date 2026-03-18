@@ -522,6 +522,19 @@ export { AuditLogInsertSchema } from './store/validation-schemas.js';
 
 // System
 export { getDashboard, getProjectStats } from './stats/index.js';
+export type {
+  AnalyzeArchiveOptions,
+  ArchiveAnalyticsResult,
+  ArchiveReportType,
+  CycleTimesReportData,
+  EmptyArchiveData,
+  LabelFrequencyEntry,
+  PhaseGroupEntry,
+  PriorityGroupEntry,
+  SummaryReportData,
+  TrendsReportData,
+} from './system/archive-analytics.js';
+export { analyzeArchive } from './system/archive-analytics.js';
 export type { ArchiveStatsResult } from './system/archive-stats.js';
 export { getArchiveStats } from './system/archive-stats.js';
 export { auditData } from './system/audit.js';
@@ -589,6 +602,15 @@ export type { ComplexityFactor, FlatTreeNode } from './tasks/task-ops.js';
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
+export { mergeTodoWriteState, analyzeChanges as analyzeTodoWriteChanges } from './task-work/todowrite-merge.js';
+export type {
+  TodoWriteItem,
+  TodoWriteState,
+  SyncSessionState,
+  ChangeSet as TodoWriteChangeSet,
+  TodoWriteMergeOptions,
+  TodoWriteMergeResult,
+} from './task-work/todowrite-merge.js';
 
 // Templates
 export { generateTemplateConfig, getTemplateForSubcommand, parseIssueTemplates } from './templates/parser.js';

@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { protocolFixtures } from '../../__tests__/fixtures/protocol-violations.js';
-import { ProtocolEnforcer } from '../protocol-enforcement.js';
+import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
 describe('Protocol Compliance Test Suite', () => {
     let enforcer;
     beforeEach(() => {
