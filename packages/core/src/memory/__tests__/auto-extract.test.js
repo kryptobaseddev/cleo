@@ -15,11 +15,11 @@ vi.mock('../decisions.js', () => ({
     storeDecision: vi.fn().mockResolvedValue(undefined),
 }));
 // Mock getAccessor used inside auto-extract for pattern detection
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
     getAccessor: vi.fn(),
 }));
 // ---- imports after mocks --------------------------------------------------
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { extractSessionEndMemory, extractTaskCompletionMemory, resolveTaskDetails, } from '../auto-extract.js';
 import { storeDecision } from '../decisions.js';
 import { storeLearning } from '../learnings.js';

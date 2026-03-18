@@ -6,7 +6,7 @@
  * @task T5363
  */
 import { describe, expect, it } from 'vitest';
-import { getProjectRoot } from '../../../core/paths.js';
+import { getProjectRoot } from '../../paths.js';
 import { archiveSticky } from '../archive.js';
 import { addSticky } from '../create.js';
 import { purgeSticky } from '../purge.js';

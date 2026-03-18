@@ -40,7 +40,7 @@ describe('Migration Safety Integration Tests', () => {
         const { closeDb } = await import('../sqlite.js');
         closeDb();
         // Clear any existing migration state
-        const { clearMigrationState } = await import('../../core/migration/state.js');
+        const { clearMigrationState } = await import('../../migration/state.js');
         await clearMigrationState(cleoDir);
     });
     afterEach(async () => {
@@ -200,7 +200,7 @@ describe('Migration Safety Integration Tests', () => {
         });
         it('should handle migration interruption and resume', async () => {
             // Setup: Create migration state file simulating interrupted migration
-            const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration } = await import('../../core/migration/state.js');
+            const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration } = await import('../../migration/state.js');
             const tasks = [createFullTask('T001'), createFullTask('T002')];
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson(tasks)));
             await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
@@ -208,7 +208,7 @@ describe('Migration Safety Integration Tests', () => {
             await createMigrationState(cleoDir);
             await updateMigrationPhase(cleoDir, 'import');
             // Check that migration state shows it can be resumed
-            const { canResumeMigration } = await import('../../core/migration/state.js');
+            const { canResumeMigration } = await import('../../migration/state.js');
             const resumeState = await canResumeMigration(cleoDir);
             expect(resumeState).not.toBeNull();
             expect(resumeState?.canResume).toBe(true);
@@ -273,7 +273,7 @@ describe('Migration Safety Integration Tests', () => {
             const dbPath = join(cleoDir, 'tasks.db');
             expect(existsSync(dbPath)).toBe(true);
             // Create backup with checksum verification
-            const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+            const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
             const originalChecksum = await computeChecksum(dbPath);
             const backupPath = join(safetyDir, 'tasks.db.pre-migration.checksum');
             await writeFile(backupPath, readFileSync(dbPath));
@@ -454,7 +454,7 @@ describe('Migration Safety Integration Tests', () => {
     // === Safety Mechanisms ===
     describe('Safety Mechanisms', () => {
         it('should create state file during migration', async () => {
-            const { createMigrationState, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, loadMigrationState } = await import('../../migration/state.js');
             // Create migration state
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
             await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
@@ -471,7 +471,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(loadedState.sourceFiles.todoJson.checksum).toBeDefined();
         });
         it('should create log file during migration', async () => {
-            const { MigrationLogger } = await import('../../core/migration/logger.js');
+            const { MigrationLogger } = await import('../../migration/logger.js');
             const logger = new MigrationLogger(cleoDir);
             // Log some operations
             logger.info('init', 'start', 'Migration started');
@@ -496,7 +496,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(logPath).toContain('.jsonl');
         });
         it('should track migration progress in state', async () => {
-            const { createMigrationState, updateMigrationProgress, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, updateMigrationProgress, loadMigrationState } = await import('../../migration/state.js');
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001'), createFullTask('T002'), createFullTask('T003')])));
             await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
             const state = await createMigrationState(cleoDir);
@@ -508,7 +508,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(updatedState.progress.totalTasks).toBe(3);
         });
         it('should track errors and warnings in state', async () => {
-            const { createMigrationState, addMigrationError, addMigrationWarning, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, addMigrationError, addMigrationWarning, loadMigrationState } = await import('../../migration/state.js');
             await createMigrationState(cleoDir);
             await addMigrationWarning(cleoDir, 'Test warning');
             await addMigrationError(cleoDir, 'Test error');
@@ -521,7 +521,7 @@ describe('Migration Safety Integration Tests', () => {
     // === Checksum Verification ===
     describe('Checksum Verification', () => {
         it('should detect modified source files', async () => {
-            const { createMigrationState, verifySourceIntegrity } = await import('../../core/migration/state.js');
+            const { createMigrationState, verifySourceIntegrity } = await import('../../migration/state.js');
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
             await createMigrationState(cleoDir);
             // Verify source files are intact
@@ -536,7 +536,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(finalCheck.changed.length).toBeGreaterThan(0);
         });
         it('should compute consistent checksums for same content', async () => {
-            const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+            const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
             const content = JSON.stringify({ test: 'data', array: [1, 2, 3] });
             const file1 = join(cleoDir, 'test1.json');
             const file2 = join(cleoDir, 'test2.json');
@@ -553,7 +553,7 @@ describe('Migration Safety Integration Tests', () => {
     // === Logger Functionality ===
     describe('Logger Functionality', () => {
         it('should log file operations with metadata', async () => {
-            const { MigrationLogger } = await import('../../core/migration/logger.js');
+            const { MigrationLogger } = await import('../../migration/logger.js');
             const logger = new MigrationLogger(cleoDir);
             const testFile = join(cleoDir, 'test-file.txt');
             await writeFile(testFile, 'test content');
@@ -567,7 +567,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(fileOp.data?.sourcePath).toBeDefined();
         });
         it('should log validation results', async () => {
-            const { MigrationLogger } = await import('../../core/migration/logger.js');
+            const { MigrationLogger } = await import('../../migration/logger.js');
             const logger = new MigrationLogger(cleoDir);
             logger.logValidation('validate', 'test-target', true, { field: 'value' });
             logger.logValidation('validate', 'failing-target', false, { error: 'details' }, ['error1']);
@@ -576,7 +576,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(entries.some((e) => e.operation === 'validation' && e.data?.valid === false)).toBe(true);
         });
         it('should log import progress', async () => {
-            const { MigrationLogger } = await import('../../core/migration/logger.js');
+            const { MigrationLogger } = await import('../../migration/logger.js');
             const logger = new MigrationLogger(cleoDir);
             logger.logImportProgress('import', 'tasks', 50, 100);
             const entries = logger.getEntriesByPhase('import');
@@ -590,7 +590,7 @@ describe('Migration Safety Integration Tests', () => {
     // === Migration Phases ===
     describe('Migration Phases', () => {
         it('should transition through all phases correctly', async () => {
-            const { createMigrationState, updateMigrationPhase, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, updateMigrationPhase, loadMigrationState } = await import('../../migration/state.js');
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
             await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
             const phases = [
@@ -610,7 +610,7 @@ describe('Migration Safety Integration Tests', () => {
             }
         });
         it('should complete migration and cleanup state', async () => {
-            const { createMigrationState, completeMigration, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, completeMigration, loadMigrationState } = await import('../../migration/state.js');
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([createFullTask('T001')])));
             await createMigrationState(cleoDir);
             const completed = await completeMigration(cleoDir);
@@ -622,7 +622,7 @@ describe('Migration Safety Integration Tests', () => {
             expect(state.phase).toBe('complete');
         });
         it('should fail migration with error details', async () => {
-            const { createMigrationState, failMigration, loadMigrationState } = await import('../../core/migration/state.js');
+            const { createMigrationState, failMigration, loadMigrationState } = await import('../../migration/state.js');
             await createMigrationState(cleoDir);
             await failMigration(cleoDir, 'Migration failed: corrupted data');
             const state = await loadMigrationState(cleoDir);

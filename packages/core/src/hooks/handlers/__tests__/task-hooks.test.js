@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const observeBrainMock = vi.fn();
-vi.mock('../../../../core/memory/brain-retrieval.js', () => ({
+vi.mock('../../../memory/brain-retrieval.js', () => ({
     observeBrain: observeBrainMock,
 }));
 import { handleToolComplete, handleToolStart } from '../task-hooks.js';

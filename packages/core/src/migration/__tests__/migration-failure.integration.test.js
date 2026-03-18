@@ -16,7 +16,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { acquireLock, isLocked, withLock } from '../store/lock.js';
+import { acquireLock, isLocked, withLock } from '../../store/lock.js';
 import { MigrationLogger, readMigrationLog } from '../logger.js';
 import { addMigrationError, canResumeMigration, clearMigrationState, completeMigration, createMigrationState, failMigration, isMigrationInProgress, loadMigrationState, updateMigrationPhase, updateMigrationProgress, verifySourceIntegrity, } from '../state.js';
 import { checkTaskCountMismatch, validateSourceFiles } from '../validate.js';

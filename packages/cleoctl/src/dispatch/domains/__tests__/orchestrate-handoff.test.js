@@ -18,7 +18,7 @@ vi.mock('../../lib/engine.js', () => ({
     orchestrateParallelEnd: vi.fn(),
     orchestrateCheck: vi.fn(),
 }));
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 import { orchestrateHandoff } from '../../lib/engine.js';

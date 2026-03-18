@@ -6,7 +6,7 @@
  * @epic T4498
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, } from '../store/__tests__/test-db-helper.js';
+import { createTestDb, seedTasks, } from '../../store/__tests__/test-db-helper.js';
 import { analyzeEpic, autoDispatch, getOrchestratorContext, getReadyTasks, prepareSpawn, resolveTokens, startOrchestration, validateSpawnOutput, } from '../index.js';
 let env;
 let accessor;
@@ -405,6 +405,7 @@ describe('Auto-dispatch protocol selection', () => {
             const task = {
                 id: 'T001',
                 title: tc.title,
+                description: `Auto-dispatch test: ${tc.title}`,
                 status: 'pending',
                 priority: 'medium',
                 labels: tc.labels,

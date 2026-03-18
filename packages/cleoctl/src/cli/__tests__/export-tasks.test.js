@@ -6,13 +6,13 @@
 import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 import { registerExportTasksCommand } from '../commands/export-tasks.js';
-vi.mock('../../store/json.js', () => ({
+vi.mock('../../../../core/src/store/json.js', () => ({
     readJson: vi.fn(),
 }));
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../../../core/src/paths.js', () => ({
     getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
 }));
-vi.mock('../../store/export.js', () => ({
+vi.mock('../../../../core/src/store/export.js', () => ({
     buildExportPackage: vi.fn().mockReturnValue({
         _meta: { format: 'cleo-export', taskCount: 0 },
         tasks: [],

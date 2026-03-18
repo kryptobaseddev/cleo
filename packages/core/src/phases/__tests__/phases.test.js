@@ -4,7 +4,7 @@
  * @epic T4454
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, makeTaskFile, } from '../store/__tests__/test-db-helper.js';
+import { createTestDb, makeTaskFile, } from '../../store/__tests__/test-db-helper.js';
 import { completePhase, deletePhase, listPhases, renamePhase, setPhase, showPhase, startPhase, } from '../index.js';
 let env;
 let accessor;

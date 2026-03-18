@@ -8,9 +8,9 @@
 import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedTasks } from '@cleocode/core';
-import { resetDbState } from '@cleocode/core';
-import { createSqliteDataAccessor } from '@cleocode/core';
+import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
+import { resetDbState } from '@cleocode/core/internal';
+import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import { releaseChangelog, releaseCommit, releaseGatesRun, releaseList, releasePrepare, releaseRollback, releaseShow, releaseTag, } from '../release-engine.js';
 const TEST_ROOT = join(process.cwd(), '.test-release-engine');
 const SAMPLE_TASKS = [

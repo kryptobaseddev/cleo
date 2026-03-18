@@ -21,14 +21,14 @@ describe('Brain Retrieval', () => {
     });
     afterEach(async () => {
         try {
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
         }
         catch {
             /* may not be loaded */
         }
         try {
-            const { closeDb } = await import('../../../store/sqlite.js');
+            const { closeDb } = await import('../../store/sqlite.js');
             closeDb();
         }
         catch {
@@ -55,7 +55,7 @@ describe('Brain Retrieval', () => {
     describe('searchBrainCompact', () => {
         it('should return empty results for empty query', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -66,9 +66,9 @@ describe('Brain Retrieval', () => {
         });
         it('should return compact results from decisions', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -89,9 +89,9 @@ describe('Brain Retrieval', () => {
         });
         it('should return compact results from all table types', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -132,9 +132,9 @@ describe('Brain Retrieval', () => {
         });
         it('should filter by table type', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -160,9 +160,9 @@ describe('Brain Retrieval', () => {
         });
         it('should apply date filters', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -190,9 +190,9 @@ describe('Brain Retrieval', () => {
         });
         it('should truncate titles to 80 characters', async () => {
             const { searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -216,7 +216,7 @@ describe('Brain Retrieval', () => {
     describe('timelineBrain', () => {
         it('should return null anchor for unknown ID', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -228,7 +228,7 @@ describe('Brain Retrieval', () => {
         });
         it('should return null anchor for unrecognized ID prefix', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -238,9 +238,9 @@ describe('Brain Retrieval', () => {
         });
         it('should return anchor data for a decision', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -260,9 +260,9 @@ describe('Brain Retrieval', () => {
         });
         it('should return before and after entries across tables', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -329,9 +329,9 @@ describe('Brain Retrieval', () => {
         });
         it('should respect depth parameters', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -365,9 +365,9 @@ describe('Brain Retrieval', () => {
         });
         it('should handle observation anchors with O- prefix', async () => {
             const { timelineBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -391,7 +391,7 @@ describe('Brain Retrieval', () => {
     describe('fetchBrainEntries', () => {
         it('should return empty for empty IDs array', async () => {
             const { fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -403,9 +403,9 @@ describe('Brain Retrieval', () => {
         });
         it('should fetch entries by IDs from different tables', async () => {
             const { fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -451,9 +451,9 @@ describe('Brain Retrieval', () => {
         });
         it('should report not-found IDs', async () => {
             const { fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -475,9 +475,9 @@ describe('Brain Retrieval', () => {
         });
         it('should return full data in each entry', async () => {
             const { fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);
@@ -505,7 +505,7 @@ describe('Brain Retrieval', () => {
     describe('observeBrain', () => {
         it('should create an observation with generated ID', async () => {
             const { observeBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -518,7 +518,7 @@ describe('Brain Retrieval', () => {
         });
         it('should auto-classify type from text keywords', async () => {
             const { observeBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -549,7 +549,7 @@ describe('Brain Retrieval', () => {
         });
         it('should use provided type over auto-classification', async () => {
             const { observeBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -563,7 +563,7 @@ describe('Brain Retrieval', () => {
         it('should use provided title', async () => {
             const { observeBrain } = await import('../brain-retrieval.js');
             const { fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -579,19 +579,19 @@ describe('Brain Retrieval', () => {
         });
         it('should throw on empty text', async () => {
             const { observeBrain } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
             // Need to init DB first
-            const { getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { getBrainDb } = await import('../../store/brain-sqlite.js');
             await getBrainDb(tempDir);
             await expect(observeBrain(tempDir, { text: '' })).rejects.toThrow('Observation text is required');
             await expect(observeBrain(tempDir, { text: '   ' })).rejects.toThrow('Observation text is required');
         });
         it('should store observation searchable via searchBrainCompact', async () => {
             const { observeBrain, searchBrainCompact } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -610,7 +610,7 @@ describe('Brain Retrieval', () => {
         });
         it('should set sourceType and project', async () => {
             const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
             closeBrainDb();
             resetFts5Cache();
@@ -634,9 +634,9 @@ describe('Brain Retrieval', () => {
     describe('3-layer integration', () => {
         it('should flow: search -> timeline -> fetch', async () => {
             const { searchBrainCompact, timelineBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             const { resetFts5Cache } = await import('../brain-search.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             resetFts5Cache();
             const accessor = await getBrainAccessor(tempDir);

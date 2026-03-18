@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 .pnpm-debug.log
 coverage/
+.test-*

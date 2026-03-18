@@ -18,18 +18,18 @@ vi.mock('../../lib/engine.js', () => ({
     orchestrateParallelEnd: vi.fn(),
     orchestrateCheck: vi.fn(),
 }));
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
-vi.mock('../../../core/lifecycle/tessera-engine.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/tessera-engine.js', () => ({
     showTessera: vi.fn(),
     listTesseraTemplates: vi.fn(() => []),
     instantiateTessera: vi.fn(),
 }));
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
     showChain: vi.fn(),
 }));
-import { listTesseraTemplates } from '@cleocode/core';
+import { listTesseraTemplates } from '@cleocode/core/internal';
 import { OrchestrateHandler } from '../orchestrate.js';
 describe('OrchestrateHandler operations', () => {
     let handler;

@@ -10,8 +10,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getDb } from '../store/sqlite.js';
-import * as schema from '../store/tasks-schema.js';
+import { getDb } from '../../store/sqlite.js';
+import * as schema from '../../store/tasks-schema.js';
 import { cancelRelease, prepareRelease, showManifestRelease } from '../release-manifest.js';
 let testDir;
 async function loadTasks() {
@@ -24,7 +24,7 @@ beforeEach(async () => {
 afterEach(async () => {
     // Close the DB before removing the directory to avoid file-lock issues on Windows
     try {
-        const { closeDb } = await import('../../../store/sqlite.js');
+        const { closeDb } = await import('../../store/sqlite.js');
         closeDb();
     }
     catch {

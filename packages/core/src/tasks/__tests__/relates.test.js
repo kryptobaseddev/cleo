@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createSqliteDataAccessor } from '../store/sqlite-data-accessor.js';
+import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { addRelation, listRelations } from '../relates.js';
 describe('relates.ts addRelation persistence (T5168)', () => {
     let testDir;
@@ -21,6 +21,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
         const task1 = {
             id: 'T001',
             title: 'First task',
+            description: 'Description for first task',
             status: 'pending',
             priority: 'medium',
             createdAt: new Date().toISOString(),
@@ -28,6 +29,7 @@ describe('relates.ts addRelation persistence (T5168)', () => {
         const task2 = {
             id: 'T002',
             title: 'Second task',
+            description: 'Description for second task',
             status: 'pending',
             priority: 'medium',
             createdAt: new Date().toISOString(),

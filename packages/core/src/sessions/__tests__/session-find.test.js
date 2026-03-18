@@ -160,7 +160,7 @@ describe('sessionList budget enforcement (T5120, T5121)', () => {
     }));
     it('defaults to limit=10 when no limit provided', async () => {
         // Import the engine module and mock getAccessor
-        const engineModule = await import('../../../dispatch/engines/session-engine.js');
+        const engineModule = await import('../../../../cleoctl/src/dispatch/engines/session-engine.js');
         sessionList = engineModule.sessionList;
         // We test via the actual function — since it needs getAccessor,
         // we verify behavior by checking the returned _meta fields.

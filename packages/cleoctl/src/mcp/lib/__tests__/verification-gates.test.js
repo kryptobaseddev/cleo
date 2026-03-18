@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '../exit-codes.js';
 import { ProtocolType } from '../protocol-enforcement.js';
-import { createVerificationGate, GATE_SEQUENCE, GateStatus, getWorkflowGateDefinition, isValidWorkflowGateName, VerificationGate, WORKFLOW_GATE_DEFINITIONS, WORKFLOW_GATE_SEQUENCE, } from '../verification-gates.js';
+import { createVerificationGate, GATE_SEQUENCE, GateLayer, GateStatus, getWorkflowGateDefinition, isValidWorkflowGateName, VerificationGate, WORKFLOW_GATE_DEFINITIONS, WORKFLOW_GATE_SEQUENCE, WorkflowGateName, WorkflowGateTracker, } from '../verification-gates.js';
 describe('VerificationGate', () => {
     let gate;
     beforeEach(() => {

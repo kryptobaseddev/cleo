@@ -5,14 +5,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data-accessor before importing cleanup module
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
     getAccessor: vi.fn(),
 }));
 // Mock config module to control retention settings
 vi.mock('../../config.js', () => ({
     getRawConfigValue: vi.fn(),
 }));
-import { getAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { getRawConfigValue } from '../../config.js';
 import { cleanupSessions } from '../session-cleanup.js';
 // ---------------------------------------------------------------------------

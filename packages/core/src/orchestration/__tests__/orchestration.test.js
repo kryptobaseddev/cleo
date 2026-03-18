@@ -4,7 +4,7 @@
  * @epic T4454
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, } from '../store/__tests__/test-db-helper.js';
+import { createTestDb, seedTasks, } from '../../store/__tests__/test-db-helper.js';
 import { analyzeEpic, autoDispatch, getNextTask, getOrchestratorContext, getReadyTasks, prepareSpawn, resolveTokens, startOrchestration, } from '../index.js';
 let env;
 let accessor;
@@ -132,6 +132,7 @@ describe('autoDispatch', () => {
         const task = {
             id: 'T001',
             title: 'Something',
+            description: 'A task with research label',
             status: 'pending',
             priority: 'medium',
             labels: ['research'],
@@ -143,6 +144,7 @@ describe('autoDispatch', () => {
         const task = {
             id: 'T001',
             title: 'Something',
+            description: 'An epic-type task',
             status: 'pending',
             priority: 'medium',
             type: 'epic',
@@ -154,6 +156,7 @@ describe('autoDispatch', () => {
         const task = {
             id: 'T001',
             title: 'Implement auth module',
+            description: 'Build the authentication module',
             status: 'pending',
             priority: 'medium',
             createdAt: '2026-01-01T00:00:00Z',
@@ -164,6 +167,7 @@ describe('autoDispatch', () => {
         const task = {
             id: 'T001',
             title: 'Something generic',
+            description: 'A generic task without specific keywords',
             status: 'pending',
             priority: 'medium',
             createdAt: '2026-01-01T00:00:00Z',

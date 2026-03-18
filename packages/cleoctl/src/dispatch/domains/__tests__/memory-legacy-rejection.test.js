@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock engine-compat brain.db functions (required by import)
-vi.mock('../../../core/memory/engine-compat.js', () => ({
+vi.mock('../../../../../core/src/memory/engine-compat.js', () => ({
     memoryShow: vi.fn(),
     memoryFind: vi.fn(),
     memoryTimeline: vi.fn(),
@@ -28,13 +28,13 @@ vi.mock('../../../core/memory/engine-compat.js', () => ({
     memoryLearningStats: vi.fn(),
 }));
 // Mock pipeline-manifest-sqlite functions (required by import)
-vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
+vi.mock('../../../../../core/src/memory/pipeline-manifest-sqlite.js', () => ({
     pipelineManifestContradictions: vi.fn(),
     pipelineManifestSuperseded: vi.fn(),
     pipelineManifestLink: vi.fn(),
 }));
 // Mock getProjectRoot
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 import { MemoryHandler } from '../memory.js';

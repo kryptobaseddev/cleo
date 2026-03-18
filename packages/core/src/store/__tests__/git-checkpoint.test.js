@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../json.js', () => ({
     readJson: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../paths.js', () => ({
     getCleoDir: vi.fn().mockReturnValue('.cleo'),
     getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
 }));
@@ -45,7 +45,7 @@ describe('gitCheckpoint commit args', () => {
         // includes '--' followed by file paths, not just bare 'git commit -m ...'
         const { readFileSync } = await import('node:fs');
         const { join } = await import('node:path');
-        const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+        const src = readFileSync(join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'), 'utf-8');
         // Verify the commit args include '--' path restriction
         expect(src).toMatch(/commitArgs\.push\(['"]--['"]/);
     });
@@ -115,7 +115,7 @@ describe('state file merging', () => {
         // Structural: verify the hardcoded array includes the expected core files
         const { readFileSync } = await import('node:fs');
         const { join } = await import('node:path');
-        const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+        const src = readFileSync(join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'), 'utf-8');
         expect(src).toContain("'config.json'");
         expect(src).toContain("'project-info.json'");
         expect(src).toContain("'project-context.json'");
@@ -126,7 +126,7 @@ describe('state file merging', () => {
         // Structural: verify getAllStateFiles spreads both STATE_FILES and custom
         const { readFileSync } = await import('node:fs');
         const { join } = await import('node:path');
-        const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+        const src = readFileSync(join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'), 'utf-8');
         expect(src).toMatch(/\[\.\.\.STATE_FILES,\s*\.\.\.custom\]/);
     });
 });

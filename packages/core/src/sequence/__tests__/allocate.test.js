@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getDb, getNativeDb, resetDbState } from '../store/sqlite.js';
+import { getDb, getNativeDb, resetDbState } from '../../store/sqlite.js';
 import { allocateNextTaskId, showSequence } from '../index.js';
 describe('allocateNextTaskId', () => {
     let tempDir;

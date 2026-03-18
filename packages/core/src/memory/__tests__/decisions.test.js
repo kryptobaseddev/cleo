@@ -18,7 +18,7 @@ describe('Decision Memory', () => {
         process.env['CLEO_DIR'] = cleoDir;
     });
     afterEach(async () => {
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         delete process.env['CLEO_DIR'];
         await rm(tempDir, { recursive: true, force: true });
@@ -26,7 +26,7 @@ describe('Decision Memory', () => {
     describe('storeDecision', () => {
         it('should create a new decision with sequential ID', async () => {
             const { storeDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const decision = await storeDecision(tempDir, {
                 type: 'architecture',
@@ -42,7 +42,7 @@ describe('Decision Memory', () => {
         });
         it('should generate sequential IDs (D001, D002, ...)', async () => {
             const { storeDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const d1 = await storeDecision(tempDir, {
                 type: 'architecture',
@@ -61,7 +61,7 @@ describe('Decision Memory', () => {
         });
         it('should update duplicate decision instead of creating new one', async () => {
             const { storeDecision, listDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'architecture',
@@ -83,7 +83,7 @@ describe('Decision Memory', () => {
         });
         it('should throw on empty decision text', async () => {
             const { storeDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await expect(storeDecision(tempDir, {
                 type: 'architecture',
@@ -94,7 +94,7 @@ describe('Decision Memory', () => {
         });
         it('should throw on empty rationale', async () => {
             const { storeDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await expect(storeDecision(tempDir, {
                 type: 'architecture',
@@ -107,7 +107,7 @@ describe('Decision Memory', () => {
     describe('recallDecision', () => {
         it('should retrieve a stored decision by ID', async () => {
             const { storeDecision, recallDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'technical',
@@ -121,10 +121,10 @@ describe('Decision Memory', () => {
         });
         it('should return null for non-existent ID', async () => {
             const { recallDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             // Ensure DB is initialized
-            const { getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { getBrainDb } = await import('../../store/brain-sqlite.js');
             await getBrainDb(tempDir);
             const result = await recallDecision(tempDir, 'D999');
             expect(result).toBeNull();
@@ -133,7 +133,7 @@ describe('Decision Memory', () => {
     describe('searchDecisions', () => {
         it('should search by type', async () => {
             const { storeDecision, searchDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'architecture',
@@ -153,7 +153,7 @@ describe('Decision Memory', () => {
         });
         it('should search by free-text query across decision and rationale', async () => {
             const { storeDecision, searchDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'architecture',
@@ -173,7 +173,7 @@ describe('Decision Memory', () => {
         });
         it('should respect limit parameter', async () => {
             const { storeDecision, searchDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             for (let i = 0; i < 5; i++) {
                 await storeDecision(tempDir, {
@@ -190,7 +190,7 @@ describe('Decision Memory', () => {
     describe('updateDecisionOutcome', () => {
         it('should update the outcome of a decision', async () => {
             const { storeDecision, updateDecisionOutcome, recallDecision } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'architecture',
@@ -205,7 +205,7 @@ describe('Decision Memory', () => {
         });
         it('should throw for non-existent decision', async () => {
             const { updateDecisionOutcome } = await import('../decisions.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await getBrainDb(tempDir);
             await expect(updateDecisionOutcome(tempDir, 'D999', 'failure')).rejects.toThrow('Decision not found: D999');
@@ -214,7 +214,7 @@ describe('Decision Memory', () => {
     describe('listDecisions', () => {
         it('should return decisions with total count', async () => {
             const { storeDecision, listDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await storeDecision(tempDir, {
                 type: 'architecture',
@@ -234,7 +234,7 @@ describe('Decision Memory', () => {
         });
         it('should support pagination with offset and limit', async () => {
             const { storeDecision, listDecisions } = await import('../decisions.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             for (let i = 0; i < 5; i++) {
                 await storeDecision(tempDir, {

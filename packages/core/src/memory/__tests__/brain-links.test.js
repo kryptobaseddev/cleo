@@ -18,7 +18,7 @@ describe('Brain Memory Links', () => {
         process.env['CLEO_DIR'] = cleoDir;
     });
     afterEach(async () => {
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         delete process.env['CLEO_DIR'];
         await rm(tempDir, { recursive: true, force: true });
@@ -26,8 +26,8 @@ describe('Brain Memory Links', () => {
     describe('linkMemoryToTask', () => {
         it('should create a link between a decision and a task', async () => {
             const { linkMemoryToTask } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             // Create a decision first
             const accessor = await getBrainAccessor(tempDir);
@@ -46,7 +46,7 @@ describe('Brain Memory Links', () => {
         });
         it('should return existing link instead of duplicating', async () => {
             const { linkMemoryToTask } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const first = await linkMemoryToTask(tempDir, 'decision', 'D001', 'T1000', 'produced_by');
             const second = await linkMemoryToTask(tempDir, 'decision', 'D001', 'T1000', 'produced_by');
@@ -55,7 +55,7 @@ describe('Brain Memory Links', () => {
         });
         it('should throw on empty memoryId or taskId', async () => {
             const { linkMemoryToTask } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await expect(linkMemoryToTask(tempDir, 'decision', '', 'T1000', 'produced_by')).rejects.toThrow('memoryId and taskId are required');
             await expect(linkMemoryToTask(tempDir, 'decision', 'D001', '', 'produced_by')).rejects.toThrow('memoryId and taskId are required');
@@ -64,7 +64,7 @@ describe('Brain Memory Links', () => {
     describe('unlinkMemoryFromTask', () => {
         it('should remove an existing link', async () => {
             const { linkMemoryToTask, unlinkMemoryFromTask, getMemoryLinks } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await linkMemoryToTask(tempDir, 'pattern', 'P001', 'T2000', 'applies_to');
             const beforeUnlink = await getMemoryLinks(tempDir, 'pattern', 'P001');
@@ -77,7 +77,7 @@ describe('Brain Memory Links', () => {
     describe('getTaskLinks', () => {
         it('should return all memory entries linked to a task', async () => {
             const { linkMemoryToTask, getTaskLinks } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await linkMemoryToTask(tempDir, 'decision', 'D001', 'T1000', 'produced_by');
             await linkMemoryToTask(tempDir, 'pattern', 'P001', 'T1000', 'applies_to');
@@ -87,7 +87,7 @@ describe('Brain Memory Links', () => {
         });
         it('should return empty array for task with no links', async () => {
             const { getTaskLinks } = await import('../brain-links.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await getBrainDb(tempDir);
             const links = await getTaskLinks(tempDir, 'T9999');
@@ -97,7 +97,7 @@ describe('Brain Memory Links', () => {
     describe('getMemoryLinks', () => {
         it('should return all tasks linked to a memory entry', async () => {
             const { linkMemoryToTask, getMemoryLinks } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await linkMemoryToTask(tempDir, 'decision', 'D001', 'T1000', 'produced_by');
             await linkMemoryToTask(tempDir, 'decision', 'D001', 'T2000', 'applies_to');
@@ -108,7 +108,7 @@ describe('Brain Memory Links', () => {
     describe('bulkLink', () => {
         it('should create multiple links at once', async () => {
             const { bulkLink, getTaskLinks } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const result = await bulkLink(tempDir, [
                 { memoryType: 'decision', memoryId: 'D001', taskId: 'T1000', linkType: 'produced_by' },
@@ -122,7 +122,7 @@ describe('Brain Memory Links', () => {
         });
         it('should skip duplicate links in bulk', async () => {
             const { linkMemoryToTask, bulkLink } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await linkMemoryToTask(tempDir, 'decision', 'D001', 'T1000', 'produced_by');
             const result = await bulkLink(tempDir, [
@@ -136,8 +136,8 @@ describe('Brain Memory Links', () => {
     describe('convenience methods', () => {
         it('getLinkedDecisions should return full decision rows', async () => {
             const { linkMemoryToTask, getLinkedDecisions } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addDecision({
@@ -155,8 +155,8 @@ describe('Brain Memory Links', () => {
         });
         it('getLinkedPatterns should return full pattern rows', async () => {
             const { linkMemoryToTask, getLinkedPatterns } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addPattern({
@@ -174,8 +174,8 @@ describe('Brain Memory Links', () => {
         });
         it('getLinkedLearnings should return full learning rows', async () => {
             const { linkMemoryToTask, getLinkedLearnings } = await import('../brain-links.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addLearning({
@@ -193,7 +193,7 @@ describe('Brain Memory Links', () => {
         });
         it('should return empty array when no linked entries exist', async () => {
             const { getLinkedDecisions, getLinkedPatterns, getLinkedLearnings } = await import('../brain-links.js');
-            const { closeBrainDb, getBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await getBrainDb(tempDir);
             const decisions = await getLinkedDecisions(tempDir, 'T9999');

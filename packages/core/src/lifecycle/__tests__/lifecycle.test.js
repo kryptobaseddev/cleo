@@ -20,11 +20,11 @@ beforeEach(async () => {
     // Disable lifecycle enforcement for tests by default
     process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
     // Reset SQLite singleton so each test gets a fresh DB in the temp dir
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
 });
 afterEach(async () => {
-    const { closeDb } = await import('../../../store/sqlite.js');
+    const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];

@@ -10,11 +10,11 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock getAccessor — must be before imports
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn(),
 }));
 // Mock core list/find modules
-vi.mock('../../../core/tasks/list.js', () => ({
+vi.mock('../../../../../core/src/tasks/list.js', () => ({
     listTasks: vi.fn(),
     toCompact: vi.fn((t) => ({
         id: t.id,
@@ -23,11 +23,12 @@ vi.mock('../../../core/tasks/list.js', () => ({
         priority: t.priority,
     })),
 }));
-vi.mock('../../../core/tasks/find.js', () => ({
+vi.mock('../../../../../core/src/tasks/find.js', () => ({
     findTasks: vi.fn(),
 }));
 import { findTasks as coreFindTasks } from '@cleocode/core';
-import { listTasks as coreListTasks, toCompact } from '@cleocode/core';
+import { listTasks as coreListTasks } from '@cleocode/core';
+import { toCompact } from '@cleocode/core/internal';
 import { getAccessor } from '@cleocode/core';
 import { taskFind, taskList } from '../../engines/task-engine.js';
 const MOCK_TASKS = [

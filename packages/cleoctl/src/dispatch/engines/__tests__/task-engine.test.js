@@ -1,33 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock core modules before importing task-engine
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn(),
 }));
-vi.mock('../../../core/tasks/show.js', () => ({
+vi.mock('../../../../../core/src/tasks/show.js', () => ({
     showTask: vi.fn(),
 }));
-vi.mock('../../../core/tasks/update.js', () => ({
+vi.mock('../../../../../core/src/tasks/update.js', () => ({
     updateTask: vi.fn(),
 }));
-vi.mock('../../../core/tasks/complete.js', () => ({
+vi.mock('../../../../../core/src/tasks/complete.js', () => ({
     completeTask: vi.fn(),
 }));
-vi.mock('../../../core/tasks/add.js', () => ({
+vi.mock('../../../../../core/src/tasks/add.js', () => ({
     addTask: vi.fn(),
 }));
-vi.mock('../../../core/tasks/delete.js', () => ({
+vi.mock('../../../../../core/src/tasks/delete.js', () => ({
     deleteTask: vi.fn(),
 }));
-vi.mock('../../../core/tasks/archive.js', () => ({
+vi.mock('../../../../../core/src/tasks/archive.js', () => ({
     archiveTasks: vi.fn(),
 }));
-vi.mock('../../../core/tasks/list.js', () => ({
+vi.mock('../../../../../core/src/tasks/list.js', () => ({
     listTasks: vi.fn(),
 }));
-vi.mock('../../../core/tasks/find.js', () => ({
+vi.mock('../../../../../core/src/tasks/find.js', () => ({
     findTasks: vi.fn(),
 }));
-vi.mock('../../../core/tasks/task-ops.js', () => ({
+vi.mock('../../../../../core/src/tasks/task-ops.js', () => ({
     coreTaskNext: vi.fn(),
     coreTaskBlockers: vi.fn(),
     coreTaskTree: vi.fn(),

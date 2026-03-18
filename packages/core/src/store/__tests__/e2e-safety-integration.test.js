@@ -325,7 +325,7 @@ describe('E2E Safety Integration', () => {
     });
     describe('Checksum Verification E2E', () => {
         it('should detect file tampering via checksums', async () => {
-            const { computeChecksum, compareChecksums } = await import('../../core/migration/checksum.js');
+            const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
             // Create original file
             const filePath = join(cleoDir, 'test-data.json');
             const originalData = JSON.stringify({ tasks: [{ id: 'T001', title: 'Original' }] });
@@ -347,7 +347,7 @@ describe('E2E Safety Integration', () => {
     });
     describe('Migration State Tracking E2E', () => {
         it('should track migration lifecycle through all phases', async () => {
-            const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration, clearMigrationState, } = await import('../../core/migration/state.js');
+            const { createMigrationState, updateMigrationPhase, loadMigrationState, completeMigration, clearMigrationState, } = await import('../../migration/state.js');
             // Setup source files
             await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({ tasks: [{ id: 'T001', title: 'X', status: 'pending' }] }));
             await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify({ sessions: [] }));
@@ -370,7 +370,7 @@ describe('E2E Safety Integration', () => {
     });
     describe('Migration Logger E2E', () => {
         it('should create structured JSONL log entries', async () => {
-            const { MigrationLogger } = await import('../../core/migration/logger.js');
+            const { MigrationLogger } = await import('../../migration/logger.js');
             const logger = new MigrationLogger(cleoDir);
             logger.info('init', 'start', 'Migration starting');
             logger.warn('import', 'duplicate', 'Skipping T001');

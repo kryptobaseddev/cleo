@@ -22,14 +22,14 @@ describe('Memory Bridge', () => {
     });
     afterEach(async () => {
         try {
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
         }
         catch {
             /* may not be loaded */
         }
         try {
-            const { closeDb } = await import('../../../store/sqlite.js');
+            const { closeDb } = await import('../../store/sqlite.js');
             closeDb();
         }
         catch {
@@ -41,7 +41,7 @@ describe('Memory Bridge', () => {
     describe('generateMemoryBridgeContent', () => {
         it('should return content with header when brain.db has no data', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const content = await generateMemoryBridgeContent(tempDir);
             expect(content).toContain('# CLEO Memory Bridge');
@@ -52,8 +52,8 @@ describe('Memory Bridge', () => {
         });
         it('should include decisions when present', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addDecision({
@@ -70,8 +70,8 @@ describe('Memory Bridge', () => {
         });
         it('should include high-confidence learnings and exclude low-confidence ones', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addLearning({
@@ -98,8 +98,8 @@ describe('Memory Bridge', () => {
         });
         it('should include success patterns under Patterns to Follow', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addPattern({
@@ -116,8 +116,8 @@ describe('Memory Bridge', () => {
         });
         it('should include failure patterns under Anti-Patterns', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addPattern({
@@ -134,8 +134,8 @@ describe('Memory Bridge', () => {
         });
         it('should include recent observations', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addObservation({
@@ -153,8 +153,8 @@ describe('Memory Bridge', () => {
         });
         it('should respect maxDecisions config', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             for (let i = 1; i <= 10; i++) {
@@ -172,8 +172,8 @@ describe('Memory Bridge', () => {
         });
         it('should omit anti-patterns when includeAntiPatterns is false', async () => {
             const { generateMemoryBridgeContent } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
-            const { getBrainAccessor } = await import('../../../store/brain-accessor.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+            const { getBrainAccessor } = await import('../../store/brain-accessor.js');
             closeBrainDb();
             const accessor = await getBrainAccessor(tempDir);
             await accessor.addPattern({
@@ -192,7 +192,7 @@ describe('Memory Bridge', () => {
     describe('writeMemoryBridge', () => {
         it('should write memory-bridge.md file', async () => {
             const { writeMemoryBridge } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const result = await writeMemoryBridge(tempDir);
             expect(result.written).toBe(true);
@@ -203,7 +203,7 @@ describe('Memory Bridge', () => {
         });
         it('should not rewrite when content unchanged', async () => {
             const { writeMemoryBridge } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             const result1 = await writeMemoryBridge(tempDir);
             expect(result1.written).toBe(true);
@@ -214,13 +214,13 @@ describe('Memory Bridge', () => {
     describe('refreshMemoryBridge', () => {
         it('should not throw on any error', async () => {
             const { refreshMemoryBridge } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await expect(refreshMemoryBridge(tempDir)).resolves.toBeUndefined();
         });
         it('should create the bridge file', async () => {
             const { refreshMemoryBridge } = await import('../memory-bridge.js');
-            const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+            const { closeBrainDb } = await import('../../store/brain-sqlite.js');
             closeBrainDb();
             await refreshMemoryBridge(tempDir);
             const bridgePath = join(cleoDir, 'memory-bridge.md');

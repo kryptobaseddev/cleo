@@ -13,12 +13,12 @@ describe('system health audit_log checks', () => {
         projectRoot = await mkdtemp(join(tmpdir(), 'cleo-health-'));
     });
     afterEach(async () => {
-        const { closeDb } = await import('../../../store/sqlite.js');
+        const { closeDb } = await import('../../store/sqlite.js');
         closeDb();
         await rm(projectRoot, { recursive: true, force: true });
     });
     it('reports audit_log as pass when table exists', async () => {
-        const { getDb, closeDb } = await import('../../../store/sqlite.js');
+        const { getDb, closeDb } = await import('../../store/sqlite.js');
         await getDb(projectRoot);
         closeDb();
         const result = getSystemHealth(projectRoot);
@@ -42,7 +42,7 @@ describe('system health audit_log checks', () => {
         expect(auditLog?.message).toContain('audit_log table missing');
     });
     it('includes audit_log check in doctor report', async () => {
-        const { getDb, closeDb } = await import('../../../store/sqlite.js');
+        const { getDb, closeDb } = await import('../../store/sqlite.js');
         await getDb(projectRoot);
         closeDb();
         const report = await coreDoctorReport(projectRoot);

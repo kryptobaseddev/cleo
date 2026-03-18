@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ClaudeCodeAdapter, ClaudeCodeHookProvider, ClaudeCodeInstallProvider, ClaudeCodeSpawnProvider, createAdapter, } from '@cleocode/adapter-claude-code';
+import { ClaudeCodeAdapter, ClaudeCodeHookProvider, ClaudeCodeInstallProvider, ClaudeCodeSpawnProvider, createClaudeCodeAdapter as createAdapter, } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 describe('ClaudeCodeAdapter', () => {
     let adapter;

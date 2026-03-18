@@ -1,9 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('@cleocode/core/internal', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
-}));
-vi.mock('../../../store/data-accessor.js', () => ({
+    getLogger: vi.fn(() => ({
+        error: vi.fn(),
+        warn: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn(),
+    })),
     getAccessor: vi.fn(async () => ({})),
+    resolveChannelFromBranch: vi.fn(() => 'stable'),
+    channelToDistTag: vi.fn(() => 'latest'),
+    describeChannel: vi.fn(() => 'Stable channel'),
+    showChain: vi.fn(),
+    listChains: vi.fn(),
+    addChain: vi.fn(),
+    createInstance: vi.fn(),
+    advanceInstance: vi.fn(),
+    paginate: vi.fn((items, limit, offset) => {
+        const l = limit ?? items.length;
+        const o = offset ?? 0;
+        const sliced = items.slice(o, o + l);
+        return {
+            items: sliced,
+            page: {
+                mode: l < items.length || o > 0 ? 'offset' : 'none',
+                limit: l,
+                offset: o,
+                hasMore: o + l < items.length,
+                total: items.length,
+            },
+        };
+    }),
 }));
 vi.mock('../../lib/engine.js', () => ({
     lifecycleStatus: vi.fn(),
@@ -34,20 +61,7 @@ vi.mock('../../lib/engine.js', () => ({
     pipelineManifestAppend: vi.fn(),
     pipelineManifestArchive: vi.fn(),
 }));
-// Mock release channel functions
-vi.mock('../../../core/release/channel.js', () => ({
-    resolveChannelFromBranch: vi.fn(() => 'stable'),
-    channelToDistTag: vi.fn(() => 'latest'),
-    describeChannel: vi.fn(() => 'Stable channel'),
-}));
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
-    showChain: vi.fn(),
-    listChains: vi.fn(),
-    addChain: vi.fn(),
-    createInstance: vi.fn(),
-    advanceInstance: vi.fn(),
-}));
-import { addChain, createInstance, listChains, showChain, } from '@cleocode/core';
+import { addChain, createInstance, listChains, showChain } from '@cleocode/core/internal';
 import { phaseList, releaseList } from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 describe('PipelineHandler chain operations', () => {

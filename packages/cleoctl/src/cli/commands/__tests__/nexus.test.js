@@ -8,12 +8,12 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core';
+import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core/internal';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedTasks } from '@cleocode/core';
-import { closeAllDatabases, resetDbState } from '@cleocode/core';
-import { createSqliteDataAccessor } from '@cleocode/core';
+import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
+import { closeAllDatabases, resetDbState } from '@cleocode/core/internal';
+import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import { registerNexusCommand } from '../nexus.js';
 let testDir;
 let registryDir;
@@ -164,7 +164,7 @@ describe('nexus query (core integration)', () => {
     it('should resolve a task from a named project', async () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
-        const { resolveTask } = await import('@cleocode/core');
+        const { resolveTask } = await import('@cleocode/core/internal');
         const result = await resolveTask('alpha:T001');
         expect(Array.isArray(result)).toBe(false);
         if (!Array.isArray(result)) {
@@ -177,7 +177,7 @@ describe('nexus query (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'read');
-        const { resolveTask } = await import('@cleocode/core');
+        const { resolveTask } = await import('@cleocode/core/internal');
         const results = await resolveTask('*:T001');
         expect(Array.isArray(results)).toBe(true);
         if (Array.isArray(results)) {
@@ -192,7 +192,7 @@ describe('nexus status (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'write');
-        const { readRegistry } = await import('@cleocode/core');
+        const { readRegistry } = await import('@cleocode/core/internal');
         const registry = await readRegistry();
         expect(registry).not.toBeNull();
         expect(Object.keys(registry.projects)).toHaveLength(2);
@@ -234,7 +234,7 @@ describe('nexus sync (core integration)', () => {
                 description: 'A brand new feature task',
             },
         ]);
-        const { nexusSync } = await import('@cleocode/core');
+        const { nexusSync } = await import('@cleocode/core/internal');
         await nexusSync('alpha');
         const project = await nexusGetProject('alpha');
         expect(project.taskCount).toBe(4);
@@ -244,7 +244,7 @@ describe('nexus sync (core integration)', () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
         await nexusRegister(projectDirB, 'beta', 'read');
-        const { nexusSyncAll } = await import('@cleocode/core');
+        const { nexusSyncAll } = await import('@cleocode/core/internal');
         const result = await nexusSyncAll();
         expect(result.synced).toBe(2);
         expect(result.failed).toBe(0);
@@ -254,7 +254,7 @@ describe('nexus deps (core integration)', () => {
     it('should report forward dependencies', async () => {
         await nexusInit();
         await nexusRegister(projectDirA, 'alpha', 'read');
-        const { nexusDeps } = await import('@cleocode/core');
+        const { nexusDeps } = await import('@cleocode/core/internal');
         const result = await nexusDeps('alpha:T003', 'forward');
         expect(result.task).toBe('alpha:T003');
         expect(result.depends.length).toBeGreaterThanOrEqual(1);

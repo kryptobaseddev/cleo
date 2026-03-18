@@ -43,17 +43,17 @@ vi.mock('../../lib/engine.js', () => ({
     pipelineManifestArchive: vi.fn(),
 }));
 // Mock getProjectRoot
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 // Mock release channel functions
-vi.mock('../../../core/release/channel.js', () => ({
+vi.mock('../../../../../core/src/release/channel.js', () => ({
     resolveChannelFromBranch: vi.fn(() => 'stable'),
     channelToDistTag: vi.fn(() => 'latest'),
     describeChannel: vi.fn(() => 'Stable channel'),
 }));
 // Mock chain-store
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
     showChain: vi.fn(),
     listChains: vi.fn(() => []),
     addChain: vi.fn(),

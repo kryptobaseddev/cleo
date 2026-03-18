@@ -20,14 +20,14 @@ describe('Brain Migration', () => {
         process.env['CLEO_DIR'] = cleoDir;
     });
     afterEach(async () => {
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         delete process.env['CLEO_DIR'];
         await rm(tempDir, { recursive: true, force: true });
     });
     it('should migrate patterns from JSONL to brain.db', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         const patterns = [
             {
@@ -69,7 +69,7 @@ describe('Brain Migration', () => {
     });
     it('should migrate learnings from JSONL to brain.db', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         const learnings = [
             {
@@ -94,7 +94,7 @@ describe('Brain Migration', () => {
     });
     it('should skip duplicates on re-run (idempotent)', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         const patterns = [
             {
@@ -123,7 +123,7 @@ describe('Brain Migration', () => {
     });
     it('should handle missing JSONL files gracefully', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         // No JSONL files exist
         const result = await migrateBrainData(tempDir);
@@ -134,7 +134,7 @@ describe('Brain Migration', () => {
     });
     it('should handle malformed JSONL lines', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         const content = '{"id":"P001","type":"workflow","pattern":"test","context":"ctx","frequency":1,"successRate":null,"impact":null,"antiPattern":null,"mitigation":null,"examples":[],"extractedAt":"2026-01-01T00:00:00Z","updatedAt":null}\n{bad json\n';
         await writeFile(join(memoryDir, 'patterns.jsonl'), content);
@@ -144,7 +144,7 @@ describe('Brain Migration', () => {
     });
     it('should migrate both patterns and learnings together', async () => {
         const { migrateBrainData } = await import('../brain-migration.js');
-        const { closeBrainDb } = await import('../../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
         closeBrainDb();
         await writeFile(join(memoryDir, 'patterns.jsonl'), JSON.stringify({
             id: 'P001',

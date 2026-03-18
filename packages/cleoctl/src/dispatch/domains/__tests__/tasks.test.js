@@ -27,7 +27,7 @@ vi.mock('../../lib/engine.js', () => ({
     taskStop: vi.fn(),
 }));
 // Mock getProjectRoot
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 import { taskAnalyze, taskArchive, taskBlockers, taskComplete, taskComplexityEstimate, taskCreate, taskCurrentGet, taskDelete, taskDepends, taskFind, taskList, taskNext, taskRelates, taskRelatesAdd, taskReorder, taskReparent, taskRestore, taskShow, taskStart, taskStop, taskTree, taskUpdate, } from '../../lib/engine.js';

@@ -30,7 +30,7 @@ import { checkPrerequisites as checkPrerequisitesRaw, createInitialContext, exec
 let testDir;
 let cleoDir;
 async function ensureTaskExists(taskId) {
-    const { getDb, getNativeDb } = await import('../../../store/sqlite.js');
+    const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     await getDb();
     getNativeDb()
         .prepare(`INSERT OR IGNORE INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`)
@@ -127,7 +127,7 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
     afterEach(async () => {
         // Close ALL SQLite connections before cleanup — Windows locks open files
         try {
-            const { closeAllDatabases } = await import('../../../store/sqlite.js');
+            const { closeAllDatabases } = await import('../../store/sqlite.js');
             await closeAllDatabases();
         }
         catch {
@@ -921,7 +921,7 @@ describe('T4798 Epic Completion Validation', () => {
     });
     afterEach(async () => {
         try {
-            const { closeAllDatabases } = await import('../../../store/sqlite.js');
+            const { closeAllDatabases } = await import('../../store/sqlite.js');
             await closeAllDatabases();
         }
         catch {

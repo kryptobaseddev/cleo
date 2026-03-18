@@ -227,11 +227,11 @@ vi.mock('../../context/session-context.js', () => ({
     unbindSession: vi.fn(),
 }));
 // Core paths
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 // Core logger
-vi.mock('../../../core/logger.js', () => ({
+vi.mock('../../../../../core/src/logger.js', () => ({
     getLogger: vi.fn(() => ({
         error: vi.fn(),
         warn: vi.fn(),
@@ -240,14 +240,14 @@ vi.mock('../../../core/logger.js', () => ({
     })),
 }));
 // Core pagination
-vi.mock('../../../core/pagination.js', () => ({
+vi.mock('../../../../../core/src/pagination.js', () => ({
     paginate: vi.fn((items, _limit, _offset) => ({
         items: items ?? [],
         page: { mode: 'none' },
     })),
 }));
 // ADR operations
-vi.mock('../../../core/adrs/index.js', () => ({
+vi.mock('../../../../../core/src/adrs/index.js', () => ({
     showAdr: vi.fn().mockResolvedValue({ id: 'ADR-001', title: 'Test' }),
     syncAdrsToDb: vi.fn().mockResolvedValue({ synced: 0 }),
     validateAllAdrs: vi.fn().mockResolvedValue({ valid: true, errors: [] }),
@@ -255,24 +255,24 @@ vi.mock('../../../core/adrs/index.js', () => ({
     listAdrs: vi.fn().mockResolvedValue({ adrs: [], total: 0, filtered: 0 }),
 }));
 // Admin export/import
-vi.mock('../../../core/admin/export.js', () => ({
+vi.mock('../../../../../core/src/admin/export.js', () => ({
     exportTasks: vi.fn().mockResolvedValue({ tasks: [], count: 0 }),
 }));
-vi.mock('../../../core/admin/import.js', () => ({
+vi.mock('../../../../../core/src/admin/import.js', () => ({
     importTasks: vi.fn().mockResolvedValue({ imported: 0 }),
 }));
-vi.mock('../../../core/admin/export-tasks.js', () => ({
+vi.mock('../../../../../core/src/admin/export-tasks.js', () => ({
     exportTasksPackage: vi.fn().mockResolvedValue({ tasks: [] }),
 }));
-vi.mock('../../../core/admin/import-tasks.js', () => ({
+vi.mock('../../../../../core/src/admin/import-tasks.js', () => ({
     importTasksPackage: vi.fn().mockResolvedValue({ imported: 0 }),
 }));
-vi.mock('../../../core/admin/sync.js', () => ({
+vi.mock('../../../../../core/src/admin/sync.js', () => ({
     getSyncStatus: vi.fn().mockResolvedValue({ success: true, data: {} }),
     clearSyncState: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 // Snapshot
-vi.mock('../../../core/snapshot/index.js', () => ({
+vi.mock('../../../../../core/src/snapshot/index.js', () => ({
     exportSnapshot: vi.fn().mockResolvedValue({
         _meta: { taskCount: 0, checksum: 'abc', createdAt: '2026-01-01', source: 'test' },
         tasks: [],
@@ -286,7 +286,7 @@ vi.mock('../../../core/snapshot/index.js', () => ({
     getDefaultSnapshotPath: vi.fn(() => '/mock/snapshot.json'),
 }));
 // Token service
-vi.mock('../../../core/metrics/token-service.js', () => ({
+vi.mock('../../../../../core/src/metrics/token-service.js', () => ({
     clearTokenUsage: vi.fn().mockResolvedValue({ cleared: 0 }),
     deleteTokenUsage: vi.fn().mockResolvedValue({ deleted: true }),
     listTokenUsage: vi.fn().mockResolvedValue({ records: [], total: 0, filtered: 0 }),
@@ -295,14 +295,14 @@ vi.mock('../../../core/metrics/token-service.js', () => ({
     summarizeTokenUsage: vi.fn().mockResolvedValue({ total: 0 }),
 }));
 // Scaffold
-vi.mock('../../../core/scaffold.js', () => ({
+vi.mock('../../../../../core/src/scaffold.js', () => ({
     ensureProjectContext: vi.fn().mockResolvedValue({ created: false }),
     ensureContributorMcp: vi.fn().mockResolvedValue({ updated: false }),
     ensureGlobalScaffold: vi.fn().mockResolvedValue({ created: false }),
     ensureGlobalTemplates: vi.fn().mockResolvedValue({ created: false }),
 }));
 // Issue diagnostics
-vi.mock('../../../core/issue/diagnostics.js', () => ({
+vi.mock('../../../../../core/src/issue/diagnostics.js', () => ({
     collectDiagnostics: vi.fn(() => ({ cleo: {}, node: {} })),
 }));
 // CAAMP skills & providers
@@ -340,22 +340,22 @@ vi.mock('@cleocode/caamp', () => ({
     providerSupportsById: vi.fn(() => false),
 }));
 // Precedence integration
-vi.mock('../../../core/skills/precedence-integration.js', () => ({
+vi.mock('../../../../../core/src/skills/precedence-integration.js', () => ({
     getSkillsMapWithPrecedence: vi.fn(() => ({})),
     resolveSkillPathsForProvider: vi.fn().mockResolvedValue([]),
     determineInstallationTargets: vi.fn().mockResolvedValue([]),
 }));
 // Session grade
-vi.mock('../../../core/sessions/session-grade.js', () => ({
+vi.mock('../../../../../core/src/sessions/session-grade.js', () => ({
     gradeSession: vi.fn().mockResolvedValue({ grade: 'A', score: 95 }),
     readGrades: vi.fn().mockResolvedValue([]),
 }));
 // Chain validation
-vi.mock('../../../core/validation/chain-validation.js', () => ({
+vi.mock('../../../../../core/src/validation/chain-validation.js', () => ({
     validateChain: vi.fn(() => ({ errors: [], warnings: [] })),
 }));
 // Chain store
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
     showChain: vi.fn().mockResolvedValue({ id: 'chain1', stages: [] }),
     listChains: vi.fn().mockResolvedValue([]),
     addChain: vi.fn().mockResolvedValue(undefined),
@@ -363,13 +363,13 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
     advanceInstance: vi.fn().mockResolvedValue({ id: 'inst1' }),
 }));
 // Release channel
-vi.mock('../../../core/release/channel.js', () => ({
+vi.mock('../../../../../core/src/release/channel.js', () => ({
     resolveChannelFromBranch: vi.fn(() => 'latest'),
     channelToDistTag: vi.fn(() => 'latest'),
     describeChannel: vi.fn(() => 'Stable releases'),
 }));
 // Tessera engine
-vi.mock('../../../core/lifecycle/tessera-engine.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/tessera-engine.js', () => ({
     showTessera: vi.fn(() => ({ id: 'tpl1', name: 'test', stages: [] })),
     listTesseraTemplates: vi.fn(() => []),
     instantiateTessera: vi.fn().mockResolvedValue({ id: 'inst1' }),
@@ -379,7 +379,7 @@ vi.mock('../../../core/sessions/session-memory.js', () => ({
     persistSessionMemory: vi.fn().mockResolvedValue(undefined),
 }));
 // Nexus registry
-vi.mock('../../../core/nexus/registry.js', () => ({
+vi.mock('../../../../../core/src/nexus/registry.js', () => ({
     nexusInit: vi.fn().mockResolvedValue(undefined),
     nexusRegister: vi.fn().mockResolvedValue('hash123'),
     nexusUnregister: vi.fn().mockResolvedValue(undefined),
@@ -392,7 +392,7 @@ vi.mock('../../../core/nexus/registry.js', () => ({
     type: undefined,
 }));
 // Nexus query
-vi.mock('../../../core/nexus/query.js', () => ({
+vi.mock('../../../../../core/src/nexus/query.js', () => ({
     resolveTask: vi
         .fn()
         .mockResolvedValue({ id: 'T001', title: 'Test', status: 'pending', _project: 'test' }),
@@ -400,7 +400,7 @@ vi.mock('../../../core/nexus/query.js', () => ({
     validateSyntax: vi.fn(() => true),
 }));
 // Nexus deps
-vi.mock('../../../core/nexus/deps.js', () => ({
+vi.mock('../../../../../core/src/nexus/deps.js', () => ({
     nexusDeps: vi.fn().mockResolvedValue({ deps: [] }),
     buildGlobalGraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
     criticalPath: vi.fn().mockResolvedValue({ path: [] }),
@@ -408,17 +408,17 @@ vi.mock('../../../core/nexus/deps.js', () => ({
     orphanDetection: vi.fn().mockResolvedValue([]),
 }));
 // Nexus permissions
-vi.mock('../../../core/nexus/permissions.js', () => ({
+vi.mock('../../../../../core/src/nexus/permissions.js', () => ({
     setPermission: vi.fn().mockResolvedValue(undefined),
 }));
 // Data accessor
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockResolvedValue({
         loadTaskFile: vi.fn().mockResolvedValue({ tasks: [] }),
     }),
 }));
 // Nexus sharing
-vi.mock('../../../core/nexus/sharing/index.js', () => ({
+vi.mock('../../../../../core/src/nexus/sharing/index.js', () => ({
     getSharingStatus: vi.fn().mockResolvedValue({ sharing: false }),
 }));
 // Sticky engine

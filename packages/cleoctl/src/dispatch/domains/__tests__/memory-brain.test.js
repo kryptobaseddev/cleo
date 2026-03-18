@@ -34,7 +34,7 @@ vi.mock('../../lib/engine.js', () => ({
     memorySearchHybrid: vi.fn(),
 }));
 // Mock getProjectRoot
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 import { memoryDecisionFind, memoryDecisionStore, memoryFetch, memoryFind, memoryLearningFind, memoryLearningStore, memoryLink, memoryObserve, memoryPatternFind, memoryPatternStore, memoryTimeline, } from '../../lib/engine.js';

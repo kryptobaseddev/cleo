@@ -33,7 +33,7 @@ vi.mock('@cleocode/caamp', () => ({
     })),
 }));
 // Mock nexus to avoid side effects
-vi.mock('../../core/nexus/registry.js', () => ({
+vi.mock('../../../../core/src/nexus/registry.js', () => ({
     nexusInit: vi.fn(async () => { }),
     nexusRegister: vi.fn(async () => { }),
 }));
@@ -75,7 +75,7 @@ describe('MCP auto-init: ensureInitialized() (T4694)', () => {
             delete process.env['CLEO_AUTO_INIT'];
         }
         try {
-            const { closeAllDatabases } = await import('@cleocode/core');
+            const { closeAllDatabases } = await import('@cleocode/core/internal');
             await closeAllDatabases();
         }
         catch {

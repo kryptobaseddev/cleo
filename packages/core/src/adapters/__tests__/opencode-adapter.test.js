@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createAdapter, OpenCodeAdapter, OpenCodeHookProvider, OpenCodeInstallProvider, OpenCodeSpawnProvider, } from '@cleocode/adapter-opencode';
+import { createOpenCodeAdapter as createAdapter, OpenCodeAdapter, OpenCodeHookProvider, OpenCodeInstallProvider, OpenCodeSpawnProvider, } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 describe('OpenCodeAdapter', () => {
     let adapter;

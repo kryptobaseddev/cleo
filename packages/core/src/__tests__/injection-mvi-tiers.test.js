@@ -15,8 +15,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 const thisFile = fileURLToPath(import.meta.url);
-const packageRoot = resolve(dirname(thisFile), '..', '..', '..');
-const injectionPath = join(packageRoot, 'templates', 'CLEO-INJECTION.md');
+const monorepoRoot = resolve(dirname(thisFile), '..', '..', '..', '..', '..');
+const injectionPath = join(monorepoRoot, 'templates', 'CLEO-INJECTION.md');
 const templateExists = existsSync(injectionPath);
 describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
     const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock the ProtocolEnforcer class — must use a real class so `new` works
 const mockEnforceProtocol = vi.fn();
 const mockConstructor = vi.fn();
-vi.mock('../../../core/compliance/protocol-enforcement.js', () => {
+vi.mock('../../../../../core/src/compliance/protocol-enforcement.js', () => {
     return {
         ProtocolEnforcer: class MockProtocolEnforcer {
             constructor(strictMode) {

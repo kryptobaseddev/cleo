@@ -56,11 +56,11 @@ describe('WarpChain chain-store', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'cleo-chainstore-'));
         const cleoDir = join(tempDir, '.cleo');
         process.env['CLEO_DIR'] = cleoDir;
-        const { closeDb } = await import('../../../store/sqlite.js');
+        const { closeDb } = await import('../../store/sqlite.js');
         closeDb();
     });
     afterEach(async () => {
-        const { closeDb } = await import('../../../store/sqlite.js');
+        const { closeDb } = await import('../../store/sqlite.js');
         closeDb();
         delete process.env['CLEO_DIR'];
         await rm(tempDir, { recursive: true, force: true });
@@ -151,8 +151,8 @@ describe('WarpChain chain-store', () => {
         expect(instance.currentStage).toBe('stage-a');
     });
     it('enforces DB foreign key for chain instances', async () => {
-        const { getDb } = await import('../../../store/sqlite.js');
-        const { warpChainInstances } = await import('../../../store/chain-schema.js');
+        const { getDb } = await import('../../store/sqlite.js');
+        const { warpChainInstances } = await import('../../store/chain-schema.js');
         const db = await getDb(tempDir);
         await expect(db.insert(warpChainInstances).values({
             id: 'wci-orphan',
@@ -216,8 +216,8 @@ describe('WarpChain chain-store', () => {
     });
     it('rejects terminal-state transitions and unknown stage transitions', async () => {
         const { addChain, createInstance, advanceInstance, showInstance } = await import('../chain-store.js');
-        const { getDb } = await import('../../../store/sqlite.js');
-        const { warpChainInstances } = await import('../../../store/chain-schema.js');
+        const { getDb } = await import('../../store/sqlite.js');
+        const { warpChainInstances } = await import('../../store/chain-schema.js');
         const chain = makeMinimalChain();
         await addChain(chain, tempDir);
         const instance = await createInstance({ chainId: 'test-chain', epicId: 'T9999' }, tempDir);

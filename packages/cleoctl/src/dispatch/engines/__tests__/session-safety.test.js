@@ -18,7 +18,7 @@ const mockLoadSessions = vi.fn();
 const mockSaveSessions = vi.fn();
 const mockLoadTaskFile = vi.fn();
 const mockSaveTaskFile = vi.fn();
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockImplementation(() => Promise.resolve({
         loadSessions: mockLoadSessions,
         saveSessions: mockSaveSessions,
@@ -26,7 +26,7 @@ vi.mock('../../../store/data-accessor.js', () => ({
         saveTaskFile: mockSaveTaskFile,
     })),
 }));
-vi.mock('../../../core/sessions/index.js', async (importOriginal) => {
+vi.mock('../../../../../core/src/sessions/index.js', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
@@ -50,13 +50,13 @@ vi.mock('../../../core/sessions/index.js', async (importOriginal) => {
         computeBriefing: vi.fn(),
     };
 });
-vi.mock('../../../core/sessions/handoff.js', () => ({
+vi.mock('../../../../../core/src/sessions/handoff.js', () => ({
     computeDebrief: vi.fn(),
 }));
-vi.mock('../../../core/sessions/session-id.js', () => ({
+vi.mock('../../../../../core/src/sessions/session-id.js', () => ({
     generateSessionId: vi.fn().mockReturnValue('ses-test-001'),
 }));
-vi.mock('../../../core/task-work/index.js', () => ({
+vi.mock('../../../../../core/src/task-work/index.js', () => ({
     currentTask: vi.fn(),
     startTask: vi.fn(),
     stopTask: vi.fn(),

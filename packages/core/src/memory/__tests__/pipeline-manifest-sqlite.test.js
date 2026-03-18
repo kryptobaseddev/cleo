@@ -74,7 +74,7 @@ describe('pipeline-manifest-sqlite', () => {
         mkdirSync(join(testRoot, '.cleo'), { recursive: true });
     });
     afterEach(async () => {
-        const { resetDbState } = await import('../../../store/sqlite.js');
+        const { resetDbState } = await import('../../store/sqlite.js');
         resetDbState();
         if (existsSync(testRoot)) {
             rmSync(testRoot, { recursive: true, force: true });

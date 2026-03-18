@@ -33,7 +33,7 @@ describe('stage.record provenance integration', () => {
     afterEach(async () => {
         // Close ALL SQLite connections before cleanup — Windows locks open files
         try {
-            const { closeAllDatabases } = await import('../../../store/sqlite.js');
+            const { closeAllDatabases } = await import('../../store/sqlite.js');
             await closeAllDatabases();
         }
         catch {
@@ -45,8 +45,8 @@ describe('stage.record provenance integration', () => {
     });
     it('scaffolds stage markdown and persists provenance to SQLite', async () => {
         const { recordStageProgress } = await import('../index.js');
-        const { getDb } = await import('../../../store/sqlite.js');
-        const schema = await import('../../../store/tasks-schema.js');
+        const { getDb } = await import('../../store/sqlite.js');
+        const schema = await import('../../store/tasks-schema.js');
         const { eq } = await import('drizzle-orm');
         await recordStageProgress('T9001', 'research', 'completed', 'Initial research complete', testDir);
         const artifactPath = join(cleoDir, 'rcasd', 'T9001', 'research', 'T9001-research.md');

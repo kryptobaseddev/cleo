@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CursorAdapter, CursorHookProvider, CursorInstallProvider, createAdapter, } from '@cleocode/adapter-cursor';
+import { CursorAdapter, CursorHookProvider, CursorInstallProvider, createCursorAdapter as createAdapter, } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 describe('CursorAdapter', () => {
     let adapter;

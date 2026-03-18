@@ -20,13 +20,13 @@ vi.mock('../../lib/engine.js', () => ({
     validateGateVerify: vi.fn(),
     systemArchiveStats: vi.fn(),
 }));
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
-vi.mock('../../../core/validation/chain-validation.js', () => ({
+vi.mock('../../../../../core/src/validation/chain-validation.js', () => ({
     validateChain: vi.fn(),
 }));
-import { validateChain } from '@cleocode/core';
+import { validateChain } from '@cleocode/core/internal';
 import { CheckHandler } from '../check.js';
 function makeForkJoinChain() {
     return {

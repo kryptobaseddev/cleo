@@ -29,8 +29,8 @@ let MANIFEST_DIR;
  * Replaces the legacy writeTodoJson approach (ADR-006).
  */
 async function writeTodoJson(tasks, _opts) {
-    const { getDb } = await import('@cleocode/core');
-    const { tasks: tasksTable, taskDependencies } = await import('@cleocode/core');
+    const { getDb } = await import('@cleocode/core/internal');
+    const { tasks: tasksTable, taskDependencies } = await import('@cleocode/core/internal');
     const db = await getDb(TEST_ROOT);
     const taskIds = new Set(tasks.map((t) => t.id));
     // Insert tasks without dependencies first
@@ -58,7 +58,7 @@ async function writeTodoJson(tasks, _opts) {
             .run();
     }
     // Insert dependencies — temporarily disable FK checks for orphaned dep tests
-    const { getNativeDb } = await import('@cleocode/core');
+    const { getNativeDb } = await import('@cleocode/core/internal');
     const nativeDb = getNativeDb();
     if (nativeDb) {
         nativeDb.prepare('PRAGMA foreign_keys = OFF').run();
@@ -84,7 +84,7 @@ async function writeTodoJson(tasks, _opts) {
  * Seed sessions into SQLite via the session store.
  */
 async function writeSessionsJson(sessions) {
-    const { createSession } = await import('@cleocode/core');
+    const { createSession } = await import('@cleocode/core/internal');
     for (const session of sessions) {
         await createSession(session, TEST_ROOT);
     }
@@ -348,12 +348,12 @@ describe('E2E: Brain Operations', () => {
         MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
         mkdirSync(CLEO_DIR, { recursive: true });
         // Initialize SQLite database
-        const { getDb } = await import('@cleocode/core');
+        const { getDb } = await import('@cleocode/core/internal');
         await getDb(TEST_ROOT);
     });
     afterEach(async () => {
         try {
-            const { closeDb } = await import('@cleocode/core');
+            const { closeDb } = await import('@cleocode/core/internal');
             closeDb();
         }
         catch {

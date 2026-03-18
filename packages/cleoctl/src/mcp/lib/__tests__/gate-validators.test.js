@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { isFieldRequired, VALID_WORKFLOW_AGENTS, VALID_WORKFLOW_GATE_STATUSES, VALIDATION_RULES, validateLayer1Schema, validateLayer2Semantic, validateLayer3Referential, validateLayer4Protocol, validateWorkflowGateName, validateWorkflowGateStatus, validateWorkflowGateUpdate, } from '../gate-validators.js';
 import { ProtocolEnforcer, ProtocolType } from '../protocol-enforcement.js';
-import { GateStatus, } from '../verification-gates.js';
+import { GateStatus, WorkflowGateName, WorkflowGateTracker, } from '../verification-gates.js';
 describe('Gate Validators', () => {
     describe('validateLayer1Schema', () => {
         it('should pass valid parameters', async () => {

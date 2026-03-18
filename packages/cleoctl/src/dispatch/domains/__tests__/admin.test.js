@@ -22,11 +22,11 @@ vi.mock('../../lib/engine.js', () => ({
     initProject: vi.fn(),
 }));
 // Mock getProjectRoot
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
     getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 // Mock scaffold for admin.detect
-vi.mock('../../../core/scaffold.js', () => ({
+vi.mock('../../../../../core/src/scaffold.js', () => ({
     ensureProjectContext: vi
         .fn()
         .mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
@@ -39,14 +39,14 @@ vi.mock('../../../core/scaffold.js', () => ({
 vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
     getJobManager: vi.fn(),
 }));
-vi.mock('../../../core/adrs/index.js', () => ({
+vi.mock('../../../../../core/src/adrs/index.js', () => ({
     listAdrs: vi.fn(),
     showAdr: vi.fn(),
     syncAdrsToDb: vi.fn(),
     validateAllAdrs: vi.fn(),
     findAdrs: vi.fn(),
 }));
-vi.mock('../../../core/sessions/session-grade.js', () => ({
+vi.mock('../../../../../core/src/sessions/session-grade.js', () => ({
     readGrades: vi.fn(),
     gradeSession: vi.fn(),
 }));

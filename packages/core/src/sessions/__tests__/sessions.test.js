@@ -31,7 +31,7 @@ describe('Session lifecycle', () => {
     afterEach(async () => {
         // Close ALL SQLite connections before cleanup — Windows locks open files
         try {
-            const { closeAllDatabases } = await import('../../../store/sqlite.js');
+            const { closeAllDatabases } = await import('../../store/sqlite.js');
             await closeAllDatabases();
         }
         catch {

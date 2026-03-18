@@ -68,7 +68,7 @@ describe('verifyBackup', () => {
     afterEach(async () => {
         // Close all open DB connections before cleanup — Windows locks files
         try {
-            const { closeAllDatabases } = await import('../../../store/sqlite.js');
+            const { closeAllDatabases } = await import('../../store/sqlite.js');
             await closeAllDatabases();
         }
         catch {
@@ -93,7 +93,7 @@ describe('verifyBackup', () => {
         const backupPath = join(tempDir, 'backup.db');
         // Create a real SQLite database using the sqlite module
         // node:sqlite uses WAL and writes directly to disk; no saveToFile needed
-        const { getDb, closeDb: close } = await import('../../../store/sqlite.js');
+        const { getDb, closeDb: close } = await import('../../store/sqlite.js');
         close(); // Reset singleton
         await getDb();
         // SQLite has already written to disk via WAL; copy the file directly
