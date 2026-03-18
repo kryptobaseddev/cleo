@@ -57,6 +57,9 @@ vi.mock('../../../store/sqlite.js', () => ({
 
 vi.mock('../../../store/tasks-schema.js', () => ({
   auditLog: { _: 'mock_audit_log_table' },
+  TASK_PRIORITIES: ['critical', 'high', 'medium', 'low'],
+  TASK_STATUSES: ['pending', 'active', 'blocked', 'done'],
+  MANIFEST_STATUSES: ['pending', 'accepted', 'rejected'],
 }));
 
 // Mock validation-schemas so Zod check passes without real validation

@@ -9,6 +9,12 @@ const { initLoggerMock, getProjectInfoSyncMock } = vi.hoisted(() => ({
 
 vi.mock('../../core/logger.js', () => ({
   initLogger: initLoggerMock,
+  getLogger: vi.fn(() => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  })),
 }));
 
 vi.mock('../../core/project-info.js', () => ({
