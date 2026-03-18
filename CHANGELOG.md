@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026.3.36] — Hotfix: npm global install (T5724)
+
+### Bug Fixes
+- **fix(publish): move `@cleocode/core` to `devDependencies`** — `workspace:*` is a pnpm/yarn protocol that npm does not understand; when npm encountered it in the published tarball it crashed with `EUNSUPPORTEDPROTOCOL` on `npm install -g @cleocode/cleo@latest`. Since `@cleocode/core` is bundled inline by esbuild it is a build-time dep only and must not appear in the published runtime deps (T5724)
+
 ## [2026.3.35] — @cleocode/core Standalone + CI Hardening (T5701 + T5716)
 
 ### @cleocode/core Standalone Package (T5701)
