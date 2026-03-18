@@ -8,25 +8,25 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { seedTasks } from '@cleocode/core';
-import { resetDbState } from '@cleocode/core';
-import { createSqliteDataAccessor } from '@cleocode/core';
+import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
+import { resetDbState } from '@cleocode/core/internal';
+import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import { releaseShip } from '../release-engine.js';
 
 // Hoist mocks so they apply when the module is first imported
-vi.mock('../../../core/release/changelog-writer.js', () => ({
+vi.mock('../../../../../core/src/release/changelog-writer.js', () => ({
   writeChangelogSection: vi.fn().mockResolvedValue(undefined),
   parseChangelogBlocks: vi.fn().mockReturnValue({ customBlocks: [], strippedContent: '' }),
 }));
 
-vi.mock('../../../core/release/guards.js', () => ({
+vi.mock('../../../../../core/src/release/guards.js', () => ({
   checkEpicCompleteness: vi
     .fn()
     .mockResolvedValue({ hasIncomplete: false, epics: [], orphanTasks: [] }),
   checkDoubleListing: vi.fn().mockReturnValue({ hasDoubleListing: false, duplicates: [] }),
 }));
 
-vi.mock('../../../core/release/release-manifest.js', async (importOriginal) => {
+vi.mock('../../../../../core/src/release/release-manifest.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cleocode/core')>();
   return {
     ...actual,

@@ -169,7 +169,7 @@ vi.mock('../../lib/engine.js', () => ({
 }));
 
 // Mock paths
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 

@@ -21,7 +21,7 @@ const mockSaveSessions = vi.fn<(sessions: Session[]) => Promise<void>>();
 const mockLoadTaskFile = vi.fn();
 const mockSaveTaskFile = vi.fn();
 
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockImplementation(() =>
     Promise.resolve({
       loadSessions: mockLoadSessions,
@@ -32,7 +32,7 @@ vi.mock('../../../store/data-accessor.js', () => ({
   ),
 }));
 
-vi.mock('../../../core/sessions/index.js', () => ({
+vi.mock('../../../../../core/src/sessions/index.js', () => ({
   parseScope: vi.fn().mockImplementation((scopeStr: string) => {
     if (scopeStr === 'global') return { type: 'global' };
     const match = scopeStr.match(/^epic:(T\d+)$/);
@@ -57,15 +57,15 @@ vi.mock('../../../core/sessions/index.js', () => ({
   findSessions: vi.fn(),
 }));
 
-vi.mock('../../../core/sessions/handoff.js', () => ({
+vi.mock('../../../../../core/src/sessions/handoff.js', () => ({
   computeDebrief: vi.fn(),
 }));
 
-vi.mock('../../../core/sessions/session-id.js', () => ({
+vi.mock('../../../../../core/src/sessions/session-id.js', () => ({
   generateSessionId: vi.fn().mockReturnValue('ses-test-scope-001'),
 }));
 
-vi.mock('../../../core/task-work/index.js', () => ({
+vi.mock('../../../../../core/src/task-work/index.js', () => ({
   currentTask: vi.fn(),
   startTask: vi.fn(),
   stopTask: vi.fn(),

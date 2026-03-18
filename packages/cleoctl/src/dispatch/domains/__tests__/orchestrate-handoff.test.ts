@@ -20,7 +20,7 @@ vi.mock('../../lib/engine.js', () => ({
   orchestrateCheck: vi.fn(),
 }));
 
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 

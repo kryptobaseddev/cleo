@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core nexus modules before importing the handler
-vi.mock('../../../core/nexus/registry.js', () => ({
+vi.mock('../../../../../core/src/nexus/registry.js', () => ({
   nexusInit: vi.fn(),
   nexusRegister: vi.fn(),
   nexusUnregister: vi.fn(),
@@ -13,12 +13,12 @@ vi.mock('../../../core/nexus/registry.js', () => ({
   getNexusHome: vi.fn(() => '/mock/.cleo/nexus'),
 }));
 
-vi.mock('../../../core/nexus/query.js', () => ({
+vi.mock('../../../../../core/src/nexus/query.js', () => ({
   resolveTask: vi.fn(),
   validateSyntax: vi.fn(),
 }));
 
-vi.mock('../../../core/nexus/deps.js', () => ({
+vi.mock('../../../../../core/src/nexus/deps.js', () => ({
   nexusDeps: vi.fn(),
   buildGlobalGraph: vi.fn(),
   criticalPath: vi.fn(),
@@ -26,11 +26,11 @@ vi.mock('../../../core/nexus/deps.js', () => ({
   orphanDetection: vi.fn(),
 }));
 
-vi.mock('../../../core/nexus/permissions.js', () => ({
+vi.mock('../../../../../core/src/nexus/permissions.js', () => ({
   setPermission: vi.fn(),
 }));
 
-vi.mock('../../../core/logger.js', () => ({
+vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
     error: vi.fn(),
     warn: vi.fn(),
@@ -39,25 +39,11 @@ vi.mock('../../../core/logger.js', () => ({
   })),
 }));
 
-import {
-  blockingAnalysis,
-  buildGlobalGraph,
-  criticalPath,
-  nexusDeps,
-  orphanDetection,
-} from '@cleocode/core';
-import { setPermission } from '@cleocode/core';
-import { resolveTask, validateSyntax } from '@cleocode/core';
-import {
-  nexusGetProject,
-  nexusInit,
-  nexusList,
-  nexusRegister,
-  nexusSync,
-  nexusSyncAll,
-  nexusUnregister,
-  readRegistry,
-} from '@cleocode/core';
+import { blockingAnalysis, buildGlobalGraph, criticalPath, nexusDeps, orphanDetection } from '@cleocode/core';
+import { setPermission } from '@cleocode/core/internal';
+import { resolveTask, validateSyntax } from '@cleocode/core/internal';
+import { nexusSync, nexusSyncAll, nexusUnregister, readRegistry } from '@cleocode/core';
+import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core/internal';
 import { NexusHandler } from '../nexus.js';
 
 describe('NexusHandler', () => {

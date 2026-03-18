@@ -17,7 +17,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../../../core/src/paths.js', () => ({
   getCleoHome: vi.fn().mockReturnValue('/home/test/.cleo'),
 }));
 

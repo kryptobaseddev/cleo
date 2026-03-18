@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(async () => ({})),
 }));
 
@@ -39,13 +39,13 @@ vi.mock('../../lib/engine.js', () => ({
 }));
 
 // Mock release channel functions
-vi.mock('../../../core/release/channel.js', () => ({
+vi.mock('../../../../../core/src/release/channel.js', () => ({
   resolveChannelFromBranch: vi.fn(() => 'stable'),
   channelToDistTag: vi.fn(() => 'latest'),
   describeChannel: vi.fn(() => 'Stable channel'),
 }));
 
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
+vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
   showChain: vi.fn(),
   listChains: vi.fn(),
   addChain: vi.fn(),
@@ -53,12 +53,7 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
   advanceInstance: vi.fn(),
 }));
 
-import {
-  addChain,
-  createInstance,
-  listChains,
-  showChain,
-} from '@cleocode/core';
+import { addChain, createInstance, listChains, showChain } from '@cleocode/core';
 import { phaseList, releaseList } from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 

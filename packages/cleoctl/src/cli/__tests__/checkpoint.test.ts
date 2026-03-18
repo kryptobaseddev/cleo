@@ -12,18 +12,18 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-vi.mock('../../store/json.js', () => ({
+vi.mock('../../../../core/src/store/json.js', () => ({
   readJson: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../../../core/src/paths.js', () => ({
   getCleoDir: vi.fn().mockReturnValue('.cleo'),
   getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
 }));
 
 import { execFileSync } from 'node:child_process';
 import { Command } from 'commander';
-import { readJson } from '@cleocode/core';
+import { readJson } from '@cleocode/core/internal';
 import { registerCheckpointCommand } from '../commands/checkpoint.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);

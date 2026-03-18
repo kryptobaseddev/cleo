@@ -8,13 +8,13 @@ import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 import { registerImportTasksCommand } from '../commands/import-tasks.js';
 
-vi.mock('../../store/json.js', () => ({
+vi.mock('../../../../core/src/store/json.js', () => ({
   readJson: vi.fn(),
   saveJson: vi.fn(),
   computeChecksum: vi.fn().mockReturnValue('0000000000000000'),
 }));
 
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../../../core/src/paths.js', () => ({
   getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
   getBackupDir: vi.fn().mockReturnValue('.cleo/backups/operational'),
 }));

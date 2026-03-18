@@ -28,7 +28,7 @@ const { mockLogInfo, mockLogWarn, mockLogError, mockInsertRun, mockInsertValues,
   });
 
 // Mock Pino logger
-vi.mock('../../../core/logger.js', () => ({
+vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
     info: mockLogInfo,
     warn: mockLogWarn,
@@ -42,20 +42,20 @@ vi.mock('../../lib/config.js', () => ({
 }));
 
 // Mock data-accessor for session lookup (avoids DB reads)
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockResolvedValue({
     loadSessions: vi.fn().mockResolvedValue({ sessions: [] }),
   }),
 }));
 
 // Mock SQLite writes
-vi.mock('../../../store/sqlite.js', () => ({
+vi.mock('../../../../../core/src/store/sqlite.js', () => ({
   getDb: vi.fn().mockResolvedValue({
     insert: mockInsert,
   }),
 }));
 
-vi.mock('../../../store/tasks-schema.js', () => ({
+vi.mock('../../../../../core/src/store/tasks-schema.js', () => ({
   auditLog: { _: 'mock_audit_log_table' },
   TASK_PRIORITIES: ['critical', 'high', 'medium', 'low'],
   TASK_STATUSES: ['pending', 'active', 'blocked', 'done'],
@@ -63,7 +63,7 @@ vi.mock('../../../store/tasks-schema.js', () => ({
 }));
 
 // Mock validation-schemas so Zod check passes without real validation
-vi.mock('../../../store/validation-schemas.js', () => ({
+vi.mock('../../../../../core/src/store/validation-schemas.js', () => ({
   AuditLogInsertSchema: {
     safeParse: vi.fn((data: unknown) => ({ success: true, data })),
   },

@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '@cleocode/contracts';
-import { analyzeArchive } from '@cleocode/core';
+import { analyzeArchive } from '@cleocode/core/internal';
 
 const SAMPLE_ARCHIVE = {
   archivedTasks: [

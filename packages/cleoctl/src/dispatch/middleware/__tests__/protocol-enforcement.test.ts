@@ -13,7 +13,7 @@ import type { DispatchRequest, DispatchResponse } from '../../types.js';
 const mockEnforceProtocol = vi.fn();
 const mockConstructor = vi.fn();
 
-vi.mock('../../../core/compliance/protocol-enforcement.js', () => {
+vi.mock('../../../../../core/src/compliance/protocol-enforcement.js', () => {
   return {
     ProtocolEnforcer: class MockProtocolEnforcer {
       constructor(strictMode: boolean) {

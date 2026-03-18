@@ -8,11 +8,11 @@ import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 import { registerSyncCommand } from '../commands/sync.js';
 
-vi.mock('../../store/json.js', () => ({
+vi.mock('../../../../core/src/store/json.js', () => ({
   readJson: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../core/paths.js', () => ({
+vi.mock('../../../../core/src/paths.js', () => ({
   getCleoDir: vi.fn().mockReturnValue('.cleo'),
 }));
 

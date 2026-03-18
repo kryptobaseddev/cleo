@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core modules before importing session-engine
-vi.mock('../../../core/sessions/index.js', () => ({
+vi.mock('../../../../../core/src/sessions/index.js', () => ({
   showSession: vi.fn(),
   suspendSession: vi.fn(),
   getSessionHistory: vi.fn(),
@@ -32,26 +32,26 @@ vi.mock('../../../core/sessions/index.js', () => ({
   findSessions: vi.fn(),
 }));
 
-vi.mock('../../../core/sessions/handoff.js', () => ({
+vi.mock('../../../../../core/src/sessions/handoff.js', () => ({
   computeDebrief: vi.fn(),
 }));
 
-vi.mock('../../../core/sessions/session-id.js', () => ({
+vi.mock('../../../../../core/src/sessions/session-id.js', () => ({
   generateSessionId: vi.fn(),
 }));
 
-vi.mock('../../../store/data-accessor.js', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
-vi.mock('../../../core/task-work/index.js', () => ({
+vi.mock('../../../../../core/src/task-work/index.js', () => ({
   currentTask: vi.fn(),
   startTask: vi.fn(),
   stopTask: vi.fn(),
 }));
 
 import { CleoError } from '@cleocode/core';
-import { getLastHandoff } from '@cleocode/core';
+import { getLastHandoff } from '@cleocode/core/internal';
 import { ExitCode } from '@cleocode/contracts';
 import { sessionHandoff } from '../session-engine.js';
 

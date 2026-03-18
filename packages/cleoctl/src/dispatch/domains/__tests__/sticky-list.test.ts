@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../core/paths.js', () => ({
+vi.mock('../../../../../core/src/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-vi.mock('../../../core/logger.js', () => ({
+vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
     error: vi.fn(),
   })),

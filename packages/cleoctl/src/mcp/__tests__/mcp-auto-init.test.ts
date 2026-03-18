@@ -36,7 +36,7 @@ vi.mock('@cleocode/caamp', () => ({
 }));
 
 // Mock nexus to avoid side effects
-vi.mock('../../core/nexus/registry.js', () => ({
+vi.mock('../../../../core/src/nexus/registry.js', () => ({
   nexusInit: vi.fn(async () => {}),
   nexusRegister: vi.fn(async () => {}),
 }));
