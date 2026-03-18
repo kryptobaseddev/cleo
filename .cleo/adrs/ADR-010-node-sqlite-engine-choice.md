@@ -35,11 +35,11 @@ Specifically:
 
 ### 2.2 ORM Layer: Drizzle v1.0.0-beta
 
-CLEO SHALL use `drizzle-orm` v1.0.0-beta (floor: beta.15) and `drizzle-kit` v1.0.0-beta as the ORM and schema tooling layer.
+CLEO SHALL use `drizzle-orm` v1.0.0-beta (floor: beta.18) and `drizzle-kit` v1.0.0-beta (floor: beta.18) as the ORM and schema tooling layer. Beta.18 adds native `node:sqlite` driver support in drizzle-kit for migrations and studio.
 
 Specifically:
 
-1. CLEO MUST pin `drizzle-orm` to `^1.0.0-beta.15` and `drizzle-kit` to `^1.0.0-beta.15` to track the v1 release line.
+1. CLEO MUST pin `drizzle-orm` and `drizzle-kit` to exact `1.0.0-beta.18` (or later) build hashes. Pre-release semver ranges (`^`) MUST NOT be used — npm resolves them incorrectly for pre-release versions.
 2. CLEO MUST use `drizzle-orm/zod` (consolidated into the main package in v1) for schema-derived validation when Zod validation of database rows is needed. The separate `drizzle-zod` package MUST NOT be installed.
 3. CLEO MUST NOT install separate validator packages (`drizzle-zod`, `drizzle-valibot`, `drizzle-typebox`). All validator integrations are available as subpath exports of `drizzle-orm` in v1.
 4. CLEO SHOULD adopt `drizzle-kit` v1 migration improvements (applies all missing migrations, not just those with a later creation date) when migrating from manual SQL schema creation to managed migrations.
@@ -129,6 +129,6 @@ This provides earlier detection of schema definition errors that previously only
 - `.cleo/adrs/ADR-012-drizzle-kit-migration-system.md` -- drizzle-kit migration system (fulfills Section 5.2/7.5 recommendations)
 - `.cleo/adrs/archive/ADR-002-hybrid-storage-strategy.md` -- original sql.js selection (superseded by ADR-006)
 - `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- compliance traceability checklist
-- `package.json` -- Node.js engines field (`>=24.0.0`), drizzle-orm `^1.0.0-beta.15`, drizzle-kit `^1.0.0-beta.15`
+- `package.json` -- Node.js engines field (`>=24.0.0`), drizzle-orm `1.0.0-beta.18-7eb39f0`, drizzle-kit `1.0.0-beta.18-7eb39f0`
 - Epic `T4817` and child tasks (T4818-T4823)
-- [Drizzle ORM v1.0.0-beta release notes](https://github.com/drizzle-team/drizzle-orm/releases/tag/v1.0.0-beta.15)
+- [Drizzle ORM v1.0.0-beta.18 release notes](https://github.com/drizzle-team/drizzle-orm/releases/tag/v1.0.0-beta.18)

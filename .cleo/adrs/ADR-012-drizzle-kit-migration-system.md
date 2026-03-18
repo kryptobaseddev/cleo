@@ -14,7 +14,7 @@
 
 ## 1. Context
 
-CLEO uses drizzle-orm v1.0.0-beta.15 with `sqlite-proxy` backed by `node:sqlite` `DatabaseSync`. Prior to this ADR, DDL was maintained as manual SQL strings in `src/store/sqlite.ts` (`createTablesIfNeeded()`) -- over 100 lines of raw `CREATE TABLE` and `CREATE INDEX` statements.
+CLEO uses drizzle-orm v1.0.0-beta.18+ with `sqlite-proxy` backed by `node:sqlite` `DatabaseSync`. Prior to this ADR, DDL was maintained as manual SQL strings in `src/store/sqlite.ts` (`createTablesIfNeeded()`) -- over 100 lines of raw `CREATE TABLE` and `CREATE INDEX` statements.
 
 That approach had several problems:
 
@@ -51,9 +51,9 @@ Adopt **drizzle-kit generate** (dev-time) + **drizzle-orm/sqlite-proxy/migrator*
 ## 3. Key Findings (T3.3 Investigation)
 
 1. **`drizzle-kit generate` works perfectly** -- offline schema introspection requires no DB connection
-2. **`drizzle-kit push/pull/studio` do NOT support `node:sqlite`** -- this is expected and acceptable
+2. **`drizzle-kit push/pull/studio` now support `node:sqlite`** as of beta.18 (auto-detected at runtime)
 3. **`drizzle-orm/sqlite-proxy/migrator`** provides programmatic `migrate()` that works with `node:sqlite` via callback
-4. **drizzle-orm v1.0.0-beta.15 supports `check()` constraints** -- these generate correct SQL CHECK clauses
+4. **drizzle-orm v1.0.0-beta.18+ supports `check()` constraints** -- these generate correct SQL CHECK clauses
 5. **Self-referencing foreign keys work** (`tasks.parentId` references `tasks.id`)
 6. **Migration idempotency** requires both the `__drizzle_migrations` journal table AND wrapping the migration callback in an explicit `BEGIN/COMMIT/ROLLBACK` transaction. Without the transaction, a crash between the last DDL statement and the journal INSERT leaves the migration SQL applied but untracked, causing a permanent boot-loop on next startup (table already exists error). See commit `1d0da22a`.
 7. **Existing databases** can be bootstrapped by marking the initial migration as already applied
