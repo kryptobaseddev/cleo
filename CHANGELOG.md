@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.3.35] — @cleocode/core Standalone + CI Hardening (T5701 + T5716)
+
+### @cleocode/core Standalone Package (T5701)
+- **`packages/core/` is now a true standalone npm package**: consumers can `import { Cleo } from '@cleocode/core'` with no dependency on `@cleocode/cleo`
+- **Full `Cleo` facade class** with all 10 domain APIs (tasks, sessions, memory, pipeline, orchestrate, check, tools, admin, nexus, sticky)
+- **Tree-shakeable barrel exports** and custom store support via `DataAccessor` interface from `@cleocode/contracts`
+- **70 source files rewired** across dispatch/cli/mcp to import from `@cleocode/core`; purity CI gate enforced
+
+### CI Hardening (T5716)
+- **drizzle-orm + drizzle-kit upgraded** to v1.0.0-beta.18
+- **`closeLogger()` is now async** — awaits pino transport worker thread drain, eliminating ENOENT races on temp dir cleanup across macOS and Windows
+- **Test cleanup hardened** across 8 test files: `Promise.race` with 8s timeout prevents `fs.rm` from blocking on Windows; `await closeLogger()` prevents pino ENOENT
+- **`detectProvider` tests** use `tmpdir()` instead of hardcoded `/tmp` (Windows fix)
+
 ## [2026.3.34] — Cognitive CLEO Epic (T5700)
 
 ### Phase 1: Cognitive Feedback Loops
