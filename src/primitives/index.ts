@@ -5,8 +5,8 @@
  * @epic T5716
  */
 
-export * from './errors.js';
 export * from './error-catalog.js';
+export * from './errors.js';
 export * from './logger.js';
 export * from './paths.js';
 export * from './platform-paths.js';

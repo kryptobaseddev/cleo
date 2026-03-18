@@ -5,6 +5,13 @@
  * @epic T5716
  */
 
-export { CleoError } from '../core/errors.js';
 export type { ProblemDetails } from '../core/errors.js';
-export { ExitCode, getExitCodeName, isErrorCode, isRecoverableCode, isSuccessCode, isNoChangeCode } from './exit-codes.js';
+export { CleoError } from '../core/errors.js';
+export {
+  ExitCode,
+  getExitCodeName,
+  isErrorCode,
+  isNoChangeCode,
+  isRecoverableCode,
+  isSuccessCode,
+} from './exit-codes.js';

@@ -17,17 +17,17 @@ import { execFileSync } from 'node:child_process';
 import {
   addChain,
   advanceInstance,
+  channelToDistTag,
   createInstance,
-  listChains,
-  showChain,
+  describeChannel,
   getLogger,
-  paginate,
   getProjectRoot,
   type ListPhasesResult,
-  channelToDistTag,
-  describeChannel,
-  resolveChannelFromBranch,
+  listChains,
+  paginate,
   type ReleaseListOptions,
+  resolveChannelFromBranch,
+  showChain,
 } from '@cleocode/core';
 import type { GateResult, WarpChain } from '../../types/warp-chain.js';
 import {

@@ -9,7 +9,7 @@
  * @epic T5267
  */
 
-import { getLogger, paginate, getProjectRoot } from '@cleocode/core';
+import { getLogger, getProjectRoot, paginate } from '@cleocode/core';
 import {
   stickyAdd,
   stickyArchive,

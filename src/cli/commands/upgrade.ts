@@ -12,8 +12,8 @@
  * @epic T4454
  */
 
-import type { Command } from 'commander';
 import { CleoError, formatError, runUpgrade } from '@cleocode/core';
+import type { Command } from 'commander';
 import { createUpgradeProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';
 

@@ -5,5 +5,9 @@
  * @epic T5716
  */
 
-export { getPlatformPaths, getSystemInfo, _resetPlatformPathsCache } from '../core/system/platform-paths.js';
 export type { PlatformPaths, SystemInfo } from '../core/system/platform-paths.js';
+export {
+  _resetPlatformPathsCache,
+  getPlatformPaths,
+  getSystemInfo,
+} from '../core/system/platform-paths.js';

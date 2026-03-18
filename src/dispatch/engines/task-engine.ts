@@ -18,18 +18,16 @@
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import {
+  type CompactTask,
+  // Non-CRUD core operations
+  type ComplexityFactor,
   addTask as coreAddTask,
   archiveTasks as coreArchiveTasks,
   completeTask as coreCompleteTask,
-  type CompactTask,
   deleteTask as coreDeleteTask,
   findTasks as coreFindTasks,
   listTasks as coreListTasks,
   showTask as coreShowTask,
-  toCompact,
-  updateTask as coreUpdateTask,
-  // Non-CRUD core operations
-  type ComplexityFactor,
   coreTaskAnalyze,
   coreTaskBatchValidate,
   coreTaskBlockers,
@@ -54,7 +52,9 @@ import {
   coreTaskStats,
   coreTaskTree,
   coreTaskUnarchive,
+  updateTask as coreUpdateTask,
   type TaskTreeNode,
+  toCompact,
 } from '@cleocode/core';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';

@@ -7,8 +7,8 @@
  * @task T5329
  */
 
-import type { Command } from 'commander';
 import { CleoError, formatError } from '@cleocode/core';
+import type { Command } from 'commander';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { ExitCode } from '../../types/exit-codes.js';

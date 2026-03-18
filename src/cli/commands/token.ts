@@ -7,8 +7,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import type { Command } from 'commander';
 import { measureTokenExchange, recordTokenExchange } from '@cleocode/core';
+import type { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 

@@ -5,5 +5,5 @@
  * @epic T5716
  */
 
-export { closeLogger, getLogDir, getLogger, initLogger } from '../core/logger.js';
 export type { LoggerConfig } from '../core/logger.js';
+export { closeLogger, getLogDir, getLogger, initLogger } from '../core/logger.js';

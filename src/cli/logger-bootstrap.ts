@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { LoggerConfig } from '@cleocode/core';
-import { initLogger, getProjectInfoSync } from '@cleocode/core';
+import { getProjectInfoSync, initLogger } from '@cleocode/core';
 
 /**
  * Initialize CLI logger with optional projectHash correlation context.

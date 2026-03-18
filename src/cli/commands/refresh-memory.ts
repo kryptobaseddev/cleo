@@ -5,8 +5,8 @@
  * @task T5240
  */
 
-import type { Command } from 'commander';
 import { getProjectRoot } from '@cleocode/core';
+import type { Command } from 'commander';
 
 export function registerRefreshMemoryCommand(program: Command): void {
   program

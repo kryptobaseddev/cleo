@@ -9,9 +9,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
 import type { Command } from 'commander';
-import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
 import { ExitCode } from '../../types/exit-codes.js';
 import { cliOutput } from '../renderers/index.js';
 
