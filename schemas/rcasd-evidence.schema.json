@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcasd-evidence.schema.json",
+  "title": "RCASD Evidence",
+  "description": "Schema for lifecycle stage evidence records. Evidence links artifacts (files, URLs, manifests) to specific pipeline stages for provenance tracking.",
+  "type": "object",
+  "required": ["id", "stageId", "uri", "type", "recordedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique evidence identifier"
+    },
+    "stageId": {
+      "type": "string",
+      "description": "Reference to the lifecycle stage this evidence supports"
+    },
+    "uri": {
+      "type": "string",
+      "description": "URI pointing to the evidence artifact"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["file", "url", "manifest"],
+      "description": "Type of evidence artifact"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the evidence was recorded"
+    },
+    "recordedBy": {
+      "type": ["string", "null"],
+      "description": "Agent or user who recorded the evidence"
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Description of what this evidence demonstrates"
+    }
+  }
+}

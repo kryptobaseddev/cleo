@@ -1,0 +1,2607 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
+  "schemaVersion": "2.10.0",
+  "title": "CLEO Configuration Schema",
+  "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
+  "type": "object",
+  "required": [
+    "version",
+    "_meta"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Legacy schema version field (deprecated, use _meta.schemaVersion)"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Configuration file metadata.",
+      "required": [
+        "schemaVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this file (semver). Canonical source for schema version (replaces root version field)."
+        }
+      }
+    },
+    "extends": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Single config to extend (file path or npm package)"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Multiple configs to extend (processed left-to-right, last wins)"
+        }
+      ],
+      "description": "Configuration inheritance. Supports file paths (~/.cleo/config.json, ../shared/config.json) or npm packages (@cleo/config-ci). Resolution order: global config → extended configs (left-to-right) → project config → environment variables. Deep merge strategy: primitive values last-wins, arrays concatenate with deduplication, objects merge recursively. Circular extends chains MUST be detected and MUST fail with exit code 6 (E_VALIDATION_FAILED).",
+      "examples": [
+        "~/.cleo/config.json",
+        [
+          "~/.cleo/config.json",
+          "@cleo/config-ci"
+        ]
+      ]
+    },
+    "directories": {
+      "type": "object",
+      "description": "Directory path configuration. All paths MUST be relative to project root. Replaces hardcoded path assumptions across codebase.",
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string",
+          "default": ".cleo",
+          "description": "CLEO data directory (contains todo.json, config.json)"
+        },
+        "schemas": {
+          "type": "string",
+          "default": "schemas",
+          "description": "JSON Schema definitions"
+        },
+        "backups": {
+          "type": "object",
+          "description": "Backup storage configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "string",
+              "default": "backups",
+              "description": "Backup storage root"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "snapshot",
+                "safety",
+                "incremental",
+                "archive",
+                "migration"
+              ],
+              "description": "Backup type subdirectories"
+            }
+          }
+        },
+        "templates": {
+          "type": "string",
+          "default": "templates",
+          "description": "Template storage"
+        },
+        "research": {
+          "type": "object",
+          "description": "Research output configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "type": "string",
+              "default": "research",
+              "description": "Research output directory"
+            },
+            "archive": {
+              "type": "string",
+              "default": "research/archive",
+              "description": "Archived research"
+            }
+          }
+        },
+        "agentOutputs": {
+          "type": "string",
+          "default": ".cleo/agent-outputs",
+          "description": "Agent manifest outputs (MANIFEST.jsonl location)"
+        },
+        "metrics": {
+          "type": "string",
+          "default": "claudedocs/metrics",
+          "description": "Metrics collection"
+        },
+        "documentation": {
+          "type": "string",
+          "default": "docs",
+          "description": "User-facing documentation"
+        },
+        "skills": {
+          "type": "string",
+          "default": "skills",
+          "description": "CLEO skill definitions"
+        },
+        "sync": {
+          "type": "string",
+          "default": "sync",
+          "description": "TodoWrite sync directory"
+        }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "description": "Archive automation settings.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic archiving of completed tasks."
+        },
+        "daysUntilArchive": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 7,
+          "description": "Days after completion before task is eligible for archive."
+        },
+        "maxCompletedTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 15,
+          "description": "Max completed tasks in todo.json before triggering archive."
+        },
+        "preserveRecentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 3,
+          "description": "Always keep this many recent completed tasks (for context)."
+        },
+        "archiveOnSessionEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run archive check at session end."
+        },
+        "autoArchiveOnComplete": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically archive completed task if eligible (age >= daysUntilArchive)."
+        },
+        "exemptLabels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [
+            "pinned",
+            "keep"
+          ],
+          "description": "Labels that exempt tasks from automatic archiving. Add these labels to any task/epic you want to protect from auto-archive."
+        },
+        "labelPolicies": {
+          "type": "object",
+          "description": "Per-label retention policies overriding defaults.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "daysUntilArchive": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 365,
+                "description": "Days after completion before task with this label is eligible for archive."
+              },
+              "neverArchive": {
+                "type": "boolean",
+                "description": "If true, tasks with this label are never automatically archived."
+              }
+            }
+          },
+          "default": {}
+        },
+        "relationshipSafety": {
+          "type": "object",
+          "description": "Safety settings for archiving tasks with relationships.",
+          "additionalProperties": false,
+          "properties": {
+            "preventOrphanChildren": {
+              "type": "boolean",
+              "default": true,
+              "description": "Don't archive parent tasks with active children."
+            },
+            "preventBrokenDependencies": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn before archiving tasks that would break dependency chains."
+            },
+            "cascadeArchive": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow cascade archiving of completed children when parent is archived."
+            }
+          }
+        },
+        "phaseTriggers": {
+          "type": "object",
+          "description": "Phase completion triggers for auto-archiving.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable phase-based archive triggers."
+            },
+            "phases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "default": [],
+              "description": "Phase slugs that trigger archiving when completed."
+            },
+            "archivePhaseOnly": {
+              "type": "boolean",
+              "default": true,
+              "description": "Only archive tasks from the completed phase (vs all eligible tasks)."
+            }
+          }
+        },
+        "interactive": {
+          "type": "object",
+          "description": "Interactive prompts and warnings for archive operations.",
+          "additionalProperties": false,
+          "properties": {
+            "confirmBeforeArchive": {
+              "type": "boolean",
+              "default": false,
+              "description": "Prompt for confirmation before archiving tasks."
+            },
+            "showWarnings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show warnings about relationships and dependencies before archiving."
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "description": "Legacy JSONL change history settings. Audit logs are now stored in SQLite audit_log table (T4837). This section is retained for backward compatibility but is no longer actively used by the SQLite engine.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable logging to todo-log.jsonl."
+        },
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30,
+          "description": "Days to retain log entries."
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "standard",
+            "verbose"
+          ],
+          "default": "standard",
+          "description": "minimal=status changes, standard=+notes, verbose=+all fields."
+        },
+        "logSessionEvents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log session start/end events."
+        }
+      }
+    },
+    "pinoLogging": {
+      "type": "object",
+      "description": "Application diagnostic logging (pino). Writes to .cleo/logs/cleo.log.",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warn", "error", "fatal", "silent"],
+          "default": "info",
+          "description": "Minimum log level to record."
+        },
+        "filePath": {
+          "type": "string",
+          "default": "logs/cleo.log",
+          "description": "Log file path relative to .cleo/ directory."
+        },
+        "maxFileSize": {
+          "type": "integer",
+          "minimum": 1048576,
+          "maximum": 1073741824,
+          "default": 10485760,
+          "description": "Max log file size in bytes before rotation (default: 10MB)."
+        },
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 5,
+          "description": "Number of rotated log files to retain."
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "description": "Validation and integrity settings.",
+      "additionalProperties": false,
+      "properties": {
+        "strictMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Treat warnings as errors."
+        },
+        "checksumEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable checksum verification. CRITICAL for anti-hallucination."
+        },
+        "enforceAcceptance": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require acceptance criteria for high/critical tasks."
+        },
+        "requireDescription": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require description field for all tasks."
+        },
+        "maxActiveTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1,
+          "default": 1,
+          "description": "Maximum active tasks. Default 1. DO NOT CHANGE without good reason."
+        },
+        "validateDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check all depends[] references exist and are valid."
+        },
+        "detectCircularDeps": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect and block circular dependencies."
+        },
+        "phaseValidation": {
+          "type": "object",
+          "description": "Phase validation and enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enforcePhaseOrder": {
+              "type": "boolean",
+              "default": false,
+              "description": "Warn when activating tasks outside current project phase."
+            },
+            "phaseAdvanceThreshold": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 90,
+              "description": "Percentage of tasks that must be completed to advance phase."
+            },
+            "blockOnCriticalTasks": {
+              "type": "boolean",
+              "default": true,
+              "description": "Prevent phase advancement if critical tasks remain incomplete."
+            },
+            "warnPhaseContext": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show warning when task phase differs from project phase."
+            }
+          }
+        },
+        "claudedocs": {
+          "type": "object",
+          "description": "Claudedocs YAML frontmatter validation settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable YAML frontmatter validation for claudedocs/ files."
+            },
+            "strictMode": {
+              "type": "boolean",
+              "default": false,
+              "description": "Strict mode: require frontmatter on all claudedocs/ files. When false, legacy files without frontmatter are allowed with warning."
+            }
+          }
+        },
+        "releaseGates": {
+          "type": "array",
+          "description": "DEPRECATED: Use release.gates instead. Validation gates for release operations.",
+          "x-deprecated": true,
+          "x-deprecated-by": "release.gates",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Unique gate identifier."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shell command to execute."
+              },
+              "required": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, gate failure blocks release."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description."
+              }
+            }
+          },
+          "default": []
+        },
+        "testing": {
+          "type": "object",
+          "description": "Test validation configuration. Enable project-agnostic test framework support.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable test validation"
+            },
+            "framework": {
+              "type": "string",
+              "enum": [
+                "bats",
+                "jest",
+                "vitest",
+                "playwright",
+                "cypress",
+                "mocha",
+                "ava",
+                "uvu",
+                "tap",
+                "node:test",
+                "deno",
+                "bun",
+                "pytest",
+                "go",
+                "cargo",
+                "custom"
+              ],
+              "default": "bats",
+              "description": "Testing framework identifier"
+            },
+            "command": {
+              "type": "string",
+              "description": "Test execution command"
+            },
+            "directory": {
+              "type": "string",
+              "default": "tests",
+              "description": "Test directory relative to project root"
+            },
+            "requirePassingTests": {
+              "type": "boolean",
+              "default": false,
+              "description": "Block operations on test failure"
+            },
+            "runOnComplete": {
+              "type": "boolean",
+              "default": false,
+              "description": "Auto-run tests on task completion"
+            },
+            "testFilePatterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "**/*.bats"
+              ],
+              "description": "Glob patterns for test files"
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "Verification gates configuration for task quality tracking.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable verification gates for task completion. When true, parent auto-complete requires verification.passed = true."
+        },
+        "maxRounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum implementation rounds before HITL escalation."
+        },
+        "requiredGates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "implemented",
+              "testsPassed",
+              "qaPassed",
+              "cleanupDone",
+              "securityPassed",
+              "documented"
+            ]
+          },
+          "default": [
+            "implemented",
+            "testsPassed",
+            "qaPassed",
+            "securityPassed",
+            "documented"
+          ],
+          "description": "Gates required to pass for verification.passed = true. cleanupDone excluded by default."
+        },
+        "autoSetImplementedOnComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically set gates.implemented = true when ct complete runs."
+        },
+        "requireForParentAutoComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require verification.passed = true for parent auto-complete."
+        },
+        "allowManualOverride": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow --skip-verification flag on ct complete."
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default values for new tasks.",
+      "additionalProperties": false,
+      "properties": {
+        "priority": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "default": "medium"
+        },
+        "phase": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "default": "core"
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "description": "Session behavior settings.",
+      "additionalProperties": false,
+      "properties": {
+        "requireSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require an active session for task operations."
+        },
+        "requireSessionNote": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn if session ends without updating sessionNote."
+        },
+        "requireNotesOnComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require notes when completing tasks."
+        },
+        "warnOnNoFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn if no task is active at session start."
+        },
+        "allowNestedSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow nested session scopes."
+        },
+        "allowParallelAgents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow multiple agents to work concurrently."
+        },
+        "autoStartSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically log session_start on first read."
+        },
+        "autoDiscoveryOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-discover existing sessions on start."
+        },
+        "sessionTimeoutHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168,
+          "default": 72,
+          "description": "Hours before orphaned session warning."
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "warn",
+            "advisory",
+            "none",
+            "off"
+          ],
+          "default": "strict",
+          "description": "Session enforcement mode for write operations. strict=block without session, warn/advisory=warn but allow, none/off=no enforcement."
+        },
+        "maxConcurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum number of concurrent sessions allowed."
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "description": "Display and notification settings.",
+      "additionalProperties": false,
+      "properties": {
+        "showArchiveCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show archived task count in status output."
+        },
+        "showLogSummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show recent log summary."
+        },
+        "warnStaleDays": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Warn about tasks pending longer than this."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "Output formatting and display preferences.",
+      "additionalProperties": false,
+      "properties": {
+        "defaultFormat": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json",
+            "jsonl",
+            "csv",
+            "tsv",
+            "markdown",
+            "table"
+          ],
+          "default": "text",
+          "description": "Default output format for list and export commands."
+        },
+        "showColor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable ANSI color output. Respects NO_COLOR env var."
+        },
+        "showUnicode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Unicode symbols and box-drawing characters."
+        },
+        "showProgressBars": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show progress bars in dashboard and phase views."
+        },
+        "csvDelimiter": {
+          "type": "string",
+          "maxLength": 1,
+          "default": ",",
+          "description": "Delimiter for CSV export (comma, tab, semicolon)."
+        },
+        "dateFormat": {
+          "type": "string",
+          "enum": [
+            "iso8601",
+            "relative",
+            "unix",
+            "locale"
+          ],
+          "default": "iso8601",
+          "description": "Date/time display format: iso8601, relative (5min ago), unix, locale."
+        },
+        "showCompactTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Truncate long task titles in list view."
+        },
+        "maxTitleLength": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 200,
+          "default": 80,
+          "description": "Maximum title length when showCompactTitles is enabled."
+        }
+      }
+    },
+    "cli": {
+      "type": "object",
+      "description": "CLI behavior, aliases, and plugin settings.",
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "type": "object",
+          "description": "Command aliases mapping short names to commands.",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Target command name."
+          },
+          "default": {
+            "ls": "list",
+            "done": "complete",
+            "new": "add",
+            "edit": "update",
+            "rm": "archive",
+            "check": "validate"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Plugin system configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable plugin discovery and loading."
+            },
+            "directories": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "~/.cleo/plugins",
+                "./.claude/plugins"
+              ],
+              "description": "Directories to scan for plugins (in order of priority)."
+            },
+            "autoDiscover": {
+              "type": "boolean",
+              "default": true,
+              "description": "Auto-discover plugins from directories."
+            }
+          }
+        },
+        "debug": {
+          "type": "object",
+          "description": "Debug and validation settings for CLI.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable debug mode (verbose output, validation checks)."
+            },
+            "validateMappings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Validate command-to-script mappings exist."
+            },
+            "checksumVerify": {
+              "type": "boolean",
+              "default": true,
+              "description": "Verify script checksums for integrity."
+            },
+            "showTimings": {
+              "type": "boolean",
+              "default": false,
+              "description": "Show command execution timings."
+            }
+          }
+        }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "description": "Backup system configuration for snapshots, safety backups, incremental backups, and archive backups.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable backup system globally."
+        },
+        "directory": {
+          "type": "string",
+          "default": ".claude/backups",
+          "description": "Directory for storing all backup types (snapshot, safety, incremental, archive, migration)."
+        },
+        "maxSnapshots": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum number of snapshot backups to retain (count-based retention)."
+        },
+        "maxSafetyBackups": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 5,
+          "description": "Maximum number of safety backups to retain (count-based retention, works with safetyRetentionDays)."
+        },
+        "maxIncremental": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum number of incremental backups to retain (count-based retention)."
+        },
+        "maxArchiveBackups": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 3,
+          "description": "Maximum number of archive backups to retain (count-based retention)."
+        },
+        "safetyRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365,
+          "default": 7,
+          "description": "Days to retain safety backups (time-based retention, works with maxSafetyBackups)."
+        },
+        "scheduled": {
+          "type": "object",
+          "description": "Scheduled/automatic backup settings for session events and operations.",
+          "additionalProperties": false,
+          "properties": {
+            "onSessionStart": {
+              "type": "boolean",
+              "default": false,
+              "description": "Create snapshot backup when session starts."
+            },
+            "onSessionEnd": {
+              "type": "boolean",
+              "default": false,
+              "description": "Create safety backup when session ends."
+            },
+            "onArchive": {
+              "type": "boolean",
+              "default": true,
+              "description": "Create safety backup before archive operations."
+            },
+            "intervalMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440,
+              "default": 0,
+              "description": "Optional interval (minutes) for timed backups. 0 disables interval-based backups. When set, backups are created on CLI invocation if interval has elapsed since last backup."
+            }
+          }
+        }
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "description": "Configuration for task cancellation/deletion behavior. Safety-first defaults for automation.",
+      "additionalProperties": false,
+      "properties": {
+        "cascadeConfirmThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Prompt for confirmation when cascade operation affects more than N tasks. Covers typical epic sizes."
+        },
+        "requireReason": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require --reason flag when cancelling tasks. Enforces accountability and audit trails."
+        },
+        "daysUntilArchive": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365,
+          "default": 3,
+          "description": "Days before cancelled tasks are automatically archived. 0 disables auto-archive."
+        },
+        "allowCascade": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow --children=cascade mode for parent tasks. When false, only block/orphan/fail modes permitted."
+        },
+        "defaultChildStrategy": {
+          "type": "string",
+          "enum": [
+            "block",
+            "orphan",
+            "cascade",
+            "fail"
+          ],
+          "default": "block",
+          "description": "Default behavior for --children flag. block=prevent if has children, orphan=detach children, cascade=cancel children, fail=error."
+        }
+      }
+    },
+    "hierarchy": {
+      "type": "object",
+      "description": "Hierarchy constraints for Epic → Task → Subtask structure. LLM-Agent-First design: limits are organizational, not cognitive.",
+      "additionalProperties": false,
+      "properties": {
+        "maxSiblings": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 0,
+          "description": "Maximum children per parent (0 = unlimited, recommended for LLM agents). Done tasks excluded by default. See TASK-HIERARCHY-SPEC.md Part 3.2."
+        },
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum hierarchy depth (epic=0, task=1, subtask=2). Rarely needs changing."
+        },
+        "countDoneInLimit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether done tasks count toward maxSiblings. Default false: done tasks are historical record, not active context."
+        },
+        "maxActiveSiblings": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 8,
+          "description": "Maximum active (non-done) children per parent. Aligns with TodoWrite sync limit for context management."
+        },
+        "autoCompleteParent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically complete parent tasks when all children are done."
+        },
+        "autoCompleteMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "suggest",
+            "off"
+          ],
+          "default": "off",
+          "description": "Auto-complete behavior: auto=silent completion, suggest=prompt user, off=disabled."
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "description": "Storage engine configuration. Controls whether CLEO uses JSON files, SQLite, or dual-write mode for data persistence. Per ADR-006, SQLite is the canonical default for all new projects.",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": [
+            "json",
+            "sqlite",
+            "dual"
+          ],
+          "default": "sqlite",
+          "description": "Storage engine: sqlite (default, ADR-006 canonical), json (legacy/human-editable), dual (write to both for migration)."
+        }
+      }
+    },
+    "analyze": {
+      "type": "object",
+      "description": "Configuration for the analyze command and task prioritization algorithms.",
+      "additionalProperties": false,
+      "properties": {
+        "phaseBoost": {
+          "type": "object",
+          "description": "Phase alignment boost multipliers for task prioritization. Tasks in the current project phase get higher priority.",
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "type": "number",
+              "default": 1.5,
+              "minimum": 1.0,
+              "maximum": 3.0,
+              "description": "Boost multiplier for tasks in current project phase."
+            },
+            "adjacent": {
+              "type": "number",
+              "default": 1.25,
+              "minimum": 1.0,
+              "maximum": 2.0,
+              "description": "Boost multiplier for tasks in adjacent phases (order +/- 1)."
+            },
+            "distant": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 1.0,
+              "maximum": 1.5,
+              "description": "Boost multiplier for tasks in distant phases (order diff > 1)."
+            }
+          }
+        },
+        "sizeStrategy": {
+          "type": "string",
+          "enum": [
+            "quick-wins",
+            "big-impact",
+            "balanced"
+          ],
+          "default": "balanced",
+          "description": "Strategy for weighting tasks by size. quick-wins=favor small tasks, big-impact=favor large tasks, balanced=neutral."
+        },
+        "sizeWeights": {
+          "type": "object",
+          "description": "Custom weight multipliers by task size. Used when sizeStrategy is set to custom behavior or for fine-tuning.",
+          "additionalProperties": false,
+          "properties": {
+            "small": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for small tasks."
+            },
+            "medium": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for medium tasks."
+            },
+            "large": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for large tasks."
+            }
+          }
+        },
+        "staleDetection": {
+          "type": "object",
+          "description": "Stale task detection settings for analyze command.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable stale task detection in analyze output."
+            },
+            "pendingDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30,
+              "description": "Days before pending task is considered stale."
+            },
+            "noUpdateDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 14,
+              "description": "Days without notes/updates before task is stale."
+            },
+            "blockedDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 7,
+              "description": "Days blocked without progress before stale warning."
+            },
+            "urgentNeglectedDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 7,
+              "description": "Days high/critical priority task untouched before warning."
+            }
+          }
+        },
+        "lockAwareness": {
+          "type": "object",
+          "description": "Lock file detection and concurrent operation awareness settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable lock detection in analyze output."
+            },
+            "staleThreshold": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 3600,
+              "default": 300,
+              "description": "Seconds before a lock file is considered stale (default: 5 minutes)."
+            },
+            "warnOnly": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn about locks but don't block operations. Set false to block on active locks."
+            }
+          }
+        }
+      }
+    },
+    "multiSession": {
+      "type": "object",
+      "description": "Multi-session concurrent agent configuration. Enables multiple LLM agents to work on different task groups simultaneously with isolated focus and scope boundaries.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable multi-session mode. When false, classic single-session behavior. When true, sessions.json is created and used."
+        },
+        "maxConcurrentSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum active sessions allowed simultaneously."
+        },
+        "maxActiveTasksPerScope": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1,
+          "description": "Maximum active tasks within a single session scope. Replaces global validation.maxActiveTasks."
+        },
+        "scopeValidation": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "warn",
+            "none"
+          ],
+          "default": "strict",
+          "description": "strict=error on scope overlap, warn=allow with warning, none=no validation."
+        },
+        "allowNestedScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow session scopes that are subsets of other session scopes (e.g., taskGroup within epic)."
+        },
+        "allowScopeOverlap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow sessions with partially overlapping scopes. Risky but sometimes needed for collaborative work."
+        },
+        "requireScopeOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require explicit scope when starting session. If false, defaults to full-project scope."
+        },
+        "sessionTimeoutHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168,
+          "default": 72,
+          "description": "Hours before a session is considered orphaned/stale."
+        },
+        "autoSuspendOnTimeout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically suspend sessions that exceed timeout instead of ending them."
+        },
+        "historyRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30,
+          "description": "Days to retain ended sessions in sessionHistory before cleanup."
+        },
+        "autoResumeLastSession": {
+          "type": "boolean",
+          "default": false,
+          "description": "When starting without explicit session, auto-resume most recent suspended session for the scope."
+        },
+        "trackSessionStats": {
+          "type": "boolean",
+          "default": true,
+          "description": "Track session statistics (tasks completed, focus changes, active time)."
+        },
+        "backupOnSessionEvents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create safety backup on session start/end/suspend events."
+        }
+      }
+    },
+    "contextAlerts": {
+      "type": "object",
+      "description": "Context window alert configuration. Controls when and how users are alerted about context window usage approaching thresholds.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable context window threshold alerts. When false, no alerts are shown."
+        },
+        "minThreshold": {
+          "type": "string",
+          "enum": [
+            "warning",
+            "caution",
+            "critical",
+            "emergency"
+          ],
+          "default": "warning",
+          "description": "Minimum threshold level to trigger alerts. warning=70%, caution=85%, critical=90%, emergency=95%."
+        },
+        "triggerCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "complete",
+            "focus",
+            "add",
+            "session"
+          ],
+          "description": "Commands that trigger context alert checks. Empty array = all commands."
+        },
+        "suppressDuration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 0,
+          "description": "Seconds to suppress repeat alerts at same threshold level. 0 = show on every threshold crossing."
+        }
+      }
+    },
+    "agentOutputs": {
+      "type": "object",
+      "description": "Cross-agent output configuration. Controls where agent outputs (research, contributions, artifacts) are stored and managed.",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "default": ".cleo/agent-outputs",
+          "description": "Directory for agent outputs relative to project root.",
+          "x-deprecated-alias": "research.outputDir"
+        },
+        "manifestFile": {
+          "type": "string",
+          "default": "MANIFEST.jsonl",
+          "description": "Manifest filename (JSONL format) within directory."
+        },
+        "archiveDir": {
+          "type": "string",
+          "default": "archive",
+          "description": "Subdirectory within directory for archived outputs."
+        },
+        "archiveDays": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "Days until non-actionable outputs are archived."
+        },
+        "manifest": {
+          "type": "object",
+          "description": "Manifest rotation and archival configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 10,
+              "maximum": 1000,
+              "description": "Maximum number of entries to keep in active manifest before rotation."
+            },
+            "thresholdBytes": {
+              "type": "integer",
+              "default": 200000,
+              "minimum": 10000,
+              "description": "Size threshold in bytes (~50K tokens at 200KB) before suggesting archival."
+            },
+            "archivePercent": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 10,
+              "maximum": 90,
+              "description": "Percentage of oldest entries to archive when threshold is exceeded."
+            },
+            "autoRotate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically rotate manifest when threshold is exceeded during operations."
+            }
+          }
+        }
+      }
+    },
+    "research": {
+      "type": "object",
+      "description": "DEPRECATED: Use agentOutputs instead. Legacy research output configuration kept for backward compatibility.",
+      "x-deprecated": true,
+      "x-deprecated-by": "agentOutputs",
+      "additionalProperties": false,
+      "properties": {
+        "outputDir": {
+          "type": "string",
+          "default": ".cleo/agent-outputs",
+          "description": "DEPRECATED: Use agentOutputs.directory instead. Directory for research outputs relative to project root.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.directory"
+        },
+        "manifestFile": {
+          "type": "string",
+          "default": "MANIFEST.jsonl",
+          "description": "DEPRECATED: Use agentOutputs.manifestFile instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.manifestFile"
+        },
+        "archiveDir": {
+          "type": "string",
+          "default": "archive",
+          "description": "DEPRECATED: Use agentOutputs.archiveDir instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.archiveDir"
+        },
+        "archiveDays": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "DEPRECATED: Use agentOutputs.archiveDays instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.archiveDays"
+        },
+        "manifest": {
+          "type": "object",
+          "description": "DEPRECATED: Use agentOutputs.manifest instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.manifest",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 10,
+              "maximum": 1000,
+              "description": "Maximum number of entries to keep in active manifest before rotation."
+            },
+            "thresholdBytes": {
+              "type": "integer",
+              "default": 200000,
+              "minimum": 10000,
+              "description": "Size threshold in bytes (~50K tokens at 200KB) before suggesting archival."
+            },
+            "archivePercent": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 10,
+              "maximum": 90,
+              "description": "Percentage of oldest entries to archive when threshold is exceeded."
+            },
+            "autoRotate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically rotate manifest when threshold is exceeded during operations."
+            }
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Project-level metadata and status tracking for doctor command and health monitoring.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "object",
+          "description": "Current project health status and diagnostic information.",
+          "additionalProperties": false,
+          "properties": {
+            "health": {
+              "type": "string",
+              "enum": [
+                "healthy",
+                "warning",
+                "error",
+                "unknown"
+              ],
+              "default": "unknown",
+              "description": "Overall project health: healthy=no issues, warning=minor issues, error=critical issues, unknown=not yet checked."
+            },
+            "lastCheck": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "default": null,
+              "description": "ISO 8601 timestamp of last health check (doctor command). Null if never checked."
+            },
+            "schemaVersions": {
+              "type": "object",
+              "description": "Schema versions for core CLEO data files in this project.",
+              "additionalProperties": false,
+              "properties": {
+                "todo": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo.json (semver)."
+                },
+                "config": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for config.json (semver)."
+                },
+                "archive": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo-archive.json (semver)."
+                },
+                "log": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo-log.jsonl (semver)."
+                }
+              }
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation status and results.",
+              "additionalProperties": false,
+              "properties": {
+                "lastValidated": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "default": null,
+                  "description": "ISO 8601 timestamp of last validation run."
+                },
+                "passed": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Whether last validation passed."
+                },
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "description": "Machine-readable error code."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human-readable error description."
+                      },
+                      "file": {
+                        "type": "string",
+                        "description": "File path related to the error."
+                      }
+                    }
+                  },
+                  "default": [],
+                  "description": "Validation errors from last check."
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "description": "Machine-readable warning code."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human-readable warning description."
+                      },
+                      "file": {
+                        "type": "string",
+                        "description": "File path related to the warning."
+                      }
+                    }
+                  },
+                  "default": [],
+                  "description": "Validation warnings from last check."
+                }
+              }
+            },
+            "injection": {
+              "type": "object",
+              "description": "Agent documentation injection status.",
+              "additionalProperties": false,
+              "properties": {
+                "CLAUDE.md": {
+                  "type": "string",
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
+                  "description": "Injection status for CLAUDE.md."
+                },
+                "AGENTS.md": {
+                  "type": "string",
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
+                  "description": "Injection status for AGENTS.md."
+                },
+                "GEMINI.md": {
+                  "type": "string",
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
+                  "description": "Injection status for GEMINI.md."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "description": "Release system configuration including validation gates for pre-release checks.",
+      "additionalProperties": false,
+      "properties": {
+        "gates": {
+          "type": "array",
+          "description": "Validation gates executed before release. Each gate is a command that must exit 0 to pass.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Unique gate identifier (snake_case or kebab-case)."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shell command to execute. Exit 0 = pass, non-zero = fail."
+              },
+              "required": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, gate failure blocks release. If false, failure is logged as warning."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of what this gate validates."
+              }
+            }
+          },
+          "default": []
+        },
+        "guards": {
+          "type": "object",
+          "description": "Release guard configuration. Controls pre-release safety checks.",
+          "additionalProperties": false,
+          "properties": {
+            "epicCompleteness": {
+              "type": "string",
+              "enum": ["warn", "block", "off"],
+              "default": "warn",
+              "description": "Epic completeness guard mode. 'warn' shows incomplete tasks as warning, 'block' prevents release (use --force to override), 'off' disables check."
+            }
+          }
+        },
+        "versionBump": {
+          "type": "object",
+          "description": "Portable version bump configuration. Defines which files to update when bumping the project version during release.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable version bump during release ship --bump-version."
+            },
+            "files": {
+              "type": "array",
+              "description": "Files to update with the new version. Each entry defines a file path, update strategy, and strategy-specific options.",
+              "items": {
+                "type": "object",
+                "required": ["path", "strategy"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "File path relative to project root."
+                  },
+                  "strategy": {
+                    "type": "string",
+                    "enum": ["plain", "json", "toml", "sed"],
+                    "description": "Update strategy. 'plain' overwrites file with version string. 'json' updates a JSON field via jq. 'toml' updates a TOML key via sed. 'sed' applies a custom sed pattern."
+                  },
+                  "jsonPath": {
+                    "type": "string",
+                    "description": "jq path expression for 'json' strategy (e.g., '.version', '.package.version'). Required when strategy is 'json'."
+                  },
+                  "tomlKey": {
+                    "type": "string",
+                    "description": "TOML key to update for 'toml' strategy (e.g., 'version', 'package.version'). Required when strategy is 'toml'."
+                  },
+                  "sedPattern": {
+                    "type": "string",
+                    "description": "Custom sed substitution pattern for 'sed' strategy. Use {{VERSION}} as placeholder for the new version (e.g., 's|version-[0-9]+\\.[0-9]+\\.[0-9]+-|version-{{VERSION}}-|g'). Required when strategy is 'sed'."
+                  },
+                  "sedMatch": {
+                    "type": "string",
+                    "description": "Grep pattern to verify the sed target exists before applying. Used with 'sed' strategy to fail fast if the pattern is not found."
+                  },
+                  "optional": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, skip this file silently when it does not exist. If false (default), fail with an error."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what this file contains (e.g., 'README version badge', 'NPM package version')."
+                  }
+                }
+              },
+              "default": []
+            },
+            "preValidate": {
+              "type": "string",
+              "description": "Shell command to run before version bump. Exit 0 = pass. Used to verify current version state is clean."
+            },
+            "postValidate": {
+              "type": "string",
+              "description": "Shell command to run after version bump. Exit 0 = pass. Used to verify all files were updated correctly."
+            }
+          }
+        },
+        "changelog": {
+          "type": "object",
+          "description": "Changelog generation and output configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable changelog generation during release."
+            },
+            "autoGenerate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically generate changelog from commits and task history."
+            },
+            "source": {
+              "type": "string",
+              "default": "CHANGELOG.md",
+              "description": "Source file for changelog content."
+            },
+            "outputs": {
+              "type": "array",
+              "description": "Output targets for changelog generation. Supports multiple documentation platforms.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "path"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "mintlify",
+                      "docusaurus",
+                      "github",
+                      "gitbook",
+                      "plain",
+                      "custom"
+                    ],
+                    "description": "Documentation platform type. Determines format and transformations applied."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable this output target."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Output file path relative to project root."
+                  }
+                }
+              },
+              "default": []
+            }
+          }
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "description": "Retention policies for session archival and cleanup. Controls automatic session lifecycle management.",
+      "additionalProperties": false,
+      "properties": {
+        "maxArchivedSessions": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum number of archived sessions to retain. Oldest archived sessions are permanently deleted when limit is exceeded."
+        },
+        "autoArchiveEndedAfterDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30,
+          "description": "Days after which ended sessions are automatically archived. Set to high value to disable auto-archiving."
+        },
+        "autoDeleteArchivedAfterDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 730,
+          "default": 90,
+          "description": "Days after archival before sessions are permanently deleted. 0 disables automatic deletion."
+        },
+        "contextStateRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90,
+          "default": 7,
+          "description": "Days to retain orphaned context state files. Files for non-existent or archived sessions are cleaned up."
+        },
+        "cleanupOnSessionEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run retention cleanup automatically when sessions end. Set false for manual cleanup only."
+        },
+        "dryRunByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Default to dry-run mode for cleanup operations. Prevents accidental data loss."
+        },
+        "maxSessionsInMemory": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum sessions to keep in sessions.json before triggering garbage collection. When exceeded, session gc will auto-archive oldest ended sessions."
+        },
+        "autoEndActiveAfterDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 7,
+          "description": "Automatically end active sessions with no activity for this many days. Prevents stale sessions from accumulating."
+        }
+      }
+    },
+    "contextStates": {
+      "type": "object",
+      "description": "Context state file management configuration. Context state files track per-session context window usage.",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "default": ".cleo/context-states",
+          "description": "Directory for per-session context state files. Relative to project root."
+        },
+        "filenamePattern": {
+          "type": "string",
+          "default": "context-state-{sessionId}.json",
+          "description": "Filename pattern for context state files. {sessionId} is replaced with session ID."
+        },
+        "cleanupOnSessionEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session ends. Set false to retain for debugging."
+        },
+        "cleanupOnSessionClose": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session is permanently closed."
+        },
+        "cleanupOnSessionArchive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session is archived."
+        },
+        "maxOrphanedFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum orphaned context state files to retain. Oldest are deleted first. 0 = delete immediately."
+        }
+      }
+    },
+    "orchestrator": {
+      "type": "object",
+      "description": "Orchestrator agent configuration. Controls context thresholds for automatic session management and HITL (human-in-the-loop) handoff behavior.",
+      "additionalProperties": false,
+      "properties": {
+        "contextThresholds": {
+          "type": "object",
+          "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",
+          "additionalProperties": false,
+          "properties": {
+            "warning": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 95,
+              "default": 70,
+              "description": "Warning threshold (%). At this level, orchestrator should plan to wrap up current work and delegate remaining tasks to subagents."
+            },
+            "critical": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 100,
+              "default": 80,
+              "description": "Critical threshold (%). At this level, orchestrator must STOP immediately, pause session, and generate HITL summary for human handoff."
+            }
+          }
+        },
+        "autoStopOnCritical": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically trigger session pause when context usage reaches critical threshold. When false, orchestrator continues but emits warnings."
+        },
+        "hitlSummaryOnPause": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate a human-in-the-loop summary document when session is paused due to context limits. Summary includes progress, remaining work, and handoff notes."
+        },
+        "validation": {
+          "type": "object",
+          "description": "Project-agnostic validation configuration for orchestrator spawn gates. See AUTONOMOUS-ORCHESTRATION-SPEC.md Part 6.",
+          "additionalProperties": false,
+          "properties": {
+            "customGates": {
+              "type": "array",
+              "description": "DEPRECATED: Use release.gates instead. Custom validation gates executed before spawning next subagent. Empty array uses only core gates (manifest, file, task status).",
+              "x-deprecated": true,
+              "x-deprecated-by": "release.gates",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "command"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]*$",
+                    "description": "Unique gate identifier (snake_case or kebab-case)."
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Shell command to execute. Exit 0 = pass, non-zero = fail."
+                  },
+                  "required": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, gate failure blocks spawn. If false, failure is logged as warning."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what this gate validates."
+                  }
+                }
+              },
+              "default": []
+            },
+            "requireManifestEntry": {
+              "type": "boolean",
+              "default": true,
+              "description": "Require manifest entry from previous agent before spawning next (AUTO-004)."
+            },
+            "requireWaveOrder": {
+              "type": "boolean",
+              "default": true,
+              "description": "Require spawning in dependency wave order (AUTO-005)."
+            }
+          }
+        },
+        "handoff": {
+          "type": "object",
+          "description": "Handoff protocol configuration. See AUTONOMOUS-ORCHESTRATION-SPEC.md Part 3.",
+          "additionalProperties": false,
+          "properties": {
+            "preferWaveBoundaries": {
+              "type": "boolean",
+              "default": true,
+              "description": "Prefer stopping at clean wave boundaries when generating handoff (HNDOFF-006)."
+            },
+            "includeKeyFindings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Include key_findings summary in handoff document."
+            }
+          }
+        }
+      }
+    },
+    "enforcement": {
+      "type": "object",
+      "description": "Enforcement configuration for task metadata fields. Controls validation and warning behavior for size, acceptance criteria, and auto-extraction features.",
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "object",
+          "description": "Size field enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "requireOnCreate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Require size field on task creation. When true, tasks cannot be created without specifying size."
+            },
+            "warnMissing": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn when size is not specified during task creation."
+            },
+            "defaultValue": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "small",
+                "medium",
+                "large",
+                null
+              ],
+              "default": null,
+              "description": "Default size value when not specified. Null means no default (field remains unset)."
+            }
+          }
+        },
+        "acceptance": {
+          "type": "object",
+          "description": "Acceptance criteria enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "off",
+                "warn",
+                "block"
+              ],
+              "default": "warn",
+              "description": "Enforcement mode: off=no enforcement, warn=warn when missing, block=require on creation."
+            },
+            "requiredForPriorities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "default": [
+                "critical",
+                "high"
+              ],
+              "description": "Priority levels that require acceptance criteria when mode is 'warn' or 'block'."
+            }
+          }
+        },
+        "files": {
+          "type": "object",
+          "description": "File path extraction settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoExtract": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically extract file paths from task notes and add to files array."
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "*.ts",
+                "*.js",
+                "*.sh",
+                "*.json",
+                "*.md"
+              ],
+              "description": "File patterns to recognize during extraction. Uses glob-style patterns."
+            }
+          }
+        },
+        "relates": {
+          "type": "object",
+          "description": "Task cross-reference extraction settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoExtract": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically extract task cross-references (T####) from notes and add to relates array."
+            },
+            "bidirectional": {
+              "type": "boolean",
+              "default": false,
+              "description": "When adding a reference, also add reverse reference to the target task."
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "description": "Verification gate auto-set settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoSetImplemented": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically set verification.gates.implemented = true when task is completed."
+            }
+          }
+        }
+      }
+    },
+    "graphRag": {
+      "type": "object",
+      "description": "Graph-RAG semantic relationship discovery configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "hierarchyBoost": {
+          "type": "object",
+          "description": "Hierarchy-based similarity boost for related task discovery.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable hierarchy boosting in 'auto' discovery method."
+            },
+            "sibling": {
+              "type": "number",
+              "default": 0.15,
+              "minimum": 0,
+              "maximum": 0.5,
+              "description": "Boost for tasks sharing the same parent."
+            },
+            "cousin": {
+              "type": "number",
+              "default": 0.08,
+              "minimum": 0,
+              "maximum": 0.3,
+              "description": "Boost for tasks sharing the same grandparent."
+            },
+            "ancestor": {
+              "type": "number",
+              "default": 0.04,
+              "minimum": 0,
+              "maximum": 0.2,
+              "description": "Boost for tasks sharing any common ancestor."
+            },
+            "requireContentMatch": {
+              "type": "boolean",
+              "default": true,
+              "description": "Only apply boost if base similarity > 0."
+            }
+          }
+        },
+        "contextPropagation": {
+          "type": "object",
+          "description": "Parent context propagation for description similarity.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Include parent context in description comparison."
+            },
+            "maxDepth": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 0,
+              "maximum": 3,
+              "description": "Maximum ancestor depth to include (0=self only)."
+            },
+            "decayFactor": {
+              "type": "number",
+              "default": 0.5,
+              "minimum": 0.1,
+              "maximum": 1.0,
+              "description": "Exponential decay per level (0.5 = halve each level)."
+            }
+          }
+        },
+        "minScore": {
+          "type": "number",
+          "default": 0.1,
+          "minimum": 0,
+          "maximum": 1.0,
+          "description": "Minimum score threshold for including in results."
+        }
+      }
+    },
+    "gitCheckpoint": {
+      "type": "object",
+      "description": "Automatic git checkpointing of .cleo/ state files at semantic boundaries. Opt-in feature that commits state files (todo.json, sessions.json, etc.) to git history with debounce to prevent commit noise.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable automatic git checkpointing of state files. Opt-in (default: false)."
+        },
+        "debounceMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5,
+          "description": "Minimum minutes between auto-checkpoints. Set to 0 for every trigger. Does not apply to manual or session-end checkpoints."
+        },
+        "messagePrefix": {
+          "type": "string",
+          "default": "chore(cleo):",
+          "description": "Prefix for checkpoint commit messages."
+        },
+        "noVerify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip pre-commit hooks on checkpoint commits (--no-verify). Recommended to avoid interference from project hooks."
+        }
+      },
+      "default": {
+        "enabled": false,
+        "debounceMinutes": 5,
+        "messagePrefix": "chore(cleo):",
+        "noVerify": true
+      }
+    },
+    "lifecycleEnforcement": {
+      "type": "object",
+      "description": "Lifecycle gate enforcement configuration. Controls how strictly the RCSD→IVTR pipeline progression is enforced.",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory",
+            "off"
+          ],
+          "default": "strict",
+          "description": "Enforcement mode: strict (blocks spawn if prerequisites not met), advisory (warns but allows spawn), off (disables gate checks)."
+        }
+      },
+      "default": {
+        "mode": "strict"
+      }
+    },
+    "testing": {
+      "type": "object",
+      "description": "Comprehensive testing configuration beyond validation gates.",
+      "additionalProperties": false,
+      "properties": {
+        "framework": {
+          "type": "object",
+          "description": "Test framework configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "bats",
+                "jest",
+                "vitest",
+                "playwright",
+                "cypress",
+                "mocha",
+                "ava",
+                "uvu",
+                "tap",
+                "node:test",
+                "deno",
+                "bun",
+                "pytest",
+                "go",
+                "cargo",
+                "custom"
+              ],
+              "default": "bats",
+              "description": "Framework identifier (same enum as validation.testing.framework)"
+            },
+            "fileExtension": {
+              "type": "string",
+              "default": ".bats",
+              "description": "Test file extension (e.g., .bats, .test.ts)"
+            },
+            "installCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command to install framework"
+            },
+            "runCommand": {
+              "type": "string",
+              "default": "./tests/run-all-tests.sh",
+              "description": "Command to execute tests"
+            },
+            "watchCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command for watch mode (null if unsupported)"
+            },
+            "coverageCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command for coverage reports (null if unsupported)"
+            },
+            "configFile": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Framework config file path (null if none)"
+            }
+          }
+        },
+        "directories": {
+          "type": "object",
+          "description": "Test directory structure.",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "type": "string",
+              "default": "tests/unit/",
+              "description": "Unit test directory"
+            },
+            "integration": {
+              "type": "string",
+              "default": "tests/integration/",
+              "description": "Integration test directory"
+            },
+            "golden": {
+              "type": "string",
+              "default": "tests/golden/",
+              "description": "Golden test directory"
+            },
+            "fixtures": {
+              "type": "string",
+              "default": "tests/fixtures/",
+              "description": "Test fixtures directory"
+            }
+          }
+        },
+        "skillName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "ct-test-writer-bats",
+          "description": "CLEO skill for test generation"
+        },
+        "dispatchKeywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "test",
+            "bats",
+            "coverage",
+            "testing"
+          ],
+          "description": "Keywords for skill auto-dispatch"
+        },
+        "tempPathPattern": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "/bats-run-|/test/.*test-",
+          "description": "Regex pattern for temp test files (context window management)"
+        }
+      }
+    },
+    "documentation": {
+      "type": "object",
+      "description": "Documentation synchronization and drift detection configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "driftDetection": {
+          "type": "object",
+          "description": "Drift detection settings for documentation vs implementation.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable drift detection system."
+            },
+            "autoCheck": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically run drift detection after critical operations."
+            },
+            "criticalCommands": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "add",
+                "complete",
+                "update",
+                "delete",
+                "reparent"
+              ],
+              "description": "Commands that trigger auto-drift detection when autoCheck is enabled."
+            }
+          }
+        },
+        "gapValidation": {
+          "type": "object",
+          "description": "Knowledge transfer gap validation settings (future use).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable knowledge gap validation. Reserved for T2530 implementation."
+            }
+          }
+        }
+      }
+    },
+    "contributor": {
+      "type": "object",
+      "description": "Contributor/dev-mode settings. Auto-populated when CLEO detects it is running inside its own source repository (ADR-016 §2.3, ADR-029).",
+      "additionalProperties": false,
+      "properties": {
+        "isContributorProject": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when this project IS the CLEO source repository. Detected automatically by fingerprinting src/mcp/, src/dispatch/, src/core/ and package.json#name. When true, agents MUST use cleo-dev CLI and local MCP server instead of production @cleocode/cleo@latest."
+        },
+        "devCli": {
+          "type": "string",
+          "default": "cleo-dev",
+          "description": "The CLI command for the local dev build (ADR-016 §2.3). Injected into agent context when isContributorProject is true."
+        },
+        "verifiedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "default": null,
+          "description": "ISO 8601 timestamp when contributor status was last auto-verified."
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "External tool dependencies and installation commands. Replaces hardcoded tool assumptions.",
+      "additionalProperties": false,
+      "properties": {
+        "jsonProcessor": {
+          "type": "object",
+          "description": "JSON manipulation tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "jq",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "jq",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "brew install jq",
+              "description": "Installation command (platform-specific)"
+            },
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "schemaValidator": {
+          "type": "object",
+          "description": "JSON Schema validation tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "ajv-cli",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "ajv",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "npm install -g ajv-cli",
+              "description": "Installation command"
+            },
+            "required": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "testRunner": {
+          "type": "object",
+          "description": "Test execution tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "bats",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "bats",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "npm install -g bats",
+              "description": "Installation command"
+            },
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "linter": {
+          "type": "object",
+          "description": "Language-specific linting tools.",
+          "additionalProperties": false,
+          "properties": {
+            "bash": {
+              "type": "object",
+              "description": "Bash/shell linter configuration.",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": "shellcheck",
+                  "description": "Human-readable tool name"
+                },
+                "command": {
+                  "type": "string",
+                  "default": "shellcheck",
+                  "description": "Command name for execution"
+                },
+                "installCommand": {
+                  "type": "string",
+                  "default": "brew install shellcheck",
+                  "description": "Installation command"
+                },
+                "required": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Whether tool is required"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

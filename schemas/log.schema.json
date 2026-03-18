@@ -1,0 +1,250 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/log.schema.json",
+  "schemaVersion": "2.4.0",
+  "title": "CLEO Change Log Schema",
+  "description": "Immutable audit trail of all task operations. Used for debugging, history, and anti-hallucination verification.",
+  "type": "object",
+  "required": [
+    "version",
+    "project",
+    "entries",
+    "_meta"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Legacy schema version field (deprecated, use _meta.schemaVersion)"
+    },
+    "project": {
+      "type": "string",
+      "description": "Project identifier. Must match todo.json."
+    },
+    "_meta": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "totalEntries",
+        "firstEntry",
+        "lastEntry"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this file (semver). Canonical source for schema version (replaces root version field)."
+        },
+        "formatVersion": {
+          "type": "string",
+          "pattern": "^\\d+$",
+          "default": "1",
+          "description": "Log entry format version for future compatibility. Increment when entry structure changes."
+        },
+        "totalEntries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "firstEntry": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "lastEntry": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "entriesPruned": {
+          "type": "integer",
+          "default": 0,
+          "description": "Count of entries removed due to retention policy."
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "description": "Log entries in chronological order. Append-only.",
+      "items": {
+        "$ref": "#/definitions/logEntry"
+      }
+    }
+  },
+  "definitions": {
+    "logEntry": {
+      "type": "object",
+      "required": [
+        "id",
+        "timestamp",
+        "action",
+        "actor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^log_[a-f0-9]{12}$",
+          "description": "Unique log entry ID. Format: log_<12-hex-chars>"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this action occurred."
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Session that performed this action."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "session_start",
+            "session_end",
+            "session_suspended",
+            "session_resumed",
+            "session_scope_defined",
+            "session_scope_conflict",
+            "session_focus_changed",
+            "session_timeout_warning",
+            "session_orphan_detected",
+            "session_auto_suspended",
+            "task_created",
+            "task_updated",
+            "status_changed",
+            "task_archived",
+            "focus_changed",
+            "config_changed",
+            "validation_run",
+            "checksum_updated",
+            "error_occurred",
+            "phase_changed",
+            "phase_started",
+            "phase_completed",
+            "phase_rollback"
+          ],
+          "description": "Type of action logged. Session actions (multi-session): session_suspended (paused), session_resumed (continued), session_scope_defined (scope created), session_scope_conflict (overlap detected), session_focus_changed (focus within session), session_timeout_warning (stale session), session_orphan_detected (crashed session), session_auto_suspended (timeout suspend). Phase actions: phase_changed, phase_started, phase_completed, phase_rollback."
+        },
+        "actor": {
+          "type": "string",
+          "enum": [
+            "human",
+            "claude",
+            "system"
+          ],
+          "description": "Who/what performed the action."
+        },
+        "taskId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^T\\d{3,}$",
+          "description": "Task ID if action relates to a specific task."
+        },
+        "before": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "State before the action (for changes)."
+        },
+        "after": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "State after the action (for changes)."
+        },
+        "details": {
+          "type": [
+            "object",
+            "string",
+            "null"
+          ],
+          "description": "Additional context about the action."
+        },
+        "scope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Session scope context for multi-session log entries. Null for single-session mode.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "task",
+                "taskGroup",
+                "subtree",
+                "epicPhase",
+                "epic",
+                "custom"
+              ],
+              "description": "Scope type from session definition."
+            },
+            "rootTaskId": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$",
+              "description": "Root task defining the scope."
+            },
+            "phaseFilter": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Phase filter if scope is phase-limited."
+            },
+            "taskCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of tasks in scope at log time."
+            }
+          }
+        },
+        "agentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Agent identifier in multi-session mode (e.g., 'opus-1', 'haiku-2')."
+        },
+        "otherActiveSessions": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Count of other active sessions at log time. Useful for concurrency auditing."
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Error details if action failed.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

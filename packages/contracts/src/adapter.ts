@@ -11,6 +11,7 @@ import type { AdapterHookProvider } from './hooks.js';
 import type { AdapterInstallProvider } from './install.js';
 import type { AdapterPathProvider } from './provider-paths.js';
 import type { AdapterSpawnProvider } from './spawn.js';
+import type { AdapterTaskSyncProvider } from './task-sync.js';
 import type { AdapterTransportProvider } from './transport.js';
 
 export interface CLEOProviderAdapter {
@@ -24,6 +25,7 @@ export interface CLEOProviderAdapter {
   paths?: AdapterPathProvider;
   contextMonitor?: AdapterContextMonitorProvider;
   transport?: AdapterTransportProvider;
+  taskSync?: AdapterTaskSyncProvider;
   initialize(projectDir: string): Promise<void>;
   dispose(): Promise<void>;
   healthCheck(): Promise<AdapterHealthStatus>;

@@ -383,6 +383,13 @@ export {
 } from './tasks/task-ops.js';
 export type { ComplexityFactor, FlatTreeNode } from './tasks/task-ops.js';
 
+// Reconciliation (additional)
+export {
+  clearSyncState as clearProviderSyncState,
+  readSyncState,
+  writeSyncState,
+} from './reconciliation/sync-state.js';
+
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';

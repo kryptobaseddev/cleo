@@ -224,7 +224,7 @@ export type {
   ArchiveStatsEnvelope,
 } from './archive.js';
 
-// === TodoWrite Types ===
+// === TodoWrite Types (deprecated — use task-sync types) ===
 export type {
   TodoWriteItemStatus,
   TodoWriteItem,
@@ -235,6 +235,19 @@ export type {
   TodoWriteChange,
   TodoWriteMergeResult,
 } from './todowrite.js';
+
+// === Task Sync Types (provider-agnostic reconciliation) ===
+export type {
+  ExternalTaskStatus,
+  ExternalTask,
+  SyncSessionState,
+  ConflictPolicy,
+  ReconcileOptions,
+  ReconcileActionType,
+  ReconcileAction,
+  ReconcileResult,
+  AdapterTaskSyncProvider,
+} from './task-sync.js';
 
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {

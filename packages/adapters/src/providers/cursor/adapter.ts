@@ -44,6 +44,7 @@ export class CursorAdapter implements CLEOProviderAdapter {
     supportsStatusline: false,
     supportsProviderPaths: true,
     supportsTransport: false,
+    supportsTaskSync: false,
   };
 
   hooks: CursorHookProvider;

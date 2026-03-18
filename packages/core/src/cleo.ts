@@ -17,6 +17,10 @@
 import path from 'node:path';
 import type {
   DataAccessor,
+  ExternalTask,
+  ReconcileOptions,
+  ReconcileResult,
+  SyncSessionState,
   Task,
   TaskPriority,
   TaskSize,
@@ -117,6 +121,10 @@ import {
   listStickies,
   purgeSticky,
 } from './sticky/index.js';
+
+// Reconciliation (sync)
+import { reconcile } from './reconciliation/index.js';
+import { clearSyncState, readSyncState, writeSyncState } from './reconciliation/sync-state.js';
 
 // Nexus
 import { discoverRelated, searchAcrossProjects } from './nexus/discover.js';
@@ -282,6 +290,20 @@ export interface NexusAPI {
   search(params: { pattern: string; project?: string; limit?: number }): Promise<unknown>;
   setPermission(params: { name: string; level: 'read' | 'write' | 'execute' }): Promise<unknown>;
   sharingStatus(): Promise<unknown>;
+}
+
+export interface SyncAPI {
+  reconcile(params: {
+    externalTasks: ExternalTask[];
+    providerId: string;
+    dryRun?: boolean;
+    conflictPolicy?: ReconcileOptions['conflictPolicy'];
+    defaultPhase?: string;
+    defaultLabels?: string[];
+  }): Promise<ReconcileResult>;
+  readState(providerId: string): Promise<SyncSessionState | null>;
+  writeState(providerId: string, state: SyncSessionState): Promise<void>;
+  clearState(providerId: string): Promise<void>;
 }
 
 // ============================================================================
@@ -455,6 +477,30 @@ export class Cleo {
       search: (p) => searchAcrossProjects(p.pattern, p.project, p.limit),
       setPermission: (p) => setPermission(p.name, p.level),
       sharingStatus: () => getSharingStatus(),
+    };
+  }
+
+  // === Sync (Task Reconciliation) ===
+  get sync(): SyncAPI {
+    const root = this.projectRoot;
+    const store = this._store ?? undefined;
+    return {
+      reconcile: (p) =>
+        reconcile(
+          p.externalTasks,
+          {
+            providerId: p.providerId,
+            cwd: root,
+            dryRun: p.dryRun,
+            conflictPolicy: p.conflictPolicy,
+            defaultPhase: p.defaultPhase,
+            defaultLabels: p.defaultLabels,
+          },
+          store,
+        ),
+      readState: (providerId) => readSyncState(providerId, root),
+      writeState: (providerId, state) => writeSyncState(providerId, state, root),
+      clearState: (providerId) => clearSyncState(providerId, root),
     };
   }
 }

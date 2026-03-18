@@ -17,4 +17,5 @@ export interface AdapterCapabilities {
   supportsStatusline: boolean;
   supportsProviderPaths: boolean;
   supportsTransport: boolean;
+  supportsTaskSync: boolean;
 }

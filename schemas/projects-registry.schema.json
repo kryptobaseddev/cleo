@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/projects-registry.schema.json",
+  "schemaVersion": "2.0.0",
+  "title": "CLEO Projects Registry Schema",
+  "description": "Unified global registry tracking all CLEO-initialized projects. Single source of truth for both project management and Nexus cross-project coordination.",
+  "type": "object",
+  "required": ["schemaVersion", "lastUpdated", "projects"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version for this file (semver)."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last registry modification."
+    },
+    "projects": {
+      "type": "object",
+      "description": "Hash-keyed project entries. Hash is 12-char hex SHA-256 prefix of absolute project path.",
+      "patternProperties": {
+        "^[a-f0-9]{12}$": {
+          "$ref": "#/definitions/projectEntry"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "definitions": {
+    "projectEntry": {
+      "type": "object",
+      "description": "Individual project registration record with metadata and optional Nexus fields.",
+      "required": ["hash", "path", "name", "registeredAt", "lastSeen"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Unique 12-character hex hash derived from absolute project path (SHA-256 prefix). MUST match parent key."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute file system path to project root. MUST be unique across all projects."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Human-readable project name (typically basename of path)."
+        },
+        "registeredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when project was first registered (cleo init)."
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last CLEO operation in this project."
+        },
+        "healthStatus": {
+          "type": "string",
+          "enum": ["healthy", "warning", "error", "unknown"],
+          "description": "Overall project health status. Defaults to 'unknown' if not yet checked."
+        },
+        "healthLastCheck": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last health check. Null if never checked."
+        },
+        "permissions": {
+          "type": "string",
+          "enum": ["read", "write", "execute"],
+          "description": "Nexus cross-project permission level. Defaults to 'read'."
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks in project. Cached for quick reference."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Unique labels across all tasks in the project."
+        },
+        "lastSync": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last Nexus sync. Null if never synced."
+        }
+      }
+    }
+  }
+}

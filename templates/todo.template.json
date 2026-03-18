@@ -1,0 +1,67 @@
+{
+  "version": "{{SCHEMA_VERSION_TODO}}",
+  "project": {
+    "name": "{{PROJECT_NAME}}",
+    "currentPhase": "setup",
+    "phases": {
+      "setup": {
+        "order": 1,
+        "name": "Setup & Foundation",
+        "description": "Initial project setup, dependencies, and configuration",
+        "status": "active",
+        "startedAt": "{{TIMESTAMP}}",
+        "completedAt": null
+      },
+      "core": {
+        "order": 2,
+        "name": "Core Development",
+        "description": "Build core functionality and features",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
+      },
+      "testing": {
+        "order": 3,
+        "name": "Testing & Validation",
+        "description": "Comprehensive testing, validation, and quality assurance",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
+      },
+      "polish": {
+        "order": 4,
+        "name": "Polish & Refinement",
+        "description": "UX improvements, optimization, and release preparation",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
+      },
+      "maintenance": {
+        "order": 5,
+        "name": "Maintenance",
+        "description": "Bug fixes, updates, and ongoing support",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
+      }
+    }
+  },
+  "lastUpdated": "{{TIMESTAMP}}",
+  "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_TODO}}",
+    "checksum": "{{CHECKSUM}}",
+    "configVersion": "{{SCHEMA_VERSION_CONFIG}}",
+    "lastSessionId": null,
+    "activeSession": null,
+    "generation": 0
+  },
+  "focus": {
+    "currentTask": null,
+    "currentPhase": "setup",
+    "blockedUntil": null,
+    "sessionNote": null,
+    "nextAction": null
+  },
+  "tasks": [],
+  "labels": {}
+}

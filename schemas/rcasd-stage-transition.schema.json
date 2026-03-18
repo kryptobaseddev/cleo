@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcasd-stage-transition.schema.json",
+  "title": "RCASD Stage Transition",
+  "description": "Schema for lifecycle pipeline stage transitions. Records movement between stages in the RCASD-IVTR pipeline.",
+  "type": "object",
+  "required": ["id", "pipelineId", "fromStageId", "toStageId", "transitionType", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique transition identifier"
+    },
+    "pipelineId": {
+      "type": "string",
+      "description": "Reference to the lifecycle pipeline"
+    },
+    "fromStageId": {
+      "type": "string",
+      "description": "Stage being transitioned from"
+    },
+    "toStageId": {
+      "type": "string",
+      "description": "Stage being transitioned to"
+    },
+    "transitionType": {
+      "type": "string",
+      "enum": ["automatic", "manual", "forced"],
+      "description": "How the transition was triggered"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the transition occurred"
+    }
+  }
+}

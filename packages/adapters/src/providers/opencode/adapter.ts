@@ -54,6 +54,7 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
     supportsStatusline: false,
     supportsProviderPaths: true,
     supportsTransport: false,
+    supportsTaskSync: false,
   };
 
   hooks: OpenCodeHookProvider;

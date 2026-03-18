@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1.0/deps-cache.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Dependency Graph Cache Schema",
+  "description": "Pre-computed dependency graph cache for O(1) dependency lookups. Generated from todo.json tasks array.",
+  "type": "object",
+  "required": ["_meta", "forward", "reverse", "hierarchy", "relates"],
+  "additionalProperties": false,
+
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "description": "Cache metadata for staleness detection and diagnostics.",
+      "required": ["schemaVersion", "generatedAt", "sourceChecksum", "taskCount"],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this cache format."
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when cache was generated."
+        },
+        "sourceChecksum": {
+          "type": "string",
+          "description": "Checksum from todo.json._meta.checksum at generation time. Used for staleness detection."
+        },
+        "sourceTimestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "lastModified timestamp from todo.json._meta at generation time."
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks in todo.json when cache was generated."
+        }
+      }
+    },
+
+    "forward": {
+      "type": "object",
+      "description": "Forward dependency map: task_id -> [task_ids this task depends on]. Key is task ID, value is array of dependency task IDs from the 'depends' field.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$"
+        },
+        "uniqueItems": true
+      }
+    },
+
+    "reverse": {
+      "type": "object",
+      "description": "Reverse dependency map: task_id -> [task_ids that depend on this task]. Inverse of forward map for O(1) 'who depends on me' lookups.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$"
+        },
+        "uniqueItems": true
+      }
+    },
+
+    "hierarchy": {
+      "type": "object",
+      "description": "Hierarchy map: parent_id -> [child_task_ids]. Built from parentId field for O(1) 'get children' lookups.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$"
+        },
+        "uniqueItems": true
+      }
+    },
+
+    "relates": {
+      "type": "object",
+      "description": "Relates map: task_id -> [related_task_ids]. Extracted from 'relates' array for O(1) relationship lookups.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$"
+        },
+        "uniqueItems": true
+      }
+    }
+  }
+}

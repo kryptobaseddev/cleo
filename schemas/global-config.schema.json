@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/global-config.schema.json",
+  "title": "Claude-TODO Global Configuration",
+  "description": "User-level global configuration for cleo CLI. These settings apply across all projects unless overridden by project-specific config.",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+",
+      "description": "Configuration schema version"
+    },
+    "output": {
+      "type": "object",
+      "description": "Output formatting preferences (applies to all commands)",
+      "properties": {
+        "defaultFormat": {
+          "type": "string",
+          "enum": ["text", "json", "jsonl", "csv", "tsv", "markdown", "table"],
+          "default": "text",
+          "description": "Default output format. Set to 'json' for LLM agent automation."
+        },
+        "showColor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable colored output in terminal. Respects NO_COLOR env var."
+        },
+        "showUnicode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Unicode symbols (checkmarks, progress bars, etc.)"
+        },
+        "showProgressBars": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display progress bars for long operations"
+        },
+        "dateFormat": {
+          "type": "string",
+          "enum": ["iso8601", "relative", "unix", "locale"],
+          "default": "iso8601",
+          "description": "Date display format"
+        },
+        "showCompactTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Truncate long task titles"
+        },
+        "maxTitleLength": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 200,
+          "default": 80,
+          "description": "Maximum title length when compact mode is enabled"
+        }
+      },
+      "additionalProperties": false
+    },
+    "display": {
+      "type": "object",
+      "description": "Display preferences for status and informational output",
+      "properties": {
+        "showArchiveCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show count of archived tasks in status"
+        },
+        "showLogSummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show recent log summary in status"
+        },
+        "warnStaleDays": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Warn about tasks older than this many days"
+        }
+      },
+      "additionalProperties": false
+    },
+    "cli": {
+      "type": "object",
+      "description": "CLI behavior and customization",
+      "properties": {
+        "aliases": {
+          "type": "object",
+          "description": "Custom command aliases (alias → command)",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "examples": [
+            {"ls": "list", "done": "complete", "new": "add"}
+          ]
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Plugin system configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable plugin discovery and loading"
+            },
+            "directories": {
+              "type": "array",
+              "items": {"type": "string"},
+              "default": ["~/.cleo/plugins", "./.claude/plugins"],
+              "description": "Directories to search for plugins"
+            },
+            "autoDiscover": {
+              "type": "boolean",
+              "default": true,
+              "description": "Auto-discover plugins in plugin directories"
+            }
+          },
+          "additionalProperties": false
+        },
+        "debug": {
+          "type": "object",
+          "description": "Debug and diagnostic settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable debug output"
+            },
+            "validateMappings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Validate command mappings on startup"
+            },
+            "checksumVerify": {
+              "type": "boolean",
+              "default": true,
+              "description": "Verify script checksums"
+            },
+            "showTimings": {
+              "type": "boolean",
+              "default": false,
+              "description": "Show execution timing information"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default values for new tasks (can be overridden per-project)",
+      "properties": {
+        "priority": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "default": "medium",
+          "description": "Default priority for new tasks"
+        },
+        "labels": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": [],
+          "description": "Default labels for new tasks"
+        }
+      },
+      "additionalProperties": false
+    },
+    "multiSession": {
+      "type": "object",
+      "description": "Multi-session configuration for concurrent agent work",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable multi-session support"
+        },
+        "maxConcurrentSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "description": "Maximum concurrent sessions allowed"
+        },
+        "maxActiveTasksPerScope": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1,
+          "description": "Maximum active tasks per session scope"
+        },
+        "scopeValidation": {
+          "type": "string",
+          "enum": ["strict", "warn", "none"],
+          "default": "strict",
+          "description": "Scope validation level"
+        },
+        "allowNestedScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow nested session scopes"
+        },
+        "allowScopeOverlap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow overlapping session scopes"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

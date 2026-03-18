@@ -1,0 +1,20 @@
+{
+  "$schema": "../schemas/sessions.schema.json",
+  "version": "{{SCHEMA_VERSION_SESSIONS}}",
+  "project": "{{PROJECT_NAME}}",
+  "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_SESSIONS}}",
+    "checksum": "",
+    "lastModified": "{{TIMESTAMP}}",
+    "totalSessionsCreated": 0
+  },
+  "config": {
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false
+  },
+  "sessions": [],
+  "sessionHistory": []
+}

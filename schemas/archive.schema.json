@@ -1,0 +1,450 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v3.1/archive.schema.json",
+  "schemaVersion": "2.4.0",
+  "title": "CLEO Archive Schema",
+  "description": "Storage for completed and cancelled tasks. Archived tasks are IMMUTABLE - never modify after archival.",
+  "type": "object",
+  "required": [
+    "version",
+    "project",
+    "archivedTasks",
+    "_meta"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Legacy schema version field (deprecated, use _meta.schemaVersion)"
+    },
+    "project": {
+      "type": "string",
+      "description": "Project identifier. Must match todo.json project."
+    },
+    "_meta": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "totalArchived",
+        "lastArchived"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this file (semver). Canonical source for schema version (replaces root version field)."
+        },
+        "totalArchived": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total count of archived tasks."
+        },
+        "lastArchived": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Timestamp of most recent archival operation."
+        },
+        "oldestTask": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Completion date of oldest archived task."
+        },
+        "newestTask": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Completion date of newest archived task."
+        },
+        "lastUnarchived": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Timestamp of most recent unarchive/restore operation."
+        },
+        "totalUnarchived": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total count of tasks restored from archive."
+        }
+      }
+    },
+    "archivedTasks": {
+      "type": "array",
+      "description": "Completed tasks moved from todo.json. IMMUTABLE after archival.",
+      "items": {
+        "$ref": "#/definitions/archivedTask"
+      }
+    },
+    "phaseSummary": {
+      "type": "object",
+      "description": "Aggregated phase completion statistics from archived tasks.",
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "object",
+          "properties": {
+            "totalTasks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total tasks archived from this phase."
+            },
+            "firstCompleted": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "description": "Earliest completion timestamp in this phase."
+            },
+            "lastCompleted": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "description": "Latest completion timestamp in this phase."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Computed statistics. Regenerate on archive operations.",
+      "properties": {
+        "cancelled": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total count of cancelled tasks archived."
+        },
+        "byPhase": {
+          "type": "object",
+          "description": "Task counts by phase.",
+          "patternProperties": {
+            "^[a-z][a-z0-9-]*$": {
+              "type": "integer"
+            }
+          }
+        },
+        "byPriority": {
+          "type": "object",
+          "description": "Task counts by priority.",
+          "properties": {
+            "critical": {
+              "type": "integer"
+            },
+            "high": {
+              "type": "integer"
+            },
+            "medium": {
+              "type": "integer"
+            },
+            "low": {
+              "type": "integer"
+            }
+          }
+        },
+        "byLabel": {
+          "type": "object",
+          "description": "Task counts by label.",
+          "patternProperties": {
+            "^[a-z][a-z0-9-]*$": {
+              "type": "integer"
+            }
+          }
+        },
+        "averageCycleTime": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Average days from creation to completion."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "archivedTask": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status",
+        "priority",
+        "createdAt",
+        "completedAt",
+        "_archive"
+      ],
+      "additionalProperties": false,
+      "description": "Archived task with original data plus archive metadata.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "cancelled"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "phase": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "depends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cancellationReason": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 300,
+          "pattern": "^[^`$;|&<>]*$"
+        },
+        "_archive": {
+          "type": "object",
+          "required": [
+            "archivedAt",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "description": "Archive metadata added during archival.",
+          "properties": {
+            "archivedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When this task was archived."
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "manual",
+                "stale",
+                "force",
+                "cascade",
+                "phase-complete",
+                "label-policy",
+                "cancelled"
+              ],
+              "description": "Archival trigger: auto=config rules, manual=user request, stale=exceeded retention, force=forced archive, cascade=parent archived, phase-complete=phase finished, label-policy=label rule matched, cancelled=task was cancelled/soft-deleted."
+            },
+            "sessionId": {
+              "type": "string",
+              "description": "Session that performed the archival."
+            },
+            "cycleTimeDays": {
+              "type": "number",
+              "description": "Days from creation to completion."
+            },
+            "archiveSource": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "manual",
+                "force",
+                "all",
+                "cascade",
+                "phase-trigger",
+                "unarchive-restore"
+              ],
+              "description": "How the archive operation was initiated: auto=automatic config rules, manual=user-initiated single task, force=forced regardless of state, all=bulk archive all eligible, cascade=triggered by parent archive, phase-trigger=phase completion triggered, unarchive-restore=metadata preserved from restore operation."
+            },
+            "triggerDetails": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Details about what triggered the archive operation.",
+              "properties": {
+                "phase": {
+                  "type": "string",
+                  "description": "Phase that triggered the archive (if phase-triggered)."
+                },
+                "parentId": {
+                  "type": "string",
+                  "pattern": "^T\\d{3,}$",
+                  "description": "Parent task ID that triggered cascade archive."
+                },
+                "configRule": {
+                  "type": "string",
+                  "description": "Name or identifier of the config rule that matched."
+                },
+                "labelPolicy": {
+                  "type": "string",
+                  "description": "Label policy name that triggered the archive."
+                }
+              }
+            },
+            "relationshipState": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "State of task relationships at archive time for restoration.",
+              "properties": {
+                "hadChildren": {
+                  "type": "boolean",
+                  "description": "Whether this task had child tasks at archive time."
+                },
+                "childIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^T\\d{3,}$"
+                  },
+                  "description": "IDs of child tasks that were archived with this task."
+                },
+                "hadDependents": {
+                  "type": "boolean",
+                  "description": "Whether other tasks depended on this task at archive time."
+                },
+                "dependentIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^T\\d{3,}$"
+                  },
+                  "description": "IDs of tasks that depended on this task."
+                },
+                "parentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^T\\d{3,}$",
+                  "description": "Parent task ID if this was a child task, null if root."
+                }
+              }
+            },
+            "restoreInfo": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Information for potential restoration of this task.",
+              "properties": {
+                "originalStatus": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "active",
+                    "blocked",
+                    "done"
+                  ],
+                  "description": "Task status before it was completed (for restoration context)."
+                },
+                "canRestore": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Whether this task can be safely restored."
+                },
+                "restoreBlockers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Reasons why restoration might fail or require manual intervention."
+                }
+              }
+            },
+            "cancellationDetails": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Details about task cancellation. Present when reason='cancelled'.",
+              "properties": {
+                "cancelledAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO 8601 timestamp when the task was cancelled."
+                },
+                "cancellationReason": {
+                  "type": "string",
+                  "minLength": 5,
+                  "maxLength": 300,
+                  "description": "User-provided reason for cancellation."
+                },
+                "cancelledBy": {
+                  "type": "string",
+                  "description": "Session ID or user that performed the cancellation."
+                },
+                "previousStatus": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "active",
+                    "blocked"
+                  ],
+                  "description": "Task status before cancellation."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,9 +1,12 @@
 /**
  * TodoWrite merge logic — merge Claude TodoWrite state back to CLEO tasks.
  *
- * Extracted from CLI extract command to live in @cleocode/core.
- * Uses core task operations (completeTask, updateTask, addTask) instead
- * of direct task object mutations.
+ * @deprecated Use the provider-agnostic reconciliation engine instead:
+ *   import { reconcile } from '../reconciliation/index.js';
+ *   import { ClaudeCodeTaskSyncProvider } from '@cleocode/adapters';
+ *
+ * This module is preserved as a thin compatibility wrapper. New code should
+ * use the reconciliation engine directly.
  *
  * @task T4551
  * @epic T4545
@@ -23,29 +26,29 @@ import { updateTask } from '../tasks/update.js';
 import { addTask } from '../tasks/add.js';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (preserved for backward compatibility)
 // ---------------------------------------------------------------------------
 
-/** TodoWrite item as exported by Claude. */
+/** @deprecated Use ExternalTask from @cleocode/contracts instead. */
 export interface TodoWriteItem {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
   activeForm?: string;
 }
 
-/** TodoWrite state file format. */
+/** @deprecated Use AdapterTaskSyncProvider.getExternalTasks() instead. */
 export interface TodoWriteState {
   todos: TodoWriteItem[];
 }
 
-/** Sync session state (persisted in .cleo/sync/todowrite-session.json). */
+/** @deprecated Use SyncSessionState from @cleocode/contracts instead. */
 export interface SyncSessionState {
   injected_tasks: string[];
   injectedPhase?: string;
   task_metadata?: Record<string, { phase?: string }>;
 }
 
-/** Detected changes from TodoWrite state. */
+/** @deprecated Use ReconcileAction from @cleocode/contracts instead. */
 export interface ChangeSet {
   completed: string[];
   progressed: string[];
@@ -53,7 +56,7 @@ export interface ChangeSet {
   removed: string[];
 }
 
-/** Options for the merge operation. */
+/** @deprecated Use ReconcileOptions from @cleocode/contracts instead. */
 export interface TodoWriteMergeOptions {
   /** Path to the TodoWrite JSON state file. */
   file: string;
@@ -67,7 +70,7 @@ export interface TodoWriteMergeOptions {
   accessor?: DataAccessor;
 }
 
-/** Result of the merge operation. */
+/** @deprecated Use ReconcileResult from @cleocode/contracts instead. */
 export interface TodoWriteMergeResult {
   dryRun: boolean;
   changes: {
@@ -104,6 +107,7 @@ function stripPrefixes(content: string): string {
 
 /**
  * Analyze TodoWrite state and detect changes against injected task IDs.
+ * @deprecated Use reconcile() from the reconciliation engine instead.
  */
 export function analyzeChanges(todowriteState: TodoWriteState, injectedIds: string[]): ChangeSet {
   const foundIds: string[] = [];
@@ -142,8 +146,11 @@ export function analyzeChanges(todowriteState: TodoWriteState, injectedIds: stri
 /**
  * Merge TodoWrite state back to CLEO tasks.
  *
- * Reads a TodoWrite JSON file, detects completed/progressed/new tasks,
- * and applies changes through core task operations (completeTask, updateTask, addTask).
+ * @deprecated Use the provider-agnostic reconciliation engine instead:
+ *   import { reconcile } from '../reconciliation/index.js';
+ *   import { ClaudeCodeTaskSyncProvider } from '@cleocode/adapters';
+ *
+ * This function is preserved for backward compatibility.
  */
 export async function mergeTodoWriteState(
   options: TodoWriteMergeOptions,

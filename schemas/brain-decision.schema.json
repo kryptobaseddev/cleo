@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/brain-decision.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO BRAIN Decision Memory Schema",
+  "description": "Schema for decision memory entries. Runtime store is SQLite (brain_decisions table). JSONL format is used for export/import portability. See ADR-009 Section 3.2.",
+  "type": "object",
+  "required": ["id", "type", "decision", "rationale", "confidence", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^D\\d+$",
+      "description": "Decision identifier (e.g., 'D001')."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["architecture", "technical", "process", "strategic", "tactical"],
+      "description": "Category of the decision."
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The decision statement."
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why this decision was made."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Confidence level in the decision."
+    },
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": ["success", "failure", "mixed", "pending", null],
+      "description": "Observed outcome of the decision. Null if not yet evaluated."
+    },
+    "alternatives": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Alternative approaches that were considered."
+    },
+    "contextEpicId": {
+      "type": ["string", "null"],
+      "description": "Epic ID this decision relates to."
+    },
+    "contextTaskId": {
+      "type": ["string", "null"],
+      "description": "Task ID this decision relates to."
+    },
+    "contextPhase": {
+      "type": ["string", "null"],
+      "description": "Lifecycle phase when the decision was made."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the decision was recorded."
+    },
+    "updatedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update."
+    }
+  }
+}

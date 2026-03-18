@@ -64,6 +64,7 @@ export * as spawn from './spawn/index.js';
 export * as stats from './stats/index.js';
 export * as sticky from './sticky/index.js';
 export * as system from './system/index.js';
+export * as reconciliation from './reconciliation/index.js';
 export * as taskWork from './task-work/index.js';
 export * as tasks from './tasks/index.js';
 export * as templates from './templates/index.js';
@@ -210,6 +211,9 @@ export {
 } from './memory/brain-retrieval.js';
 export { searchBrain } from './memory/brain-search.js';
 
+// Reconciliation
+export { reconcile } from './reconciliation/index.js';
+
 // Task work
 export { currentTask, startTask, stopTask } from './task-work/index.js';
 
@@ -231,5 +235,6 @@ export type {
   ReleaseAPI,
   SessionsAPI,
   StickyAPI,
+  SyncAPI,
   TasksAPI,
 } from './cleo.js';

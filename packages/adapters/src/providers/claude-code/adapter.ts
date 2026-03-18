@@ -22,6 +22,7 @@ import { ClaudeCodeHookProvider } from './hooks.js';
 import { ClaudeCodeInstallProvider } from './install.js';
 import { ClaudeCodePathProvider } from './paths.js';
 import { ClaudeCodeSpawnProvider } from './spawn.js';
+import { ClaudeCodeTaskSyncProvider } from './task-sync.js';
 import { ClaudeCodeTransportProvider } from './transport.js';
 
 const execAsync = promisify(exec);
@@ -57,6 +58,7 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     supportsStatusline: true,
     supportsProviderPaths: true,
     supportsTransport: true,
+    supportsTaskSync: true,
   };
 
   hooks: ClaudeCodeHookProvider;
@@ -65,6 +67,7 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
   paths: ClaudeCodePathProvider;
   contextMonitor: ClaudeCodeContextMonitorProvider;
   transport: ClaudeCodeTransportProvider;
+  taskSync: ClaudeCodeTaskSyncProvider;
 
   private projectDir: string | null = null;
   private initialized = false;
@@ -76,6 +79,7 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     this.paths = new ClaudeCodePathProvider();
     this.contextMonitor = new ClaudeCodeContextMonitorProvider();
     this.transport = new ClaudeCodeTransportProvider();
+    this.taskSync = new ClaudeCodeTaskSyncProvider();
   }
 
   /**

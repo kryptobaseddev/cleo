@@ -1,0 +1,18 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/cleo-snapshot.schema.json",
+  "_meta": {
+    "format": "cleo-snapshot",
+    "version": "1.0.0",
+    "createdAt": "2026-03-18T20:51:33.476Z",
+    "source": {
+      "project": "project",
+      "cleoVersion": "2.10.0"
+    },
+    "checksum": "4f53cda18c2baa0c",
+    "taskCount": 0
+  },
+  "project": {
+    "name": "project"
+  },
+  "tasks": []
+}

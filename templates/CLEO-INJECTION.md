@@ -1,0 +1,120 @@
+# CLEO Protocol
+
+Version: 2.1.0
+Status: ACTIVE
+
+## CLEO Identity
+
+You are a CLEO protocol agent. Use MCP-first operations:
+- `query` for reads
+- `mutate` for writes
+
+## Mandatory Efficiency Sequence
+
+Run cheapest-first at session start:
+1. `query session status` — resume existing? (~200 tokens)
+2. `query admin dash` — project overview (~500 tokens)
+3. `query tasks current` — active task? (~100 tokens)
+4. `query tasks next` — what to work on (~300 tokens)
+5. `query tasks show` — full details for chosen task (~400 tokens)
+
+## Agent Work Loop
+
+Repeat until session ends:
+1. `tasks current` or `tasks next` → pick task
+2. `tasks show {id}` → read requirements
+3. Do the work (code, test, document)
+4. `tasks complete {id}` → mark done
+5. `tasks next` → continue or end session
+
+## Context Ethics
+
+Every MCP call costs tokens. Budget wisely:
+
+| Operation | ~Tokens | When to Use |
+|-----------|---------|-------------|
+| `tasks find` | 200-400 | Discovery (NOT `tasks list`) |
+| `tasks show` | 300-600 | After choosing a specific task |
+| `tasks list` | 1000-5000 | ONLY for direct children of a known parent |
+| `admin help` | 500-2000 | ONCE per session, at tier 0 first |
+
+**Anti-patterns:**
+- Calling `tasks list` without filters (returns ALL tasks with notes)
+- Calling `admin help --tier 2` before trying tier 0
+- Reading full task details for tasks you won't work on
+
+## Error Handling
+
+Always check `success` and exit code values. Treat non-zero exit code as failure.
+
+## Task Discovery
+
+**ALWAYS use `tasks find` for discovery. NEVER use `tasks list` for browsing.**
+
+- `tasks find` → minimal fields, fast, low context cost ✓
+- `tasks list` → full notes arrays, huge, use only for direct children ✗
+- `tasks show` → full details for a specific known task ID ✓
+
+## Time Estimates Prohibited
+
+Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large` sizing.
+
+## Session Quick Reference
+
+| Goal | Operation | Gateway |
+|------|-----------|---------|
+| Check active session | `session status` | query |
+| Resume context from last session | `session handoff.show` | query |
+| Start working | `session start` (scope required) | mutate |
+| Stop working | `session end` | mutate |
+
+For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo/agent-outputs/T5124-session-decision-tree.md`
+
+**Budget note**: `session list` defaults to 10 results (~500-2000 tokens). Prefer `session find` for discovery (~200-400 tokens).
+
+## Memory Protocol
+
+CLEO includes a native BRAIN memory system. Use the 3-layer retrieval pattern for token-efficient access:
+
+| Step | Operation | Gateway | ~Tokens | Purpose |
+|------|-----------|---------|---------|---------|
+| 1 | `memory brain.search` | query | 50/hit | Search index (IDs + titles) |
+| 2 | `memory brain.timeline` | query | 200-500 | Context around an anchor ID |
+| 3 | `memory brain.fetch` | query | 500/entry | Full details for filtered IDs |
+| Save | `memory brain.observe` | mutate | — | Save observation to brain.db |
+
+**Workflow**: Search first (cheap) → filter interesting IDs → fetch only what you need.
+
+**Example**:
+```
+query memory brain.search {query: "authentication"}
+query memory brain.fetch {ids: ["O-abc123"]}
+mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery"}
+```
+
+**Anti-patterns:**
+- Fetching all entries without searching first (expensive)
+- Skipping brain.search and going straight to brain.fetch
+
+## Memory Bridge
+
+CLEO auto-generates `.cleo/memory-bridge.md` from brain.db content. This file is `@`-referenced
+in AGENTS.md so providers automatically load project memory context at session start.
+
+**Contents**: Last session handoff, key learnings, active patterns, recent decisions, recent observations.
+
+**Refreshes on**: `session.end`, `tasks.complete`, `memory.observe` (decisions), `cleo refresh-memory`.
+
+If the file is missing, run `cleo init` or `cleo refresh-memory` to regenerate it.
+
+## Escalation
+
+For deeper guidance beyond this minimal protocol:
+- **Session & lifecycle**: `query admin help` or load `ct-cleo` skill
+- **Orchestration**: `query admin help --tier 2` or load `ct-orchestrator` skill
+- **Operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
+
+## References
+
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
+- `docs/specs/VERB-STANDARDS.md`

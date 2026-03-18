@@ -1,0 +1,187 @@
+{
+  "$schema": "../schemas/config.schema.json",
+  "version": "{{SCHEMA_VERSION_CONFIG}}",
+  "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_CONFIG}}",
+    "createdAt": "{{TIMESTAMP}}",
+    "updatedAt": "{{TIMESTAMP}}"
+  },
+
+  "archive": {
+    "enabled": true,
+    "daysUntilArchive": 7,
+    "maxCompletedTasks": 15,
+    "preserveRecentCount": 3,
+    "archiveOnSessionEnd": true,
+    "autoArchiveOnComplete": false
+  },
+
+  "logging": {
+    "enabled": true,
+    "retentionDays": 30,
+    "level": "standard",
+    "logSessionEvents": true
+  },
+
+  "validation": {
+    "strictMode": false,
+    "checksumEnabled": true,
+    "enforceAcceptance": true,
+    "requireDescription": false,
+    "maxActiveTasks": 1,
+    "validateDependencies": true,
+    "detectCircularDeps": true
+  },
+
+  "defaults": {
+    "priority": "medium",
+    "phase": "core",
+    "labels": []
+  },
+
+  "session": {
+    "requireSession": true,
+    "requireSessionNote": true,
+    "requireNotesOnComplete": true,
+    "warnOnNoFocus": true,
+    "allowNestedSessions": true,
+    "allowParallelAgents": true,
+    "autoStartSession": true,
+    "autoDiscoveryOnStart": true,
+    "sessionTimeoutHours": 72
+  },
+
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false
+  },
+
+  "release": {
+    "gates": [],
+    "changelog": {
+      "enabled": true,
+      "autoGenerate": false,
+      "source": "CHANGELOG.md",
+      "outputs": []
+    }
+  },
+
+  "display": {
+    "showArchiveCount": true,
+    "showLogSummary": true,
+    "warnStaleDays": 30
+  },
+
+  "output": {
+    "defaultFormat": "text",
+    "showColor": true,
+    "showUnicode": true,
+    "showProgressBars": true,
+    "csvDelimiter": ",",
+    "dateFormat": "iso8601",
+    "showCompactTitles": false,
+    "maxTitleLength": 80
+  },
+
+  "cli": {
+    "aliases": {
+      "ls": "list",
+      "done": "complete",
+      "new": "add",
+      "edit": "update",
+      "rm": "archive",
+      "check": "validate"
+    },
+    "plugins": {
+      "enabled": true,
+      "directories": ["~/.cleo/plugins", "./.cleo/plugins"],
+      "autoDiscover": true
+    },
+    "debug": {
+      "enabled": true,
+      "validateMappings": true,
+      "checksumVerify": true,
+      "showTimings": false
+    }
+  },
+
+  "backup": {
+    "enabled": true,
+    "directory": ".cleo/backups",
+    "maxSnapshots": 10,
+    "maxSafetyBackups": 5,
+    "maxIncremental": 10,
+    "maxArchiveBackups": 3,
+    "safetyRetentionDays": 7
+  },
+
+  "cancellation": {
+    "cascadeConfirmThreshold": 10,
+    "requireReason": true,
+    "daysUntilArchive": 3,
+    "allowCascade": true,
+    "defaultChildStrategy": "block"
+  },
+
+  "contextAlerts": {
+    "enabled": true,
+    "minThreshold": "warning",
+    "triggerCommands": ["complete", "start", "stop", "add", "session"],
+    "suppressDuration": 0
+  },
+
+  "orchestrator": {
+    "contextThresholds": {
+      "warning": 70,
+      "critical": 80
+    },
+    "autoStopOnCritical": true,
+    "hitlSummaryOnPause": true
+  },
+
+  "agentOutputs": {
+    "directory": ".cleo/agent-outputs",
+    "manifestFile": "MANIFEST.jsonl",
+    "archiveDir": "archive",
+    "archiveDays": 30
+  },
+
+  "retention": {
+    "maxArchivedSessions": 100,
+    "autoArchiveEndedAfterDays": 30,
+    "autoDeleteArchivedAfterDays": 90,
+    "contextStateRetentionDays": 7,
+    "cleanupOnSessionEnd": true,
+    "dryRunByDefault": true,
+    "maxSessionsInMemory": 100,
+    "autoEndActiveAfterDays": 7
+  },
+
+  "project": {
+    "status": {
+      "health": "unknown",
+      "lastCheck": null,
+      "schemaVersions": {
+        "todo": "{{SCHEMA_VERSION_TODO}}",
+        "config": "{{SCHEMA_VERSION_CONFIG}}",
+        "archive": "{{SCHEMA_VERSION_ARCHIVE}}",
+        "log": "{{SCHEMA_VERSION_LOG}}"
+      },
+      "validation": {
+        "lastValidated": null,
+        "passed": false,
+        "errors": [],
+        "warnings": []
+      },
+      "injection": {
+        "CLAUDE.md": "not_found",
+        "AGENTS.md": "not_found",
+        "GEMINI.md": "not_found"
+      }
+    }
+  }
+}
