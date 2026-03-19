@@ -18,6 +18,7 @@
  *  11. Project type detection (--detect)
  *  12. Injection refresh (--update-docs)
  *  13. Git hook installation (commit-msg, pre-commit)
+ *  14. GitHub issue/PR templates (.github/ directory)
  *
  * @task T4681
  * @task T4682
@@ -32,7 +33,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, symlink, unlink } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { readJson } from './store/json.js';
 import { ExitCode } from '@cleocode/contracts';
@@ -303,6 +304,74 @@ export async function initNexusRegistration(
       );
     } else {
       warnings.push(`NEXUS registration: ${err instanceof Error ? err.message : errStr}`);
+    }
+  }
+}
+
+// ── GitHub Templates ─────────────────────────────────────────────────
+
+/**
+ * Install GitHub issue and PR templates to .github/ if a git repo exists
+ * but .github/ISSUE_TEMPLATE/ is not yet present.
+ *
+ * Idempotent: skips files that already exist. Never overwrites existing
+ * templates — the project owner's customisations take precedence.
+ *
+ * @param projectRoot  Absolute path to the project root.
+ * @param created      Array to push "created: ..." log entries into.
+ * @param skipped      Array to push "skipped: ..." log entries into.
+ */
+export async function installGitHubTemplates(
+  projectRoot: string,
+  created: string[],
+  skipped: string[],
+): Promise<void> {
+  // Only apply when a .git directory is present (i.e. this is a git repo)
+  if (!existsSync(join(projectRoot, '.git'))) {
+    return;
+  }
+
+  const githubDir = join(projectRoot, '.github');
+  const issueTemplateDir = join(githubDir, 'ISSUE_TEMPLATE');
+
+  // Locate bundled templates shipped alongside the package
+  const packageRoot = getPackageRoot();
+  const templateSrcDir = join(packageRoot, 'templates', 'github');
+
+  if (!existsSync(templateSrcDir)) {
+    // Templates not bundled — skip silently (e.g. development builds)
+    return;
+  }
+
+  // Ensure .github/ISSUE_TEMPLATE/ directory tree exists
+  await mkdir(issueTemplateDir, { recursive: true });
+
+  // ── ISSUE_TEMPLATE files ─────────────────────────────────────────
+  const issueSrcDir = join(templateSrcDir, 'ISSUE_TEMPLATE');
+  if (existsSync(issueSrcDir)) {
+    const issueFiles = readdirSync(issueSrcDir);
+    for (const file of issueFiles) {
+      const dest = join(issueTemplateDir, file);
+      if (existsSync(dest)) {
+        skipped.push(`.github/ISSUE_TEMPLATE/${file}`);
+        continue;
+      }
+      const content = readFileSync(join(issueSrcDir, file), 'utf-8');
+      await writeFile(dest, content, 'utf-8');
+      created.push(`.github/ISSUE_TEMPLATE/${file}`);
+    }
+  }
+
+  // ── pull_request_template.md ─────────────────────────────────────
+  const prTemplateSrc = join(templateSrcDir, 'pull_request_template.md');
+  const prTemplateDest = join(githubDir, 'pull_request_template.md');
+  if (existsSync(prTemplateSrc)) {
+    if (existsSync(prTemplateDest)) {
+      skipped.push('.github/pull_request_template.md');
+    } else {
+      const content = readFileSync(prTemplateSrc, 'utf-8');
+      await writeFile(prTemplateDest, content, 'utf-8');
+      created.push('.github/pull_request_template.md');
     }
   }
 }
@@ -621,6 +690,13 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     }
   } catch (err) {
     warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // GitHub issue/PR templates (.github/ directory)
+  try {
+    await installGitHubTemplates(projRoot, created, skipped);
+  } catch (err) {
+    warnings.push(`GitHub templates: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Remove .cleo/ from root .gitignore if present

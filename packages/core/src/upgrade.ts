@@ -29,6 +29,7 @@ import {
   initCoreSkills,
   initMcpServer,
   initNexusRegistration,
+  installGitHubTemplates,
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
@@ -884,8 +885,49 @@ export async function runUpgrade(
     } catch {
       /* best-effort */
     }
+
+    // GitHub issue/PR templates — install missing ones, warn if absent
+    try {
+      const { existsSync: fsExistsSync } = await import('node:fs');
+      const { join: pathJoin } = await import('node:path');
+      const hasGit = fsExistsSync(pathJoin(projectRootForMaint, '.git'));
+      const hasGitHubTemplates = fsExistsSync(
+        pathJoin(projectRootForMaint, '.github', 'ISSUE_TEMPLATE'),
+      );
+
+      if (hasGit && !hasGitHubTemplates) {
+        const ghCreated: string[] = [];
+        const ghSkipped: string[] = [];
+        await installGitHubTemplates(projectRootForMaint, ghCreated, ghSkipped);
+        if (ghCreated.length > 0) {
+          actions.push({
+            action: 'github_templates',
+            status: 'applied',
+            details: `Installed ${ghCreated.length} GitHub template(s): ${ghCreated.join(', ')}`,
+          });
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
   } else {
     // Dry-run reporting for new steps
+    const { existsSync: fsExistsSync } = await import('node:fs');
+    const { join: pathJoin } = await import('node:path');
+    const hasGit = fsExistsSync(pathJoin(getProjectRoot(options.cwd), '.git'));
+    const hasGitHubTemplates = fsExistsSync(
+      pathJoin(getProjectRoot(options.cwd), '.github', 'ISSUE_TEMPLATE'),
+    );
+    if (hasGit && !hasGitHubTemplates) {
+      actions.push({
+        action: 'github_templates',
+        status: 'preview',
+        details:
+          'Would install GitHub issue/PR templates to .github/ — run `cleo init` or `cleo upgrade --fix` to apply',
+        fix: 'cleo upgrade',
+      });
+    }
+
     actions.push({
       action: 'structural_maintenance',
       status: 'preview',

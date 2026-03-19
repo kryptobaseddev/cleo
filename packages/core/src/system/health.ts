@@ -741,6 +741,23 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     ...(existsSync(agentDefPath) ? {} : { fix: 'cleo init' }),
   });
 
+  // 6a. GitHub templates presence (informational only — non-critical)
+  const gitDir = join(projectRoot, '.git');
+  const gitHubTemplatesDir = join(projectRoot, '.github', 'ISSUE_TEMPLATE');
+  if (existsSync(gitDir)) {
+    // Only check when this is a git repo
+    checks.push({
+      check: 'github_templates',
+      status: existsSync(gitHubTemplatesDir) ? 'ok' : 'warning',
+      message: existsSync(gitHubTemplatesDir)
+        ? '.github/ISSUE_TEMPLATE/ present'
+        : '.github/ISSUE_TEMPLATE/ not found — run: cleo init or cleo upgrade',
+      ...(existsSync(gitHubTemplatesDir)
+        ? {}
+        : { fix: 'cleo init' }),
+    });
+  }
+
   // 6. Environment - Node.js version validation
   checks.push(mapCheckResult(checkNodeVersion()));
 
