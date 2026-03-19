@@ -198,7 +198,7 @@ jobs:
         run: pnpm install --frozen-lockfile && node build.mjs
       - name: Test global link (simulates global install)
         run: |
-          pnpm link --global packages/cleo
+          cd packages/cleo && pnpm link --global && cd ../..
           cleo version
           cleo --help
       - name: Test MCP server flag
