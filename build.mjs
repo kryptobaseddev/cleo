@@ -145,6 +145,15 @@ const adaptersBuildOptions = {
 // ---------------------------------------------------------------------------
 
 async function build() {
+  // Build contracts first (tsc, not esbuild — types-only package)
+  console.log('Building @cleocode/contracts...');
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('pnpm', ['--filter', '@cleocode/contracts', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/contracts/dist/');
+
   console.log('Building @cleocode/core...');
   await esbuild.build(coreBuildOptions);
   console.log('  -> packages/core/dist/index.js');
