@@ -92,7 +92,7 @@ describe('findSessions (T5119)', () => {
     const result = await findSessions(accessor);
 
     expect(result).toHaveLength(1);
-    const record = result[0] as Record<string, unknown>;
+    const record = result[0] as unknown as Record<string, unknown>;
     expect(record['notes']).toBeUndefined();
     expect(record['handoffJson']).toBeUndefined();
     expect(record['tasksCompleted']).toBeUndefined();

@@ -256,13 +256,13 @@ export {
   requiresCLI,
 } from './routing/capability-matrix.js';
 export type { RateLimitConfig, RateLimitResult } from './security/index.js';
-export type { SecurityError } from './security/input-sanitization.js';
 // Security
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
   ensureArray,
   RateLimiter,
+  SecurityError,
   sanitizeContent,
   sanitizeParams,
   sanitizePath,

@@ -1,0 +1,357 @@
+---
+title: "contracts — Functions"
+description: "Functions and classes for the contracts package"
+---
+Functions and classes exported by this package.
+
+## isValidStatus()
+
+**Signature**
+
+```typescript
+(entityType: EntityType, value: string) => boolean
+```
+
+## SessionView
+
+SessionView — typed wrapper over Session[] with collection helpers.  Provides discoverable query methods for common session lookups. Does NOT change the DataAccessor interface — consumers create views from Session[].
+
+**Signature**
+
+```typescript
+typeof SessionView
+```
+
+**Methods**
+
+### from()
+
+Create a SessionView from a Session array.
+
+```typescript
+(sessions: Session[]) => SessionView
+```
+
+### findActive()
+
+Find the currently active session (if any).
+
+```typescript
+() => Session | undefined
+```
+
+### findById()
+
+Find a session by ID.
+
+```typescript
+(id: string) => Session | undefined
+```
+
+### filterByStatus()
+
+Filter sessions by one or more statuses.
+
+```typescript
+(...statuses: ("active" | "ended" | "orphaned" | "suspended")[]) => Session[]
+```
+
+### findByScope()
+
+Find sessions matching a scope type and optional rootTaskId.
+
+```typescript
+(type: string, rootTaskId?: string | undefined) => Session[]
+```
+
+### sortByDate()
+
+Sort sessions by a date field. Returns a new array (does not mutate).
+
+```typescript
+(field: "startedAt" | "endedAt", descending?: boolean) => Session[]
+```
+
+### mostRecent()
+
+Get the most recently started session.
+
+```typescript
+() => Session | undefined
+```
+
+### toArray()
+
+Convert back to a plain Session array (shallow copy).
+
+```typescript
+() => Session[]
+```
+
+### [Symbol.iterator]()
+
+Support for-of iteration.
+
+```typescript
+() => Iterator<Session, any, any>
+```
+
+## normalizeError(error, fallbackMessage)
+
+Normalize any thrown value into a standardized error object.  Handles: - Error instances (preserves stack trace info) - Strings (wraps in Error) - Objects with message property - null/undefined (provides fallback)
+
+**Signature**
+
+```typescript
+(error: unknown, fallbackMessage?: string) => Error
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `error` | `unknown` | The thrown value to normalize |
+| `fallbackMessage` | `: string` | Message to use if error provides none |
+
+**Returns** — Normalized error with consistent shape
+
+**Example**
+
+```typescript
+try {
+  await riskyOperation();
+} catch (err) {
+  const error = normalizeError(err, 'Operation failed');
+  console.error(error.message);
+}
+```
+
+## getErrorMessage(error, fallback)
+
+Extract a human-readable message from any error value.  Safe to use on unknown thrown values without type guards.
+
+**Signature**
+
+```typescript
+(error: unknown, fallback?: string) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `error` | `unknown` | The error value |
+| `fallback` | `: string` | Fallback message if extraction fails |
+
+**Returns** — The error message string
+
+**Example**
+
+```typescript
+const message = getErrorMessage(err, 'Unknown error');
+```
+
+## formatError(error, context, includeStack)
+
+Format error details for logging or display.  Includes stack trace for Error instances when includeStack is true.
+
+**Signature**
+
+```typescript
+(error: unknown, context?: string | undefined, includeStack?: boolean) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `error` | `unknown` | The error to format |
+| `context` | `: string \| undefined` | Optional context to prepend |
+| `includeStack` | `: boolean` | Whether to include stack traces (default: false) |
+
+**Returns** — Formatted error string
+
+**Example**
+
+```typescript
+console.error(formatError(err, 'Database connection'));
+// Output: [Database connection] Connection refused
+```
+
+## isErrorType(error, codeOrName)
+
+Check if an error represents a specific error type by code or name.  Useful for conditional error handling based on error types.
+
+**Signature**
+
+```typescript
+(error: unknown, codeOrName: string) => boolean
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `error` | `unknown` | The error to check |
+| `codeOrName` | `string` | The error code or name to match |
+
+**Returns** — True if the error matches
+
+**Example**
+
+```typescript
+if (isErrorType(err, 'E_NOT_FOUND')) {
+  // Handle not found specifically
+}
+```
+
+## createErrorResult(error)
+
+Create a standardized error result object.  Common pattern for operations that return  success: boolean, error?: string
+
+**Signature**
+
+```typescript
+(error: unknown) => { success: false; error: string; }
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `error` | `unknown` | The error value |
+
+**Returns** — Error result object
+
+**Example**
+
+```typescript
+return createErrorResult(err);
+// Returns: { success: false, error: "Something went wrong" }
+```
+
+## createSuccessResult()
+
+Create a standardized success result object.
+
+**Signature**
+
+```typescript
+() => { success: true; }
+```
+
+**Returns** — Success result object
+
+**Example**
+
+```typescript
+return createSuccessResult();
+// Returns: { success: true }
+```
+
+## isErrorResult(result)
+
+Type guard for error results.
+
+**Signature**
+
+```typescript
+(result: { success: boolean; error?: string | undefined; }) => result is { success: false; error: string; }
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `result` | `{ success: boolean; error?: string \| undefined; }` | The result to check |
+
+**Returns** — True if the result is an error result
+
+**Example**
+
+```typescript
+const result = await someOperation();
+if (isErrorResult(result)) {
+  console.error(result.error);
+}
+```
+
+## isErrorCode()
+
+Check if an exit code represents an error (1-99).
+
+**Signature**
+
+```typescript
+(code: ExitCode) => boolean
+```
+
+## isSuccessCode()
+
+Check if an exit code represents success (0 or 100+).
+
+**Signature**
+
+```typescript
+(code: ExitCode) => boolean
+```
+
+## isNoChangeCode()
+
+Check if an exit code indicates no change (idempotent operation).
+
+**Signature**
+
+```typescript
+(code: ExitCode) => boolean
+```
+
+## isRecoverableCode()
+
+Check if an exit code is recoverable (retry may succeed).
+
+**Signature**
+
+```typescript
+(code: ExitCode) => boolean
+```
+
+## getExitCodeName()
+
+Human-readable name for an exit code.
+
+**Signature**
+
+```typescript
+(code: ExitCode) => string
+```
+
+## isLafsSuccess()
+
+Type guard for success responses.
+
+**Signature**
+
+```typescript
+<T>(envelope: LafsEnvelope<T>) => envelope is LafsSuccess<T>
+```
+
+## isLafsError()
+
+Type guard for error responses.
+
+**Signature**
+
+```typescript
+<T>(envelope: LafsEnvelope<T>) => envelope is LafsError
+```
+
+## isGatewayEnvelope()
+
+Type guard for MCP gateway responses (has _meta).
+
+**Signature**
+
+```typescript
+<T>(envelope: CleoResponse<T>) => envelope is GatewayEnvelope<T>
+```

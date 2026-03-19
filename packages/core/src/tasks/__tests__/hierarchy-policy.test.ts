@@ -51,7 +51,15 @@ function makeConfig(hierarchy?: Partial<CleoConfig['hierarchy']>): CleoConfig {
     },
     session: { autoStart: false, requireNotes: false, multiSession: false },
     lifecycle: { mode: 'advisory' },
-    logging: { level: 'info', filePath: 'logs/cleo.log', maxFileSize: 10_000_000, maxFiles: 5 },
+    logging: {
+      level: 'info',
+      filePath: 'logs/cleo.log',
+      maxFileSize: 10_000_000,
+      maxFiles: 5,
+      auditRetentionDays: 90,
+      archiveBeforePrune: true,
+    },
+    sharing: { mode: 'none', commitAllowlist: [], denylist: [] },
   };
 }
 
@@ -83,7 +91,7 @@ describe('resolveHierarchyPolicy', () => {
   it('resolves llm-agent-first profile defaults', () => {
     // Build config with only enforcementProfile, no explicit field overrides
     const config = makeConfig({ enforcementProfile: 'llm-agent-first' });
-    const h = config.hierarchy as Record<string, unknown>;
+    const h = config.hierarchy as unknown as Record<string, unknown>;
     delete h.maxSiblings;
     delete h.maxActiveSiblings;
     delete h.maxDepth;
@@ -98,7 +106,7 @@ describe('resolveHierarchyPolicy', () => {
 
   it('resolves human-cognitive profile defaults', () => {
     const config = makeConfig({ enforcementProfile: 'human-cognitive' });
-    const h = config.hierarchy as Record<string, unknown>;
+    const h = config.hierarchy as unknown as Record<string, unknown>;
     delete h.maxSiblings;
     delete h.maxActiveSiblings;
     delete h.maxDepth;
@@ -128,7 +136,7 @@ describe('resolveHierarchyPolicy', () => {
     // Build a config with no explicit hierarchy overrides, then delete enforcementProfile.
     // This way the profile defaults won't be overridden by config fields.
     const config = makeConfig();
-    const h = config.hierarchy as Record<string, unknown>;
+    const h = config.hierarchy as unknown as Record<string, unknown>;
     delete h.enforcementProfile;
     delete h.maxSiblings;
     delete h.maxActiveSiblings;

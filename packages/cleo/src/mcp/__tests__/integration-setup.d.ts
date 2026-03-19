@@ -22,6 +22,7 @@ interface ExecutorResult<T = unknown> {
     code?: string;
     message: string;
     details?: any;
+    exitCode?: number;
   };
   stdout: string;
   stderr: string;

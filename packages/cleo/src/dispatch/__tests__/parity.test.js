@@ -61,9 +61,7 @@ describe('Group 1: Registry completeness', () => {
             // Only validate ops that have populated params arrays (T4897 migration ops)
             if (!op.params || op.params.length === 0)
                 continue;
-            const derivedRequired = op.params
-                .filter((p) => p.required)
-                .map((p) => p.name);
+            const derivedRequired = op.params.filter((p) => p.required).map((p) => p.name);
             // requiredParams should be consistent with the params array when both are present.
             // We use a set comparison since order may differ.
             const requiredSet = new Set(op.requiredParams);

@@ -213,7 +213,7 @@ describe('archiveTasks', () => {
       status: 'done',
       priority: 'medium',
       createdAt: '2025-01-01T00:00:00Z',
-    } as import('../../../types/task.js').Task);
+    } as import('@cleocode/contracts').Task);
 
     await archiveTasks({ taskIds: ['T002'] }, env.tempDir, accessor);
 

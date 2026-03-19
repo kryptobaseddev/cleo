@@ -48,7 +48,7 @@ describe('CursorAdapter', () => {
   });
 
   it('has no spawn provider', () => {
-    expect((adapter as Record<string, unknown>).spawn).toBeUndefined();
+    expect((adapter as unknown as Record<string, unknown>).spawn).toBeUndefined();
   });
 
   it('exposes hooks and install providers', () => {

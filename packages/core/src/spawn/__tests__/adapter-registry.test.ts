@@ -1,5 +1,5 @@
+import type { CLEOSpawnAdapter } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CLEOSpawnAdapter } from '../../../types/spawn.js';
 import {
   initializeDefaultAdapters,
   SpawnAdapterRegistry,

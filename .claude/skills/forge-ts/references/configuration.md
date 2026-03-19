@@ -8,6 +8,9 @@ forge-ts looks for configuration in this order:
 3. `"forge-ts"` key in `package.json`
 4. Built-in defaults
 
+Unknown keys produce a warning to stderr and in the JSON envelope
+(`result._warnings`). They are not rejected — config loading is lenient.
+
 ## Full Configuration
 
 ```typescript
@@ -40,8 +43,8 @@ export default {
   },
 
   api: {
-    enabled: true,
-    openapi: true,
+    enabled: false,
+    openapi: false,
     openapiPath: "./docs/generated/api/openapi.json",
   },
 
@@ -53,11 +56,19 @@ export default {
     ssgTarget: "mintlify",      // "mintlify" | "docusaurus" | "nextra" | "vitepress"
   },
 
+  skill: {
+    enabled: true,              // defaults to gen.llmsTxt value
+    customSections: [],
+    extraGotchas: [],
+  },
+
   // Auto-detected from package.json if not set
   project: {
     repository: "https://github.com/user/repo",
     homepage: "https://example.com",
     packageName: "@scope/package-name",
+    description: "Short description",
+    version: "1.0.0",
   },
 } satisfies Partial<ForgeConfig>;
 ```
@@ -73,13 +84,25 @@ export default {
 | `api.enabled` | `false` |
 | `gen.enabled` | `true` |
 | `gen.llmsTxt` | `true` |
-| `gen.ssgTarget` | Mintlify (default adapter) |
+| `gen.ssgTarget` | `undefined` (Mintlify used as default adapter) |
+| `skill.enabled` | follows `gen.llmsTxt` |
 
 ## Project Metadata
 
 Auto-populated from `package.json`:
-- `repository` from `repository.url`
+- `repository` from `repository.url` (git+https normalized)
 - `homepage` from `homepage`
 - `packageName` from `name`
+- `description` from `description`
+- `version` from `version`
+- `bin` from `bin` (CLI detection for script generation)
+- `scripts` from `scripts`
+- `keywords` from `keywords`
 
-Used in generated documentation links, install commands, and SSG configs.
+Used in generated documentation links, install commands, SSG configs,
+and skill package content.
+
+## Skill Configuration
+
+See [skill-config.md](skill-config.md) for detailed skill package
+configuration including custom sections and extra gotchas.

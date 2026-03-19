@@ -46,6 +46,7 @@ describe('Safety Performance', () => {
             await createTask({
                 id: 'T000',
                 title: 'Warmup',
+                description: 'Warmup task',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -53,6 +54,7 @@ describe('Safety Performance', () => {
             const taskData = {
                 id: 'T001',
                 title: 'Performance test task',
+                description: 'Task for performance measurement',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -72,6 +74,7 @@ describe('Safety Performance', () => {
             await createTask({
                 id: 'T001',
                 title: 'Verify perf test',
+                description: 'Task for verify performance test',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -87,6 +90,7 @@ describe('Safety Performance', () => {
             await createTask({
                 id: 'T001',
                 title: 'Collision check perf',
+                description: 'Task for collision check performance',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -105,6 +109,7 @@ describe('Safety Performance', () => {
                 await createTask({
                     id: `T${String(i + 1).padStart(3, '0')}`,
                     title: `Bulk task ${i + 1}`,
+                    description: `Bulk task ${i + 1} description`,
                     status: 'pending',
                     priority: 'medium',
                     createdAt: new Date().toISOString(),
@@ -122,6 +127,7 @@ describe('Safety Performance', () => {
                 await createTask({
                     id: `T${String(i + 1).padStart(3, '0')}`,
                     title: `Verify perf task ${i + 1}`,
+                    description: `Verify perf task ${i + 1} description`,
                     status: 'pending',
                     priority: 'medium',
                     createdAt: new Date().toISOString(),

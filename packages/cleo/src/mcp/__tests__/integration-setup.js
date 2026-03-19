@@ -800,8 +800,8 @@ export async function getAuditLogEntries(projectRootOrTestDataDir, filter) {
         try {
             const dbPath = path.join(projectRoot, '.cleo', 'tasks.db');
             await fs.access(dbPath);
-            const { getDb } = await import('@cleocode/core');
-            const { auditLog } = await import('@cleocode/core');
+            const { getDb } = await import('@cleocode/core/internal');
+            const { auditLog } = await import('@cleocode/core/internal');
             const db = await getDb(projectRoot);
             const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
             const entries = rows.map((r) => ({

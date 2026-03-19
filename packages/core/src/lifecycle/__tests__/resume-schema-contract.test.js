@@ -16,13 +16,14 @@ import { describe, expect, it } from 'vitest';
 import * as schema from '../../store/tasks-schema.js';
 // Helper: extract column names from a Drizzle table
 function getColumnNames(table) {
+    const tbl = table;
     // Drizzle table objects have a Symbol for column definitions,
     // but named properties are the column accessors we use in queries.
     // We access the column config via the table's property names.
-    const columnLike = Object.keys(table).filter((key) => !key.startsWith('_') &&
+    const columnLike = Object.keys(tbl).filter((key) => !key.startsWith('_') &&
         !key.startsWith('$') &&
-        typeof table[key] === 'object' &&
-        table[key] !== null);
+        typeof tbl[key] === 'object' &&
+        tbl[key] !== null);
     return columnLike;
 }
 describe('lifecycle resume schema contract (T4809 regression)', () => {
@@ -210,6 +211,8 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
                 currentStageId: null,
                 startedAt: '2026-01-01',
                 completedAt: null,
+                version: 1,
+                updatedAt: null,
             };
             expect(row.id).toBe('test');
             expect(row.taskId).toBe('T001');
@@ -219,7 +222,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
                 id: 'test',
                 pipelineId: 'p1',
                 stageName: 'research',
-                status: 'pending',
+                status: 'not_started',
                 sequence: 0,
                 startedAt: null,
                 completedAt: null,
@@ -229,6 +232,12 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
                 skipReason: null,
                 notesJson: '[]',
                 metadataJson: '{}',
+                outputFile: null,
+                createdBy: null,
+                validatedBy: null,
+                validatedAt: null,
+                validationStatus: null,
+                provenanceChainJson: null,
             };
             expect(row.stageName).toBe('research');
         });

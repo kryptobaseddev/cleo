@@ -67,7 +67,7 @@ describe('Security Module', () => {
     it('should throw SecurityError with correct code', () => {
       try {
         sanitizeTaskId('invalid');
-        fail('Expected SecurityError');
+        expect.unreachable('Expected SecurityError');
       } catch (e) {
         expect(e).toBeInstanceOf(SecurityError);
         expect((e as SecurityError).code).toBe('E_INVALID_TASK_ID');
@@ -125,7 +125,7 @@ describe('Security Module', () => {
     it('should throw SecurityError with E_PATH_TRAVERSAL code', () => {
       try {
         sanitizePath('../../../etc/passwd', projectRoot);
-        fail('Expected SecurityError');
+        expect.unreachable('Expected SecurityError');
       } catch (e) {
         expect(e).toBeInstanceOf(SecurityError);
         expect((e as SecurityError).code).toBe('E_PATH_TRAVERSAL');
@@ -171,7 +171,7 @@ describe('Security Module', () => {
     it('should throw SecurityError with E_CONTENT_TOO_LARGE', () => {
       try {
         sanitizeContent('too long', 3);
-        fail('Expected SecurityError');
+        expect.unreachable('Expected SecurityError');
       } catch (e) {
         expect(e).toBeInstanceOf(SecurityError);
         expect((e as SecurityError).code).toBe('E_CONTENT_TOO_LARGE');
@@ -210,7 +210,7 @@ describe('Security Module', () => {
     it('should include allowed values in error message', () => {
       try {
         validateEnum('invalid', allowed, 'status');
-        fail('Expected SecurityError');
+        expect.unreachable('Expected SecurityError');
       } catch (e) {
         expect((e as SecurityError).message).toContain('pending');
         expect((e as SecurityError).message).toContain('done');

@@ -7,6 +7,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
@@ -45,7 +46,7 @@ function writeConfig(config: Record<string, unknown>): void {
   writeFileSync(join(CLEO_DIR, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
 }
 
-const SAMPLE_TASKS = [
+const SAMPLE_TASKS: Array<Partial<Task> & { id: string }> = [
   {
     id: 'T001',
     title: 'feat: Add feature A',
@@ -78,6 +79,12 @@ describe('release.ship', () => {
       gates: [],
       passedCount: 0,
       failedCount: 0,
+      metadata: {
+        channel: 'latest',
+        requiresPR: false,
+        targetBranch: 'main',
+        currentBranch: 'main',
+      },
     });
     vi.mocked(manifest.showManifestRelease).mockResolvedValue({
       tasks: ['T001'],
@@ -138,6 +145,12 @@ describe('release.ship', () => {
       gates: [{ name: 'all-tasks-complete', status: 'failed', message: 'T002 is still active' }],
       passedCount: 0,
       failedCount: 1,
+      metadata: {
+        channel: 'latest',
+        requiresPR: false,
+        targetBranch: 'main',
+        currentBranch: 'main',
+      },
     });
 
     const result = await releaseShip(

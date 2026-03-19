@@ -85,7 +85,7 @@ const EXIT_CODE_NAMES: Record<number, string> = {
 interface ExecutorResult<T = unknown> {
   success: boolean;
   data?: T;
-  error?: { code?: string; message: string; details?: any };
+  error?: { code?: string; message: string; details?: any; exitCode?: number };
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -964,12 +964,12 @@ export async function getAuditLogEntries(
       const dbPath = path.join(projectRoot, '.cleo', 'tasks.db');
       await fs.access(dbPath);
 
-      const { getDb } = await import('@cleocode/core');
-      const { auditLog } = await import('@cleocode/core');
+      const { getDb } = await import('@cleocode/core/internal');
+      const { auditLog } = await import('@cleocode/core/internal');
       const db = await getDb(projectRoot);
       const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
 
-      const entries = rows.map((r) => ({
+      const entries = rows.map((r: any) => ({
         action: r.action,
         taskId: r.taskId,
         timestamp: r.timestamp,
@@ -988,7 +988,7 @@ export async function getAuditLogEntries(
         return entries;
       }
 
-      return entries.filter((entry) => {
+      return entries.filter((entry: any) => {
         if (filter.action && entry.action !== filter.action) return false;
         if (filter.domain && entry.domain !== filter.domain) return false;
         if (filter.operation && entry.operation !== filter.operation) return false;

@@ -6,6 +6,7 @@
  *
  * @task T2937
  */
+import { expect } from 'vitest';
 import { cleanupIntegrationTest, setupIntegrationTest, } from '../integration-setup.js';
 /**
  * Extract data payload from an ExecutorResult, handling LAFS envelope.

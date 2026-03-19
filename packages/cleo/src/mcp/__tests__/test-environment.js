@@ -148,7 +148,7 @@ export async function destroyTestEnvironment(env) {
     // On Windows, SQLite holds exclusive file handles on .db/.db-wal/.db-shm
     // files, causing EBUSY errors during recursive directory removal.
     try {
-        const { closeAllDatabases } = await import('@cleocode/core');
+        const { closeAllDatabases } = await import('@cleocode/core/internal');
         await closeAllDatabases();
     }
     catch {
@@ -167,8 +167,8 @@ export async function destroyTestEnvironment(env) {
  */
 export async function readAuditEntries(projectRoot, filter) {
     try {
-        const { getDb } = await import('@cleocode/core');
-        const { auditLog } = await import('@cleocode/core');
+        const { getDb } = await import('@cleocode/core/internal');
+        const { auditLog } = await import('@cleocode/core/internal');
         const db = await getDb(projectRoot);
         const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
         let entries = rows.map((r) => ({

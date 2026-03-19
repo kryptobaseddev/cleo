@@ -19,7 +19,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "docs:check": "forge-ts check",
+    "docs:test": "forge-ts test",
     "docs:build": "forge-ts build",
+    "docs:init": "forge-ts docs init --target mintlify --out-dir docs/site",
     "docs:dev": "forge-ts docs dev",
     "clean": "rm -rf packages/*/dist",
     "db:generate": "drizzle-kit generate --config drizzle/tasks.config.ts",
@@ -38,7 +40,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
-    "@forge-ts/cli": "^0.6.0",
+    "@forge-ts/cli": "^0.6.6",
     "@types/node": "^22.19.11",
     "drizzle-kit": "1.0.0-beta.19-d95b7a4",
     "esbuild": "^0.27.4",

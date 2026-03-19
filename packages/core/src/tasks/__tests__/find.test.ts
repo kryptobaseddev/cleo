@@ -154,8 +154,8 @@ describe('findTasks', () => {
     expect(found.priority).toBeDefined();
     expect(found.score).toBeDefined();
     // Should NOT include heavy fields
-    expect((found as Record<string, unknown>)['description']).toBeUndefined();
-    expect((found as Record<string, unknown>)['notes']).toBeUndefined();
+    expect((found as unknown as Record<string, unknown>)['description']).toBeUndefined();
+    expect((found as unknown as Record<string, unknown>)['notes']).toBeUndefined();
   });
 
   it('filters by status', async () => {

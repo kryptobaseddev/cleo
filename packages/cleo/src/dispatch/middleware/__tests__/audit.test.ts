@@ -156,7 +156,7 @@ describe('createAudit middleware', () => {
 
     expect(mockInsert).toHaveBeenCalled();
     expect(mockInsertValues).toHaveBeenCalled();
-    const insertedValues = mockInsertValues.mock.calls[0]![0];
+    const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
     expect(insertedValues.domain).toBe('tasks');
     expect(insertedValues.operation).toBe('add');
     expect(insertedValues.success).toBe(1);
@@ -217,7 +217,7 @@ describe('createAudit middleware', () => {
     expect(logObj.exitCode).toBe(4);
 
     // Check SQLite insert includes error
-    const insertedValues = mockInsertValues.mock.calls[0]![0];
+    const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
     expect(insertedValues.errorMessage).toBe('Task not found');
     expect(insertedValues.success).toBe(0);
   });

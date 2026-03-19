@@ -1,0 +1,502 @@
+---
+title: "contracts — API Reference"
+description: "Full API reference for the contracts package"
+---
+API reference for the `contracts` package.
+
+## Functions & Classes
+
+| Symbol | Kind | Description |
+|--------|------|-------------|
+| [`isValidStatus()`](/packages/contracts/api/functions#isvalidstatus) | function |  |
+| [`SessionView`](/packages/contracts/api/functions#sessionview) | class | SessionView — typed wrapper over Session[] with collection helpers.  Provides... |
+| [`normalizeError()`](/packages/contracts/api/functions#normalizeerror) | function | Normalize any thrown value into a standardized error object.  Handles: - Erro... |
+| [`getErrorMessage()`](/packages/contracts/api/functions#geterrormessage) | function | Extract a human-readable message from any error value.  Safe to use on unknow... |
+| [`formatError()`](/packages/contracts/api/functions#formaterror) | function | Format error details for logging or display.  Includes stack trace for Error ... |
+| [`isErrorType()`](/packages/contracts/api/functions#iserrortype) | function | Check if an error represents a specific error type by code or name.  Useful f... |
+| [`createErrorResult()`](/packages/contracts/api/functions#createerrorresult) | function | Create a standardized error result object.  Common pattern for operations tha... |
+| [`createSuccessResult()`](/packages/contracts/api/functions#createsuccessresult) | function | Create a standardized success result object. |
+| [`isErrorResult()`](/packages/contracts/api/functions#iserrorresult) | function | Type guard for error results. |
+| [`isErrorCode()`](/packages/contracts/api/functions#iserrorcode) | function | Check if an exit code represents an error (1-99). |
+| [`isSuccessCode()`](/packages/contracts/api/functions#issuccesscode) | function | Check if an exit code represents success (0 or 100+). |
+| [`isNoChangeCode()`](/packages/contracts/api/functions#isnochangecode) | function | Check if an exit code indicates no change (idempotent operation). |
+| [`isRecoverableCode()`](/packages/contracts/api/functions#isrecoverablecode) | function | Check if an exit code is recoverable (retry may succeed). |
+| [`getExitCodeName()`](/packages/contracts/api/functions#getexitcodename) | function | Human-readable name for an exit code. |
+| [`isLafsSuccess()`](/packages/contracts/api/functions#islafssuccess) | function | Type guard for success responses. |
+| [`isLafsError()`](/packages/contracts/api/functions#islafserror) | function | Type guard for error responses. |
+| [`isGatewayEnvelope()`](/packages/contracts/api/functions#isgatewayenvelope) | function | Type guard for MCP gateway responses (has _meta). |
+
+## Types & Interfaces
+
+| Symbol | Kind | Description |
+|--------|------|-------------|
+| [`AdapterCapabilities`](/packages/contracts/api/types#adaptercapabilities) | interface | Adapter capability declarations for CLEO provider adapters.   T5240 |
+| [`AdapterContextMonitorProvider`](/packages/contracts/api/types#adaptercontextmonitorprovider) | interface | Context monitor provider interface for CLEO provider adapters. Allows provide... |
+| [`AdapterHookProvider`](/packages/contracts/api/types#adapterhookprovider) | interface | Hook provider interface for CLEO provider adapters. Maps provider-specific ev... |
+| [`AdapterInstallProvider`](/packages/contracts/api/types#adapterinstallprovider) | interface | Install provider interface for CLEO provider adapters. Handles registration w... |
+| [`InstallOptions`](/packages/contracts/api/types#installoptions) | interface |  |
+| [`InstallResult`](/packages/contracts/api/types#installresult) | interface |  |
+| [`AdapterPathProvider`](/packages/contracts/api/types#adapterpathprovider) | interface | Path provider interface for CLEO provider adapters. Allows providers to decla... |
+| [`AdapterSpawnProvider`](/packages/contracts/api/types#adapterspawnprovider) | interface | Spawn provider interface for CLEO provider adapters.   T5240 |
+| [`SpawnContext`](/packages/contracts/api/types#spawncontext) | interface |  |
+| [`SpawnResult`](/packages/contracts/api/types#spawnresult) | interface |  |
+| [`ExternalTaskStatus`](/packages/contracts/api/types#externaltaskstatus) | type | Normalized status for tasks coming from an external provider. |
+| [`ExternalTask`](/packages/contracts/api/types#externaltask) | interface | A task as reported by an external provider, normalized to a common shape. Pro... |
+| [`SyncSessionState`](/packages/contracts/api/types#syncsessionstate) | interface | Persistent state for a sync session between CLEO and a provider. Stored per-p... |
+| [`ConflictPolicy`](/packages/contracts/api/types#conflictpolicy) | type | Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins... |
+| [`ReconcileOptions`](/packages/contracts/api/types#reconcileoptions) | interface | Options for the reconciliation engine. |
+| [`ReconcileActionType`](/packages/contracts/api/types#reconcileactiontype) | type | The type of action the reconciliation engine will take. |
+| [`ReconcileAction`](/packages/contracts/api/types#reconcileaction) | interface | A single reconciliation action (planned or applied). |
+| [`ReconcileResult`](/packages/contracts/api/types#reconcileresult) | interface | Result of a full reconciliation run. |
+| [`AdapterTaskSyncProvider`](/packages/contracts/api/types#adaptertasksyncprovider) | interface | Interface that provider adapters implement to expose their external task syst... |
+| [`AdapterTransportProvider`](/packages/contracts/api/types#adaptertransportprovider) | interface | Transport provider interface for CLEO provider adapters. Allows providers to ... |
+| [`CLEOProviderAdapter`](/packages/contracts/api/types#cleoprovideradapter) | interface |  |
+| [`AdapterHealthStatus`](/packages/contracts/api/types#adapterhealthstatus) | interface |  |
+| [`TaskStatus`](/packages/contracts/api/types#taskstatus) | type |  |
+| [`SessionStatus`](/packages/contracts/api/types#sessionstatus) | type |  |
+| [`PipelineStatus`](/packages/contracts/api/types#pipelinestatus) | type |  |
+| [`StageStatus`](/packages/contracts/api/types#stagestatus) | type |  |
+| [`AdrStatus`](/packages/contracts/api/types#adrstatus) | type |  |
+| [`GateStatus`](/packages/contracts/api/types#gatestatus) | type |  |
+| [`ManifestStatus`](/packages/contracts/api/types#manifeststatus) | type |  |
+| [`EntityType`](/packages/contracts/api/types#entitytype) | type |  |
+| [`TaskPriority`](/packages/contracts/api/types#taskpriority) | type | Task priority levels. |
+| [`TaskType`](/packages/contracts/api/types#tasktype) | type | Task type in hierarchy. |
+| [`TaskSize`](/packages/contracts/api/types#tasksize) | type | Task size (scope, NOT time). |
+| [`EpicLifecycle`](/packages/contracts/api/types#epiclifecycle) | type | Epic lifecycle states. |
+| [`TaskOrigin`](/packages/contracts/api/types#taskorigin) | type | Task origin (provenance). |
+| [`VerificationAgent`](/packages/contracts/api/types#verificationagent) | type | Verification agent types. |
+| [`VerificationGate`](/packages/contracts/api/types#verificationgate) | type | Verification gate names. |
+| [`VerificationFailure`](/packages/contracts/api/types#verificationfailure) | interface | Verification failure log entry. |
+| [`TaskVerification`](/packages/contracts/api/types#taskverification) | interface | Task verification state. |
+| [`TaskProvenance`](/packages/contracts/api/types#taskprovenance) | interface | Task provenance tracking. |
+| [`TaskRelation`](/packages/contracts/api/types#taskrelation) | interface | A single task relation entry. |
+| [`Task`](/packages/contracts/api/types#task) | interface | A single CLEO task as stored in the database.  Fields marked as required are ... |
+| [`TaskCreate`](/packages/contracts/api/types#taskcreate) | interface | Input type for creating a new task via `addTask()`.  Only the fields the call... |
+| [`CompletedTask`](/packages/contracts/api/types#completedtask) | type | A task with `status = 'done'`. Narrows `Task` to require `completedAt`.  Use ... |
+| [`CancelledTask`](/packages/contracts/api/types#cancelledtask) | type | A task with `status = 'cancelled'`. Narrows `Task` to require `cancelledAt` a... |
+| [`PhaseStatus`](/packages/contracts/api/types#phasestatus) | type | Phase status. |
+| [`Phase`](/packages/contracts/api/types#phase) | interface | Phase definition. |
+| [`PhaseTransition`](/packages/contracts/api/types#phasetransition) | interface | Phase transition record. |
+| [`ReleaseStatus`](/packages/contracts/api/types#releasestatus) | type | Release status. |
+| [`Release`](/packages/contracts/api/types#release) | interface | Release definition. |
+| [`ProjectMeta`](/packages/contracts/api/types#projectmeta) | interface | Project metadata. |
+| [`FileMeta`](/packages/contracts/api/types#filemeta) | interface | File metadata (_meta block). |
+| [`SessionNote`](/packages/contracts/api/types#sessionnote) | interface | Session note in taskWork block. |
+| [`TaskWorkState`](/packages/contracts/api/types#taskworkstate) | interface | Task work state. |
+| [`TaskFile`](/packages/contracts/api/types#taskfile) | interface | Root task data structure. |
+| [`ArchiveMetadata`](/packages/contracts/api/types#archivemetadata) | interface | Archive metadata attached to archived task records. |
+| [`ArchivedTask`](/packages/contracts/api/types#archivedtask) | interface | A task with archive metadata. |
+| [`ArchiveReportType`](/packages/contracts/api/types#archivereporttype) | type | Report type for archive statistics. |
+| [`ArchiveSummaryReport`](/packages/contracts/api/types#archivesummaryreport) | interface | Summary report from archive statistics. |
+| [`ArchivePhaseEntry`](/packages/contracts/api/types#archivephaseentry) | interface | Phase breakdown entry from archive statistics. |
+| [`ArchiveLabelEntry`](/packages/contracts/api/types#archivelabelentry) | interface | Label breakdown entry from archive statistics. |
+| [`ArchivePriorityEntry`](/packages/contracts/api/types#archivepriorityentry) | interface | Priority breakdown entry from archive statistics. |
+| [`CycleTimeDistribution`](/packages/contracts/api/types#cycletimedistribution) | interface | Cycle time distribution buckets. |
+| [`CycleTimePercentiles`](/packages/contracts/api/types#cycletimepercentiles) | interface | Cycle time percentiles. |
+| [`ArchiveCycleTimesReport`](/packages/contracts/api/types#archivecycletimesreport) | interface | Cycle times report from archive statistics. |
+| [`ArchiveDailyTrend`](/packages/contracts/api/types#archivedailytrend) | interface | Daily archive trend entry. |
+| [`ArchiveMonthlyTrend`](/packages/contracts/api/types#archivemonthlytrend) | interface | Monthly archive trend entry. |
+| [`ArchiveTrendsReport`](/packages/contracts/api/types#archivetrendsreport) | interface | Trends report from archive statistics. |
+| [`ArchiveStatsEnvelope`](/packages/contracts/api/types#archivestatsenvelope) | interface | Archive statistics result envelope. |
+| [`BrainEntryRef`](/packages/contracts/api/types#brainentryref) | interface | Compact brain entry reference used in contradiction analysis. |
+| [`BrainEntrySummary`](/packages/contracts/api/types#brainentrysummary) | interface | Brain entry reference with summary, used in superseded analysis. |
+| [`ContradictionDetail`](/packages/contracts/api/types#contradictiondetail) | interface | Contradiction detail between two brain entries. |
+| [`SupersededEntry`](/packages/contracts/api/types#supersededentry) | interface | Superseded entry pair showing old and replacement entries. |
+| [`OutputFormat`](/packages/contracts/api/types#outputformat) | type | Output format options. |
+| [`DateFormat`](/packages/contracts/api/types#dateformat) | type | Date format options. |
+| [`OutputConfig`](/packages/contracts/api/types#outputconfig) | interface | Output configuration. |
+| [`BackupConfig`](/packages/contracts/api/types#backupconfig) | interface | Backup configuration. |
+| [`EnforcementProfile`](/packages/contracts/api/types#enforcementprofile) | type | Hierarchy enforcement profile preset. |
+| [`HierarchyConfig`](/packages/contracts/api/types#hierarchyconfig) | interface | Hierarchy configuration. |
+| [`SessionConfig`](/packages/contracts/api/types#sessionconfig) | interface | Session configuration. |
+| [`LogLevel`](/packages/contracts/api/types#loglevel) | type | Pino log levels. |
+| [`LoggingConfig`](/packages/contracts/api/types#loggingconfig) | interface | Logging configuration. |
+| [`LifecycleEnforcementMode`](/packages/contracts/api/types#lifecycleenforcementmode) | type | Lifecycle enforcement mode. |
+| [`LifecycleConfig`](/packages/contracts/api/types#lifecycleconfig) | interface | Lifecycle enforcement configuration. |
+| [`SharingMode`](/packages/contracts/api/types#sharingmode) | type | Sharing mode: whether .cleo/ files are committed to the project git repo. |
+| [`SharingConfig`](/packages/contracts/api/types#sharingconfig) | interface | Sharing configuration for multi-contributor .cleo/ state management. |
+| [`SignalDockMode`](/packages/contracts/api/types#signaldockmode) | type | SignalDock transport mode. |
+| [`SignalDockConfig`](/packages/contracts/api/types#signaldockconfig) | interface | SignalDock integration configuration. |
+| [`CleoConfig`](/packages/contracts/api/types#cleoconfig) | interface | CLEO project configuration (config.json). |
+| [`ConfigSource`](/packages/contracts/api/types#configsource) | type | Configuration resolution priority. |
+| [`ResolvedValue`](/packages/contracts/api/types#resolvedvalue) | interface | A resolved config value with its source. |
+| [`SessionScope`](/packages/contracts/api/types#sessionscope) | interface | Session scope JSON blob shape. |
+| [`SessionStats`](/packages/contracts/api/types#sessionstats) | interface | Session statistics. |
+| [`SessionTaskWork`](/packages/contracts/api/types#sessiontaskwork) | interface | Active task work state within a session. |
+| [`Session`](/packages/contracts/api/types#session) | interface | Session domain type — plain interface aligned with Drizzle sessions table. |
+| [`SessionStartResult`](/packages/contracts/api/types#sessionstartresult) | interface | Result of a session start operation.  The `sessionId` field is a convenience ... |
+| [`ArchiveFields`](/packages/contracts/api/types#archivefields) | interface | Archive-specific fields for task upsert. |
+| [`ArchiveFile`](/packages/contracts/api/types#archivefile) | interface | Archive file structure. |
+| [`TaskQueryFilters`](/packages/contracts/api/types#taskqueryfilters) | interface | Filter bag for queryTasks(). Covers ~90% of task query patterns. |
+| [`QueryTasksResult`](/packages/contracts/api/types#querytasksresult) | interface | Result from queryTasks() with pagination support. |
+| [`TaskFieldUpdates`](/packages/contracts/api/types#taskfieldupdates) | interface | Partial task row fields for updateTaskFields(). |
+| [`TransactionAccessor`](/packages/contracts/api/types#transactionaccessor) | interface | Subset of DataAccessor methods available inside a transaction callback. Write... |
+| [`DataAccessor`](/packages/contracts/api/types#dataaccessor) | interface | DataAccessor interface.  Core modules call these methods instead of readJson/... |
+| [`AdapterManifest`](/packages/contracts/api/types#adaptermanifest) | interface |  |
+| [`DetectionPattern`](/packages/contracts/api/types#detectionpattern) | interface |  |
+| [`ExitCode`](/packages/contracts/api/types#exitcode) | enum | CLEO exit codes — canonical definitions shared across all layers.  Ranges: 0 ... |
+| [`LAFSErrorCategory`](/packages/contracts/api/types#lafserrorcategory) | type | LAFS error category. |
+| [`LAFSError`](/packages/contracts/api/types#lafserror) | interface | LAFS error object. |
+| [`Warning`](/packages/contracts/api/types#warning) | interface | LAFS warning. |
+| [`LAFSTransport`](/packages/contracts/api/types#lafstransport) | type | LAFS transport metadata. |
+| [`MVILevel`](/packages/contracts/api/types#mvilevel) | type | MVI (Minimal Viable Information) level. |
+| [`LAFSPageNone`](/packages/contracts/api/types#lafspagenone) | interface | LAFS page — no pagination. |
+| [`LAFSPageOffset`](/packages/contracts/api/types#lafspageoffset) | interface | LAFS page — offset-based pagination. |
+| [`LAFSPage`](/packages/contracts/api/types#lafspage) | type | LAFS page union. |
+| [`LAFSMeta`](/packages/contracts/api/types#lafsmeta) | interface | LAFS metadata block. |
+| [`LAFSEnvelope`](/packages/contracts/api/types#lafsenvelope) | interface | LAFS envelope (canonical protocol type). |
+| [`FlagInput`](/packages/contracts/api/types#flaginput) | interface | Flag input for conformance checks. |
+| [`ConformanceReport`](/packages/contracts/api/types#conformancereport) | interface | Conformance report. |
+| [`LafsAlternative`](/packages/contracts/api/types#lafsalternative) | interface | Actionable alternative the caller can try. |
+| [`LafsErrorDetail`](/packages/contracts/api/types#lafserrordetail) | interface | LAFS error detail shared between CLI and MCP. |
+| [`LafsSuccess`](/packages/contracts/api/types#lafssuccess) | interface | LAFS success envelope (CLI). |
+| [`LafsError`](/packages/contracts/api/types#lafserror) | interface | LAFS error envelope (CLI). |
+| [`LafsEnvelope`](/packages/contracts/api/types#lafsenvelope) | type | CLI envelope union type. |
+| [`GatewayMeta`](/packages/contracts/api/types#gatewaymeta) | interface | Metadata attached to every MCP gateway response. Extends the canonical LAFSMe... |
+| [`GatewaySuccess`](/packages/contracts/api/types#gatewaysuccess) | interface | MCP success envelope (extends CLI base with _meta). |
+| [`GatewayError`](/packages/contracts/api/types#gatewayerror) | interface | MCP error envelope (extends CLI base with _meta). |
+| [`GatewayEnvelope`](/packages/contracts/api/types#gatewayenvelope) | type | MCP envelope union type. |
+| [`CleoResponse`](/packages/contracts/api/types#cleoresponse) | type | Unified CLEO response envelope.  Every CLEO response (CLI or MCP) is a CleoRe... |
+| [`MemoryBridgeConfig`](/packages/contracts/api/types#memorybridgeconfig) | interface | Memory bridge types for CLEO provider adapters. Defines the shape of .cleo/me... |
+| [`MemoryBridgeContent`](/packages/contracts/api/types#memorybridgecontent) | interface |  |
+| [`SessionSummary`](/packages/contracts/api/types#sessionsummary) | interface |  |
+| [`BridgeLearning`](/packages/contracts/api/types#bridgelearning) | interface |  |
+| [`BridgePattern`](/packages/contracts/api/types#bridgepattern) | interface |  |
+| [`BridgeDecision`](/packages/contracts/api/types#bridgedecision) | interface |  |
+| [`BridgeObservation`](/packages/contracts/api/types#bridgeobservation) | interface |  |
+| [`IssueSeverity`](/packages/contracts/api/types#issueseverity) | type | Common issue types |
+| [`IssueArea`](/packages/contracts/api/types#issuearea) | type |  |
+| [`IssueType`](/packages/contracts/api/types#issuetype) | type |  |
+| [`Diagnostics`](/packages/contracts/api/types#diagnostics) | interface |  |
+| [`IssuesDiagnosticsParams`](/packages/contracts/api/types#issuesdiagnosticsparams) | type |  |
+| [`IssuesDiagnosticsResult`](/packages/contracts/api/types#issuesdiagnosticsresult) | interface |  |
+| [`IssuesCreateBugParams`](/packages/contracts/api/types#issuescreatebugparams) | interface |  |
+| [`IssuesCreateBugResult`](/packages/contracts/api/types#issuescreatebugresult) | interface |  |
+| [`IssuesCreateFeatureParams`](/packages/contracts/api/types#issuescreatefeatureparams) | interface |  |
+| [`IssuesCreateFeatureResult`](/packages/contracts/api/types#issuescreatefeatureresult) | interface |  |
+| [`IssuesCreateHelpParams`](/packages/contracts/api/types#issuescreatehelpparams) | interface |  |
+| [`IssuesCreateHelpResult`](/packages/contracts/api/types#issuescreatehelpresult) | interface |  |
+| [`LifecycleStage`](/packages/contracts/api/types#lifecyclestage) | type | Common lifecycle types |
+| [`GateStatus`](/packages/contracts/api/types#gatestatus) | type |  |
+| [`StageRecord`](/packages/contracts/api/types#stagerecord) | interface |  |
+| [`Gate`](/packages/contracts/api/types#gate) | interface |  |
+| [`LifecycleCheckParams`](/packages/contracts/api/types#lifecyclecheckparams) | interface |  |
+| [`LifecycleCheckResult`](/packages/contracts/api/types#lifecyclecheckresult) | interface |  |
+| [`LifecycleStatusParams`](/packages/contracts/api/types#lifecyclestatusparams) | interface |  |
+| [`LifecycleStatusResult`](/packages/contracts/api/types#lifecyclestatusresult) | interface |  |
+| [`LifecycleHistoryParams`](/packages/contracts/api/types#lifecyclehistoryparams) | interface |  |
+| [`LifecycleHistoryEntry`](/packages/contracts/api/types#lifecyclehistoryentry) | interface |  |
+| [`LifecycleHistoryResult`](/packages/contracts/api/types#lifecyclehistoryresult) | type |  |
+| [`LifecycleGatesParams`](/packages/contracts/api/types#lifecyclegatesparams) | interface |  |
+| [`LifecycleGatesResult`](/packages/contracts/api/types#lifecyclegatesresult) | type |  |
+| [`LifecyclePrerequisitesParams`](/packages/contracts/api/types#lifecycleprerequisitesparams) | interface |  |
+| [`LifecyclePrerequisitesResult`](/packages/contracts/api/types#lifecycleprerequisitesresult) | interface |  |
+| [`LifecycleProgressParams`](/packages/contracts/api/types#lifecycleprogressparams) | interface |  |
+| [`LifecycleProgressResult`](/packages/contracts/api/types#lifecycleprogressresult) | interface |  |
+| [`LifecycleSkipParams`](/packages/contracts/api/types#lifecycleskipparams) | interface |  |
+| [`LifecycleSkipResult`](/packages/contracts/api/types#lifecycleskipresult) | interface |  |
+| [`LifecycleResetParams`](/packages/contracts/api/types#lifecycleresetparams) | interface |  |
+| [`LifecycleResetResult`](/packages/contracts/api/types#lifecycleresetresult) | interface |  |
+| [`LifecycleGatePassParams`](/packages/contracts/api/types#lifecyclegatepassparams) | interface |  |
+| [`LifecycleGatePassResult`](/packages/contracts/api/types#lifecyclegatepassresult) | interface |  |
+| [`LifecycleGateFailParams`](/packages/contracts/api/types#lifecyclegatefailparams) | interface |  |
+| [`LifecycleGateFailResult`](/packages/contracts/api/types#lifecyclegatefailresult) | interface |  |
+| [`Wave`](/packages/contracts/api/types#wave) | interface | Common orchestration types |
+| [`SkillDefinition`](/packages/contracts/api/types#skilldefinition) | interface |  |
+| [`OrchestrateStatusParams`](/packages/contracts/api/types#orchestratestatusparams) | interface |  |
+| [`OrchestrateStatusResult`](/packages/contracts/api/types#orchestratestatusresult) | interface |  |
+| [`OrchestrateNextParams`](/packages/contracts/api/types#orchestratenextparams) | interface |  |
+| [`OrchestrateNextResult`](/packages/contracts/api/types#orchestratenextresult) | interface |  |
+| [`OrchestrateReadyParams`](/packages/contracts/api/types#orchestratereadyparams) | interface |  |
+| [`OrchestrateReadyResult`](/packages/contracts/api/types#orchestratereadyresult) | interface |  |
+| [`OrchestrateAnalyzeParams`](/packages/contracts/api/types#orchestrateanalyzeparams) | interface |  |
+| [`OrchestrateAnalyzeResult`](/packages/contracts/api/types#orchestrateanalyzeresult) | interface |  |
+| [`OrchestrateContextParams`](/packages/contracts/api/types#orchestratecontextparams) | interface |  |
+| [`OrchestrateContextResult`](/packages/contracts/api/types#orchestratecontextresult) | interface |  |
+| [`OrchestrateWavesParams`](/packages/contracts/api/types#orchestratewavesparams) | interface |  |
+| [`OrchestrateWavesResult`](/packages/contracts/api/types#orchestratewavesresult) | type |  |
+| [`OrchestrateSkillListParams`](/packages/contracts/api/types#orchestrateskilllistparams) | interface |  |
+| [`OrchestrateSkillListResult`](/packages/contracts/api/types#orchestrateskilllistresult) | type |  |
+| [`OrchestrateBootstrapParams`](/packages/contracts/api/types#orchestratebootstrapparams) | interface |  |
+| [`BrainState`](/packages/contracts/api/types#brainstate) | interface |  |
+| [`OrchestrateStartupParams`](/packages/contracts/api/types#orchestratestartupparams) | interface |  |
+| [`OrchestrateStartupResult`](/packages/contracts/api/types#orchestratestartupresult) | interface |  |
+| [`OrchestrateSpawnParams`](/packages/contracts/api/types#orchestratespawnparams) | interface |  |
+| [`OrchestrateSpawnResult`](/packages/contracts/api/types#orchestratespawnresult) | interface |  |
+| [`OrchestrateHandoffParams`](/packages/contracts/api/types#orchestratehandoffparams) | interface |  |
+| [`OrchestrateHandoffResult`](/packages/contracts/api/types#orchestratehandoffresult) | interface |  |
+| [`OrchestrateValidateParams`](/packages/contracts/api/types#orchestratevalidateparams) | interface |  |
+| [`OrchestrateValidateResult`](/packages/contracts/api/types#orchestratevalidateresult) | interface |  |
+| [`OrchestrateParallelStartParams`](/packages/contracts/api/types#orchestrateparallelstartparams) | interface |  |
+| [`OrchestrateParallelStartResult`](/packages/contracts/api/types#orchestrateparallelstartresult) | interface |  |
+| [`OrchestrateParallelEndParams`](/packages/contracts/api/types#orchestrateparallelendparams) | interface |  |
+| [`OrchestrateParallelEndResult`](/packages/contracts/api/types#orchestrateparallelendresult) | interface |  |
+| [`ReleaseType`](/packages/contracts/api/types#releasetype) | type | Common release types |
+| [`ReleaseGate`](/packages/contracts/api/types#releasegate) | interface |  |
+| [`ChangelogSection`](/packages/contracts/api/types#changelogsection) | interface |  |
+| [`ReleasePrepareParams`](/packages/contracts/api/types#releaseprepareparams) | interface |  |
+| [`ReleasePrepareResult`](/packages/contracts/api/types#releaseprepareresult) | interface |  |
+| [`ReleaseChangelogParams`](/packages/contracts/api/types#releasechangelogparams) | interface |  |
+| [`ReleaseChangelogResult`](/packages/contracts/api/types#releasechangelogresult) | interface |  |
+| [`ReleaseCommitParams`](/packages/contracts/api/types#releasecommitparams) | interface |  |
+| [`ReleaseCommitResult`](/packages/contracts/api/types#releasecommitresult) | interface |  |
+| [`ReleaseTagParams`](/packages/contracts/api/types#releasetagparams) | interface |  |
+| [`ReleaseTagResult`](/packages/contracts/api/types#releasetagresult) | interface |  |
+| [`ReleasePushParams`](/packages/contracts/api/types#releasepushparams) | interface |  |
+| [`ReleasePushResult`](/packages/contracts/api/types#releasepushresult) | interface |  |
+| [`ReleaseGatesRunParams`](/packages/contracts/api/types#releasegatesrunparams) | interface |  |
+| [`ReleaseGatesRunResult`](/packages/contracts/api/types#releasegatesrunresult) | interface |  |
+| [`ReleaseRollbackParams`](/packages/contracts/api/types#releaserollbackparams) | interface |  |
+| [`ReleaseRollbackResult`](/packages/contracts/api/types#releaserollbackresult) | interface |  |
+| [`ResearchEntry`](/packages/contracts/api/types#researchentry) | interface | Common research types |
+| [`ManifestEntry`](/packages/contracts/api/types#manifestentry) | interface |  |
+| [`ResearchShowParams`](/packages/contracts/api/types#researchshowparams) | interface |  |
+| [`ResearchShowResult`](/packages/contracts/api/types#researchshowresult) | type |  |
+| [`ResearchListParams`](/packages/contracts/api/types#researchlistparams) | interface |  |
+| [`ResearchListResult`](/packages/contracts/api/types#researchlistresult) | type |  |
+| [`ResearchQueryParams`](/packages/contracts/api/types#researchqueryparams) | interface |  |
+| [`ResearchQueryResult`](/packages/contracts/api/types#researchqueryresult) | interface |  |
+| [`ResearchPendingParams`](/packages/contracts/api/types#researchpendingparams) | interface |  |
+| [`ResearchPendingResult`](/packages/contracts/api/types#researchpendingresult) | type |  |
+| [`ResearchStatsParams`](/packages/contracts/api/types#researchstatsparams) | interface |  |
+| [`ResearchStatsResult`](/packages/contracts/api/types#researchstatsresult) | interface |  |
+| [`ResearchManifestReadParams`](/packages/contracts/api/types#researchmanifestreadparams) | interface |  |
+| [`ResearchManifestReadResult`](/packages/contracts/api/types#researchmanifestreadresult) | type |  |
+| [`ResearchInjectParams`](/packages/contracts/api/types#researchinjectparams) | interface |  |
+| [`ResearchInjectResult`](/packages/contracts/api/types#researchinjectresult) | interface |  |
+| [`ResearchLinkParams`](/packages/contracts/api/types#researchlinkparams) | interface |  |
+| [`ResearchLinkResult`](/packages/contracts/api/types#researchlinkresult) | interface |  |
+| [`ResearchManifestAppendParams`](/packages/contracts/api/types#researchmanifestappendparams) | interface |  |
+| [`ResearchManifestAppendResult`](/packages/contracts/api/types#researchmanifestappendresult) | interface |  |
+| [`ResearchManifestArchiveParams`](/packages/contracts/api/types#researchmanifestarchiveparams) | interface |  |
+| [`ResearchManifestArchiveResult`](/packages/contracts/api/types#researchmanifestarchiveresult) | interface |  |
+| [`SessionOp`](/packages/contracts/api/types#sessionop) | interface | Common session types |
+| [`SessionStatusParams`](/packages/contracts/api/types#sessionstatusparams) | type |  |
+| [`SessionStatusResult`](/packages/contracts/api/types#sessionstatusresult) | interface |  |
+| [`SessionListParams`](/packages/contracts/api/types#sessionlistparams) | interface |  |
+| [`SessionListResult`](/packages/contracts/api/types#sessionlistresult) | interface |  |
+| [`SessionShowParams`](/packages/contracts/api/types#sessionshowparams) | interface |  |
+| [`SessionShowResult`](/packages/contracts/api/types#sessionshowresult) | type |  |
+| [`SessionHistoryParams`](/packages/contracts/api/types#sessionhistoryparams) | interface |  |
+| [`SessionHistoryEntry`](/packages/contracts/api/types#sessionhistoryentry) | interface |  |
+| [`SessionHistoryResult`](/packages/contracts/api/types#sessionhistoryresult) | type |  |
+| [`SessionStartParams`](/packages/contracts/api/types#sessionstartparams) | interface |  |
+| [`SessionStartResult`](/packages/contracts/api/types#sessionstartresult) | type |  |
+| [`SessionEndParams`](/packages/contracts/api/types#sessionendparams) | interface |  |
+| [`SessionEndResult`](/packages/contracts/api/types#sessionendresult) | interface |  |
+| [`SessionResumeParams`](/packages/contracts/api/types#sessionresumeparams) | interface |  |
+| [`SessionResumeResult`](/packages/contracts/api/types#sessionresumeresult) | type |  |
+| [`SessionSuspendParams`](/packages/contracts/api/types#sessionsuspendparams) | interface |  |
+| [`SessionSuspendResult`](/packages/contracts/api/types#sessionsuspendresult) | interface |  |
+| [`SessionGcParams`](/packages/contracts/api/types#sessiongcparams) | interface |  |
+| [`SessionGcResult`](/packages/contracts/api/types#sessiongcresult) | interface |  |
+| [`SkillCategory`](/packages/contracts/api/types#skillcategory) | type | Common skill types |
+| [`SkillStatus`](/packages/contracts/api/types#skillstatus) | type |  |
+| [`DispatchStrategy`](/packages/contracts/api/types#dispatchstrategy) | type |  |
+| [`SkillSummary`](/packages/contracts/api/types#skillsummary) | interface |  |
+| [`SkillDetail`](/packages/contracts/api/types#skilldetail) | interface |  |
+| [`DispatchCandidate`](/packages/contracts/api/types#dispatchcandidate) | interface |  |
+| [`DependencyNode`](/packages/contracts/api/types#dependencynode) | interface |  |
+| [`ValidationIssue`](/packages/contracts/api/types#validationissue) | interface |  |
+| [`SkillsListParams`](/packages/contracts/api/types#skillslistparams) | interface |  |
+| [`SkillsListResult`](/packages/contracts/api/types#skillslistresult) | type |  |
+| [`SkillsShowParams`](/packages/contracts/api/types#skillsshowparams) | interface |  |
+| [`SkillsShowResult`](/packages/contracts/api/types#skillsshowresult) | type |  |
+| [`SkillsFindParams`](/packages/contracts/api/types#skillsfindparams) | interface |  |
+| [`SkillsFindResult`](/packages/contracts/api/types#skillsfindresult) | interface |  |
+| [`SkillsDispatchParams`](/packages/contracts/api/types#skillsdispatchparams) | interface |  |
+| [`SkillsDispatchResult`](/packages/contracts/api/types#skillsdispatchresult) | interface |  |
+| [`SkillsVerifyParams`](/packages/contracts/api/types#skillsverifyparams) | interface |  |
+| [`SkillsVerifyResult`](/packages/contracts/api/types#skillsverifyresult) | interface |  |
+| [`SkillsDependenciesParams`](/packages/contracts/api/types#skillsdependenciesparams) | interface |  |
+| [`SkillsDependenciesResult`](/packages/contracts/api/types#skillsdependenciesresult) | interface |  |
+| [`SkillsInstallParams`](/packages/contracts/api/types#skillsinstallparams) | interface |  |
+| [`SkillsInstallResult`](/packages/contracts/api/types#skillsinstallresult) | interface |  |
+| [`SkillsUninstallParams`](/packages/contracts/api/types#skillsuninstallparams) | interface |  |
+| [`SkillsUninstallResult`](/packages/contracts/api/types#skillsuninstallresult) | interface |  |
+| [`SkillsEnableParams`](/packages/contracts/api/types#skillsenableparams) | interface |  |
+| [`SkillsEnableResult`](/packages/contracts/api/types#skillsenableresult) | interface |  |
+| [`SkillsDisableParams`](/packages/contracts/api/types#skillsdisableparams) | interface |  |
+| [`SkillsDisableResult`](/packages/contracts/api/types#skillsdisableresult) | interface |  |
+| [`SkillsConfigureParams`](/packages/contracts/api/types#skillsconfigureparams) | interface |  |
+| [`SkillsConfigureResult`](/packages/contracts/api/types#skillsconfigureresult) | interface |  |
+| [`SkillsRefreshParams`](/packages/contracts/api/types#skillsrefreshparams) | interface |  |
+| [`SkillsRefreshResult`](/packages/contracts/api/types#skillsrefreshresult) | interface |  |
+| [`HealthCheck`](/packages/contracts/api/types#healthcheck) | interface | Common system types |
+| [`ProjectStats`](/packages/contracts/api/types#projectstats) | interface |  |
+| [`SystemVersionParams`](/packages/contracts/api/types#systemversionparams) | type |  |
+| [`SystemVersionResult`](/packages/contracts/api/types#systemversionresult) | interface |  |
+| [`SystemDoctorParams`](/packages/contracts/api/types#systemdoctorparams) | type |  |
+| [`SystemDoctorResult`](/packages/contracts/api/types#systemdoctorresult) | interface |  |
+| [`SystemConfigGetParams`](/packages/contracts/api/types#systemconfiggetparams) | interface |  |
+| [`SystemConfigGetResult`](/packages/contracts/api/types#systemconfiggetresult) | interface |  |
+| [`SystemStatsParams`](/packages/contracts/api/types#systemstatsparams) | type |  |
+| [`SystemStatsResult`](/packages/contracts/api/types#systemstatsresult) | type |  |
+| [`SystemContextParams`](/packages/contracts/api/types#systemcontextparams) | type |  |
+| [`SystemContextResult`](/packages/contracts/api/types#systemcontextresult) | interface |  |
+| [`SystemInitParams`](/packages/contracts/api/types#systeminitparams) | interface |  |
+| [`SystemInitResult`](/packages/contracts/api/types#systeminitresult) | interface |  |
+| [`SystemConfigSetParams`](/packages/contracts/api/types#systemconfigsetparams) | interface |  |
+| [`SystemConfigSetResult`](/packages/contracts/api/types#systemconfigsetresult) | interface |  |
+| [`SystemBackupParams`](/packages/contracts/api/types#systembackupparams) | interface |  |
+| [`SystemBackupResult`](/packages/contracts/api/types#systembackupresult) | interface |  |
+| [`SystemRestoreParams`](/packages/contracts/api/types#systemrestoreparams) | interface |  |
+| [`SystemRestoreResult`](/packages/contracts/api/types#systemrestoreresult) | interface |  |
+| [`SystemMigrateParams`](/packages/contracts/api/types#systemmigrateparams) | interface |  |
+| [`SystemMigrateResult`](/packages/contracts/api/types#systemmigrateresult) | interface |  |
+| [`SystemSyncParams`](/packages/contracts/api/types#systemsyncparams) | interface |  |
+| [`SystemSyncResult`](/packages/contracts/api/types#systemsyncresult) | interface |  |
+| [`SystemCleanupParams`](/packages/contracts/api/types#systemcleanupparams) | interface |  |
+| [`SystemCleanupResult`](/packages/contracts/api/types#systemcleanupresult) | interface |  |
+| [`TaskPriority`](/packages/contracts/api/types#taskpriority) | type |  |
+| [`TaskOp`](/packages/contracts/api/types#taskop) | interface |  |
+| [`MinimalTask`](/packages/contracts/api/types#minimaltask) | interface |  |
+| [`TasksGetParams`](/packages/contracts/api/types#tasksgetparams) | interface |  |
+| [`TasksGetResult`](/packages/contracts/api/types#tasksgetresult) | type |  |
+| [`TasksListParams`](/packages/contracts/api/types#taskslistparams) | interface |  |
+| [`TasksListResult`](/packages/contracts/api/types#taskslistresult) | interface |  |
+| [`TasksFindParams`](/packages/contracts/api/types#tasksfindparams) | interface |  |
+| [`TasksFindResult`](/packages/contracts/api/types#tasksfindresult) | type |  |
+| [`TasksExistsParams`](/packages/contracts/api/types#tasksexistsparams) | interface |  |
+| [`TasksExistsResult`](/packages/contracts/api/types#tasksexistsresult) | interface |  |
+| [`TasksTreeParams`](/packages/contracts/api/types#taskstreeparams) | interface |  |
+| [`TaskTreeNode`](/packages/contracts/api/types#tasktreenode) | interface |  |
+| [`TasksTreeResult`](/packages/contracts/api/types#taskstreeresult) | type |  |
+| [`TasksBlockersParams`](/packages/contracts/api/types#tasksblockersparams) | interface |  |
+| [`Blocker`](/packages/contracts/api/types#blocker) | interface |  |
+| [`TasksBlockersResult`](/packages/contracts/api/types#tasksblockersresult) | type |  |
+| [`TasksDepsParams`](/packages/contracts/api/types#tasksdepsparams) | interface |  |
+| [`TaskDependencyNode`](/packages/contracts/api/types#taskdependencynode) | interface |  |
+| [`TasksDepsResult`](/packages/contracts/api/types#tasksdepsresult) | interface |  |
+| [`TasksAnalyzeParams`](/packages/contracts/api/types#tasksanalyzeparams) | interface |  |
+| [`TriageRecommendation`](/packages/contracts/api/types#triagerecommendation) | interface |  |
+| [`TasksAnalyzeResult`](/packages/contracts/api/types#tasksanalyzeresult) | type |  |
+| [`TasksNextParams`](/packages/contracts/api/types#tasksnextparams) | interface |  |
+| [`SuggestedTask`](/packages/contracts/api/types#suggestedtask) | interface |  |
+| [`TasksNextResult`](/packages/contracts/api/types#tasksnextresult) | type |  |
+| [`TasksCreateParams`](/packages/contracts/api/types#taskscreateparams) | interface |  |
+| [`TasksCreateResult`](/packages/contracts/api/types#taskscreateresult) | type |  |
+| [`TasksUpdateParams`](/packages/contracts/api/types#tasksupdateparams) | interface |  |
+| [`TasksUpdateResult`](/packages/contracts/api/types#tasksupdateresult) | type |  |
+| [`TasksCompleteParams`](/packages/contracts/api/types#taskscompleteparams) | interface |  |
+| [`TasksCompleteResult`](/packages/contracts/api/types#taskscompleteresult) | interface |  |
+| [`TasksDeleteParams`](/packages/contracts/api/types#tasksdeleteparams) | interface |  |
+| [`TasksDeleteResult`](/packages/contracts/api/types#tasksdeleteresult) | interface |  |
+| [`TasksArchiveParams`](/packages/contracts/api/types#tasksarchiveparams) | interface |  |
+| [`TasksArchiveResult`](/packages/contracts/api/types#tasksarchiveresult) | interface |  |
+| [`TasksUnarchiveParams`](/packages/contracts/api/types#tasksunarchiveparams) | interface |  |
+| [`TasksUnarchiveResult`](/packages/contracts/api/types#tasksunarchiveresult) | type |  |
+| [`TasksReparentParams`](/packages/contracts/api/types#tasksreparentparams) | interface |  |
+| [`TasksReparentResult`](/packages/contracts/api/types#tasksreparentresult) | type |  |
+| [`TasksPromoteParams`](/packages/contracts/api/types#taskspromoteparams) | interface |  |
+| [`TasksPromoteResult`](/packages/contracts/api/types#taskspromoteresult) | type |  |
+| [`TasksReorderParams`](/packages/contracts/api/types#tasksreorderparams) | interface |  |
+| [`TasksReorderResult`](/packages/contracts/api/types#tasksreorderresult) | interface |  |
+| [`TasksReopenParams`](/packages/contracts/api/types#tasksreopenparams) | interface |  |
+| [`TasksReopenResult`](/packages/contracts/api/types#tasksreopenresult) | type |  |
+| [`TasksStartParams`](/packages/contracts/api/types#tasksstartparams) | interface |  |
+| [`TasksStartResult`](/packages/contracts/api/types#tasksstartresult) | interface |  |
+| [`TasksStopParams`](/packages/contracts/api/types#tasksstopparams) | type |  |
+| [`TasksStopResult`](/packages/contracts/api/types#tasksstopresult) | interface |  |
+| [`TasksCurrentParams`](/packages/contracts/api/types#taskscurrentparams) | type |  |
+| [`TasksCurrentResult`](/packages/contracts/api/types#taskscurrentresult) | interface |  |
+| [`ValidationSeverity`](/packages/contracts/api/types#validationseverity) | type | Common validation types |
+| [`ValidationViolation`](/packages/contracts/api/types#validationviolation) | interface |  |
+| [`ComplianceMetrics`](/packages/contracts/api/types#compliancemetrics) | interface |  |
+| [`ValidateSchemaParams`](/packages/contracts/api/types#validateschemaparams) | interface |  |
+| [`ValidateSchemaResult`](/packages/contracts/api/types#validateschemaresult) | interface |  |
+| [`ValidateProtocolParams`](/packages/contracts/api/types#validateprotocolparams) | interface |  |
+| [`ValidateProtocolResult`](/packages/contracts/api/types#validateprotocolresult) | interface |  |
+| [`ValidateTaskParams`](/packages/contracts/api/types#validatetaskparams) | interface |  |
+| [`ValidateTaskResult`](/packages/contracts/api/types#validatetaskresult) | interface |  |
+| [`ValidateManifestParams`](/packages/contracts/api/types#validatemanifestparams) | interface |  |
+| [`ValidateManifestResult`](/packages/contracts/api/types#validatemanifestresult) | interface |  |
+| [`ValidateOutputParams`](/packages/contracts/api/types#validateoutputparams) | interface |  |
+| [`ValidateOutputResult`](/packages/contracts/api/types#validateoutputresult) | interface |  |
+| [`ValidateComplianceSummaryParams`](/packages/contracts/api/types#validatecompliancesummaryparams) | interface |  |
+| [`ValidateComplianceSummaryResult`](/packages/contracts/api/types#validatecompliancesummaryresult) | type |  |
+| [`ValidateComplianceViolationsParams`](/packages/contracts/api/types#validatecomplianceviolationsparams) | interface |  |
+| [`ValidateComplianceViolationsResult`](/packages/contracts/api/types#validatecomplianceviolationsresult) | interface |  |
+| [`ValidateTestStatusParams`](/packages/contracts/api/types#validateteststatusparams) | interface |  |
+| [`ValidateTestStatusResult`](/packages/contracts/api/types#validateteststatusresult) | interface |  |
+| [`ValidateTestCoverageParams`](/packages/contracts/api/types#validatetestcoverageparams) | interface |  |
+| [`ValidateTestCoverageResult`](/packages/contracts/api/types#validatetestcoverageresult) | interface |  |
+| [`ValidateComplianceRecordParams`](/packages/contracts/api/types#validatecompliancerecordparams) | interface |  |
+| [`ValidateComplianceRecordResult`](/packages/contracts/api/types#validatecompliancerecordresult) | interface |  |
+| [`ValidateTestRunParams`](/packages/contracts/api/types#validatetestrunparams) | interface |  |
+| [`ValidateTestRunResult`](/packages/contracts/api/types#validatetestrunresult) | interface |  |
+| [`TaskRecordRelation`](/packages/contracts/api/types#taskrecordrelation) | interface | A single task relation entry (string-widened version). |
+| [`ValidationHistoryEntry`](/packages/contracts/api/types#validationhistoryentry) | interface | Validation history entry. |
+| [`TaskRecord`](/packages/contracts/api/types#taskrecord) | interface | String-widened Task for JSON serialization in dispatch/LAFS layer. |
+| [`MinimalTaskRecord`](/packages/contracts/api/types#minimaltaskrecord) | interface | Minimal task representation for find results. |
+| [`TaskSummary`](/packages/contracts/api/types#tasksummary) | interface | Task summary counts used in dashboard and stats views. |
+| [`LabelCount`](/packages/contracts/api/types#labelcount) | interface | Label frequency entry. |
+| [`DashboardResult`](/packages/contracts/api/types#dashboardresult) | interface | Dashboard result from system.dash query. |
+| [`StatsCurrentState`](/packages/contracts/api/types#statscurrentstate) | interface | Current state counts used in stats results. |
+| [`StatsCompletionMetrics`](/packages/contracts/api/types#statscompletionmetrics) | interface | Completion metrics for a given time period. |
+| [`StatsActivityMetrics`](/packages/contracts/api/types#statsactivitymetrics) | interface | Activity metrics for a given time period. |
+| [`StatsAllTime`](/packages/contracts/api/types#statsalltime) | interface | All-time cumulative statistics. |
+| [`StatsCycleTimes`](/packages/contracts/api/types#statscycletimes) | interface | Cycle time statistics. |
+| [`StatsResult`](/packages/contracts/api/types#statsresult) | interface | Stats result from system.stats query. |
+| [`LogQueryResult`](/packages/contracts/api/types#logqueryresult) | interface | Log query result from system.log query. |
+| [`ContextResult`](/packages/contracts/api/types#contextresult) | interface | Context monitoring data from system.context query. |
+| [`SequenceResult`](/packages/contracts/api/types#sequenceresult) | interface | Sequence counter data from system.sequence query. |
+| [`TaskRef`](/packages/contracts/api/types#taskref) | interface | Compact task reference used across analysis and dependency results. |
+| [`TaskRefPriority`](/packages/contracts/api/types#taskrefpriority) | type | Task reference with optional priority (used in orchestrator/HITL contexts). |
+| [`LeveragedTask`](/packages/contracts/api/types#leveragedtask) | interface | Task with leverage score for prioritization. |
+| [`BottleneckTask`](/packages/contracts/api/types#bottlenecktask) | interface | Bottleneck task — blocks other tasks. |
+| [`TaskAnalysisResult`](/packages/contracts/api/types#taskanalysisresult) | interface | Task analysis result from tasks.analyze. |
+| [`TaskDepsResult`](/packages/contracts/api/types#taskdepsresult) | interface | Single task dependency result from tasks.deps. |
+| [`CompleteTaskUnblocked`](/packages/contracts/api/types#completetaskunblocked) | interface | Completion result — unblocked tasks after completing a task. |
+| [`Provider`](/packages/contracts/api/types#provider) | type | Provider identifier for spawn operations. |
+| [`CAAMPSpawnOptions`](/packages/contracts/api/types#caampspawnoptions) | interface | CAAMP-compatible spawn options (inlined for zero-dep contracts). |
+| [`CAAMPSpawnResult`](/packages/contracts/api/types#caampspawnresult) | interface | CAAMP-compatible spawn result (inlined for zero-dep contracts). |
+| [`CLEOSpawnContext`](/packages/contracts/api/types#cleospawncontext) | interface | CLEO-specific spawn context Extends CAAMP options with CLEO task and protocol... |
+| [`CLEOSpawnResult`](/packages/contracts/api/types#cleospawnresult) | interface | CLEO spawn result Extends CAAMP SpawnResult with CLEO-specific timing and met... |
+| [`CLEOSpawnAdapter`](/packages/contracts/api/types#cleospawnadapter) | interface | Spawn adapter interface Wraps CAAMP SpawnAdapter with CLEO-specific context a... |
+| [`TokenResolution`](/packages/contracts/api/types#tokenresolution) | interface | Token resolution information for prompt processing |
+| [`SpawnStatus`](/packages/contracts/api/types#spawnstatus) | type | Spawn status values |
+| [`ProtocolType`](/packages/contracts/api/types#protocoltype) | type | All supported protocol types. |
+| [`GateName`](/packages/contracts/api/types#gatename) | type | Verification gate names (ordered dependency chain). |
+| [`WarpStage`](/packages/contracts/api/types#warpstage) | interface | A single stage in the warp chain.  The category union includes all canonical ... |
+| [`WarpLink`](/packages/contracts/api/types#warplink) | interface | Connection between two stages in the chain. |
+| [`ChainShape`](/packages/contracts/api/types#chainshape) | interface | The topology/DAG of a workflow. |
+| [`GateCheck`](/packages/contracts/api/types#gatecheck) | type | Discriminated union for gate check types. |
+| [`GateContract`](/packages/contracts/api/types#gatecontract) | interface | A quality gate embedded in the chain. |
+| [`WarpChain`](/packages/contracts/api/types#warpchain) | interface | Complete chain definition combining shape and gates. |
+| [`ChainValidation`](/packages/contracts/api/types#chainvalidation) | interface | Result of validating a chain definition. |
+| [`WarpChainInstance`](/packages/contracts/api/types#warpchaininstance) | interface | A chain bound to a specific epic. |
+| [`GateResult`](/packages/contracts/api/types#gateresult) | interface | Result of evaluating a single gate. |
+| [`WarpChainExecution`](/packages/contracts/api/types#warpchainexecution) | interface | Runtime state of a chain instance execution. |
+| [`TesseraVariable`](/packages/contracts/api/types#tesseravariable) | interface | A variable declaration within a Tessera template. |
+| [`TesseraTemplate`](/packages/contracts/api/types#tesseratemplate) | interface | A parameterized WarpChain template with variable bindings. |
+| [`TesseraInstantiationInput`](/packages/contracts/api/types#tesserainstantiationinput) | interface | Input for instantiating a Tessera template into a concrete chain. |
+| [`TodoWriteItemStatus`](/packages/contracts/api/types#todowriteitemstatus) | type | TodoWrite item status as exported by Claude. |
+| [`TodoWriteItem`](/packages/contracts/api/types#todowriteitem) | interface | TodoWrite item as exported by Claude. |
+| [`TodoWriteState`](/packages/contracts/api/types#todowritestate) | interface | TodoWrite state file format. |
+| [`TodoWriteSyncSessionState`](/packages/contracts/api/types#todowritesyncsessionstate) | interface | Sync session state for TodoWrite integration. |
+| [`TodoWriteChangeSet`](/packages/contracts/api/types#todowritechangeset) | interface | Detected changes from TodoWrite state analysis. |
+| [`TodoWriteChangeAction`](/packages/contracts/api/types#todowritechangeaction) | type | Action type for a TodoWrite merge change. |
+| [`TodoWriteChange`](/packages/contracts/api/types#todowritechange) | interface | A single change applied during TodoWrite merge. |
+| [`TodoWriteMergeResult`](/packages/contracts/api/types#todowritemergeresult) | interface | Result of a TodoWrite merge operation. |
+
+## Other Exports
+
+| Symbol | Kind | Description |
+|--------|------|-------------|
+| [`TASK_STATUSES`](/packages/contracts/api/functions#taskstatuses) | variable |  |
+| [`SESSION_STATUSES`](/packages/contracts/api/functions#sessionstatuses) | variable |  |
+| [`LIFECYCLE_PIPELINE_STATUSES`](/packages/contracts/api/functions#lifecyclepipelinestatuses) | variable |  |
+| [`LIFECYCLE_STAGE_STATUSES`](/packages/contracts/api/functions#lifecyclestagestatuses) | variable |  |
+| [`ADR_STATUSES`](/packages/contracts/api/functions#adrstatuses) | variable |  |
+| [`GATE_STATUSES`](/packages/contracts/api/functions#gatestatuses) | variable |  |
+| [`MANIFEST_STATUSES`](/packages/contracts/api/functions#manifeststatuses) | variable |  |
+| [`TERMINAL_TASK_STATUSES`](/packages/contracts/api/functions#terminaltaskstatuses) | variable |  |
+| [`TERMINAL_PIPELINE_STATUSES`](/packages/contracts/api/functions#terminalpipelinestatuses) | variable |  |
+| [`TERMINAL_STAGE_STATUSES`](/packages/contracts/api/functions#terminalstagestatuses) | variable |  |
+| [`STATUS_REGISTRY`](/packages/contracts/api/functions#statusregistry) | variable |  |
+| [`PIPELINE_STATUS_ICONS`](/packages/contracts/api/functions#pipelinestatusicons) | variable | Pipeline status → Unicode progress icon. Used wherever lifecycle pipeline sta... |
+| [`STAGE_STATUS_ICONS`](/packages/contracts/api/functions#stagestatusicons) | variable | Stage status → Unicode progress icon. Used wherever pipeline stage status is ... |
+| [`TASK_STATUS_SYMBOLS_UNICODE`](/packages/contracts/api/functions#taskstatussymbolsunicode) | variable | Task status → Unicode symbol (rich terminal / Unicode-enabled). Falls back to... |
+| [`TASK_STATUS_SYMBOLS_ASCII`](/packages/contracts/api/functions#taskstatussymbolsascii) | variable | Task status → ASCII fallback symbol (non-Unicode terminals, CI output). |

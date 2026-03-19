@@ -46,6 +46,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Existing task',
+                description: 'Test task for collision detection',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -59,6 +60,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Existing task',
+                description: 'Test task for collision detection',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -72,6 +74,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Existing task',
+                description: 'Test task for collision detection',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -86,6 +89,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Existing task',
+                description: 'Test task for collision detection',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -117,6 +121,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Quick task',
+                description: 'Quick task for race condition test',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -133,6 +138,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Active task',
+                description: 'Active task for namespace isolation test',
                 status: 'active',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -146,6 +152,7 @@ describe('Collision Detection', () => {
             await createTask({
                 id: 'T001',
                 title: 'Done task',
+                description: 'Done task for namespace isolation test',
                 status: 'done',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),

@@ -38,7 +38,15 @@ function makeConfig(hierarchy) {
         },
         session: { autoStart: false, requireNotes: false, multiSession: false },
         lifecycle: { mode: 'advisory' },
-        logging: { level: 'info', filePath: 'logs/cleo.log', maxFileSize: 10_000_000, maxFiles: 5 },
+        logging: {
+            level: 'info',
+            filePath: 'logs/cleo.log',
+            maxFileSize: 10_000_000,
+            maxFiles: 5,
+            auditRetentionDays: 90,
+            archiveBeforePrune: true,
+        },
+        sharing: { mode: 'none', commitAllowlist: [], denylist: [] },
     };
 }
 function llmPolicy() {

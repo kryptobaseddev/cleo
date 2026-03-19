@@ -6,6 +6,7 @@
  * @task T4476
  */
 
+import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -24,7 +25,7 @@ import {
 
 const TEST_ROOT = join(process.cwd(), '.test-release-engine');
 
-const SAMPLE_TASKS = [
+const SAMPLE_TASKS: Array<Partial<Task> & { id: string }> = [
   {
     id: 'T001',
     title: 'feat: Add new feature',

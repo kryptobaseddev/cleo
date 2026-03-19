@@ -9,6 +9,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import {
   closeAllDatabases,
   createSqliteDataAccessor,
@@ -31,15 +32,7 @@ let projectDirB: string;
 /** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProject(
   dir: string,
-  tasks: Array<{
-    id: string;
-    title: string;
-    status: string;
-    description?: string;
-    labels?: string[];
-    depends?: string[];
-    priority?: string;
-  }>,
+  tasks: Array<Partial<Task> & { id: string }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
   resetDbState();

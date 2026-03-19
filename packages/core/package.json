@@ -55,6 +55,7 @@
     "src"
   ],
   "devDependencies": {
+    "@cleocode/adapters": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/write-file-atomic": "^4.0.3"
   }

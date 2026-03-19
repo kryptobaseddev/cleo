@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate TSDoc coverage with agent-friendly JSON output
+# Validate TSDoc coverage — non-TTY defaults to JSON (LAFS envelope)
 # Usage: ./check.sh [--mvi minimal|standard|full] [additional args]
 set -euo pipefail
-npx forge-ts check --json --mvi "${MVI_LEVEL:-full}" "$@"
+npx forge-ts check --mvi "${MVI_LEVEL:-full}" "$@"

@@ -4,8 +4,8 @@
  * @task T5402
  */
 
+import type { GateContract, WarpChain, WarpLink, WarpStage } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import type { GateContract, WarpChain, WarpLink, WarpStage } from '../../../types/warp-chain.js';
 import { buildDefaultChain } from '../../lifecycle/default-chain.js';
 import {
   validateChain,

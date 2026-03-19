@@ -574,7 +574,9 @@ describe('E2E: Brain Operations', () => {
       expect(data.coherent).toBe(false);
       expect(data.issues.length).toBeGreaterThan(0);
 
-      const doneWithIncomplete = data.issues.find((i) => i.type === 'done_with_incomplete_subtask');
+      const doneWithIncomplete = data.issues.find(
+        (i: any) => i.type === 'done_with_incomplete_subtask',
+      );
       expect(doneWithIncomplete).toBeDefined();
       expect(doneWithIncomplete!.taskId).toBe('T200');
       expect(doneWithIncomplete!.severity).toBe('error');
@@ -602,7 +604,7 @@ describe('E2E: Brain Operations', () => {
       const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
-      const orphaned = data.issues.find((i) => i.type === 'orphaned_dependency');
+      const orphaned = data.issues.find((i: any) => i.type === 'orphaned_dependency');
       expect(orphaned).toBeDefined();
       expect(orphaned!.taskId).toBe('T300');
     });
@@ -639,7 +641,7 @@ describe('E2E: Brain Operations', () => {
       const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
-      const inconsistency = data.issues.find((i) => i.type === 'status_inconsistency');
+      const inconsistency = data.issues.find((i: any) => i.type === 'status_inconsistency');
       expect(inconsistency).toBeDefined();
       expect(inconsistency!.taskId).toBe('T401');
     });

@@ -59,9 +59,12 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(findSkill).mockReturnValue({
       name: 'test-skill',
+      dirName: 'test-skill',
       path: '/mock/project/skills/test-skill',
+      skillMdPath: '/mock/project/skills/test-skill/SKILL.md',
+      frontmatter: {},
       content: '# Test Skill\nDo the thing.',
-    });
+    } as any);
   });
 
   it('passes tier 0 through — output excludes standard and orchestrator', () => {
@@ -207,9 +210,12 @@ describe('buildPrompt tier passthrough', () => {
     });
     vi.mocked(findSkill).mockReturnValue({
       name: 'task-executor',
+      dirName: 'task-executor',
       path: '/mock/project/skills/task-executor',
+      skillMdPath: '/mock/project/skills/task-executor/SKILL.md',
+      frontmatter: {},
       content: '# Task Executor\nExecute {{TASK_ID}}.',
-    });
+    } as any);
   });
 
   it('buildPrompt with tier 0 filters protocol to minimal only', () => {

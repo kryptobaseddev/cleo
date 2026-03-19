@@ -5,6 +5,7 @@
  *
  * @task T2921
  */
+import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 // Global test setup
 beforeAll(() => {
     // Configure environment variables for tests
@@ -26,5 +27,4 @@ afterAll(() => {
 afterEach(() => {
     vi.clearAllMocks();
 });
-export {};
 //# sourceMappingURL=setup.js.map

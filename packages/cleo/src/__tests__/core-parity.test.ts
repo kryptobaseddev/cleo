@@ -34,7 +34,7 @@ import { closeLogger, initLogger } from '../../../core/src/logger.js';
 // ============================================================================
 
 describe('Import Graph Verification (T4796)', () => {
-  const ENGINE_FILES = [
+  const ENGINE_FILES: string[] = [
     // task-engine.ts deleted — moved to src/dispatch/engines/task-engine.ts (T5100)
     // session-engine.ts deleted — moved to src/dispatch/engines/session-engine.ts
     // lifecycle-engine.ts deleted — moved to src/dispatch/engines/lifecycle-engine.ts

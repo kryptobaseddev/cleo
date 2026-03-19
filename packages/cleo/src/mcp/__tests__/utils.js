@@ -8,6 +8,7 @@
  *
  * @task T2921
  */
+import { expect, vi } from 'vitest';
 /**
  * Creates a mock CLIExecutor for testing
  */

@@ -141,6 +141,7 @@ describe('E2E Safety Integration', () => {
         name: 'E2E Test Session',
         status: 'active',
         scope: { type: 'epic', epicId: 'T001' },
+        taskWork: { taskId: null, setAt: null },
         agent: 'test-agent',
         notes: ['Starting E2E test'],
         tasksCompleted: [],
@@ -172,6 +173,7 @@ describe('E2E Safety Integration', () => {
       await createTask({
         id: 'T001',
         title: 'Original',
+        description: 'Original task for collision test',
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),
@@ -181,6 +183,7 @@ describe('E2E Safety Integration', () => {
       const taskData = {
         id: 'T001',
         title: 'Duplicate',
+        description: 'Duplicate task for collision test',
         status: 'pending' as const,
         priority: 'medium' as const,
         createdAt: new Date().toISOString(),
@@ -208,6 +211,7 @@ describe('E2E Safety Integration', () => {
       const taskData = {
         id: 'T001',
         title: 'Verified task',
+        description: 'Task for write verification test',
         status: 'pending' as const,
         priority: 'high' as const,
         createdAt: new Date().toISOString(),
@@ -250,6 +254,7 @@ describe('E2E Safety Integration', () => {
         await createTask({
           id,
           title: `Bulk task ${i}`,
+          description: `Bulk task ${i} description`,
           status: 'pending',
           priority: 'medium',
           createdAt: new Date().toISOString(),
@@ -273,6 +278,7 @@ describe('E2E Safety Integration', () => {
         await createTask({
           id: `T${String(i).padStart(3, '0')}`,
           title: `Concurrent task ${i}`,
+          description: `Concurrent task ${i} description`,
           status: 'pending',
           priority: 'medium',
           createdAt: new Date().toISOString(),

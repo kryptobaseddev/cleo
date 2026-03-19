@@ -6,8 +6,7 @@
  * @task T2921
  */
 
-// Export to make this a module
-export {};
+import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
 // Global test setup
 beforeAll(() => {

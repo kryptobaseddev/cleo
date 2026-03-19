@@ -84,7 +84,17 @@ describe('TasksHandler', () => {
     // -----------------------------------------------------------------------
     describe('query', () => {
         it('show - delegates to taskShow', async () => {
-            const mockData = { id: 'T001', title: 'Test' };
+            const mockData = {
+                task: {
+                    id: 'T001',
+                    title: 'Test',
+                    description: 'test',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: '2026-01-01',
+                    updatedAt: null,
+                },
+            };
             vi.mocked(taskShow).mockResolvedValue({ success: true, data: mockData });
             const result = await handler.query('show', { taskId: 'T001' });
             expect(result.success).toBe(true);
@@ -158,7 +168,10 @@ describe('TasksHandler', () => {
             });
         });
         it('find - delegates to taskFind', async () => {
-            const mockData = [{ id: 'T001', title: 'Test' }];
+            const mockData = {
+                results: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+                total: 1,
+            };
             vi.mocked(taskFind).mockResolvedValue({ success: true, data: mockData });
             const result = await handler.query('find', { query: 'test', limit: 10 });
             expect(result.success).toBe(true);
@@ -171,7 +184,10 @@ describe('TasksHandler', () => {
             });
         });
         it('find - passes extra filters to taskFind', async () => {
-            const mockData = [{ id: 'T001', title: 'Test' }];
+            const mockData = {
+                results: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+                total: 1,
+            };
             vi.mocked(taskFind).mockResolvedValue({ success: true, data: mockData });
             const result = await handler.query('find', {
                 query: 'test',
@@ -197,7 +213,10 @@ describe('TasksHandler', () => {
             expect(taskTree).toHaveBeenCalledWith('/mock/project', 'T001');
         });
         it('blockers - delegates to taskBlockers', async () => {
-            vi.mocked(taskBlockers).mockResolvedValue({ success: true, data: { blockedTasks: [] } });
+            vi.mocked(taskBlockers).mockResolvedValue({
+                success: true,
+                data: { blockedTasks: [], criticalBlockers: [], summary: '', total: 0, limit: 10 },
+            });
             const result = await handler.query('blockers', { analyze: true });
             expect(result.success).toBe(true);
             expect(taskBlockers).toHaveBeenCalledWith('/mock/project', { analyze: true });
@@ -212,13 +231,25 @@ describe('TasksHandler', () => {
             expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both', undefined);
         });
         it('analyze - delegates to taskAnalyze', async () => {
-            vi.mocked(taskAnalyze).mockResolvedValue({ success: true, data: {} });
+            vi.mocked(taskAnalyze).mockResolvedValue({
+                success: true,
+                data: {
+                    recommended: null,
+                    bottlenecks: [],
+                    tiers: { critical: [], high: [], normal: [] },
+                    metrics: { totalTasks: 0, actionable: 0, blocked: 0, avgLeverage: 0 },
+                    tierLimit: 10,
+                },
+            });
             const result = await handler.query('analyze', { taskId: 'T001' });
             expect(result.success).toBe(true);
             expect(taskAnalyze).toHaveBeenCalledWith('/mock/project', 'T001', { tierLimit: undefined });
         });
         it('next - delegates to taskNext', async () => {
-            vi.mocked(taskNext).mockResolvedValue({ success: true, data: { suggestions: [] } });
+            vi.mocked(taskNext).mockResolvedValue({
+                success: true,
+                data: { suggestions: [], totalCandidates: 0 },
+            });
             const result = await handler.query('next', { count: 5 });
             expect(result.success).toBe(true);
             expect(taskNext).toHaveBeenCalledWith('/mock/project', { count: 5 });
@@ -235,14 +266,24 @@ describe('TasksHandler', () => {
         it('complexity.estimate - delegates to taskComplexityEstimate', async () => {
             vi.mocked(taskComplexityEstimate).mockResolvedValue({
                 success: true,
-                data: { size: 'small', score: 3 },
+                data: {
+                    size: 'small',
+                    score: 3,
+                    factors: [],
+                    dependencyDepth: 0,
+                    subtaskCount: 0,
+                    fileCount: 0,
+                },
             });
             const result = await handler.query('complexity.estimate', { taskId: 'T001' });
             expect(result.success).toBe(true);
             expect(taskComplexityEstimate).toHaveBeenCalledWith('/mock/project', { taskId: 'T001' });
         });
         it('current - delegates to taskCurrentGet', async () => {
-            vi.mocked(taskCurrentGet).mockResolvedValue({ success: true, data: { taskId: 'T001' } });
+            vi.mocked(taskCurrentGet).mockResolvedValue({
+                success: true,
+                data: { currentTask: 'T001', currentPhase: null },
+            });
             const result = await handler.query('current');
             expect(result.success).toBe(true);
             expect(taskCurrentGet).toHaveBeenCalledWith('/mock/project');
@@ -265,14 +306,36 @@ describe('TasksHandler', () => {
     // -----------------------------------------------------------------------
     describe('mutate', () => {
         it('add - delegates to taskCreate', async () => {
-            const mockTask = { id: 'T001', title: 'New Task' };
+            const mockTask = {
+                task: {
+                    id: 'T001',
+                    title: 'New Task',
+                    description: 'Desc',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: '2026-01-01',
+                    updatedAt: null,
+                },
+                duplicate: false,
+            };
             vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
             const result = await handler.mutate('add', { title: 'New Task', description: 'Desc' });
             expect(result.success).toBe(true);
             expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ title: 'New Task' }));
         });
         it('add - forwards parentId param as parent to engine', async () => {
-            const mockTask = { id: 'T002', title: 'Child Task' };
+            const mockTask = {
+                task: {
+                    id: 'T002',
+                    title: 'Child Task',
+                    description: 'Desc',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: '2026-01-01',
+                    updatedAt: null,
+                },
+                duplicate: false,
+            };
             vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
             const result = await handler.mutate('add', {
                 title: 'Child Task',
@@ -286,7 +349,18 @@ describe('TasksHandler', () => {
             }));
         });
         it('add - prefers parent over parentId when both provided', async () => {
-            const mockTask = { id: 'T002', title: 'Child Task' };
+            const mockTask = {
+                task: {
+                    id: 'T002',
+                    title: 'Child Task',
+                    description: '',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: '2026-01-01',
+                    updatedAt: null,
+                },
+                duplicate: false,
+            };
             vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
             const result = await handler.mutate('add', {
                 title: 'Child Task',
@@ -304,13 +378,39 @@ describe('TasksHandler', () => {
             expect(result.error?.code).toBe('E_INVALID_INPUT');
         });
         it('update - delegates to taskUpdate', async () => {
-            vi.mocked(taskUpdate).mockResolvedValue({ success: true, data: { id: 'T001' } });
+            vi.mocked(taskUpdate).mockResolvedValue({
+                success: true,
+                data: {
+                    task: {
+                        id: 'T001',
+                        title: 'Updated',
+                        description: 'test',
+                        status: 'pending',
+                        priority: 'medium',
+                        createdAt: '2026-01-01',
+                        updatedAt: null,
+                    },
+                },
+            });
             const result = await handler.mutate('update', { taskId: 'T001', title: 'Updated' });
             expect(result.success).toBe(true);
             expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({ title: 'Updated' }));
         });
         it('update - forwards parentId param as parent to engine', async () => {
-            vi.mocked(taskUpdate).mockResolvedValue({ success: true, data: { id: 'T001' } });
+            vi.mocked(taskUpdate).mockResolvedValue({
+                success: true,
+                data: {
+                    task: {
+                        id: 'T001',
+                        title: 'Test',
+                        description: 'test',
+                        status: 'pending',
+                        priority: 'medium',
+                        createdAt: '2026-01-01',
+                        updatedAt: null,
+                    },
+                },
+            });
             const result = await handler.mutate('update', { taskId: 'T001', parentId: 'T002' });
             expect(result.success).toBe(true);
             expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({
@@ -318,7 +418,20 @@ describe('TasksHandler', () => {
             }));
         });
         it('complete - delegates to taskComplete', async () => {
-            vi.mocked(taskComplete).mockResolvedValue({ success: true, data: { id: 'T001' } });
+            vi.mocked(taskComplete).mockResolvedValue({
+                success: true,
+                data: {
+                    task: {
+                        id: 'T001',
+                        title: 'Test',
+                        description: 'test',
+                        status: 'done',
+                        priority: 'medium',
+                        createdAt: '2026-01-01',
+                        updatedAt: null,
+                    },
+                },
+            });
             const result = await handler.mutate('complete', { taskId: 'T001', notes: 'Done' });
             expect(result.success).toBe(true);
             expect(taskComplete).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
@@ -326,7 +439,18 @@ describe('TasksHandler', () => {
         it('delete - delegates to taskDelete', async () => {
             vi.mocked(taskDelete).mockResolvedValue({
                 success: true,
-                data: { deleted: true, taskId: 'T001' },
+                data: {
+                    deletedTask: {
+                        id: 'T001',
+                        title: 'Test',
+                        description: 'test',
+                        status: 'pending',
+                        priority: 'medium',
+                        createdAt: '2026-01-01',
+                        updatedAt: null,
+                    },
+                    deleted: true,
+                },
             });
             const result = await handler.mutate('delete', { taskId: 'T001', force: true });
             expect(result.success).toBe(true);
@@ -335,7 +459,7 @@ describe('TasksHandler', () => {
         it('archive - delegates to taskArchive', async () => {
             vi.mocked(taskArchive).mockResolvedValue({
                 success: true,
-                data: { archived: 2, taskIds: ['T001', 'T002'] },
+                data: { archivedCount: 2, archivedTasks: [{ id: 'T001' }, { id: 'T002' }] },
             });
             const result = await handler.mutate('archive', {});
             expect(result.success).toBe(true);
@@ -356,7 +480,7 @@ describe('TasksHandler', () => {
         it('reparent - delegates to taskReparent', async () => {
             vi.mocked(taskReparent).mockResolvedValue({
                 success: true,
-                data: { task: 'T001', reparented: true },
+                data: { task: 'T001', reparented: true, oldParent: null, newParent: 'T002' },
             });
             const result = await handler.mutate('reparent', { taskId: 'T001', newParentId: 'T002' });
             expect(result.success).toBe(true);
@@ -365,7 +489,7 @@ describe('TasksHandler', () => {
         it('reorder - delegates to taskReorder', async () => {
             vi.mocked(taskReorder).mockResolvedValue({
                 success: true,
-                data: { task: 'T001', reordered: true },
+                data: { task: 'T001', reordered: true, newPosition: 3, totalSiblings: 5 },
             });
             const result = await handler.mutate('reorder', { taskId: 'T001', position: 3 });
             expect(result.success).toBe(true);
@@ -390,13 +514,19 @@ describe('TasksHandler', () => {
             expect(result.error?.code).toBe('E_INVALID_INPUT');
         });
         it('start - delegates to taskStart', async () => {
-            vi.mocked(taskStart).mockResolvedValue({ success: true, data: { taskId: 'T001' } });
+            vi.mocked(taskStart).mockResolvedValue({
+                success: true,
+                data: { taskId: 'T001', previousTask: null },
+            });
             const result = await handler.mutate('start', { taskId: 'T001' });
             expect(result.success).toBe(true);
             expect(taskStart).toHaveBeenCalledWith('/mock/project', 'T001');
         });
         it('stop - delegates to taskStop', async () => {
-            vi.mocked(taskStop).mockResolvedValue({ success: true, data: {} });
+            vi.mocked(taskStop).mockResolvedValue({
+                success: true,
+                data: { cleared: true, previousTask: null },
+            });
             const result = await handler.mutate('stop');
             expect(result.success).toBe(true);
             expect(taskStop).toHaveBeenCalledWith('/mock/project');

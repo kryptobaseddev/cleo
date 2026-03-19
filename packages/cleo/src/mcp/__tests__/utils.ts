@@ -9,7 +9,7 @@
  * @task T2921
  */
 
-import type { Mocked } from 'vitest';
+import { expect, type Mocked, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Inline type definitions (previously from deleted modules)

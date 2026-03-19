@@ -7,6 +7,7 @@
  * @task T2937
  */
 
+import { expect } from 'vitest';
 import {
   cleanupIntegrationTest,
   type IntegrationTestContext,

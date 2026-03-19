@@ -7,6 +7,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -24,16 +25,7 @@ import { nexusRegister, resetNexusDbState } from '../registry.js';
 /** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProjectDb(
   dir: string,
-  tasks: Array<{
-    id: string;
-    title: string;
-    status: string;
-    description?: string;
-    labels?: string[];
-    depends?: string[];
-    priority?: string;
-    createdAt?: string;
-  }>,
+  tasks: Array<Partial<Task> & { id: string }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
   resetDbState();

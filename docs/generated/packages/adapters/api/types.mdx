@@ -1,0 +1,20 @@
+---
+title: "adapters — Types"
+description: "Type contracts for the adapters package"
+---
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## AdapterManifest
+
+Minimal manifest shape for provider discovery.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `description` | `string` | Yes | description |
+| `provider` | `string` | Yes | provider |
+| `entryPoint` | `string` | Yes | entryPoint |
+| `capabilities` | `Record<string, unknown>` | Yes | capabilities |
+| `detectionPatterns` | `{ type: string; pattern: string; description: string; }[]` | Yes | detectionPatterns |

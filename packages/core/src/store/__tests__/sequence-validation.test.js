@@ -63,6 +63,7 @@ describe('Sequence Validation', () => {
             await createTask({
                 id: 'T050',
                 title: 'Task 50',
+                description: 'Task 50 for sequence validation',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),

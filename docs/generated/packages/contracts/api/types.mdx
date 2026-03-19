@@ -1,0 +1,4253 @@
+---
+title: "contracts — Types"
+description: "Type contracts for the contracts package"
+---
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## AdapterCapabilities
+
+Adapter capability declarations for CLEO provider adapters.   T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `supportsHooks` | `boolean` | Yes | supportsHooks |
+| `supportedHookEvents` | `string[]` | Yes | supportedHookEvents |
+| `supportsSpawn` | `boolean` | Yes | supportsSpawn |
+| `supportsInstall` | `boolean` | Yes | supportsInstall |
+| `supportsMcp` | `boolean` | Yes | supportsMcp |
+| `supportsInstructionFiles` | `boolean` | Yes | supportsInstructionFiles |
+| `instructionFilePattern` | `string \| undefined` | No | Provider-specific instruction file name, e.g. "CLAUDE.md", ".cursorrules" |
+| `supportsContextMonitor` | `boolean` | Yes | supportsContextMonitor |
+| `supportsStatusline` | `boolean` | Yes | supportsStatusline |
+| `supportsProviderPaths` | `boolean` | Yes | supportsProviderPaths |
+| `supportsTransport` | `boolean` | Yes | supportsTransport |
+| `supportsTaskSync` | `boolean` | Yes | supportsTaskSync |
+
+## AdapterContextMonitorProvider
+
+Context monitor provider interface for CLEO provider adapters. Allows providers to implement context window tracking and statusline integration.  T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `processContextInput` | `(input: unknown, cwd?: string \| undefined) => Promise<string>` | No | Process context window input and return a status string |
+| `checkStatuslineIntegration` | `() => "configured" \| "not_configured" \| "custom_no_cleo" \| "no_settings"` | Yes | Check if statusline integration is configured |
+| `getStatuslineConfig` | `() => Record<string, unknown>` | Yes | Get the statusline configuration object |
+| `getSetupInstructions` | `() => string` | Yes | Get human-readable setup instructions |
+
+## AdapterHookProvider
+
+Hook provider interface for CLEO provider adapters. Maps provider-specific events to CAAMP hook events.   T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `mapProviderEvent` | `(providerEvent: string) => string \| null` | Yes | Map a provider-specific event name to a CAAMP hook event name, or null if unmapped. |
+| `registerNativeHooks` | `(projectDir: string) => Promise<void>` | Yes | Register the provider's native hook mechanism for a project. |
+| `unregisterNativeHooks` | `() => Promise<void>` | Yes | Unregister all native hooks previously registered. |
+| `getEventMap` | `(() => Readonly<Record<string, string>>) \| undefined` | No | Return the full event mapping for introspection. |
+
+## AdapterInstallProvider
+
+Install provider interface for CLEO provider adapters. Handles registration with the provider and instruction file references.   T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `install` | `(options: InstallOptions) => Promise<InstallResult>` | Yes | install |
+| `uninstall` | `() => Promise<void>` | Yes | uninstall |
+| `isInstalled` | `() => Promise<boolean>` | Yes | isInstalled |
+| `ensureInstructionReferences` | `(projectDir: string) => Promise<void>` | Yes | Ensure the provider's instruction file references CLEO (e.g. AGENTS.md in CLAUDE.md). |
+
+## InstallOptions
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `projectDir` | `string` | Yes | projectDir |
+| `global` | `boolean \| undefined` | No | global |
+| `mcpServerPath` | `string \| undefined` | No | mcpServerPath |
+
+## InstallResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `boolean` | Yes | success |
+| `installedAt` | `string` | Yes | installedAt |
+| `instructionFileUpdated` | `boolean` | Yes | instructionFileUpdated |
+| `mcpRegistered` | `boolean` | Yes | mcpRegistered |
+| `details` | `Record<string, unknown> \| undefined` | No | details |
+
+## AdapterPathProvider
+
+Path provider interface for CLEO provider adapters. Allows providers to declare their OS-specific directory locations.  T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `getProviderDir` | `() => string` | Yes | Get the provider's global config directory (e.g., ~/.claude/) |
+| `getSettingsPath` | `() => string \| null` | Yes | Get the path to the provider's settings file, or null if N/A |
+| `getAgentInstallDir` | `() => string \| null` | Yes | Get the directory where this provider installs agents, or null if N/A |
+| `getMemoryDbPath` | `() => string \| null` | Yes | Get the path to a third-party memory DB if applicable, or null |
+
+## AdapterSpawnProvider
+
+Spawn provider interface for CLEO provider adapters.   T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `canSpawn` | `() => Promise<boolean>` | Yes | canSpawn |
+| `spawn` | `(context: SpawnContext) => Promise<SpawnResult>` | Yes | spawn |
+| `listRunning` | `() => Promise<SpawnResult[]>` | Yes | listRunning |
+| `terminate` | `(instanceId: string) => Promise<void>` | Yes | terminate |
+
+## SpawnContext
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `prompt` | `string` | Yes | prompt |
+| `workingDirectory` | `string \| undefined` | No | workingDirectory |
+| `options` | `Record<string, unknown> \| undefined` | No | options |
+
+## SpawnResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `instanceId` | `string` | Yes | instanceId |
+| `taskId` | `string` | Yes | taskId |
+| `providerId` | `string` | Yes | providerId |
+| `output` | `string \| undefined` | No | Output captured from the spawned process. Optional for detached/fire-and-forget spawns. |
+| `exitCode` | `number \| undefined` | No | Exit code of the spawned process. Optional for detached/fire-and-forget spawns. |
+| `status` | `"running" \| "completed" \| "failed" \| "cancelled" \| "pending"` | Yes | status |
+| `startTime` | `string` | Yes | startTime |
+| `endTime` | `string \| undefined` | No | endTime |
+| `error` | `string \| undefined` | No | Error message when status is 'failed'. Contains details about what went wrong. |
+
+## ExternalTaskStatus
+
+Normalized status for tasks coming from an external provider.
+
+```typescript
+any
+```
+
+## ExternalTask
+
+A task as reported by an external provider, normalized to a common shape. Provider-specific adapters translate their native format into this.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `externalId` | `string` | Yes | Provider-assigned identifier for this task (opaque to core). |
+| `cleoTaskId` | `string \| null` | Yes | Mapped CLEO task ID, or null if the task is new / unmatched. |
+| `title` | `string` | Yes | Human-readable title. |
+| `status` | `ExternalTaskStatus` | Yes | Normalized status. |
+| `description` | `string \| undefined` | No | Optional description text. |
+| `labels` | `string[] \| undefined` | No | Optional labels/tags from the provider. |
+| `providerMeta` | `Record<string, unknown> \| undefined` | No | Arbitrary provider-specific metadata (opaque to core). |
+
+## SyncSessionState
+
+Persistent state for a sync session between CLEO and a provider. Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `injectedTaskIds` | `string[]` | Yes | CLEO task IDs that were injected into the provider's task list. |
+| `injectedPhase` | `string \| undefined` | No | Optional phase context when tasks were injected. |
+| `taskMetadata` | `Record<string, { phase?: string \| undefined; }> \| undefined` | No | Per-task metadata at injection time. |
+| `lastSyncAt` | `string \| undefined` | No | ISO timestamp of the last successful reconciliation. |
+
+## ConflictPolicy
+
+Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins`: CLEO state takes precedence (default). - `provider-wins`: Provider state takes precedence. - `latest-wins`: Most recently modified value wins. - `report-only`: Report conflicts without applying changes.
+
+```typescript
+any
+```
+
+## ReconcileOptions
+
+Options for the reconciliation engine.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `providerId` | `string` | Yes | Provider ID (e.g. 'claude-code', 'cursor'). |
+| `cwd` | `string \| undefined` | No | Working directory (project root). |
+| `dryRun` | `boolean \| undefined` | No | If true, compute actions without applying them. |
+| `conflictPolicy` | `ConflictPolicy \| undefined` | No | Conflict resolution policy. Defaults to 'cleo-wins'. |
+| `defaultPhase` | `string \| undefined` | No | Default phase for newly created tasks. |
+| `defaultLabels` | `string[] \| undefined` | No | Default labels for newly created tasks. |
+
+## ReconcileActionType
+
+The type of action the reconciliation engine will take.
+
+```typescript
+any
+```
+
+## ReconcileAction
+
+A single reconciliation action (planned or applied).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `ReconcileActionType` | Yes | What kind of change. |
+| `cleoTaskId` | `string \| null` | Yes | The CLEO task ID affected (null for creates before they happen). |
+| `externalId` | `string` | Yes | The external task that triggered this action. |
+| `summary` | `string` | Yes | Human-readable description of the action. |
+| `applied` | `boolean` | Yes | Whether this action was actually applied. |
+| `error` | `string \| undefined` | No | Error message if the action failed during apply. |
+
+## ReconcileResult
+
+Result of a full reconciliation run.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `dryRun` | `boolean` | Yes | Whether this was a dry run. |
+| `providerId` | `string` | Yes | Provider that was reconciled. |
+| `actions` | `ReconcileAction[]` | Yes | Individual actions taken (or planned). |
+| `summary` | `{ completed: number; activated: number; created: number; removed: number; skipped: number; conflicts: number; applied: number; }` | Yes | Summary counts. |
+| `sessionCleared` | `boolean` | Yes | Whether sync session state was cleared after apply. |
+
+## AdapterTaskSyncProvider
+
+Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives here — core never sees native formats.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `getExternalTasks` | `(projectDir: string) => Promise<ExternalTask[]>` | Yes | Read the provider's current task state and return normalized ExternalTasks. |
+| `pushTaskState` | `((tasks: readonly { id: string; title: string; status: string; }[], projectDir: string) => Promise<void>) \| undefined` | No | Optionally push CLEO task state back to the provider. Not all providers support bidirectional sync. |
+| `cleanup` | `((projectDir: string) => Promise<void>) \| undefined` | No | Clean up provider-specific sync artifacts (e.g. state files). |
+
+## AdapterTransportProvider
+
+Transport provider interface for CLEO provider adapters. Allows providers to supply custom inter-agent transport mechanisms.  T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `createTransport` | `() => unknown` | Yes | Create a transport instance for inter-agent communication |
+| `transportName` | `string` | Yes | Name of this transport type for logging/debugging |
+
+## CLEOProviderAdapter
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `capabilities` | `AdapterCapabilities` | Yes | capabilities |
+| `hooks` | `AdapterHookProvider \| undefined` | No | hooks |
+| `spawn` | `AdapterSpawnProvider \| undefined` | No | spawn |
+| `install` | `AdapterInstallProvider` | Yes | install |
+| `paths` | `AdapterPathProvider \| undefined` | No | paths |
+| `contextMonitor` | `AdapterContextMonitorProvider \| undefined` | No | contextMonitor |
+| `transport` | `AdapterTransportProvider \| undefined` | No | transport |
+| `taskSync` | `AdapterTaskSyncProvider \| undefined` | No | taskSync |
+| `initialize` | `(projectDir: string) => Promise<void>` | Yes | initialize |
+| `dispose` | `() => Promise<void>` | Yes | dispose |
+| `healthCheck` | `() => Promise<AdapterHealthStatus>` | Yes | healthCheck |
+
+## AdapterHealthStatus
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `healthy` | `boolean` | Yes | healthy |
+| `provider` | `string` | Yes | provider |
+| `details` | `Record<string, unknown> \| undefined` | No | details |
+
+## TaskStatus
+
+```typescript
+any
+```
+
+## SessionStatus
+
+```typescript
+any
+```
+
+## PipelineStatus
+
+```typescript
+any
+```
+
+## StageStatus
+
+```typescript
+any
+```
+
+## AdrStatus
+
+```typescript
+any
+```
+
+## GateStatus
+
+```typescript
+any
+```
+
+## ManifestStatus
+
+```typescript
+any
+```
+
+## EntityType
+
+```typescript
+any
+```
+
+## TaskPriority
+
+Task priority levels.
+
+```typescript
+any
+```
+
+## TaskType
+
+Task type in hierarchy.
+
+```typescript
+any
+```
+
+## TaskSize
+
+Task size (scope, NOT time).
+
+```typescript
+any
+```
+
+## EpicLifecycle
+
+Epic lifecycle states.
+
+```typescript
+any
+```
+
+## TaskOrigin
+
+Task origin (provenance).
+
+```typescript
+any
+```
+
+## VerificationAgent
+
+Verification agent types.
+
+```typescript
+any
+```
+
+## VerificationGate
+
+Verification gate names.
+
+```typescript
+any
+```
+
+## VerificationFailure
+
+Verification failure log entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `round` | `number` | Yes | round |
+| `agent` | `string` | Yes | agent |
+| `reason` | `string` | Yes | reason |
+| `timestamp` | `string` | Yes | timestamp |
+
+## TaskVerification
+
+Task verification state.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `passed` | `boolean` | Yes | passed |
+| `round` | `number` | Yes | round |
+| `gates` | `Partial<Record<VerificationGate, boolean \| null>>` | Yes | gates |
+| `lastAgent` | `VerificationAgent \| null` | Yes | lastAgent |
+| `lastUpdated` | `string \| null` | Yes | lastUpdated |
+| `failureLog` | `VerificationFailure[]` | Yes | failureLog |
+
+## TaskProvenance
+
+Task provenance tracking.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `createdBy` | `string \| null` | Yes | createdBy |
+| `modifiedBy` | `string \| null` | Yes | modifiedBy |
+| `sessionId` | `string \| null` | Yes | sessionId |
+
+## TaskRelation
+
+A single task relation entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `type` | `string` | Yes | type |
+| `reason` | `string \| undefined` | No | reason |
+
+## Task
+
+A single CLEO task as stored in the database.  Fields marked as required are enforced by CLEO's anti-hallucination validation at runtime. Making them required here ensures the type system catches violations at compile time rather than deferring to runtime checks.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | Unique task identifier. Must match pattern `T\d{3,}` (e.g., T001, T5800). |
+| `title` | `string` | Yes | Human-readable task title. Required, max 120 characters. |
+| `description` | `string` | Yes | Task description. **Required** — CLEO's anti-hallucination rules reject tasks without a description, and require it to differ from the title. |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | Current task status. Must be a valid `TaskStatus` enum value. |
+| `priority` | `TaskPriority` | Yes | Task priority level. Defaults to `'medium'` on creation. |
+| `type` | `TaskType \| undefined` | No | Task type in hierarchy. Inferred from parent context if not specified. |
+| `parentId` | `string \| null \| undefined` | No | ID of the parent task. `null` for root-level tasks. |
+| `position` | `number \| null \| undefined` | No | Sort position within sibling scope. |
+| `positionVersion` | `number \| undefined` | No | Optimistic concurrency version for position changes. |
+| `size` | `TaskSize \| null \| undefined` | No | Relative scope sizing (small/medium/large). NOT a time estimate. |
+| `phase` | `string \| undefined` | No | Phase slug this task belongs to. |
+| `files` | `string[] \| undefined` | No | File paths associated with this task. |
+| `acceptance` | `string[] \| undefined` | No | Acceptance criteria for completion. |
+| `depends` | `string[] \| undefined` | No | IDs of tasks this task depends on. |
+| `relates` | `TaskRelation[] \| undefined` | No | Related task entries (non-dependency relationships). |
+| `epicLifecycle` | `EpicLifecycle \| null \| undefined` | No | Epic lifecycle state. Only meaningful when `type = 'epic'`. |
+| `noAutoComplete` | `boolean \| null \| undefined` | No | When true, epic will not auto-complete when all children are done. |
+| `blockedBy` | `string \| undefined` | No | Reason the task is blocked (free-form text). |
+| `notes` | `string[] \| undefined` | No | Timestamped notes appended during task lifecycle. |
+| `labels` | `string[] \| undefined` | No | Classification labels for filtering and grouping. |
+| `origin` | `TaskOrigin \| null \| undefined` | No | Task origin/provenance category. |
+| `createdAt` | `string` | Yes | ISO 8601 timestamp of task creation. Must not be in the future. |
+| `updatedAt` | `string \| null \| undefined` | No | ISO 8601 timestamp of last update. Set automatically on mutation. |
+| `completedAt` | `string \| undefined` | No | ISO 8601 timestamp of task completion. Set when `status` transitions to `'done'`. See `CompletedTask` for the status-narrowed type where this is required. |
+| `cancelledAt` | `string \| undefined` | No | ISO 8601 timestamp of task cancellation. Set when `status` transitions to `'cancelled'`. See `CancelledTask` for the status-narrowed type where this is required. |
+| `cancellationReason` | `string \| undefined` | No | Reason for cancellation. Required when `status = 'cancelled'`. See `CancelledTask` for the status-narrowed type where this is required. |
+| `verification` | `TaskVerification \| null \| undefined` | No | Verification pipeline state. |
+| `provenance` | `TaskProvenance \| null \| undefined` | No | Provenance tracking (who created/modified, which session). |
+
+## TaskCreate
+
+Input type for creating a new task via `addTask()`.  Only the fields the caller MUST provide are required. All other fields have sensible defaults applied by the creation logic: - `status` defaults to `'pending'` - `priority` defaults to `'medium'` - `type` is inferred from parent context - `size` defaults to `'medium'`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string` | Yes | Human-readable task title. Required, max 120 characters. |
+| `description` | `string` | Yes | Task description. **Required** — CLEO's anti-hallucination rules reject tasks without a description, and require it to differ from the title. |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | Initial status. Defaults to `'pending'`. |
+| `priority` | `TaskPriority \| undefined` | No | Priority level. Defaults to `'medium'`. |
+| `type` | `TaskType \| undefined` | No | Task type. Inferred from parent context if not specified. |
+| `parentId` | `string \| null \| undefined` | No | Parent task ID for hierarchy placement. |
+| `size` | `TaskSize \| undefined` | No | Relative scope sizing. Defaults to `'medium'`. |
+| `phase` | `string \| undefined` | No | Phase slug to assign. Inherited from project.currentPhase if not specified. |
+| `labels` | `string[] \| undefined` | No | Classification labels. |
+| `files` | `string[] \| undefined` | No | File paths associated with this task. |
+| `acceptance` | `string[] \| undefined` | No | Acceptance criteria. |
+| `depends` | `string[] \| undefined` | No | IDs of tasks this task depends on. |
+| `notes` | `string \| undefined` | No | Initial note to attach. |
+| `position` | `number \| undefined` | No | Sort position. Auto-calculated if not specified. |
+
+## CompletedTask
+
+A task with `status = 'done'`. Narrows `Task` to require `completedAt`.  Use this type when you need to guarantee a completed task has its completion timestamp — for example, in cycle-time calculations or archive operations.
+
+```typescript
+any
+```
+
+## CancelledTask
+
+A task with `status = 'cancelled'`. Narrows `Task` to require `cancelledAt` and `cancellationReason`.  Use this type when processing cancelled tasks where the cancellation metadata is guaranteed to be present.
+
+```typescript
+any
+```
+
+## PhaseStatus
+
+Phase status.
+
+```typescript
+any
+```
+
+## Phase
+
+Phase definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `order` | `number` | Yes | order |
+| `name` | `string` | Yes | name |
+| `description` | `string \| undefined` | No | description |
+| `status` | `PhaseStatus` | Yes | status |
+| `startedAt` | `string \| null \| undefined` | No | startedAt |
+| `completedAt` | `string \| null \| undefined` | No | completedAt |
+
+## PhaseTransition
+
+Phase transition record.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `phase` | `string` | Yes | phase |
+| `transitionType` | `"completed" \| "started" \| "rollback"` | Yes | transitionType |
+| `timestamp` | `string` | Yes | timestamp |
+| `taskCount` | `number` | Yes | taskCount |
+| `fromPhase` | `string \| null \| undefined` | No | fromPhase |
+| `reason` | `string \| undefined` | No | reason |
+
+## ReleaseStatus
+
+Release status.
+
+```typescript
+any
+```
+
+## Release
+
+Release definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `status` | `ReleaseStatus` | Yes | status |
+| `targetDate` | `string \| null \| undefined` | No | targetDate |
+| `releasedAt` | `string \| null \| undefined` | No | releasedAt |
+| `tasks` | `string[]` | Yes | tasks |
+| `notes` | `string \| null \| undefined` | No | notes |
+| `changelog` | `string \| null \| undefined` | No | changelog |
+
+## ProjectMeta
+
+Project metadata.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `currentPhase` | `string \| null \| undefined` | No | currentPhase |
+| `phases` | `Record<string, Phase>` | Yes | phases |
+| `phaseHistory` | `PhaseTransition[] \| undefined` | No | phaseHistory |
+| `releases` | `Release[] \| undefined` | No | releases |
+
+## FileMeta
+
+File metadata (_meta block).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `schemaVersion` | `string` | Yes | schemaVersion |
+| `specVersion` | `string \| undefined` | No | specVersion |
+| `checksum` | `string` | Yes | checksum |
+| `configVersion` | `string` | Yes | configVersion |
+| `lastSessionId` | `string \| null \| undefined` | No | lastSessionId |
+| `activeSession` | `string \| null \| undefined` | No | activeSession |
+| `activeSessionCount` | `number \| undefined` | No | activeSessionCount |
+| `sessionsFile` | `string \| null \| undefined` | No | sessionsFile |
+| `generation` | `number \| undefined` | No | generation |
+
+## SessionNote
+
+Session note in taskWork block.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `note` | `string` | Yes | note |
+| `timestamp` | `string` | Yes | timestamp |
+| `conversationId` | `string \| null \| undefined` | No | conversationId |
+| `agent` | `string \| null \| undefined` | No | agent |
+
+## TaskWorkState
+
+Task work state.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentTask` | `string \| null \| undefined` | No | currentTask |
+| `currentPhase` | `string \| null \| undefined` | No | currentPhase |
+| `blockedUntil` | `string \| null \| undefined` | No | blockedUntil |
+| `sessionNote` | `string \| null \| undefined` | No | sessionNote |
+| `sessionNotes` | `SessionNote[] \| undefined` | No | sessionNotes |
+| `nextAction` | `string \| null \| undefined` | No | nextAction |
+| `primarySession` | `string \| null \| undefined` | No | primarySession |
+
+## TaskFile
+
+Root task data structure.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `project` | `ProjectMeta` | Yes | project |
+| `lastUpdated` | `string` | Yes | lastUpdated |
+| `_meta` | `FileMeta` | Yes | _meta |
+| `taskWork` | `TaskWorkState \| undefined` | No | taskWork |
+| `focus` | `TaskWorkState \| undefined` | No | focus |
+| `tasks` | `Task[]` | Yes | tasks |
+| `labels` | `Record<string, string[]> \| undefined` | No | labels |
+
+## ArchiveMetadata
+
+Archive metadata attached to archived task records.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `archivedAt` | `string \| undefined` | No | archivedAt |
+| `cycleTimeDays` | `number \| undefined` | No | cycleTimeDays |
+| `archiveSource` | `string \| undefined` | No | archiveSource |
+| `archiveReason` | `string \| undefined` | No | archiveReason |
+
+## ArchivedTask
+
+A task with archive metadata.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_archive` | `ArchiveMetadata \| undefined` | No | _archive |
+
+## ArchiveReportType
+
+Report type for archive statistics.
+
+```typescript
+any
+```
+
+## ArchiveSummaryReport
+
+Summary report from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `totalArchived` | `number` | Yes | totalArchived |
+| `byStatus` | `Record<string, number>` | Yes | byStatus |
+| `byPriority` | `Record<string, number>` | Yes | byPriority |
+| `averageCycleTime` | `number \| null` | Yes | averageCycleTime |
+| `oldestArchived` | `string \| null` | Yes | oldestArchived |
+| `newestArchived` | `string \| null` | Yes | newestArchived |
+| `archiveSourceBreakdown` | `Record<string, number>` | Yes | archiveSourceBreakdown |
+
+## ArchivePhaseEntry
+
+Phase breakdown entry from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `phase` | `string` | Yes | phase |
+| `count` | `number` | Yes | count |
+| `avgCycleTime` | `number \| null` | Yes | avgCycleTime |
+
+## ArchiveLabelEntry
+
+Label breakdown entry from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `label` | `string` | Yes | label |
+| `count` | `number` | Yes | count |
+
+## ArchivePriorityEntry
+
+Priority breakdown entry from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `priority` | `string` | Yes | priority |
+| `count` | `number` | Yes | count |
+| `avgCycleTime` | `number \| null` | Yes | avgCycleTime |
+
+## CycleTimeDistribution
+
+Cycle time distribution buckets.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `'0-1 days'` | `number` | Yes | '0-1 days' |
+| `'2-7 days'` | `number` | Yes | '2-7 days' |
+| `'8-30 days'` | `number` | Yes | '8-30 days' |
+| `'30+ days'` | `number` | Yes | '30+ days' |
+
+## CycleTimePercentiles
+
+Cycle time percentiles.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `p25` | `number \| null` | Yes | p25 |
+| `p50` | `number \| null` | Yes | p50 |
+| `p75` | `number \| null` | Yes | p75 |
+| `p90` | `number \| null` | Yes | p90 |
+
+## ArchiveCycleTimesReport
+
+Cycle times report from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `count` | `number` | Yes | count |
+| `min` | `number \| null` | Yes | min |
+| `max` | `number \| null` | Yes | max |
+| `avg` | `number \| null` | Yes | avg |
+| `median` | `number \| null` | Yes | median |
+| `distribution` | `CycleTimeDistribution` | Yes | distribution |
+| `percentiles` | `CycleTimePercentiles \| undefined` | No | percentiles |
+
+## ArchiveDailyTrend
+
+Daily archive trend entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `date` | `string` | Yes | date |
+| `count` | `number` | Yes | count |
+
+## ArchiveMonthlyTrend
+
+Monthly archive trend entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `month` | `string` | Yes | month |
+| `count` | `number` | Yes | count |
+
+## ArchiveTrendsReport
+
+Trends report from archive statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `byDay` | `ArchiveDailyTrend[]` | Yes | byDay |
+| `byMonth` | `ArchiveMonthlyTrend[]` | Yes | byMonth |
+| `totalPeriod` | `number` | Yes | totalPeriod |
+| `averagePerDay` | `number` | Yes | averagePerDay |
+
+## ArchiveStatsEnvelope
+
+Archive statistics result envelope.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `report` | `ArchiveReportType` | Yes | report |
+| `filters` | `{ since: string \| null; until: string \| null; } \| null` | Yes | filters |
+| `data` | `ArchiveSummaryReport \| ArchivePhaseEntry[] \| ArchiveLabelEntry[] \| ArchivePriorityEntry[] \| ArchiveCycleTimesReport \| ArchiveTrendsReport \| { ...; }` | Yes | data |
+
+## BrainEntryRef
+
+Compact brain entry reference used in contradiction analysis.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `type` | `string` | Yes | type |
+| `content` | `string` | Yes | content |
+| `createdAt` | `string` | Yes | createdAt |
+
+## BrainEntrySummary
+
+Brain entry reference with summary, used in superseded analysis.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `type` | `string` | Yes | type |
+| `createdAt` | `string` | Yes | createdAt |
+| `summary` | `string` | Yes | summary |
+
+## ContradictionDetail
+
+Contradiction detail between two brain entries.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entryA` | `BrainEntryRef` | Yes | entryA |
+| `entryB` | `BrainEntryRef` | Yes | entryB |
+| `context` | `string \| undefined` | No | context |
+| `conflictDetails` | `string` | Yes | conflictDetails |
+
+## SupersededEntry
+
+Superseded entry pair showing old and replacement entries.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `oldEntry` | `BrainEntrySummary` | Yes | oldEntry |
+| `replacement` | `BrainEntrySummary` | Yes | replacement |
+| `grouping` | `string` | Yes | grouping |
+
+## OutputFormat
+
+Output format options.
+
+```typescript
+any
+```
+
+## DateFormat
+
+Date format options.
+
+```typescript
+any
+```
+
+## OutputConfig
+
+Output configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `defaultFormat` | `OutputFormat` | Yes | defaultFormat |
+| `showColor` | `boolean` | Yes | showColor |
+| `showUnicode` | `boolean` | Yes | showUnicode |
+| `showProgressBars` | `boolean` | Yes | showProgressBars |
+| `dateFormat` | `DateFormat` | Yes | dateFormat |
+
+## BackupConfig
+
+Backup configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxOperationalBackups` | `number` | Yes | maxOperationalBackups |
+| `maxSafetyBackups` | `number` | Yes | maxSafetyBackups |
+| `compressionEnabled` | `boolean` | Yes | compressionEnabled |
+
+## EnforcementProfile
+
+Hierarchy enforcement profile preset.
+
+```typescript
+any
+```
+
+## HierarchyConfig
+
+Hierarchy configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxDepth` | `number` | Yes | maxDepth |
+| `maxSiblings` | `number` | Yes | maxSiblings |
+| `cascadeDelete` | `boolean` | Yes | cascadeDelete |
+| `maxActiveSiblings` | `number` | Yes | Maximum number of active (non-done) siblings. 0 = disabled. |
+| `countDoneInLimit` | `boolean` | Yes | Whether done tasks count toward the sibling limit. |
+| `enforcementProfile` | `EnforcementProfile` | Yes | Enforcement profile preset. Explicit fields override preset values. |
+
+## SessionConfig
+
+Session configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `autoStart` | `boolean` | Yes | autoStart |
+| `requireNotes` | `boolean` | Yes | requireNotes |
+| `multiSession` | `boolean` | Yes | multiSession |
+
+## LogLevel
+
+Pino log levels.
+
+```typescript
+any
+```
+
+## LoggingConfig
+
+Logging configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `level` | `LogLevel` | Yes | Minimum log level to record (default: 'info') |
+| `filePath` | `string` | Yes | Log file path relative to .cleo/ (default: 'logs/cleo.log') |
+| `maxFileSize` | `number` | Yes | Max log file size in bytes before rotation (default: 10MB) |
+| `maxFiles` | `number` | Yes | Number of rotated log files to retain (default: 5) |
+| `auditRetentionDays` | `number` | Yes | Days to retain audit_log rows before pruning (default: 90) |
+| `archiveBeforePrune` | `boolean` | Yes | Whether to archive pruned rows to compressed JSONL before deletion (default: true) |
+
+## LifecycleEnforcementMode
+
+Lifecycle enforcement mode.
+
+```typescript
+any
+```
+
+## LifecycleConfig
+
+Lifecycle enforcement configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `mode` | `LifecycleEnforcementMode` | Yes | mode |
+
+## SharingMode
+
+Sharing mode: whether .cleo/ files are committed to the project git repo.
+
+```typescript
+any
+```
+
+## SharingConfig
+
+Sharing configuration for multi-contributor .cleo/ state management.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `mode` | `SharingMode` | Yes | Sharing mode (default: 'none'). |
+| `commitAllowlist` | `string[]` | Yes | Files/patterns in .cleo/ to commit to project git (relative to .cleo/). |
+| `denylist` | `string[]` | Yes | Files/patterns to always exclude, even if in commitAllowlist. |
+
+## SignalDockMode
+
+SignalDock transport mode.
+
+```typescript
+any
+```
+
+## SignalDockConfig
+
+SignalDock integration configuration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `enabled` | `boolean` | Yes | Whether SignalDock transport is enabled (default: false). |
+| `mode` | `SignalDockMode` | Yes | Transport mode: 'http' for REST API client, 'native' for napi-rs bindings (default: 'http'). |
+| `endpoint` | `string` | Yes | SignalDock API server endpoint (default: 'http://localhost:4000'). |
+| `agentPrefix` | `string` | Yes | Prefix for CLEO agent names in SignalDock registry (default: 'cleo-'). |
+| `privacyTier` | `"public" \| "discoverable" \| "private"` | Yes | Default privacy tier for registered agents (default: 'private'). |
+
+## CleoConfig
+
+CLEO project configuration (config.json).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `output` | `OutputConfig` | Yes | output |
+| `backup` | `BackupConfig` | Yes | backup |
+| `hierarchy` | `HierarchyConfig` | Yes | hierarchy |
+| `session` | `SessionConfig` | Yes | session |
+| `lifecycle` | `LifecycleConfig` | Yes | lifecycle |
+| `logging` | `LoggingConfig` | Yes | logging |
+| `sharing` | `SharingConfig` | Yes | sharing |
+| `signaldock` | `SignalDockConfig \| undefined` | No | SignalDock inter-agent transport (optional, disabled by default). |
+
+## ConfigSource
+
+Configuration resolution priority.
+
+```typescript
+any
+```
+
+## ResolvedValue
+
+A resolved config value with its source.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `value` | `T` | Yes | value |
+| `source` | `ConfigSource` | Yes | source |
+
+## SessionScope
+
+Session scope JSON blob shape.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `string` | Yes | type |
+| `epicId` | `string \| undefined` | No | epicId |
+| `rootTaskId` | `string \| undefined` | No | rootTaskId |
+| `includeDescendants` | `boolean \| undefined` | No | includeDescendants |
+| `phaseFilter` | `string \| null \| undefined` | No | phaseFilter |
+| `labelFilter` | `string[] \| null \| undefined` | No | labelFilter |
+| `maxDepth` | `number \| null \| undefined` | No | maxDepth |
+| `explicitTaskIds` | `string[] \| null \| undefined` | No | explicitTaskIds |
+| `excludeTaskIds` | `string[] \| null \| undefined` | No | excludeTaskIds |
+| `computedTaskIds` | `string[] \| undefined` | No | computedTaskIds |
+| `computedAt` | `string \| undefined` | No | computedAt |
+
+## SessionStats
+
+Session statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tasksCompleted` | `number` | Yes | tasksCompleted |
+| `tasksCreated` | `number` | Yes | tasksCreated |
+| `tasksUpdated` | `number` | Yes | tasksUpdated |
+| `focusChanges` | `number` | Yes | focusChanges |
+| `totalActiveMinutes` | `number` | Yes | totalActiveMinutes |
+| `suspendCount` | `number` | Yes | suspendCount |
+
+## SessionTaskWork
+
+Active task work state within a session.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| null` | Yes | taskId |
+| `setAt` | `string \| null` | Yes | setAt |
+
+## Session
+
+Session domain type — plain interface aligned with Drizzle sessions table.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `status` | `"active" \| "ended" \| "orphaned" \| "suspended"` | Yes | status |
+| `scope` | `SessionScope` | Yes | scope |
+| `taskWork` | `SessionTaskWork` | Yes | taskWork |
+| `startedAt` | `string` | Yes | startedAt |
+| `endedAt` | `string \| undefined` | No | endedAt |
+| `agent` | `string \| undefined` | No | agent |
+| `notes` | `string[] \| undefined` | No | notes |
+| `tasksCompleted` | `string[] \| undefined` | No | tasksCompleted |
+| `tasksCreated` | `string[] \| undefined` | No | tasksCreated |
+| `handoffJson` | `string \| null \| undefined` | No | handoffJson |
+| `previousSessionId` | `string \| null \| undefined` | No | previousSessionId |
+| `nextSessionId` | `string \| null \| undefined` | No | nextSessionId |
+| `agentIdentifier` | `string \| null \| undefined` | No | agentIdentifier |
+| `handoffConsumedAt` | `string \| null \| undefined` | No | handoffConsumedAt |
+| `handoffConsumedBy` | `string \| null \| undefined` | No | handoffConsumedBy |
+| `debriefJson` | `string \| null \| undefined` | No | debriefJson |
+| `stats` | `SessionStats \| undefined` | No | stats |
+| `resumeCount` | `number \| undefined` | No | resumeCount |
+| `gradeMode` | `boolean \| undefined` | No | gradeMode |
+| `providerId` | `string \| null \| undefined` | No | providerId |
+
+## SessionStartResult
+
+Result of a session start operation.  The `sessionId` field is a convenience alias for `session.id`, provided for consumers that expect it at the top level of the result.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | `Session` | Yes | session |
+| `sessionId` | `string` | Yes | sessionId |
+
+## ArchiveFields
+
+Archive-specific fields for task upsert.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `archivedAt` | `string \| undefined` | No | archivedAt |
+| `archiveReason` | `string \| undefined` | No | archiveReason |
+| `cycleTimeDays` | `number \| null \| undefined` | No | cycleTimeDays |
+
+## ArchiveFile
+
+Archive file structure.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `archivedTasks` | `ArchivedTask[]` | Yes | archivedTasks |
+| `version` | `string \| undefined` | No | version |
+
+## TaskQueryFilters
+
+Filter bag for queryTasks(). Covers ~90% of task query patterns.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | status |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `type` | `TaskType \| undefined` | No | type |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+| `phase` | `string \| undefined` | No | phase |
+| `label` | `string \| undefined` | No | label |
+| `search` | `string \| undefined` | No | search |
+| `excludeStatus` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | excludeStatus |
+| `limit` | `number \| undefined` | No | limit |
+| `offset` | `number \| undefined` | No | offset |
+| `orderBy` | `"createdAt" \| "updatedAt" \| "priority" \| "position" \| undefined` | No | orderBy |
+
+## QueryTasksResult
+
+Result from queryTasks() with pagination support.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tasks` | `Task[]` | Yes | tasks |
+| `total` | `number` | Yes | total |
+
+## TaskFieldUpdates
+
+Partial task row fields for updateTaskFields().
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string \| undefined` | No | title |
+| `description` | `string \| null \| undefined` | No | description |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `type` | `TaskType \| null \| undefined` | No | type |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+| `phase` | `string \| null \| undefined` | No | phase |
+| `size` | `TaskSize \| null \| undefined` | No | size |
+| `position` | `number \| null \| undefined` | No | position |
+| `positionVersion` | `number \| undefined` | No | positionVersion |
+| `labelsJson` | `string \| undefined` | No | labelsJson |
+| `notesJson` | `string \| undefined` | No | notesJson |
+| `acceptanceJson` | `string \| undefined` | No | acceptanceJson |
+| `filesJson` | `string \| undefined` | No | filesJson |
+| `origin` | `string \| null \| undefined` | No | origin |
+| `blockedBy` | `string \| null \| undefined` | No | blockedBy |
+| `epicLifecycle` | `string \| null \| undefined` | No | epicLifecycle |
+| `noAutoComplete` | `boolean \| null \| undefined` | No | noAutoComplete |
+| `completedAt` | `string \| null \| undefined` | No | completedAt |
+| `cancelledAt` | `string \| null \| undefined` | No | cancelledAt |
+| `cancellationReason` | `string \| null \| undefined` | No | cancellationReason |
+| `verificationJson` | `string \| null \| undefined` | No | verificationJson |
+| `createdBy` | `string \| null \| undefined` | No | createdBy |
+| `modifiedBy` | `string \| null \| undefined` | No | modifiedBy |
+| `sessionId` | `string \| null \| undefined` | No | sessionId |
+| `updatedAt` | `string \| null \| undefined` | No | updatedAt |
+
+## TransactionAccessor
+
+Subset of DataAccessor methods available inside a transaction callback. Write-only — reads use the outer accessor (snapshot isolation).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `upsertSingleTask` | `(task: Task) => Promise<void>` | Yes | upsertSingleTask |
+| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise<void>` | Yes | archiveSingleTask |
+| `removeSingleTask` | `(taskId: string) => Promise<void>` | Yes | removeSingleTask |
+| `setMetaValue` | `(key: string, value: unknown) => Promise<void>` | Yes | setMetaValue |
+| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise<void>` | Yes | updateTaskFields |
+| `appendLog` | `(entry: Record<string, unknown>) => Promise<void>` | Yes | appendLog |
+
+## DataAccessor
+
+DataAccessor interface.  Core modules call these methods instead of readJson/saveJson. Each method maps directly to the file-level operations that core modules already perform.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `engine` | `"sqlite"` | Yes | The storage engine backing this accessor. |
+| `loadArchive` | `() => Promise<ArchiveFile \| null>` | Yes | Load the archive file. Returns null if archive doesn't exist. |
+| `saveArchive` | `(data: ArchiveFile) => Promise<void>` | Yes | Save the archive file atomically. Creates backup before write. |
+| `loadSessions` | `() => Promise<Session[]>` | Yes | Load all sessions from the store. Returns empty array if none exist. |
+| `saveSessions` | `(sessions: Session[]) => Promise<void>` | Yes | Save all sessions to the store atomically. |
+| `appendLog` | `(entry: Record<string, unknown>) => Promise<void>` | Yes | Append an entry to the audit log. |
+| `close` | `() => Promise<void>` | Yes | Release any resources (close DB connections, etc.). |
+| `upsertSingleTask` | `(task: Task) => Promise<void>` | Yes | Upsert a single task (targeted write, no full-file reload). |
+| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise<void>` | Yes | Archive a single task by ID (sets status='archived' + archive metadata). |
+| `removeSingleTask` | `(taskId: string) => Promise<void>` | Yes | Delete a single task permanently from the tasks table. |
+| `loadSingleTask` | `(taskId: string) => Promise<Task \| null>` | Yes | Load a single task by ID with its dependencies and relations. Returns null if not found. |
+| `addRelation` | `(taskId: string, relatedTo: string, relationType: string, reason?: string \| undefined) => Promise<void>` | No | Insert a row into the task_relations table (T5168). |
+| `getMetaValue` | `<T>(key: string) => Promise<T \| null>` | Yes | Read a typed value from the metadata store. Returns null if not found. |
+| `setMetaValue` | `(key: string, value: unknown) => Promise<void>` | Yes | Write a typed value to the metadata store. |
+| `getSchemaVersion` | `() => Promise<string \| null>` | Yes | Read the schema version from metadata. Convenience for getMetaValue('schema_version'). |
+| `queryTasks` | `(filters: TaskQueryFilters) => Promise<QueryTasksResult>` | Yes | Query tasks with filters, pagination, and ordering. Returns matching tasks + total count. |
+| `countTasks` | `(filters?: { status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined; parentId?: string \| undefined; } \| undefined) => Promise<...>` | No | Count tasks matching optional filters. Excludes archived by default. |
+| `getChildren` | `(parentId: string) => Promise<Task[]>` | Yes | Get direct children of a parent task. |
+| `countChildren` | `(parentId: string) => Promise<number>` | Yes | Count direct children of a parent task (all statuses except archived). |
+| `countActiveChildren` | `(parentId: string) => Promise<number>` | Yes | Count active (non-terminal) children of a parent task. |
+| `getAncestorChain` | `(taskId: string) => Promise<Task[]>` | Yes | Get ancestor chain from task to root via WITH RECURSIVE CTE. Ordered root-first. |
+| `getSubtree` | `(rootId: string) => Promise<Task[]>` | Yes | Get full subtree rooted at taskId via WITH RECURSIVE CTE. Includes root. |
+| `getDependents` | `(taskId: string) => Promise<Task[]>` | Yes | Get tasks that depend on (are blocked by) the given task. Reverse dep lookup. |
+| `getDependencyChain` | `(taskId: string) => Promise<string[]>` | Yes | Get transitive dependency chain via WITH RECURSIVE CTE. Returns task IDs. |
+| `taskExists` | `(taskId: string) => Promise<boolean>` | Yes | Check if a task exists (any status including archived). |
+| `loadTasks` | `(taskIds: string[]) => Promise<Task[]>` | Yes | Load multiple tasks by ID in a single batch query. |
+| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise<void>` | Yes | Update specific fields on a task without full load/save cycle. |
+| `getNextPosition` | `(parentId: string \| null) => Promise<number>` | Yes | Get next available position for a task within a parent scope (SQL-level, race-safe). |
+| `shiftPositions` | `(parentId: string \| null, fromPosition: number, delta: number) => Promise<void>` | Yes | Shift positions of siblings = fromPosition by delta (bulk SQL update). |
+| `transaction` | `<T>(fn: (tx: TransactionAccessor) => Promise<T>) => Promise<T>` | Yes | Execute a function inside a SQLite transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK). |
+| `getActiveSession` | `() => Promise<Session \| null>` | Yes | Get the currently active session (status='active', most recent). |
+| `upsertSingleSession` | `(session: Session) => Promise<void>` | Yes | Upsert a single session (targeted write). |
+| `removeSingleSession` | `(sessionId: string) => Promise<void>` | Yes | Remove a single session by ID. |
+
+## AdapterManifest
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `description` | `string` | Yes | description |
+| `provider` | `string` | Yes | Provider identifier, e.g. "claude-code", "opencode", "cursor" |
+| `entryPoint` | `string` | Yes | Relative path to the main adapter module |
+| `packagePath` | `string` | Yes | Resolved absolute path to the adapter package root. Populated at discovery time by discoverAdapterManifests(). |
+| `capabilities` | `AdapterCapabilities` | Yes | capabilities |
+| `detectionPatterns` | `DetectionPattern[]` | Yes | detectionPatterns |
+
+## DetectionPattern
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"cli" \| "file" \| "process" \| "env"` | Yes | type |
+| `pattern` | `string` | Yes | pattern |
+| `description` | `string` | Yes | description |
+
+## ExitCode
+
+CLEO exit codes — canonical definitions shared across all layers.  Ranges: 0 = success, 1-99 = errors, 100+ = special (non-error) states.   T4454  T4456  T5710
+
+```typescript
+typeof ExitCode
+```
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `SUCCESS` | `ExitCode.SUCCESS` | Yes | SUCCESS |
+| `GENERAL_ERROR` | `ExitCode.GENERAL_ERROR` | Yes | GENERAL_ERROR |
+| `INVALID_INPUT` | `ExitCode.INVALID_INPUT` | Yes | INVALID_INPUT |
+| `FILE_ERROR` | `ExitCode.FILE_ERROR` | Yes | FILE_ERROR |
+| `NOT_FOUND` | `ExitCode.NOT_FOUND` | Yes | NOT_FOUND |
+| `DEPENDENCY_ERROR` | `ExitCode.DEPENDENCY_ERROR` | Yes | DEPENDENCY_ERROR |
+| `VALIDATION_ERROR` | `ExitCode.VALIDATION_ERROR` | Yes | VALIDATION_ERROR |
+| `LOCK_TIMEOUT` | `ExitCode.LOCK_TIMEOUT` | Yes | LOCK_TIMEOUT |
+| `CONFIG_ERROR` | `ExitCode.CONFIG_ERROR` | Yes | CONFIG_ERROR |
+| `PARENT_NOT_FOUND` | `ExitCode.PARENT_NOT_FOUND` | Yes | PARENT_NOT_FOUND |
+| `DEPTH_EXCEEDED` | `ExitCode.DEPTH_EXCEEDED` | Yes | DEPTH_EXCEEDED |
+| `SIBLING_LIMIT` | `ExitCode.SIBLING_LIMIT` | Yes | SIBLING_LIMIT |
+| `INVALID_PARENT_TYPE` | `ExitCode.INVALID_PARENT_TYPE` | Yes | INVALID_PARENT_TYPE |
+| `CIRCULAR_REFERENCE` | `ExitCode.CIRCULAR_REFERENCE` | Yes | CIRCULAR_REFERENCE |
+| `ORPHAN_DETECTED` | `ExitCode.ORPHAN_DETECTED` | Yes | ORPHAN_DETECTED |
+| `HAS_CHILDREN` | `ExitCode.HAS_CHILDREN` | Yes | HAS_CHILDREN |
+| `TASK_COMPLETED` | `ExitCode.TASK_COMPLETED` | Yes | TASK_COMPLETED |
+| `CASCADE_FAILED` | `ExitCode.CASCADE_FAILED` | Yes | CASCADE_FAILED |
+| `HAS_DEPENDENTS` | `ExitCode.HAS_DEPENDENTS` | Yes | HAS_DEPENDENTS |
+| `CHECKSUM_MISMATCH` | `ExitCode.CHECKSUM_MISMATCH` | Yes | CHECKSUM_MISMATCH |
+| `CONCURRENT_MODIFICATION` | `ExitCode.CONCURRENT_MODIFICATION` | Yes | CONCURRENT_MODIFICATION |
+| `ID_COLLISION` | `ExitCode.ID_COLLISION` | Yes | ID_COLLISION |
+| `SESSION_EXISTS` | `ExitCode.SESSION_EXISTS` | Yes | SESSION_EXISTS |
+| `SESSION_NOT_FOUND` | `ExitCode.SESSION_NOT_FOUND` | Yes | SESSION_NOT_FOUND |
+| `SCOPE_CONFLICT` | `ExitCode.SCOPE_CONFLICT` | Yes | SCOPE_CONFLICT |
+| `SCOPE_INVALID` | `ExitCode.SCOPE_INVALID` | Yes | SCOPE_INVALID |
+| `TASK_NOT_IN_SCOPE` | `ExitCode.TASK_NOT_IN_SCOPE` | Yes | TASK_NOT_IN_SCOPE |
+| `TASK_CLAIMED` | `ExitCode.TASK_CLAIMED` | Yes | TASK_CLAIMED |
+| `SESSION_REQUIRED` | `ExitCode.SESSION_REQUIRED` | Yes | SESSION_REQUIRED |
+| `SESSION_CLOSE_BLOCKED` | `ExitCode.SESSION_CLOSE_BLOCKED` | Yes | SESSION_CLOSE_BLOCKED |
+| `ACTIVE_TASK_REQUIRED` | `ExitCode.ACTIVE_TASK_REQUIRED` | Yes | ACTIVE_TASK_REQUIRED |
+| `NOTES_REQUIRED` | `ExitCode.NOTES_REQUIRED` | Yes | NOTES_REQUIRED |
+| `VERIFICATION_INIT_FAILED` | `ExitCode.VERIFICATION_INIT_FAILED` | Yes | VERIFICATION_INIT_FAILED |
+| `GATE_UPDATE_FAILED` | `ExitCode.GATE_UPDATE_FAILED` | Yes | GATE_UPDATE_FAILED |
+| `INVALID_GATE` | `ExitCode.INVALID_GATE` | Yes | INVALID_GATE |
+| `INVALID_AGENT` | `ExitCode.INVALID_AGENT` | Yes | INVALID_AGENT |
+| `MAX_ROUNDS_EXCEEDED` | `ExitCode.MAX_ROUNDS_EXCEEDED` | Yes | MAX_ROUNDS_EXCEEDED |
+| `GATE_DEPENDENCY` | `ExitCode.GATE_DEPENDENCY` | Yes | GATE_DEPENDENCY |
+| `VERIFICATION_LOCKED` | `ExitCode.VERIFICATION_LOCKED` | Yes | VERIFICATION_LOCKED |
+| `ROUND_MISMATCH` | `ExitCode.ROUND_MISMATCH` | Yes | ROUND_MISMATCH |
+| `CONTEXT_WARNING` | `ExitCode.CONTEXT_WARNING` | Yes | CONTEXT_WARNING |
+| `CONTEXT_CAUTION` | `ExitCode.CONTEXT_CAUTION` | Yes | CONTEXT_CAUTION |
+| `CONTEXT_CRITICAL` | `ExitCode.CONTEXT_CRITICAL` | Yes | CONTEXT_CRITICAL |
+| `CONTEXT_EMERGENCY` | `ExitCode.CONTEXT_EMERGENCY` | Yes | CONTEXT_EMERGENCY |
+| `CONTEXT_STALE` | `ExitCode.CONTEXT_STALE` | Yes | CONTEXT_STALE |
+| `PROTOCOL_MISSING` | `ExitCode.PROTOCOL_MISSING` | Yes | PROTOCOL_MISSING |
+| `INVALID_RETURN_MESSAGE` | `ExitCode.INVALID_RETURN_MESSAGE` | Yes | INVALID_RETURN_MESSAGE |
+| `MANIFEST_ENTRY_MISSING` | `ExitCode.MANIFEST_ENTRY_MISSING` | Yes | MANIFEST_ENTRY_MISSING |
+| `SPAWN_VALIDATION_FAILED` | `ExitCode.SPAWN_VALIDATION_FAILED` | Yes | SPAWN_VALIDATION_FAILED |
+| `AUTONOMOUS_BOUNDARY` | `ExitCode.AUTONOMOUS_BOUNDARY` | Yes | AUTONOMOUS_BOUNDARY |
+| `HANDOFF_REQUIRED` | `ExitCode.HANDOFF_REQUIRED` | Yes | HANDOFF_REQUIRED |
+| `RESUME_FAILED` | `ExitCode.RESUME_FAILED` | Yes | RESUME_FAILED |
+| `CONCURRENT_SESSION` | `ExitCode.CONCURRENT_SESSION` | Yes | CONCURRENT_SESSION |
+| `NEXUS_NOT_INITIALIZED` | `ExitCode.NEXUS_NOT_INITIALIZED` | Yes | NEXUS_NOT_INITIALIZED |
+| `NEXUS_PROJECT_NOT_FOUND` | `ExitCode.NEXUS_PROJECT_NOT_FOUND` | Yes | NEXUS_PROJECT_NOT_FOUND |
+| `NEXUS_PERMISSION_DENIED` | `ExitCode.NEXUS_PERMISSION_DENIED` | Yes | NEXUS_PERMISSION_DENIED |
+| `NEXUS_INVALID_SYNTAX` | `ExitCode.NEXUS_INVALID_SYNTAX` | Yes | NEXUS_INVALID_SYNTAX |
+| `NEXUS_SYNC_FAILED` | `ExitCode.NEXUS_SYNC_FAILED` | Yes | NEXUS_SYNC_FAILED |
+| `NEXUS_REGISTRY_CORRUPT` | `ExitCode.NEXUS_REGISTRY_CORRUPT` | Yes | NEXUS_REGISTRY_CORRUPT |
+| `NEXUS_PROJECT_EXISTS` | `ExitCode.NEXUS_PROJECT_EXISTS` | Yes | NEXUS_PROJECT_EXISTS |
+| `NEXUS_QUERY_FAILED` | `ExitCode.NEXUS_QUERY_FAILED` | Yes | NEXUS_QUERY_FAILED |
+| `NEXUS_GRAPH_ERROR` | `ExitCode.NEXUS_GRAPH_ERROR` | Yes | NEXUS_GRAPH_ERROR |
+| `NEXUS_RESERVED` | `ExitCode.NEXUS_RESERVED` | Yes | NEXUS_RESERVED |
+| `LIFECYCLE_GATE_FAILED` | `ExitCode.LIFECYCLE_GATE_FAILED` | Yes | LIFECYCLE_GATE_FAILED |
+| `AUDIT_MISSING` | `ExitCode.AUDIT_MISSING` | Yes | AUDIT_MISSING |
+| `CIRCULAR_VALIDATION` | `ExitCode.CIRCULAR_VALIDATION` | Yes | CIRCULAR_VALIDATION |
+| `LIFECYCLE_TRANSITION_INVALID` | `ExitCode.LIFECYCLE_TRANSITION_INVALID` | Yes | LIFECYCLE_TRANSITION_INVALID |
+| `PROVENANCE_REQUIRED` | `ExitCode.PROVENANCE_REQUIRED` | Yes | PROVENANCE_REQUIRED |
+| `ARTIFACT_TYPE_UNKNOWN` | `ExitCode.ARTIFACT_TYPE_UNKNOWN` | Yes | ARTIFACT_TYPE_UNKNOWN |
+| `ARTIFACT_VALIDATION_FAILED` | `ExitCode.ARTIFACT_VALIDATION_FAILED` | Yes | ARTIFACT_VALIDATION_FAILED |
+| `ARTIFACT_BUILD_FAILED` | `ExitCode.ARTIFACT_BUILD_FAILED` | Yes | ARTIFACT_BUILD_FAILED |
+| `ARTIFACT_PUBLISH_FAILED` | `ExitCode.ARTIFACT_PUBLISH_FAILED` | Yes | ARTIFACT_PUBLISH_FAILED |
+| `ARTIFACT_ROLLBACK_FAILED` | `ExitCode.ARTIFACT_ROLLBACK_FAILED` | Yes | ARTIFACT_ROLLBACK_FAILED |
+| `PROVENANCE_CONFIG_INVALID` | `ExitCode.PROVENANCE_CONFIG_INVALID` | Yes | PROVENANCE_CONFIG_INVALID |
+| `SIGNING_KEY_MISSING` | `ExitCode.SIGNING_KEY_MISSING` | Yes | SIGNING_KEY_MISSING |
+| `SIGNATURE_INVALID` | `ExitCode.SIGNATURE_INVALID` | Yes | SIGNATURE_INVALID |
+| `DIGEST_MISMATCH` | `ExitCode.DIGEST_MISMATCH` | Yes | DIGEST_MISMATCH |
+| `ATTESTATION_INVALID` | `ExitCode.ATTESTATION_INVALID` | Yes | ATTESTATION_INVALID |
+| `ADAPTER_NOT_FOUND` | `ExitCode.ADAPTER_NOT_FOUND` | Yes | ADAPTER_NOT_FOUND |
+| `ADAPTER_INIT_FAILED` | `ExitCode.ADAPTER_INIT_FAILED` | Yes | ADAPTER_INIT_FAILED |
+| `ADAPTER_HOOK_FAILED` | `ExitCode.ADAPTER_HOOK_FAILED` | Yes | ADAPTER_HOOK_FAILED |
+| `ADAPTER_SPAWN_FAILED` | `ExitCode.ADAPTER_SPAWN_FAILED` | Yes | ADAPTER_SPAWN_FAILED |
+| `ADAPTER_INSTALL_FAILED` | `ExitCode.ADAPTER_INSTALL_FAILED` | Yes | ADAPTER_INSTALL_FAILED |
+| `NO_DATA` | `ExitCode.NO_DATA` | Yes | NO_DATA |
+| `ALREADY_EXISTS` | `ExitCode.ALREADY_EXISTS` | Yes | ALREADY_EXISTS |
+| `NO_CHANGE` | `ExitCode.NO_CHANGE` | Yes | NO_CHANGE |
+| `TESTS_SKIPPED` | `ExitCode.TESTS_SKIPPED` | Yes | TESTS_SKIPPED |
+
+## LAFSErrorCategory
+
+LAFS error category.
+
+```typescript
+any
+```
+
+## LAFSError
+
+LAFS error object.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string \| number` | Yes | code |
+| `category` | `LAFSErrorCategory` | Yes | category |
+| `message` | `string` | Yes | message |
+| `fix` | `string \| undefined` | No | fix |
+| `details` | `Record<string, unknown> \| undefined` | No | details |
+
+## Warning
+
+LAFS warning.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string` | Yes | code |
+| `message` | `string` | Yes | message |
+
+## LAFSTransport
+
+LAFS transport metadata.
+
+```typescript
+any
+```
+
+## MVILevel
+
+MVI (Minimal Viable Information) level.
+
+```typescript
+any
+```
+
+## LAFSPageNone
+
+LAFS page — no pagination.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `strategy` | `"none"` | Yes | strategy |
+
+## LAFSPageOffset
+
+LAFS page — offset-based pagination.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `strategy` | `"offset"` | Yes | strategy |
+| `offset` | `number` | Yes | offset |
+| `limit` | `number` | Yes | limit |
+| `total` | `number` | Yes | total |
+| `hasMore` | `boolean` | Yes | hasMore |
+
+## LAFSPage
+
+LAFS page union.
+
+```typescript
+any
+```
+
+## LAFSMeta
+
+LAFS metadata block.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `transport` | `LAFSTransport` | Yes | transport |
+| `mvi` | `MVILevel` | Yes | mvi |
+| `page` | `LAFSPage \| undefined` | No | page |
+| `warnings` | `Warning[] \| undefined` | No | warnings |
+| `durationMs` | `number \| undefined` | No | durationMs |
+
+## LAFSEnvelope
+
+LAFS envelope (canonical protocol type).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `boolean` | Yes | success |
+| `data` | `T \| undefined` | No | data |
+| `error` | `LAFSError \| undefined` | No | error |
+| `_meta` | `LAFSMeta \| undefined` | No | _meta |
+
+## FlagInput
+
+Flag input for conformance checks.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `flag` | `string` | Yes | flag |
+| `value` | `unknown` | Yes | value |
+
+## ConformanceReport
+
+Conformance report.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `violations` | `string[]` | Yes | violations |
+| `warnings` | `string[]` | Yes | warnings |
+
+## LafsAlternative
+
+Actionable alternative the caller can try.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `action` | `string` | Yes | action |
+| `command` | `string` | Yes | command |
+
+## LafsErrorDetail
+
+LAFS error detail shared between CLI and MCP.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string \| number` | Yes | code |
+| `name` | `string \| undefined` | No | name |
+| `message` | `string` | Yes | message |
+| `fix` | `string \| undefined` | No | fix |
+| `alternatives` | `LafsAlternative[] \| undefined` | No | alternatives |
+| `details` | `Record<string, unknown> \| undefined` | No | details |
+
+## LafsSuccess
+
+LAFS success envelope (CLI).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `true` | Yes | success |
+| `data` | `T` | Yes | data |
+| `message` | `string \| undefined` | No | message |
+| `noChange` | `boolean \| undefined` | No | noChange |
+
+## LafsError
+
+LAFS error envelope (CLI).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `false` | Yes | success |
+| `error` | `LafsErrorDetail` | Yes | error |
+
+## LafsEnvelope
+
+CLI envelope union type.
+
+```typescript
+any
+```
+
+## GatewayMeta
+
+Metadata attached to every MCP gateway response. Extends the canonical LAFSMeta with CLEO gateway-specific fields.   T4655
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `string` | Yes | gateway |
+| `domain` | `string` | Yes | domain |
+| `duration_ms` | `number` | Yes | duration_ms |
+
+## GatewaySuccess
+
+MCP success envelope (extends CLI base with _meta).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `GatewayMeta` | Yes | _meta |
+
+## GatewayError
+
+MCP error envelope (extends CLI base with _meta).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `GatewayMeta` | Yes | _meta |
+
+## GatewayEnvelope
+
+MCP envelope union type.
+
+```typescript
+any
+```
+
+## CleoResponse
+
+Unified CLEO response envelope.  Every CLEO response (CLI or MCP) is a CleoResponse. MCP responses include the _meta field; CLI responses do not.
+
+```typescript
+any
+```
+
+## MemoryBridgeConfig
+
+Memory bridge types for CLEO provider adapters. Defines the shape of .cleo/memory-bridge.md content for cross-provider memory sharing.   T5240
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxObservations` | `number` | Yes | maxObservations |
+| `maxLearnings` | `number` | Yes | maxLearnings |
+| `maxPatterns` | `number` | Yes | maxPatterns |
+| `maxDecisions` | `number` | Yes | maxDecisions |
+| `includeHandoff` | `boolean` | Yes | includeHandoff |
+| `includeAntiPatterns` | `boolean` | Yes | includeAntiPatterns |
+
+## MemoryBridgeContent
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `generatedAt` | `string` | Yes | generatedAt |
+| `lastSession` | `SessionSummary \| undefined` | No | lastSession |
+| `learnings` | `BridgeLearning[]` | Yes | learnings |
+| `patterns` | `BridgePattern[]` | Yes | patterns |
+| `antiPatterns` | `BridgePattern[]` | Yes | antiPatterns |
+| `decisions` | `BridgeDecision[]` | Yes | decisions |
+| `recentObservations` | `BridgeObservation[]` | Yes | recentObservations |
+
+## SessionSummary
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | sessionId |
+| `date` | `string` | Yes | date |
+| `tasksCompleted` | `string[]` | Yes | tasksCompleted |
+| `decisions` | `string[]` | Yes | decisions |
+| `nextSuggested` | `string[]` | Yes | nextSuggested |
+
+## BridgeLearning
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `text` | `string` | Yes | text |
+| `confidence` | `number` | Yes | confidence |
+
+## BridgePattern
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `text` | `string` | Yes | text |
+| `type` | `"follow" \| "avoid"` | Yes | type |
+
+## BridgeDecision
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `date` | `string` | Yes | date |
+
+## BridgeObservation
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `date` | `string` | Yes | date |
+| `summary` | `string` | Yes | summary |
+
+## IssueSeverity
+
+Common issue types
+
+```typescript
+any
+```
+
+## IssueArea
+
+```typescript
+any
+```
+
+## IssueType
+
+```typescript
+any
+```
+
+## Diagnostics
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cleoVersion` | `string` | Yes | cleoVersion |
+| `bashVersion` | `string` | Yes | bashVersion |
+| `jqVersion` | `string` | Yes | jqVersion |
+| `os` | `string` | Yes | os |
+| `shell` | `string` | Yes | shell |
+| `cleoHome` | `string` | Yes | cleoHome |
+| `ghVersion` | `string` | Yes | ghVersion |
+| `installLocation` | `string` | Yes | installLocation |
+
+## IssuesDiagnosticsParams
+
+```typescript
+any
+```
+
+## IssuesDiagnosticsResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `diagnostics` | `Diagnostics` | Yes | diagnostics |
+
+## IssuesCreateBugParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string` | Yes | title |
+| `body` | `string` | Yes | body |
+| `severity` | `IssueSeverity \| undefined` | No | severity |
+| `area` | `IssueArea \| undefined` | No | area |
+| `dryRun` | `boolean \| undefined` | No | dryRun |
+
+## IssuesCreateBugResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"bug"` | Yes | type |
+| `url` | `string` | Yes | url |
+| `number` | `number` | Yes | number |
+| `title` | `string` | Yes | title |
+| `labels` | `string[]` | Yes | labels |
+
+## IssuesCreateFeatureParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string` | Yes | title |
+| `body` | `string` | Yes | body |
+| `area` | `IssueArea \| undefined` | No | area |
+| `dryRun` | `boolean \| undefined` | No | dryRun |
+
+## IssuesCreateFeatureResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"feature"` | Yes | type |
+| `url` | `string` | Yes | url |
+| `number` | `number` | Yes | number |
+| `title` | `string` | Yes | title |
+| `labels` | `string[]` | Yes | labels |
+
+## IssuesCreateHelpParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string` | Yes | title |
+| `body` | `string` | Yes | body |
+| `area` | `IssueArea \| undefined` | No | area |
+| `dryRun` | `boolean \| undefined` | No | dryRun |
+
+## IssuesCreateHelpResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"help"` | Yes | type |
+| `url` | `string` | Yes | url |
+| `number` | `number` | Yes | number |
+| `title` | `string` | Yes | title |
+| `labels` | `string[]` | Yes | labels |
+
+## LifecycleStage
+
+Common lifecycle types
+
+```typescript
+any
+```
+
+## GateStatus
+
+```typescript
+any
+```
+
+## StageRecord
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `stage` | `LifecycleStage` | Yes | stage |
+| `status` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | status |
+| `started` | `string \| undefined` | No | started |
+| `completed` | `string \| undefined` | No | completed |
+| `agent` | `string \| undefined` | No | agent |
+| `notes` | `string \| undefined` | No | notes |
+
+## Gate
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `status` | `GateStatus` | Yes | status |
+| `agent` | `string \| undefined` | No | agent |
+| `timestamp` | `string \| undefined` | No | timestamp |
+| `reason` | `string \| undefined` | No | reason |
+
+## LifecycleCheckParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `targetStage` | `LifecycleStage` | Yes | targetStage |
+
+## LifecycleCheckResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `targetStage` | `LifecycleStage` | Yes | targetStage |
+| `canProceed` | `boolean` | Yes | canProceed |
+| `missingPrerequisites` | `LifecycleStage[]` | Yes | missingPrerequisites |
+| `gateStatus` | `"failed" \| "pending" \| "passed"` | Yes | gateStatus |
+
+## LifecycleStatusParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| undefined` | No | taskId |
+| `epicId` | `string \| undefined` | No | epicId |
+
+## LifecycleStatusResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `currentStage` | `LifecycleStage` | Yes | currentStage |
+| `stages` | `StageRecord[]` | Yes | stages |
+| `completedStages` | `LifecycleStage[]` | Yes | completedStages |
+| `pendingStages` | `LifecycleStage[]` | Yes | pendingStages |
+
+## LifecycleHistoryParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## LifecycleHistoryEntry
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `stage` | `LifecycleStage` | Yes | stage |
+| `from` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | from |
+| `to` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | to |
+| `timestamp` | `string` | Yes | timestamp |
+| `agent` | `string \| undefined` | No | agent |
+| `notes` | `string \| undefined` | No | notes |
+
+## LifecycleHistoryResult
+
+```typescript
+any
+```
+
+## LifecycleGatesParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## LifecycleGatesResult
+
+```typescript
+any
+```
+
+## LifecyclePrerequisitesParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `targetStage` | `LifecycleStage` | Yes | targetStage |
+
+## LifecyclePrerequisitesResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `targetStage` | `LifecycleStage` | Yes | targetStage |
+| `prerequisites` | `LifecycleStage[]` | Yes | prerequisites |
+| `optional` | `LifecycleStage[]` | Yes | optional |
+
+## LifecycleProgressParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `status` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | status |
+| `notes` | `string \| undefined` | No | notes |
+
+## LifecycleProgressResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `status` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | status |
+| `timestamp` | `string` | Yes | timestamp |
+
+## LifecycleSkipParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `reason` | `string` | Yes | reason |
+
+## LifecycleSkipResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `skipped` | `string` | Yes | skipped |
+| `reason` | `string` | Yes | reason |
+
+## LifecycleResetParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `reason` | `string` | Yes | reason |
+
+## LifecycleResetResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `stage` | `LifecycleStage` | Yes | stage |
+| `reset` | `string` | Yes | reset |
+| `reason` | `string` | Yes | reason |
+| `warning` | `string` | Yes | warning |
+
+## LifecycleGatePassParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `gateName` | `string` | Yes | gateName |
+| `agent` | `string` | Yes | agent |
+| `notes` | `string \| undefined` | No | notes |
+
+## LifecycleGatePassResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `gateName` | `string` | Yes | gateName |
+| `status` | `"passed"` | Yes | status |
+| `timestamp` | `string` | Yes | timestamp |
+
+## LifecycleGateFailParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `gateName` | `string` | Yes | gateName |
+| `reason` | `string` | Yes | reason |
+
+## LifecycleGateFailResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `gateName` | `string` | Yes | gateName |
+| `status` | `"failed"` | Yes | status |
+| `reason` | `string` | Yes | reason |
+| `timestamp` | `string` | Yes | timestamp |
+
+## Wave
+
+Common orchestration types
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wave` | `number` | Yes | wave |
+| `taskIds` | `string[]` | Yes | taskIds |
+| `canRunParallel` | `boolean` | Yes | canRunParallel |
+| `dependencies` | `string[]` | Yes | dependencies |
+
+## SkillDefinition
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `description` | `string` | Yes | description |
+| `tags` | `string[]` | Yes | tags |
+| `model` | `string \| undefined` | No | model |
+| `protocols` | `string[]` | Yes | protocols |
+
+## OrchestrateStatusParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateStatusResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+| `totalTasks` | `number` | Yes | totalTasks |
+| `completedTasks` | `number` | Yes | completedTasks |
+| `pendingTasks` | `number` | Yes | pendingTasks |
+| `blockedTasks` | `number` | Yes | blockedTasks |
+| `currentWave` | `number` | Yes | currentWave |
+| `totalWaves` | `number` | Yes | totalWaves |
+| `parallelCapacity` | `number` | Yes | parallelCapacity |
+
+## OrchestrateNextParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateNextResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `recommendedSkill` | `string` | Yes | recommendedSkill |
+| `reasoning` | `string` | Yes | reasoning |
+
+## OrchestrateReadyParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateReadyResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wave` | `number` | Yes | wave |
+| `taskIds` | `string[]` | Yes | taskIds |
+| `parallelSafe` | `boolean` | Yes | parallelSafe |
+
+## OrchestrateAnalyzeParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateAnalyzeResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `waves` | `Wave[]` | Yes | waves |
+| `criticalPath` | `string[]` | Yes | criticalPath |
+| `estimatedParallelism` | `number` | Yes | estimatedParallelism |
+| `bottlenecks` | `string[]` | Yes | bottlenecks |
+
+## OrchestrateContextParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tokens` | `number \| undefined` | No | tokens |
+
+## OrchestrateContextResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentTokens` | `number` | Yes | currentTokens |
+| `maxTokens` | `number` | Yes | maxTokens |
+| `percentUsed` | `number` | Yes | percentUsed |
+| `level` | `"high" \| "medium" \| "critical" \| "safe"` | Yes | level |
+| `recommendation` | `string` | Yes | recommendation |
+
+## OrchestrateWavesParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateWavesResult
+
+```typescript
+any
+```
+
+## OrchestrateSkillListParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `filter` | `string \| undefined` | No | filter |
+
+## OrchestrateSkillListResult
+
+```typescript
+any
+```
+
+## OrchestrateBootstrapParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `speed` | `"full" \| "fast" \| "complete" \| undefined` | No | speed |
+
+## BrainState
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | `{ id: string; name: string; status: string; startedAt: string; } \| undefined` | No | session |
+| `currentTask` | `{ id: string; title: string; status: string; } \| undefined` | No | currentTask |
+| `nextSuggestion` | `{ id: string; title: string; score: number; } \| undefined` | No | nextSuggestion |
+| `recentDecisions` | `{ id: string; decision: string; timestamp: string; }[] \| undefined` | No | recentDecisions |
+| `blockers` | `{ taskId: string; title: string; blockedBy: string[]; }[] \| undefined` | No | blockers |
+| `progress` | `{ total: number; done: number; active: number; blocked: number; pending: number; } \| undefined` | No | progress |
+| `contextDrift` | `{ score: number; factors: string[]; } \| undefined` | No | contextDrift |
+| `_meta` | `{ speed: "full" \| "fast" \| "complete"; generatedAt: string; version: string; }` | Yes | _meta |
+
+## OrchestrateStartupParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+
+## OrchestrateStartupResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+| `status` | `OrchestrateStatusResult` | Yes | status |
+| `analysis` | `OrchestrateAnalyzeResult` | Yes | analysis |
+| `firstTask` | `OrchestrateNextResult` | Yes | firstTask |
+
+## OrchestrateSpawnParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `skill` | `string \| undefined` | No | skill |
+| `model` | `string \| undefined` | No | model |
+
+## OrchestrateSpawnResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `skill` | `string` | Yes | skill |
+| `model` | `string` | Yes | model |
+| `prompt` | `string` | Yes | prompt |
+| `metadata` | `{ tokensUsed: number; protocolsInjected: string[]; dependencies: string[]; }` | Yes | metadata |
+
+## OrchestrateHandoffParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `protocolType` | `string` | Yes | protocolType |
+| `note` | `string \| undefined` | No | note |
+| `nextAction` | `string \| undefined` | No | nextAction |
+| `variant` | `string \| undefined` | No | variant |
+| `tier` | `0 \| 1 \| 2 \| undefined` | No | tier |
+| `idempotencyKey` | `string \| undefined` | No | idempotencyKey |
+
+## OrchestrateHandoffResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `predecessorSessionId` | `string` | Yes | predecessorSessionId |
+| `endedSessionId` | `string` | Yes | endedSessionId |
+| `protocolType` | `string` | Yes | protocolType |
+
+## OrchestrateValidateParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## OrchestrateValidateResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `ready` | `boolean` | Yes | ready |
+| `blockers` | `string[]` | Yes | blockers |
+| `lifecycleGate` | `"failed" \| "pending" \| "passed"` | Yes | lifecycleGate |
+| `recommendations` | `string[]` | Yes | recommendations |
+
+## OrchestrateParallelStartParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+| `wave` | `number` | Yes | wave |
+
+## OrchestrateParallelStartResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wave` | `number` | Yes | wave |
+| `taskIds` | `string[]` | Yes | taskIds |
+| `started` | `string` | Yes | started |
+
+## OrchestrateParallelEndParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string` | Yes | epicId |
+| `wave` | `number` | Yes | wave |
+
+## OrchestrateParallelEndResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wave` | `number` | Yes | wave |
+| `completed` | `number` | Yes | completed |
+| `failed` | `number` | Yes | failed |
+| `duration` | `string` | Yes | duration |
+
+## ReleaseType
+
+Common release types
+
+```typescript
+any
+```
+
+## ReleaseGate
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `description` | `string` | Yes | description |
+| `passed` | `boolean` | Yes | passed |
+| `reason` | `string \| undefined` | No | reason |
+
+## ChangelogSection
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"refactor" \| "docs" \| "feat" \| "fix" \| "test" \| "chore"` | Yes | type |
+| `entries` | `{ taskId: string; message: string; }[]` | Yes | entries |
+
+## ReleasePrepareParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `type` | `ReleaseType` | Yes | type |
+
+## ReleasePrepareResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `type` | `ReleaseType` | Yes | type |
+| `currentVersion` | `string` | Yes | currentVersion |
+| `files` | `string[]` | Yes | files |
+| `ready` | `boolean` | Yes | ready |
+| `warnings` | `string[]` | Yes | warnings |
+
+## ReleaseChangelogParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `sections` | `("refactor" \| "docs" \| "feat" \| "fix" \| "test" \| "chore")[] \| undefined` | No | sections |
+
+## ReleaseChangelogResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `content` | `string` | Yes | content |
+| `sections` | `ChangelogSection[]` | Yes | sections |
+| `commitCount` | `number` | Yes | commitCount |
+
+## ReleaseCommitParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `files` | `string[] \| undefined` | No | files |
+
+## ReleaseCommitResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `commitHash` | `string` | Yes | commitHash |
+| `message` | `string` | Yes | message |
+| `filesCommitted` | `string[]` | Yes | filesCommitted |
+
+## ReleaseTagParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `message` | `string \| undefined` | No | message |
+
+## ReleaseTagResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `tagName` | `string` | Yes | tagName |
+| `created` | `string` | Yes | created |
+
+## ReleasePushParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `remote` | `string \| undefined` | No | remote |
+
+## ReleasePushResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `remote` | `string` | Yes | remote |
+| `pushed` | `string` | Yes | pushed |
+| `tagsPushed` | `string[]` | Yes | tagsPushed |
+
+## ReleaseGatesRunParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gates` | `string[] \| undefined` | No | gates |
+
+## ReleaseGatesRunResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `total` | `number` | Yes | total |
+| `passed` | `number` | Yes | passed |
+| `failed` | `number` | Yes | failed |
+| `gates` | `ReleaseGate[]` | Yes | gates |
+| `canRelease` | `boolean` | Yes | canRelease |
+
+## ReleaseRollbackParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `reason` | `string` | Yes | reason |
+
+## ReleaseRollbackResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `rolledBack` | `string` | Yes | rolledBack |
+| `restoredVersion` | `string` | Yes | restoredVersion |
+| `reason` | `string` | Yes | reason |
+
+## ResearchEntry
+
+Common research types
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `file` | `string` | Yes | file |
+| `date` | `string` | Yes | date |
+| `status` | `"completed" \| "blocked" \| "partial"` | Yes | status |
+| `agentType` | `string` | Yes | agentType |
+| `topics` | `string[]` | Yes | topics |
+| `keyFindings` | `string[]` | Yes | keyFindings |
+| `actionable` | `boolean` | Yes | actionable |
+| `needsFollowup` | `string[]` | Yes | needsFollowup |
+| `linkedTasks` | `string[]` | Yes | linkedTasks |
+| `confidence` | `number \| undefined` | No | confidence |
+
+## ManifestEntry
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `file` | `string` | Yes | file |
+| `title` | `string` | Yes | title |
+| `date` | `string` | Yes | date |
+| `status` | `"completed" \| "blocked" \| "partial"` | Yes | status |
+| `agent_type` | `string` | Yes | agent_type |
+| `topics` | `string[]` | Yes | topics |
+| `key_findings` | `string[]` | Yes | key_findings |
+| `actionable` | `boolean` | Yes | actionable |
+| `needs_followup` | `string[]` | Yes | needs_followup |
+| `linked_tasks` | `string[]` | Yes | linked_tasks |
+
+## ResearchShowParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `researchId` | `string` | Yes | researchId |
+
+## ResearchShowResult
+
+```typescript
+any
+```
+
+## ResearchListParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string \| undefined` | No | epicId |
+| `status` | `"completed" \| "blocked" \| "partial" \| undefined` | No | status |
+
+## ResearchListResult
+
+```typescript
+any
+```
+
+## ResearchQueryParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `string` | Yes | query |
+| `confidence` | `number \| undefined` | No | confidence |
+
+## ResearchQueryResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entries` | `ResearchEntry[]` | Yes | entries |
+| `matchCount` | `number` | Yes | matchCount |
+| `avgConfidence` | `number` | Yes | avgConfidence |
+
+## ResearchPendingParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string \| undefined` | No | epicId |
+
+## ResearchPendingResult
+
+```typescript
+any
+```
+
+## ResearchStatsParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string \| undefined` | No | epicId |
+
+## ResearchStatsResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `total` | `number` | Yes | total |
+| `complete` | `number` | Yes | complete |
+| `partial` | `number` | Yes | partial |
+| `blocked` | `number` | Yes | blocked |
+| `byAgentType` | `Record<string, number>` | Yes | byAgentType |
+| `byTopic` | `Record<string, number>` | Yes | byTopic |
+| `avgConfidence` | `number` | Yes | avgConfidence |
+
+## ResearchManifestReadParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `filter` | `string \| undefined` | No | filter |
+| `limit` | `number \| undefined` | No | limit |
+| `offset` | `number \| undefined` | No | offset |
+
+## ResearchManifestReadResult
+
+```typescript
+any
+```
+
+## ResearchInjectParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `protocolType` | `"research" \| "consensus" \| "specification" \| "decomposition" \| "implementation" \| "release" \| "contribution"` | Yes | protocolType |
+| `taskId` | `string \| undefined` | No | taskId |
+| `variant` | `string \| undefined` | No | variant |
+
+## ResearchInjectResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `protocol` | `string` | Yes | protocol |
+| `content` | `string` | Yes | content |
+| `tokensUsed` | `number` | Yes | tokensUsed |
+
+## ResearchLinkParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `researchId` | `string` | Yes | researchId |
+| `taskId` | `string` | Yes | taskId |
+| `relationship` | `"blocks" \| "supersedes" \| "supports" \| "references" \| undefined` | No | relationship |
+
+## ResearchLinkResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `researchId` | `string` | Yes | researchId |
+| `taskId` | `string` | Yes | taskId |
+| `relationship` | `string` | Yes | relationship |
+| `linked` | `string` | Yes | linked |
+
+## ResearchManifestAppendParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entry` | `ManifestEntry` | Yes | entry |
+| `validateFile` | `boolean \| undefined` | No | validateFile |
+
+## ResearchManifestAppendResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `appended` | `string` | Yes | appended |
+| `validated` | `boolean` | Yes | validated |
+
+## ResearchManifestArchiveParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `beforeDate` | `string \| undefined` | No | beforeDate |
+| `moveFiles` | `boolean \| undefined` | No | moveFiles |
+
+## ResearchManifestArchiveResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `archived` | `number` | Yes | archived |
+| `entryIds` | `string[]` | Yes | entryIds |
+| `filesMovedCount` | `number \| undefined` | No | filesMovedCount |
+
+## SessionOp
+
+Common session types
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `scope` | `string` | Yes | scope |
+| `started` | `string` | Yes | started |
+| `ended` | `string \| undefined` | No | ended |
+| `startedTask` | `string \| undefined` | No | startedTask |
+| `status` | `"active" \| "ended" \| "suspended"` | Yes | status |
+| `notes` | `string[] \| undefined` | No | notes |
+
+## SessionStatusParams
+
+```typescript
+any
+```
+
+## SessionStatusResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `current` | `SessionOp \| null` | Yes | current |
+| `hasStartedTask` | `boolean` | Yes | hasStartedTask |
+| `startedTask` | `string \| undefined` | No | startedTask |
+
+## SessionListParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `active` | `boolean \| undefined` | No | active |
+| `status` | `string \| undefined` | No | status |
+| `limit` | `number \| undefined` | No | limit |
+| `offset` | `number \| undefined` | No | offset |
+
+## SessionListResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessions` | `SessionOp[]` | Yes | sessions |
+| `total` | `number` | Yes | total |
+| `filtered` | `number` | Yes | filtered |
+
+## SessionShowParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | sessionId |
+
+## SessionShowResult
+
+```typescript
+any
+```
+
+## SessionHistoryParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `limit` | `number \| undefined` | No | limit |
+
+## SessionHistoryEntry
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | sessionId |
+| `name` | `string` | Yes | name |
+| `started` | `string` | Yes | started |
+| `ended` | `string` | Yes | ended |
+| `tasksCompleted` | `number` | Yes | tasksCompleted |
+| `duration` | `string` | Yes | duration |
+
+## SessionHistoryResult
+
+```typescript
+any
+```
+
+## SessionStartParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scope` | `string` | Yes | scope |
+| `name` | `string \| undefined` | No | name |
+| `autoStart` | `boolean \| undefined` | No | autoStart |
+| `startTask` | `string \| undefined` | No | startTask |
+
+## SessionStartResult
+
+```typescript
+any
+```
+
+## SessionEndParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `notes` | `string \| undefined` | No | notes |
+
+## SessionEndResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | `SessionOp` | Yes | session |
+| `summary` | `{ duration: string; tasksCompleted: number; tasksCreated: number; }` | Yes | summary |
+
+## SessionResumeParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | sessionId |
+
+## SessionResumeResult
+
+```typescript
+any
+```
+
+## SessionSuspendParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `notes` | `string \| undefined` | No | notes |
+
+## SessionSuspendResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | sessionId |
+| `suspended` | `string` | Yes | suspended |
+
+## SessionGcParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `olderThan` | `string \| undefined` | No | olderThan |
+
+## SessionGcResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cleaned` | `number` | Yes | cleaned |
+| `sessionIds` | `string[]` | Yes | sessionIds |
+
+## SkillCategory
+
+Common skill types
+
+```typescript
+any
+```
+
+## SkillStatus
+
+```typescript
+any
+```
+
+## DispatchStrategy
+
+```typescript
+any
+```
+
+## SkillSummary
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `description` | `string` | Yes | description |
+| `category` | `SkillCategory` | Yes | category |
+| `core` | `boolean` | Yes | core |
+| `tier` | `number` | Yes | tier |
+| `status` | `SkillStatus` | Yes | status |
+| `protocol` | `string \| null` | Yes | protocol |
+
+## SkillDetail
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `path` | `string` | Yes | path |
+| `references` | `string[]` | Yes | references |
+| `dependencies` | `string[]` | Yes | dependencies |
+| `sharedResources` | `string[]` | Yes | sharedResources |
+| `compatibility` | `string[]` | Yes | compatibility |
+| `license` | `string` | Yes | license |
+| `metadata` | `Record<string, unknown>` | Yes | metadata |
+| `capabilities` | `{ inputs: string[]; outputs: string[]; dispatch_triggers: string[]; compatible_subagent_types: string[]; chains_to: string[]; dispatch_keywords: { primary: string[]; secondary: string[]; }; } \| undefined` | No | capabilities |
+| `constraints` | `{ max_context_tokens: number; requires_session: boolean; requires_epic: boolean; } \| undefined` | No | constraints |
+
+## DispatchCandidate
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `skill` | `string` | Yes | skill |
+| `score` | `number` | Yes | score |
+| `strategy` | `DispatchStrategy` | Yes | strategy |
+| `reason` | `string` | Yes | reason |
+
+## DependencyNode
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `direct` | `boolean` | Yes | direct |
+| `depth` | `number` | Yes | depth |
+
+## ValidationIssue
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `level` | `"error" \| "warn"` | Yes | level |
+| `field` | `string` | Yes | field |
+| `message` | `string` | Yes | message |
+
+## SkillsListParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `category` | `SkillCategory \| undefined` | No | category |
+| `core` | `boolean \| undefined` | No | core |
+| `filter` | `string \| undefined` | No | filter |
+
+## SkillsListResult
+
+```typescript
+any
+```
+
+## SkillsShowParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+
+## SkillsShowResult
+
+```typescript
+any
+```
+
+## SkillsFindParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `string` | Yes | query |
+| `limit` | `number \| undefined` | No | limit |
+
+## SkillsFindResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `string` | Yes | query |
+| `results` | `(SkillSummary & { score: number; matchReason: string; })[]` | Yes | results |
+
+## SkillsDispatchParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| undefined` | No | taskId |
+| `taskType` | `string \| undefined` | No | taskType |
+| `labels` | `string[] \| undefined` | No | labels |
+| `title` | `string \| undefined` | No | title |
+| `description` | `string \| undefined` | No | description |
+
+## SkillsDispatchResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `selectedSkill` | `string` | Yes | selectedSkill |
+| `reason` | `string` | Yes | reason |
+| `strategy` | `DispatchStrategy` | Yes | strategy |
+| `candidates` | `DispatchCandidate[]` | Yes | candidates |
+
+## SkillsVerifyParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string \| undefined` | No | name |
+
+## SkillsVerifyResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `total` | `number` | Yes | total |
+| `passed` | `number` | Yes | passed |
+| `failed` | `number` | Yes | failed |
+| `results` | `{ name: string; valid: boolean; issues: ValidationIssue[]; }[]` | Yes | results |
+
+## SkillsDependenciesParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `transitive` | `boolean \| undefined` | No | transitive |
+
+## SkillsDependenciesResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `dependencies` | `DependencyNode[]` | Yes | dependencies |
+| `resolved` | `string[]` | Yes | resolved |
+
+## SkillsInstallParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `source` | `string \| undefined` | No | source |
+
+## SkillsInstallResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `installed` | `boolean` | Yes | installed |
+| `version` | `string` | Yes | version |
+| `path` | `string` | Yes | path |
+
+## SkillsUninstallParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `force` | `boolean \| undefined` | No | force |
+
+## SkillsUninstallResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `uninstalled` | `boolean` | Yes | uninstalled |
+
+## SkillsEnableParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+
+## SkillsEnableResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `enabled` | `boolean` | Yes | enabled |
+| `status` | `SkillStatus` | Yes | status |
+
+## SkillsDisableParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `reason` | `string \| undefined` | No | reason |
+
+## SkillsDisableResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `disabled` | `boolean` | Yes | disabled |
+| `status` | `SkillStatus` | Yes | status |
+
+## SkillsConfigureParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `config` | `Record<string, unknown>` | Yes | config |
+
+## SkillsConfigureResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `configured` | `boolean` | Yes | configured |
+| `config` | `Record<string, unknown>` | Yes | config |
+
+## SkillsRefreshParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `force` | `boolean \| undefined` | No | force |
+
+## SkillsRefreshResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `refreshed` | `boolean` | Yes | refreshed |
+| `skillCount` | `number` | Yes | skillCount |
+| `timestamp` | `string` | Yes | timestamp |
+
+## HealthCheck
+
+Common system types
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `component` | `string` | Yes | component |
+| `healthy` | `boolean` | Yes | healthy |
+| `message` | `string \| undefined` | No | message |
+
+## ProjectStats
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tasks` | `{ total: number; pending: number; active: number; blocked: number; done: number; }` | Yes | tasks |
+| `sessions` | `{ total: number; active: number; }` | Yes | sessions |
+| `research` | `{ total: number; complete: number; }` | Yes | research |
+
+## SystemVersionParams
+
+```typescript
+any
+```
+
+## SystemVersionResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string` | Yes | version |
+| `schemaVersion` | `string` | Yes | schemaVersion |
+| `buildDate` | `string` | Yes | buildDate |
+
+## SystemDoctorParams
+
+```typescript
+any
+```
+
+## SystemDoctorResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `healthy` | `boolean` | Yes | healthy |
+| `checks` | `HealthCheck[]` | Yes | checks |
+| `warnings` | `string[]` | Yes | warnings |
+| `errors` | `string[]` | Yes | errors |
+
+## SystemConfigGetParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `key` | `string` | Yes | key |
+
+## SystemConfigGetResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `key` | `string` | Yes | key |
+| `value` | `unknown` | Yes | value |
+| `type` | `string` | Yes | type |
+
+## SystemStatsParams
+
+```typescript
+any
+```
+
+## SystemStatsResult
+
+```typescript
+any
+```
+
+## SystemContextParams
+
+```typescript
+any
+```
+
+## SystemContextResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentTokens` | `number` | Yes | currentTokens |
+| `maxTokens` | `number` | Yes | maxTokens |
+| `percentUsed` | `number` | Yes | percentUsed |
+| `level` | `"high" \| "medium" \| "critical" \| "safe"` | Yes | level |
+| `estimatedFiles` | `number` | Yes | estimatedFiles |
+| `largestFile` | `{ path: string; tokens: number; }` | Yes | largestFile |
+
+## SystemInitParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `projectType` | `"nodejs" \| "python" \| "bash" \| "typescript" \| "rust" \| "go" \| undefined` | No | projectType |
+| `detect` | `boolean \| undefined` | No | detect |
+
+## SystemInitResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `initialized` | `boolean` | Yes | initialized |
+| `projectType` | `string \| undefined` | No | projectType |
+| `filesCreated` | `string[]` | Yes | filesCreated |
+| `detectedFeatures` | `Record<string, boolean> \| undefined` | No | detectedFeatures |
+
+## SystemConfigSetParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `key` | `string` | Yes | key |
+| `value` | `unknown` | Yes | value |
+
+## SystemConfigSetResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `key` | `string` | Yes | key |
+| `value` | `unknown` | Yes | value |
+| `previousValue` | `unknown` | Yes | previousValue |
+
+## SystemBackupParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"snapshot" \| "safety" \| "archive" \| "migration" \| undefined` | No | type |
+| `note` | `string \| undefined` | No | note |
+
+## SystemBackupResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `backupId` | `string` | Yes | backupId |
+| `type` | `string` | Yes | type |
+| `timestamp` | `string` | Yes | timestamp |
+| `files` | `string[]` | Yes | files |
+| `size` | `number` | Yes | size |
+
+## SystemRestoreParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `backupId` | `string` | Yes | backupId |
+
+## SystemRestoreResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `backupId` | `string` | Yes | backupId |
+| `restored` | `string` | Yes | restored |
+| `filesRestored` | `string[]` | Yes | filesRestored |
+
+## SystemMigrateParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | `string \| undefined` | No | version |
+| `dryRun` | `boolean \| undefined` | No | dryRun |
+
+## SystemMigrateResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `fromVersion` | `string` | Yes | fromVersion |
+| `toVersion` | `string` | Yes | toVersion |
+| `migrations` | `{ name: string; applied: boolean; error?: string \| undefined; }[]` | No | migrations |
+| `dryRun` | `boolean` | Yes | dryRun |
+
+## SystemSyncParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `direction` | `"push" \| "pull" \| "bidirectional" \| undefined` | No | direction |
+
+## SystemSyncResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `direction` | `string` | Yes | direction |
+| `synced` | `string` | Yes | synced |
+| `tasksSynced` | `number` | Yes | tasksSynced |
+| `conflicts` | `{ taskId: string; resolution: string; }[]` | Yes | conflicts |
+
+## SystemCleanupParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"sessions" \| "archive" \| "backups" \| "logs"` | Yes | type |
+| `olderThan` | `string \| undefined` | No | olderThan |
+
+## SystemCleanupResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `string` | Yes | type |
+| `cleaned` | `number` | Yes | cleaned |
+| `freed` | `number` | Yes | freed |
+| `items` | `string[]` | Yes | items |
+
+## TaskPriority
+
+```typescript
+any
+```
+
+## TaskOp
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `description` | `string` | Yes | description |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `parent` | `string \| undefined` | No | parent |
+| `depends` | `string[] \| undefined` | No | depends |
+| `labels` | `string[] \| undefined` | No | labels |
+| `created` | `string` | Yes | created |
+| `updated` | `string` | Yes | updated |
+| `completed` | `string \| undefined` | No | completed |
+| `notes` | `string[] \| undefined` | No | notes |
+
+## MinimalTask
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `parent` | `string \| undefined` | No | parent |
+
+## TasksGetParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksGetResult
+
+```typescript
+any
+```
+
+## TasksListParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `parent` | `string \| undefined` | No | parent |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `type` | `string \| undefined` | No | type |
+| `phase` | `string \| undefined` | No | phase |
+| `label` | `string \| undefined` | No | label |
+| `children` | `boolean \| undefined` | No | children |
+| `limit` | `number \| undefined` | No | limit |
+| `offset` | `number \| undefined` | No | offset |
+| `compact` | `boolean \| undefined` | No | compact |
+
+## TasksListResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tasks` | `TaskOp[]` | Yes | tasks |
+| `total` | `number` | Yes | total |
+| `filtered` | `number` | Yes | filtered |
+
+## TasksFindParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `string` | Yes | query |
+| `limit` | `number \| undefined` | No | limit |
+
+## TasksFindResult
+
+```typescript
+any
+```
+
+## TasksExistsParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksExistsResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `exists` | `boolean` | Yes | exists |
+| `taskId` | `string` | Yes | taskId |
+
+## TasksTreeParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `rootId` | `string \| undefined` | No | rootId |
+| `depth` | `number \| undefined` | No | depth |
+
+## TaskTreeNode
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `task` | `TaskOp` | Yes | task |
+| `children` | `TaskTreeNode[]` | Yes | children |
+| `depth` | `number` | Yes | depth |
+
+## TasksTreeResult
+
+```typescript
+any
+```
+
+## TasksBlockersParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## Blocker
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `blockType` | `"gate" \| "parent" \| "dependency"` | Yes | blockType |
+
+## TasksBlockersResult
+
+```typescript
+any
+```
+
+## TasksDepsParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `direction` | `"upstream" \| "downstream" \| "both" \| undefined` | No | direction |
+
+## TaskDependencyNode
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `distance` | `number` | Yes | distance |
+
+## TasksDepsResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `upstream` | `TaskDependencyNode[]` | Yes | upstream |
+| `downstream` | `TaskDependencyNode[]` | Yes | downstream |
+
+## TasksAnalyzeParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string \| undefined` | No | epicId |
+
+## TriageRecommendation
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `priority` | `number` | Yes | priority |
+| `reason` | `string` | Yes | reason |
+| `readiness` | `"pending" \| "blocked" \| "ready"` | Yes | readiness |
+
+## TasksAnalyzeResult
+
+```typescript
+any
+```
+
+## TasksNextParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `epicId` | `string \| undefined` | No | epicId |
+| `count` | `number \| undefined` | No | count |
+
+## SuggestedTask
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string` | Yes | title |
+| `score` | `number` | Yes | score |
+| `rationale` | `string` | Yes | rationale |
+
+## TasksNextResult
+
+```typescript
+any
+```
+
+## TasksCreateParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `title` | `string` | Yes | title |
+| `description` | `string` | Yes | description |
+| `parent` | `string \| undefined` | No | parent |
+| `depends` | `string[] \| undefined` | No | depends |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `labels` | `string[] \| undefined` | No | labels |
+
+## TasksCreateResult
+
+```typescript
+any
+```
+
+## TasksUpdateParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `title` | `string \| undefined` | No | title |
+| `description` | `string \| undefined` | No | description |
+| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `priority` | `TaskPriority \| undefined` | No | priority |
+| `notes` | `string \| undefined` | No | notes |
+| `parent` | `string \| null \| undefined` | No | parent |
+| `labels` | `string[] \| undefined` | No | labels |
+| `addLabels` | `string[] \| undefined` | No | addLabels |
+| `removeLabels` | `string[] \| undefined` | No | removeLabels |
+| `depends` | `string[] \| undefined` | No | depends |
+| `addDepends` | `string[] \| undefined` | No | addDepends |
+| `removeDepends` | `string[] \| undefined` | No | removeDepends |
+| `type` | `string \| undefined` | No | type |
+| `size` | `string \| undefined` | No | size |
+
+## TasksUpdateResult
+
+```typescript
+any
+```
+
+## TasksCompleteParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `notes` | `string \| undefined` | No | notes |
+| `archive` | `boolean \| undefined` | No | archive |
+
+## TasksCompleteResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `completed` | `string` | Yes | completed |
+| `archived` | `boolean` | Yes | archived |
+
+## TasksDeleteParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `force` | `boolean \| undefined` | No | force |
+
+## TasksDeleteResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `deleted` | `true` | Yes | deleted |
+
+## TasksArchiveParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| undefined` | No | taskId |
+| `before` | `string \| undefined` | No | before |
+
+## TasksArchiveResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `archived` | `number` | Yes | archived |
+| `taskIds` | `string[]` | Yes | taskIds |
+
+## TasksUnarchiveParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksUnarchiveResult
+
+```typescript
+any
+```
+
+## TasksReparentParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `newParent` | `string` | Yes | newParent |
+
+## TasksReparentResult
+
+```typescript
+any
+```
+
+## TasksPromoteParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksPromoteResult
+
+```typescript
+any
+```
+
+## TasksReorderParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `position` | `number` | Yes | position |
+
+## TasksReorderResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `newPosition` | `number` | Yes | newPosition |
+
+## TasksReopenParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksReopenResult
+
+```typescript
+any
+```
+
+## TasksStartParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+
+## TasksStartResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `sessionId` | `string` | Yes | sessionId |
+| `timestamp` | `string` | Yes | timestamp |
+
+## TasksStopParams
+
+```typescript
+any
+```
+
+## TasksStopResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `stopped` | `true` | Yes | stopped |
+| `previousTask` | `string \| undefined` | No | previousTask |
+
+## TasksCurrentParams
+
+```typescript
+any
+```
+
+## TasksCurrentResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| null` | Yes | taskId |
+| `since` | `string \| undefined` | No | since |
+| `sessionId` | `string \| undefined` | No | sessionId |
+
+## ValidationSeverity
+
+Common validation types
+
+```typescript
+any
+```
+
+## ValidationViolation
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `rule` | `string` | Yes | rule |
+| `severity` | `ValidationSeverity` | Yes | severity |
+| `message` | `string` | Yes | message |
+| `field` | `string \| undefined` | No | field |
+| `value` | `unknown` | Yes | value |
+| `expected` | `unknown` | Yes | expected |
+| `line` | `number \| undefined` | No | line |
+
+## ComplianceMetrics
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `total` | `number` | Yes | total |
+| `passed` | `number` | Yes | passed |
+| `failed` | `number` | Yes | failed |
+| `score` | `number` | Yes | score |
+| `byProtocol` | `Record<string, { passed: number; failed: number; }>` | Yes | byProtocol |
+| `bySeverity` | `Record<ValidationSeverity, number>` | Yes | bySeverity |
+
+## ValidateSchemaParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `fileType` | `"manifest" \| "config" \| "archive" \| "todo" \| "log"` | Yes | fileType |
+| `filePath` | `string \| undefined` | No | filePath |
+
+## ValidateSchemaResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `schemaVersion` | `string` | Yes | schemaVersion |
+| `violations` | `ValidationViolation[]` | Yes | violations |
+
+## ValidateProtocolParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `protocolType` | `"research" \| "consensus" \| "specification" \| "decomposition" \| "implementation" \| "release" \| "contribution"` | Yes | protocolType |
+
+## ValidateProtocolResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `protocol` | `string` | Yes | protocol |
+| `passed` | `boolean` | Yes | passed |
+| `score` | `number` | Yes | score |
+| `violations` | `ValidationViolation[]` | Yes | violations |
+| `requirements` | `{ total: number; met: number; failed: number; }` | Yes | requirements |
+
+## ValidateTaskParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `checkMode` | `"strict" \| "basic" \| "anti-hallucination"` | Yes | checkMode |
+
+## ValidateTaskResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `valid` | `boolean` | Yes | valid |
+| `violations` | `ValidationViolation[]` | Yes | violations |
+| `checks` | `{ idUniqueness: boolean; titleDescriptionDifferent: boolean; validStatus: boolean; noFutureTimestamps: boolean; noDuplicateDescription: boolean; }` | Yes | checks |
+
+## ValidateManifestParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entry` | `string \| undefined` | No | entry |
+| `taskId` | `string \| undefined` | No | taskId |
+
+## ValidateManifestResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `entry` | `{ id: string; file: string; exists: boolean; }` | Yes | entry |
+| `violations` | `ValidationViolation[]` | Yes | violations |
+
+## ValidateOutputParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `filePath` | `string` | Yes | filePath |
+
+## ValidateOutputResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `filePath` | `string` | Yes | filePath |
+| `valid` | `boolean` | Yes | valid |
+| `checks` | `{ fileExists: boolean; hasTaskHeader: boolean; hasStatus: boolean; hasSummary: boolean; linkedToTask: boolean; }` | Yes | checks |
+| `violations` | `ValidationViolation[]` | Yes | violations |
+
+## ValidateComplianceSummaryParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scope` | `string \| undefined` | No | scope |
+| `since` | `string \| undefined` | No | since |
+
+## ValidateComplianceSummaryResult
+
+```typescript
+any
+```
+
+## ValidateComplianceViolationsParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `severity` | `ValidationSeverity \| undefined` | No | severity |
+| `protocol` | `string \| undefined` | No | protocol |
+
+## ValidateComplianceViolationsResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `violations` | `(ValidationViolation & { taskId: string; protocol: string; timestamp: string; })[]` | Yes | violations |
+| `total` | `number` | Yes | total |
+
+## ValidateTestStatusParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| undefined` | No | taskId |
+
+## ValidateTestStatusResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `total` | `number` | Yes | total |
+| `passed` | `number` | Yes | passed |
+| `failed` | `number` | Yes | failed |
+| `skipped` | `number` | Yes | skipped |
+| `passRate` | `number` | Yes | passRate |
+| `byTask` | `Record<string, { passed: number; failed: number; }> \| undefined` | No | byTask |
+
+## ValidateTestCoverageParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string \| undefined` | No | taskId |
+
+## ValidateTestCoverageResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `lineCoverage` | `number` | Yes | lineCoverage |
+| `branchCoverage` | `number` | Yes | branchCoverage |
+| `functionCoverage` | `number` | Yes | functionCoverage |
+| `statementCoverage` | `number` | Yes | statementCoverage |
+| `threshold` | `number` | Yes | threshold |
+| `meetsThreshold` | `boolean` | Yes | meetsThreshold |
+
+## ValidateComplianceRecordParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `result` | `ValidateProtocolResult` | Yes | result |
+
+## ValidateComplianceRecordResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `recorded` | `string` | Yes | recorded |
+| `metrics` | `ComplianceMetrics` | Yes | metrics |
+
+## ValidateTestRunParams
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scope` | `string \| undefined` | No | scope |
+| `pattern` | `string \| undefined` | No | pattern |
+| `parallel` | `boolean \| undefined` | No | parallel |
+
+## ValidateTestRunResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `status` | `ValidateTestStatusResult` | Yes | status |
+| `coverage` | `ValidateTestCoverageResult` | Yes | coverage |
+| `duration` | `string` | Yes | duration |
+| `output` | `string \| undefined` | No | output |
+
+## TaskRecordRelation
+
+A single task relation entry (string-widened version).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `type` | `string` | Yes | type |
+| `reason` | `string \| undefined` | No | reason |
+
+## ValidationHistoryEntry
+
+Validation history entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `round` | `number` | Yes | round |
+| `agent` | `string` | Yes | agent |
+| `result` | `string` | Yes | result |
+| `timestamp` | `string` | Yes | timestamp |
+
+## TaskRecord
+
+String-widened Task for JSON serialization in dispatch/LAFS layer.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `description` | `string` | Yes | description |
+| `status` | `string` | Yes | status |
+| `priority` | `string` | Yes | priority |
+| `type` | `string \| undefined` | No | type |
+| `phase` | `string \| undefined` | No | phase |
+| `createdAt` | `string` | Yes | createdAt |
+| `updatedAt` | `string \| null` | Yes | updatedAt |
+| `completedAt` | `string \| null \| undefined` | No | completedAt |
+| `cancelledAt` | `string \| null \| undefined` | No | cancelledAt |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+| `position` | `number \| null \| undefined` | No | position |
+| `positionVersion` | `number \| undefined` | No | positionVersion |
+| `depends` | `string[] \| undefined` | No | depends |
+| `relates` | `TaskRecordRelation[] \| undefined` | No | relates |
+| `files` | `string[] \| undefined` | No | files |
+| `acceptance` | `string[] \| undefined` | No | acceptance |
+| `notes` | `string[] \| undefined` | No | notes |
+| `labels` | `string[] \| undefined` | No | labels |
+| `size` | `string \| null \| undefined` | No | size |
+| `epicLifecycle` | `string \| null \| undefined` | No | epicLifecycle |
+| `noAutoComplete` | `boolean \| null \| undefined` | No | noAutoComplete |
+| `verification` | `TaskVerification \| null \| undefined` | No | verification |
+| `origin` | `string \| null \| undefined` | No | origin |
+| `createdBy` | `string \| null \| undefined` | No | createdBy |
+| `validatedBy` | `string \| null \| undefined` | No | validatedBy |
+| `testedBy` | `string \| null \| undefined` | No | testedBy |
+| `lifecycleState` | `string \| null \| undefined` | No | lifecycleState |
+| `validationHistory` | `ValidationHistoryEntry[] \| undefined` | No | validationHistory |
+| `blockedBy` | `string[] \| undefined` | No | blockedBy |
+| `cancellationReason` | `string \| undefined` | No | cancellationReason |
+
+## MinimalTaskRecord
+
+Minimal task representation for find results.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `status` | `string` | Yes | status |
+| `priority` | `string` | Yes | priority |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+
+## TaskSummary
+
+Task summary counts used in dashboard and stats views.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `pending` | `number` | Yes | pending |
+| `active` | `number` | Yes | active |
+| `blocked` | `number` | Yes | blocked |
+| `done` | `number` | Yes | done |
+| `cancelled` | `number` | Yes | cancelled |
+| `total` | `number` | Yes | total |
+| `archived` | `number` | Yes | archived |
+| `grandTotal` | `number` | Yes | grandTotal |
+
+## LabelCount
+
+Label frequency entry.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `label` | `string` | Yes | label |
+| `count` | `number` | Yes | count |
+
+## DashboardResult
+
+Dashboard result from system.dash query.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `project` | `string` | Yes | project |
+| `currentPhase` | `string \| null` | Yes | currentPhase |
+| `summary` | `TaskSummary` | Yes | summary |
+| `taskWork` | `{ currentTask: string \| null; task: TaskRecord \| null; }` | Yes | taskWork |
+| `activeSession` | `string \| null` | Yes | activeSession |
+| `highPriority` | `{ count: number; tasks: TaskRecord[]; }` | Yes | highPriority |
+| `blockedTasks` | `{ count: number; limit: number; tasks: TaskRecord[]; }` | Yes | blockedTasks |
+| `recentCompletions` | `TaskRecord[]` | Yes | recentCompletions |
+| `topLabels` | `LabelCount[]` | Yes | topLabels |
+
+## StatsCurrentState
+
+Current state counts used in stats results.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `pending` | `number` | Yes | pending |
+| `active` | `number` | Yes | active |
+| `done` | `number` | Yes | done |
+| `blocked` | `number` | Yes | blocked |
+| `cancelled` | `number` | Yes | cancelled |
+| `totalActive` | `number` | Yes | totalActive |
+| `archived` | `number` | Yes | archived |
+| `grandTotal` | `number` | Yes | grandTotal |
+
+## StatsCompletionMetrics
+
+Completion metrics for a given time period.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `periodDays` | `number` | Yes | periodDays |
+| `completedInPeriod` | `number` | Yes | completedInPeriod |
+| `createdInPeriod` | `number` | Yes | createdInPeriod |
+| `completionRate` | `number` | Yes | completionRate |
+
+## StatsActivityMetrics
+
+Activity metrics for a given time period.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `createdInPeriod` | `number` | Yes | createdInPeriod |
+| `completedInPeriod` | `number` | Yes | completedInPeriod |
+| `archivedInPeriod` | `number` | Yes | archivedInPeriod |
+
+## StatsAllTime
+
+All-time cumulative statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `totalCreated` | `number` | Yes | totalCreated |
+| `totalCompleted` | `number` | Yes | totalCompleted |
+| `totalCancelled` | `number` | Yes | totalCancelled |
+| `totalArchived` | `number` | Yes | totalArchived |
+| `archivedCompleted` | `number` | Yes | archivedCompleted |
+
+## StatsCycleTimes
+
+Cycle time statistics.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `averageDays` | `number \| null` | Yes | averageDays |
+| `samples` | `number` | Yes | samples |
+
+## StatsResult
+
+Stats result from system.stats query.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentState` | `StatsCurrentState` | Yes | currentState |
+| `byPriority` | `Record<string, number>` | Yes | byPriority |
+| `byType` | `Record<string, number>` | Yes | byType |
+| `byPhase` | `Record<string, number>` | Yes | byPhase |
+| `completionMetrics` | `StatsCompletionMetrics` | Yes | completionMetrics |
+| `activityMetrics` | `StatsActivityMetrics` | Yes | activityMetrics |
+| `allTime` | `StatsAllTime` | Yes | allTime |
+| `cycleTimes` | `StatsCycleTimes` | Yes | cycleTimes |
+
+## LogQueryResult
+
+Log query result from system.log query.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entries` | `{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; }[]` | No | entries |
+| `pagination` | `{ total: number; offset: number; limit: number; hasMore: boolean; }` | Yes | pagination |
+
+## ContextResult
+
+Context monitoring data from system.context query.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `available` | `boolean` | Yes | available |
+| `status` | `string` | Yes | status |
+| `percentage` | `number` | Yes | percentage |
+| `currentTokens` | `number` | Yes | currentTokens |
+| `maxTokens` | `number` | Yes | maxTokens |
+| `timestamp` | `string \| null` | Yes | timestamp |
+| `stale` | `boolean` | Yes | stale |
+| `sessions` | `{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; }[]` | Yes | sessions |
+
+## SequenceResult
+
+Sequence counter data from system.sequence query.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `counter` | `number` | Yes | counter |
+| `lastId` | `string` | Yes | lastId |
+| `checksum` | `string` | Yes | checksum |
+| `nextId` | `string` | Yes | nextId |
+
+## TaskRef
+
+Compact task reference used across analysis and dependency results.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `status` | `string` | Yes | status |
+
+## TaskRefPriority
+
+Task reference with optional priority (used in orchestrator/HITL contexts).
+
+```typescript
+any
+```
+
+## LeveragedTask
+
+Task with leverage score for prioritization.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `leverage` | `number` | Yes | leverage |
+| `reason` | `string \| undefined` | No | reason |
+
+## BottleneckTask
+
+Bottleneck task — blocks other tasks.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `blocksCount` | `number` | Yes | blocksCount |
+
+## TaskAnalysisResult
+
+Task analysis result from tasks.analyze.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `recommended` | `(LeveragedTask & { reason: string; }) \| null` | Yes | recommended |
+| `bottlenecks` | `BottleneckTask[]` | Yes | bottlenecks |
+| `tiers` | `{ critical: LeveragedTask[]; high: LeveragedTask[]; normal: LeveragedTask[]; }` | Yes | tiers |
+| `metrics` | `{ totalTasks: number; actionable: number; blocked: number; avgLeverage: number; }` | Yes | metrics |
+
+## TaskDepsResult
+
+Single task dependency result from tasks.deps.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `dependsOn` | `TaskRef[]` | Yes | dependsOn |
+| `dependedOnBy` | `TaskRef[]` | Yes | dependedOnBy |
+| `unresolvedDeps` | `string[]` | Yes | unresolvedDeps |
+| `allDepsReady` | `boolean` | Yes | allDepsReady |
+
+## CompleteTaskUnblocked
+
+Completion result — unblocked tasks after completing a task.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `unblockedTasks` | `TaskRef[] \| undefined` | No | unblockedTasks |
+
+## Provider
+
+Provider identifier for spawn operations.
+
+```typescript
+any
+```
+
+## CAAMPSpawnOptions
+
+CAAMP-compatible spawn options (inlined for zero-dep contracts).
+
+## CAAMPSpawnResult
+
+CAAMP-compatible spawn result (inlined for zero-dep contracts).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `instanceId` | `string` | Yes | instanceId |
+| `output` | `string` | Yes | output |
+| `exitCode` | `number` | Yes | exitCode |
+
+## CLEOSpawnContext
+
+CLEO-specific spawn context Extends CAAMP options with CLEO task and protocol metadata
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | Task ID being spawned |
+| `protocol` | `string` | Yes | Protocol to use for the spawned task |
+| `prompt` | `string` | Yes | Fully-resolved prompt to send to subagent |
+| `provider` | `string` | Yes | Provider to use for spawning |
+| `options` | `CAAMPSpawnOptions` | Yes | CAAMP-compatible spawn options |
+| `workingDirectory` | `string \| undefined` | No | Project root or working directory for provider-specific files and process execution |
+| `tokenResolution` | `TokenResolution \| undefined` | No | Token resolution information for the prompt |
+
+## CLEOSpawnResult
+
+CLEO spawn result Extends CAAMP SpawnResult with CLEO-specific timing and metadata
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | Task ID that was spawned |
+| `providerId` | `string` | Yes | Provider ID used for the spawn |
+| `timing` | `{ startTime: string; endTime?: string \| undefined; durationMs?: number \| undefined; }` | No | Timing information for the spawn operation |
+| `manifestEntryId` | `string \| undefined` | No | Reference to manifest entry if output was captured |
+
+## CLEOSpawnAdapter
+
+Spawn adapter interface Wraps CAAMP SpawnAdapter with CLEO-specific context and result types
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier for this adapter instance |
+| `providerId` | `string` | Yes | Provider ID this adapter uses |
+| `canSpawn` | `() => Promise<boolean>` | Yes | Check if this adapter can spawn in the current environment |
+| `spawn` | `(context: CLEOSpawnContext) => Promise<CLEOSpawnResult>` | Yes | Execute a spawn using the provider's native mechanism |
+| `listRunning` | `() => Promise<CLEOSpawnResult[]>` | Yes | List currently running spawns |
+| `terminate` | `(instanceId: string) => Promise<void>` | Yes | Terminate a running spawn |
+
+## TokenResolution
+
+Token resolution information for prompt processing
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `resolved` | `string[]` | Yes | Array of resolved token identifiers |
+| `unresolved` | `string[]` | Yes | Array of unresolved token identifiers |
+| `totalTokens` | `number` | Yes | Total number of tokens processed |
+
+## SpawnStatus
+
+Spawn status values
+
+```typescript
+any
+```
+
+## ProtocolType
+
+All supported protocol types.
+
+```typescript
+any
+```
+
+## GateName
+
+Verification gate names (ordered dependency chain).
+
+```typescript
+any
+```
+
+## WarpStage
+
+A single stage in the warp chain.  The category union includes all canonical CLEO pipeline stages plus 'custom' for user-defined stages.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `category` | `"custom" \| "research" \| "consensus" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| "contribution" \| "architecture"` | Yes | category |
+| `skippable` | `boolean` | Yes | skippable |
+| `description` | `string \| undefined` | No | description |
+
+## WarpLink
+
+Connection between two stages in the chain.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `from` | `string` | Yes | from |
+| `to` | `string` | Yes | to |
+| `type` | `"linear" \| "fork" \| "branch"` | Yes | type |
+| `condition` | `string \| undefined` | No | condition |
+
+## ChainShape
+
+The topology/DAG of a workflow.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `stages` | `WarpStage[]` | Yes | stages |
+| `links` | `WarpLink[]` | Yes | links |
+| `entryPoint` | `string` | Yes | entryPoint |
+| `exitPoints` | `string[]` | Yes | exitPoints |
+
+## GateCheck
+
+Discriminated union for gate check types.
+
+```typescript
+any
+```
+
+## GateContract
+
+A quality gate embedded in the chain.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `type` | `"entry" \| "exit" \| "checkpoint"` | Yes | type |
+| `stageId` | `string` | Yes | stageId |
+| `position` | `"before" \| "after"` | Yes | position |
+| `check` | `GateCheck` | Yes | check |
+| `severity` | `"warning" \| "info" \| "blocking"` | Yes | severity |
+| `canForce` | `boolean` | Yes | canForce |
+
+## WarpChain
+
+Complete chain definition combining shape and gates.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `name` | `string` | Yes | name |
+| `version` | `string` | Yes | version |
+| `description` | `string` | Yes | description |
+| `shape` | `ChainShape` | Yes | shape |
+| `gates` | `GateContract[]` | Yes | gates |
+| `tessera` | `string \| undefined` | No | tessera |
+| `metadata` | `Record<string, unknown> \| undefined` | No | metadata |
+
+## ChainValidation
+
+Result of validating a chain definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wellFormed` | `boolean` | Yes | wellFormed |
+| `gateSatisfiable` | `boolean` | Yes | gateSatisfiable |
+| `artifactComplete` | `boolean` | Yes | artifactComplete |
+| `errors` | `string[]` | Yes | errors |
+| `warnings` | `string[]` | Yes | warnings |
+
+## WarpChainInstance
+
+A chain bound to a specific epic.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `chainId` | `string` | Yes | chainId |
+| `epicId` | `string` | Yes | epicId |
+| `variables` | `Record<string, unknown>` | Yes | variables |
+| `stageToTask` | `Record<string, string>` | Yes | stageToTask |
+| `status` | `"completed" \| "failed" \| "cancelled" \| "pending" \| "active"` | Yes | status |
+| `currentStage` | `string` | Yes | currentStage |
+| `createdAt` | `string` | Yes | createdAt |
+| `createdBy` | `string` | Yes | createdBy |
+
+## GateResult
+
+Result of evaluating a single gate.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateId` | `string` | Yes | gateId |
+| `passed` | `boolean` | Yes | passed |
+| `forced` | `boolean` | Yes | forced |
+| `message` | `string \| undefined` | No | message |
+| `evaluatedAt` | `string` | Yes | evaluatedAt |
+
+## WarpChainExecution
+
+Runtime state of a chain instance execution.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `instanceId` | `string` | Yes | instanceId |
+| `currentStage` | `string` | Yes | currentStage |
+| `gateResults` | `GateResult[]` | Yes | gateResults |
+| `status` | `"running" \| "completed" \| "failed" \| "paused"` | Yes | status |
+| `startedAt` | `string` | Yes | startedAt |
+| `completedAt` | `string \| undefined` | No | completedAt |
+
+## TesseraVariable
+
+A variable declaration within a Tessera template.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `type` | `"string" \| "number" \| "boolean" \| "epicId" \| "taskId"` | Yes | type |
+| `description` | `string` | Yes | description |
+| `required` | `boolean` | Yes | required |
+| `default` | `unknown` | Yes | default |
+
+## TesseraTemplate
+
+A parameterized WarpChain template with variable bindings.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `variables` | `Record<string, TesseraVariable>` | Yes | variables |
+| `archetypes` | `string[]` | Yes | archetypes |
+| `defaultValues` | `Record<string, unknown>` | Yes | defaultValues |
+| `category` | `"custom" \| "research" \| "lifecycle" \| "hotfix" \| "security-audit"` | Yes | category |
+
+## TesseraInstantiationInput
+
+Input for instantiating a Tessera template into a concrete chain.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `templateId` | `string` | Yes | templateId |
+| `epicId` | `string` | Yes | epicId |
+| `variables` | `Record<string, unknown>` | Yes | variables |
+
+## TodoWriteItemStatus
+
+TodoWrite item status as exported by Claude.
+
+```typescript
+any
+```
+
+## TodoWriteItem
+
+TodoWrite item as exported by Claude.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `content` | `string` | Yes | content |
+| `status` | `TodoWriteItemStatus` | Yes | status |
+| `activeForm` | `string \| undefined` | No | activeForm |
+
+## TodoWriteState
+
+TodoWrite state file format.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `todos` | `TodoWriteItem[]` | Yes | todos |
+
+## TodoWriteSyncSessionState
+
+Sync session state for TodoWrite integration.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `injected_tasks` | `string[]` | Yes | injected_tasks |
+| `injectedPhase` | `string \| undefined` | No | injectedPhase |
+| `task_metadata` | `Record<string, { phase?: string \| undefined; }> \| undefined` | No | task_metadata |
+
+## TodoWriteChangeSet
+
+Detected changes from TodoWrite state analysis.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `completed` | `string[]` | Yes | completed |
+| `progressed` | `string[]` | Yes | progressed |
+| `newTasks` | `string[]` | Yes | newTasks |
+| `removed` | `string[]` | Yes | removed |
+
+## TodoWriteChangeAction
+
+Action type for a TodoWrite merge change.
+
+```typescript
+any
+```
+
+## TodoWriteChange
+
+A single change applied during TodoWrite merge.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | taskId |
+| `action` | `TodoWriteChangeAction` | Yes | action |
+| `details` | `string \| undefined` | No | details |
+
+## TodoWriteMergeResult
+
+Result of a TodoWrite merge operation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `dryRun` | `boolean` | Yes | dryRun |
+| `changes` | `{ completed: number; progressed: number; new: number; removed: number; applied: number; }` | Yes | changes |
+| `sessionCleared` | `boolean \| undefined` | No | sessionCleared |

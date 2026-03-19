@@ -32,7 +32,7 @@ import {
   validateRequiredParams,
 } from '../../dispatch/registry.js';
 
-import type { CanonicalDomain, ParamDef } from '../../dispatch/types.js';
+import type { CanonicalDomain } from '../../dispatch/types.js';
 import { CANONICAL_DOMAINS } from '../../dispatch/types.js';
 
 // ===========================================================================
@@ -107,9 +107,7 @@ describe('Group 1: Registry completeness', () => {
       // Only validate ops that have populated params arrays (T4897 migration ops)
       if (!op.params || op.params.length === 0) continue;
 
-      const derivedRequired = op.params
-        .filter((p: ParamDef) => p.required)
-        .map((p: ParamDef) => p.name);
+      const derivedRequired = op.params.filter((p) => p.required).map((p) => p.name);
 
       // requiredParams should be consistent with the params array when both are present.
       // We use a set comparison since order may differ.
@@ -151,9 +149,9 @@ describe('Group 1: Registry completeness', () => {
 
 describe('Group 2: ParamDef → MCP Schema derivation', () => {
   it('buildMcpInputSchema returns valid JSON Schema object shape', () => {
-    const def: OperationDef = {
-      gateway: 'query',
-      domain: 'tasks',
+    const def = {
+      gateway: 'query' as const,
+      domain: 'tasks' as const,
       operation: 'show',
       description: 'Show a task',
       tier: 0,
@@ -163,7 +161,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       params: [
         {
           name: 'taskId',
-          type: 'string',
+          type: 'string' as const,
           required: true,
           description: 'The task identifier',
           cli: { positional: true },
@@ -179,7 +177,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('required params appear in schema required array', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'mutate',
       domain: 'tasks',
       operation: 'add',
@@ -191,15 +189,15 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       params: [
         {
           name: 'title',
-          type: 'string',
-          required: true,
+          type: 'string' as const,
+          required: true as const,
           description: 'Task title',
           cli: { positional: true },
         },
         {
           name: 'description',
-          type: 'string',
-          required: false,
+          type: 'string' as const,
+          required: false as const,
           description: 'Task description',
           cli: {},
         },
@@ -215,7 +213,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('mcp.hidden params are excluded from schema', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'tasks',
       operation: 'list',
@@ -223,11 +221,11 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       tier: 0,
       idempotent: true,
       sessionRequired: false,
-      requiredParams: [],
+      requiredParams: [] as string[],
       params: [
         {
           name: 'offset',
-          type: 'number',
+          type: 'number' as const,
           required: false,
           description: 'Pagination offset (CLI-only)',
           cli: {},
@@ -235,7 +233,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
         },
         {
           name: 'status',
-          type: 'string',
+          type: 'string' as const,
           required: false,
           description: 'Filter by status',
           cli: { short: '-s', flag: 'status' },
@@ -254,7 +252,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('ops with empty params return permissive schema', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'session',
       operation: 'status',
@@ -262,8 +260,13 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       tier: 0,
       idempotent: true,
       sessionRequired: false,
-      requiredParams: [],
-      params: [],
+      requiredParams: [] as string[],
+      params: [] as {
+        name: string;
+        type: 'string' | 'number' | 'boolean' | 'array';
+        required: boolean;
+        description: string;
+      }[],
     };
 
     const schema = buildMcpInputSchema(def);
@@ -274,7 +277,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('array type params get items: {type: string} in schema', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'tools',
       operation: 'issue.validate.labels',
@@ -286,7 +289,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       params: [
         {
           name: 'labels',
-          type: 'array',
+          type: 'array' as const,
           required: true,
           description: 'Labels to validate',
           cli: {},
@@ -301,7 +304,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('boolean type params have type boolean in schema (no items)', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'tasks',
       operation: 'list',
@@ -309,11 +312,11 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       tier: 0,
       idempotent: true,
       sessionRequired: false,
-      requiredParams: [],
+      requiredParams: [] as string[],
       params: [
         {
           name: 'includeArchive',
-          type: 'boolean',
+          type: 'boolean' as const,
           required: false,
           description: 'Include archived tasks',
           cli: { flag: 'include-archive' },
@@ -328,7 +331,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
   });
 
   it('all supported param types map correctly to JSON Schema types', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'mutate',
       domain: 'tasks',
       operation: 'add',
@@ -336,12 +339,12 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
       tier: 0,
       idempotent: false,
       sessionRequired: false,
-      requiredParams: [],
+      requiredParams: [] as string[],
       params: [
-        { name: 'strParam', type: 'string', required: false, description: 'A string' },
-        { name: 'numParam', type: 'number', required: false, description: 'A number' },
-        { name: 'boolParam', type: 'boolean', required: false, description: 'A boolean' },
-        { name: 'arrParam', type: 'array', required: false, description: 'An array' },
+        { name: 'strParam', type: 'string' as const, required: false, description: 'A string' },
+        { name: 'numParam', type: 'number' as const, required: false, description: 'A number' },
+        { name: 'boolParam', type: 'boolean' as const, required: false, description: 'A boolean' },
+        { name: 'arrParam', type: 'array' as const, required: false, description: 'An array' },
       ],
     };
 
@@ -360,7 +363,7 @@ describe('Group 2: ParamDef → MCP Schema derivation', () => {
 
 describe('Group 3: ParamDef → Commander derivation', () => {
   it('buildCommanderArgs correctly splits positionals from options', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'tasks',
       operation: 'show',
@@ -372,21 +375,21 @@ describe('Group 3: ParamDef → Commander derivation', () => {
       params: [
         {
           name: 'taskId',
-          type: 'string',
+          type: 'string' as const,
           required: true,
           description: 'The task ID',
           cli: { positional: true },
         },
         {
           name: 'format',
-          type: 'string',
+          type: 'string' as const,
           required: false,
           description: 'Output format',
           cli: { flag: 'format' },
         },
         {
           name: 'mcpOnlyParam',
-          type: 'string',
+          type: 'string' as const,
           required: false,
           description: 'MCP-only, no cli key',
           // No cli key → excluded from Commander
@@ -408,7 +411,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('buildCommanderArgs returns empty arrays for op with no params', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'session',
       operation: 'status',
@@ -416,7 +419,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
       tier: 0,
       idempotent: true,
       sessionRequired: false,
-      requiredParams: [],
+      requiredParams: [] as string[],
     };
 
     const { positionals, options } = buildCommanderArgs(def);
@@ -426,9 +429,9 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('buildCommanderOptionString generates correct string with short alias', () => {
-    const param: ParamDef = {
+    const param = {
       name: 'status',
-      type: 'string',
+      type: 'string' as const,
       required: false,
       description: 'Filter by status',
       cli: { short: '-s', flag: 'status' },
@@ -440,9 +443,9 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('buildCommanderOptionString generates correct string without short alias', () => {
-    const param: ParamDef = {
+    const param = {
       name: 'parent',
-      type: 'string',
+      type: 'string' as const,
       required: false,
       description: 'Parent task ID',
       cli: {},
@@ -454,9 +457,9 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('boolean params generate --flag without <value> placeholder', () => {
-    const param: ParamDef = {
+    const param = {
       name: 'dryRun',
-      type: 'boolean',
+      type: 'boolean' as const,
       required: false,
       description: 'Dry run mode',
       cli: { flag: 'dry-run' },
@@ -470,9 +473,9 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('boolean params with short alias generate -x, --flag without <value>', () => {
-    const param: ParamDef = {
+    const param = {
       name: 'verbose',
-      type: 'boolean',
+      type: 'boolean' as const,
       required: false,
       description: 'Verbose output',
       cli: { short: '-v', flag: 'verbose' },
@@ -485,9 +488,9 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('camelCase param names are converted to kebab-case for flag name', () => {
-    const param: ParamDef = {
+    const param = {
       name: 'includeArchive',
-      type: 'boolean',
+      type: 'boolean' as const,
       required: false,
       description: 'Include archived tasks',
       cli: {},
@@ -508,7 +511,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
   });
 
   it('array params with variadic:true annotation are correctly identified', () => {
-    const def: OperationDef = {
+    const def = {
       gateway: 'query',
       domain: 'tools',
       operation: 'issue.validate.labels',
@@ -520,7 +523,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
       params: [
         {
           name: 'labels',
-          type: 'array',
+          type: 'array' as const,
           required: true,
           description: 'Labels list',
           cli: { variadic: true },

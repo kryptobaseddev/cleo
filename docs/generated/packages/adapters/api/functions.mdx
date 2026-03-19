@@ -1,0 +1,866 @@
+---
+title: "adapters — Functions"
+description: "Functions and classes for the adapters package"
+---
+Functions and classes exported by this package.
+
+## ClaudeCodePathProvider
+
+Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard directory layout: - Config dir: ~/.claude (or CLAUDE_HOME) - Settings: ~/.claude/settings.json (or CLAUDE_SETTINGS) - Agents: ~/.claude/agents - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB)
+
+**Signature**
+
+```typescript
+typeof ClaudeCodePathProvider
+```
+
+**Methods**
+
+### getProviderDir()
+
+```typescript
+() => string
+```
+
+### getSettingsPath()
+
+```typescript
+() => string | null
+```
+
+### getAgentInstallDir()
+
+```typescript
+() => string | null
+```
+
+### getMemoryDbPath()
+
+```typescript
+() => string | null
+```
+
+## ClaudeCodeContextMonitorProvider
+
+Context monitor provider for Claude Code.  Processes context window JSON from Claude Code and writes state files for statusline display. Also provides statusline configuration and setup instructions specific to Claude Code's settings.json.
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeContextMonitorProvider
+```
+
+**Methods**
+
+### processContextInput()
+
+```typescript
+(input: unknown, cwd?: string | undefined) => Promise<string>
+```
+
+### checkStatuslineIntegration()
+
+```typescript
+() => "configured" | "not_configured" | "custom_no_cleo" | "no_settings"
+```
+
+### getStatuslineConfig()
+
+```typescript
+() => Record<string, unknown>
+```
+
+### getSetupInstructions()
+
+```typescript
+() => string
+```
+
+## ClaudeCodeHookProvider
+
+Hook provider for Claude Code.  Claude Code registers hooks via a plugin directory with a hooks.json descriptor. The actual hook scripts are shell scripts that invoke CLEO's brain observation system.  Since hooks are registered through the plugin system (installed via the install provider), registerNativeHooks and unregisterNativeHooks are effectively no-ops here — the plugin installer handles registration.
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeHookProvider
+```
+
+**Methods**
+
+### mapProviderEvent()
+
+Map a Claude Code native event name to a CAAMP hook event name.
+
+```typescript
+(providerEvent: string) => string | null
+```
+
+### registerNativeHooks()
+
+Register native hooks for a project.  For Claude Code, hooks are registered via the plugin system (hooks.json descriptor), which is handled by the install provider. This method is a no-op since registration is managed through the plugin install lifecycle.
+
+```typescript
+(_projectDir: string) => Promise<void>
+```
+
+### unregisterNativeHooks()
+
+Unregister native hooks.  For Claude Code, this is a no-op since hooks are managed through the plugin system. Unregistration happens via the install provider's uninstall method.
+
+```typescript
+() => Promise<void>
+```
+
+### isRegistered()
+
+Check whether hooks have been registered via registerNativeHooks.
+
+```typescript
+() => boolean
+```
+
+### getEventMap()
+
+Get the full event mapping for introspection/debugging.
+
+```typescript
+() => Readonly<Record<string, string>>
+```
+
+## ClaudeCodeInstallProvider
+
+Install provider for Claude Code.  Manages CLEO's integration with Claude Code by: 1. Registering the CLEO MCP server in the project's .mcp.json 2. Ensuring CLAUDE.md contains -references to CLEO instruction files 3. Registering the brain observation plugin in ~/.claude/settings.json
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeInstallProvider
+```
+
+**Methods**
+
+### install()
+
+Install CLEO into a Claude Code project.
+
+```typescript
+(options: InstallOptions) => Promise<InstallResult>
+```
+
+### uninstall()
+
+Uninstall CLEO from the current Claude Code project.  Removes the MCP server registration from .mcp.json. Does not remove CLAUDE.md references (they are harmless if CLEO is not present).
+
+```typescript
+() => Promise<void>
+```
+
+### isInstalled()
+
+Check whether CLEO is installed in the current environment.  Checks for: 1. MCP server registered in .mcp.json 2. Plugin enabled in ~/.claude/settings.json  Returns true if either condition is met (partial install counts).
+
+```typescript
+() => Promise<boolean>
+```
+
+### ensureInstructionReferences()
+
+Ensure CLAUDE.md contains -references to CLEO instruction files.  Creates CLAUDE.md if it does not exist. Appends any missing references.
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### registerMcpServer()
+
+Register the CLEO MCP server in .mcp.json.
+
+```typescript
+(projectDir: string, mcpServerPath: string) => boolean
+```
+
+### updateInstructionFile()
+
+Update CLAUDE.md with CLEO -references.
+
+```typescript
+(projectDir: string) => boolean
+```
+
+### registerPlugin()
+
+Register the CLEO brain plugin in ~/.claude/settings.json.
+
+```typescript
+() => string | null
+```
+
+## ClaudeCodeSpawnProvider
+
+Spawn provider for Claude Code.  Spawns detached Claude CLI processes for subagent execution. Each spawn writes its prompt to a temporary file, then runs `claude --allow-insecure --no-upgrade-check <tmpFile>` as a detached, unref'd child process.
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeSpawnProvider
+```
+
+**Methods**
+
+### canSpawn()
+
+Check if the Claude CLI is available in PATH.
+
+```typescript
+() => Promise<boolean>
+```
+
+### spawn()
+
+Spawn a subagent via Claude CLI.  Writes the prompt to a temporary file and spawns a detached Claude process. The process runs independently of the parent.
+
+```typescript
+(context: SpawnContext) => Promise<SpawnResult>
+```
+
+### listRunning()
+
+List currently running Claude subagent processes.  Checks each tracked process via kill(pid, 0) to verify it is still alive. Dead processes are automatically cleaned from the tracking map.
+
+```typescript
+() => Promise<SpawnResult[]>
+```
+
+### terminate()
+
+Terminate a running spawn by instance ID.  Sends SIGTERM to the tracked process. If the process is not found or has already exited, this is a no-op.
+
+```typescript
+(instanceId: string) => Promise<void>
+```
+
+## ClaudeCodeTaskSyncProvider
+
+Claude Code TaskSyncProvider.  Reads Claude's TodoWrite JSON state, parses [T001]-prefixed task IDs and status, and returns normalized ExternalTask[].  Optional: accepts a custom file path for testing.
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeTaskSyncProvider
+```
+
+**Methods**
+
+### getExternalTasks()
+
+```typescript
+(projectDir: string) => Promise<ExternalTask[]>
+```
+
+### cleanup()
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+## ClaudeCodeTransportProvider
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeTransportProvider
+```
+
+**Methods**
+
+### createTransport()
+
+```typescript
+() => unknown
+```
+
+## ClaudeCodeAdapter
+
+CLEO provider adapter for Anthropic Claude Code CLI.  Bridges CLEO's adapter system with Claude Code's native capabilities: - Hooks: Maps Claude Code events (SessionStart, PostToolUse, etc.) to CAAMP events - Spawn: Launches subagent processes via the `claude` CLI - Install: Registers MCP server, instruction files, and brain observation plugin
+
+**Signature**
+
+```typescript
+typeof ClaudeCodeAdapter
+```
+
+**Methods**
+
+### initialize()
+
+Initialize the adapter for a given project directory.  Validates the environment by checking for the Claude CLI and Claude Code configuration directory.
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### dispose()
+
+Dispose the adapter and clean up resources.  Unregisters hooks and releases any tracked state.
+
+```typescript
+() => Promise<void>
+```
+
+### healthCheck()
+
+Run a health check to verify Claude Code is accessible.  Checks: 1. Adapter has been initialized 2. Claude CLI is available in PATH 3. ~/.claude/ configuration directory exists
+
+```typescript
+() => Promise<AdapterHealthStatus>
+```
+
+### isInitialized()
+
+Check whether the adapter has been initialized.
+
+```typescript
+() => boolean
+```
+
+### getProjectDir()
+
+Get the project directory this adapter was initialized with.
+
+```typescript
+() => string | null
+```
+
+## checkStatuslineIntegration()
+
+Check if statusline integration is configured. Returns the current integration status.
+
+**Signature**
+
+```typescript
+() => StatuslineStatus
+```
+
+## getStatuslineConfig()
+
+Get the statusline setup command for Claude Code settings.
+
+**Signature**
+
+```typescript
+(cleoHome: string) => Record<string, unknown>
+```
+
+## getSetupInstructions()
+
+Get human-readable setup instructions.
+
+**Signature**
+
+```typescript
+(cleoHome: string) => string
+```
+
+## createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+**Signature**
+
+```typescript
+() => ClaudeCodeAdapter
+```
+
+## CursorHookProvider
+
+Hook provider for Cursor (stub).  Cursor lacks a hook-based lifecycle event system. All mapping operations return null. Registration is a no-op.
+
+**Signature**
+
+```typescript
+typeof CursorHookProvider
+```
+
+**Methods**
+
+### mapProviderEvent()
+
+Map a provider event name to a CAAMP hook event name.  Always returns null since Cursor does not emit hook events.
+
+```typescript
+(_providerEvent: string) => string | null
+```
+
+### registerNativeHooks()
+
+Register native hooks for a project.  No-op for Cursor since it has no hook system.
+
+```typescript
+(_projectDir: string) => Promise<void>
+```
+
+### unregisterNativeHooks()
+
+Unregister native hooks.  No-op for Cursor since it has no hook system.
+
+```typescript
+() => Promise<void>
+```
+
+### isRegistered()
+
+Check whether hooks have been registered.
+
+```typescript
+() => boolean
+```
+
+## CursorInstallProvider
+
+Install provider for Cursor.  Manages CLEO's integration with Cursor by: 1. Registering the CLEO MCP server in .cursor/mcp.json 2. Creating/updating .cursorrules with -references (legacy) 3. Creating .cursor/rules/cleo.mdc with -references (modern)
+
+**Signature**
+
+```typescript
+typeof CursorInstallProvider
+```
+
+**Methods**
+
+### install()
+
+Install CLEO into a Cursor project.
+
+```typescript
+(options: InstallOptions) => Promise<InstallResult>
+```
+
+### uninstall()
+
+Uninstall CLEO from the current Cursor project.  Removes the MCP server registration from .cursor/mcp.json. Does not remove instruction file references (they are harmless if CLEO is not present).
+
+```typescript
+() => Promise<void>
+```
+
+### isInstalled()
+
+Check whether CLEO is installed in the current environment.  Checks for MCP server registered in .cursor/mcp.json.
+
+```typescript
+() => Promise<boolean>
+```
+
+### ensureInstructionReferences()
+
+Ensure instruction files contain -references to CLEO.  Updates .cursorrules (legacy) and creates .cursor/rules/cleo.mdc (modern).
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### registerMcpServer()
+
+Register the CLEO MCP server in .cursor/mcp.json.  Cursor stores MCP server configuration in .cursor/mcp.json under the mcpServers key.
+
+```typescript
+(projectDir: string, mcpServerPath: string) => boolean
+```
+
+### updateInstructionFiles()
+
+Update instruction files with CLEO -references.  Handles both legacy (.cursorrules) and modern (.cursor/rules/cleo.mdc) formats.
+
+```typescript
+(projectDir: string) => boolean
+```
+
+### updateLegacyRules()
+
+Update legacy .cursorrules file with -references. Only modifies the file if it already exists (does not create it).
+
+```typescript
+(projectDir: string) => boolean
+```
+
+### updateModernRules()
+
+Create or update .cursor/rules/cleo.mdc with CLEO references.  MDC (Markdown Component) format is Cursor's modern rule file format. Each .mdc file in .cursor/rules/ is loaded as a rule set.
+
+```typescript
+(projectDir: string) => boolean
+```
+
+### getUpdatedFileList()
+
+Get list of instruction files that were updated.
+
+```typescript
+(projectDir: string) => string[]
+```
+
+## CursorAdapter
+
+CLEO provider adapter for Cursor AI code editor.  Bridges CLEO's adapter system with Cursor's capabilities: - Install: Registers MCP server in .cursor/mcp.json and manages rule files - Hooks: Stub provider (Cursor has no lifecycle event system) - Spawn: Not supported (Cursor has no CLI for subagent spawning)
+
+**Signature**
+
+```typescript
+typeof CursorAdapter
+```
+
+**Methods**
+
+### initialize()
+
+Initialize the adapter for a given project directory.
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### dispose()
+
+Dispose the adapter and clean up resources.
+
+```typescript
+() => Promise<void>
+```
+
+### healthCheck()
+
+Run a health check to verify Cursor is accessible.  Checks: 1. Adapter has been initialized 2. .cursor/ configuration directory exists in the project 3. CURSOR_EDITOR env var is set
+
+```typescript
+() => Promise<AdapterHealthStatus>
+```
+
+### isInitialized()
+
+Check whether the adapter has been initialized.
+
+```typescript
+() => boolean
+```
+
+### getProjectDir()
+
+Get the project directory this adapter was initialized with.
+
+```typescript
+() => string | null
+```
+
+## createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+**Signature**
+
+```typescript
+() => CursorAdapter
+```
+
+## OpenCodeHookProvider
+
+Hook provider for OpenCode.  OpenCode registers hooks via its configuration system at .opencode/config.json. Hook handlers are defined as shell commands or script paths that execute when the corresponding event fires.  Since hooks are registered through the config system (managed by the install provider), registerNativeHooks and unregisterNativeHooks track registration state without performing filesystem operations.
+
+**Signature**
+
+```typescript
+typeof OpenCodeHookProvider
+```
+
+**Methods**
+
+### mapProviderEvent()
+
+Map an OpenCode native event name to a CAAMP hook event name.
+
+```typescript
+(providerEvent: string) => string | null
+```
+
+### registerNativeHooks()
+
+Register native hooks for a project.  For OpenCode, hooks are registered via the config system (.opencode/config.json), which is handled by the install provider. This method marks hooks as registered without performing filesystem operations.
+
+```typescript
+(_projectDir: string) => Promise<void>
+```
+
+### unregisterNativeHooks()
+
+Unregister native hooks.  For OpenCode, this is a no-op since hooks are managed through the config system. Unregistration happens via the install provider's uninstall method.
+
+```typescript
+() => Promise<void>
+```
+
+### isRegistered()
+
+Check whether hooks have been registered via registerNativeHooks.
+
+```typescript
+() => boolean
+```
+
+### getEventMap()
+
+Get the full event mapping for introspection/debugging.
+
+```typescript
+() => Readonly<Record<string, string>>
+```
+
+## OpenCodeInstallProvider
+
+Install provider for OpenCode.  Manages CLEO's integration with OpenCode by: 1. Registering the CLEO MCP server in .opencode/config.json 2. Ensuring AGENTS.md contains -references to CLEO instruction files
+
+**Signature**
+
+```typescript
+typeof OpenCodeInstallProvider
+```
+
+**Methods**
+
+### install()
+
+Install CLEO into an OpenCode project.
+
+```typescript
+(options: InstallOptions) => Promise<InstallResult>
+```
+
+### uninstall()
+
+Uninstall CLEO from the current OpenCode project.  Removes the MCP server registration from .opencode/config.json. Does not remove AGENTS.md references (they are harmless if CLEO is not present).
+
+```typescript
+() => Promise<void>
+```
+
+### isInstalled()
+
+Check whether CLEO is installed in the current environment.  Checks for MCP server registered in .opencode/config.json. Returns true if the CLEO MCP server entry is found.
+
+```typescript
+() => Promise<boolean>
+```
+
+### ensureInstructionReferences()
+
+Ensure AGENTS.md contains -references to CLEO instruction files.  Creates AGENTS.md if it does not exist. Appends any missing references.
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### registerMcpServer()
+
+Register the CLEO MCP server in .opencode/config.json.  OpenCode stores its MCP server configuration in .opencode/config.json under the mcpServers key.
+
+```typescript
+(projectDir: string, mcpServerPath: string) => boolean
+```
+
+### updateInstructionFile()
+
+Update AGENTS.md with CLEO -references.
+
+```typescript
+(projectDir: string) => boolean
+```
+
+## buildOpenCodeAgentMarkdown(description, instructions)
+
+Build the markdown content for an OpenCode agent definition file.  OpenCode agents are defined as markdown files with YAML frontmatter in the .opencode/agent/ directory.
+
+**Signature**
+
+```typescript
+(description: string, instructions: string) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `description` | `string` | Agent description for frontmatter |
+| `instructions` | `string` | Markdown instructions body |
+
+**Returns** — Complete agent definition markdown
+
+## OpenCodeSpawnProvider
+
+Spawn provider for OpenCode.  Spawns detached OpenCode CLI processes for subagent execution. Each spawn ensures a CLEO subagent definition exists, then runs `opencode run --format json --agent <name> --title <title> <prompt>` as a detached, unref'd child process.
+
+**Signature**
+
+```typescript
+typeof OpenCodeSpawnProvider
+```
+
+**Methods**
+
+### canSpawn()
+
+Check if the OpenCode CLI is available in PATH.
+
+```typescript
+() => Promise<boolean>
+```
+
+### spawn()
+
+Spawn a subagent via OpenCode CLI.  Ensures the CLEO subagent definition exists in the project's .opencode/agent/ directory, then spawns a detached OpenCode process. The process runs independently of the parent.
+
+```typescript
+(context: SpawnContext) => Promise<SpawnResult>
+```
+
+### listRunning()
+
+List currently running OpenCode subagent processes.  Checks each tracked process via kill(pid, 0) to verify it is still alive. Dead processes are automatically cleaned from the tracking map.
+
+```typescript
+() => Promise<SpawnResult[]>
+```
+
+### terminate()
+
+Terminate a running spawn by instance ID.  Sends SIGTERM to the tracked process. If the process is not found or has already exited, this is a no-op.
+
+```typescript
+(instanceId: string) => Promise<void>
+```
+
+## OpenCodeAdapter
+
+CLEO provider adapter for OpenCode AI coding assistant.  Bridges CLEO's adapter system with OpenCode's native capabilities: - Hooks: Maps OpenCode events (session.start, tool.complete, etc.) to CAAMP events - Spawn: Launches subagent processes via the `opencode` CLI - Install: Registers MCP server in .opencode/config.json and ensures AGENTS.md references
+
+**Signature**
+
+```typescript
+typeof OpenCodeAdapter
+```
+
+**Methods**
+
+### initialize()
+
+Initialize the adapter for a given project directory.  Validates the environment by checking for the OpenCode CLI and OpenCode configuration directory.
+
+```typescript
+(projectDir: string) => Promise<void>
+```
+
+### dispose()
+
+Dispose the adapter and clean up resources.  Unregisters hooks and releases any tracked state.
+
+```typescript
+() => Promise<void>
+```
+
+### healthCheck()
+
+Run a health check to verify OpenCode is accessible.  Checks: 1. Adapter has been initialized 2. OpenCode CLI is available in PATH 3. .opencode/ configuration directory exists in the project
+
+```typescript
+() => Promise<AdapterHealthStatus>
+```
+
+### isInitialized()
+
+Check whether the adapter has been initialized.
+
+```typescript
+() => boolean
+```
+
+### getProjectDir()
+
+Get the project directory this adapter was initialized with.
+
+```typescript
+() => string | null
+```
+
+## createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+**Signature**
+
+```typescript
+() => OpenCodeAdapter
+```
+
+## getProviderManifests()
+
+Get the manifests for all bundled provider adapters.
+
+**Signature**
+
+```typescript
+() => AdapterManifest[]
+```
+
+**Returns** — Array of adapter manifests
+
+## discoverProviders()
+
+Discover all available provider adapters.  Returns a map of provider ID to adapter factory function.
+
+**Signature**
+
+```typescript
+() => Promise<Map<string, () => Promise<unknown>>>
+```
+
+## CursorSpawnProvider
+
+Spawn provider for Cursor.  Cursor does not support subagent spawning via CLI. The adapter declares supportsSpawn: false in its capabilities. All methods either reject or return empty results.
+
+**Signature**
+
+```typescript
+typeof CursorSpawnProvider
+```
+
+**Methods**
+
+### canSpawn()
+
+Check if Cursor supports spawning subagents.
+
+```typescript
+() => Promise<boolean>
+```
+
+### spawn()
+
+Attempt to spawn a subagent via Cursor.  Always throws because Cursor does not support subagent spawning. Callers should check canSpawn() before calling this method.
+
+```typescript
+(_context: SpawnContext) => Promise<SpawnResult>
+```
+
+### listRunning()
+
+List running Cursor subagent processes.
+
+```typescript
+() => Promise<SpawnResult[]>
+```
+
+### terminate()
+
+Terminate a Cursor subagent process.  No-op because Cursor cannot spawn processes.
+
+```typescript
+(_instanceId: string) => Promise<void>
+```

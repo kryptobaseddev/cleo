@@ -113,8 +113,9 @@ describe('sessionHandoff (T5123)', () => {
         expect(mockGetLastHandoff).toHaveBeenCalledWith(projectRoot, scope);
     });
     it('should preserve CleoError fix suggestion', async () => {
-        const err = new CleoError(ExitCode.SESSION_NOT_FOUND, 'Session not found');
-        err.fix = 'cleo session list';
+        const err = new CleoError(ExitCode.SESSION_NOT_FOUND, 'Session not found', {
+            fix: 'cleo session list',
+        });
         mockGetLastHandoff.mockRejectedValue(err);
         const result = await sessionHandoff(projectRoot);
         expect(result.success).toBe(false);

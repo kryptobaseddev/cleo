@@ -8,6 +8,7 @@
  * @task T4279
  */
 
+import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -23,7 +24,7 @@ function writeConfig(config: Record<string, unknown>): void {
   writeFileSync(join(CLEO_DIR, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
 }
 
-const SAMPLE_TASKS = [
+const SAMPLE_TASKS: Array<Partial<Task> & { id: string }> = [
   {
     id: 'T001',
     title: 'feat: Add feature',

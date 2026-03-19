@@ -224,7 +224,15 @@ describe('NexusHandler', () => {
     it('resolves a valid query', async () => {
       vi.mocked(nexusResolve).mockResolvedValue({
         success: true,
-        data: { id: 'T001', title: 'Test task', status: 'pending', _project: 'my-project' },
+        data: {
+          id: 'T001',
+          title: 'Test task',
+          description: 'Test task description',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+          _project: 'my-project',
+        },
       });
 
       const result = await handler.query('resolve', { query: 'my-project:T001' });
@@ -319,7 +327,7 @@ describe('NexusHandler', () => {
           sourceTask: 'T001',
           targetProject: 'project-b',
           targetTask: 'T999',
-          reason: 'task_not_found',
+          reason: 'task_not_found' as const,
         },
       ];
       vi.mocked(nexusOrphans).mockResolvedValue({

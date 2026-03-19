@@ -8,6 +8,7 @@
  *
  * @task T2916
  */
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_RATE_LIMITING, RateLimiter } from '../rate-limiter.js';
 describe('RateLimiter', () => {
     let limiter;

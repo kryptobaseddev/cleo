@@ -19,6 +19,7 @@ let tempDir: string;
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
     title: `Task ${overrides.id}`,
+    description: overrides.description ?? `Description for task ${overrides.id}`,
     status: 'pending',
     priority: 'medium',
     createdAt: new Date().toISOString(),

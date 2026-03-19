@@ -60,7 +60,7 @@ describe('getLastActivity', () => {
       createdAt: created,
     });
     // Remove updatedAt if it was set
-    delete (task as Record<string, unknown>).updatedAt;
+    delete (task as unknown as Record<string, unknown>).updatedAt;
     const result = getLastActivity(task);
     expect(result).toBe(created);
   });

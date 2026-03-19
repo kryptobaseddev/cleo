@@ -69,6 +69,12 @@ describe('release.ship', () => {
             gates: [],
             passedCount: 0,
             failedCount: 0,
+            metadata: {
+                channel: 'latest',
+                requiresPR: false,
+                targetBranch: 'main',
+                currentBranch: 'main',
+            },
         });
         vi.mocked(manifest.showManifestRelease).mockResolvedValue({
             tasks: ['T001'],
@@ -120,6 +126,12 @@ describe('release.ship', () => {
             gates: [{ name: 'all-tasks-complete', status: 'failed', message: 'T002 is still active' }],
             passedCount: 0,
             failedCount: 1,
+            metadata: {
+                channel: 'latest',
+                requiresPR: false,
+                targetBranch: 'main',
+                currentBranch: 'main',
+            },
         });
         const result = await releaseShip({ version: '2026.3.99', epicId: 'T5576', dryRun: true }, TEST_ROOT);
         expect(result.success).toBe(false);

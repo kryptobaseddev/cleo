@@ -1,0 +1,42 @@
+---
+title: "cleocode"
+---
+**cleocode** is a TypeScript documentation toolkit that performs a single AST traversal of your project and produces API docs, OpenAPI specs, executable doctests, and AI context files in one pass.
+
+## Features
+
+- 4 packages with full TypeScript support
+- Auto-generated API reference from source code
+- Executable `@example` blocks as doctests
+- AI-ready context files from a single build pass
+
+## Installation
+
+```bash
+npm install -D @cleocode/monorepo
+```
+
+## Quick Example
+
+```typescript
+const pipeline = await initializePipeline('T4800', {
+  startStage: 'research',
+  assignedAgent: 'agent-001'
+});
+console.log(`Pipeline initialized: ${pipeline.id}`);
+```
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| [`adapters`](/packages/adapters/index) | 26 exported symbol(s). |
+| [`cleo`](/packages/cleo/index) | 659 exported symbol(s). |
+| [`core`](/packages/core/index) | 2542 exported symbol(s). |
+| [`contracts`](/packages/contracts/index) | 482 exported symbol(s). |
+
+## Next Steps
+
+- [Getting Started](/getting-started) — Step-by-step guide
+- [API Reference](/packages) — Full API documentation
+- [Concepts](/concepts) — How it works

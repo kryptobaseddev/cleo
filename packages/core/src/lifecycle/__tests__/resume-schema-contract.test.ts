@@ -17,16 +17,17 @@ import { describe, expect, it } from 'vitest';
 import * as schema from '../../store/tasks-schema.js';
 
 // Helper: extract column names from a Drizzle table
-function getColumnNames(table: Record<string, unknown>): string[] {
+function getColumnNames(table: unknown): string[] {
+  const tbl = table as Record<string, unknown>;
   // Drizzle table objects have a Symbol for column definitions,
   // but named properties are the column accessors we use in queries.
   // We access the column config via the table's property names.
-  const columnLike = Object.keys(table).filter(
+  const columnLike = Object.keys(tbl).filter(
     (key) =>
       !key.startsWith('_') &&
       !key.startsWith('$') &&
-      typeof (table as Record<string, unknown>)[key] === 'object' &&
-      (table as Record<string, unknown>)[key] !== null,
+      typeof tbl[key] === 'object' &&
+      tbl[key] !== null,
   );
   return columnLike;
 }
@@ -50,7 +51,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       const statusCol = schema.lifecyclePipelines.status;
       expect(statusCol).toBeDefined();
       // The enum config is stored in the column's config
-      const config = (statusCol as Record<string, unknown>)['config'] as
+      const config = (statusCol as unknown as Record<string, unknown>)['config'] as
         | Record<string, unknown>
         | undefined;
       if (config?.['enumValues']) {
@@ -94,7 +95,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // Canonical values: 'not_started' | 'in_progress' | 'blocked' | 'completed' | 'skipped' | 'failed'
       const statusCol = schema.lifecycleStages.status;
       expect(statusCol).toBeDefined();
-      const config = (statusCol as Record<string, unknown>)['config'] as
+      const config = (statusCol as unknown as Record<string, unknown>)['config'] as
         | Record<string, unknown>
         | undefined;
       if (config?.['enumValues']) {
@@ -135,7 +136,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts GateResultContext uses 'pass' | 'fail' | 'warn'
       const resultCol = schema.lifecycleGateResults.result;
       expect(resultCol).toBeDefined();
-      const config = (resultCol as Record<string, unknown>)['config'] as
+      const config = (resultCol as unknown as Record<string, unknown>)['config'] as
         | Record<string, unknown>
         | undefined;
       if (config?.['enumValues']) {
@@ -164,7 +165,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts EvidenceContext uses 'file' | 'url' | 'manifest'
       const typeCol = schema.lifecycleEvidence.type;
       expect(typeCol).toBeDefined();
-      const config = (typeCol as Record<string, unknown>)['config'] as
+      const config = (typeCol as unknown as Record<string, unknown>)['config'] as
         | Record<string, unknown>
         | undefined;
       if (config?.['enumValues']) {
@@ -200,7 +201,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
       // resume.ts inserts with transitionType: 'manual' at line 790
       const typeCol = schema.lifecycleTransitions.transitionType;
       expect(typeCol).toBeDefined();
-      const config = (typeCol as Record<string, unknown>)['config'] as
+      const config = (typeCol as unknown as Record<string, unknown>)['config'] as
         | Record<string, unknown>
         | undefined;
       if (config?.['enumValues']) {
@@ -237,6 +238,8 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
         currentStageId: null,
         startedAt: '2026-01-01',
         completedAt: null,
+        version: 1,
+        updatedAt: null,
       };
       expect(row.id).toBe('test');
       expect(row.taskId).toBe('T001');
@@ -247,7 +250,7 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
         id: 'test',
         pipelineId: 'p1',
         stageName: 'research',
-        status: 'pending',
+        status: 'not_started',
         sequence: 0,
         startedAt: null,
         completedAt: null,
@@ -257,6 +260,12 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
         skipReason: null,
         notesJson: '[]',
         metadataJson: '{}',
+        outputFile: null,
+        createdBy: null,
+        validatedBy: null,
+        validatedAt: null,
+        validationStatus: null,
+        provenanceChainJson: null,
       };
       expect(row.stageName).toBe('research');
     });

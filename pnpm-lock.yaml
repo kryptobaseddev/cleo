@@ -58,8 +58,8 @@ importers:
         specifier: ^2.4.6
         version: 2.4.8
       '@forge-ts/cli':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.6
+        version: 0.6.6
       '@types/node':
         specifier: ^22.19.11
         version: 22.19.15
@@ -174,6 +174,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@cleocode/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@types/proper-lockfile':
         specifier: ^4.1.4
         version: 4.1.4
@@ -340,6 +343,10 @@ packages:
 
   '@cleocode/lafs-protocol@1.7.0':
     resolution: {integrity: sha512-VPYe0WMzXcsglBqCXuB869fuXeWguCknZQfrrQd/uxCaQrXP2hKqcTxK3TF9xTj9YySiSd0FRVy35jf/d8yNzw==}
+    hasBin: true
+
+  '@cleocode/lafs-protocol@1.8.0':
+    resolution: {integrity: sha512-rIZgtQvG9Odom0oeP4ng/pmCcpZ0J3W0pt1lMj3qgudCLV/yeRUOpShBjoReA3YJPmm27fbm4XAVel2jnWG0FQ==}
     hasBin: true
 
   '@drizzle-team/brocli@0.11.0':
@@ -666,24 +673,24 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@forge-ts/api@0.6.0':
-    resolution: {integrity: sha512-+J+TzIsttVl68jcBkrUO310K6a1sMOvR2CFlnrO90Z7KgrIUKiRHVJq8ZXI/+QohnZi2RTOiDl4IfGs/af7DlQ==}
+  '@forge-ts/api@0.6.6':
+    resolution: {integrity: sha512-pH/0ZM/b49u5NFNtQh6PgIj3cUiwIgyBXuA1wFq8FzYxQLSTxOM9r82KK9chIDlqpYJJbiqpLm4aH/5qHOn0YQ==}
 
-  '@forge-ts/cli@0.6.0':
-    resolution: {integrity: sha512-ROA0t5gC/HggTx+i988t8C2+el9Zu/JmdmWbxjWGT1Eo0BiMr7tL4Y1Je0aUG9t1a394JHB77hCLLagSyzdVwQ==}
+  '@forge-ts/cli@0.6.6':
+    resolution: {integrity: sha512-v+100pM14KI6LJr0RkVicUjULTRTXcWbn6UcJHF32hm5LwN2C4U5zOdpL02HqYjfXnM1d9dS+Vs1L80e5PdvjA==}
     hasBin: true
 
-  '@forge-ts/core@0.6.0':
-    resolution: {integrity: sha512-2EX04b9eqBTOp0CuQNmEJSx05kxSvAg9JneRq19fvgYTEs5ZYQ+n+N7l1NI27yjXJ6O4zrm9k/hGZVzwuy67XQ==}
+  '@forge-ts/core@0.6.6':
+    resolution: {integrity: sha512-NshXa8vpf8kaSqKPedojgKk+kNON7BwDEX5lypW74hjep39JjGp1YqnRuKUrFUXTaFx3CCgUOJMFhEfEBdflnA==}
 
-  '@forge-ts/doctest@0.6.0':
-    resolution: {integrity: sha512-x6EzdbxZolP4x/xj0nEwyDDXacMjLG8JdH8iHtqAQCQwKy7VHksfM5P6NPZ+4INmWjdaWDmlomPJIOWZs8JDlA==}
+  '@forge-ts/doctest@0.6.6':
+    resolution: {integrity: sha512-aTrsR3g5mrjJsGXeNgOCo1ZppFx/ZyuowiyJc990ulv2zhg/CBWS35x7z6J/SmqRv8b/przpJkwu1FcSAKVRtw==}
 
-  '@forge-ts/enforcer@0.6.0':
-    resolution: {integrity: sha512-nqnSD+xpfTDhFcqxNMOjRvqRsElpJKxuDvFo6iP7DJ0zyP+OgU2sgzXfJ10VgzZf0S2Baq6Caq31kKsBzZtPQQ==}
+  '@forge-ts/enforcer@0.6.6':
+    resolution: {integrity: sha512-cczgndPe9n/jAUo0ZfIe3BLkPGKgBmmQN3LGmoW7o4jLm+l7NCB6/Sqm3PABbxsjfDCor9yZErA91FeRgYgtqw==}
 
-  '@forge-ts/gen@0.6.0':
-    resolution: {integrity: sha512-rRdrqt4LZiC/47dC2psrj63kkVduMjjXcsiXyJ9IcoMnLVUjwvC0OXc0Rz5QxHEojrVWrX9xzuCCAXZdEiVybg==}
+  '@forge-ts/gen@0.6.6':
+    resolution: {integrity: sha512-OkfECCeLvT7baIUN1XqS5nX/ojZuOdMndsG5KUIMY+Bc4Mo0eu5IoxsdXKV4Zut1cV9IRecLe5QTsM/b9y1/ww==}
 
   '@hono/node-server@1.19.11':
     resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
@@ -2232,6 +2239,17 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
+  '@cleocode/lafs-protocol@1.8.0':
+    dependencies:
+      '@a2a-js/sdk': 0.3.13(express@5.2.1)
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
+      express: 5.2.1
+    transitivePeerDependencies:
+      - '@bufbuild/protobuf'
+      - '@grpc/grpc-js'
+      - supports-color
+
   '@drizzle-team/brocli@0.11.0': {}
 
   '@emnapi/core@1.9.1':
@@ -2406,40 +2424,40 @@ snapshots:
   '@esbuild/win32-x64@0.27.4':
     optional: true
 
-  '@forge-ts/api@0.6.0':
+  '@forge-ts/api@0.6.6':
     dependencies:
-      '@forge-ts/core': 0.6.0
+      '@forge-ts/core': 0.6.6
 
-  '@forge-ts/cli@0.6.0':
+  '@forge-ts/cli@0.6.6':
     dependencies:
-      '@cleocode/lafs-protocol': 1.7.0
-      '@forge-ts/api': 0.6.0
-      '@forge-ts/core': 0.6.0
-      '@forge-ts/doctest': 0.6.0
-      '@forge-ts/enforcer': 0.6.0
-      '@forge-ts/gen': 0.6.0
+      '@cleocode/lafs-protocol': 1.8.0
+      '@forge-ts/api': 0.6.6
+      '@forge-ts/core': 0.6.6
+      '@forge-ts/doctest': 0.6.6
+      '@forge-ts/enforcer': 0.6.6
+      '@forge-ts/gen': 0.6.6
       citty: 0.2.1
     transitivePeerDependencies:
       - '@bufbuild/protobuf'
       - '@grpc/grpc-js'
       - supports-color
 
-  '@forge-ts/core@0.6.0':
+  '@forge-ts/core@0.6.6':
     dependencies:
       '@microsoft/tsdoc': 0.15.1
       typescript: 5.9.3
 
-  '@forge-ts/doctest@0.6.0':
+  '@forge-ts/doctest@0.6.6':
     dependencies:
-      '@forge-ts/core': 0.6.0
+      '@forge-ts/core': 0.6.6
 
-  '@forge-ts/enforcer@0.6.0':
+  '@forge-ts/enforcer@0.6.6':
     dependencies:
-      '@forge-ts/core': 0.6.0
+      '@forge-ts/core': 0.6.6
 
-  '@forge-ts/gen@0.6.0':
+  '@forge-ts/gen@0.6.6':
     dependencies:
-      '@forge-ts/core': 0.6.0
+      '@forge-ts/core': 0.6.6
 
   '@hono/node-server@1.19.11(hono@4.12.8)':
     dependencies:

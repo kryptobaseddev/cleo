@@ -1,0 +1,781 @@
+---
+title: "cleo — Types"
+description: "Type contracts for the cleo package"
+---
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## CliOutputOptions
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `command` | `string` | Yes | Command name (used to pick the correct human renderer). |
+| `message` | `string \| undefined` | No | Optional success message for JSON envelope. |
+| `operation` | `string \| undefined` | No | Operation name for LAFS _meta. |
+| `page` | `LAFSPage \| undefined` | No | Pagination for LAFS envelope. |
+| `extensions` | `Record<string, unknown> \| undefined` | No | Extra LAFS extensions. |
+
+## CliErrorDetails
+
+Error details for structured error output.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string \| undefined` | No | name |
+| `details` | `unknown` | Yes | details |
+| `fix` | `unknown` | Yes | fix |
+
+## Gateway
+
+CQRS gateway: read-only queries vs state-modifying mutations.
+
+```typescript
+any
+```
+
+## Source
+
+Where the request originated.
+
+```typescript
+any
+```
+
+## Tier
+
+Progressive disclosure tier. 0 = tasks + session (80% of agents) 1 = + memory + check (15% of agents) 2 = + pipeline + orchestrate + tools + admin + nexus (5%)
+
+```typescript
+any
+```
+
+## ParamType
+
+The concrete value types a parameter can carry at runtime. Drives JSON Schema `type` and Commander argument/option parsing.
+
+```typescript
+any
+```
+
+## ParamCliDef
+
+CLI-specific decoration for a parameter. All fields are optional — omit the entire `cli` key for MCP-only params.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `positional` | `boolean \| undefined` | No | When true, registers as `.argument('<name>')` (positional). When false or omitted, registers as `.option('--name <value>')`.  false |
+| `short` | `string \| undefined` | No | Short flag alias, e.g. `'-t'` for `--type`, `'-s'` for `--status`. Only meaningful when `positional` is false/omitted. |
+| `flag` | `string \| undefined` | No | Override the CLI flag name when it differs from the param's `name`. e.g. `name: 'includeArchive'` but `flag: 'include-archive'` Defaults to kebab-case of `name`. |
+| `variadic` | `boolean \| undefined` | No | For array-type params on the CLI: when true the option can be repeated. When false/omitted, the CLI accepts a single comma-separated string.  false |
+| `parse` | `((value: string) => unknown) \| undefined` | No | Custom parse function applied by Commander (e.g. `parseInt`). |
+
+## ParamMcpDef
+
+MCP-specific decoration for a parameter. All fields are optional — omit the entire `mcp` key for CLI-only params.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `hidden` | `boolean \| undefined` | No | When true, the parameter is excluded from the generated MCP `input_schema`. Use for CLI-only params (e.g. `--dry-run`, `--offset`).  false |
+| `enum` | `readonly string[] \| undefined` | No | JSON Schema `enum` constraint for this parameter. |
+
+## ParamDef
+
+A fully-described parameter definition.  One `ParamDef` entry drives:  - Commander: `.argument()` (positional) or `.option()` (flag)  - MCP: a JSON Schema property with `type`, `description`, and optionally `enum`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | Canonical camelCase parameter name (matches the key in `params` dict). |
+| `type` | `ParamType` | Yes | Runtime value type. Drives JSON Schema `type` and Commander parsing. |
+| `required` | `boolean` | Yes | When true:  - Commander: positional argument (`<name>` or `[name]`)  - MCP: included in `required[]` array of the input_schema |
+| `description` | `string` | Yes | Human-readable description used in Commander help text and MCP tool docs. |
+| `cli` | `ParamCliDef \| undefined` | No | CLI-specific metadata. Omit entire key if this param has no CLI surface. |
+| `mcp` | `ParamMcpDef \| undefined` | No | MCP-specific metadata. Omit entire key if this param has no MCP surface. |
+
+## CanonicalDomain
+
+```typescript
+any
+```
+
+## DispatchRequest
+
+Canonical request shape that both CLI and MCP adapters produce.  The dispatcher validates this against the OperationRegistry before passing it through the middleware pipeline and into a DomainHandler.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `Gateway` | Yes | CQRS gateway. |
+| `domain` | `string` | Yes | Target domain (canonical name). |
+| `operation` | `string` | Yes | Domain-specific operation name. |
+| `params` | `Record<string, unknown> \| undefined` | No | Operation parameters (already sanitized by middleware). |
+| `source` | `Source` | Yes | Where this request came from. |
+| `requestId` | `string` | Yes | Unique request identifier for tracing. |
+| `sessionId` | `string \| undefined` | No | Bound session ID, if any. |
+| `_fields` | `string[] \| undefined` | No | LAFS field selection: filter response data to these fields only. |
+| `_mvi` | `MVILevel \| undefined` | No | LAFS envelope verbosity. Defaults to 'standard'. 'custom' is server-set via _fields. |
+
+## RateLimitMeta
+
+Rate limit metadata attached to every response.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `limit` | `number` | Yes | limit |
+| `remaining` | `number` | Yes | remaining |
+| `resetMs` | `number` | Yes | resetMs |
+| `category` | `string` | Yes | category |
+
+## DispatchError
+
+Structured error shape (LAFS-compatible).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string` | Yes | Machine-readable error code (E_NOT_FOUND, E_VALIDATION_FAILED, …). |
+| `exitCode` | `number \| undefined` | No | LAFS exit code (1-99). |
+| `message` | `string` | Yes | Human-readable message. |
+| `details` | `Record<string, unknown> \| undefined` | No | Additional structured details. |
+| `fix` | `string \| undefined` | No | Copy-paste fix command. |
+| `alternatives` | `{ action: string; command: string; }[] \| undefined` | No | Alternative actions the caller can try. |
+| `problemDetails` | `ProblemDetails \| undefined` | No | RFC 9457 Problem Details (optional, populated from CleoError.toProblemDetails()). |
+
+## DispatchResponse
+
+Canonical response shape returned by the dispatcher.  Adapters translate this into their wire format: - CLI adapter → cliOutput() / cliError() + process.exit() - MCP adapter → MCP SDK JSON envelope
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `{ [key: string]: unknown; gateway: Gateway; domain: string; operation: string; timestamp: string; duration_ms: number; source: Source; requestId: string; rateLimit?: RateLimitMeta \| undefined; sessionId?: string \| undefined; version?: string \| undefined; }` | No | _meta |
+| `success` | `boolean` | Yes | success |
+| `data` | `unknown` | Yes | data |
+| `page` | `LAFSPage \| undefined` | No | page |
+| `partial` | `boolean \| undefined` | No | partial |
+| `error` | `DispatchError \| undefined` | No | error |
+
+## DomainHandler
+
+Contract for domain handlers.  Each of the 9 target domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus) implements this interface.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DispatchResponse>` | No | Execute a read-only query operation. |
+| `mutate` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DispatchResponse>` | No | Execute a state-modifying mutation operation. |
+| `getSupportedOperations` | `() => { query: string[]; mutate: string[]; }` | Yes | Declared operations for introspection and validation. |
+
+## DispatchNext
+
+Async function that produces a DispatchResponse.
+
+```typescript
+any
+```
+
+## Middleware
+
+Middleware function signature.  Receives the request and a `next` continuation. Can short-circuit by returning early (e.g., rate-limit exceeded) or modify the request/response.
+
+```typescript
+any
+```
+
+## OperationDef
+
+Definition of a single dispatchable operation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `Gateway` | Yes | The CQRS gateway ('query' or 'mutate'). |
+| `domain` | `"tasks" \| "session" \| "memory" \| "check" \| "pipeline" \| "orchestrate" \| "tools" \| "admin" \| "nexus" \| "sticky"` | Yes | The canonical domain this operation belongs to. |
+| `operation` | `string` | Yes | The specific operation name (e.g. 'show', 'skill.list'). |
+| `description` | `string` | Yes | Brief description of what the operation does. |
+| `tier` | `Tier` | Yes | Agent progressive-disclosure tier (0=basic, 1=memory/check, 2=full). |
+| `idempotent` | `boolean` | Yes | Whether the operation is safe to retry. |
+| `sessionRequired` | `boolean` | Yes | Whether this operation requires an active session. |
+| `requiredParams` | `string[]` | Yes | List of parameter keys that MUST be present in the request. |
+| `params` | `ParamDef[] \| undefined` | No | Fully-described parameter list. Replaces `requiredParams` when populated. Empty array = "no declared params" (not "no params accepted"). Optional during T4897 migration — defaults to [] when absent. |
+
+## Resolution
+
+Resolution output for a dispatch request.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `domain` | `"tasks" \| "session" \| "memory" \| "check" \| "pipeline" \| "orchestrate" \| "tools" \| "admin" \| "nexus" \| "sticky"` | Yes | The canonical domain. |
+| `operation` | `string` | Yes | The operation name. |
+| `def` | `OperationDef` | Yes | The definition of the matched operation. |
+
+## DispatcherConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `handlers` | `Map<string, DomainHandler>` | Yes | handlers |
+| `middlewares` | `Middleware[] \| undefined` | No | middlewares |
+
+## TaskRecord
+
+Task object as stored in task data.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `description` | `string` | Yes | description |
+| `status` | `string` | Yes | status |
+| `priority` | `string` | Yes | priority |
+| `type` | `string \| undefined` | No | type |
+| `phase` | `string \| undefined` | No | phase |
+| `createdAt` | `string` | Yes | createdAt |
+| `updatedAt` | `string \| null` | Yes | updatedAt |
+| `completedAt` | `string \| null \| undefined` | No | completedAt |
+| `cancelledAt` | `string \| null \| undefined` | No | cancelledAt |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+| `position` | `number \| null \| undefined` | No | position |
+| `positionVersion` | `number \| undefined` | No | positionVersion |
+| `depends` | `string[] \| undefined` | No | depends |
+| `relates` | `{ taskId: string; type: string; reason?: string \| undefined; }[] \| undefined` | No | relates |
+| `files` | `string[] \| undefined` | No | files |
+| `acceptance` | `string[] \| undefined` | No | acceptance |
+| `notes` | `string[] \| undefined` | No | notes |
+| `labels` | `string[] \| undefined` | No | labels |
+| `size` | `string \| null \| undefined` | No | size |
+| `epicLifecycle` | `string \| null \| undefined` | No | epicLifecycle |
+| `noAutoComplete` | `boolean \| null \| undefined` | No | noAutoComplete |
+| `verification` | `TaskVerification \| null \| undefined` | No | verification |
+| `origin` | `string \| null \| undefined` | No | origin |
+| `createdBy` | `string \| null \| undefined` | No | createdBy |
+| `validatedBy` | `string \| null \| undefined` | No | validatedBy |
+| `testedBy` | `string \| null \| undefined` | No | testedBy |
+| `lifecycleState` | `string \| null \| undefined` | No | lifecycleState |
+| `validationHistory` | `Record<string, unknown>[] \| undefined` | No | validationHistory |
+| `blockedBy` | `string[] \| undefined` | No | blockedBy |
+| `cancellationReason` | `string \| undefined` | No | cancellationReason |
+
+## MinimalTaskRecord
+
+Minimal task representation for find results
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `title` | `string` | Yes | title |
+| `status` | `string` | Yes | status |
+| `priority` | `string` | Yes | priority |
+| `parentId` | `string \| null \| undefined` | No | parentId |
+
+## RuntimeData
+
+```typescript
+any
+```
+
+## DashboardData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `project` | `string` | Yes | project |
+| `currentPhase` | `string \| null` | Yes | currentPhase |
+| `summary` | `{ pending: number; active: number; blocked: number; done: number; cancelled: number; total: number; archived: number; grandTotal: number; }` | Yes | summary |
+| `taskWork` | `{ currentTask: string \| null; task: TaskRecord \| null; }` | Yes | taskWork |
+| `activeSession` | `string \| null` | Yes | activeSession |
+| `highPriority` | `{ count: number; tasks: TaskRecord[]; }` | Yes | highPriority |
+| `blockedTasks` | `{ count: number; limit: number; tasks: TaskRecord[]; }` | Yes | blockedTasks |
+| `recentCompletions` | `TaskRecord[]` | Yes | recentCompletions |
+| `topLabels` | `{ label: string; count: number; }[]` | Yes | topLabels |
+
+## StatsData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentState` | `{ pending: number; active: number; done: number; blocked: number; cancelled: number; totalActive: number; archived: number; grandTotal: number; }` | Yes | currentState |
+| `byPriority` | `Record<string, number>` | Yes | byPriority |
+| `byType` | `Record<string, number>` | Yes | byType |
+| `byPhase` | `Record<string, number>` | Yes | byPhase |
+| `completionMetrics` | `{ periodDays: number; completedInPeriod: number; createdInPeriod: number; completionRate: number; }` | Yes | completionMetrics |
+| `activityMetrics` | `{ createdInPeriod: number; completedInPeriod: number; archivedInPeriod: number; }` | Yes | activityMetrics |
+| `allTime` | `{ totalCreated: number; totalCompleted: number; totalCancelled: number; totalArchived: number; archivedCompleted: number; }` | Yes | allTime |
+| `cycleTimes` | `{ averageDays: number \| null; samples: number; }` | Yes | cycleTimes |
+
+## LogQueryData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `entries` | `{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; }[]` | No | entries |
+| `pagination` | `{ total: number; offset: number; limit: number; hasMore: boolean; }` | Yes | pagination |
+
+## ContextData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `available` | `boolean` | Yes | available |
+| `status` | `string` | Yes | status |
+| `percentage` | `number` | Yes | percentage |
+| `currentTokens` | `number` | Yes | currentTokens |
+| `maxTokens` | `number` | Yes | maxTokens |
+| `timestamp` | `string \| null` | Yes | timestamp |
+| `stale` | `boolean` | Yes | stale |
+| `sessions` | `{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; }[]` | Yes | sessions |
+
+## SequenceData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `counter` | `number` | Yes | counter |
+| `lastId` | `string` | Yes | lastId |
+| `checksum` | `string` | Yes | checksum |
+| `nextId` | `string` | Yes | nextId |
+
+## RoadmapData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentVersion` | `string` | Yes | currentVersion |
+| `upcoming` | `{ id: string; title: string; status: string; priority: string; phase?: string \| undefined; childCount: number; completedChildren: number; }[]` | No | upcoming |
+| `releaseHistory` | `{ version: string; date: string; }[] \| undefined` | No | releaseHistory |
+| `completedEpics` | `number \| undefined` | No | completedEpics |
+| `summary` | `{ totalUpcoming: number; totalTasks: number; }` | Yes | summary |
+
+## ComplianceData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `totalEntries` | `number` | Yes | totalEntries |
+| `averagePassRate` | `number` | Yes | averagePassRate |
+| `averageAdherence` | `number` | Yes | averageAdherence |
+| `totalViolations` | `number` | Yes | totalViolations |
+| `trend` | `string \| undefined` | No | trend |
+| `dataPoints` | `{ date: string; entries: number; avgPassRate: number; violations: number; }[] \| undefined` | No | dataPoints |
+
+## HelpData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `topic` | `string \| undefined` | No | topic |
+| `content` | `string` | Yes | content |
+| `relatedCommands` | `string[] \| undefined` | No | relatedCommands |
+
+## SyncData
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `direction` | `string` | Yes | direction |
+| `synced` | `number` | Yes | synced |
+| `conflicts` | `number` | Yes | conflicts |
+| `message` | `string` | Yes | message |
+
+## EngineResult
+
+Engine result shape accepted by wrapResult. Matches the union of what all engine functions return.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `boolean` | Yes | success |
+| `data` | `unknown` | Yes | data |
+| `page` | `LAFSPage \| undefined` | No | page |
+| `error` | `{ code: string; message: string; details?: unknown; exitCode?: number \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; problemDetails?: ProblemDetails \| undefined; } \| undefined` | No | error |
+
+## JobStatus
+
+Background job status
+
+```typescript
+any
+```
+
+## BackgroundJob
+
+Background job representation
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `operation` | `string` | Yes | operation |
+| `status` | `JobStatus` | Yes | status |
+| `startedAt` | `string` | Yes | startedAt |
+| `completedAt` | `string \| undefined` | No | completedAt |
+| `result` | `unknown` | Yes | result |
+| `error` | `string \| undefined` | No | error |
+| `progress` | `number \| undefined` | No | progress |
+
+## BackgroundJobManagerConfig
+
+Configuration for BackgroundJobManager
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxJobs` | `number \| undefined` | No | maxJobs |
+| `retentionMs` | `number \| undefined` | No | retentionMs |
+
+## SessionContext
+
+Immutable snapshot of the bound session context.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sessionId` | `string` | Yes | Active session ID. |
+| `scope` | `{ type: string; epicId?: string \| undefined; }` | No | Session scope. |
+| `gradeMode` | `boolean` | Yes | Whether full audit logging is enabled for behavioral grading. |
+| `agentPid` | `number` | Yes | PID of the process that bound this context. |
+| `boundAt` | `string` | Yes | ISO timestamp when this context was bound. |
+
+## RateLimitConfig
+
+Rate limit configuration for a single category
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxRequests` | `number` | Yes | Maximum requests allowed in the window |
+| `windowMs` | `number` | Yes | Time window in milliseconds |
+
+## RateLimitingConfig
+
+Complete rate limiting configuration
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `enabled` | `boolean` | Yes | Enable/disable rate limiting globally |
+| `query` | `RateLimitConfig` | Yes | Limits for query gateway operations |
+| `mutate` | `RateLimitConfig` | Yes | Limits for mutate gateway operations |
+| `spawn` | `RateLimitConfig` | Yes | Limits for spawn operations (orchestrate.spawn) |
+
+## RateLimitResult
+
+Rate limit check result
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `allowed` | `boolean` | Yes | Whether the request is allowed |
+| `remaining` | `number` | Yes | Requests remaining in the current window |
+| `limit` | `number` | Yes | Maximum requests allowed in the window |
+| `resetMs` | `number` | Yes | Milliseconds until the window resets |
+| `category` | `string` | Yes | The category that was checked |
+
+## LifecycleEnforcementConfig
+
+Lifecycle enforcement configuration (Section 12.2)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `mode` | `"strict" \| "advisory" \| "off"` | Yes | Enforcement mode: strict blocks, advisory warns, off skips |
+| `allowSkip` | `string[]` | Yes | Stages that may be skipped without failing gates |
+| `emergencyBypass` | `boolean` | Yes | Emergency bypass flag - disables all gate checks |
+
+## ProtocolValidationConfig
+
+Protocol validation configuration (Section 12.3)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `strictMode` | `boolean` | Yes | Enable strict protocol validation |
+| `blockOnViolation` | `boolean` | Yes | Block operations on protocol violations |
+| `logViolations` | `boolean` | Yes | Log protocol violations to audit trail |
+
+## MCPConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cliPath` | `string` | Yes | Path to CLEO CLI binary (default: 'cleo') |
+| `timeout` | `number` | Yes | Operation timeout in milliseconds (default: 30000) |
+| `logLevel` | `"error" \| "debug" \| "info" \| "warn"` | Yes | Logging verbosity level (default: 'info') |
+| `enableMetrics` | `boolean` | Yes | Enable token tracking metrics (default: false) |
+| `maxRetries` | `number` | Yes | Retry count for failed operations (default: 3) |
+| `queryCache` | `boolean` | Yes | Enable query cache (default: true) |
+| `queryCacheTtl` | `number` | Yes | Query cache TTL in milliseconds (default: 30000) |
+| `auditLog` | `boolean` | Yes | Enable audit logging (default: true) |
+| `strictValidation` | `boolean` | Yes | Strict validation mode (default: true) |
+| `lifecycleEnforcement` | `LifecycleEnforcementConfig` | Yes | Lifecycle enforcement configuration (Section 12.2) |
+| `protocolValidation` | `ProtocolValidationConfig` | Yes | Protocol validation configuration (Section 12.3) |
+| `rateLimiting` | `RateLimitingConfig` | Yes | Rate limiting configuration (Section 13.3) |
+
+## MviTier
+
+MVI (Minimum Viable Information) projection configurations. Maps disclosure tiers to operation access and field filtering rules.   T4820  T5096
+
+```typescript
+any
+```
+
+## ProjectionConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `allowedDomains` | `string[]` | Yes | Operations allowed at this tier |
+| `excludeFields` | `string[] \| undefined` | No | Fields to exclude from responses |
+| `maxDepth` | `number \| undefined` | No | Maximum depth for nested objects |
+
+## ProjectionContext
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `tier` | `MviTier` | Yes | tier |
+| `config` | `ProjectionConfig` | Yes | config |
+
+## RateLimitConfig
+
+Rate Limit Configuration
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxRequests` | `number` | Yes | maxRequests |
+| `windowMs` | `number` | Yes | windowMs |
+
+## RateLimitingConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `enabled` | `boolean` | Yes | enabled |
+| `query` | `RateLimitConfig` | Yes | query |
+| `mutate` | `RateLimitConfig` | Yes | mutate |
+| `spawn` | `RateLimitConfig` | Yes | spawn |
+
+## McpDispatcherConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `rateLimiting` | `Partial<RateLimitingConfig> \| undefined` | No | rateLimiting |
+| `strictMode` | `boolean \| undefined` | No | strictMode |
+
+## GatewayMetaRecord
+
+GatewayMeta with an index signature for DomainResponse._meta compatibility.  All domain handlers receive this from createGatewayMeta().   T4655
+
+```typescript
+any
+```
+
+## ShimOption
+
+Parsed option definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `longName` | `string` | Yes | Long flag name (camelCase), e.g. 'dryRun' |
+| `shortName` | `string \| undefined` | No | Short alias, e.g. 's' |
+| `takesValue` | `boolean` | Yes | Whether it takes a value (vs boolean flag) |
+| `description` | `string` | Yes | Description text |
+| `required` | `boolean` | Yes | Whether this option is required |
+| `parseFn` | `((val: string) => unknown) \| undefined` | No | Custom parse function (e.g. parseInt) |
+| `defaultValue` | `unknown` | Yes | Default value |
+
+## ShimArg
+
+Positional argument definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | name |
+| `required` | `boolean` | Yes | required |
+| `variadic` | `boolean \| undefined` | No | variadic |
+
+## CommanderCompatOption
+
+Commander-compatible option view for tests.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `long` | `string` | Yes | long |
+| `required` | `boolean` | Yes | required |
+| `defaultValue` | `unknown` | Yes | defaultValue |
+
+## ActionHandler
+
+Type for the action handler function - flexible to support various signatures
+
+```typescript
+any
+```
+
+## ProgressOptions
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `enabled` | `boolean` | Yes | Whether to show progress (true for human mode, false for JSON mode) |
+| `prefix` | `string \| undefined` | No | Prefix for progress messages |
+
+## DomainRequest
+
+Request from MCP gateway (inline — replaces legacy router.ts import)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `"query" \| "mutate"` | Yes | gateway |
+| `domain` | `string` | Yes | domain |
+| `operation` | `string` | Yes | operation |
+| `params` | `Record<string, unknown> \| undefined` | No | params |
+
+## DomainResponse
+
+Response from domain handler (inline — replaces legacy router.ts import)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `success` | `boolean` | Yes | success |
+| `data` | `unknown` | Yes | data |
+| `partial` | `boolean \| undefined` | No | partial |
+| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+
+## MutateRequest
+
+Mutate request interface
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `domain` | `MutateDomain` | Yes | domain |
+| `operation` | `string` | Yes | operation |
+| `params` | `Record<string, unknown> \| undefined` | No | params |
+
+## MutateResponse
+
+Mutate response interface (aliases DomainResponse)
+
+```typescript
+any
+```
+
+## DomainRequest
+
+Request from MCP gateway (inline — replaces legacy router.ts import)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `"query" \| "mutate"` | Yes | gateway |
+| `domain` | `string` | Yes | domain |
+| `operation` | `string` | Yes | operation |
+| `params` | `Record<string, unknown> \| undefined` | No | params |
+
+## DomainResponse
+
+Response from domain handler (inline — replaces legacy router.ts import)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `success` | `boolean` | Yes | success |
+| `data` | `unknown` | Yes | data |
+| `partial` | `boolean \| undefined` | No | partial |
+| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+
+## QueryRequest
+
+Query request interface
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `domain` | `QueryDomain` | Yes | domain |
+| `operation` | `string` | Yes | operation |
+| `params` | `Record<string, unknown> \| undefined` | No | params |
+
+## QueryResponse
+
+Query response interface (aliases DomainResponse)
+
+```typescript
+any
+```
+
+## CacheStats
+
+Cache statistics
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `hits` | `number` | Yes | hits |
+| `misses` | `number` | Yes | misses |
+| `evictions` | `number` | Yes | evictions |
+| `size` | `number` | Yes | size |
+| `domains` | `Record<string, number>` | Yes | domains |
+
+## McpResource
+
+MCP Resource definition.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `uri` | `string` | Yes | uri |
+| `name` | `string` | Yes | name |
+| `description` | `string` | Yes | description |
+| `mimeType` | `string` | Yes | mimeType |
+
+## McpResourceContent
+
+MCP Resource content response.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `uri` | `string` | Yes | uri |
+| `mimeType` | `string` | Yes | mimeType |
+| `text` | `string` | Yes | text |
+
+## TestEnvironment
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `projectRoot` | `string` | Yes | Path to the temporary CLEO project root |
+| `epicId` | `string` | Yes | Pre-created epic ID |
+| `taskIds` | `string[]` | Yes | Pre-created task IDs (children of the epic) |
+| `cliPath` | `string` | Yes | Path to the CLEO CLI |
+
+## IntegrationTestContext
+
+Test context for integration tests
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `executor` | `WrappedExecutor` | Yes | CLI executor instance (wrapped to use project root) |
+| `sessionId` | `string` | Yes | Test session ID |
+| `epicId` | `string \| undefined` | No | Test epic ID for scoped operations |
+| `createdTaskIds` | `string[]` | Yes | Created task IDs for cleanup |
+| `originalCwd` | `string` | Yes | Project root (isolated temp directory) |
+| `testDataDir` | `string` | Yes | Test data directory |
+| `testEnv` | `TestEnvironment` | Yes | Isolated test environment handle |
+
+## DomainRequest
+
+Request from MCP gateway
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `gateway` | `"query" \| "mutate"` | Yes | gateway |
+| `domain` | `string` | Yes | domain |
+| `operation` | `string` | Yes | operation |
+| `params` | `Record<string, unknown> \| undefined` | No | params |
+
+## DomainResponse
+
+Response from domain handler
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `success` | `boolean` | Yes | success |
+| `data` | `unknown` | Yes | data |
+| `partial` | `boolean \| undefined` | No | partial |
+| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+
+## DomainHandler
+
+Domain handler interface (legacy - retained for type compatibility)
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `query` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DomainResponse>` | No | query |
+| `mutate` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DomainResponse>` | No | mutate |
+| `getSupportedOperations` | `() => { query: string[]; mutate: string[]; }` | Yes | getSupportedOperations |
+
+## RateLimitConfig
+
+Rate limiter configuration
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxRequests` | `number` | Yes | Maximum requests allowed in the window |
+| `windowMs` | `number` | Yes | Time window in milliseconds |
+
+## RateLimitResult
+
+Rate limit check result
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `allowed` | `boolean` | Yes | Whether the request is allowed |
+| `remaining` | `number` | Yes | Remaining requests in current window |
+| `resetMs` | `number` | Yes | Milliseconds until window resets |
+| `limit` | `number` | Yes | Total limit for the window |

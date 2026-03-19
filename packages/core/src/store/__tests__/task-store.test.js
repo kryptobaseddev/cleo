@@ -15,6 +15,7 @@ let tempDir;
 function makeTask(overrides) {
     return {
         title: `Task ${overrides.id}`,
+        description: overrides.description ?? `Description for task ${overrides.id}`,
         status: 'pending',
         priority: 'medium',
         createdAt: new Date().toISOString(),

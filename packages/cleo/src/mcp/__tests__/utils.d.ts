@@ -8,7 +8,7 @@
  *
  * @task T2921
  */
-import type { Mocked } from 'vitest';
+import { type Mocked } from 'vitest';
 /** Minimal CLIExecutor interface for mocking. */
 interface CLIExecutor {
   execute<T = unknown>(options: any): Promise<ExecutorResult<T>>;

@@ -8,6 +8,8 @@
  * @task T4409
  */
 
+import { vi } from 'vitest';
+
 // Provider Registry
 export const getAllProviders = vi.fn(() => []);
 export const getProvider = vi.fn(() => null);

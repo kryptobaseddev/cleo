@@ -235,11 +235,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       expect(context.currentStage).toBe('consensus');
       expect(context.stages['research'].status).toBe('completed');
 
-      // Stage 2: Consensus - mark as completed and transition to adr
+      // Stage 2: Consensus - mark as completed and transition to architecture_decision
       context.stages['consensus'] = setStageStatus('consensus', 'completed', context);
       const consensusTransition: StateTransition = {
         from: 'consensus',
-        to: 'adr',
+        to: 'architecture_decision',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(consensusTransition, context);
@@ -247,11 +247,15 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       context = result.context;
       expect(context.currentStage).toBe('architecture_decision');
 
-      // Stage 3: ADR - mark as completed and transition to spec
-      context.stages['adr'] = setStageStatus('adr', 'completed', context);
+      // Stage 3: ADR - mark as completed and transition to specification
+      context.stages['architecture_decision'] = setStageStatus(
+        'architecture_decision',
+        'completed',
+        context,
+      );
       const adrTransition: StateTransition = {
-        from: 'adr',
-        to: 'spec',
+        from: 'architecture_decision',
+        to: 'specification',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(adrTransition, context);
@@ -259,11 +263,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       context = result.context;
       expect(context.currentStage).toBe('specification');
 
-      // Stage 4: Spec - mark as completed and transition to decompose
-      context.stages['spec'] = setStageStatus('spec', 'completed', context);
+      // Stage 4: Spec - mark as completed and transition to decomposition
+      context.stages['specification'] = setStageStatus('specification', 'completed', context);
       const specTransition: StateTransition = {
-        from: 'spec',
-        to: 'decompose',
+        from: 'specification',
+        to: 'decomposition',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(specTransition, context);
@@ -271,11 +275,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       context = result.context;
       expect(context.currentStage).toBe('decomposition');
 
-      // Stage 5: Decompose - mark as completed and transition to implement
-      context.stages['decompose'] = setStageStatus('decompose', 'completed', context);
+      // Stage 5: Decompose - mark as completed and transition to implementation
+      context.stages['decomposition'] = setStageStatus('decomposition', 'completed', context);
       const decomposeTransition: StateTransition = {
-        from: 'decompose',
-        to: 'implement',
+        from: 'decomposition',
+        to: 'implementation',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(decomposeTransition, context);
@@ -283,11 +287,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       context = result.context;
       expect(context.currentStage).toBe('implementation');
 
-      // Stage 6: Implement - mark as completed and transition to verify
-      context.stages['implement'] = setStageStatus('implement', 'completed', context);
+      // Stage 6: Implement - mark as completed and transition to validation
+      context.stages['implementation'] = setStageStatus('implementation', 'completed', context);
       const implementTransition: StateTransition = {
-        from: 'implement',
-        to: 'verify',
+        from: 'implementation',
+        to: 'validation',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(implementTransition, context);
@@ -295,11 +299,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       context = result.context;
       expect(context.currentStage).toBe('validation');
 
-      // Stage 7: Verify - mark as completed and transition to test
-      context.stages['verify'] = setStageStatus('verify', 'completed', context);
+      // Stage 7: Verify - mark as completed and transition to testing
+      context.stages['validation'] = setStageStatus('validation', 'completed', context);
       const verifyTransition: StateTransition = {
-        from: 'verify',
-        to: 'test',
+        from: 'validation',
+        to: 'testing',
         initiatedBy: 'test-agent',
       };
       result = await executeTransition(verifyTransition, context);
@@ -308,9 +312,9 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       expect(context.currentStage).toBe('testing');
 
       // Stage 8: Test - mark as completed and transition to release
-      context.stages['test'] = setStageStatus('test', 'completed', context);
+      context.stages['testing'] = setStageStatus('testing', 'completed', context);
       const testTransition: StateTransition = {
-        from: 'test',
+        from: 'testing',
         to: 'release',
         initiatedBy: 'test-agent',
       };
@@ -326,12 +330,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       // Verify all stages completed
       expect(context.stages['research'].status).toBe('completed');
       expect(context.stages['consensus'].status).toBe('completed');
-      expect(context.stages['adr'].status).toBe('completed');
-      expect(context.stages['spec'].status).toBe('completed');
-      expect(context.stages['decompose'].status).toBe('completed');
-      expect(context.stages['implement'].status).toBe('completed');
-      expect(context.stages['verify'].status).toBe('completed');
-      expect(context.stages['test'].status).toBe('completed');
+      expect(context.stages['architecture_decision'].status).toBe('completed');
+      expect(context.stages['specification'].status).toBe('completed');
+      expect(context.stages['decomposition'].status).toBe('completed');
+      expect(context.stages['implementation'].status).toBe('completed');
+      expect(context.stages['validation'].status).toBe('completed');
+      expect(context.stages['testing'].status).toBe('completed');
       expect(context.stages['release'].status).toBe('completed');
 
       // Verify terminal state
@@ -373,10 +377,10 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const pipelineId = 'T4806';
       const context = createInitialContext(pipelineId, 'test-agent');
 
-      // Try to skip ahead to implement without completing decompose
+      // Try to skip ahead to implementation without completing decomposition
       const invalidTransition: StateTransition = {
         from: 'research',
-        to: 'implement',
+        to: 'implementation',
         initiatedBy: 'test-agent',
       };
 
@@ -489,12 +493,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
 
       const transition: StateTransition = {
         from: 'research',
-        to: 'adr',
+        to: 'architecture_decision',
         initiatedBy: 'test-agent',
       };
 
       const validation = await validateTransition(transition, context);
-      // adr requires research and consensus - consensus is skipped which is acceptable
+      // architecture_decision requires research and consensus - consensus is skipped which is acceptable
       expect(validation.prerequisitesMet).toBe(true);
     });
 
@@ -732,12 +736,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const stages: Stage[] = [
         'research',
         'consensus',
-        'adr',
-        'spec',
-        'decompose',
-        'implement',
-        'verify',
-        'test',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
       ];
 
       for (let i = 0; i < stages.length - 1; i++) {
@@ -761,13 +765,13 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
         context = result.context;
       }
 
-      // Mark test stage as completed and transition to release
+      // Mark testing stage as completed and transition to release
       const now = new Date();
-      context.stages['test'] = setStageStatus('test', 'in_progress', context);
-      context.stages['test'] = setStageStatus('test', 'completed', context);
+      context.stages['testing'] = setStageStatus('testing', 'in_progress', context);
+      context.stages['testing'] = setStageStatus('testing', 'completed', context);
 
       const finalTransition: StateTransition = {
-        from: 'test',
+        from: 'testing',
         to: 'release',
         initiatedBy: 'test-agent',
       };
@@ -786,12 +790,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       // Verify all stages completed
       expect(context.stages['research'].status).toBe('completed');
       expect(context.stages['consensus'].status).toBe('completed');
-      expect(context.stages['adr'].status).toBe('completed');
-      expect(context.stages['spec'].status).toBe('completed');
-      expect(context.stages['decompose'].status).toBe('completed');
-      expect(context.stages['implement'].status).toBe('completed');
-      expect(context.stages['verify'].status).toBe('completed');
-      expect(context.stages['test'].status).toBe('completed');
+      expect(context.stages['architecture_decision'].status).toBe('completed');
+      expect(context.stages['specification'].status).toBe('completed');
+      expect(context.stages['decomposition'].status).toBe('completed');
+      expect(context.stages['implementation'].status).toBe('completed');
+      expect(context.stages['validation'].status).toBe('completed');
+      expect(context.stages['testing'].status).toBe('completed');
       expect(context.stages['release'].status).toBe('completed');
 
       // Verify terminal state
@@ -809,12 +813,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const stages: Stage[] = [
         'research',
         'consensus',
-        'adr',
-        'spec',
-        'decompose',
-        'implement',
-        'verify',
-        'test',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
         'release',
       ];
 
@@ -852,8 +856,8 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       // Make 3 transitions
       const transitions: Array<[Stage, Stage]> = [
         ['research', 'consensus'],
-        ['consensus', 'adr'],
-        ['adr', 'spec'],
+        ['consensus', 'architecture_decision'],
+        ['architecture_decision', 'specification'],
       ];
 
       for (const [from, to] of transitions) {
@@ -882,12 +886,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const stages: Stage[] = [
         'research',
         'consensus',
-        'adr',
-        'spec',
-        'decompose',
-        'implement',
-        'verify',
-        'test',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
         'release',
       ];
 
@@ -947,10 +951,10 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
     it('initializePipeline should accept custom start stage', async () => {
       await ensureTaskExists('T4806');
       const pipeline = await initializePipeline('T4806', {
-        startStage: 'spec',
+        startStage: 'specification',
       });
 
-      expect(pipeline.currentStage).toBe('spec');
+      expect(pipeline.currentStage).toBe('specification');
     });
 
     it('getPipeline should return null for non-existent pipeline (stub)', async () => {
@@ -1046,12 +1050,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const stages: Stage[] = [
         'research',
         'consensus',
-        'adr',
-        'spec',
-        'decompose',
-        'implement',
-        'verify',
-        'test',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
         'release',
       ];
 
@@ -1067,12 +1071,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const stages: Stage[] = [
         'research',
         'consensus',
-        'adr',
-        'spec',
-        'decompose',
-        'implement',
-        'verify',
-        'test',
+        'architecture_decision',
+        'specification',
+        'decomposition',
+        'implementation',
+        'validation',
+        'testing',
       ];
 
       for (const stage of stages) {

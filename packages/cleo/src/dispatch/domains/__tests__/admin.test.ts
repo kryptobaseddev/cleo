@@ -217,7 +217,7 @@ describe('AdminHandler', () => {
 
   describe('query', () => {
     it('should call getVersion for version', async () => {
-      vi.mocked(getVersion).mockReturnValue({ success: true, data: { version: '1.2.3' } });
+      vi.mocked(getVersion).mockResolvedValue({ success: true, data: { version: '1.2.3' } });
 
       const res = await handler.query('version');
 
@@ -230,7 +230,10 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemHealth for health', async () => {
-      vi.mocked(systemHealth).mockReturnValue({ success: true, data: { status: 'healthy' } });
+      vi.mocked(systemHealth).mockReturnValue({
+        success: true,
+        data: { overall: 'healthy', checks: [], version: '1.0.0', installation: 'ok' },
+      });
 
       const res = await handler.query('health', { detailed: true });
 
@@ -239,7 +242,31 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemStats for stats', async () => {
-      vi.mocked(systemStats).mockResolvedValue({ success: true, data: { total: 10 } });
+      vi.mocked(systemStats).mockResolvedValue({
+        success: true,
+        data: {
+          currentState: {
+            pending: 0,
+            active: 0,
+            done: 10,
+            blocked: 0,
+            cancelled: 0,
+            totalActive: 0,
+            archived: 0,
+            grandTotal: 10,
+          },
+          byPriority: {},
+          byType: {},
+          byPhase: {},
+          completionMetrics: {
+            periodDays: 7,
+            completedInPeriod: 0,
+            createdInPeriod: 0,
+            completionRate: 0,
+          },
+          activityMetrics: {},
+        } as any,
+      });
 
       const res = await handler.query('stats', { period: 7 });
 
@@ -248,7 +275,19 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemContext for context', async () => {
-      vi.mocked(systemContext).mockReturnValue({ success: true, data: { tokens: 500 } });
+      vi.mocked(systemContext).mockReturnValue({
+        success: true,
+        data: {
+          available: true,
+          status: 'ok',
+          percentage: 50,
+          currentTokens: 500,
+          maxTokens: 1000,
+          timestamp: null,
+          stale: false,
+          sessions: [],
+        },
+      });
 
       const res = await handler.query('context');
 
@@ -257,7 +296,23 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemRuntime for runtime', async () => {
-      vi.mocked(systemRuntime).mockResolvedValue({ success: true, data: { channel: 'dev' } });
+      vi.mocked(systemRuntime).mockResolvedValue({
+        success: true,
+        data: {
+          channel: 'dev',
+          mode: 'dev',
+          source: 'local',
+          version: '1.0.0',
+          installed: '/usr/local',
+          dataRoot: '/tmp',
+          invocation: { executable: 'node', script: 'cleo', args: [] },
+          naming: { cli: 'cleo', mcp: 'cleo-mcp', server: 'cleo-server' },
+          node: '20.0.0',
+          platform: 'linux',
+          arch: 'x64',
+          warnings: [],
+        },
+      });
 
       const res = await handler.query('runtime', { detailed: true });
 
@@ -266,7 +321,29 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemDash for dash', async () => {
-      vi.mocked(systemDash).mockResolvedValue({ success: true, data: { tasks: 5 } });
+      vi.mocked(systemDash).mockResolvedValue({
+        success: true,
+        data: {
+          project: '/test',
+          currentPhase: null,
+          summary: {
+            pending: 0,
+            active: 0,
+            blocked: 0,
+            done: 5,
+            cancelled: 0,
+            total: 5,
+            archived: 0,
+            grandTotal: 5,
+          },
+          taskWork: { currentTask: null, task: null },
+          activeSession: null,
+          highPriority: { count: 0, tasks: [] },
+          blockedTasks: { count: 0, limit: 5, tasks: [] },
+          recentCompletions: [],
+          topLabels: [],
+        },
+      });
 
       const res = await handler.query('dash');
 
@@ -275,7 +352,10 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemLog for log', async () => {
-      vi.mocked(systemLog).mockReturnValue({ success: true, data: { entries: [] } });
+      vi.mocked(systemLog).mockResolvedValue({
+        success: true,
+        data: { entries: [], pagination: { total: 0, offset: 0, limit: 10, hasMore: false } },
+      });
 
       const res = await handler.query('log', { limit: 10, taskId: 'T001' });
 
@@ -370,7 +450,7 @@ describe('AdminHandler', () => {
     });
 
     it('should handle engine errors gracefully', async () => {
-      vi.mocked(getVersion).mockReturnValue({
+      vi.mocked(getVersion).mockResolvedValue({
         success: false,
         error: { code: 'E_NOT_INITIALIZED', message: 'No project found' },
       });
@@ -399,7 +479,7 @@ describe('AdminHandler', () => {
 
   describe('mutate', () => {
     it('should call initProject for init', async () => {
-      vi.mocked(initProject).mockReturnValue({
+      vi.mocked(initProject).mockResolvedValue({
         success: true,
         data: { initialized: true, projectRoot: '/mock/project', filesCreated: ['todo.json'] },
       });
@@ -428,7 +508,16 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemBackup for backup', async () => {
-      vi.mocked(systemBackup).mockReturnValue({ success: true, data: { backupId: 'snap-1' } });
+      vi.mocked(systemBackup).mockReturnValue({
+        success: true,
+        data: {
+          backupId: 'snap-1',
+          path: '/mock/backup',
+          timestamp: '2026-01-01',
+          type: 'snapshot',
+          files: ['todo.json'],
+        },
+      });
 
       const res = await handler.mutate('backup', { type: 'snapshot' });
 
@@ -437,7 +526,10 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemMigrate for migrate', async () => {
-      vi.mocked(systemMigrate).mockReturnValue({ success: true, data: { migrated: true } });
+      vi.mocked(systemMigrate).mockResolvedValue({
+        success: true,
+        data: { from: '1.0.0', to: '2.0.0', migrations: [], dryRun: true },
+      });
 
       const res = await handler.mutate('migrate', { dryRun: true });
 
@@ -446,7 +538,10 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemCleanup for cleanup with target validation', async () => {
-      vi.mocked(systemCleanup).mockResolvedValue({ success: true, data: { removed: 3 } });
+      vi.mocked(systemCleanup).mockResolvedValue({
+        success: true,
+        data: { target: 'backups', deleted: 3, items: [], dryRun: true },
+      });
 
       const res = await handler.mutate('cleanup', { target: 'backups', dryRun: true });
 
@@ -476,7 +571,10 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemSafestop for safestop', async () => {
-      vi.mocked(systemSafestop).mockReturnValue({ success: true, data: { stopped: true } });
+      vi.mocked(systemSafestop).mockReturnValue({
+        success: true,
+        data: { stopped: true, reason: 'test', sessionEnded: false, dryRun: true },
+      });
 
       const res = await handler.mutate('safestop', { reason: 'test', dryRun: true });
 
@@ -490,7 +588,7 @@ describe('AdminHandler', () => {
     it('should call systemInjectGenerate for inject.generate', async () => {
       vi.mocked(systemInjectGenerate).mockResolvedValue({
         success: true,
-        data: { generated: true },
+        data: { injection: '...', sizeBytes: 100, version: '1.0.0' },
       });
 
       const res = await handler.mutate('inject.generate');
@@ -523,9 +621,7 @@ describe('AdminHandler', () => {
     });
 
     it('should handle thrown exceptions in mutate', async () => {
-      vi.mocked(initProject).mockImplementation(() => {
-        throw new Error('init failed');
-      });
+      vi.mocked(initProject).mockRejectedValue(new Error('init failed'));
 
       const res = await handler.mutate('init');
 
@@ -541,7 +637,7 @@ describe('AdminHandler', () => {
 
   describe('response metadata', () => {
     it('should include correct _meta fields on success', async () => {
-      vi.mocked(getVersion).mockReturnValue({ success: true, data: { version: '1.0.0' } });
+      vi.mocked(getVersion).mockResolvedValue({ success: true, data: { version: '1.0.0' } });
 
       const res = await handler.query('version');
 
@@ -563,7 +659,16 @@ describe('AdminHandler', () => {
     });
 
     it('should include correct _meta on mutate', async () => {
-      vi.mocked(systemBackup).mockReturnValue({ success: true, data: {} });
+      vi.mocked(systemBackup).mockReturnValue({
+        success: true,
+        data: {
+          backupId: 'snap-2',
+          path: '/mock/backup',
+          timestamp: '2026-01-01',
+          type: 'snapshot',
+          files: [],
+        },
+      });
 
       const res = await handler.mutate('backup');
 

@@ -6,13 +6,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
+import AjvModule from 'ajv';
+import addFormatsModule from 'ajv-formats';
 import { afterEach, describe, expect, it } from 'vitest';
 import { detectProjectType } from '../project-detect.js';
 // ─── Schema validator setup ───────────────────────────────────────────────────
 const schemaPath = fileURLToPath(new URL('../../../../../schemas/project-context.schema.json', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
+const Ajv = AjvModule.default ?? AjvModule;
+const addFormats = addFormatsModule.default ?? addFormatsModule;
 const ajv = new Ajv({ strict: false });
 addFormats(ajv);
 const validate = ajv.compile(schema);

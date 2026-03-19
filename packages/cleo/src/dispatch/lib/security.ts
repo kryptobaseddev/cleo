@@ -7,12 +7,13 @@
  * @task T5706
  */
 
-export type { RateLimitConfig, RateLimitResult, SecurityError } from '@cleocode/core/internal';
+export type { RateLimitConfig, RateLimitResult } from '@cleocode/core/internal';
 export {
   ALL_VALID_STATUSES,
   DEFAULT_RATE_LIMITS,
   ensureArray,
   RateLimiter,
+  SecurityError,
   sanitizeContent,
   sanitizeParams,
   sanitizePath,

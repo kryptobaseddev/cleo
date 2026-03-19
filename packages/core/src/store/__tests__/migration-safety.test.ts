@@ -95,7 +95,7 @@ describe('Migration Safety Integration Tests', () => {
     name: `Session ${id}`,
     status: 'ended',
     scope: { type: 'epic', epicId: 'T001' },
-    focus: { taskId: 'T002', setAt: '2026-01-01T10:00:00.000Z' },
+    taskWork: { taskId: 'T002', setAt: '2026-01-01T10:00:00.000Z' },
     agent: 'claude',
     notes: ['Session note'],
     tasksCompleted: ['T003'],

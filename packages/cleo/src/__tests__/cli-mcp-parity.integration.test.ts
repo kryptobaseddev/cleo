@@ -385,8 +385,11 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       task: {
         id: 'T001',
         title: 'Alpha task',
+        description: 'test',
         status: 'pending',
         priority: 'high',
+        createdAt: '2026-01-01',
+        updatedAt: null,
       },
     };
 
@@ -438,8 +441,24 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
   describe('tasks.list', () => {
     const LIST_DATA = {
       tasks: [
-        { id: 'T001', title: 'Alpha', status: 'pending', priority: 'medium' },
-        { id: 'T002', title: 'Beta', status: 'active', priority: 'high' },
+        {
+          id: 'T001',
+          title: 'Alpha',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        {
+          id: 'T002',
+          title: 'Beta',
+          description: 'test',
+          status: 'active',
+          priority: 'high',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
       ],
       total: 2,
       filtered: 2,
@@ -464,7 +483,17 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
 
     it('handler.query("list") and dispatchRaw produce identical data with status filter', async () => {
       const filteredData = {
-        tasks: [{ id: 'T001', title: 'Alpha', status: 'pending' }],
+        tasks: [
+          {
+            id: 'T001',
+            title: 'Alpha',
+            description: 'test',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+        ],
         total: 1,
         filtered: 1,
       };
@@ -495,7 +524,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
 
   describe('tasks.find', () => {
     const FIND_DATA = {
-      results: [{ id: 'T001', title: 'Alpha task', status: 'pending' }],
+      results: [{ id: 'T001', title: 'Alpha task', status: 'pending', priority: 'medium' }],
       total: 1,
     };
 
@@ -535,7 +564,11 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
         title: 'New task',
         description: 'Created for parity test',
         status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-01-01',
+        updatedAt: null,
       },
+      duplicate: false,
     };
 
     beforeEach(() => {
@@ -587,9 +620,15 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
 
   describe('tasks.complete', () => {
     const COMPLETE_DATA = {
-      taskId: 'T001',
-      completed: true,
-      completedAt: '2026-02-25T12:00:00Z',
+      task: {
+        id: 'T001',
+        title: 'Alpha task',
+        description: 'test',
+        status: 'done',
+        priority: 'high',
+        createdAt: '2026-01-01',
+        updatedAt: '2026-02-25T12:00:00Z',
+      },
     };
 
     beforeEach(() => {
@@ -639,7 +678,11 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       task: {
         id: 'T001',
         title: 'Updated title',
+        description: 'test',
         status: 'active',
+        priority: 'medium',
+        createdAt: '2026-01-01',
+        updatedAt: '2026-02-25T12:00:00Z',
       },
     };
 
@@ -676,7 +719,18 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
   // -------------------------------------------------------------------------
 
   describe('tasks.delete', () => {
-    const DELETE_DATA = { taskId: 'T001', deleted: true };
+    const DELETE_DATA = {
+      deletedTask: {
+        id: 'T001',
+        title: 'Alpha task',
+        description: 'test',
+        status: 'pending',
+        priority: 'high',
+        createdAt: '2026-01-01',
+        updatedAt: null,
+      },
+      deleted: true,
+    };
 
     beforeEach(() => {
       vi.mocked(taskDelete).mockResolvedValue({
@@ -765,14 +819,28 @@ describe('Section 2: Session domain parity (T4796)', () => {
   describe('session.list', () => {
     const LIST_DATA = {
       sessions: [
-        { id: 'session_abc', status: 'active', name: 'Sprint 1' },
-        { id: 'session_def', status: 'ended', name: 'Sprint 0' },
+        {
+          id: 'session_abc',
+          status: 'active' as const,
+          name: 'Sprint 1',
+          taskWork: { taskId: null, setAt: null },
+          startedAt: '2026-01-01',
+          scope: { type: 'epic' },
+        },
+        {
+          id: 'session_def',
+          status: 'ended' as const,
+          name: 'Sprint 0',
+          taskWork: { taskId: null, setAt: null },
+          startedAt: '2026-01-01',
+          scope: { type: 'epic' },
+        },
       ],
       total: 2,
       filtered: 2,
       _meta: { truncated: false, total: 2 },
     };
-    const LIST_PAGE = { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 2 };
+    const LIST_PAGE = { mode: 'offset' as const, limit: 10, offset: 0, hasMore: false, total: 2 };
 
     beforeEach(() => {
       vi.mocked(sessionList).mockResolvedValue({
@@ -805,8 +873,11 @@ describe('Section 2: Session domain parity (T4796)', () => {
     // handler contract, so both paths (direct handler + dispatchRaw) produce this.
     const START_DATA = {
       id: 'session_xyz',
-      status: 'active',
-      scope: { rootTaskId: 'T010' },
+      name: 'Test Session',
+      status: 'active' as const,
+      scope: { type: 'epic', rootTaskId: 'T010' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: '2026-01-01',
     };
     const ENRICHED_START_DATA = {
       ...START_DATA,
@@ -848,7 +919,7 @@ describe('Section 3: Focus operations parity (tasks.start/stop/current) (T4796)'
   });
 
   describe('tasks.start', () => {
-    const START_DATA = { taskId: 'T001', started: true };
+    const START_DATA = { taskId: 'T001', previousTask: null };
 
     beforeEach(() => {
       vi.mocked(taskStart).mockResolvedValue({ success: true, data: START_DATA });
@@ -876,7 +947,7 @@ describe('Section 3: Focus operations parity (tasks.start/stop/current) (T4796)'
   });
 
   describe('tasks.stop', () => {
-    const STOP_DATA = { cleared: true };
+    const STOP_DATA = { cleared: true, previousTask: null };
 
     beforeEach(() => {
       vi.mocked(taskStop).mockResolvedValue({ success: true, data: STOP_DATA });
@@ -893,7 +964,7 @@ describe('Section 3: Focus operations parity (tasks.start/stop/current) (T4796)'
   });
 
   describe('tasks.current', () => {
-    const CURRENT_DATA = { currentTask: 'T001', since: '2026-02-25T00:00:00Z' };
+    const CURRENT_DATA = { currentTask: 'T001', currentPhase: null };
 
     beforeEach(() => {
       vi.mocked(taskCurrentGet).mockResolvedValue({
@@ -927,7 +998,17 @@ describe('Section 4: DispatchResponse shape consistency (T4796)', () => {
   it('_meta has required fields: gateway, domain, operation, timestamp, requestId', async () => {
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
 
     const cliResult = await dispatchRaw('query', 'tasks', 'show', {
@@ -946,7 +1027,17 @@ describe('Section 4: DispatchResponse shape consistency (T4796)', () => {
   it('_meta.source is "cli" for dispatchRaw calls', async () => {
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
 
     const cliResult = await dispatchRaw('query', 'tasks', 'show', {
@@ -959,7 +1050,17 @@ describe('Section 4: DispatchResponse shape consistency (T4796)', () => {
   it('success responses have data field; error responses have error field', async () => {
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
 
     const successResult = await dispatchRaw('query', 'tasks', 'show', {
@@ -1022,7 +1123,17 @@ describe('Section 5: Documented parity gaps (T4796)', () => {
   it('GAP RESOLVED: handleMcpToolCall now normalizes cleo_query to query', async () => {
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
 
     const mcpResponse = await handleMcpToolCall('cleo_query', 'tasks', 'show', { taskId: 'T001' });
@@ -1051,7 +1162,17 @@ describe('Section 5: Documented parity gaps (T4796)', () => {
     // via dispatchRaw (which uses 'query' gateway correctly):
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
 
     const cliResult = await dispatchRaw('query', 'tasks', 'show', {
@@ -1072,15 +1193,36 @@ describe('Section 5: Documented parity gaps (T4796)', () => {
   it('CLI path (dispatchRaw) works correctly end-to-end for task operations', async () => {
     vi.mocked(taskShow).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T001', title: 'Test task' } },
+      data: {
+        task: {
+          id: 'T001',
+          title: 'Test task',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+      },
     });
     vi.mocked(taskList).mockResolvedValue({
       success: true,
-      data: { tasks: [], total: 0 },
+      data: { tasks: [], total: 0, filtered: 0 },
     });
     vi.mocked(taskCreate).mockResolvedValue({
       success: true,
-      data: { task: { id: 'T100', title: 'New task' } },
+      data: {
+        task: {
+          id: 'T100',
+          title: 'New task',
+          description: 'test',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      },
     });
 
     const showResult = await dispatchRaw('query', 'tasks', 'show', { taskId: 'T001' });

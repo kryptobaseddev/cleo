@@ -1,0 +1,199 @@
+---
+title: "core — Examples"
+description: "Usage examples for the core package"
+---
+All usage examples from the package, aggregated for quick reference.
+
+## `initializePipeline()`
+
+_Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default._
+
+[View in API reference](/packages/core/api/functions#initializepipeline)
+
+```typescript
+const pipeline = await initializePipeline('T4800', {
+  startStage: 'research',
+  assignedAgent: 'agent-001'
+});
+console.log(`Pipeline initialized: ${pipeline.id}`);
+```
+
+## `getPipeline()`
+
+_Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID._
+
+[View in API reference](/packages/core/api/functions#getpipeline)
+
+```typescript
+const pipeline = await getPipeline('T4800');
+if (pipeline) {
+  console.log(`Current stage: ${pipeline.currentStage}`);
+}
+```
+
+## `advanceStage()`
+
+_Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail._
+
+[View in API reference](/packages/core/api/functions#advancestage)
+
+```typescript
+await advanceStage('T4800', {
+  toStage: 'consensus',
+  reason: 'Research completed, moving to consensus',
+  initiatedBy: 'agent-001'
+});
+```
+
+## `getCurrentStage()`
+
+_Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in._
+
+[View in API reference](/packages/core/api/functions#getcurrentstage)
+
+```typescript
+const currentStage = await getCurrentStage('T4800');
+if (currentStage === 'validation') {
+  console.log('Task is in verification');
+}
+```
+
+## `listPipelines()`
+
+_List pipelines with optional filtering._
+
+[View in API reference](/packages/core/api/functions#listpipelines)
+
+```typescript
+const activePipelines = await listPipelines({
+  status: 'active',
+  limit: 10
+});
+```
+
+## `findResumablePipelines()`
+
+_Query active pipelines that can be resumed.  Searches the lifecycle_pipelines table for pipelines with status 'active' and joins with lifecycle_stages to determine current stage status. Also joins with tasks table to get task metadata._
+
+[View in API reference](/packages/core/api/functions#findresumablepipelines)
+
+```typescript
+// Find all active pipelines
+const resumable = await findResumablePipelines();
+
+// Find specific tasks
+const specific = await findResumablePipelines({
+  taskIds: ['T4805', 'T4806']
+});
+
+// Include blocked pipelines
+const withBlocked = await findResumablePipelines({
+  includeBlocked: true
+});
+```
+
+## `loadPipelineContext()`
+
+_Load complete pipeline context for session resume.  Uses SQL JOINs to efficiently load all related data: - Pipeline and current stage - All stages with their status - Gate results for current stage - Evidence linked to current stage - Recent transitions - Task details_
+
+[View in API reference](/packages/core/api/functions#loadpipelinecontext)
+
+```typescript
+const context = await loadPipelineContext('T4805');
+console.log(`Current stage: ${context.currentStage}`);
+console.log(`Stage status: ${context.stages.find(s => s.stage === context.currentStage)?.status}`);
+```
+
+## `resumeStage()`
+
+_Resume a specific stage in a pipeline.  Updates the stage status from 'blocked' or 'not_started' to 'in_progress', records the transition, and returns the resume result._
+
+[View in API reference](/packages/core/api/functions#resumestage)
+
+```typescript
+const result = await resumeStage('T4805', 'implement');
+if (result.success) {
+  console.log(`Resumed ${result.taskId} at ${result.stage}`);
+}
+```
+
+## `autoResume()`
+
+_Auto-detect where to resume across all active pipelines.  Finds the best candidate for resuming work based on: 1. Active stages (currently in progress) 2. Blocked stages (can be unblocked) 3. Failed stages (can be retried) 4. Priority ordering_
+
+[View in API reference](/packages/core/api/functions#autoresume)
+
+```typescript
+const result = await autoResume();
+if (result.canResume) {
+  console.log(`Recommended: Resume ${result.taskId} at ${result.stage}`);
+} else if (result.options && result.options.length > 0) {
+  console.log('Multiple options available:', result.options);
+}
+```
+
+## `checkSessionResume()`
+
+_Check for resumable work on session start.  Integrates with session initialization to check for active pipelines and present resumable work to the user. Can auto-resume if there's a clear single candidate._
+
+[View in API reference](/packages/core/api/functions#checksessionresume)
+
+```typescript
+// On session start
+const resumeCheck = await checkSessionResume({ autoResume: true });
+if (resumeCheck.didResume) {
+  console.log(`Auto-resumed ${resumeCheck.resumedTaskId}`);
+} else if (resumeCheck.requiresUserChoice) {
+  console.log('Multiple options:', resumeCheck.options);
+}
+```
+
+## `checkPrerequisites()`
+
+_Check if prerequisites are met for a stage.  Validates that all prerequisite stages are in an acceptable state (completed or skipped) for the target stage to proceed._
+
+[View in API reference](/packages/core/api/functions#checkprerequisites)
+
+```typescript
+const check = await checkPrerequisites('implement', {
+  research: { status: 'completed' },
+  spec: { status: 'completed' },
+  decompose: { status: 'completed' },
+  // ... other stages
+});
+if (check.met) {
+  console.log('Ready to implement');
+}
+```
+
+## `validateTransition()`
+
+_Validate a stage transition.  Comprehensive validation that checks both transition rules and prerequisites. This is the core state machine validation logic._
+
+[View in API reference](/packages/core/api/functions#validatetransition)
+
+```typescript
+const validation = await validateTransition(
+  { from: 'spec', to: 'implement', initiatedBy: 'agent-001' },
+  pipelineContext
+);
+if (!validation.valid) {
+  console.log(validation.errors);
+}
+```
+
+## `executeTransition()`
+
+_Execute a state transition.  Applies the transition to the state machine context, updating stage statuses and returning the new state. This function does NOT persist to database - that is handled by the pipeline module._
+
+[View in API reference](/packages/core/api/functions#executetransition)
+
+```typescript
+const result = await executeTransition(
+  { from: 'spec', to: 'implement', initiatedBy: 'agent-001' },
+  pipelineContext
+);
+if (result.success) {
+  console.log(`Transitioned to ${result.newState.stage}`);
+}
+```

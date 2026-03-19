@@ -52,7 +52,10 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
         vi.mocked(existsSync).mockReturnValue(true);
         vi.mocked(findSkill).mockReturnValue({
             name: 'test-skill',
+            dirName: 'test-skill',
             path: '/mock/project/skills/test-skill',
+            skillMdPath: '/mock/project/skills/test-skill/SKILL.md',
+            frontmatter: {},
             content: '# Test Skill\nDo the thing.',
         });
     });
@@ -169,7 +172,10 @@ describe('buildPrompt tier passthrough', () => {
         });
         vi.mocked(findSkill).mockReturnValue({
             name: 'task-executor',
+            dirName: 'task-executor',
             path: '/mock/project/skills/task-executor',
+            skillMdPath: '/mock/project/skills/task-executor/SKILL.md',
+            frontmatter: {},
             content: '# Task Executor\nExecute {{TASK_ID}}.',
         });
     });

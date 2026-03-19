@@ -1,0 +1,6036 @@
+---
+title: "cleo — Functions"
+description: "Functions and classes for the cleo package"
+---
+Functions and classes exported by this package.
+
+## setFieldContext()
+
+Set the field extraction context for this CLI invocation. Called once from the preAction hook in src/cli/index.ts.
+
+**Signature**
+
+```typescript
+(ctx: FieldExtractionResolution) => void
+```
+
+## getFieldContext()
+
+Get the current field extraction context.
+
+**Signature**
+
+```typescript
+() => FieldExtractionResolution
+```
+
+## resolveFieldContext()
+
+Parse global field options from Commander.js parsed opts and resolve via the canonical LAFS SDK resolver (conflict detection, type narrowing).
+
+**Signature**
+
+```typescript
+(opts: Record<string, unknown>) => FieldExtractionResolution
+```
+
+## setFormatContext()
+
+Set the resolved format for this CLI invocation. Called once from the preAction hook in src/cli/index.ts.
+
+**Signature**
+
+```typescript
+(resolution: FlagResolution) => void
+```
+
+## getFormatContext()
+
+Get the current resolved format.
+
+**Signature**
+
+```typescript
+() => FlagResolution
+```
+
+## isJsonFormat()
+
+Check if output should be JSON format.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## isHumanFormat()
+
+Check if output should be human-readable format.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## isQuiet()
+
+Check if quiet mode is enabled (suppress non-essential output).
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## normalizeForHuman()
+
+Normalize data shape for human renderers.  Each command expects data with specific named keys (e.g., `data.task` for 'show', `data.tasks` for 'list'). This function detects and corrects flat/array data from the engine layer.
+
+**Signature**
+
+```typescript
+(command: string, data: Record<string, unknown>) => Record<string, unknown>
+```
+
+## statusSymbol()
+
+Map task status to a display symbol. Falls back to '?' for unknown values.
+
+**Signature**
+
+```typescript
+(status: string) => string
+```
+
+## statusColor()
+
+Map task status to a color escape.
+
+**Signature**
+
+```typescript
+(status: string) => string
+```
+
+## prioritySymbol()
+
+Map task priority to a display symbol.
+
+**Signature**
+
+```typescript
+(priority: string) => string
+```
+
+## priorityColor()
+
+Map task priority to a color escape.
+
+**Signature**
+
+```typescript
+(priority: string) => string
+```
+
+## hRule()
+
+Create a horizontal rule with box-drawing characters.
+
+**Signature**
+
+```typescript
+(width?: number) => string
+```
+
+## shortDate()
+
+Format a date string as YYYY-MM-DD.
+
+**Signature**
+
+```typescript
+(isoDate: string | null | undefined) => string
+```
+
+## renderDoctor()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderStats()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderNext()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderBlockers()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderTree()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderStart()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderStop()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderCurrent()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderSession()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderVersion()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderPlan()
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderGeneric()
+
+Generic human renderer for commands that don't have a specific renderer. Renders data as indented key-value pairs.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderShow()
+
+Render a single task in a box format (mirrors bash display_text).
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderList()
+
+Render a list of tasks (mirrors bash list.sh text output).
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderFind()
+
+Render search results.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderAdd()
+
+Render add result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderUpdate()
+
+Render update result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderComplete()
+
+Render complete result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderDelete()
+
+Render delete result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderArchive()
+
+Render archive result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## renderRestore()
+
+Render restore result.
+
+**Signature**
+
+```typescript
+(data: Record<string, unknown>, quiet: boolean) => string
+```
+
+## cliOutput()
+
+Output data to stdout in the resolved format (JSON or human-readable).  Replaces `console.log(formatSuccess(data))` in all V2 commands. When format is 'human', normalizes the data shape then dispatches to the appropriate renderer. When format is 'json', delegates to existing formatSuccess().   T4665  T4666  T4813
+
+**Signature**
+
+```typescript
+(data: unknown, opts: CliOutputOptions) => void
+```
+
+## cliError()
+
+Output an error in the resolved format. For JSON: delegates to formatError (already handled in command catch blocks). For human: prints a plain error message to stderr.   T4666  T4813
+
+**Signature**
+
+```typescript
+(message: string, code?: string | number | undefined, _details?: CliErrorDetails | undefined) => void
+```
+
+## createDispatchMeta(gateway, domain, operation, startTime, source, requestId, sessionId)
+
+Create metadata for a dispatch response.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, startTime: number, source?: Source, requestId?: string | undefined, sessionId?: string | null | undefined) => { ...; }
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `gateway` | `string` | Gateway name (e.g., 'query', 'mutate') |
+| `domain` | `string` | Domain name (e.g., 'tasks', 'session') |
+| `operation` | `string` | Operation name (e.g., 'show', 'list') |
+| `startTime` | `number` | Timestamp from Date.now() at start of request |
+| `source` | `: Source` | Where the request originated ('cli' or 'mcp') |
+| `requestId` | `: string \| undefined` | Optional pre-generated request ID |
+| `sessionId` | `: string \| null \| undefined` | Optional session ID to include in metadata |
+
+**Returns** — Metadata conforming to DispatchResponse['_meta']   T4772  T4959
+
+## compose(middlewares)
+
+Composes an array of Middleware functions into a single Middleware function. Execution flows through the array from first to last, and returns bubble back up from last to first.
+
+**Signature**
+
+```typescript
+(middlewares: Middleware[]) => Middleware
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `middlewares` | `Middleware[]` | Array of middleware functions to chain |
+
+**Returns** — A single composed Middleware function
+
+## deriveGatewayMatrix()
+
+Derive a gateway operation matrix from the registry.  Returns `Record<string, string[]>` containing: - All canonical domains with their operations  This is the SINGLE derivation point — gateways use this instead of maintaining independent operation lists.
+
+**Signature**
+
+```typescript
+(gateway: Gateway) => Record<string, string[]>
+```
+
+## getGatewayDomains()
+
+Get all accepted domain names for a gateway (canonical only).
+
+**Signature**
+
+```typescript
+(gateway: Gateway) => string[]
+```
+
+## resolve()
+
+Resolves a domain + operation to its registered definition.
+
+**Signature**
+
+```typescript
+(gateway: Gateway, domain: string, operation: string) => Resolution | undefined
+```
+
+## validateRequiredParams()
+
+Validates that all required parameters are present in the request. Returns an array of missing parameter keys.
+
+**Signature**
+
+```typescript
+(def: OperationDef, params?: Record<string, unknown> | undefined) => string[]
+```
+
+## getByDomain()
+
+Get all operations for a specific canonical domain.
+
+**Signature**
+
+```typescript
+(domain: "tasks" | "session" | "memory" | "check" | "pipeline" | "orchestrate" | "tools" | "admin" | "nexus" | "sticky") => OperationDef[]
+```
+
+## getByGateway()
+
+Get all operations for a specific gateway.
+
+**Signature**
+
+```typescript
+(gateway: Gateway) => OperationDef[]
+```
+
+## getByTier()
+
+Get all operations available at or below a specific tier.
+
+**Signature**
+
+```typescript
+(tier: Tier) => OperationDef[]
+```
+
+## getActiveDomains()
+
+Get a list of canonical domains that actually have operations registered.
+
+**Signature**
+
+```typescript
+() => ("tasks" | "session" | "memory" | "check" | "pipeline" | "orchestrate" | "tools" | "admin" | "nexus" | "sticky")[]
+```
+
+## getCounts()
+
+Returns summary counts of operations for module validation.
+
+**Signature**
+
+```typescript
+() => { query: number; mutate: number; total: number; }
+```
+
+## Dispatcher
+
+**Signature**
+
+```typescript
+typeof Dispatcher
+```
+
+**Methods**
+
+### dispatch()
+
+```typescript
+(request: DispatchRequest) => Promise<DispatchResponse>
+```
+
+## engineError(code, message, options)
+
+Create a typed engine error result with pino logging and correct exit code.
+
+**Signature**
+
+```typescript
+<T>(code: string, message: string, options?: { details?: Record<string, unknown> | undefined; fix?: string | undefined; alternatives?: { action: string; command: string; }[] | undefined; } | undefined) => EngineResult<...>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `code` | `string` | String error code (e.g., 'E_NOT_FOUND') |
+| `message` | `string` | Human-readable error message |
+| `options` | `: { details?: Record<string` | Optional details, fix command, and alternatives |
+
+**Returns** — EngineResult with success=false and properly structured error
+
+## engineSuccess(data)
+
+Create an engine success result.
+
+**Signature**
+
+```typescript
+<T>(data: T) => EngineResult<T>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `data` | `T` | The result data |
+
+**Returns** — EngineResult with success=true
+
+## mapCodebase()
+
+Analyze a codebase and return structured mapping. When storeToBrain is true, findings are persisted to brain.db.
+
+**Signature**
+
+```typescript
+(projectRoot: string, options?: { focus?: string | undefined; storeToBrain?: boolean | undefined; } | undefined) => Promise<EngineResult<unknown>>
+```
+
+## configGet()
+
+Get config value by key (dot-notation supported)
+
+**Signature**
+
+```typescript
+(projectRoot: string, key?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## configSet()
+
+Set a config value by key (dot-notation supported)
+
+**Signature**
+
+```typescript
+(projectRoot: string, key: string, value: unknown) => Promise<EngineResult<{ key: string; value: unknown; }>>
+```
+
+## initProject()
+
+Initialize a CLEO project directory.  Creates the .cleo/ directory structure with empty data files. Returns error if already initialized (unless force=true).
+
+**Signature**
+
+```typescript
+(projectRoot: string, options?: { projectName?: string | undefined; force?: boolean | undefined; } | undefined) => Promise<EngineResult<{ initialized: boolean; projectRoot: string; filesCreated: string[]; }>>
+```
+
+## isAutoInitEnabled()
+
+Check if auto-init is enabled via environment variable
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## ensureInitialized()
+
+Check initialization status and auto-init if configured
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ initialized: boolean; }>>
+```
+
+## getVersion()
+
+Get current version (native implementation)
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ version: string; }>>
+```
+
+## listRcsdEpics()
+
+List all epic IDs that have RCASD pipeline data.
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<string[]>
+```
+
+## lifecycleStatus()
+
+lifecycle.check / lifecycle.status - Get lifecycle status for epic.  T4785
+
+**Signature**
+
+```typescript
+(epicId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleHistory()
+
+lifecycle.history - Stage transition history.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleGates()
+
+lifecycle.gates - Get all gate statuses for an epic.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecyclePrerequisites()
+
+lifecycle.prerequisites - Get required prior stages for a target stage.  T4785
+
+**Signature**
+
+```typescript
+(targetStage: string, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleCheck()
+
+lifecycle.check - Check if a stage's prerequisites are met.  T4785
+
+**Signature**
+
+```typescript
+(epicId: string, targetStage: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleProgress()
+
+lifecycle.progress / lifecycle.record - Record stage completion.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, stage: string, status: string, notes?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleSkip()
+
+lifecycle.skip - Skip a stage with reason.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, stage: string, reason: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleReset()
+
+lifecycle.reset - Reset a stage (emergency).  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, stage: string, reason: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleGatePass()
+
+lifecycle.gate.pass - Mark gate as passed.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, gateName: string, agent?: string | undefined, notes?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## lifecycleGateFail()
+
+lifecycle.gate.fail - Mark gate as failed.  T4785
+
+**Signature**
+
+```typescript
+(taskId: string, gateName: string, reason?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## sessionStatus()
+
+Get current session status.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ hasActiveSession: boolean; session?: Session | null | undefined; taskWork?: TaskWorkState | null | undefined; }>>
+```
+
+## sessionList()
+
+List sessions with budget enforcement.  When a limit is applied (explicit or default), the response includes `_meta.truncated` and `_meta.total` so agents know the result set was capped.   T4782  T5120 - budget enforcement metadata  T5121 - default limit=10
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { active?: boolean | undefined; status?: string | undefined; limit?: number | undefined; offset?: number | undefined; } | undefined) => Promise<EngineResult<{ sessions: Session[]; total: number; filtered: number; _meta: { ...; }; }>>
+```
+
+## sessionFind()
+
+Lightweight session discovery — returns minimal session records.   T5119
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: FindSessionsParams | undefined) => Promise<EngineResult<MinimalSessionRecord[]>>
+```
+
+## sessionShow()
+
+Show a specific session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string) => Promise<EngineResult<Session>>
+```
+
+## taskCurrentGet()
+
+Get current task being worked on. Delegates to core/task-work/currentTask.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null; }>>
+```
+
+## taskStart()
+
+Start working on a specific task. Delegates to core/task-work/startTask.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ taskId: string; previousTask: string | null; }>>
+```
+
+## taskStop()
+
+Stop working on the current task. Delegates to core/task-work/stopTask.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ cleared: boolean; previousTask: string | null; }>>
+```
+
+## taskWorkHistory()
+
+Get task work history from session notes.  T5323
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ history: TaskWorkHistoryEntry[]; count: number; }>>
+```
+
+## sessionStart()
+
+Start a new session. Note: This function has engine-specific logic for task file focus management and session store updates, so it remains in the engine layer.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { scope: string; name?: string | undefined; autoStart?: boolean | undefined; startTask?: string | undefined; grade?: boolean | undefined; }) => Promise<EngineResult<Session>>
+```
+
+## sessionEnd()
+
+End the current session. Note: This function has engine-specific logic for task file focus management and session store management, so it remains in the engine layer.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, notes?: string | undefined) => Promise<EngineResult<{ sessionId: string; ended: boolean; }>>
+```
+
+## sessionResume()
+
+Resume an ended or suspended session. Note: This function has engine-specific logic for task file focus sync, so it remains in the engine layer.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string) => Promise<EngineResult<Session>>
+```
+
+## sessionGc()
+
+Garbage collect old sessions.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, maxAgeDays?: number) => Promise<EngineResult<{ orphaned: string[]; removed: string[]; }>>
+```
+
+## sessionSuspend()
+
+Suspend an active session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string, reason?: string | undefined) => Promise<EngineResult<Session>>
+```
+
+## sessionHistory()
+
+List session history with focus changes and completed tasks.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { sessionId?: string | undefined; limit?: number | undefined; } | undefined) => Promise<EngineResult<{ sessions: { id: string; name?: string | undefined; status: string; startedAt: string; endedAt?: string | ... 1 more ... | undefined; tasksCompleted: number; focusChanges: number; focu...
+```
+
+## sessionCleanup()
+
+Remove orphaned sessions and clean up stale data.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ removed: string[]; autoEnded: string[]; cleaned: boolean; }>>
+```
+
+## sessionRecordDecision()
+
+Record a decision to the audit trail.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { sessionId: string; taskId: string; decision: string; rationale: string; alternatives?: string[] | undefined; }) => Promise<EngineResult<DecisionRecord>>
+```
+
+## sessionDecisionLog()
+
+Read the decision log, optionally filtered by sessionId and/or taskId.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { sessionId?: string | undefined; taskId?: string | undefined; } | undefined) => Promise<EngineResult<DecisionRecord[]>>
+```
+
+## sessionContextDrift()
+
+Compute context drift score for the current session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { sessionId?: string | undefined; } | undefined) => Promise<EngineResult<{ score: number; factors: string[]; completedInScope: number; totalInScope: number; outOfScope: number; }>>
+```
+
+## sessionRecordAssumption()
+
+Record an assumption made during a session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { sessionId?: string | undefined; taskId?: string | undefined; assumption: string; confidence: "high" | "medium" | "low"; }) => Promise<EngineResult<{ id: string; sessionId: string; taskId: string | null; assumption: string; confidence: string; timestamp: string; }>>
+```
+
+## sessionStats()
+
+Compute session statistics, optionally for a specific session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId?: string | undefined) => Promise<EngineResult<{ totalSessions: number; activeSessions: number; suspendedSessions: number; endedSessions: number; archivedSessions: number; totalTasksCompleted: number; totalFocusChanges: number; averageResumeCount: number; session?: { ...; } | undefined...
+```
+
+## sessionSwitch()
+
+Switch to a different session.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string) => Promise<EngineResult<Session>>
+```
+
+## sessionArchive()
+
+Archive old/ended sessions.  T4782
+
+**Signature**
+
+```typescript
+(projectRoot: string, olderThan?: string | undefined) => Promise<EngineResult<{ archived: string[]; count: number; }>>
+```
+
+## sessionHandoff()
+
+Get handoff data for the most recent ended session.  T4915, T5123
+
+**Signature**
+
+```typescript
+(projectRoot: string, scope?: { type: string; epicId?: string | undefined; } | undefined) => Promise<EngineResult<{ sessionId: string; handoff: HandoffData; } | null>>
+```
+
+## sessionComputeHandoff()
+
+Compute and persist handoff data for a session.  T4915
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string, options?: { note?: string | undefined; nextAction?: string | undefined; } | undefined) => Promise<EngineResult<HandoffData>>
+```
+
+## sessionBriefing()
+
+Compute session briefing - composite view for session start. Aggregates data from handoff, current focus, next tasks, bugs, blockers, and epics.  T4916
+
+**Signature**
+
+```typescript
+(projectRoot: string, options?: { maxNextTasks?: number | undefined; maxBugs?: number | undefined; maxBlocked?: number | undefined; maxEpics?: number | undefined; scope?: string | undefined; } | undefined) => Promise<...>
+```
+
+## sessionComputeDebrief()
+
+Compute and persist rich debrief data for a session. Persists as both handoffJson (backward compat) and debriefJson (rich data).  T4959
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string, options?: { note?: string | undefined; nextAction?: string | undefined; } | undefined) => Promise<EngineResult<DebriefData>>
+```
+
+## sessionDebriefShow()
+
+Read a session's debrief data. Falls back to handoff data if no debrief is available.  T4959
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string) => Promise<EngineResult<DebriefData | { handoff: unknown; fallback: true; } | null>>
+```
+
+## sessionChainShow()
+
+Show the session chain for a given session. Returns ordered list of sessions linked via previousSessionId/nextSessionId.  T4959
+
+**Signature**
+
+```typescript
+(projectRoot: string, sessionId: string) => Promise<EngineResult<{ id: string; status: string; startedAt: string; endedAt: string | null; agentIdentifier: string | null; position: number; }[]>>
+```
+
+## sessionContextInject()
+
+Inject context protocol content.  T5673
+
+**Signature**
+
+```typescript
+(protocolType: string, params?: { taskId?: string | undefined; variant?: string | undefined; } | undefined, projectRoot?: string | undefined) => EngineResult<ContextInjectionData>
+```
+
+## orchestrateStatus()
+
+orchestrate.status - Get orchestrator status  T4478
+
+**Signature**
+
+```typescript
+(epicId?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateAnalyze()
+
+orchestrate.analyze - Dependency analysis  T4478
+
+**Signature**
+
+```typescript
+(epicId?: string | undefined, projectRoot?: string | undefined, mode?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateReady()
+
+orchestrate.ready - Get parallel-safe tasks (ready to execute)  T4478
+
+**Signature**
+
+```typescript
+(epicId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateNext()
+
+orchestrate.next - Next task to spawn  T4478
+
+**Signature**
+
+```typescript
+(epicId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateWaves()
+
+orchestrate.waves - Compute dependency waves  T4478
+
+**Signature**
+
+```typescript
+(epicId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateContext()
+
+orchestrate.context - Context usage check  T4478
+
+**Signature**
+
+```typescript
+(epicId?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateValidate()
+
+orchestrate.validate - Validate spawn readiness for a task  T4478
+
+**Signature**
+
+```typescript
+(taskId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateSpawnSelectProvider()
+
+orchestrate.spawn.select - Select best provider for spawn based on required capabilities  T5236
+
+**Signature**
+
+```typescript
+(capabilities: ("supportsSubagents" | "supportsProgrammaticSpawn" | "supportsInterAgentComms" | "supportsParallelSpawn")[], _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateSpawnExecute()
+
+orchestrate.spawn.execute - Execute spawn for a task using adapter registry  T5236
+
+**Signature**
+
+```typescript
+(taskId: string, adapterId?: string | undefined, protocolType?: string | undefined, projectRoot?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateSpawn()
+
+orchestrate.spawn - Generate spawn prompt for a task  T4478
+
+**Signature**
+
+```typescript
+(taskId: string, protocolType?: string | undefined, projectRoot?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateStartup()
+
+orchestrate.startup - Initialize orchestration for an epic  T4478
+
+**Signature**
+
+```typescript
+(epicId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateBootstrap()
+
+orchestrate.bootstrap - Load brain state for agent bootstrapping  T4478  T4657
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined, params?: { speed?: "full" | "fast" | "complete" | undefined; } | undefined) => Promise<EngineResult<BrainState>>
+```
+
+## orchestrateCriticalPath()
+
+orchestrate.critical-path - Find the longest dependency chain  T4478
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateUnblockOpportunities()
+
+orchestrate.unblock-opportunities - Analyze dependency graph for unblocking opportunities  T4478
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateParallel()
+
+orchestrate.parallel - Manage parallel execution (start/end)  T4632
+
+**Signature**
+
+```typescript
+(action: "start" | "end", epicId: string, wave?: number | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateParallelStart()
+
+orchestrate.parallel.start - Start parallel execution for a wave  T4632
+
+**Signature**
+
+```typescript
+(epicId: string, wave: number, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateParallelEnd()
+
+orchestrate.parallel.end - End parallel execution for a wave  T4632
+
+**Signature**
+
+```typescript
+(epicId: string, wave: number, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateCheck()
+
+orchestrate.check - Check current orchestration state  T4632
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## orchestrateSkillInject()
+
+orchestrate.skill.inject - Read skill content for injection into agent context  T4632
+
+**Signature**
+
+```typescript
+(skillName: string, projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## orchestrateHandoff()
+
+orchestrate.handoff - Composite session handoff + successor spawn  Step order is explicit and fixed: 1) session.context.inject 2) session.end 3) orchestrate.spawn  Idempotency policy: - Non-idempotent overall. A retry after step 2 can duplicate spawn output. - Failures include exact step state and a safe retry entry point.
+
+**Signature**
+
+```typescript
+(params: OrchestrateHandoffParams, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseList()
+
+phase.list - List all project phases
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseShow()
+
+phase.show - Show details of a specific phase
+
+**Signature**
+
+```typescript
+(phaseId?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseSet()
+
+phase.set - Set the current phase
+
+**Signature**
+
+```typescript
+(params: { phaseId: string; rollback?: boolean | undefined; force?: boolean | undefined; dryRun?: boolean | undefined; }, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseStart()
+
+phase.start - Start a pending phase
+
+**Signature**
+
+```typescript
+(phaseId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseComplete()
+
+phase.complete - Complete an active phase
+
+**Signature**
+
+```typescript
+(phaseId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseAdvance()
+
+phase.advance - Advance to the next phase
+
+**Signature**
+
+```typescript
+(force?: boolean, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseRename()
+
+phase.rename - Rename a phase
+
+**Signature**
+
+```typescript
+(oldName: string, newName: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## phaseDelete()
+
+phase.delete - Delete a phase
+
+**Signature**
+
+```typescript
+(phaseId: string, params?: { reassignTo?: string | undefined; force?: boolean | undefined; }, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releasePrepare()
+
+release.prepare - Prepare a release  T4788
+
+**Signature**
+
+```typescript
+(version: string, tasks?: string[] | undefined, notes?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseChangelog()
+
+release.changelog - Generate changelog  T4788
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseList()
+
+release.list - List all releases (query operation via data read)  T4788
+
+**Signature**
+
+```typescript
+(optionsOrProjectRoot?: string | ReleaseListOptions | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseShow()
+
+release.show - Show release details (query operation via data read)  T4788
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseCommit()
+
+release.commit - Mark release as committed (metadata only)  T4788
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseTag()
+
+release.tag - Mark release as tagged (metadata only)  T4788
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseGatesRun()
+
+release.gates.run - Run release gates (validation checks)  T4788
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseRollback()
+
+release.rollback - Rollback a release  T4788
+
+**Signature**
+
+```typescript
+(version: string, reason?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseCancel()
+
+release.cancel - Cancel and remove a release in draft or prepared state  T5602
+
+**Signature**
+
+```typescript
+(version: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releasePush()
+
+release.push - Push release to remote via git Uses execFileSync (no shell) for safety. Respects config.release.push policy.  Agent protocol guard (T4279): When running in agent context (detected via CLEO_SESSION_ID or CLAUDE_AGENT_TYPE env vars), requires a release manifest entry for the version. This ensures agents go through the proper release.ship workflow rather than calling release.push directly, maintaining provenance tracking.   T4788  T4276  T4279
+
+**Signature**
+
+```typescript
+(version: string, remote?: string | undefined, projectRoot?: string | undefined, opts?: { explicitPush?: boolean | undefined; } | undefined) => Promise<EngineResult<unknown>>
+```
+
+## releaseShip()
+
+release.ship - Composite release operation  Sequence: validate gates → epic completeness → double-listing check → write CHANGELOG → git commit/tag/push (or PR) → record provenance   T5582  T5586  T5576
+
+**Signature**
+
+```typescript
+(params: { version: string; epicId: string; remote?: string | undefined; dryRun?: boolean | undefined; bump?: boolean | undefined; }, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## taskShow()
+
+Get a single task by ID  T4657  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ task: TaskRecord; }>>
+```
+
+## taskList()
+
+List tasks with optional filters  T4657  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { parent?: string | undefined; status?: string | undefined; priority?: string | undefined; type?: string | undefined; phase?: string | undefined; label?: string | undefined; children?: boolean | undefined; limit?: number | undefined; offset?: number | undefined; compact?: boolean | und...
+```
+
+## taskFind()
+
+Fuzzy search tasks by title/description/ID  T4657  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, query: string, limit?: number | undefined, options?: { id?: string | undefined; exact?: boolean | undefined; status?: string | undefined; includeArchive?: boolean | undefined; offset?: number | undefined; } | undefined) => Promise<...>
+```
+
+## taskExists()
+
+Check if a task exists  T4657  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ exists: boolean; taskId: string; }>>
+```
+
+## taskCreate()
+
+Create a new task
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { title: string; description: string; parent?: string | undefined; depends?: string[] | undefined; priority?: string | undefined; labels?: string[] | undefined; type?: string | undefined; ... 4 more ...; files?: string[] | undefined; }) => Promise<...>
+```
+
+## taskUpdate()
+
+Update a task
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, updates: { title?: string | undefined; description?: string | undefined; status?: string | undefined; priority?: string | undefined; notes?: string | undefined; ... 9 more ...; size?: string | undefined; }) => Promise<...>
+```
+
+## taskComplete()
+
+Complete a task (set status to done)
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, notes?: string | undefined) => Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[] | undefined; unblockedTasks?: { id: string; title: string; }[] | undefined; }>>
+```
+
+## taskDelete()
+
+Delete a task
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, force?: boolean | undefined) => Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] | undefined; }>>
+```
+
+## taskArchive()
+
+Archive completed tasks. Moves done/cancelled tasks from active task data to archive.
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId?: string | undefined, before?: string | undefined) => Promise<EngineResult<{ archivedCount: number; archivedTasks: { id: string; }[]; }>>
+```
+
+## taskNext()
+
+Suggest next task to work on based on priority, phase alignment, age, and dependency readiness.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { count?: number | undefined; explain?: boolean | undefined; } | undefined) => Promise<EngineResult<{ suggestions: { id: string; title: string; priority: string; phase: string | null; score: number; reasons?: string[] | undefined; }[]; totalCandidates: number; }>>
+```
+
+## taskBlockers()
+
+Show blocked tasks and analyze blocking chains.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { analyze?: boolean | undefined; limit?: number | undefined; } | undefined) => Promise<EngineResult<{ blockedTasks: { id: string; title: string; status: string; depends?: string[] | undefined; blockingChain: string[]; }[]; criticalBlockers: { ...; }[]; summary: string; total: number; l...
+```
+
+## taskTree()
+
+Build hierarchy tree.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## taskDeps()
+
+Show dependencies for a task - both what it depends on and what depends on it.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ taskId: string; dependsOn: { id: string; title: string; status: string; }[]; dependedOnBy: { id: string; title: string; status: string; }[]; unresolvedDeps: string[]; allDepsReady: boolean; }>>
+```
+
+## taskRelates()
+
+Show task relations (existing relates entries).  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ taskId: string; relations: { taskId: string; type: string; reason?: string | undefined; }[]; count: number; }>>
+```
+
+## taskRelatesAdd()
+
+Add a relation between two tasks.  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, relatedId: string, type: string, reason?: string | undefined) => Promise<EngineResult<{ from: string; to: string; type: string; added: boolean; }>>
+```
+
+## taskAnalyze()
+
+Analyze a task for description quality, missing fields, and dependency health.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId?: string | undefined, params?: { tierLimit?: number | undefined; } | undefined) => Promise<EngineResult<{ recommended: { id: string; title: string; leverage: number; reason: string; } | null; bottlenecks: { ...; }[]; tiers: { ...; }; metrics: { ...; }; tierLimit: number; }>>
+```
+
+## taskRestore()
+
+Restore a cancelled task back to pending.  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, params?: { cascade?: boolean | undefined; notes?: string | undefined; } | undefined) => Promise<EngineResult<{ task: string; restored: string[]; count: number; }>>
+```
+
+## taskUnarchive()
+
+Move an archived task back to active task data with status 'done' (or specified status).  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, params?: { status?: string | undefined; preserveStatus?: boolean | undefined; } | undefined) => Promise<EngineResult<{ task: string; unarchived: boolean; title: string; status: string; }>>
+```
+
+## taskReorder()
+
+Change task position within its sibling group.  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, position: number) => Promise<EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number; }>>
+```
+
+## taskReparent()
+
+Move task under a different parent.  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, newParentId: string | null) => Promise<EngineResult<{ task: string; reparented: boolean; oldParent: string | null; newParent: string | null; newType?: string | undefined; }>>
+```
+
+## taskPromote()
+
+Promote a subtask to task or task to root (remove parent).  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string) => Promise<EngineResult<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean; }>>
+```
+
+## taskReopen()
+
+Reopen a completed task (set status back to pending).  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, params?: { status?: string | undefined; reason?: string | undefined; } | undefined) => Promise<EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string; }>>
+```
+
+## taskCancel()
+
+Cancel a task (soft terminal state — reversible via restore).  T4529
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, reason?: string | undefined) => Promise<EngineResult<{ task: string; cancelled: boolean; reason?: string | undefined; cancelledAt: string; }>>
+```
+
+## taskComplexityEstimate()
+
+Deterministic complexity scoring from task metadata.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { taskId: string; }) => Promise<EngineResult<{ size: "medium" | "small" | "large"; score: number; factors: ComplexityFactor[]; dependencyDepth: number; subtaskCount: number; fileCount: number; }>>
+```
+
+## taskDepends()
+
+List dependencies for a task in a given direction.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, direction?: "upstream" | "downstream" | "both", tree?: boolean | undefined) => Promise<EngineResult<unknown>>
+```
+
+## taskDepsOverview()
+
+Overview of all dependencies across the project.  T5157
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ totalTasks: number; tasksWithDeps: number; blockedTasks: { id: string; title: string; status: string; unblockedBy: string[]; }[]; readyTasks: { id: string; title: string; status: string; }[]; validation: { ...; }; }>>
+```
+
+## taskDepsCycles()
+
+Detect circular dependencies across the project.  T5157
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ hasCycles: boolean; cycles: { path: string[]; tasks: { id: string; title: string; }[]; }[]; }>>
+```
+
+## taskStats()
+
+Compute task statistics, optionally scoped to an epic.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, epicId?: string | undefined) => Promise<EngineResult<{ total: number; pending: number; active: number; blocked: number; done: number; cancelled: number; byPriority: Record<string, number>; byType: Record<...>; }>>
+```
+
+## taskExport()
+
+Export tasks as JSON or CSV.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { format?: "json" | "csv" | undefined; status?: string | undefined; parent?: string | undefined; } | undefined) => Promise<EngineResult<unknown>>
+```
+
+## taskHistory()
+
+Get task history from the log file.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, limit?: number | undefined) => Promise<EngineResult<Record<string, unknown>[]>>
+```
+
+## taskLint()
+
+Lint tasks for common issues.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId?: string | undefined) => Promise<EngineResult<{ taskId: string; severity: "error" | "warning"; rule: string; message: string; }[]>>
+```
+
+## taskBatchValidate()
+
+Validate multiple tasks at once.  T4657  T4790  T4654
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskIds: string[], checkMode?: "full" | "quick") => Promise<EngineResult<{ results: Record<string, { severity: "error" | "warning"; rule: string; message: string; }[]>; summary: { ...; }; }>>
+```
+
+## taskImport()
+
+Import tasks from a JSON source string or export package.  T4790
+
+**Signature**
+
+```typescript
+(projectRoot: string, source: string, overwrite?: boolean | undefined) => Promise<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> | undefined; }>>
+```
+
+## taskPlan()
+
+Compute a ranked plan: in-progress epics, ready tasks, blockers, bugs.  T4815
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<unknown>>
+```
+
+## taskRelatesFind()
+
+Find related tasks using semantic search or keyword matching.  T5672
+
+**Signature**
+
+```typescript
+(projectRoot: string, taskId: string, params?: { mode?: "suggest" | "discover" | undefined; threshold?: number | undefined; } | undefined) => Promise<EngineResult<Record<string, unknown>>>
+```
+
+## taskLabelList()
+
+List all labels used in tasks.  T5672
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ labels: unknown[]; count: number; }>>
+```
+
+## taskLabelShow()
+
+Show tasks associated with a label.  T5672
+
+**Signature**
+
+```typescript
+(projectRoot: string, label: string) => Promise<EngineResult<Record<string, unknown>>>
+```
+
+## systemDash()
+
+Project dashboard: task counts by status, active session info, current focus, recent completions.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { blockedTasksLimit?: number | undefined; } | undefined) => Promise<EngineResult<DashboardData>>
+```
+
+## systemStats()
+
+Detailed statistics: tasks by status/priority/type/phase, completion rate, average cycle time.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { period?: number | undefined; } | undefined) => Promise<EngineResult<StatsData>>
+```
+
+## systemLabels()
+
+List all unique labels across tasks with counts and task IDs per label.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<LabelsResult>>
+```
+
+## systemArchiveStats()
+
+Archive metrics: total archived, by reason, average cycle time, archive rate.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { period?: number | undefined; } | undefined) => Promise<EngineResult<ArchiveStatsResult>>
+```
+
+## systemLog()
+
+Query audit log with optional filters. Reads from SQLite audit_log table.   T4837
+
+**Signature**
+
+```typescript
+(projectRoot: string, filters?: { operation?: string | undefined; taskId?: string | undefined; since?: string | undefined; until?: string | undefined; limit?: number | undefined; offset?: number | undefined; } | undefined) => Promise<...>
+```
+
+## systemContext()
+
+Context window tracking: estimate token usage from current session/state.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { session?: string | undefined; } | undefined) => EngineResult<ContextData>
+```
+
+## systemSequence()
+
+Read task ID sequence state from canonical SQLite metadata. Supports 'show' and 'check' actions.  T4815
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { action?: "check" | "show" | undefined; } | undefined) => Promise<EngineResult<Record<string, unknown> | SequenceData>>
+```
+
+## systemInjectGenerate()
+
+Generate Minimum Viable Injection (MVI).
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<InjectGenerateResult>>
+```
+
+## systemMetrics()
+
+System metrics: token usage, compliance summary, session counts.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { scope?: string | undefined; since?: string | undefined; } | undefined) => Promise<EngineResult<SystemMetricsResult>>
+```
+
+## systemHealth()
+
+System health check: verify core data files exist and are valid.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { detailed?: boolean | undefined; } | undefined) => EngineResult<HealthResult>
+```
+
+## systemDiagnostics()
+
+System diagnostics: extended health checks with fix suggestions.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { checks?: string[] | undefined; } | undefined) => Promise<EngineResult<DiagnosticsResult>>
+```
+
+## systemHelp()
+
+Return help text for the system.  T4631
+
+**Signature**
+
+```typescript
+(_projectRoot: string, params?: { topic?: string | undefined; } | undefined) => EngineResult<HelpData>
+```
+
+## systemRoadmap()
+
+Generate roadmap from pending epics and optional CHANGELOG history.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { includeHistory?: boolean | undefined; upcomingOnly?: boolean | undefined; } | undefined) => Promise<EngineResult<unknown>>
+```
+
+## systemCompliance()
+
+System compliance report from COMPLIANCE.jsonl.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { subcommand?: string | undefined; days?: number | undefined; epic?: string | undefined; } | undefined) => EngineResult<ComplianceData>
+```
+
+## systemBackup()
+
+Create a backup of CLEO data files.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { type?: string | undefined; note?: string | undefined; } | undefined) => EngineResult<BackupResult>
+```
+
+## systemRestore()
+
+Restore from a backup.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { backupId: string; force?: boolean | undefined; }) => EngineResult<RestoreResult>
+```
+
+## backupRestore()
+
+Restore an individual file from backup.  T5329
+
+**Signature**
+
+```typescript
+(projectRoot: string, fileName: string, options?: { dryRun?: boolean | undefined; } | undefined) => Promise<EngineResult<{ restored: boolean; file: string; from: string; targetPath: string; dryRun?: boolean | undefined; }>>
+```
+
+## systemMigrate()
+
+Check/run schema migrations.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { target?: string | undefined; dryRun?: boolean | undefined; } | undefined) => Promise<EngineResult<MigrateResult>>
+```
+
+## systemCleanup()
+
+Cleanup stale data (sessions, backups, logs).  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { target: string; olderThan?: string | undefined; dryRun?: boolean | undefined; }) => Promise<EngineResult<CleanupResult>>
+```
+
+## systemAudit()
+
+Audit data integrity.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { scope?: string | undefined; fix?: boolean | undefined; } | undefined) => Promise<EngineResult<AuditResult>>
+```
+
+## systemSync()
+
+Sync check (no external sync targets in native mode).  T4631
+
+**Signature**
+
+```typescript
+(_projectRoot: string, params?: { direction?: string | undefined; } | undefined) => EngineResult<SyncData>
+```
+
+## systemSafestop()
+
+Safe stop: signal clean shutdown for agents.  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { reason?: string | undefined; commit?: boolean | undefined; handoff?: string | undefined; noSessionEnd?: boolean | undefined; dryRun?: boolean | undefined; } | undefined) => EngineResult<...>
+```
+
+## systemUncancel()
+
+Uncancel a cancelled task (restore to pending).  T4631
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { taskId: string; cascade?: boolean | undefined; notes?: string | undefined; dryRun?: boolean | undefined; }) => Promise<EngineResult<UncancelResult>>
+```
+
+## systemDoctor()
+
+Run comprehensive doctor diagnostics.  T4795
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<DoctorReport>>
+```
+
+## systemFix()
+
+Run auto-fix for failed doctor checks.  T4795
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<FixResult[]>>
+```
+
+## systemRuntime()
+
+Runtime/channel diagnostics for CLI/MCP installation mode checks.  T4815
+
+**Signature**
+
+```typescript
+(_projectRoot: string, params?: { detailed?: boolean | undefined; } | undefined) => Promise<EngineResult<RuntimeDiagnostics>>
+```
+
+## systemSequenceRepair()
+
+Repair task ID sequence using canonical core implementation.  T4815
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<Record<string, unknown>>>
+```
+
+## parseIssueTemplates()
+
+Parse all templates from the repo's .github/ISSUE_TEMPLATE/ directory.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => EngineResult<TemplateConfig>
+```
+
+## getTemplateForSubcommand()
+
+Get template config for a specific subcommand (bug/feature/help).
+
+**Signature**
+
+```typescript
+(projectRoot: string, subcommand: string) => EngineResult<IssueTemplate>
+```
+
+## generateTemplateConfig()
+
+Generate and cache the config as .cleo/issue-templates.json.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<TemplateConfig>>
+```
+
+## validateLabels()
+
+Validate that labels exist on a GitHub repo.
+
+**Signature**
+
+```typescript
+(labels: string[], repoLabels: string[]) => EngineResult<{ existing: string[]; missing: string[]; }>
+```
+
+## validateSchemaOp()
+
+validate.schema - JSON Schema validation  T4477
+
+**Signature**
+
+```typescript
+(type: string, data?: unknown, projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateTask()
+
+validate.task - Anti-hallucination task validation  T4477
+
+**Signature**
+
+```typescript
+(taskId: string, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateProtocol()
+
+validate.protocol - Protocol compliance check  T4477
+
+**Signature**
+
+```typescript
+(taskId: string, protocolType?: string | undefined, projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateManifest()
+
+validate.manifest - Manifest entry validation  T4477
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateOutput()
+
+validate.output - Output file validation  T4477
+
+**Signature**
+
+```typescript
+(filePath: string, taskId?: string | undefined, projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateComplianceSummary()
+
+validate.compliance.summary - Aggregated compliance metrics  T4477
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateComplianceViolations()
+
+validate.compliance.violations - List compliance violations  T4477
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateComplianceRecord()
+
+validate.compliance.record - Record compliance check result  T4477
+
+**Signature**
+
+```typescript
+(taskId: string, result: string, protocol?: string | undefined, violations?: { code: string; message: string; severity: "error" | "warning"; }[] | undefined, projectRoot?: string | undefined) => EngineResult<...>
+```
+
+## validateTestStatus()
+
+validate.test.status - Test suite status  T4477
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateCoherenceCheck()
+
+validate.coherence-check - Cross-validate task graph for consistency  T4477
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<{ coherent: boolean; issues: CoherenceIssue[]; }>>
+```
+
+## validateTestRun()
+
+validate.test.run - Execute test suite via subprocess  T4632
+
+**Signature**
+
+```typescript
+(params?: { scope?: string | undefined; pattern?: string | undefined; parallel?: boolean | undefined; } | undefined, projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateBatchValidate()
+
+validate.batch-validate - Batch validate all tasks against schema and rules  T4632
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateTestCoverage()
+
+validate.test.coverage - Coverage metrics  T4477
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => EngineResult<unknown>
+```
+
+## validateProtocolConsensus()
+
+check.protocol.consensus - Validate consensus protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateProtocolContribution()
+
+check.protocol.contribution - Validate contribution protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateProtocolDecomposition()
+
+check.protocol.decomposition - Validate decomposition protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateProtocolImplementation()
+
+check.protocol.implementation - Validate implementation protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateProtocolSpecification()
+
+check.protocol.specification - Validate specification protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## validateGateVerify()
+
+check.gate.verify - View or modify verification gates for a task  T5327
+
+**Signature**
+
+```typescript
+(params: GateVerifyParams, projectRoot?: string | undefined) => Promise<EngineResult<GateVerifyResult>>
+```
+
+## dispatchMeta(gateway, domain, operation, startTime, source)
+
+Build metadata for a dispatch domain response.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, startTime: number, source?: Source) => { [key: string]: unknown; gateway: Gateway; domain: string; operation: string; timestamp: string; ... 5 more ...; version?: string | undefined; }
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `gateway` | `string` | Gateway name (e.g., 'query', 'mutate') |
+| `domain` | `string` | Domain name (e.g., 'tasks', 'session') |
+| `operation` | `string` | Operation name (e.g., 'show', 'list') |
+| `startTime` | `number` | Timestamp from Date.now() at start of request |
+| `source` | `: Source` | Where the request originated ('cli' or 'mcp') |
+
+**Returns** — Metadata conforming to DispatchResponse['_meta']   T4772
+
+## wrapResult()
+
+Wrap a native engine result into a DispatchResponse. Handles success data, page metadata, and structured errors.
+
+**Signature**
+
+```typescript
+(result: EngineResult, gateway: string, domain: string, operation: string, startTime: number) => DispatchResponse
+```
+
+## errorResult()
+
+Return a standard error response.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, code: string, message: string, startTime: number) => DispatchResponse
+```
+
+## unsupportedOp()
+
+Return a standard "unsupported operation" error response.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, startTime: number) => DispatchResponse
+```
+
+## getListParams()
+
+Extract limit and offset pagination params from a params dict.
+
+**Signature**
+
+```typescript
+(params?: Record<string, unknown> | undefined) => { limit?: number | undefined; offset?: number | undefined; }
+```
+
+## handleErrorResult()
+
+Handle a caught error: extract message and return an internal error response. Callers should log the error themselves (with their domain-specific logger) before or after calling this.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, error: unknown, startTime: number) => DispatchResponse
+```
+
+## routeByParam()
+
+Shared parameter-based routing for merged operations. DRY utility -- all 10 domain handlers use this instead of re-implementing action dispatch.   T5671
+
+**Signature**
+
+```typescript
+<T>(params: Record<string, unknown> | undefined, paramName: string, routes: Record<string, () => T>, defaultRoute?: string | undefined) => T
+```
+
+## BackgroundJobManager
+
+Manages background jobs for long-running operations
+
+**Signature**
+
+```typescript
+typeof BackgroundJobManager
+```
+
+**Methods**
+
+### startJob()
+
+Start a new background job
+
+```typescript
+(operation: string, executor: () => Promise<unknown>) => Promise<string>
+```
+
+### getJob()
+
+Get a specific job by ID
+
+```typescript
+(jobId: string) => BackgroundJob | undefined
+```
+
+### listJobs()
+
+List all jobs, optionally filtered by status
+
+```typescript
+(status?: string | undefined) => BackgroundJob[]
+```
+
+### cancelJob()
+
+Cancel a running job
+
+```typescript
+(jobId: string) => boolean
+```
+
+### updateProgress()
+
+Update job progress (0-100)
+
+```typescript
+(jobId: string, progress: number) => boolean
+```
+
+### cleanup()
+
+Cleanup old completed/failed/cancelled jobs past retention period
+
+```typescript
+() => number
+```
+
+### destroy()
+
+Destroy the manager: cancel all running jobs and clear state
+
+```typescript
+() => void
+```
+
+### executeJob()
+
+Execute a job's executor function and update status on completion/failure
+
+```typescript
+(jobId: string, executor: () => Promise<unknown>, signal: AbortSignal) => Promise<void>
+```
+
+## setJobManager()
+
+**Signature**
+
+```typescript
+(manager: BackgroundJobManager) => void
+```
+
+## getJobManager()
+
+**Signature**
+
+```typescript
+() => BackgroundJobManager | null
+```
+
+## AdminHandler
+
+**Signature**
+
+```typescript
+typeof AdminHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## CheckHandler
+
+**Signature**
+
+```typescript
+typeof CheckHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## MemoryHandler
+
+**Signature**
+
+```typescript
+typeof MemoryHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## nexusStatus()
+
+Get nexus status (initialized, project count, last updated).
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<{ initialized: boolean; projectCount: number; lastUpdated: string | null; }>>
+```
+
+## nexusListProjects()
+
+List all registered projects.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => Promise<EngineResult<{ projects: NexusProject[]; count: number; total: number; filtered: number; page: LAFSPage; }>>
+```
+
+## nexusShowProject()
+
+Show a single project by name.
+
+**Signature**
+
+```typescript
+(name: string) => Promise<EngineResult<NexusProject | null>>
+```
+
+## nexusResolve()
+
+Resolve a cross-project task query.
+
+**Signature**
+
+```typescript
+(query: string, currentProject?: string | undefined) => Promise<EngineResult<NexusResolvedTask | NexusResolvedTask[]>>
+```
+
+## nexusDepsQuery()
+
+Get cross-project dependencies for a task query.
+
+**Signature**
+
+```typescript
+(query: string, direction?: "forward" | "reverse") => Promise<EngineResult<DepsResult>>
+```
+
+## nexusGraph()
+
+Build the global dependency graph.
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<NexusGlobalGraph>>
+```
+
+## nexusCriticalPath()
+
+Get the critical path across projects.
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<CriticalPathResult>>
+```
+
+## nexusBlockers()
+
+Analyze blockers for a task query.
+
+**Signature**
+
+```typescript
+(query: string) => Promise<EngineResult<BlockingAnalysisResult>>
+```
+
+## nexusOrphans()
+
+List orphaned cross-project tasks.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => Promise<EngineResult<{ orphans: OrphanEntry[]; count: number; total: number; filtered: number; page: LAFSPage; }>>
+```
+
+## nexusDiscover()
+
+Discover tasks related to a given task query across projects. Delegates all business logic to src/core/nexus/discover.ts.
+
+**Signature**
+
+```typescript
+(taskQuery: string, method?: string, limit?: number) => Promise<EngineResult<{ query: string; method: string; results: { project: string; taskId: string; title: string; score: number; type: string; reason: string; }[]; total: number; }>>
+```
+
+## nexusSearch()
+
+Search for tasks across all registered projects. Delegates all business logic to src/core/nexus/discover.ts.
+
+**Signature**
+
+```typescript
+(pattern: string, projectFilter?: string | undefined, limit?: number) => Promise<EngineResult<{ pattern: string; results: { id: string; title: string; status: string; priority?: string | undefined; description?: string | undefined; _project: string; }[]; resultCount: number; }>>
+```
+
+## nexusInitialize()
+
+Initialize the nexus.
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<{ message: string; }>>
+```
+
+## nexusRegisterProject()
+
+Register a project in the nexus.
+
+**Signature**
+
+```typescript
+(path: string, name?: string | undefined, permission?: NexusPermissionLevel) => Promise<EngineResult<{ hash: string; message: string; }>>
+```
+
+## nexusUnregisterProject()
+
+Unregister a project from the nexus.
+
+**Signature**
+
+```typescript
+(name: string) => Promise<EngineResult<{ message: string; }>>
+```
+
+## nexusSyncProject()
+
+Sync a specific project or all projects.
+
+**Signature**
+
+```typescript
+(name?: string | undefined) => Promise<EngineResult<unknown>>
+```
+
+## nexusSetPermission()
+
+Set permission level for a project.
+
+**Signature**
+
+```typescript
+(name: string, level: NexusPermissionLevel) => Promise<EngineResult<{ message: string; }>>
+```
+
+## nexusReconcileProject()
+
+Reconcile the nexus registry with the filesystem.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ status: "ok" | "path_updated" | "auto_registered"; oldPath?: string | undefined; newPath?: string | undefined; }>>
+```
+
+## nexusShareStatus()
+
+Get sharing status for a project.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<SharingStatus>>
+```
+
+## nexusShareSnapshotExport()
+
+Export a snapshot of the project's tasks.
+
+**Signature**
+
+```typescript
+(projectRoot: string, outputPath?: string | undefined) => Promise<EngineResult<{ path: string; taskCount: number; checksum: string; }>>
+```
+
+## nexusShareSnapshotImport()
+
+Import a snapshot into the project.
+
+**Signature**
+
+```typescript
+(projectRoot: string, inputPath: string) => Promise<EngineResult<ImportResult>>
+```
+
+## NexusHandler
+
+**Signature**
+
+```typescript
+typeof NexusHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## OrchestrateHandler
+
+**Signature**
+
+```typescript
+typeof OrchestrateHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## PipelineHandler
+
+**Signature**
+
+```typescript
+typeof PipelineHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+### queryStage()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateStage()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryRelease()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateRelease()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryManifest()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryPhase()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateManifest()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutatePhase()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryChain()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateChain()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+## bindSession()
+
+Bind a session to the current process. Called by session.start mutation handler after successful session creation.
+
+**Signature**
+
+```typescript
+(ctx: Omit<SessionContext, "agentPid" | "boundAt">) => SessionContext
+```
+
+**Throws**
+
+- if a session is already bound (call unbindSession first).
+
+## getBoundSession()
+
+Get the currently bound session context, or null if none is bound.
+
+**Signature**
+
+```typescript
+() => SessionContext | null
+```
+
+## hasSession()
+
+Check whether a session is currently bound.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## unbindSession()
+
+Unbind the current session context. Called by session.end mutation handler.
+
+**Signature**
+
+```typescript
+() => SessionContext | null
+```
+
+**Returns** — The unbound context, or null if nothing was bound.
+
+## resetSessionContext()
+
+Reset the session context (for testing only).
+
+**Signature**
+
+```typescript
+() => void
+```
+
+## SessionHandler
+
+**Signature**
+
+```typescript
+typeof SessionHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## stickyAdd(projectRoot, params)
+
+Create a new sticky note.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: CreateStickyParams) => Promise<EngineResult<StickyNote>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `params` | `CreateStickyParams` | Creation parameters |
+
+**Returns** — EngineResult with created sticky note
+
+## stickyList(projectRoot, params)
+
+List sticky notes with optional filtering.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: ListStickiesParams) => Promise<EngineResult<{ stickies: StickyNote[]; total: number; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `params` | `: ListStickiesParams` | Filter parameters |
+
+**Returns** — EngineResult with array of sticky notes
+
+## stickyShow(projectRoot, id)
+
+Get a single sticky note by ID.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id: string) => Promise<EngineResult<StickyNote | null>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `id` | `string` | Sticky note ID |
+
+**Returns** — EngineResult with sticky note or null
+
+## stickyConvertToTask(projectRoot, stickyId, title)
+
+Convert a sticky note to a task.
+
+**Signature**
+
+```typescript
+(projectRoot: string, stickyId: string, title?: string | undefined) => Promise<EngineResult<{ taskId: string; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `stickyId` | `string` | Sticky note ID |
+| `title` | `: string \| undefined` | Optional task title |
+
+**Returns** — EngineResult with new task ID
+
+## stickyConvertToMemory(projectRoot, stickyId, memoryType)
+
+Convert a sticky note to a memory observation.
+
+**Signature**
+
+```typescript
+(projectRoot: string, stickyId: string, memoryType?: string | undefined) => Promise<EngineResult<{ memoryId: string; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `stickyId` | `string` | Sticky note ID |
+| `memoryType` | `: string \| undefined` | Optional memory type |
+
+**Returns** — EngineResult with new memory entry ID
+
+## stickyArchive(projectRoot, id)
+
+Archive a sticky note.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id: string) => Promise<EngineResult<StickyNote>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `id` | `string` | Sticky note ID |
+
+**Returns** — EngineResult with archived sticky note
+
+## stickyConvertToTaskNote(projectRoot, stickyId, taskId)
+
+Convert a sticky note to a task note.
+
+**Signature**
+
+```typescript
+(projectRoot: string, stickyId: string, taskId: string) => Promise<EngineResult<{ taskId: string; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `stickyId` | `string` | Sticky note ID |
+| `taskId` | `string` | Target task ID |
+
+**Returns** — EngineResult with updated task ID
+
+## stickyConvertToSessionNote(projectRoot, stickyId, sessionId)
+
+Convert a sticky note to a session note.
+
+**Signature**
+
+```typescript
+(projectRoot: string, stickyId: string, sessionId?: string | undefined) => Promise<EngineResult<{ sessionId: string; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `stickyId` | `string` | Sticky note ID |
+| `sessionId` | `: string \| undefined` | Optional target session ID |
+
+**Returns** — EngineResult with session ID
+
+## stickyPurge(projectRoot, id)
+
+Purge (permanently delete) a sticky note.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id: string) => Promise<EngineResult<StickyNote>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `projectRoot` | `string` | Project root path |
+| `id` | `string` | Sticky note ID |
+
+**Returns** — EngineResult with purged sticky note
+
+## StickyHandler
+
+**Signature**
+
+```typescript
+typeof StickyHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## TasksHandler
+
+**Signature**
+
+```typescript
+typeof TasksHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+## queryHookProviders(event)
+
+Query providers that support a specific hook event  Returns detailed provider information including which hooks each provider supports, enabling intelligent routing and filtering of hook handlers.
+
+**Signature**
+
+```typescript
+(event: HookEvent) => Promise<EngineResult<{ event: HookEvent; providers: ProviderHookInfo[]; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `event` | `HookEvent` | The hook event to query providers for |
+
+**Returns** — Engine result with provider hook capability data
+
+## queryCommonHooks(providerIds)
+
+Get hook events common to specified providers  Analyzes which hook events are supported by all providers in the given list, useful for determining the intersection of hook capabilities.
+
+**Signature**
+
+```typescript
+(providerIds?: string[] | undefined) => Promise<EngineResult<{ providerIds?: string[] | undefined; commonEvents: HookEvent[]; }>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `providerIds` | `: string[] \| undefined` | Optional array of provider IDs to analyze (uses all active if omitted) |
+
+**Returns** — Engine result with common hook events
+
+## toolsIssueDiagnostics()
+
+Collect issue diagnostics.
+
+**Signature**
+
+```typescript
+() => EngineResult<Record<string, string>>
+```
+
+## toolsSkillList()
+
+List all discovered skills.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => Promise<EngineResult<{ skills: SkillEntry[]; count: number; total: number; filtered: number; page: LAFSPage; }>>
+```
+
+## toolsSkillShow()
+
+Show a single skill by name.
+
+**Signature**
+
+```typescript
+(name: string) => Promise<EngineResult<{ skill: SkillEntry | null; }>>
+```
+
+## toolsSkillFind()
+
+Find skills matching a query string.
+
+**Signature**
+
+```typescript
+(query?: string | undefined) => Promise<EngineResult<{ skills: SkillEntry[]; count: number; query: string; }>>
+```
+
+## toolsSkillDispatch()
+
+Get dispatch matrix entries for a skill.
+
+**Signature**
+
+```typescript
+(name: string) => EngineResult<{ skill: string; dispatch: { byTaskType: string[]; byKeyword: string[]; byProtocol: string[]; }; }>
+```
+
+## toolsSkillVerify()
+
+Verify a skill's installation and catalog status.
+
+**Signature**
+
+```typescript
+(name: string) => Promise<EngineResult<{ skill: string; installed: boolean; inCatalog: boolean; installPath: string | null; }>>
+```
+
+## toolsSkillDependencies()
+
+Get dependency tree for a skill.
+
+**Signature**
+
+```typescript
+(name: string) => EngineResult<{ skill: string; direct: string[]; tree: string[]; }>
+```
+
+## toolsSkillSpawnProviders()
+
+Get spawn-capable providers by capability.
+
+**Signature**
+
+```typescript
+(capability?: "supportsSubagents" | "supportsProgrammaticSpawn" | "supportsInterAgentComms" | "supportsParallelSpawn" | undefined) => Promise<EngineResult<{ providers: unknown[]; capability: string; count: number; }>>
+```
+
+## toolsSkillCatalogInfo()
+
+Get catalog info (protocols, profiles, resources, or summary).
+
+**Signature**
+
+```typescript
+() => EngineResult<{ available: boolean; version: string | null; libraryRoot: string | null; skillCount: number; protocolCount: number; profileCount: number; }>
+```
+
+## toolsSkillCatalogProtocols()
+
+List catalog protocols.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => EngineResult<{ protocols: { name: string; path: string | null; }[]; count: number; total: number; filtered: number; page: LAFSPage; }>
+```
+
+## toolsSkillCatalogProfiles()
+
+List catalog profiles.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => EngineResult<{ profiles: { name: string; description: string; extends: string | undefined; skillCount: number; skills: string[]; }[]; count: number; total: number; filtered: number; page: LAFSPage; }>
+```
+
+## toolsSkillCatalogResources()
+
+List catalog shared resources.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => EngineResult<{ resources: { name: string; path: string | null; }[]; count: number; total: number; filtered: number; page: LAFSPage; }>
+```
+
+## toolsSkillPrecedenceShow()
+
+Show skill precedence map.
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<{ precedenceMap: unknown; }>>
+```
+
+## toolsSkillPrecedenceResolve()
+
+Resolve skill paths for a specific provider.
+
+**Signature**
+
+```typescript
+(providerId: string, scope: "global" | "project", projectRoot: string) => Promise<EngineResult<{ providerId: string; scope: string; paths: unknown; }>>
+```
+
+## toolsSkillInstall()
+
+Install a skill to one or more providers.
+
+**Signature**
+
+```typescript
+(name: string, projectRoot: string, source?: string | undefined, isGlobal?: boolean | undefined) => Promise<EngineResult<{ results: { providerId: string; success: boolean; errors: string[]; }[]; targets: string[]; }>>
+```
+
+## toolsSkillUninstall()
+
+Uninstall a skill from all providers.
+
+**Signature**
+
+```typescript
+(name: string, projectRoot: string, isGlobal?: boolean | undefined) => Promise<EngineResult<{ removed: string[]; errors: string[]; }>>
+```
+
+## toolsSkillRefresh()
+
+Refresh all tracked skills that have updates available.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<{ updated: string[]; failed: { name: string; error: string; }[]; checked: number; }>>
+```
+
+## toolsProviderList()
+
+List all registered providers.
+
+**Signature**
+
+```typescript
+(limit?: number | undefined, offset?: number | undefined) => EngineResult<{ providers: Provider[]; count: number; total: number; filtered: number; page: LAFSPage; }>
+```
+
+## toolsProviderDetect()
+
+Detect all available providers in the environment.
+
+**Signature**
+
+```typescript
+() => EngineResult<{ providers: DetectionResult[]; count: number; }>
+```
+
+## toolsProviderInjectStatus()
+
+Check injection status for all installed providers.
+
+**Signature**
+
+```typescript
+(projectRoot: string, scope?: "global" | "project" | undefined, content?: string | undefined) => Promise<EngineResult<{ checks: unknown[]; count: number; }>>
+```
+
+## toolsProviderSupports()
+
+Check if a provider supports a specific capability.
+
+**Signature**
+
+```typescript
+(providerId: string, capability: string) => Promise<EngineResult<{ providerId: string; capability: string; supported: boolean; }>>
+```
+
+## toolsProviderHooks()
+
+Query hook providers for a specific event.
+
+**Signature**
+
+```typescript
+(event: string) => Promise<EngineResult<unknown>>
+```
+
+## toolsProviderInject()
+
+Inject CLEO directives into all installed provider instruction files.
+
+**Signature**
+
+```typescript
+(projectRoot: string, scope?: "global" | "project" | undefined, references?: string[] | undefined, content?: string | undefined) => Promise<EngineResult<{ actions: { file: string; action: string; }[]; count: number; }>>
+```
+
+## toolsTodowriteStatus()
+
+Get TodoWrite sync status.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<unknown>>
+```
+
+## toolsTodowriteSync()
+
+Trigger TodoWrite sync.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { direction?: string | undefined; } | undefined) => EngineResult<unknown>
+```
+
+## toolsTodowriteClear()
+
+Clear TodoWrite sync state.
+
+**Signature**
+
+```typescript
+(projectRoot: string, dryRun?: boolean | undefined) => Promise<EngineResult<unknown>>
+```
+
+## toolsAdapterList()
+
+List all discovered adapters.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => EngineResult<{ adapters: AdapterInfo[]; count: number; }>
+```
+
+## toolsAdapterShow()
+
+Show a single adapter by ID.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id: string) => EngineResult<{ manifest: unknown; initialized: boolean; active: boolean; }>
+```
+
+## toolsAdapterDetect()
+
+Detect active adapters.
+
+**Signature**
+
+```typescript
+(projectRoot: string) => EngineResult<{ detected: string[]; count: number; }>
+```
+
+## toolsAdapterHealth()
+
+Get adapter health status.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id?: string | undefined) => EngineResult<{ adapters: AdapterInfo[]; count: number; }>
+```
+
+## toolsAdapterActivate()
+
+Activate an adapter by ID.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id: string) => Promise<EngineResult<{ id: string; name: string; version: string; active: boolean; }>>
+```
+
+## toolsAdapterDispose()
+
+Dispose one or all adapters.
+
+**Signature**
+
+```typescript
+(projectRoot: string, id?: string | undefined) => Promise<EngineResult<{ disposed: string; }>>
+```
+
+## ToolsHandler
+
+**Signature**
+
+```typescript
+typeof ToolsHandler
+```
+
+**Methods**
+
+### query()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### mutate()
+
+```typescript
+(operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+### getSupportedOperations()
+
+```typescript
+() => { query: string[]; mutate: string[]; }
+```
+
+### queryIssue()
+
+```typescript
+(sub: string, _params: Record<string, unknown> | undefined, startTime: number) => DispatchResponse
+```
+
+### mutateIssue()
+
+```typescript
+(sub: string, _params: Record<string, unknown> | undefined, startTime: number) => DispatchResponse
+```
+
+### querySkill()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateSkill()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryProvider()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateProvider()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryTodowrite()
+
+```typescript
+(sub: string, _params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### mutateTodowrite()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### queryAdapter()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => DispatchResponse
+```
+
+### mutateAdapter()
+
+```typescript
+(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
+```
+
+### handleError()
+
+```typescript
+(gateway: string, domain: string, operation: string, error: unknown, startTime: number) => DispatchResponse
+```
+
+## createDomainHandlers()
+
+Create a Map of all canonical domain handlers.
+
+**Signature**
+
+```typescript
+() => Map<string, DomainHandler>
+```
+
+## RateLimiter
+
+Sliding window rate limiter  Tracks request timestamps per category and rejects requests that exceed the configured limit within the time window.
+
+**Signature**
+
+```typescript
+typeof RateLimiter
+```
+
+**Methods**
+
+### check()
+
+Check if a request is allowed and record it if so.
+
+```typescript
+(gateway: string, domain: string, operation: string) => RateLimitResult
+```
+
+### peek()
+
+Get current rate limit status without recording a request.
+
+```typescript
+(gateway: string, domain: string, operation: string) => RateLimitResult
+```
+
+### reset()
+
+Reset all rate limit buckets (for testing)
+
+```typescript
+() => void
+```
+
+### resetCategory()
+
+Reset a specific category bucket (for testing)
+
+```typescript
+(category: string) => void
+```
+
+### updateConfig()
+
+Update configuration at runtime
+
+```typescript
+(config: Partial<RateLimitingConfig>) => void
+```
+
+### getConfig()
+
+Get current configuration (for diagnostics)
+
+```typescript
+() => Readonly<RateLimitingConfig>
+```
+
+### resolveCategory()
+
+Resolve the rate limit category for a given request.  Spawn operations get their own stricter limit. Everything else is categorized by gateway type.
+
+```typescript
+(gateway: string, domain: string, operation: string) => string
+```
+
+### getLimitConfig()
+
+Get the limit configuration for a category
+
+```typescript
+(category: string) => RateLimitConfig
+```
+
+### getOrCreateBucket()
+
+Get or create a sliding window bucket for a category
+
+```typescript
+(category: string) => SlidingWindowBucket
+```
+
+## ConfigValidationError
+
+Configuration validation error
+
+**Signature**
+
+```typescript
+typeof ConfigValidationError
+```
+
+## validateConfig()
+
+Validate complete configuration
+
+**Signature**
+
+```typescript
+(config: MCPConfig) => void
+```
+
+## loadConfig()
+
+Load configuration from all sources  Priority order: 1. Environment variables (CLEO_MCP_*) 2. Config file (.cleo/config.json) 3. Defaults
+
+**Signature**
+
+```typescript
+(projectRoot?: string | undefined) => MCPConfig
+```
+
+## getConfig()
+
+Get global configuration (singleton)
+
+**Signature**
+
+```typescript
+() => MCPConfig
+```
+
+## resetConfig()
+
+Reset global configuration (for testing)
+
+**Signature**
+
+```typescript
+() => void
+```
+
+## createAudit()
+
+Creates an audit middleware that logs all mutate operations (and query operations during grade sessions) to Pino + SQLite.
+
+**Signature**
+
+```typescript
+() => Middleware
+```
+
+## createFieldFilter()
+
+Create the LAFS field-filter middleware.  Handles: - _fields: filter response data to specified fields (delegates to SDK applyFieldFilter) - _mvi: envelope verbosity — stored on request for downstream use  _fields and _mvi are extracted from req.params (for MCP callers that pass them as params) and stored on the DispatchRequest before the domain handler runs.
+
+**Signature**
+
+```typescript
+() => Middleware
+```
+
+## createSanitizer(getProjectRoot)
+
+Creates a middleware that sanitizes incoming request parameters. Uses the canonical sanitization logic from security.ts to handle Task IDs, paths, string lengths, and enum validation.
+
+**Signature**
+
+```typescript
+(getProjectRoot?: (() => string) | undefined) => Middleware
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `getProjectRoot` | `: ((` | Optional function to resolve the current project root for path sanitization |
+
+## createSessionResolver(cliSessionLookup)
+
+Creates the session resolver middleware.
+
+**Signature**
+
+```typescript
+(cliSessionLookup?: (() => Promise<string | null>) | undefined) => Middleware
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `cliSessionLookup` | `: ((` | Optional async function that resolves the active   session ID from SQLite for CLI commands. If not provided, the resolver   falls through to env var / null. |
+
+## getCliDispatcher()
+
+Get or create the singleton CLI dispatcher.  Creates a Dispatcher with all 9 domain handlers and sanitizer middleware. No rate limiter — CLI is a single-user tool.
+
+**Signature**
+
+```typescript
+() => Dispatcher
+```
+
+## createCliDispatcher()
+
+Factory: creates a Dispatcher with all domain handlers + session-resolver, sanitizer, field-filter, and audit middleware.   T4959 — added session-resolver + audit to CLI pipeline
+
+**Signature**
+
+```typescript
+() => Dispatcher
+```
+
+## resetCliDispatcher()
+
+Reset the singleton dispatcher (for testing).
+
+**Signature**
+
+```typescript
+() => void
+```
+
+## dispatchFromCli()
+
+Build a DispatchRequest, dispatch it, and handle output/errors.  This is the primary entry point for migrated CLI commands:   await dispatchFromCli('query', 'tasks', 'show',  taskId ,  command: 'show' );  Automatically honors global --field/--fields/--mvi flags from the FieldContext: - --field    → plain-text extraction, no JSON envelope - --fields   → field-filter middleware filters the JSON response - --mvi     → envelope verbosity passed to field-filter middleware  On success: calls cliOutput(response.data, outputOpts) On error: calls cliError(message, exitCode) + process.exit(exitCode)   T4953  T4955
+
+**Signature**
+
+```typescript
+(gateway: Gateway, domain: string, operation: string, params?: Record<string, unknown> | undefined, outputOpts?: CliOutputOptions | undefined) => Promise<...>
+```
+
+## handleRawError()
+
+Handle an error response from dispatchRaw().  Calls cliError() and process.exit() when the response indicates failure. No-op when response.success is true.
+
+**Signature**
+
+```typescript
+(response: DispatchResponse, _opts: { command: string; operation: string; }) => void
+```
+
+## dispatchRaw()
+
+Dispatch and return the raw response without handling output.  For commands that need custom output logic (pagination, conditional messages, etc.), call this instead of dispatchFromCli().
+
+**Signature**
+
+```typescript
+(gateway: Gateway, domain: string, operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
+```
+
+## resolveTier()
+
+Resolve tier from request params, defaulting to 'standard'.
+
+**Signature**
+
+```typescript
+(params?: Record<string, unknown> | undefined, sessionScope?: { type: string; epicId?: string | undefined; } | null | undefined) => MviTier
+```
+
+## isOperationAllowed()
+
+Check if a domain is allowed at the given tier.
+
+**Signature**
+
+```typescript
+(domain: string, tier: MviTier) => boolean
+```
+
+## applyProjection()
+
+Apply field projection to a result object. Removes fields that are excluded at the given tier and prunes depth.
+
+**Signature**
+
+```typescript
+<T>(data: T, config: ProjectionConfig) => T
+```
+
+## createProjectionContext()
+
+Create projection context from request params.
+
+**Signature**
+
+```typescript
+(params?: Record<string, unknown> | undefined) => ProjectionContext
+```
+
+## createProjectionMiddleware()
+
+Create the MVI projection middleware.  Extracts _mviTier from params, checks domain access, and applies field exclusions to the response.
+
+**Signature**
+
+```typescript
+() => Middleware
+```
+
+## createProtocolEnforcement()
+
+Creates a middleware that enforces protocol compliance.  Delegates to ProtocolEnforcer.enforceProtocol() which: - Passes through query operations untouched - Passes through mutate operations that don't require validation - Validates protocol compliance on validated mutate operations after execution - In strict mode, blocks operations with protocol violations (exit codes 60-70)
+
+**Signature**
+
+```typescript
+(strictMode?: boolean) => Middleware
+```
+
+## RateLimiter
+
+**Signature**
+
+```typescript
+typeof RateLimiter
+```
+
+**Methods**
+
+### check()
+
+```typescript
+(req: DispatchRequest) => RateLimitMeta & { allowed: boolean; }
+```
+
+### resolveCategory()
+
+```typescript
+(gateway: string, domain: string, operation: string) => "query" | "mutate" | "spawn"
+```
+
+### getLimitConfig()
+
+```typescript
+(category: "query" | "mutate" | "spawn") => RateLimitConfig
+```
+
+## createRateLimiter()
+
+Creates a rate limiting middleware.
+
+**Signature**
+
+```typescript
+(config?: Partial<RateLimitingConfig> | undefined) => Middleware
+```
+
+## createVerificationGates()
+
+**Signature**
+
+```typescript
+(strictMode?: boolean) => Middleware
+```
+
+## initMcpDispatcher()
+
+Initialize and get the singleton MCP dispatcher.
+
+**Signature**
+
+```typescript
+(config?: McpDispatcherConfig) => Dispatcher
+```
+
+## getMcpDispatcher()
+
+Get the initialized singleton MCP dispatcher.
+
+**Signature**
+
+```typescript
+() => Dispatcher
+```
+
+## resetMcpDispatcher()
+
+Reset the singleton dispatcher (for testing).
+
+**Signature**
+
+```typescript
+() => void
+```
+
+## handleMcpToolCall()
+
+Handle an MCP tool call (query or mutate).  Translates the MCP parameters into a DispatchRequest, executes it through the dispatcher, and formats the response back to the standard MCP SDK format.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, params?: Record<string, unknown> | undefined, requestId?: string | undefined) => Promise<DispatchResponse>
+```
+
+## createGatewayMeta(gateway, domain, operation, startTime)
+
+Create a fully typed GatewayMeta for MCP domain responses.
+
+**Signature**
+
+```typescript
+(gateway: string, domain: string, operation: string, startTime: number) => GatewayMetaRecord
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `gateway` | `string` | Gateway name (e.g., 'query', 'mutate') |
+| `domain` | `string` | Domain name (e.g., 'tasks', 'session') |
+| `operation` | `string` | Operation name (e.g., 'show', 'list') |
+| `startTime` | `number` | Timestamp from Date.now() at start of request |
+
+**Returns** — GatewayMeta with all LAFS and CLEO-specific fields   T4700  T4663
+
+## enforceBudget(response, budget)
+
+Apply budget enforcement to an MCP response envelope.  Converts the DomainResponse into an LAFSEnvelope shape for budget checking, then applies truncation if the response exceeds the budget.
+
+**Signature**
+
+```typescript
+(response: Record<string, unknown>, budget?: number | undefined) => { response: Record<string, unknown>; enforcement: BudgetEnforcementResult; }
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `response` | `Record<string` | The MCP domain response object |
+| `budget` | `: number \| undefined` | Maximum allowed tokens (defaults to DEFAULT_BUDGET) |
+
+**Returns** — The response, potentially truncated, with budget metadata   T4701  T4663
+
+## isWithinBudget()
+
+Quick check whether a response exceeds a token budget without modifying it.   T4701  T4663
+
+**Signature**
+
+```typescript
+(response: Record<string, unknown>, budget?: number | undefined) => boolean
+```
+
+## ShimCommand
+
+Minimal Commander-compatible Command class. Captures command definitions for later translation into citty commands.
+
+**Signature**
+
+```typescript
+typeof ShimCommand
+```
+
+**Methods**
+
+### command()
+
+Register a subcommand. Returns the new subcommand for chaining.
+
+```typescript
+(nameAndArgs: string, opts?: { isDefault?: boolean | undefined; } | undefined) => ShimCommand
+```
+
+### description()
+
+Set description (chaining).
+
+```typescript
+{ (desc: string): this; (): string; }
+```
+
+### description()
+
+Get description (Commander compat).
+
+```typescript
+{ (desc: string): this; (): string; }
+```
+
+### description()
+
+```typescript
+{ (desc: string): this; (): string; }
+```
+
+### alias()
+
+```typescript
+(name: string) => this
+```
+
+### option()
+
+```typescript
+(flags: string, description: string, parseOrDefault?: unknown, defaultVal?: unknown) => this
+```
+
+### requiredOption()
+
+```typescript
+(flags: string, description: string) => this
+```
+
+### argument()
+
+Add a positional argument after command creation. Commander compat: .argument('[name]', 'description')
+
+```typescript
+(spec: string, _description?: string | undefined) => this
+```
+
+### action()
+
+```typescript
+<T extends (...args: any[]) => Promise<void> | void>(fn: T) => this
+```
+
+### allowUnknownOption()
+
+No-op for Commander compatibility. citty handles unknown options gracefully.
+
+```typescript
+(_allow?: boolean | undefined) => this
+```
+
+### allowExcessArguments()
+
+No-op for Commander compatibility.
+
+```typescript
+(_allow?: boolean | undefined) => this
+```
+
+### name()
+
+Get the command name. Commander compat method.
+
+```typescript
+() => string
+```
+
+### optsWithGlobals()
+
+Return parsed global flags from process.argv. Commander compat: returns parent + own options merged.
+
+```typescript
+() => Record<string, unknown>
+```
+
+### opts()
+
+Return parsed options. For shim purposes, same as optsWithGlobals().
+
+```typescript
+() => Record<string, unknown>
+```
+
+## registerAddCommand()
+
+Register the add command.  T4460
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerAdrCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerAnalyzeCommand()
+
+Register the analyze command.  T4538
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerArchiveCommand()
+
+Register the archive command.  T4461
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerArchiveStatsCommand()
+
+Register the archive-stats command. Routes through dispatch layer to admin.archive.stats.  T4555
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerBackupCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerBlockersCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerBriefingCommand()
+
+Register the briefing command.  T4916
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerBugCommand()
+
+Register the bug command.  T4913
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerCheckpointCommand()
+
+Register the checkpoint command. Delegates to src/store/git-checkpoint.ts for isolated .cleo/.git operations.  T4551  T4872
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerCommandsCommand()
+
+Register the commands command.  T4551, T5671
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerCompleteCommand()
+
+Register the complete command.  T4461
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerComplianceCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerConfigCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerConsensusCommand()
+
+Register the consensus command group.  T4537
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerContextCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerContributionCommand()
+
+Register the contribution command group.  T4537
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerCurrentCommand()
+
+Register the current command.  T4756  T4666
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDashCommand()
+
+Register the dash command.  T4535
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDecompositionCommand()
+
+Register the decomposition command group.  T4537
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDeleteCommand()
+
+Register the delete command.  T4461
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDepsCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerTreeCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDetectDriftCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerDocsCommand()
+
+Register the docs command.  T4551
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## ProgressTracker
+
+Simple progress tracker for CLI operations.
+
+**Signature**
+
+```typescript
+typeof ProgressTracker
+```
+
+**Methods**
+
+### start()
+
+Start the progress tracker.
+
+```typescript
+() => void
+```
+
+### step()
+
+Update to a specific step.
+
+```typescript
+(index: number, message?: string | undefined) => void
+```
+
+### next()
+
+Move to next step.
+
+```typescript
+(message?: string | undefined) => void
+```
+
+### complete()
+
+Mark as complete with optional summary.
+
+```typescript
+(summary?: string | undefined) => void
+```
+
+### error()
+
+Report an error.
+
+```typescript
+(message: string) => void
+```
+
+## Spinner
+
+Simple spinner for indeterminate progress.
+
+**Signature**
+
+```typescript
+typeof Spinner
+```
+
+**Methods**
+
+### start()
+
+Start the spinner.
+
+```typescript
+() => void
+```
+
+### stop()
+
+Stop the spinner.
+
+```typescript
+(finalMessage?: string | undefined) => void
+```
+
+### update()
+
+Update the spinner message.
+
+```typescript
+(message: string) => void
+```
+
+## createSelfUpdateProgress()
+
+Create a progress tracker for self-update operations.
+
+**Signature**
+
+```typescript
+(enabled: boolean) => ProgressTracker
+```
+
+## createDoctorProgress()
+
+Create a progress tracker for doctor operations.
+
+**Signature**
+
+```typescript
+(enabled: boolean) => ProgressTracker
+```
+
+## createUpgradeProgress()
+
+Create a progress tracker for upgrade operations.
+
+**Signature**
+
+```typescript
+(enabled: boolean) => ProgressTracker
+```
+
+## registerDoctorCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerEnvCommand()
+
+Register the env command group.  T4581
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerExistsCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerExportCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerExportTasksCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerExtractCommand()
+
+Register the extract command.  T4551
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerFindCommand()
+
+Register the find command.  T4460  T4668
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerGenerateChangelogCommand()
+
+Register the generate-changelog command.  T4555
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerGradeCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerHistoryCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerImplementationCommand()
+
+Register the implementation command group.  T4537
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerImportCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerImportTasksCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## getGitignoreTemplate()
+
+Load the gitignore template from the package's templates/ directory. Falls back to embedded content if file not found.  Kept as export for backward compatibility (used by upgrade.ts).  T4700
+
+**Signature**
+
+```typescript
+() => string
+```
+
+## registerInitCommand()
+
+Register the init command.  T4681  T4663
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerInjectCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerInstallGlobalCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerIssueCommand()
+
+Register the issue command with all subcommands.  T4555
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerLabelsCommand()
+
+Register the labels command group.  T4538
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerLifecycleCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerListCommand()
+
+Register the list command.  T4460  T4668
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerLogCommand()
+
+Register the log command.  T4538
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerMapCommand()
+
+Register the map command.
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerMcpInstallCommand()
+
+Register the mcp-install command.  T4676
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerMemoryBrainCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerMigrateClaudeMemCommand()
+
+Register the `migrate claude-mem` command under a migrate parent command.  Usage:   cleo migrate claude-mem [--dry-run] [--source ] [--project ]
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerNextCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerNexusCommand()
+
+Register the nexus command group.  T4554
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerObserveCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerOpsCommand()
+
+Register the ops command.
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerOrchestrateCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerOtelCommand()
+
+Register the otel command group.  T4535
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerPhaseCommand()
+
+Register the phase command group.  T4464, T5326
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerPhasesCommand()
+
+Register the phases command group.  T4538, T5326
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerPlanCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerPromoteCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerRefreshMemoryCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerRelatesCommand()
+
+Register the relates command group.  T4538
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerReleaseCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerRemoteCommand()
+
+Register the remote command with add/remove/list/push/pull subcommands.  T4884
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerReorderCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerReparentCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerResearchCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerRestoreCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerRoadmapCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSafestopCommand()
+
+Register the safestop command.  T4551
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSelfUpdateCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSequenceCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSessionCommand()
+
+Register the session command group.  T4463
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerShowCommand()
+
+Register the show command.  T4460  T4666
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSkillsCommand()
+
+Register the skills command with all subcommands.  T4555
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSnapshotCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSpecificationCommand()
+
+Register the specification command group.  T4537
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerStartCommand()
+
+Register the start command.  T4756  T4666
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerStatsCommand()
+
+Register the stats command.  T4535
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerStickyCommand()
+
+Register the sticky command group.  T5281
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerStopCommand()
+
+Register the stop command.  T4756  T4666
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerSyncCommand()
+
+Register the sync command.  T4551, T5326
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerTestingCommand()
+
+Register the testing command.  T4551
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerTokenCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerUpdateCommand()
+
+Register the update command.  T4461
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerUpgradeCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerValidateCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerVerifyCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## registerWebCommand()
+
+Register the web command.  T4551
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
+## initCliLogger()
+
+Initialize CLI logger with optional projectHash correlation context.
+
+**Signature**
+
+```typescript
+(cwd: string, loggingConfig: LoggerConfig) => void
+```
+
+## registerDynamicCommands()
+
+Register dynamically-generated commands onto the Commander program.  Stub implementation: no commands registered until T4897 populates OperationDef.params arrays for all operations.
+
+**Signature**
+
+```typescript
+(_program: ShimCommand) => void
+```
+
+## resolveFormat(opts, defaults)
+
+Resolve output format from Commander.js option values.  Reads --json, --human, and --quiet flags and delegates to the canonical LAFS resolveOutputFormat(). Project/user defaults can be passed via the optional `defaults` parameter.
+
+**Signature**
+
+```typescript
+(opts: Record<string, unknown>, defaults?: { projectDefault?: "json" | "human" | undefined; userDefault?: "json" | "human" | undefined; } | undefined) => FlagResolution
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `opts` | `Record<string` | Commander.js parsed options object |
+| `defaults` | `: { projectDefault?: "json" \| "human" \| undefined; userDefault?: "json" \| "human" \| undefined; } \| undefined` | Optional project/user defaults |
+
+**Returns** — Resolved format with source provenance   T4703  T4663
+
+## renderErrorMarkdown()
+
+Render a CleoError as structured markdown for CLI display.
+
+**Signature**
+
+```typescript
+(error: CleoError) => string
+```
+
+## getOperationSchema(domain, operation, gateway)
+
+Look up an operation in the OPERATIONS registry and return a JSON Schema object suitable for use as `input_schema.properties.params` or as a stand-alone per-operation schema.
+
+**Signature**
+
+```typescript
+(domain: string, operation: string, gateway: Gateway) => JSONSchemaObject
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `domain` | `string` | Canonical domain name (e.g. 'tasks', 'session') |
+| `operation` | `string` | Operation name (e.g. 'show', 'add') |
+| `gateway` | `Gateway` | Gateway ('query' or 'mutate') |
+
+**Returns** — JSONSchemaObject derived from ParamDef[], or permissive fallback
+
+## getAllOperationSchemas()
+
+Return schemas for ALL operations of a given gateway.  Useful for documentation generation and tool introspection endpoints.
+
+**Signature**
+
+```typescript
+(gateway: Gateway) => Record<string, JSONSchemaObject>
+```
+
+**Returns** — Record keyed by "." → JSONSchemaObject
+
+## validateMutateParams()
+
+Validate mutate request parameters
+
+**Signature**
+
+```typescript
+(request: MutateRequest) => { valid: boolean; error?: DomainResponse | undefined; }
+```
+
+## registerMutateTool()
+
+Register mutate tool with MCP server  Returns tool definition for ListToolsRequestSchema handler
+
+**Signature**
+
+```typescript
+() => { name: string; description: string; inputSchema: { type: string; required: string[]; properties: { domain: { type: string; enum: string[]; description: string; }; operation: { type: string; description: string; }; params: { ...; }; }; }; }
+```
+
+## handleMutateRequest(request)
+
+Handle mutate request  Validates parameters, logs to audit trail, routes to domain handler, and handles idempotency
+
+**Signature**
+
+```typescript
+(request: MutateRequest) => Promise<DomainResponse>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `request` | `MutateRequest` | Mutate request with domain, operation, and params |
+
+**Returns** — Promise resolving to mutate response
+
+## isIdempotentOperation()
+
+Check if operation is idempotent
+
+**Signature**
+
+```typescript
+(domain: string, operation: string) => boolean
+```
+
+## requiresSession()
+
+Check if operation requires session binding
+
+**Signature**
+
+```typescript
+(domain: string, operation: string) => boolean
+```
+
+## getMutateOperationCount()
+
+Get mutate operation count for specific domain or all domains
+
+**Signature**
+
+```typescript
+(domain?: string | undefined) => number
+```
+
+## isMutateOperation()
+
+Check if operation is write (mutate)
+
+**Signature**
+
+```typescript
+(domain: string, operation: string) => boolean
+```
+
+## getMutateDomains()
+
+Get all mutate domains
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+## getMutateOperations()
+
+Get operations for specific mutate domain
+
+**Signature**
+
+```typescript
+(domain: string) => string[]
+```
+
+## validateQueryParams()
+
+Validate query request parameters
+
+**Signature**
+
+```typescript
+(request: QueryRequest) => { valid: boolean; error?: DomainResponse | undefined; }
+```
+
+## registerQueryTool()
+
+Register query tool with MCP server  Returns tool definition for ListToolsRequestSchema handler
+
+**Signature**
+
+```typescript
+() => { name: string; description: string; inputSchema: { type: string; required: string[]; properties: { domain: { type: string; enum: string[]; description: string; }; operation: { type: string; description: string; }; params: { ...; }; }; }; }
+```
+
+## handleQueryRequest(request)
+
+Handle query request  Validates parameters and routes to domain handler via DomainRouter
+
+**Signature**
+
+```typescript
+(request: QueryRequest) => Promise<DomainResponse>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `request` | `QueryRequest` | Query request with domain, operation, and params |
+
+**Returns** — Promise resolving to query response
+
+## getQueryOperationCount()
+
+Get query operation count for specific domain or all domains
+
+**Signature**
+
+```typescript
+(domain?: string | undefined) => number
+```
+
+## isQueryOperation()
+
+Check if operation is read-only (query)
+
+**Signature**
+
+```typescript
+(domain: string, operation: string) => boolean
+```
+
+## getQueryDomains()
+
+Get all query domains
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+## getQueryOperations()
+
+Get operations for specific query domain
+
+**Signature**
+
+```typescript
+(domain: string) => string[]
+```
+
+## QueryCache
+
+Query cache with per-domain invalidation
+
+**Signature**
+
+```typescript
+typeof QueryCache
+```
+
+**Methods**
+
+### buildKey()
+
+Build cache key from domain, operation, and params
+
+```typescript
+(domain: string, operation: string, params?: Record<string, unknown> | undefined) => string
+```
+
+### get()
+
+Get cached value, or undefined if not found/expired
+
+```typescript
+<T = unknown>(domain: string, operation: string, params?: Record<string, unknown> | undefined) => T | undefined
+```
+
+### set()
+
+Store a value in the cache
+
+```typescript
+<T = unknown>(domain: string, operation: string, params: Record<string, unknown> | undefined, value: T) => void
+```
+
+### invalidateDomain()
+
+Invalidate all cached entries for a domain  Called on any mutate operation to ensure consistency.
+
+```typescript
+(domain: string) => number
+```
+
+### clear()
+
+Clear entire cache
+
+```typescript
+() => void
+```
+
+### getStats()
+
+Get cache statistics
+
+```typescript
+() => CacheStats
+```
+
+### resetStats()
+
+Reset statistics counters
+
+```typescript
+() => void
+```
+
+### evictExpired()
+
+Evict all expired entries
+
+```typescript
+() => number
+```
+
+### destroy()
+
+Stop the cleanup timer (call on shutdown)
+
+```typescript
+() => void
+```
+
+### isEnabled()
+
+Check if cache is enabled
+
+```typescript
+() => boolean
+```
+
+### delete()
+
+Delete a single key and update domain tracking
+
+```typescript
+(key: string, domain: string) => void
+```
+
+## estimateTokens()
+
+Estimate the number of tokens in a text string. Uses a conservative character-based estimate (~4 chars per token).
+
+**Signature**
+
+```typescript
+(text: string) => number
+```
+
+## truncateToTokenBudget(text, budget)
+
+Truncate text to fit within a token budget.
+
+**Signature**
+
+```typescript
+(text: string, budget?: number | undefined) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `text` | `string` | Text content to potentially truncate |
+| `budget` | `: number \| undefined` | Maximum token budget |
+
+**Returns** — Truncated text with indicator if truncation occurred
+
+## listMemoryResources()
+
+List all available CLEO memory resources.
+
+**Signature**
+
+```typescript
+() => McpResource[]
+```
+
+## registerMemoryResources(server)
+
+Register MCP resource handlers on the server.
+
+**Signature**
+
+```typescript
+(server: Server<{ method: string; params?: { [x: string]: unknown; _meta?: { [x: string]: unknown; progressToken?: string | number | undefined; "io.modelcontextprotocol/related-task"?: { taskId: string; } | undefined; } | undefined; } | undefined; }, { ...; }, { ...; }>) => void
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `server` | `Server<{ method: string; params?: { [x: string]: unknown; _meta?: { [x: string]: unknown; progressToken?: string \| number \| undefined; "io.modelcontextprotocol/related-task"?: { taskId: string; } \| undefined; } \| undefined; } \| undefined; }` | MCP Server instance |
+
+## readMemoryResource(uri, tokenBudget)
+
+Read a CLEO memory resource by URI.
+
+**Signature**
+
+```typescript
+(uri: string, tokenBudget?: number | undefined) => Promise<McpResourceContent | null>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `uri` | `string` | Resource URI (e.g. "cleo://memory/recent") |
+| `tokenBudget` | `: number \| undefined` | Optional token budget for truncation |
+
+**Returns** — Resource content or null if URI is unknown
+
+## createTestEnvironment()
+
+Create an isolated test CLEO environment.  This initializes a fresh CLEO project in a temporary directory, disables session enforcement, and pre-populates test data.
+
+**Signature**
+
+```typescript
+() => Promise<TestEnvironment>
+```
+
+## destroyTestEnvironment()
+
+Destroy the test environment and clean up all temporary files.
+
+**Signature**
+
+```typescript
+(env: TestEnvironment) => Promise<void>
+```
+
+## readAuditEntries()
+
+Query audit log entries from the SQLite audit_log table in the test environment. Replaces legacy todo-log.jsonl readers (T5338, ADR-024).
+
+**Signature**
+
+```typescript
+(projectRoot: string, filter?: { action?: string | undefined; taskId?: string | undefined; sessionId?: string | undefined; } | undefined) => Promise<any[]>
+```
+
+## unwrapPayload()
+
+Extract the actual payload from an executor result's data field.  The LAFS envelope format uses `result` instead of `data` for the payload. When the executor encounters `{success:true, result:{...}}`, it may place the full envelope into `ExecutorResult.data` because it doesn't recognize `result` as the payload wrapper. This helper unwraps that case.
+
+**Signature**
+
+```typescript
+<T = unknown>(data: any) => T
+```
+
+## setupIntegrationTest()
+
+Setup integration test context with isolated CLEO environment
+
+**Signature**
+
+```typescript
+() => Promise<IntegrationTestContext>
+```
+
+## cleanupIntegrationTest()
+
+Cleanup integration test resources
+
+**Signature**
+
+```typescript
+(context: IntegrationTestContext | null | undefined) => Promise<void>
+```
+
+## createTestTask()
+
+Create a test task and track for cleanup
+
+**Signature**
+
+```typescript
+(context: IntegrationTestContext, title: string, description: string, options?: { parent?: string | undefined; status?: string | undefined; priority?: string | undefined; labels?: string[] | undefined; } | undefined) => Promise<...>
+```
+
+## createTestEpic()
+
+Create a test epic (task without parent)
+
+**Signature**
+
+```typescript
+(context: IntegrationTestContext, title: string, description: string) => Promise<string>
+```
+
+## startTestSession()
+
+Start a test session
+
+**Signature**
+
+```typescript
+(context: IntegrationTestContext, epicId: string) => Promise<void>
+```
+
+## getCleoVersion()
+
+Get current CLEO version
+
+**Signature**
+
+```typescript
+(executor: WrappedExecutor) => Promise<string>
+```
+
+## taskExists()
+
+Check if a task exists
+
+**Signature**
+
+```typescript
+(executor: WrappedExecutor, taskId: string, cwd?: string | undefined) => Promise<boolean>
+```
+
+## waitForCondition()
+
+Wait for a condition to be true (polling helper)
+
+**Signature**
+
+```typescript
+(condition: () => Promise<boolean>, options?: { timeout?: number | undefined; interval?: number | undefined; errorMessage?: string | undefined; } | undefined) => Promise<void>
+```
+
+## getAuditLogEntries()
+
+Capture audit log entries from the isolated test environment. Reads from SQLite audit_log table (T5338, ADR-024).
+
+**Signature**
+
+```typescript
+(projectRootOrTestDataDir: string, filter?: { domain?: string | undefined; operation?: string | undefined; sessionId?: string | undefined; action?: string | undefined; } | undefined) => Promise<...>
+```
+
+## createManifestEntry()
+
+Create a manifest entry fixture
+
+**Signature**
+
+```typescript
+(taskId: string, overrides?: any) => any
+```
+
+## verifyResponseFormat()
+
+Verify response format matches specification.  Note: The response here is an ExecutorResult, not the raw MCP gateway envelope. The executor parses CLI output and populates its own fields. Gateway-level _meta is only present in the raw stdout, not the executor result.
+
+**Signature**
+
+```typescript
+(response: any, _expectedGateway: "query" | "mutate", _expectedDomain: string, _expectedOperation: string) => void
+```
+
+## createMockExecutor()
+
+Creates a mock CLIExecutor for testing
+
+**Signature**
+
+```typescript
+() => Mocked<CLIExecutor>
+```
+
+## createSuccessResult()
+
+Creates a successful executor result
+
+**Signature**
+
+```typescript
+<T = any>(data: T, overrides?: Partial<ExecutorResult<T>> | undefined) => ExecutorResult<T>
+```
+
+## createErrorResult()
+
+Creates an error executor result
+
+**Signature**
+
+```typescript
+(code: string, message: string, exitCode?: number, overrides?: Partial<ExecutorResult<never>> | undefined) => ExecutorResult<never>
+```
+
+## getResponseData()
+
+Extract data payload from an ExecutorResult, handling LAFS envelope.  When the executor can't unwrap the LAFS `result` field, ExecutorResult.data may contain the full LAFS envelope. Detect and unwrap that case.
+
+**Signature**
+
+```typescript
+(result: any) => any
+```
+
+## setupE2ETest()
+
+Setup E2E test environment  Creates a fresh integration test context with: - CLI executor configured - Test session initialized - Cleanup tracking enabled
+
+**Signature**
+
+```typescript
+() => Promise<IntegrationTestContext>
+```
+
+## cleanupE2ETest()
+
+Cleanup E2E test environment  Archives all created tasks, ends session, removes test data
+
+**Signature**
+
+```typescript
+() => Promise<void>
+```
+
+## getE2EContext()
+
+Get current E2E test context
+
+**Signature**
+
+```typescript
+() => IntegrationTestContext
+```
+
+## extractTaskId()
+
+Extract task ID from operation result
+
+**Signature**
+
+```typescript
+(result: any) => string
+```
+
+## extractSessionId()
+
+Extract session ID from operation result
+
+**Signature**
+
+```typescript
+(result: any) => string
+```
+
+## verifyResponseFormat()
+
+Verify response format matches specification  E2E tests run through the CLI executor which returns ExecutorResult, not the full MCP gateway response. The gateway/domain/operation params are accepted for API compatibility but not validated against the executor result (which lacks MCP envelope metadata).
+
+**Signature**
+
+```typescript
+(response: any, _expectedGateway: "query" | "mutate", _expectedDomain: string, _expectedOperation: string) => void
+```
+
+## waitFor()
+
+Wait for condition to be true with timeout
+
+**Signature**
+
+```typescript
+(condition: () => Promise<boolean>, options?: { timeout?: number | undefined; interval?: number | undefined; errorMessage?: string | undefined; } | undefined) => Promise<void>
+```
+
+## sleep()
+
+Sleep helper for timing-dependent tests
+
+**Signature**
+
+```typescript
+(ms: number) => Promise<void>
+```
+
+## SecurityError
+
+Security validation error thrown when input fails sanitization
+
+**Signature**
+
+```typescript
+typeof SecurityError
+```
+
+## sanitizeTaskId(id)
+
+Sanitize and validate a task ID  Validates format: ^T[0-9]+$ Rejects empty, malformed, or excessively large IDs
+
+**Signature**
+
+```typescript
+(value: unknown) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | — | Raw task ID input |
+
+**Returns** — Sanitized task ID
+
+**Throws**
+
+- SecurityError if ID is invalid
+
+## sanitizePath(path, projectRoot)
+
+Sanitize and validate a file path  Prevents path traversal attacks by ensuring the resolved path stays within the project root directory.
+
+**Signature**
+
+```typescript
+(path: string, projectRoot: string) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `path` | `string` | Raw path input |
+| `projectRoot` | `string` | Project root directory (absolute path) |
+
+**Returns** — Sanitized absolute path within project root
+
+**Throws**
+
+- SecurityError if path escapes project root or is invalid
+
+## sanitizeContent(content, maxLength)
+
+Sanitize content string  Enforces size limits and strips control characters (except newline, tab, CR).
+
+**Signature**
+
+```typescript
+(content: string, maxLength?: number) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `content` | `string` | Raw content string |
+| `maxLength` | `: number` | Maximum allowed length (default: 64KB) |
+
+**Returns** — Sanitized content string
+
+**Throws**
+
+- SecurityError if content exceeds size limit
+
+## validateEnum(value, allowed, fieldName)
+
+Validate that a value is in an allowed enum set
+
+**Signature**
+
+```typescript
+(value: string, allowed: string[], fieldName: string) => string
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `value` | `string` | Value to validate |
+| `allowed` | `string[]` | Array of allowed values |
+| `fieldName` | `string` | Name of the field (for error messages) |
+
+**Returns** — The validated value
+
+**Throws**
+
+- SecurityError if value is not in allowed set
+
+## RateLimiter
+
+In-memory sliding window rate limiter  Tracks request timestamps per key and enforces configurable limits.
+
+**Signature**
+
+```typescript
+typeof RateLimiter
+```
+
+**Methods**
+
+### check()
+
+Check if a request is allowed under rate limits
+
+```typescript
+(key: string) => RateLimitResult
+```
+
+### record()
+
+Record a request (call after check returns allowed: true)
+
+```typescript
+(key: string) => void
+```
+
+### consume()
+
+Check and record in one step
+
+```typescript
+(key: string) => RateLimitResult
+```
+
+### reset()
+
+Reset rate limit state for a specific key or all keys
+
+```typescript
+(key?: string | undefined) => void
+```
+
+### getConfig()
+
+Get current configuration for a key
+
+```typescript
+(key: string) => RateLimitConfig | undefined
+```
+
+### setConfig()
+
+Update configuration for a key
+
+```typescript
+(key: string, config: RateLimitConfig) => void
+```
+
+## sanitizeParams(params, projectRoot)
+
+Sanitize all params in a DomainRequest before routing  Applies appropriate sanitization based on known field names: - taskId, parent, epicId - sanitizeTaskId - path, file - sanitizePath (if projectRoot provided) - title, description, notes, content - sanitizeContent - status - validateEnum(TASK_STATUSES) - priority - validateEnum(VALID_PRIORITIES) - domain - validateEnum(VALID_DOMAINS)
+
+**Signature**
+
+```typescript
+(params: Record<string, unknown> | undefined, projectRoot?: string | undefined, context?: { domain?: string | undefined; operation?: string | undefined; } | undefined) => Record<...> | undefined
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params` | `Record<string` | Raw request parameters |
+| `projectRoot` | `: string \| undefined` | Project root for path sanitization |
+
+**Returns** — Sanitized parameters
+
+**Throws**
+
+- SecurityError on validation failure

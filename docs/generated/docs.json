@@ -1,0 +1,103 @@
+{
+  "name": "cleocode",
+  "theme": "mint",
+  "colors": {
+    "primary": "#0ea5e9",
+    "light": "#38bdf8",
+    "dark": "#0284c7"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "index",
+              "getting-started"
+            ]
+          },
+          {
+            "group": "Learn",
+            "pages": [
+              "concepts",
+              "guides/index"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "configuration",
+              "changelog"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "faq",
+              "contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "@forge-ts/adapters",
+            "pages": [
+              "packages/adapters/index",
+              "packages/adapters/api/index",
+              "packages/adapters/api/functions",
+              "packages/adapters/api/types",
+              "packages/adapters/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/cleo",
+            "pages": [
+              "packages/cleo/index",
+              "packages/cleo/api/index",
+              "packages/cleo/api/functions",
+              "packages/cleo/api/types",
+              "packages/cleo/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/core",
+            "pages": [
+              "packages/core/index",
+              "packages/core/api/index",
+              "packages/core/api/functions",
+              "packages/core/api/types",
+              "packages/core/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/contracts",
+            "pages": [
+              "packages/contracts/index",
+              "packages/contracts/api/index",
+              "packages/contracts/api/functions",
+              "packages/contracts/api/types",
+              "packages/contracts/api/examples"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {}
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity"
+    ]
+  }
+}

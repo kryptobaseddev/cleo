@@ -1,0 +1,1376 @@
+---
+title: "Concepts"
+description: "Core concepts behind cleocode"
+---
+This page explains the core concepts behind **cleocode**.
+
+> This is a stub page. Edit this file to add your project's conceptual documentation.
+> Auto-generated sections below (inside FORGE:AUTO markers) update on every build.
+
+<!-- FORGE:AUTO-START how-it-works -->
+## How It Works
+
+cleocode processes your TypeScript source with a single AST traversal, extracting TSDoc comments and type information to generate documentation.
+
+<!-- FORGE:AUTO-END how-it-works -->
+
+<!-- FORGE:AUTO-START key-abstractions -->
+## Key Abstractions
+
+- **`AdapterManifest`** — Minimal manifest shape for provider discovery.
+- **`CliOutputOptions`** — The `CliOutputOptions` interface.
+- **`CliErrorDetails`** — Error details for structured error output.
+- **`Gateway`** — CQRS gateway: read-only queries vs state-modifying mutations.
+- **`Source`** — Where the request originated.
+- **`Tier`** — Progressive disclosure tier. 0 = tasks + session (80% of agents) 1 = + memory + check (15% of agents) 2 = + pipeline + orchestrate + tools + admin + nexus (5%)
+- **`ParamType`** — The concrete value types a parameter can carry at runtime. Drives JSON Schema `type` and Commander argument/option parsing.
+- **`ParamCliDef`** — CLI-specific decoration for a parameter. All fields are optional — omit the entire `cli` key for MCP-only params.
+- **`ParamMcpDef`** — MCP-specific decoration for a parameter. All fields are optional — omit the entire `mcp` key for CLI-only params.
+- **`ParamDef`** — A fully-described parameter definition.  One `ParamDef` entry drives:  - Commander: `.argument()` (positional) or `.option()` (flag)  - MCP: a JSON Schema property with `type`, `description`, and optionally `enum`
+- **`CanonicalDomain`** — The `CanonicalDomain` type.
+- **`DispatchRequest`** — Canonical request shape that both CLI and MCP adapters produce.  The dispatcher validates this against the OperationRegistry before passing it through the middleware pipeline and into a DomainHandler.
+- **`RateLimitMeta`** — Rate limit metadata attached to every response.
+- **`DispatchError`** — Structured error shape (LAFS-compatible).
+- **`DispatchResponse`** — Canonical response shape returned by the dispatcher.  Adapters translate this into their wire format: - CLI adapter → cliOutput() / cliError() + process.exit() - MCP adapter → MCP SDK JSON envelope
+- **`DomainHandler`** — Contract for domain handlers.  Each of the 9 target domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus) implements this interface.
+- **`DispatchNext`** — Async function that produces a DispatchResponse.
+- **`Middleware`** — Middleware function signature.  Receives the request and a `next` continuation. Can short-circuit by returning early (e.g., rate-limit exceeded) or modify the request/response.
+- **`OperationDef`** — Definition of a single dispatchable operation.
+- **`Resolution`** — Resolution output for a dispatch request.
+- **`DispatcherConfig`** — The `DispatcherConfig` interface.
+- **`TaskRecord`** — Task object as stored in task data.
+- **`MinimalTaskRecord`** — Minimal task representation for find results
+- **`RuntimeData`** — The `RuntimeData` type.
+- **`DashboardData`** — The `DashboardData` interface.
+- **`StatsData`** — The `StatsData` interface.
+- **`LogQueryData`** — The `LogQueryData` interface.
+- **`ContextData`** — The `ContextData` interface.
+- **`SequenceData`** — The `SequenceData` interface.
+- **`RoadmapData`** — The `RoadmapData` interface.
+- **`ComplianceData`** — The `ComplianceData` interface.
+- **`HelpData`** — The `HelpData` interface.
+- **`SyncData`** — The `SyncData` interface.
+- **`EngineResult`** — Engine result shape accepted by wrapResult. Matches the union of what all engine functions return.
+- **`JobStatus`** — Background job status
+- **`BackgroundJob`** — Background job representation
+- **`BackgroundJobManagerConfig`** — Configuration for BackgroundJobManager
+- **`SessionContext`** — Immutable snapshot of the bound session context.
+- **`RateLimitConfig`** — Rate limit configuration for a single category
+- **`RateLimitingConfig`** — Complete rate limiting configuration
+- **`RateLimitResult`** — Rate limit check result
+- **`LifecycleEnforcementConfig`** — Lifecycle enforcement configuration (Section 12.2)
+- **`ProtocolValidationConfig`** — Protocol validation configuration (Section 12.3)
+- **`MCPConfig`** — The `MCPConfig` interface.
+- **`MviTier`** — MVI (Minimum Viable Information) projection configurations. Maps disclosure tiers to operation access and field filtering rules.   T4820  T5096
+- **`ProjectionConfig`** — The `ProjectionConfig` interface.
+- **`ProjectionContext`** — The `ProjectionContext` interface.
+- **`RateLimitConfig`** — Rate Limit Configuration
+- **`RateLimitingConfig`** — The `RateLimitingConfig` interface.
+- **`McpDispatcherConfig`** — The `McpDispatcherConfig` interface.
+- **`GatewayMetaRecord`** — GatewayMeta with an index signature for DomainResponse._meta compatibility.  All domain handlers receive this from createGatewayMeta().   T4655
+- **`ShimOption`** — Parsed option definition.
+- **`ShimArg`** — Positional argument definition.
+- **`CommanderCompatOption`** — Commander-compatible option view for tests.
+- **`ActionHandler`** — Type for the action handler function - flexible to support various signatures
+- **`ProgressOptions`** — The `ProgressOptions` interface.
+- **`DomainRequest`** — Request from MCP gateway (inline — replaces legacy router.ts import)
+- **`DomainResponse`** — Response from domain handler (inline — replaces legacy router.ts import)
+- **`MutateRequest`** — Mutate request interface
+- **`MutateResponse`** — Mutate response interface (aliases DomainResponse)
+- **`DomainRequest`** — Request from MCP gateway (inline — replaces legacy router.ts import)
+- **`DomainResponse`** — Response from domain handler (inline — replaces legacy router.ts import)
+- **`QueryRequest`** — Query request interface
+- **`QueryResponse`** — Query response interface (aliases DomainResponse)
+- **`CacheStats`** — Cache statistics
+- **`McpResource`** — MCP Resource definition.
+- **`McpResourceContent`** — MCP Resource content response.
+- **`TestEnvironment`** — The `TestEnvironment` interface.
+- **`IntegrationTestContext`** — Test context for integration tests
+- **`DomainRequest`** — Request from MCP gateway
+- **`DomainResponse`** — Response from domain handler
+- **`DomainHandler`** — Domain handler interface (legacy - retained for type compatibility)
+- **`RateLimitConfig`** — Rate limiter configuration
+- **`RateLimitResult`** — Rate limit check result
+- **`LoggerConfig`** — The `LoggerConfig` interface.
+- **`PlatformPaths`** — OS-appropriate paths for CLEO's global directories.
+- **`SystemInfo`** — Immutable system information snapshot, captured once per process.
+- **`VacuumOptions`** — The `VacuumOptions` interface.
+- **`WarpChainRow`** — The `WarpChainRow` type.
+- **`NewWarpChainRow`** — The `NewWarpChainRow` type.
+- **`WarpChainInstanceRow`** — The `WarpChainInstanceRow` type.
+- **`NewWarpChainInstanceRow`** — The `NewWarpChainInstanceRow` type.
+- **`StatusRegistryRow`** — The `StatusRegistryRow` type.
+- **`TaskRow`** — The `TaskRow` type.
+- **`NewTaskRow`** — The `NewTaskRow` type.
+- **`SessionRow`** — The `SessionRow` type.
+- **`NewSessionRow`** — The `NewSessionRow` type.
+- **`TaskDependencyRow`** — The `TaskDependencyRow` type.
+- **`TaskRelationRow`** — The `TaskRelationRow` type.
+- **`WorkHistoryRow`** — The `WorkHistoryRow` type.
+- **`LifecyclePipelineRow`** — The `LifecyclePipelineRow` type.
+- **`NewLifecyclePipelineRow`** — The `NewLifecyclePipelineRow` type.
+- **`LifecycleStageRow`** — The `LifecycleStageRow` type.
+- **`NewLifecycleStageRow`** — The `NewLifecycleStageRow` type.
+- **`LifecycleGateResultRow`** — The `LifecycleGateResultRow` type.
+- **`NewLifecycleGateResultRow`** — The `NewLifecycleGateResultRow` type.
+- **`LifecycleEvidenceRow`** — The `LifecycleEvidenceRow` type.
+- **`NewLifecycleEvidenceRow`** — The `NewLifecycleEvidenceRow` type.
+- **`LifecycleTransitionRow`** — The `LifecycleTransitionRow` type.
+- **`NewLifecycleTransitionRow`** — The `NewLifecycleTransitionRow` type.
+- **`AuditLogRow`** — The `AuditLogRow` type.
+- **`NewAuditLogRow`** — The `NewAuditLogRow` type.
+- **`TokenUsageRow`** — The `TokenUsageRow` type.
+- **`NewTokenUsageRow`** — The `NewTokenUsageRow` type.
+- **`ArchitectureDecisionRow`** — The `ArchitectureDecisionRow` type.
+- **`NewArchitectureDecisionRow`** — The `NewArchitectureDecisionRow` type.
+- **`AdrTaskLinkRow`** — The `AdrTaskLinkRow` type.
+- **`NewAdrTaskLinkRow`** — The `NewAdrTaskLinkRow` type.
+- **`AdrRelationRow`** — The `AdrRelationRow` type.
+- **`NewAdrRelationRow`** — The `NewAdrRelationRow` type.
+- **`ManifestEntryRow`** — The `ManifestEntryRow` type.
+- **`NewManifestEntryRow`** — The `NewManifestEntryRow` type.
+- **`PipelineManifestRow`** — The `PipelineManifestRow` type.
+- **`NewPipelineManifestRow`** — The `NewPipelineManifestRow` type.
+- **`ReleaseManifestRow`** — The `ReleaseManifestRow` type.
+- **`NewReleaseManifestRow`** — The `NewReleaseManifestRow` type.
+- **`BrainDecisionRow`** — The `BrainDecisionRow` type.
+- **`NewBrainDecisionRow`** — The `NewBrainDecisionRow` type.
+- **`BrainPatternRow`** — The `BrainPatternRow` type.
+- **`NewBrainPatternRow`** — The `NewBrainPatternRow` type.
+- **`BrainLearningRow`** — The `BrainLearningRow` type.
+- **`NewBrainLearningRow`** — The `NewBrainLearningRow` type.
+- **`BrainObservationRow`** — The `BrainObservationRow` type.
+- **`NewBrainObservationRow`** — The `NewBrainObservationRow` type.
+- **`BrainMemoryLinkRow`** — The `BrainMemoryLinkRow` type.
+- **`NewBrainMemoryLinkRow`** — The `NewBrainMemoryLinkRow` type.
+- **`BrainPageNodeRow`** — The `BrainPageNodeRow` type.
+- **`NewBrainPageNodeRow`** — The `NewBrainPageNodeRow` type.
+- **`BrainPageEdgeRow`** — The `BrainPageEdgeRow` type.
+- **`NewBrainPageEdgeRow`** — The `NewBrainPageEdgeRow` type.
+- **`BrainStickyNoteRow`** — The `BrainStickyNoteRow` type.
+- **`NewBrainStickyNoteRow`** — The `NewBrainStickyNoteRow` type.
+- **`ProjectRegistryRow`** — The `ProjectRegistryRow` type.
+- **`NewProjectRegistryRow`** — The `NewProjectRegistryRow` type.
+- **`NexusAuditLogRow`** — The `NexusAuditLogRow` type.
+- **`NewNexusAuditLogRow`** — The `NewNexusAuditLogRow` type.
+- **`NexusSchemaMetaRow`** — The `NexusSchemaMetaRow` type.
+- **`NewNexusSchemaMetaRow`** — The `NewNexusSchemaMetaRow` type.
+- **`ErrorDefinition`** — A single entry in the unified error catalog.
+- **`ProblemDetails`** — RFC 9457 Problem Details object. Structured error representation for API/MCP responses.   T5240
+- **`ArchiveFields`** — Archive-specific fields for task upsert.
+- **`AtomicMigrationResult`** — Atomic database migration result.
+- **`ReleaseFn`** — A release function returned by acquireLock.
+- **`ProviderHookEvent`** — CAAMP-defined hook events supported by provider capability discovery.
+- **`InternalHookEvent`** — The `InternalHookEvent` type.
+- **`HookEvent`** — Full CLEO hook event union.  CAAMP defines provider-facing events; CLEO extends the registry with local coordination events for autonomous execution.
+- **`HookPayload`** — Base interface for all hook payloads Provides common fields available across all hook events
+- **`OnSessionStartPayload`** — Payload for onSessionStart hook Fired when a CLEO session begins
+- **`OnSessionEndPayload`** — Payload for onSessionEnd hook Fired when a CLEO session ends
+- **`OnToolStartPayload`** — Payload for onToolStart hook Fired when a task/tool operation begins
+- **`OnToolCompletePayload`** — Payload for onToolComplete hook Fired when a task/tool operation completes
+- **`HookHandler`** — Handler function type for hook events Handlers receive project root and typed payload
+- **`HookRegistration`** — Hook registration metadata Tracks registered handlers with priority and event binding
+- **`HookConfig`** — Configuration for the hook system Controls which events are enabled/disabled
+- **`OnFileChangePayload`** — Payload for onFileChange hook Fired when a tracked file is written, created, or deleted
+- **`OnErrorPayload`** — Payload for onError hook Fired when an operation fails with a structured error
+- **`OnPromptSubmitPayload`** — Payload for onPromptSubmit hook Fired when an agent submits a prompt through a gateway
+- **`OnResponseCompletePayload`** — Payload for onResponseComplete hook Fired when a gateway operation finishes (success or failure)
+- **`OnWorkAvailablePayload`** — Payload for onWorkAvailable hook Fired when the system detects ready work on a Loom/Tapestry
+- **`OnAgentSpawnPayload`** — Payload for onAgentSpawn hook Fired when a worker session/process is launched
+- **`OnAgentCompletePayload`** — Payload for onAgentComplete hook Fired when a worker finishes its assigned run
+- **`OnCascadeStartPayload`** — Payload for onCascadeStart hook Fired when autonomous execution begins flowing through a chain or wave
+- **`OnPatrolPayload`** — Payload for onPatrol hook Fired when a watcher performs a periodic health/sweep cycle
+- **`CLEOLifecycleEvent`** — Type for CLEO lifecycle event names These are the internal events CLEO fires that get mapped to CAAMP events
+- **`CLEOAutonomousLifecycleEvent`** — Type for autonomous CLEO lifecycle events.
+- **`SaveJsonOptions`** — Options for saveJson.
+- **`CheckpointConfig`** — Checkpoint configuration.
+- **`CheckpointStatus`** — Checkpoint status information.
+- **`ChangedFile`** — Changed file with its status.
+- **`SafetyOptions`** — Safety configuration - can be overridden per-operation
+- **`RepairResult`** — Repair result with proper typing.
+- **`SafetyConfig`** — Safety configuration options.
+- **`TaskDetail`** — Enriched task with hierarchy info.
+- **`PaginateInput`** — Input parameters for paginating a result set.   T4668  T4663
+- **`CompactTask`** — Compact task representation — minimal fields for MCP list responses.
+- **`ListTasksOptions`** — Filter options for listing tasks.
+- **`ListTasksResult`** — Result of listing tasks.
+- **`FindResult`** — Minimal task info for search results.
+- **`FindTasksOptions`** — Options for finding tasks.
+- **`FindTasksResult`** — Result of finding tasks.
+- **`AdrFrontmatter`** — Parsed ADR frontmatter from .md file
+- **`AdrRecord`** — The `AdrRecord` interface.
+- **`AdrSyncResult`** — The `AdrSyncResult` interface.
+- **`AdrListResult`** — The `AdrListResult` interface.
+- **`AdrFindResult`** — The `AdrFindResult` interface.
+- **`PipelineAdrLinkResult`** — The `PipelineAdrLinkResult` interface.
+- **`EvidenceType`** — The `EvidenceType` type.
+- **`EvidenceRecord`** — The `EvidenceRecord` interface.
+- **`RelatedLink`** — Related link in frontmatter.
+- **`FrontmatterMetadata`** — Frontmatter metadata for an RCASD artifact.
+- **`ParsedFrontmatter`** — Result of parsing frontmatter from a markdown file.
+- **`Stage`** — Stage type derived from canonical stage list.   T4800
+- **`StageCategory`** — Stage category for grouping related stages.   T4800
+- **`StageDefinition`** — Stage metadata with descriptive information.   T4800
+- **`TransitionRule`** — Transition rule - defines if a transition is allowed.   T4800
+- **`StageArtifactResult`** — The `StageArtifactResult` interface.
+- **`EnforcementMode`** — Lifecycle enforcement modes.
+- **`GateData`** — Gate data within a stage.
+- **`ManifestStageData`** — Stage data in an on-disk manifest.
+- **`RcasdManifest`** — Canonical RCASD manifest-shaped interface for compatibility payloads. Lifecycle persistence is SQLite-native; this shape is used for API responses that present stage+gate state in a manifest-like structure.  Stage keys use full canonical names matching the DB CHECK constraint: research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release.   T4798
+- **`GateCheckResult`** — Gate check result.
+- **`StageTransitionResult`** — Stage transition result.
+- **`LifecycleHistoryEntry`** — History entry for stage transitions.
+- **`AlertLevel`** — Alert level names.
+- **`AlertCheckResult`** — Alert result from check_context_alert.
+- **`FormatOptions`** — Options for envelope formatting.   T4668  T4670  T4663
+- **`CleoRegistryEntry`** — Entry in the CLEO-to-LAFS error registry.   T4671  T4663
+- **`TestDbEnv`** — Result of creating a test database environment.
+- **`HierarchyValidation`** — Validate that adding a child to a parent would not violate constraints.
+- **`TaskTreeNode`** — Build a tree structure from flat task list.
+- **`HierarchyPolicy`** — The `HierarchyPolicy` interface.
+- **`HierarchyValidationResult`** — The `HierarchyValidationResult` interface.
+- **`AddTaskOptions`** — Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
+- **`AddTaskResult`** — Result of adding a task.
+- **`ListPhasesResult`** — Options for listing phases.
+- **`SetPhaseOptions`** — Options for setting current phase.
+- **`SetPhaseResult`** — Result of a phase set operation.
+- **`ShowPhaseResult`** — Phase show result.
+- **`AdvancePhaseResult`** — Phase advance result.
+- **`RenamePhaseResult`** — Phase rename result.
+- **`DeletePhaseResult`** — Phase delete result.
+- **`PruneResult`** — The `PruneResult` interface.
+- **`AuditEntry`** — Audit entry interface. Used by session-grade and system-engine for behavioral analysis.
+- **`SchemaInstallResult`** — The `SchemaInstallResult` interface.
+- **`StalenessReport`** — The `StalenessReport` interface.
+- **`InstalledSchema`** — The `InstalledSchema` interface.
+- **`CheckResult`** — The `CheckResult` interface.
+- **`JsonFileIntegrityResult`** — Result for a single file check.
+- **`SchemaIntegrityReport`** — Full integrity report for all JSON files.
+- **`ProjectType`** — Detected project type.
+- **`TestFramework`** — Test framework.
+- **`FileNamingConvention`** — The `FileNamingConvention` type.
+- **`ImportStyle`** — The `ImportStyle` type.
+- **`ProjectContext`** — Schema-compliant project context for LLM agent consumption.
+- **`BrainFtsRow`** — Row returned by FTS content_hash duplicate check.
+- **`BrainNarrativeRow`** — Row returned by narrative backfill query (missing embeddings).
+- **`BrainSearchHit`** — Flattened FTS hit used in hybrid search scoring.
+- **`BrainKnnRow`** — Row returned by KNN vector similarity query.
+- **`BrainDecisionNode`** — Decision node attached to a blocker in causal traces.
+- **`BrainAnchor`** — Anchor entry in a timeline result.
+- **`EmbeddingProvider`** — Contract for embedding providers (local models, API services, etc.).
+- **`SimilarityResult`** — The `SimilarityResult` interface.
+- **`BrainSearchResult`** — Search result with BM25 rank.
+- **`BrainSearchOptions`** — Search options.
+- **`HybridResult`** — Result from hybridSearch combining multiple search signals.
+- **`HybridSearchOptions`** — Options for hybridSearch weighting and limits.
+- **`ScaffoldResult`** — The `ScaffoldResult` interface.
+- **`InjectionCheckResult`** — The `InjectionCheckResult` interface.
+- **`ScaffoldResult`** — Result of an ensure* scaffolding operation.
+- **`CheckStatus`** — Status of a check* diagnostic.
+- **`CheckResult`** — Result of a check* diagnostic (compatible with doctor/checks.ts CheckResult).
+- **`McpEnvMode`** — Resolved environment mode for MCP server config.
+- **`ScaffoldResult`** — The `ScaffoldResult` interface.
+- **`HookCheckResult`** — The `HookCheckResult` interface.
+- **`EnsureGitHooksOptions`** — The `EnsureGitHooksOptions` interface.
+- **`ManagedHook`** — The `ManagedHook` type.
+- **`SessionRecord`** — Session object (engine-compatible).
+- **`TaskWorkStateExt`** — Task work state from the task store.
+- **`TaskFileExt`** — Task file structure (subset for session operations).
+- **`DecisionRecord`** — Decision record stored in decisions.jsonl.
+- **`AssumptionRecord`** — Assumption record stored in assumptions.jsonl.
+- **`RecordDecisionParams`** — The `RecordDecisionParams` interface.
+- **`DecisionLogParams`** — The `DecisionLogParams` interface.
+- **`HandoffData`** — Handoff data schema - structured state for session transition.
+- **`ComputeHandoffOptions`** — Options for computing handoff data.
+- **`GitState`** — Git state snapshot captured at session end.
+- **`DebriefDecision`** — Decision summary for debrief output.
+- **`DebriefData`** — Rich debrief data — superset of HandoffData. Captures comprehensive session state for cross-conversation continuity.   T4959
+- **`ComputeDebriefOptions`** — Options for computing debrief data.
+- **`MemoryBridgeConfig`** — Configuration for memory bridge content generation.
+- **`LegacyDetectionResult`** — Result of detecting legacy agent-output directories.
+- **`AgentOutputsMigrationResult`** — Result of running the agent-outputs migration.
+- **`NexusPermissionLevel`** — The `NexusPermissionLevel` type.
+- **`NexusHealthStatus`** — The `NexusHealthStatus` type.
+- **`NexusProject`** — Domain representation of a registered Nexus project.
+- **`NexusRegistryFile`** — Legacy registry file shape (pre-SQLite). Retained for migration compatibility.
+- **`PatternType`** — Pattern types from ADR-009.
+- **`PatternImpact`** — Impact level.
+- **`StorePatternParams`** — Parameters for storing a new pattern.
+- **`SearchPatternParams`** — Parameters for searching patterns.
+- **`StoreLearningParams`** — Parameters for storing a new learning.
+- **`SearchLearningParams`** — Parameters for searching learnings.
+- **`BrainCompactHit`** — Compact search hit — minimal fields for index-level results.
+- **`SearchBrainCompactParams`** — Parameters for searchBrainCompact.
+- **`SearchBrainCompactResult`** — Result from searchBrainCompact.
+- **`TimelineBrainParams`** — Parameters for timelineBrain.
+- **`TimelineNeighbor`** — Timeline entry — compact id/type/date tuple.
+- **`TimelineBrainResult`** — Result from timelineBrain.
+- **`FetchBrainEntriesParams`** — Parameters for fetchBrainEntries.
+- **`FetchedBrainEntry`** — Fetched entry with full data.
+- **`FetchBrainEntriesResult`** — Result from fetchBrainEntries.
+- **`BrainObservationType`** — Observation type from schema.
+- **`BrainObservationSourceType`** — Observation source type from schema.
+- **`ObserveBrainParams`** — Parameters for observeBrain.
+- **`ObserveBrainResult`** — Result from observeBrain.
+- **`PopulateEmbeddingsResult`** — Result from populateEmbeddings backfill.
+- **`StackAnalysis`** — The `StackAnalysis` interface.
+- **`ArchAnalysis`** — The `ArchAnalysis` interface.
+- **`StructureAnalysis`** — The `StructureAnalysis` interface.
+- **`ConventionAnalysis`** — The `ConventionAnalysis` interface.
+- **`TestingAnalysis`** — The `TestingAnalysis` interface.
+- **`IntegrationAnalysis`** — The `IntegrationAnalysis` interface.
+- **`ConcernAnalysis`** — The `ConcernAnalysis` interface.
+- **`CodebaseMapResult`** — The `CodebaseMapResult` interface.
+- **`MapCodebaseOptions`** — The `MapCodebaseOptions` interface.
+- **`AdapterInfo`** — Summary info for an adapter without exposing the full instance.
+- **`InitOptions`** — Options for the init operation.
+- **`InitResult`** — Result of the init operation.
+- **`BootstrapContext`** — Result tracking arrays passed through each bootstrap step.
+- **`BootstrapOptions`** — Options for bootstrapGlobalCleo.
+- **`ExportFormat`** — The `ExportFormat` type.
+- **`ExportParams`** — The `ExportParams` interface.
+- **`ExportResult`** — The `ExportResult` interface.
+- **`ImportParams`** — The `ImportParams` interface.
+- **`ImportResult`** — The `ImportResult` interface.
+- **`NexusParsedQuery`** — The `NexusParsedQuery` interface.
+- **`NexusResolvedTask`** — Task with project context annotation.
+- **`DiscoverResult`** — The `DiscoverResult` interface.
+- **`NexusDiscoverResult`** — The `NexusDiscoverResult` interface.
+- **`SearchResult`** — The `SearchResult` interface.
+- **`NexusSearchResult`** — The `NexusSearchResult` interface.
+- **`PermissionCheckResult`** — The `PermissionCheckResult` interface.
+- **`SharingStatus`** — Result of a sharing status check.
+- **`DepNode`** — A node in the dependency graph.
+- **`DepsOverviewResult`** — Dependency overview result.
+- **`TaskDepsResult`** — Single task dependency result.
+- **`ExecutionWave`** — Execution wave (group of parallelizable tasks).
+- **`CriticalPathResult`** — Critical path result.
+- **`CycleResult`** — Cycle detection result.
+- **`TreeNode`** — Tree node representation.
+- **`CircularDependency`** — A circular dependency cycle found via DFS traversal.
+- **`MissingDependency`** — A missing dependency reference within an epic.
+- **`DependencyAnalysis`** — Full dependency analysis result for an epic.
+- **`ContextEstimation`** — Context estimation result.
+- **`Wave`** — The `Wave` interface.
+- **`EnrichedWave`** — The `EnrichedWave` interface.
+- **`StatusCounts`** — Status counts by task state.
+- **`EpicStatus`** — Epic-specific status result.
+- **`OverallStatus`** — Overall orchestration status (no specific epic).
+- **`ProgressMetrics`** — Progress metrics for orchestration check.
+- **`StartupSummary`** — Startup summary for an epic.
+- **`OrchestratorSession`** — Orchestrator session state.
+- **`SpawnContext`** — Spawn context for a subagent.
+- **`TaskReadiness`** — Task readiness assessment.
+- **`AnalysisResult`** — Orchestrator analysis result.
+- **`SessionBridgeData`** — Session data needed to create a memory bridge observation.
+- **`StoreDecisionParams`** — Parameters for storing a new decision.
+- **`SearchDecisionParams`** — Parameters for searching decisions.
+- **`ListDecisionParams`** — Parameters for listing decisions.
+- **`CompleteTaskOptions`** — Options for completing a task.
+- **`CompleteTaskResult`** — Result of completing a task.
+- **`UpdateTaskOptions`** — Options for updating a task.
+- **`UpdateTaskResult`** — Result of updating a task.
+- **`ArtifactType`** — Supported artifact types.
+- **`ArtifactConfig`** — Artifact configuration from release config.
+- **`ArtifactResult`** — Result of an artifact operation.
+- **`ArtifactHandler`** — Artifact handler interface.
+- **`ReleaseConfig`** — Release configuration shape.
+- **`ReleaseGate`** — Release gate definition.
+- **`GitFlowConfig`** — GitFlow branch configuration.
+- **`ChannelConfig`** — Channel-to-branch mapping for npm dist-tag resolution.
+- **`PushMode`** — Push mode: direct push vs PR creation vs auto-detect.
+- **`ReleaseChannel`** — npm dist-tag channel for a release.
+- **`ChannelValidationResult`** — Result of validating a version string against a channel's expectations.
+- **`CIPlatform`** — Supported CI/CD platforms.
+- **`BranchProtectionResult`** — The `BranchProtectionResult` interface.
+- **`PRCreateOptions`** — The `PRCreateOptions` interface.
+- **`PRResult`** — The `PRResult` interface.
+- **`RepoIdentity`** — The `RepoIdentity` interface.
+- **`EpicCompletenessResult`** — Epic completeness result.
+- **`DoubleListingResult`** — Double-listing check result.
+- **`BumpType`** — Bump type for version calculation.
+- **`VersionBumpTarget`** — Version bump target config from .cleo/config.json.
+- **`BumpResult`** — Bump result for a single file.
+- **`ReleaseManifest`** — Release manifest structure.
+- **`ReleaseListOptions`** — The `ReleaseListOptions` interface.
+- **`ReleaseTaskRecord`** — Task record shape needed for release operations.
+- **`ReleaseGateMetadata`** — Metadata captured during gate evaluation, returned alongside gate results. Downstream (engine layer) uses this to determine PR vs direct push.
+- **`PushPolicy`** — Push policy configuration from config.release.push.
+- **`DimensionScore`** — The `DimensionScore` interface.
+- **`GradeResult`** — The `GradeResult` interface.
+- **`RecordAssumptionParams`** — The `RecordAssumptionParams` interface.
+- **`BulkLinkEntry`** — A link to be created in bulk.
+- **`SessionMemoryResult`** — Result of persisting session memory to brain.db.
+- **`MemoryItem`** — A memory item to be persisted to brain.db.
+- **`SessionMemoryContext`** — Memory context returned for session start/resume enrichment.
+- **`BriefingTask`** — Task summary for briefing output.
+- **`BriefingBug`** — Bug summary for briefing output.
+- **`BriefingBlockedTask`** — Blocked task summary for briefing output.
+- **`BriefingEpic`** — Active epic summary for briefing output.
+- **`PipelineStageInfo`** — Pipeline stage data for briefing output.
+- **`LastSessionInfo`** — Last session info with handoff data.
+- **`CurrentTaskInfo`** — Currently active task info.
+- **`SessionBriefing`** — Session briefing result.
+- **`BriefingOptions`** — Options for computing session briefing.
+- **`MinimalSessionRecord`** — Minimal session record returned by findSessions().
+- **`FindSessionsParams`** — Parameters for findSessions().
+- **`ContextDriftResult`** — The `ContextDriftResult` interface.
+- **`SessionHistoryEntry`** — The `SessionHistoryEntry` interface.
+- **`SessionHistoryParams`** — The `SessionHistoryParams` interface.
+- **`SessionStatsResult`** — The `SessionStatsResult` interface.
+- **`RuntimeProviderContext`** — The `RuntimeProviderContext` interface.
+- **`RuntimeProviderSnapshot`** — The `RuntimeProviderSnapshot` interface.
+- **`StartSessionOptions`** — Options for starting a session.
+- **`EndSessionOptions`** — Options for ending a session.
+- **`ListSessionsOptions`** — Options for listing sessions.
+- **`StickyNoteStatus`** — Sticky note status values.
+- **`StickyNoteColor`** — Sticky note color options.
+- **`StickyNotePriority`** — Sticky note priority levels.
+- **`ConvertedTargetType`** — Converted target type.
+- **`ConvertedTarget`** — Converted target reference.
+- **`StickyNote`** — Core sticky note interface.
+- **`CreateStickyParams`** — Parameters for creating a sticky note.
+- **`ListStickiesParams`** — Parameters for listing sticky notes.
+- **`ConvertStickyParams`** — Parameters for converting a sticky note.
+- **`ArchiveTasksOptions`** — Options for archiving tasks.
+- **`ArchiveTasksResult`** — Result of archiving tasks.
+- **`DeleteTaskOptions`** — Options for deleting a task.
+- **`DeleteTaskResult`** — Result of deleting a task.
+- **`TasksAPI`** — The `TasksAPI` interface.
+- **`SessionsAPI`** — The `SessionsAPI` interface.
+- **`MemoryAPI`** — The `MemoryAPI` interface.
+- **`OrchestrationAPI`** — The `OrchestrationAPI` interface.
+- **`LifecycleAPI`** — The `LifecycleAPI` interface.
+- **`ReleaseAPI`** — The `ReleaseAPI` interface.
+- **`AdminAPI`** — The `AdminAPI` interface.
+- **`StickyAPI`** — The `StickyAPI` interface.
+- **`NexusAPI`** — The `NexusAPI` interface.
+- **`SyncAPI`** — The `SyncAPI` interface.
+- **`CleoInitOptions`** — The `CleoInitOptions` interface.
+- **`EngineResult`** — Canonical EngineResult type used by all engines and core engine-compat modules.
+- **`ExportMeta`** — Export package metadata.
+- **`ExportSelection`** — Export selection criteria.
+- **`IdMapEntry`** — ID map entry.
+- **`RelationshipGraph`** — Relationship graph.
+- **`ExportPackage`** — Complete export package.
+- **`ExportTasksParams`** — The `ExportTasksParams` interface.
+- **`ExportTasksResult`** — The `ExportTasksResult` interface.
+- **`HelpOperationDef`** — Minimal operation definition consumed by help logic.
+- **`CostHint`** — Cost hint classification for an operation.
+- **`GroupedOperations`** — Domain-grouped operation format (compact).
+- **`VerboseOperation`** — Verbose operation entry with cost hints.
+- **`HelpResult`** — Result of the help computation.
+- **`RemapTable`** — Forward and reverse remap tables.
+- **`ImportTasksParams`** — The `ImportTasksParams` interface.
+- **`ImportTasksResult`** — The `ImportTasksResult` interface.
+- **`ValidationError`** — The `ValidationError` interface.
+- **`ValidationResult`** — The `ValidationResult` interface.
+- **`AdrValidationError`** — ValidationError — canonical name per ADR-017 spec
+- **`AdrValidationResult`** — ValidationResult — canonical name per ADR-017 spec
+- **`ComplianceJsonlEntry`** — The `ComplianceJsonlEntry` type.
+- **`BuildConfig`** — The `BuildConfig` type.
+- **`RepositoryConfig`** — The `RepositoryConfig` type.
+- **`IssueTemplate`** — Parsed issue template.
+- **`AddIssueParams`** — The `AddIssueParams` interface.
+- **`AddIssueResult`** — The `AddIssueResult` interface.
+- **`DecayResult`** — Result from applying temporal decay.
+- **`ConsolidationResult`** — Result from consolidating memories.
+- **`BrainMigrationResult`** — Result from a migration run.
+- **`ResearchEntry`** — Research entry attached to a task.
+- **`ManifestEntry`** — Manifest entry (JSONL line).
+- **`AddResearchOptions`** — Options for adding research.
+- **`ListResearchOptions`** — Options for listing research.
+- **`ManifestQueryOptions`** — Manifest query options.
+- **`ExtendedManifestEntry`** — Extended manifest entry with optional fields used by the engine.
+- **`ResearchFilter`** — Research filter criteria used by the engine.
+- **`ContradictionDetail`** — Contradiction detail between two manifest entries.
+- **`SupersededDetail`** — Superseded entry detail.
+- **`ComplianceSummary`** — Compliance summary shape.
+- **`OtelCaptureMode`** — OTel capture mode.
+- **`OtelTokenDataPoint`** — Token data point parsed from OTel metrics.
+- **`AggregatedTokens`** — Aggregated token counts.
+- **`ABVariant`** — A/B test variant.
+- **`ABEventType`** — A/B test event types.
+- **`ABTestSummary`** — A/B test summary result.
+- **`Severity`** — Violation severity levels.
+- **`ManifestIntegrity`** — Manifest integrity states.
+- **`InstructionStability`** — Instruction stability levels.
+- **`SessionDegradation`** — Session degradation levels.
+- **`AgentReliability`** — Agent reliability levels.
+- **`MetricCategory`** — Metric categories.
+- **`MetricSource`** — Metric sources.
+- **`AggregationPeriod`** — Aggregation periods.
+- **`TokenEventType`** — Token event types.
+- **`TokenEvent`** — A token usage event entry.
+- **`TokenSessionSummary`** — Token session summary shape.
+- **`VerificationResult`** — Result of a backup verification operation.
+- **`LogLevel`** — Log entry severity level
+- **`MigrationLogEntry`** — Single migration log entry
+- **`MigrationLoggerConfig`** — Migration logger configuration
+- **`PreflightResult`** — Pre-flight check result.
+- **`MigrationPhase`** — Migration phase - tracks current step in the migration process
+- **`SourceFileInfo`** — Source file info with checksum for integrity verification
+- **`MigrationProgress`** — Migration progress tracking
+- **`MigrationState`** — Complete migration state structure
+- **`JsonFileValidation`** — Result of validating a single JSON file.
+- **`JsonValidationResult`** — Complete validation result for all source files.
+- **`SchemaVersion`** — Schema version info.
+- **`MigrationFn`** — Migration function signature.
+- **`MigrationDef`** — Migration definition.
+- **`MigrationResult`** — Migration run result.
+- **`MigrationStatus`** — Status of all data files.
+- **`NexusGraphNode`** — The `NexusGraphNode` interface.
+- **`NexusGraphEdge`** — The `NexusGraphEdge` interface.
+- **`NexusGlobalGraph`** — The `NexusGlobalGraph` interface.
+- **`DepsResult`** — Result of a dependency query.
+- **`DepsEntry`** — Single dependency entry with resolution status.
+- **`CriticalPathResult`** — Critical path result.
+- **`BlockingAnalysisResult`** — Blocking analysis result.
+- **`OrphanEntry`** — Orphan detection result.
+- **`PinoLevel`** — Pino log levels as written by CLEO's logger (uppercase).
+- **`PinoLogEntry`** — A parsed pino log entry from a CLEO log file. Core fields are always present; additional fields are captured in `extra`.
+- **`LogFileInfo`** — Metadata about a discovered log file.
+- **`LogFilter`** — Filter criteria for log queries. All fields are optional; when multiple are provided, they are ANDed.
+- **`LogQueryResult`** — Result of a log query operation.
+- **`LogDiscoveryOptions`** — Options for discovering log files.
+- **`LogSummary`** — Summary of log activity across files.
+- **`RemoteConfig`** — Remote configuration.
+- **`PushResult`** — Result of a push operation.
+- **`PullResult`** — Result of a pull operation.
+- **`RemoteInfo`** — Result of a remote list operation.
+- **`ExecutionMode`** — Execution mode for an operation
+- **`GatewayType`** — Gateway type
+- **`PreferredChannel`** — Preferred communication channel for token efficiency. Added for provider-agnostic skill routing (task T5240).
+- **`OperationCapability`** — The `OperationCapability` interface.
+- **`CapabilityReport`** — Capability report returned by system.doctor
+- **`RateLimitConfig`** — Rate limiter configuration
+- **`RateLimitResult`** — Rate limit check result
+- **`AgentClass`** — Functional classification of an agent.
+- **`PrivacyTier`** — Visibility tier controlling agent discoverability.
+- **`AgentStatus`** — Current online status of an agent.
+- **`MessageStatus`** — Delivery status of a message.
+- **`ContentType`** — Content type for message payloads.
+- **`ConversationVisibility`** — Visibility setting for a conversation.
+- **`Agent`** — A registered agent.
+- **`NewAgent`** — Payload for registering a new agent.
+- **`Message`** — A message exchanged between two agents.
+- **`NewMessage`** — Payload for creating a new message.
+- **`Conversation`** — A conversation between agents.
+- **`NewConversation`** — Payload for creating a new conversation.
+- **`ApiResponse`** — Standard API response envelope.
+- **`AgentRegistration`** — Result of agent registration.
+- **`MessageResult`** — Result of sending a message.
+- **`AgentTransport`** — Provider-neutral interface for inter-agent communication.  Implementations: - SignalDockTransport: HTTP client for SignalDock REST API (provider-neutral) - ClaudeCodeTransport: Wrapper around Claude Code SDK SendMessage (provider-specific)
+- **`SignalDockTransportConfig`** — Configuration for SignalDockTransport.
+- **`TransportFactoryConfig`** — Configuration for transport selection.
+- **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.
+- **`Skill`** — Skill definition loaded from disk.
+- **`SkillSummary`** — Lightweight skill summary for manifest/listing.
+- **`SkillManifest`** — Skill manifest (cached aggregate of all discovered skills).
+- **`SkillProtocolType`** — RCASD-IVTR+C protocol types.
+- **`AgentConfig`** — Agent configuration from AGENT.md or agent definition.
+- **`AgentRegistryEntry`** — Agent registry entry.
+- **`AgentRegistry`** — Agent registry (persisted).
+- **`SkillSearchScope`** — CAAMP search order for skill discovery.
+- **`SkillSearchPath`** — Ordered search path entry.
+- **`DispatchStrategy`** — Dispatch strategy for skill selection.
+- **`DispatchResult`** — Dispatch result from skill_auto_dispatch.
+- **`TokenDefinition`** — Token definition from placeholders.json.
+- **`TokenValidationResult`** — Token validation result.
+- **`TokenContext`** — Token injection context.
+- **`OrchestratorThresholds`** — Orchestrator context thresholds.
+- **`PreSpawnCheckResult`** — Pre-spawn check result.
+- **`SpawnPromptResult`** — Spawn prompt result.
+- **`DependencyWave`** — Dependency wave for parallel execution.
+- **`DependencyAnalysis`** — Dependency analysis result.
+- **`HitlSummary`** — HITL summary for session handoff.
+- **`ManifestEntry`** — Research manifest entry (MANIFEST.jsonl).
+- **`ManifestValidationResult`** — Manifest validation result.
+- **`ComplianceResult`** — Compliance verification result.
+- **`InstalledSkill`** — Installed skill tracking.
+- **`InstalledSkillsFile`** — Installed skills file.
+- **`TokenValues`** — Token values map: TOKEN_NAME - value.
+- **`MultiSkillComposition`** — Result of multi-skill composition.
+- **`ContributionDecision`** — A contribution decision from an agent.
+- **`ContributionConflict`** — Conflict between two agent decisions.
+- **`ConsensusResult`** — Consensus result from weighted voting.
+- **`SkillsMpConfig`** — SkillsMP configuration.
+- **`MarketplaceSkill`** — Marketplace skill result (CLEO-specific shape).
+- **`BatchSpawnEntry`** — Result of a single spawn within a batch.
+- **`BatchSpawnResult`** — Result of a batch spawn operation.
+- **`SessionInitResult`** — Session init result.
+- **`PauseStatus`** — Pause status result.
+- **`SkillSourceType`** — Source type classification for a skill directory.
+- **`SkillSourceMode`** — Skill source mode.
+- **`SkillSearchPath`** — Search path entry with its origin.
+- **`IssueSeverity`** — Validation issue severity.
+- **`ValidationIssue`** — Single validation issue.
+- **`SkillValidationResult`** — Validation result for a skill.
+- **`SnapshotMeta`** — Snapshot metadata.
+- **`SnapshotTask`** — Portable task representation (subset of Task, omitting local-only fields).
+- **`Snapshot`** — Complete snapshot package.
+- **`ImportResult`** — Import result summary.
+- **`SpawnCapability`** — Spawn capability type - subset of provider capabilities related to spawning
+- **`ArchiveMetadata`** — Archive metadata that may be attached to archived task records.
+- **`AnalyticsTask`** — Archived task shape used internally for analytics.
+- **`ArchiveReportType`** — The `ArchiveReportType` type.
+- **`SummaryReportData`** — Summary report result.
+- **`PhaseGroupEntry`** — Phase group entry.
+- **`LabelFrequencyEntry`** — Label frequency entry.
+- **`PriorityGroupEntry`** — Priority group entry.
+- **`CycleTimeDistribution`** — Cycle time distribution buckets.
+- **`CycleTimePercentiles`** — Cycle time percentiles.
+- **`CycleTimesReportData`** — Cycle times report result.
+- **`DailyArchiveEntry`** — Daily archive entry.
+- **`MonthlyArchiveEntry`** — Monthly archive entry.
+- **`TrendsReportData`** — Trends report result.
+- **`EmptyArchiveData`** — Empty archive sentinel (when totalArchived is 0).
+- **`ArchiveReportDataMap`** — Union type mapping report types to their data shapes.
+- **`ArchiveAnalyticsResult`** — The envelope returned by analyzeArchive.
+- **`AnalyzeArchiveOptions`** — Options for analyzeArchive.
+- **`ArchiveStatsResult`** — The `ArchiveStatsResult` interface.
+- **`AuditIssue`** — The `AuditIssue` interface.
+- **`AuditResult`** — The `AuditResult` interface.
+- **`BackupResult`** — The `BackupResult` interface.
+- **`RestoreResult`** — The `RestoreResult` interface.
+- **`CleanupResult`** — The `CleanupResult` interface.
+- **`Platform`** — Detected platform.
+- **`SystemInfo`** — Structured snapshot of the host system for diagnostics, error reports, and logging.
+- **`CheckStatus`** — The `CheckStatus` type.
+- **`CheckResult`** — The `CheckResult` interface.
+- **`HealthCheck`** — The `HealthCheck` interface.
+- **`HealthResult`** — The `HealthResult` interface.
+- **`DiagnosticsCheck`** — The `DiagnosticsCheck` interface.
+- **`DiagnosticsResult`** — The `DiagnosticsResult` interface.
+- **`DoctorCheck`** — The `DoctorCheck` interface.
+- **`DoctorReport`** — The `DoctorReport` interface.
+- **`FixResult`** — The `FixResult` interface.
+- **`StartupState`** — Outcome of a startup health check. Tells the caller exactly what state the system is in so it can route to init, upgrade, or proceed normally.
+- **`StartupHealthCheck`** — The `StartupHealthCheck` interface.
+- **`StartupHealthResult`** — The `StartupHealthResult` interface.
+- **`InjectGenerateResult`** — The `InjectGenerateResult` interface.
+- **`LabelsResult`** — The `LabelsResult` interface.
+- **`SystemMetricsResult`** — The `SystemMetricsResult` interface.
+- **`MigrateResult`** — The `MigrateResult` interface.
+- **`RuntimeDiagnostics`** — The `RuntimeDiagnostics` interface.
+- **`SafestopResult`** — The `SafestopResult` interface.
+- **`UncancelResult`** — The `UncancelResult` interface.
+- **`DependencyCheckResult`** — Result of a dependency validation check.
+- **`DependencyError`** — A dependency error.
+- **`DependencyWarning`** — A dependency warning.
+- **`TodoWriteItem`** — The `TodoWriteItem` interface.
+- **`TodoWriteState`** — The `TodoWriteState` interface.
+- **`SyncSessionState`** — The `SyncSessionState` interface.
+- **`ChangeSet`** — The `ChangeSet` interface.
+- **`TodoWriteMergeOptions`** — The `TodoWriteMergeOptions` interface.
+- **`TodoWriteMergeResult`** — The `TodoWriteMergeResult` interface.
+- **`TaskCurrentResult`** — Result of getting current task.
+- **`TaskStartResult`** — Result of starting work on a task.
+- **`TaskWorkHistoryEntry`** — Task work history entry.
+- **`TemplateSection`** — A single section/field within an issue template.
+- **`IssueTemplate`** — A parsed issue template.
+- **`TemplateConfig`** — The full template config output.
+- **`TemplateResult`** — Result type for template parser operations.
+- **`ShellType`** — Supported shell types.
+- **`ChangelogSection`** — Grouped changelog sections.
+- **`CommandMeta`** — Parsed command metadata.
+- **`ParsedFlags`** — Parsed flag state.
+- **`ManifestIntegrity`** — The `ManifestIntegrity` type.
+- **`Severity`** — The `Severity` type.
+- **`ComplianceMetrics`** — The `ComplianceMetrics` interface.
+- **`ManifestEntry`** — The `ManifestEntry` interface.
+- **`TokenMetrics`** — The `TokenMetrics` interface.
+- **`TokenEfficiency`** — The `TokenEfficiency` interface.
+- **`OrchestrationOverhead`** — The `OrchestrationOverhead` interface.
+- **`DriftIssue`** — The `DriftIssue` interface.
+- **`DriftReport`** — The `DriftReport` interface.
+- **`CommandIndexEntry`** — The `CommandIndexEntry` interface.
+- **`CommandIndex`** — The `CommandIndex` interface.
+- **`SchemaVersions`** — The `SchemaVersions` interface.
+- **`FileHashes`** — The `FileHashes` interface.
+- **`ProjectCacheEntry`** — The `ProjectCacheEntry` interface.
+- **`DoctorProjectCache`** — The `DoctorProjectCache` interface.
+- **`ProjectDetail`** — The `ProjectDetail` interface.
+- **`CategorizedProjects`** — The `CategorizedProjects` interface.
+- **`UserJourneyStage`** — The `UserJourneyStage` type.
+- **`HealthSummary`** — The `HealthSummary` interface.
+- **`ValidationError`** — The `ValidationError` interface.
+- **`ValidationResult`** — The `ValidationResult` interface.
+- **`Task`** — The `Task` interface.
+- **`TaskFile`** — The `TaskFile` interface.
+- **`ArchiveFile`** — The `ArchiveFile` interface.
+- **`ComprehensiveValidationResult`** — The `ComprehensiveValidationResult` interface.
+- **`ManifestDoc`** — The `ManifestDoc` interface.
+- **`GapEntry`** — The `GapEntry` interface.
+- **`CoverageEntry`** — The `CoverageEntry` interface.
+- **`GapReport`** — The `GapReport` interface.
+- **`ManifestEntry`** — The `ManifestEntry` interface.
+- **`ManifestViolation`** — The `ManifestViolation` interface.
+- **`ManifestValidationResult`** — The `ManifestValidationResult` interface.
+- **`ComplianceEntry`** — The `ComplianceEntry` interface.
+- **`ProtocolViolation`** — The `ProtocolViolation` interface.
+- **`ProtocolValidationResult`** — The `ProtocolValidationResult` interface.
+- **`GateName`** — The `GateName` type.
+- **`AgentName`** — The `AgentName` type.
+- **`FailureLogEntry`** — The `FailureLogEntry` interface.
+- **`VerificationGates`** — The `VerificationGates` interface.
+- **`Verification`** — The `Verification` interface.
+- **`VerificationStatus`** — The `VerificationStatus` type.
+- **`CircularValidationResult`** — The `CircularValidationResult` interface.
+- **`TaskForVerification`** — The `TaskForVerification` interface.
+- **`ProjectInfo`** — Fields consumed by logging, audit, and correlation subsystems.
+- **`SyncStatusResult`** — Result for sync status operation.
+- **`SyncClearResult`** — Result for sync clear operation.
+- **`RequirementLevel`** — RFC 2119 requirement levels
+- **`ViolationSeverity`** — Violation severity
+- **`ProtocolRule`** — Protocol rule definition
+- **`ProtocolViolation`** — Protocol violation result
+- **`ProtocolValidationResult`** — Protocol validation result
+- **`ErrorSeverity`** — Error severity levels for protocol/gate validation.
+- **`ErrorCategory`** — Error category for grouping protocol/gate violations.
+- **`ProtocolExitCode`** — Protocol-specific exit codes used by the RCASD-IVTR+C enforcement system.  These map to the protocol violation range (60-70) and lifecycle enforcement range (80-84) defined in the MCP server specification. The values here align with the protocol enforcement layer's own exit code semantics, which differ from the canonical CLI exit codes in src/types/exit-codes.ts.  The canonical CLI ExitCode enum at src/types/exit-codes.ts maps range 60-67 to orchestrator errors, while this enum maps them to protocol violations. Both are valid in their respective contexts — CLI vs protocol enforcement.
+- **`ProtocolRequest`** — Request shape used by the protocol enforcement system. Minimal interface matching the fields needed by ProtocolEnforcer.
+- **`ProtocolResponse`** — Response shape used by the protocol enforcement system.
+- **`ProtocolType`** — Protocol types aligned with RCASD-IVTR+C lifecycle
+- **`ViolationLogEntry`** — Violation log entry
+- **`ChainFindCriteria`** — The `ChainFindCriteria` interface.
+- **`ProtocolViolation`** — Protocol violation entry.
+- **`ProtocolValidationResult`** — Protocol validation result.
+- **`ManifestEntryInput`** — Manifest entry structure for validation.
+- **`ProtocolType`** — The `ProtocolType` type.
+- **`VotingMatrix`** — The `VotingMatrix` interface.
+- **`ClaudeMemMigrationResult`** — Result from a claude-mem migration run.
+- **`ClaudeMemMigrationOptions`** — Options for the claude-mem migration.
+- **`BlockerNode`** — The `BlockerNode` interface.
+- **`CausalTrace`** — The `CausalTrace` interface.
+- **`SimilarEntry`** — The `SimilarEntry` interface.
+- **`ManifestEntry`** — The `ManifestEntry` type.
+- **`ModelProviderLookup`** — The `ModelProviderLookup` interface.
+- **`TokenMethod`** — The `TokenMethod` type.
+- **`TokenConfidence`** — The `TokenConfidence` type.
+- **`TokenTransport`** — The `TokenTransport` type.
+- **`TokenExchangeInput`** — The `TokenExchangeInput` interface.
+- **`TokenMeasurement`** — The `TokenMeasurement` interface.
+- **`TokenUsageFilters`** — The `TokenUsageFilters` interface.
+- **`TokenUsageSummary`** — The `TokenUsageSummary` interface.
+- **`SkillEntry`** — The `SkillEntry` interface.
+- **`SkillContent`** — The `SkillContent` interface.
+- **`HighImpactTask`** — The `HighImpactTask` interface.
+- **`SingleBlockerTask`** — The `SingleBlockerTask` interface.
+- **`CommonBlocker`** — The `CommonBlocker` interface.
+- **`UnblockResult`** — The `UnblockResult` interface.
+- **`ValidationIssue`** — The `ValidationIssue` interface.
+- **`SpawnValidationResult`** — The `SpawnValidationResult` interface.
+- **`ContextInjectionData`** — Data returned by context injection.
+- **`InsertTask`** — The `InsertTask` type.
+- **`SelectTask`** — The `SelectTask` type.
+- **`InsertTaskDependency`** — The `InsertTaskDependency` type.
+- **`SelectTaskDependency`** — The `SelectTaskDependency` type.
+- **`InsertTaskRelation`** — The `InsertTaskRelation` type.
+- **`SelectTaskRelation`** — The `SelectTaskRelation` type.
+- **`InsertSession`** — The `InsertSession` type.
+- **`SelectSession`** — The `SelectSession` type.
+- **`InsertWorkHistory`** — The `InsertWorkHistory` type.
+- **`SelectWorkHistory`** — The `SelectWorkHistory` type.
+- **`InsertLifecyclePipeline`** — The `InsertLifecyclePipeline` type.
+- **`SelectLifecyclePipeline`** — The `SelectLifecyclePipeline` type.
+- **`InsertLifecycleStage`** — The `InsertLifecycleStage` type.
+- **`SelectLifecycleStage`** — The `SelectLifecycleStage` type.
+- **`InsertLifecycleGateResult`** — The `InsertLifecycleGateResult` type.
+- **`SelectLifecycleGateResult`** — The `SelectLifecycleGateResult` type.
+- **`InsertLifecycleEvidence`** — The `InsertLifecycleEvidence` type.
+- **`SelectLifecycleEvidence`** — The `SelectLifecycleEvidence` type.
+- **`InsertLifecycleTransition`** — The `InsertLifecycleTransition` type.
+- **`SelectLifecycleTransition`** — The `SelectLifecycleTransition` type.
+- **`InsertSchemaMeta`** — The `InsertSchemaMeta` type.
+- **`SelectSchemaMeta`** — The `SelectSchemaMeta` type.
+- **`InsertAuditLog`** — The `InsertAuditLog` type.
+- **`SelectAuditLog`** — The `SelectAuditLog` type.
+- **`AuditLogInsert`** — Canonical type alias for audit log insert (T4848).
+- **`AuditLogSelect`** — Canonical type alias for audit log select (T4848).
+- **`InsertTokenUsage`** — The `InsertTokenUsage` type.
+- **`SelectTokenUsage`** — The `SelectTokenUsage` type.
+- **`InsertArchitectureDecision`** — The `InsertArchitectureDecision` type.
+- **`SelectArchitectureDecision`** — The `SelectArchitectureDecision` type.
+- **`InsertManifestEntry`** — The `InsertManifestEntry` type.
+- **`SelectManifestEntry`** — The `SelectManifestEntry` type.
+- **`DependencyWave`** — A wave of parallelizable tasks.
+- **`CancelResult`** — Result of a cancel operation.
+- **`FlatTreeNode`** — Tree node representation for task hierarchy.
+- **`ComplexityFactor`** — Complexity factor.
+- **`AnalysisResult`** — The `AnalysisResult` interface.
+- **`StoreEngine`** — Store engine type. SQLite is the only supported engine (ADR-006).  T4647
+- **`TaskFilters`** — Common task filter options.
+- **`SessionFilters`** — Common session filter options.
+- **`StoreProvider`** — Store provider interface. Backed by SQLite (ADR-006 canonical storage).
+- **`MigrationResult`** — Migration result.
+- **`MigrationOptions`** — Options for migration.
+- **`RepairAction`** — A single repair action with status.
+- **`UpgradeAction`** — A single upgrade action with status.
+- **`UpgradeResult`** — Full upgrade result.
+- **`GateLayer`** — Gate layer enumeration
+- **`GateStatus`** — Gate status for each layer
+- **`GateViolation`** — Violation detail for a specific gate layer
+- **`LayerResult`** — Result from a single gate layer validation
+- **`VerificationResult`** — Complete verification result across all 4 layers
+- **`OperationContext`** — Operation context for gate validation
+- **`WorkflowGateName`** — Workflow gate names per MCP-SERVER-SPECIFICATION.md Section 7.1   T3141
+- **`WorkflowGateStatus`** — Workflow gate status values per Section 7.3
+- **`WorkflowGateAgent`** — Agent responsible for each gate per Section 7.2
+- **`WorkflowGateDefinition`** — Individual workflow gate definition per Section 7.2
+- **`WorkflowGateState`** — State of a single workflow gate
+- **`JsonSchemaType`** — The `JsonSchemaType` type.
+- **`JsonSchemaProperty`** — The `JsonSchemaProperty` interface.
+- **`JSONSchemaObject`** — The `JSONSchemaObject` interface.
+- **`CommanderArgSplit`** — The `CommanderArgSplit` interface.
+- **`ValidationResult`** — Validation result
+- **`ValidationError`** — Individual validation error
+- **`SchemaType`** — Schema types that can be validated via AJV/JSON Schema. SQLite-backed types (todo, archive, log, sessions) use drizzle-zod validation instead.
+- **`RuleViolation`** — Validation error from anti-hallucination checks
+- **`ComplianceEntry`** — Compliance entry stored in COMPLIANCE.jsonl
+- **`CoherenceIssue`** — Coherence issue found during graph validation.
+- **`ValidateCheckDetail`** — The `ValidateCheckDetail` interface.
+- **`ValidateReportResult`** — The `ValidateReportResult` interface.
+- **`ValidateAndFixResult`** — Result from validate + fix operation.
+- **`CriticalPathNode`** — The `CriticalPathNode` interface.
+- **`CriticalPathResult`** — The `CriticalPathResult` interface.
+- **`SkillsPrecedenceConfig`** — The `SkillsPrecedenceConfig` interface.
+- **`ResolvedSkillPath`** — The `ResolvedSkillPath` interface.
+- **`SkillInstallationContext`** — The `SkillInstallationContext` interface.
+- **`InProgressEpic`** — In-progress epic entry.
+- **`ReadyTask`** — Ready task entry with leverage analysis.
+- **`BlockedTask`** — Blocked task entry.
+- **`OpenBug`** — Open bug entry.
+- **`PlanMetrics`** — Planning metrics.
+- **`PlanResult`** — Composite planning view result.
+- **`RcasdIndex`** — RCASD-INDEX.json top-level structure.
+- **`IndexMeta`** — Index metadata.
+- **`IndexTotals`** — Aggregate counts.
+- **`TaskAnchor`** — Task-anchored RCASD artifact reference.
+- **`SpecEntry`** — Specification entry.
+- **`ReportEntry`** — Report entry.
+- **`PipelineState`** — Pipeline state.
+- **`PipelineOperation`** — Active pipeline operation.
+- **`ChangeEntry`** — Change entry.
+- **`Pipeline`** — Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+- **`PipelineStageRecord`** — Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+- **`PipelineTransition`** — Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+- **`InitializePipelineOptions`** — Options for initializing a pipeline.   T4800
+- **`AdvanceStageOptions`** — Options for advancing pipeline stage.   T4800
+- **`PipelineQueryOptions`** — Pipeline query options.   T4800
+- **`ResumablePipeline`** — Resumable pipeline information returned to callers.   T4805  T4798
+- **`PipelineContext`** — Pipeline context for session resume.   T4805
+- **`StageContext`** — Stage context within a pipeline.   T4805
+- **`GateResultContext`** — Gate result context.   T4805  T4804
+- **`EvidenceContext`** — Evidence context.   T4805  T4804
+- **`TransitionContext`** — Transition context.   T4805
+- **`TaskContext`** — Task context.   T4805
+- **`ResumeResult`** — Result of a resume operation.   T4805
+- **`AutoResumeResult`** — Auto-resume detection result.   T4805
+- **`FindResumableOptions`** — Options for finding resumable pipelines.   T4805
+- **`SessionResumeCheckOptions`** — Options for session start with resume check.   T4805
+- **`SessionResumeCheckResult`** — Result of session resume check.   T4805
+- **`PrereqCheck`** — Prerequisite check result.   T4800
+- **`TransitionValidation`** — Transition validation result.   T4800
+- **`StageState`** — Stage state snapshot for state machine.   T4800
+- **`StateMachineContext`** — State machine context for a pipeline.   T4800
+- **`StateTransition`** — State transition request.   T4800
+- **`StateTransitionResult`** — State transition result.   T4800
+- **`ContextWindowInput`** — Context window input from Claude Code.
+- **`ContextStatus`** — Context status derived from input.
+- **`HITLLevel`** — HITL warning level.
+- **`HITLWarning`** — HITL warning entry.
+- **`HITLWarningsResult`** — HITL warnings result.
+- **`EnforcementMode`** — Enforcement modes.
+- **`ActiveSessionInfo`** — Session info for enforcement checks.
+- **`EnforcementResult`** — Enforcement result.
+- **`StatuslineStatus`** — Statusline integration status.
+- **`RoutingEntry`** — Routing entry describing the preferred channel for an operation.
+- **`ProviderContext`** — Provider capability context for dynamic skill generation.
+- **`IndexMap`** — Cache index mapping labels/phases to task IDs.
+- **`ImportPackageMeta`** — Import package metadata extracted from the export file.
+- **`ImportConflictType`** — Import conflict types.
+- **`ImportConflictResolution`** — Import conflict resolution strategies.
+- **`ImportOptions`** — Import options for logging context.
+- **`SortableTask`** — Minimal task shape needed for topological sorting.
+- **`PipelineStageTaskRow`** — Row shape for pipeline + stage + task JOIN.
+- **`PipelineStageRow`** — Row shape for pipeline + stage JOIN.
+- **`InsertProjectRegistry`** — The `InsertProjectRegistry` type.
+- **`SelectProjectRegistry`** — The `SelectProjectRegistry` type.
+- **`InsertNexusAuditLog`** — The `InsertNexusAuditLog` type.
+- **`SelectNexusAuditLog`** — The `SelectNexusAuditLog` type.
+- **`InsertNexusSchemaMeta`** — The `InsertNexusSchemaMeta` type.
+- **`SelectNexusSchemaMeta`** — The `SelectNexusSchemaMeta` type.
+- **`AtomicityResult`** — The `AtomicityResult` interface.
+- **`AtomicityCriterion`** — The `AtomicityCriterion` type.
+- **`RelatesType`** — Valid relationship types for relates entries.
+- **`RelatesEntry`** — A single relates entry.
+- **`Severity`** — Impact severity levels.
+- **`DeleteWarning`** — An impact warning.
+- **`AffectedTasks`** — Affected tasks info.
+- **`DeleteImpact`** — Impact analysis.
+- **`DeletePreview`** — Full preview result.
+- **`ChildStrategy`** — Valid child handling strategies.
+- **`StrategyResult`** — Result from a strategy handler.
+- **`DiscoveryMethod`** — Discovery method.
+- **`DiscoveryMatch`** — A single discovery match.
+- **`PhaseProgress`** — Phase progress information.
+- **`PhaseTransitionValidation`** — Validate a phase transition.
+- **`ReparentOptions`** — Options for reparenting a task.
+- **`ReparentResult`** — Result of a reparent operation.
+- **`StalenessThresholds`** — Staleness thresholds in days.
+- **`StalenessLevel`** — Staleness classification.
+- **`StalenessInfo`** — Staleness assessment for a single task.
+- **`StalenessSummary`** — Get staleness summary statistics.
+- **`AdapterCapabilities`** — Adapter capability declarations for CLEO provider adapters.   T5240
+- **`AdapterContextMonitorProvider`** — Context monitor provider interface for CLEO provider adapters. Allows providers to implement context window tracking and statusline integration.  T5240
+- **`AdapterHookProvider`** — Hook provider interface for CLEO provider adapters. Maps provider-specific events to CAAMP hook events.   T5240
+- **`AdapterInstallProvider`** — Install provider interface for CLEO provider adapters. Handles registration with the provider and instruction file references.   T5240
+- **`InstallOptions`** — The `InstallOptions` interface.
+- **`InstallResult`** — The `InstallResult` interface.
+- **`AdapterPathProvider`** — Path provider interface for CLEO provider adapters. Allows providers to declare their OS-specific directory locations.  T5240
+- **`AdapterSpawnProvider`** — Spawn provider interface for CLEO provider adapters.   T5240
+- **`SpawnContext`** — The `SpawnContext` interface.
+- **`SpawnResult`** — The `SpawnResult` interface.
+- **`ExternalTaskStatus`** — Normalized status for tasks coming from an external provider.
+- **`ExternalTask`** — A task as reported by an external provider, normalized to a common shape. Provider-specific adapters translate their native format into this.
+- **`SyncSessionState`** — Persistent state for a sync session between CLEO and a provider. Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+- **`ConflictPolicy`** — Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins`: CLEO state takes precedence (default). - `provider-wins`: Provider state takes precedence. - `latest-wins`: Most recently modified value wins. - `report-only`: Report conflicts without applying changes.
+- **`ReconcileOptions`** — Options for the reconciliation engine.
+- **`ReconcileActionType`** — The type of action the reconciliation engine will take.
+- **`ReconcileAction`** — A single reconciliation action (planned or applied).
+- **`ReconcileResult`** — Result of a full reconciliation run.
+- **`AdapterTaskSyncProvider`** — Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives here — core never sees native formats.
+- **`AdapterTransportProvider`** — Transport provider interface for CLEO provider adapters. Allows providers to supply custom inter-agent transport mechanisms.  T5240
+- **`CLEOProviderAdapter`** — The `CLEOProviderAdapter` interface.
+- **`AdapterHealthStatus`** — The `AdapterHealthStatus` interface.
+- **`TaskStatus`** — The `TaskStatus` type.
+- **`SessionStatus`** — The `SessionStatus` type.
+- **`PipelineStatus`** — The `PipelineStatus` type.
+- **`StageStatus`** — The `StageStatus` type.
+- **`AdrStatus`** — The `AdrStatus` type.
+- **`GateStatus`** — The `GateStatus` type.
+- **`ManifestStatus`** — The `ManifestStatus` type.
+- **`EntityType`** — The `EntityType` type.
+- **`TaskPriority`** — Task priority levels.
+- **`TaskType`** — Task type in hierarchy.
+- **`TaskSize`** — Task size (scope, NOT time).
+- **`EpicLifecycle`** — Epic lifecycle states.
+- **`TaskOrigin`** — Task origin (provenance).
+- **`VerificationAgent`** — Verification agent types.
+- **`VerificationGate`** — Verification gate names.
+- **`VerificationFailure`** — Verification failure log entry.
+- **`TaskVerification`** — Task verification state.
+- **`TaskProvenance`** — Task provenance tracking.
+- **`TaskRelation`** — A single task relation entry.
+- **`Task`** — A single CLEO task as stored in the database.  Fields marked as required are enforced by CLEO's anti-hallucination validation at runtime. Making them required here ensures the type system catches violations at compile time rather than deferring to runtime checks.
+- **`TaskCreate`** — Input type for creating a new task via `addTask()`.  Only the fields the caller MUST provide are required. All other fields have sensible defaults applied by the creation logic: - `status` defaults to `'pending'` - `priority` defaults to `'medium'` - `type` is inferred from parent context - `size` defaults to `'medium'`
+- **`CompletedTask`** — A task with `status = 'done'`. Narrows `Task` to require `completedAt`.  Use this type when you need to guarantee a completed task has its completion timestamp — for example, in cycle-time calculations or archive operations.
+- **`CancelledTask`** — A task with `status = 'cancelled'`. Narrows `Task` to require `cancelledAt` and `cancellationReason`.  Use this type when processing cancelled tasks where the cancellation metadata is guaranteed to be present.
+- **`PhaseStatus`** — Phase status.
+- **`Phase`** — Phase definition.
+- **`PhaseTransition`** — Phase transition record.
+- **`ReleaseStatus`** — Release status.
+- **`Release`** — Release definition.
+- **`ProjectMeta`** — Project metadata.
+- **`FileMeta`** — File metadata (_meta block).
+- **`SessionNote`** — Session note in taskWork block.
+- **`TaskWorkState`** — Task work state.
+- **`TaskFile`** — Root task data structure.
+- **`ArchiveMetadata`** — Archive metadata attached to archived task records.
+- **`ArchivedTask`** — A task with archive metadata.
+- **`ArchiveReportType`** — Report type for archive statistics.
+- **`ArchiveSummaryReport`** — Summary report from archive statistics.
+- **`ArchivePhaseEntry`** — Phase breakdown entry from archive statistics.
+- **`ArchiveLabelEntry`** — Label breakdown entry from archive statistics.
+- **`ArchivePriorityEntry`** — Priority breakdown entry from archive statistics.
+- **`CycleTimeDistribution`** — Cycle time distribution buckets.
+- **`CycleTimePercentiles`** — Cycle time percentiles.
+- **`ArchiveCycleTimesReport`** — Cycle times report from archive statistics.
+- **`ArchiveDailyTrend`** — Daily archive trend entry.
+- **`ArchiveMonthlyTrend`** — Monthly archive trend entry.
+- **`ArchiveTrendsReport`** — Trends report from archive statistics.
+- **`ArchiveStatsEnvelope`** — Archive statistics result envelope.
+- **`BrainEntryRef`** — Compact brain entry reference used in contradiction analysis.
+- **`BrainEntrySummary`** — Brain entry reference with summary, used in superseded analysis.
+- **`ContradictionDetail`** — Contradiction detail between two brain entries.
+- **`SupersededEntry`** — Superseded entry pair showing old and replacement entries.
+- **`OutputFormat`** — Output format options.
+- **`DateFormat`** — Date format options.
+- **`OutputConfig`** — Output configuration.
+- **`BackupConfig`** — Backup configuration.
+- **`EnforcementProfile`** — Hierarchy enforcement profile preset.
+- **`HierarchyConfig`** — Hierarchy configuration.
+- **`SessionConfig`** — Session configuration.
+- **`LogLevel`** — Pino log levels.
+- **`LoggingConfig`** — Logging configuration.
+- **`LifecycleEnforcementMode`** — Lifecycle enforcement mode.
+- **`LifecycleConfig`** — Lifecycle enforcement configuration.
+- **`SharingMode`** — Sharing mode: whether .cleo/ files are committed to the project git repo.
+- **`SharingConfig`** — Sharing configuration for multi-contributor .cleo/ state management.
+- **`SignalDockMode`** — SignalDock transport mode.
+- **`SignalDockConfig`** — SignalDock integration configuration.
+- **`CleoConfig`** — CLEO project configuration (config.json).
+- **`ConfigSource`** — Configuration resolution priority.
+- **`ResolvedValue`** — A resolved config value with its source.
+- **`SessionScope`** — Session scope JSON blob shape.
+- **`SessionStats`** — Session statistics.
+- **`SessionTaskWork`** — Active task work state within a session.
+- **`Session`** — Session domain type — plain interface aligned with Drizzle sessions table.
+- **`SessionStartResult`** — Result of a session start operation.  The `sessionId` field is a convenience alias for `session.id`, provided for consumers that expect it at the top level of the result.
+- **`ArchiveFields`** — Archive-specific fields for task upsert.
+- **`ArchiveFile`** — Archive file structure.
+- **`TaskQueryFilters`** — Filter bag for queryTasks(). Covers ~90% of task query patterns.
+- **`QueryTasksResult`** — Result from queryTasks() with pagination support.
+- **`TaskFieldUpdates`** — Partial task row fields for updateTaskFields().
+- **`TransactionAccessor`** — Subset of DataAccessor methods available inside a transaction callback. Write-only — reads use the outer accessor (snapshot isolation).
+- **`DataAccessor`** — DataAccessor interface.  Core modules call these methods instead of readJson/saveJson. Each method maps directly to the file-level operations that core modules already perform.
+- **`AdapterManifest`** — The `AdapterManifest` interface.
+- **`DetectionPattern`** — The `DetectionPattern` interface.
+- **`ExitCode`** — CLEO exit codes — canonical definitions shared across all layers.  Ranges: 0 = success, 1-99 = errors, 100+ = special (non-error) states.   T4454  T4456  T5710
+- **`LAFSErrorCategory`** — LAFS error category.
+- **`LAFSError`** — LAFS error object.
+- **`Warning`** — LAFS warning.
+- **`LAFSTransport`** — LAFS transport metadata.
+- **`MVILevel`** — MVI (Minimal Viable Information) level.
+- **`LAFSPageNone`** — LAFS page — no pagination.
+- **`LAFSPageOffset`** — LAFS page — offset-based pagination.
+- **`LAFSPage`** — LAFS page union.
+- **`LAFSMeta`** — LAFS metadata block.
+- **`LAFSEnvelope`** — LAFS envelope (canonical protocol type).
+- **`FlagInput`** — Flag input for conformance checks.
+- **`ConformanceReport`** — Conformance report.
+- **`LafsAlternative`** — Actionable alternative the caller can try.
+- **`LafsErrorDetail`** — LAFS error detail shared between CLI and MCP.
+- **`LafsSuccess`** — LAFS success envelope (CLI).
+- **`LafsError`** — LAFS error envelope (CLI).
+- **`LafsEnvelope`** — CLI envelope union type.
+- **`GatewayMeta`** — Metadata attached to every MCP gateway response. Extends the canonical LAFSMeta with CLEO gateway-specific fields.   T4655
+- **`GatewaySuccess`** — MCP success envelope (extends CLI base with _meta).
+- **`GatewayError`** — MCP error envelope (extends CLI base with _meta).
+- **`GatewayEnvelope`** — MCP envelope union type.
+- **`CleoResponse`** — Unified CLEO response envelope.  Every CLEO response (CLI or MCP) is a CleoResponse. MCP responses include the _meta field; CLI responses do not.
+- **`MemoryBridgeConfig`** — Memory bridge types for CLEO provider adapters. Defines the shape of .cleo/memory-bridge.md content for cross-provider memory sharing.   T5240
+- **`MemoryBridgeContent`** — The `MemoryBridgeContent` interface.
+- **`SessionSummary`** — The `SessionSummary` interface.
+- **`BridgeLearning`** — The `BridgeLearning` interface.
+- **`BridgePattern`** — The `BridgePattern` interface.
+- **`BridgeDecision`** — The `BridgeDecision` interface.
+- **`BridgeObservation`** — The `BridgeObservation` interface.
+- **`IssueSeverity`** — Common issue types
+- **`IssueArea`** — The `IssueArea` type.
+- **`IssueType`** — The `IssueType` type.
+- **`Diagnostics`** — The `Diagnostics` interface.
+- **`IssuesDiagnosticsParams`** — The `IssuesDiagnosticsParams` type.
+- **`IssuesDiagnosticsResult`** — The `IssuesDiagnosticsResult` interface.
+- **`IssuesCreateBugParams`** — The `IssuesCreateBugParams` interface.
+- **`IssuesCreateBugResult`** — The `IssuesCreateBugResult` interface.
+- **`IssuesCreateFeatureParams`** — The `IssuesCreateFeatureParams` interface.
+- **`IssuesCreateFeatureResult`** — The `IssuesCreateFeatureResult` interface.
+- **`IssuesCreateHelpParams`** — The `IssuesCreateHelpParams` interface.
+- **`IssuesCreateHelpResult`** — The `IssuesCreateHelpResult` interface.
+- **`LifecycleStage`** — Common lifecycle types
+- **`GateStatus`** — The `GateStatus` type.
+- **`StageRecord`** — The `StageRecord` interface.
+- **`Gate`** — The `Gate` interface.
+- **`LifecycleCheckParams`** — The `LifecycleCheckParams` interface.
+- **`LifecycleCheckResult`** — The `LifecycleCheckResult` interface.
+- **`LifecycleStatusParams`** — The `LifecycleStatusParams` interface.
+- **`LifecycleStatusResult`** — The `LifecycleStatusResult` interface.
+- **`LifecycleHistoryParams`** — The `LifecycleHistoryParams` interface.
+- **`LifecycleHistoryEntry`** — The `LifecycleHistoryEntry` interface.
+- **`LifecycleHistoryResult`** — The `LifecycleHistoryResult` type.
+- **`LifecycleGatesParams`** — The `LifecycleGatesParams` interface.
+- **`LifecycleGatesResult`** — The `LifecycleGatesResult` type.
+- **`LifecyclePrerequisitesParams`** — The `LifecyclePrerequisitesParams` interface.
+- **`LifecyclePrerequisitesResult`** — The `LifecyclePrerequisitesResult` interface.
+- **`LifecycleProgressParams`** — The `LifecycleProgressParams` interface.
+- **`LifecycleProgressResult`** — The `LifecycleProgressResult` interface.
+- **`LifecycleSkipParams`** — The `LifecycleSkipParams` interface.
+- **`LifecycleSkipResult`** — The `LifecycleSkipResult` interface.
+- **`LifecycleResetParams`** — The `LifecycleResetParams` interface.
+- **`LifecycleResetResult`** — The `LifecycleResetResult` interface.
+- **`LifecycleGatePassParams`** — The `LifecycleGatePassParams` interface.
+- **`LifecycleGatePassResult`** — The `LifecycleGatePassResult` interface.
+- **`LifecycleGateFailParams`** — The `LifecycleGateFailParams` interface.
+- **`LifecycleGateFailResult`** — The `LifecycleGateFailResult` interface.
+- **`Wave`** — Common orchestration types
+- **`SkillDefinition`** — The `SkillDefinition` interface.
+- **`OrchestrateStatusParams`** — The `OrchestrateStatusParams` interface.
+- **`OrchestrateStatusResult`** — The `OrchestrateStatusResult` interface.
+- **`OrchestrateNextParams`** — The `OrchestrateNextParams` interface.
+- **`OrchestrateNextResult`** — The `OrchestrateNextResult` interface.
+- **`OrchestrateReadyParams`** — The `OrchestrateReadyParams` interface.
+- **`OrchestrateReadyResult`** — The `OrchestrateReadyResult` interface.
+- **`OrchestrateAnalyzeParams`** — The `OrchestrateAnalyzeParams` interface.
+- **`OrchestrateAnalyzeResult`** — The `OrchestrateAnalyzeResult` interface.
+- **`OrchestrateContextParams`** — The `OrchestrateContextParams` interface.
+- **`OrchestrateContextResult`** — The `OrchestrateContextResult` interface.
+- **`OrchestrateWavesParams`** — The `OrchestrateWavesParams` interface.
+- **`OrchestrateWavesResult`** — The `OrchestrateWavesResult` type.
+- **`OrchestrateSkillListParams`** — The `OrchestrateSkillListParams` interface.
+- **`OrchestrateSkillListResult`** — The `OrchestrateSkillListResult` type.
+- **`OrchestrateBootstrapParams`** — The `OrchestrateBootstrapParams` interface.
+- **`BrainState`** — The `BrainState` interface.
+- **`OrchestrateStartupParams`** — The `OrchestrateStartupParams` interface.
+- **`OrchestrateStartupResult`** — The `OrchestrateStartupResult` interface.
+- **`OrchestrateSpawnParams`** — The `OrchestrateSpawnParams` interface.
+- **`OrchestrateSpawnResult`** — The `OrchestrateSpawnResult` interface.
+- **`OrchestrateHandoffParams`** — The `OrchestrateHandoffParams` interface.
+- **`OrchestrateHandoffResult`** — The `OrchestrateHandoffResult` interface.
+- **`OrchestrateValidateParams`** — The `OrchestrateValidateParams` interface.
+- **`OrchestrateValidateResult`** — The `OrchestrateValidateResult` interface.
+- **`OrchestrateParallelStartParams`** — The `OrchestrateParallelStartParams` interface.
+- **`OrchestrateParallelStartResult`** — The `OrchestrateParallelStartResult` interface.
+- **`OrchestrateParallelEndParams`** — The `OrchestrateParallelEndParams` interface.
+- **`OrchestrateParallelEndResult`** — The `OrchestrateParallelEndResult` interface.
+- **`ReleaseType`** — Common release types
+- **`ReleaseGate`** — The `ReleaseGate` interface.
+- **`ChangelogSection`** — The `ChangelogSection` interface.
+- **`ReleasePrepareParams`** — The `ReleasePrepareParams` interface.
+- **`ReleasePrepareResult`** — The `ReleasePrepareResult` interface.
+- **`ReleaseChangelogParams`** — The `ReleaseChangelogParams` interface.
+- **`ReleaseChangelogResult`** — The `ReleaseChangelogResult` interface.
+- **`ReleaseCommitParams`** — The `ReleaseCommitParams` interface.
+- **`ReleaseCommitResult`** — The `ReleaseCommitResult` interface.
+- **`ReleaseTagParams`** — The `ReleaseTagParams` interface.
+- **`ReleaseTagResult`** — The `ReleaseTagResult` interface.
+- **`ReleasePushParams`** — The `ReleasePushParams` interface.
+- **`ReleasePushResult`** — The `ReleasePushResult` interface.
+- **`ReleaseGatesRunParams`** — The `ReleaseGatesRunParams` interface.
+- **`ReleaseGatesRunResult`** — The `ReleaseGatesRunResult` interface.
+- **`ReleaseRollbackParams`** — The `ReleaseRollbackParams` interface.
+- **`ReleaseRollbackResult`** — The `ReleaseRollbackResult` interface.
+- **`ResearchEntry`** — Common research types
+- **`ManifestEntry`** — The `ManifestEntry` interface.
+- **`ResearchShowParams`** — The `ResearchShowParams` interface.
+- **`ResearchShowResult`** — The `ResearchShowResult` type.
+- **`ResearchListParams`** — The `ResearchListParams` interface.
+- **`ResearchListResult`** — The `ResearchListResult` type.
+- **`ResearchQueryParams`** — The `ResearchQueryParams` interface.
+- **`ResearchQueryResult`** — The `ResearchQueryResult` interface.
+- **`ResearchPendingParams`** — The `ResearchPendingParams` interface.
+- **`ResearchPendingResult`** — The `ResearchPendingResult` type.
+- **`ResearchStatsParams`** — The `ResearchStatsParams` interface.
+- **`ResearchStatsResult`** — The `ResearchStatsResult` interface.
+- **`ResearchManifestReadParams`** — The `ResearchManifestReadParams` interface.
+- **`ResearchManifestReadResult`** — The `ResearchManifestReadResult` type.
+- **`ResearchInjectParams`** — The `ResearchInjectParams` interface.
+- **`ResearchInjectResult`** — The `ResearchInjectResult` interface.
+- **`ResearchLinkParams`** — The `ResearchLinkParams` interface.
+- **`ResearchLinkResult`** — The `ResearchLinkResult` interface.
+- **`ResearchManifestAppendParams`** — The `ResearchManifestAppendParams` interface.
+- **`ResearchManifestAppendResult`** — The `ResearchManifestAppendResult` interface.
+- **`ResearchManifestArchiveParams`** — The `ResearchManifestArchiveParams` interface.
+- **`ResearchManifestArchiveResult`** — The `ResearchManifestArchiveResult` interface.
+- **`SessionOp`** — Common session types
+- **`SessionStatusParams`** — The `SessionStatusParams` type.
+- **`SessionStatusResult`** — The `SessionStatusResult` interface.
+- **`SessionListParams`** — The `SessionListParams` interface.
+- **`SessionListResult`** — The `SessionListResult` interface.
+- **`SessionShowParams`** — The `SessionShowParams` interface.
+- **`SessionShowResult`** — The `SessionShowResult` type.
+- **`SessionHistoryParams`** — The `SessionHistoryParams` interface.
+- **`SessionHistoryEntry`** — The `SessionHistoryEntry` interface.
+- **`SessionHistoryResult`** — The `SessionHistoryResult` type.
+- **`SessionStartParams`** — The `SessionStartParams` interface.
+- **`SessionStartResult`** — The `SessionStartResult` type.
+- **`SessionEndParams`** — The `SessionEndParams` interface.
+- **`SessionEndResult`** — The `SessionEndResult` interface.
+- **`SessionResumeParams`** — The `SessionResumeParams` interface.
+- **`SessionResumeResult`** — The `SessionResumeResult` type.
+- **`SessionSuspendParams`** — The `SessionSuspendParams` interface.
+- **`SessionSuspendResult`** — The `SessionSuspendResult` interface.
+- **`SessionGcParams`** — The `SessionGcParams` interface.
+- **`SessionGcResult`** — The `SessionGcResult` interface.
+- **`SkillCategory`** — Common skill types
+- **`SkillStatus`** — The `SkillStatus` type.
+- **`DispatchStrategy`** — The `DispatchStrategy` type.
+- **`SkillSummary`** — The `SkillSummary` interface.
+- **`SkillDetail`** — The `SkillDetail` interface.
+- **`DispatchCandidate`** — The `DispatchCandidate` interface.
+- **`DependencyNode`** — The `DependencyNode` interface.
+- **`ValidationIssue`** — The `ValidationIssue` interface.
+- **`SkillsListParams`** — The `SkillsListParams` interface.
+- **`SkillsListResult`** — The `SkillsListResult` type.
+- **`SkillsShowParams`** — The `SkillsShowParams` interface.
+- **`SkillsShowResult`** — The `SkillsShowResult` type.
+- **`SkillsFindParams`** — The `SkillsFindParams` interface.
+- **`SkillsFindResult`** — The `SkillsFindResult` interface.
+- **`SkillsDispatchParams`** — The `SkillsDispatchParams` interface.
+- **`SkillsDispatchResult`** — The `SkillsDispatchResult` interface.
+- **`SkillsVerifyParams`** — The `SkillsVerifyParams` interface.
+- **`SkillsVerifyResult`** — The `SkillsVerifyResult` interface.
+- **`SkillsDependenciesParams`** — The `SkillsDependenciesParams` interface.
+- **`SkillsDependenciesResult`** — The `SkillsDependenciesResult` interface.
+- **`SkillsInstallParams`** — The `SkillsInstallParams` interface.
+- **`SkillsInstallResult`** — The `SkillsInstallResult` interface.
+- **`SkillsUninstallParams`** — The `SkillsUninstallParams` interface.
+- **`SkillsUninstallResult`** — The `SkillsUninstallResult` interface.
+- **`SkillsEnableParams`** — The `SkillsEnableParams` interface.
+- **`SkillsEnableResult`** — The `SkillsEnableResult` interface.
+- **`SkillsDisableParams`** — The `SkillsDisableParams` interface.
+- **`SkillsDisableResult`** — The `SkillsDisableResult` interface.
+- **`SkillsConfigureParams`** — The `SkillsConfigureParams` interface.
+- **`SkillsConfigureResult`** — The `SkillsConfigureResult` interface.
+- **`SkillsRefreshParams`** — The `SkillsRefreshParams` interface.
+- **`SkillsRefreshResult`** — The `SkillsRefreshResult` interface.
+- **`HealthCheck`** — Common system types
+- **`ProjectStats`** — The `ProjectStats` interface.
+- **`SystemVersionParams`** — The `SystemVersionParams` type.
+- **`SystemVersionResult`** — The `SystemVersionResult` interface.
+- **`SystemDoctorParams`** — The `SystemDoctorParams` type.
+- **`SystemDoctorResult`** — The `SystemDoctorResult` interface.
+- **`SystemConfigGetParams`** — The `SystemConfigGetParams` interface.
+- **`SystemConfigGetResult`** — The `SystemConfigGetResult` interface.
+- **`SystemStatsParams`** — The `SystemStatsParams` type.
+- **`SystemStatsResult`** — The `SystemStatsResult` type.
+- **`SystemContextParams`** — The `SystemContextParams` type.
+- **`SystemContextResult`** — The `SystemContextResult` interface.
+- **`SystemInitParams`** — The `SystemInitParams` interface.
+- **`SystemInitResult`** — The `SystemInitResult` interface.
+- **`SystemConfigSetParams`** — The `SystemConfigSetParams` interface.
+- **`SystemConfigSetResult`** — The `SystemConfigSetResult` interface.
+- **`SystemBackupParams`** — The `SystemBackupParams` interface.
+- **`SystemBackupResult`** — The `SystemBackupResult` interface.
+- **`SystemRestoreParams`** — The `SystemRestoreParams` interface.
+- **`SystemRestoreResult`** — The `SystemRestoreResult` interface.
+- **`SystemMigrateParams`** — The `SystemMigrateParams` interface.
+- **`SystemMigrateResult`** — The `SystemMigrateResult` interface.
+- **`SystemSyncParams`** — The `SystemSyncParams` interface.
+- **`SystemSyncResult`** — The `SystemSyncResult` interface.
+- **`SystemCleanupParams`** — The `SystemCleanupParams` interface.
+- **`SystemCleanupResult`** — The `SystemCleanupResult` interface.
+- **`TaskPriority`** — The `TaskPriority` type.
+- **`TaskOp`** — The `TaskOp` interface.
+- **`MinimalTask`** — The `MinimalTask` interface.
+- **`TasksGetParams`** — The `TasksGetParams` interface.
+- **`TasksGetResult`** — The `TasksGetResult` type.
+- **`TasksListParams`** — The `TasksListParams` interface.
+- **`TasksListResult`** — The `TasksListResult` interface.
+- **`TasksFindParams`** — The `TasksFindParams` interface.
+- **`TasksFindResult`** — The `TasksFindResult` type.
+- **`TasksExistsParams`** — The `TasksExistsParams` interface.
+- **`TasksExistsResult`** — The `TasksExistsResult` interface.
+- **`TasksTreeParams`** — The `TasksTreeParams` interface.
+- **`TaskTreeNode`** — The `TaskTreeNode` interface.
+- **`TasksTreeResult`** — The `TasksTreeResult` type.
+- **`TasksBlockersParams`** — The `TasksBlockersParams` interface.
+- **`Blocker`** — The `Blocker` interface.
+- **`TasksBlockersResult`** — The `TasksBlockersResult` type.
+- **`TasksDepsParams`** — The `TasksDepsParams` interface.
+- **`TaskDependencyNode`** — The `TaskDependencyNode` interface.
+- **`TasksDepsResult`** — The `TasksDepsResult` interface.
+- **`TasksAnalyzeParams`** — The `TasksAnalyzeParams` interface.
+- **`TriageRecommendation`** — The `TriageRecommendation` interface.
+- **`TasksAnalyzeResult`** — The `TasksAnalyzeResult` type.
+- **`TasksNextParams`** — The `TasksNextParams` interface.
+- **`SuggestedTask`** — The `SuggestedTask` interface.
+- **`TasksNextResult`** — The `TasksNextResult` type.
+- **`TasksCreateParams`** — The `TasksCreateParams` interface.
+- **`TasksCreateResult`** — The `TasksCreateResult` type.
+- **`TasksUpdateParams`** — The `TasksUpdateParams` interface.
+- **`TasksUpdateResult`** — The `TasksUpdateResult` type.
+- **`TasksCompleteParams`** — The `TasksCompleteParams` interface.
+- **`TasksCompleteResult`** — The `TasksCompleteResult` interface.
+- **`TasksDeleteParams`** — The `TasksDeleteParams` interface.
+- **`TasksDeleteResult`** — The `TasksDeleteResult` interface.
+- **`TasksArchiveParams`** — The `TasksArchiveParams` interface.
+- **`TasksArchiveResult`** — The `TasksArchiveResult` interface.
+- **`TasksUnarchiveParams`** — The `TasksUnarchiveParams` interface.
+- **`TasksUnarchiveResult`** — The `TasksUnarchiveResult` type.
+- **`TasksReparentParams`** — The `TasksReparentParams` interface.
+- **`TasksReparentResult`** — The `TasksReparentResult` type.
+- **`TasksPromoteParams`** — The `TasksPromoteParams` interface.
+- **`TasksPromoteResult`** — The `TasksPromoteResult` type.
+- **`TasksReorderParams`** — The `TasksReorderParams` interface.
+- **`TasksReorderResult`** — The `TasksReorderResult` interface.
+- **`TasksReopenParams`** — The `TasksReopenParams` interface.
+- **`TasksReopenResult`** — The `TasksReopenResult` type.
+- **`TasksStartParams`** — The `TasksStartParams` interface.
+- **`TasksStartResult`** — The `TasksStartResult` interface.
+- **`TasksStopParams`** — The `TasksStopParams` type.
+- **`TasksStopResult`** — The `TasksStopResult` interface.
+- **`TasksCurrentParams`** — The `TasksCurrentParams` type.
+- **`TasksCurrentResult`** — The `TasksCurrentResult` interface.
+- **`ValidationSeverity`** — Common validation types
+- **`ValidationViolation`** — The `ValidationViolation` interface.
+- **`ComplianceMetrics`** — The `ComplianceMetrics` interface.
+- **`ValidateSchemaParams`** — The `ValidateSchemaParams` interface.
+- **`ValidateSchemaResult`** — The `ValidateSchemaResult` interface.
+- **`ValidateProtocolParams`** — The `ValidateProtocolParams` interface.
+- **`ValidateProtocolResult`** — The `ValidateProtocolResult` interface.
+- **`ValidateTaskParams`** — The `ValidateTaskParams` interface.
+- **`ValidateTaskResult`** — The `ValidateTaskResult` interface.
+- **`ValidateManifestParams`** — The `ValidateManifestParams` interface.
+- **`ValidateManifestResult`** — The `ValidateManifestResult` interface.
+- **`ValidateOutputParams`** — The `ValidateOutputParams` interface.
+- **`ValidateOutputResult`** — The `ValidateOutputResult` interface.
+- **`ValidateComplianceSummaryParams`** — The `ValidateComplianceSummaryParams` interface.
+- **`ValidateComplianceSummaryResult`** — The `ValidateComplianceSummaryResult` type.
+- **`ValidateComplianceViolationsParams`** — The `ValidateComplianceViolationsParams` interface.
+- **`ValidateComplianceViolationsResult`** — The `ValidateComplianceViolationsResult` interface.
+- **`ValidateTestStatusParams`** — The `ValidateTestStatusParams` interface.
+- **`ValidateTestStatusResult`** — The `ValidateTestStatusResult` interface.
+- **`ValidateTestCoverageParams`** — The `ValidateTestCoverageParams` interface.
+- **`ValidateTestCoverageResult`** — The `ValidateTestCoverageResult` interface.
+- **`ValidateComplianceRecordParams`** — The `ValidateComplianceRecordParams` interface.
+- **`ValidateComplianceRecordResult`** — The `ValidateComplianceRecordResult` interface.
+- **`ValidateTestRunParams`** — The `ValidateTestRunParams` interface.
+- **`ValidateTestRunResult`** — The `ValidateTestRunResult` interface.
+- **`TaskRecordRelation`** — A single task relation entry (string-widened version).
+- **`ValidationHistoryEntry`** — Validation history entry.
+- **`TaskRecord`** — String-widened Task for JSON serialization in dispatch/LAFS layer.
+- **`MinimalTaskRecord`** — Minimal task representation for find results.
+- **`TaskSummary`** — Task summary counts used in dashboard and stats views.
+- **`LabelCount`** — Label frequency entry.
+- **`DashboardResult`** — Dashboard result from system.dash query.
+- **`StatsCurrentState`** — Current state counts used in stats results.
+- **`StatsCompletionMetrics`** — Completion metrics for a given time period.
+- **`StatsActivityMetrics`** — Activity metrics for a given time period.
+- **`StatsAllTime`** — All-time cumulative statistics.
+- **`StatsCycleTimes`** — Cycle time statistics.
+- **`StatsResult`** — Stats result from system.stats query.
+- **`LogQueryResult`** — Log query result from system.log query.
+- **`ContextResult`** — Context monitoring data from system.context query.
+- **`SequenceResult`** — Sequence counter data from system.sequence query.
+- **`TaskRef`** — Compact task reference used across analysis and dependency results.
+- **`TaskRefPriority`** — Task reference with optional priority (used in orchestrator/HITL contexts).
+- **`LeveragedTask`** — Task with leverage score for prioritization.
+- **`BottleneckTask`** — Bottleneck task — blocks other tasks.
+- **`TaskAnalysisResult`** — Task analysis result from tasks.analyze.
+- **`TaskDepsResult`** — Single task dependency result from tasks.deps.
+- **`CompleteTaskUnblocked`** — Completion result — unblocked tasks after completing a task.
+- **`Provider`** — Provider identifier for spawn operations.
+- **`CAAMPSpawnOptions`** — CAAMP-compatible spawn options (inlined for zero-dep contracts).
+- **`CAAMPSpawnResult`** — CAAMP-compatible spawn result (inlined for zero-dep contracts).
+- **`CLEOSpawnContext`** — CLEO-specific spawn context Extends CAAMP options with CLEO task and protocol metadata
+- **`CLEOSpawnResult`** — CLEO spawn result Extends CAAMP SpawnResult with CLEO-specific timing and metadata
+- **`CLEOSpawnAdapter`** — Spawn adapter interface Wraps CAAMP SpawnAdapter with CLEO-specific context and result types
+- **`TokenResolution`** — Token resolution information for prompt processing
+- **`SpawnStatus`** — Spawn status values
+- **`ProtocolType`** — All supported protocol types.
+- **`GateName`** — Verification gate names (ordered dependency chain).
+- **`WarpStage`** — A single stage in the warp chain.  The category union includes all canonical CLEO pipeline stages plus 'custom' for user-defined stages.
+- **`WarpLink`** — Connection between two stages in the chain.
+- **`ChainShape`** — The topology/DAG of a workflow.
+- **`GateCheck`** — Discriminated union for gate check types.
+- **`GateContract`** — A quality gate embedded in the chain.
+- **`WarpChain`** — Complete chain definition combining shape and gates.
+- **`ChainValidation`** — Result of validating a chain definition.
+- **`WarpChainInstance`** — A chain bound to a specific epic.
+- **`GateResult`** — Result of evaluating a single gate.
+- **`WarpChainExecution`** — Runtime state of a chain instance execution.
+- **`TesseraVariable`** — A variable declaration within a Tessera template.
+- **`TesseraTemplate`** — A parameterized WarpChain template with variable bindings.
+- **`TesseraInstantiationInput`** — Input for instantiating a Tessera template into a concrete chain.
+- **`TodoWriteItemStatus`** — TodoWrite item status as exported by Claude.
+- **`TodoWriteItem`** — TodoWrite item as exported by Claude.
+- **`TodoWriteState`** — TodoWrite state file format.
+- **`TodoWriteSyncSessionState`** — Sync session state for TodoWrite integration.
+- **`TodoWriteChangeSet`** — Detected changes from TodoWrite state analysis.
+- **`TodoWriteChangeAction`** — Action type for a TodoWrite merge change.
+- **`TodoWriteChange`** — A single change applied during TodoWrite merge.
+- **`TodoWriteMergeResult`** — Result of a TodoWrite merge operation.
+
+<!-- FORGE:AUTO-END key-abstractions -->

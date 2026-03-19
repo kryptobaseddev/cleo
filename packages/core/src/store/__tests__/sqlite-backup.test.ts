@@ -40,7 +40,7 @@ describe('sqlite-backup', () => {
     await vacuumIntoBackup({ force: true });
 
     expect(execMock).toHaveBeenCalledWith('PRAGMA wal_checkpoint(TRUNCATE)');
-    const calls = execMock.mock.calls.map((c: string[][]) => c[0] as string);
+    const calls = execMock.mock.calls.map((c: string[][]) => c[0] as unknown as string);
     const walIdx = calls.findIndex((c: string) => c.includes('wal_checkpoint'));
     const vacuumIdx = calls.findIndex((c: string) => c.includes('VACUUM INTO'));
     expect(walIdx).toBeLessThan(vacuumIdx);

@@ -1,0 +1,88 @@
+---
+title: "contracts — Examples"
+description: "Usage examples for the contracts package"
+---
+All usage examples from the package, aggregated for quick reference.
+
+## `normalizeError()`
+
+_Normalize any thrown value into a standardized error object.  Handles: - Error instances (preserves stack trace info) - Strings (wraps in Error) - Objects with message property - null/undefined (provides fallback)_
+
+[View in API reference](/packages/contracts/api/functions#normalizeerror)
+
+```typescript
+try {
+  await riskyOperation();
+} catch (err) {
+  const error = normalizeError(err, 'Operation failed');
+  console.error(error.message);
+}
+```
+
+## `getErrorMessage()`
+
+_Extract a human-readable message from any error value.  Safe to use on unknown thrown values without type guards._
+
+[View in API reference](/packages/contracts/api/functions#geterrormessage)
+
+```typescript
+const message = getErrorMessage(err, 'Unknown error');
+```
+
+## `formatError()`
+
+_Format error details for logging or display.  Includes stack trace for Error instances when includeStack is true._
+
+[View in API reference](/packages/contracts/api/functions#formaterror)
+
+```typescript
+console.error(formatError(err, 'Database connection'));
+// Output: [Database connection] Connection refused
+```
+
+## `isErrorType()`
+
+_Check if an error represents a specific error type by code or name.  Useful for conditional error handling based on error types._
+
+[View in API reference](/packages/contracts/api/functions#iserrortype)
+
+```typescript
+if (isErrorType(err, 'E_NOT_FOUND')) {
+  // Handle not found specifically
+}
+```
+
+## `createErrorResult()`
+
+_Create a standardized error result object.  Common pattern for operations that return  success: boolean, error?: string_
+
+[View in API reference](/packages/contracts/api/functions#createerrorresult)
+
+```typescript
+return createErrorResult(err);
+// Returns: { success: false, error: "Something went wrong" }
+```
+
+## `createSuccessResult()`
+
+_Create a standardized success result object._
+
+[View in API reference](/packages/contracts/api/functions#createsuccessresult)
+
+```typescript
+return createSuccessResult();
+// Returns: { success: true }
+```
+
+## `isErrorResult()`
+
+_Type guard for error results._
+
+[View in API reference](/packages/contracts/api/functions#iserrorresult)
+
+```typescript
+const result = await someOperation();
+if (isErrorResult(result)) {
+  console.error(result.error);
+}
+```

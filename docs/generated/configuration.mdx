@@ -1,0 +1,25 @@
+---
+title: "Configuration"
+description: "Configuration reference for cleocode"
+---
+Configuration reference for **cleocode**.
+
+## forge-ts.config.ts
+
+Create a `forge-ts.config.ts` file in your project root:
+
+```typescript
+import { defineConfig } from "@forge-ts/core";
+
+export default defineConfig({
+  rootDir: ".",
+  outDir: "docs/generated",
+});
+```
+
+## `DispatcherConfig`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `handlers` | `Map<string, DomainHandler>` | Yes | handlers |
+| `middlewares` | `Middleware[] \| undefined` | No | middlewares |

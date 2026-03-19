@@ -39,6 +39,7 @@ describe('Write Verification', () => {
             await createTask({
                 id: 'T001',
                 title: 'Test Task',
+                description: 'Test task for write verification',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -61,6 +62,7 @@ describe('Write Verification', () => {
             await createTask({
                 id: 'T001',
                 title: 'Test Task',
+                description: 'Test task for field verification',
                 status: 'pending',
                 priority: 'high',
                 createdAt: new Date().toISOString(),
@@ -86,6 +88,7 @@ describe('Write Verification', () => {
                 name: 'Test Session',
                 status: 'active',
                 scope: { type: 'epic', epicId: 'T001' },
+                taskWork: { taskId: null, setAt: null },
                 agent: 'test',
                 notes: [],
                 tasksCompleted: [],
@@ -107,6 +110,7 @@ describe('Write Verification', () => {
             const taskData = {
                 id: 'T001',
                 title: 'Safe task',
+                description: 'Safe task for pipeline test',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -127,6 +131,7 @@ describe('Write Verification', () => {
             const taskData = {
                 id: 'T001',
                 title: 'Original',
+                description: 'Original task for collision detect test',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -144,6 +149,7 @@ describe('Write Verification', () => {
             await createTask({
                 id: 'T001',
                 title: 'Original',
+                description: 'Original task for update test',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
@@ -161,6 +167,7 @@ describe('Write Verification', () => {
             await createTask({
                 id: 'T001',
                 title: 'To delete',
+                description: 'Task to be deleted',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: new Date().toISOString(),
