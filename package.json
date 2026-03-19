@@ -41,6 +41,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@forge-ts/cli": "^0.6.6",
+    "@forge-ts/core": "^0.6.6",
     "@types/node": "^22.19.11",
     "drizzle-kit": "1.0.0-beta.19-d95b7a4",
     "esbuild": "^0.27.4",

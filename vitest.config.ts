@@ -9,7 +9,15 @@ export default defineConfig({
       'packages/*/src/**/*.test.ts',
       'packages/*/src/**/__tests__/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**'],
+    exclude: [
+      'node_modules',
+      'dist',
+      '**/node_modules/**',
+      // E2E and integration tests require CLI/DB setup — run separately
+      '**/e2e/**',
+      '**/*.integration.test.ts',
+      '**/*-integration.test.ts',
+    ],
     // Path aliases matching tsconfig — resolve workspace packages to source
     // TypeScript so Vitest can import them without a build step.
     alias: {

@@ -60,6 +60,9 @@ importers:
       '@forge-ts/cli':
         specifier: ^0.6.6
         version: 0.6.6
+      '@forge-ts/core':
+        specifier: ^0.6.6
+        version: 0.6.6
       '@types/node':
         specifier: ^22.19.11
         version: 22.19.15
