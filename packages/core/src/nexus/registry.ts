@@ -14,7 +14,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
 import { nexusAuditLog, projectRegistry } from '../store/nexus-schema.js';
@@ -26,37 +25,40 @@ import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import { generateProjectHash } from './hash.js';
 
-// ── Schemas ──────────────────────────────────────────────────────────
+// ── Domain types ─────────────────────────────────────────────────────
+//
+// These are plain interfaces (not Zod schemas) because they represent
+// the domain shape AFTER row-to-domain mapping. The DB row validation
+// is handled by Drizzle's type system (ProjectRegistryRow) and by the
+// drizzle-derived schemas in nexus-validation-schemas.ts.
 
-export const NexusPermissionLevelSchema = z.enum(['read', 'write', 'execute']);
-export type NexusPermissionLevel = z.infer<typeof NexusPermissionLevelSchema>;
+export type NexusPermissionLevel = 'read' | 'write' | 'execute';
 
-export const NexusHealthStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
-export type NexusHealthStatus = z.infer<typeof NexusHealthStatusSchema>;
+export type NexusHealthStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
-export const NexusProjectSchema = z.object({
-  hash: z.string().regex(/^[a-f0-9]{12}$/),
-  projectId: z.string().default(''),
-  path: z.string().min(1),
-  name: z.string().min(1).max(64),
-  registeredAt: z.string(),
-  lastSeen: z.string(),
-  healthStatus: NexusHealthStatusSchema.default('unknown'),
-  healthLastCheck: z.string().nullable().default(null),
-  permissions: NexusPermissionLevelSchema.default('read'),
-  lastSync: z.string(),
-  taskCount: z.number().int().min(0).default(0),
-  labels: z.array(z.string()).default([]),
-});
-export type NexusProject = z.infer<typeof NexusProjectSchema>;
+/** Domain representation of a registered Nexus project. */
+export interface NexusProject {
+  hash: string;
+  projectId: string;
+  path: string;
+  name: string;
+  registeredAt: string;
+  lastSeen: string;
+  healthStatus: NexusHealthStatus;
+  healthLastCheck: string | null;
+  permissions: NexusPermissionLevel;
+  lastSync: string;
+  taskCount: number;
+  labels: string[];
+}
 
-export const NexusRegistryFileSchema = z.object({
-  $schema: z.string().optional(),
-  schemaVersion: z.string().default('1.0.0'),
-  lastUpdated: z.string(),
-  projects: z.record(z.string(), NexusProjectSchema),
-});
-export type NexusRegistryFile = z.infer<typeof NexusRegistryFileSchema>;
+/** Legacy registry file shape (pre-SQLite). Retained for migration compatibility. */
+export interface NexusRegistryFile {
+  $schema?: string;
+  schemaVersion: string;
+  lastUpdated: string;
+  projects: Record<string, NexusProject>;
+}
 
 // ── Path helpers ─────────────────────────────────────────────────────
 

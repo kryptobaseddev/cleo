@@ -7,9 +7,9 @@
 
 import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
+import type { Session, SessionScope, SessionStats } from '@cleocode/contracts';
 import type { SessionStatus } from './status-registry.js';
 import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
-import type { Session, SessionScope, SessionStats } from './validation-schemas.js';
 
 /** Convert a database TaskRow to a domain Task object. */
 export function rowToTask(row: TaskRow): Task {

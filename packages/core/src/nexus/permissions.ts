@@ -13,22 +13,18 @@
  * @epic T4540
  */
 
-import { z } from 'zod/v4';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { type NexusPermissionLevel, nexusGetProject, nexusSetPermission } from './registry.js';
 
-// ── Schemas ──────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────
 
-export const PermissionLevelSchema = z.enum(['read', 'write', 'execute']);
-
-export const PermissionCheckResultSchema = z.object({
-  project: z.string(),
-  required: PermissionLevelSchema,
-  granted: PermissionLevelSchema,
-  allowed: z.boolean(),
-});
-export type PermissionCheckResult = z.infer<typeof PermissionCheckResultSchema>;
+export interface PermissionCheckResult {
+  project: string;
+  required: NexusPermissionLevel;
+  granted: NexusPermissionLevel;
+  allowed: boolean;
+}
 
 // ── Constants ────────────────────────────────────────────────────────
 

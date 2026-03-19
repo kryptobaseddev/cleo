@@ -13,21 +13,19 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { nexusGetProject, readRegistry } from './registry.js';
 
-// ── Schemas ──────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────
 
-export const NexusParsedQuerySchema = z.object({
-  project: z.string(),
-  taskId: z.string(),
-  wildcard: z.boolean(),
-});
-export type NexusParsedQuery = z.infer<typeof NexusParsedQuerySchema>;
+export interface NexusParsedQuery {
+  project: string;
+  taskId: string;
+  wildcard: boolean;
+}
 
 /** Task with project context annotation. */
 export type NexusResolvedTask = Task & { _project: string };

@@ -10,7 +10,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
@@ -19,29 +18,26 @@ import { checkPermission } from './permissions.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { type NexusRegistryFile, readRegistryRequired } from './registry.js';
 
-// ── Schemas ──────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────
 
-export const NexusGraphNodeSchema = z.object({
-  id: z.string(),
-  project: z.string(),
-  status: z.string(),
-  title: z.string(),
-});
-export type NexusGraphNode = z.infer<typeof NexusGraphNodeSchema>;
+export interface NexusGraphNode {
+  id: string;
+  project: string;
+  status: string;
+  title: string;
+}
 
-export const NexusGraphEdgeSchema = z.object({
-  from: z.string(),
-  fromProject: z.string(),
-  to: z.string(),
-  toProject: z.string(),
-});
-export type NexusGraphEdge = z.infer<typeof NexusGraphEdgeSchema>;
+export interface NexusGraphEdge {
+  from: string;
+  fromProject: string;
+  to: string;
+  toProject: string;
+}
 
-export const NexusGlobalGraphSchema = z.object({
-  nodes: z.array(NexusGraphNodeSchema),
-  edges: z.array(NexusGraphEdgeSchema),
-});
-export type NexusGlobalGraph = z.infer<typeof NexusGlobalGraphSchema>;
+export interface NexusGlobalGraph {
+  nodes: NexusGraphNode[];
+  edges: NexusGraphEdge[];
+}
 
 /** Result of a dependency query. */
 export interface DepsResult {

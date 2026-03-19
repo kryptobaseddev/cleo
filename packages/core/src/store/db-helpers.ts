@@ -12,7 +12,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import type { Task } from '@cleocode/contracts';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
-import type { Session } from './validation-schemas.js';
+import type { Session } from '@cleocode/contracts';
 
 /** Drizzle database instance type. */
 type DrizzleDb = NodeSQLiteDatabase<typeof schema>;

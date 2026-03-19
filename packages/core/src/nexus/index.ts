@@ -20,12 +20,8 @@ export {
   // Operations
   invalidateGraphCache,
   type NexusGlobalGraph,
-  NexusGlobalGraphSchema,
   type NexusGraphEdge,
-  NexusGraphEdgeSchema,
   type NexusGraphNode,
-  // Types & schemas
-  NexusGraphNodeSchema,
   nexusDeps,
   type OrphanEntry,
   orphanDetection,
@@ -52,9 +48,6 @@ export {
   checkPermissionDetail,
   getPermission,
   type PermissionCheckResult,
-  PermissionCheckResultSchema,
-  // Types & schemas
-  PermissionLevelSchema,
   // Operations
   permissionLevel,
   requirePermission,
@@ -65,8 +58,6 @@ export {
   getCurrentProject,
   getProjectFromQuery,
   type NexusParsedQuery,
-  // Types & schemas
-  NexusParsedQuerySchema,
   type NexusResolvedTask,
   parseQuery,
   resolveProjectPath,
@@ -80,14 +71,10 @@ export {
   // Path helpers
   getNexusHome,
   type NexusHealthStatus,
-  NexusHealthStatusSchema,
   type NexusPermissionLevel,
-  // Types & schemas
-  NexusPermissionLevelSchema,
+  // Types
   type NexusProject,
-  NexusProjectSchema,
   type NexusRegistryFile,
-  NexusRegistryFileSchema,
   nexusGetProject,
   nexusInit,
   nexusList,

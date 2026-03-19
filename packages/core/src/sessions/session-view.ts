@@ -12,8 +12,7 @@
  * @epic T4454
  */
 
-import type { SessionStatus } from '@cleocode/contracts';
-import type { Session } from '../store/validation-schemas.js';
+import type { Session, SessionStatus } from '@cleocode/contracts';
 
 export class SessionView {
   private readonly _sessions: Session[];
