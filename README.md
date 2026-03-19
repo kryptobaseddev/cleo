@@ -4,7 +4,6 @@
 [![CI](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml/badge.svg)](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](https://nodejs.org/)
-[![GitHub stars](https://img.shields.io/github/stars/kryptobaseddev/cleo?style=social)](https://github.com/kryptobaseddev/cleo/stargazers)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
 
@@ -267,10 +266,16 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - [Discord Server](https://discord.gg/cleocode)
 - [Twitter/X @cleocode](https://twitter.com/cleocode)
 
+## Support
+
+If CLEO helps your workflow, consider supporting development:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
----
+## Star History
 
-Built with ❤️ by the CLEO team and contributors.
+[![Star History Chart](https://api.star-history.com/svg?repos=kryptobaseddev/cleo&type=Date)](https://star-history.com/#kryptobaseddev/cleo&Date)
