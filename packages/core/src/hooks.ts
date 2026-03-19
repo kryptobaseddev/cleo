@@ -36,7 +36,7 @@ export interface EnsureGitHooksOptions {
 // ── Constants ────────────────────────────────────────────────────────
 
 /** Git hooks managed by CLEO. */
-export const MANAGED_HOOKS = ['commit-msg', 'pre-commit'] as const;
+export const MANAGED_HOOKS = ['commit-msg', 'pre-commit', 'pre-push'] as const;
 
 export type ManagedHook = (typeof MANAGED_HOOKS)[number];
 

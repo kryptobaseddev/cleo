@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { checkSchema, validateAgainstSchema } from '../json-schema-validator.js';
 import { resolveSchemaPath } from '../schema-management.js';

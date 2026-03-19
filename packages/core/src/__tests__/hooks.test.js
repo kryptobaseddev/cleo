@@ -12,10 +12,11 @@ import { checkGitHooks, ensureGitHooks, MANAGED_HOOKS } from '../hooks.js';
 import { getPackageRoot } from '../scaffold.js';
 const mockedGetPackageRoot = vi.mocked(getPackageRoot);
 describe('MANAGED_HOOKS', () => {
-    it('contains commit-msg and pre-commit', () => {
+    it('contains commit-msg, pre-commit, and pre-push', () => {
         expect(MANAGED_HOOKS).toContain('commit-msg');
         expect(MANAGED_HOOKS).toContain('pre-commit');
-        expect(MANAGED_HOOKS).toHaveLength(2);
+        expect(MANAGED_HOOKS).toContain('pre-push');
+        expect(MANAGED_HOOKS).toHaveLength(3);
     });
 });
 describe('ensureGitHooks', () => {
@@ -38,9 +39,10 @@ describe('ensureGitHooks', () => {
         await mkdir(sourceDir, { recursive: true });
         await writeFile(join(sourceDir, 'commit-msg'), '#!/bin/sh\nexit 0\n');
         await writeFile(join(sourceDir, 'pre-commit'), '#!/bin/sh\nexit 0\n');
+        await writeFile(join(sourceDir, 'pre-push'), '#!/bin/sh\nexit 0\n');
         const result = await ensureGitHooks(projectRoot);
         expect(result.action).toBe('created');
-        expect(result.details).toContain('2');
+        expect(result.details).toContain('3');
         const installed = await readFile(join(projectRoot, '.git', 'hooks', 'commit-msg'), 'utf-8');
         expect(installed).toBe('#!/bin/sh\nexit 0\n');
     });
@@ -66,9 +68,11 @@ describe('ensureGitHooks', () => {
         const hookContent = '#!/bin/sh\nexit 0\n';
         await writeFile(join(sourceDir, 'commit-msg'), hookContent);
         await writeFile(join(sourceDir, 'pre-commit'), hookContent);
+        await writeFile(join(sourceDir, 'pre-push'), hookContent);
         // Pre-install hooks
         await writeFile(join(projectRoot, '.git', 'hooks', 'commit-msg'), hookContent);
         await writeFile(join(projectRoot, '.git', 'hooks', 'pre-commit'), hookContent);
+        await writeFile(join(projectRoot, '.git', 'hooks', 'pre-push'), hookContent);
         const result = await ensureGitHooks(projectRoot);
         expect(result.action).toBe('skipped');
         expect(result.details).toContain('already installed');
@@ -132,10 +136,12 @@ describe('checkGitHooks', () => {
         const content = '#!/bin/sh\nexit 0\n';
         await writeFile(join(sourceDir, 'commit-msg'), content);
         await writeFile(join(sourceDir, 'pre-commit'), content);
+        await writeFile(join(sourceDir, 'pre-push'), content);
         await writeFile(join(projectRoot, '.git', 'hooks', 'commit-msg'), content);
         await writeFile(join(projectRoot, '.git', 'hooks', 'pre-commit'), content);
+        await writeFile(join(projectRoot, '.git', 'hooks', 'pre-push'), content);
         const results = await checkGitHooks(projectRoot);
-        expect(results).toHaveLength(2);
+        expect(results).toHaveLength(3);
         for (const r of results) {
             expect(r.installed).toBe(true);
             expect(r.current).toBe(true);
@@ -147,9 +153,10 @@ describe('checkGitHooks', () => {
         await mkdir(sourceDir, { recursive: true });
         await writeFile(join(sourceDir, 'commit-msg'), '#!/bin/sh\nexit 0\n');
         await writeFile(join(sourceDir, 'pre-commit'), '#!/bin/sh\nexit 0\n');
+        await writeFile(join(sourceDir, 'pre-push'), '#!/bin/sh\nexit 0\n');
         // No hooks installed in .git/hooks/
         const results = await checkGitHooks(projectRoot);
-        expect(results).toHaveLength(2);
+        expect(results).toHaveLength(3);
         for (const r of results) {
             expect(r.installed).toBe(false);
             expect(r.current).toBe(false);
@@ -172,8 +179,9 @@ describe('checkGitHooks', () => {
         await mkdir(sourceDir, { recursive: true });
         await writeFile(join(sourceDir, 'commit-msg'), '#!/bin/sh\nexit 0\n');
         await writeFile(join(sourceDir, 'pre-commit'), '#!/bin/sh\nexit 0\n');
+        await writeFile(join(sourceDir, 'pre-push'), '#!/bin/sh\nexit 0\n');
         const results = await checkGitHooks(projectRoot);
-        expect(results).toHaveLength(2);
+        expect(results).toHaveLength(3);
         for (const r of results) {
             expect(r.installed).toBe(false);
             expect(r.current).toBe(false);
@@ -183,7 +191,7 @@ describe('checkGitHooks', () => {
         await mkdir(join(projectRoot, '.git', 'hooks'), { recursive: true });
         // No templates directory at all
         const results = await checkGitHooks(projectRoot);
-        expect(results).toHaveLength(2);
+        expect(results).toHaveLength(3);
         for (const r of results) {
             expect(r.installed).toBe(false);
             expect(r.current).toBe(false);

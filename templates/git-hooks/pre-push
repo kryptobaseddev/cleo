@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# pre-push - CalVer guard for release tags
+#
+# Blocks pushing tags that do not follow project CalVer policy:
+#   - Stable:     vYYYY.M.PATCH (current UTC month only)
+#   - Pre-release vYYYY.M.PATCH-suffix (current or next UTC month)
+#
+# Non-tag pushes are always allowed.
+
+set -euo pipefail
+
+current_year=$(date -u +%Y)
+current_month=$(date -u +%-m)
+next_month=$(( current_month == 12 ? 1 : current_month + 1 ))
+next_year=$(( current_month == 12 ? current_year + 1 : current_year ))
+
+is_valid_version_shape() {
+  local version="$1"
+  [[ "$version" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]
+}
+
+validate_calver() {
+  local version="$1"
+
+  if ! is_valid_version_shape "$version"; then
+    echo "ERROR: Invalid CalVer format '$version'"
+    echo "Expected: YYYY.M.PATCH or YYYY.M.PATCH-suffix"
+    return 1
+  fi
+
+  local base="${version%%-*}"
+  local tag_year="${base%%.*}"
+  local rem="${base#*.}"
+  local tag_month="${rem%%.*}"
+
+  # Normalize month strings (e.g. "03" -> 3)
+  tag_month=$((10#$tag_month))
+
+  if [[ "$version" == *"-"* ]]; then
+    if [[ "$tag_year" != "$current_year" && "$tag_year" != "$next_year" ]] || \
+       [[ "$tag_month" != "$current_month" && "$tag_month" != "$next_month" ]]; then
+      echo "ERROR: Pre-release v$version outside allowed CalVer range"
+      echo "Allowed months: ${current_year}.${current_month} or ${next_year}.${next_month}"
+      return 1
+    fi
+  else
+    if [[ "$tag_year" != "$current_year" || "$tag_month" != "$current_month" ]]; then
+      echo "ERROR: Stable release v$version does not match current CalVer ${current_year}.${current_month}"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+# Git passes refs to pre-push via stdin:
+# <local-ref> <local-sha> <remote-ref> <remote-sha>
+while read -r local_ref _ remote_ref _; do
+  tag_ref=""
+
+  if [[ "$remote_ref" == refs/tags/v* ]]; then
+    tag_ref="$remote_ref"
+  elif [[ "$local_ref" == refs/tags/v* ]]; then
+    tag_ref="$local_ref"
+  else
+    continue
+  fi
+
+  version="${tag_ref#refs/tags/v}"
+  if ! validate_calver "$version"; then
+    echo "Refusing push for tag: ${tag_ref#refs/tags/}"
+    echo "If intentional (e.g., backfill), push with: git push --no-verify"
+    exit 1
+  fi
+
+  echo "CalVer OK for tag ${tag_ref#refs/tags/}"
+done
+
+exit 0

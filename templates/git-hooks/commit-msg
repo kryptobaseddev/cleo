@@ -36,6 +36,11 @@ if echo "$COMMIT_MSG" | grep -qE '^chore\(cleo\)'; then
     exit 0
 fi
 
+# Auto-bypass for release pipeline commits
+if echo "$COMMIT_MSG" | grep -qE '^release:|^chore\(release\):'; then
+    exit 0
+fi
+
 # ============================================================================
 # TASK ID EXTRACTION
 # Supports:

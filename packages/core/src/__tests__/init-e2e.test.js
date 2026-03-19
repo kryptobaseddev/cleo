@@ -180,8 +180,10 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
         const result = await initProject({ name: 'test-project' });
         const commitMsgHook = join(testDir, '.git', 'hooks', 'commit-msg');
         const preCommitHook = join(testDir, '.git', 'hooks', 'pre-commit');
+        const prePushHook = join(testDir, '.git', 'hooks', 'pre-push');
         expect(existsSync(commitMsgHook)).toBe(true);
         expect(existsSync(preCommitHook)).toBe(true);
+        expect(existsSync(prePushHook)).toBe(true);
         // Verify hooks are executable (mode includes 0o111)
         // Windows doesn't support Unix permission bits — skip mode check there
         const commitMsgStat = await stat(commitMsgHook);
@@ -191,6 +193,10 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
         const preCommitStat = await stat(preCommitHook);
         if (process.platform !== 'win32') {
             expect(preCommitStat.mode & 0o111).toBeGreaterThan(0);
+        }
+        const prePushStat = await stat(prePushHook);
+        if (process.platform !== 'win32') {
+            expect(prePushStat.mode & 0o111).toBeGreaterThan(0);
         }
         // Verify reported in created
         expect(result.created.join(',')).toContain('git hooks');

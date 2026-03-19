@@ -557,7 +557,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`Schema installation: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Git hooks (commit-msg, pre-commit)
+  // Git hooks (commit-msg, pre-commit, pre-push)
   try {
     const hooksResult = await ensureGitHooks(projRoot, { force });
     if (hooksResult.action === 'created') {

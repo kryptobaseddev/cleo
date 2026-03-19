@@ -159,7 +159,8 @@ export class ShimCommand {
     return this;
   }
 
-  action<T extends (...args: unknown[]) => Promise<void> | void>(fn: T): this {
+  // biome-ignore lint/suspicious/noExplicitAny: Commander compat requires accepting any handler signature
+  action(fn: (...args: any[]) => Promise<void> | void): this {
     this._action = fn as ActionHandler;
     return this;
   }
