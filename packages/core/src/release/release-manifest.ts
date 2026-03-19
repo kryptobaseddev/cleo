@@ -753,17 +753,20 @@ export async function runReleaseGates(
         : `${incompleteTasks.length} tasks not completed: ${incompleteTasks.join(', ')}`,
   });
 
-  // G2: Build artifact — dist/cli/index.js must exist (Node projects only)
+  // G2: Build artifact — dist/ must exist (Node projects only)
+  // Monorepo-aware: checks packages/cleo/dist/ first, then root dist/
   const projectRoot = cwd ?? getProjectRoot();
-  const distPath = join(projectRoot, 'dist', 'cli', 'index.js');
+  const monorepoDist = join(projectRoot, 'packages', 'cleo', 'dist', 'cli', 'index.js');
+  const rootDist = join(projectRoot, 'dist', 'cli', 'index.js');
+  const distExists = existsSync(monorepoDist) || existsSync(rootDist);
   const isNodeProject = existsSync(join(projectRoot, 'package.json'));
   if (isNodeProject) {
     gates.push({
       name: 'build_artifact',
-      status: existsSync(distPath) ? 'passed' : 'failed',
-      message: existsSync(distPath)
-        ? 'dist/cli/index.js present'
-        : 'dist/ not built — run: npm run build',
+      status: distExists ? 'passed' : 'failed',
+      message: distExists
+        ? 'Build artifacts present'
+        : 'dist/ not built — run: pnpm run build',
     });
   }
 
