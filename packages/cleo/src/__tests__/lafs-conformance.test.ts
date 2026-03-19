@@ -798,8 +798,9 @@ describe('hierarchy policy conformance', () => {
       {
         id: 'T001',
         title: 'Root',
-        status: 'pending',
-        priority: 'medium',
+        description: 'Root task',
+        status: 'pending' as const,
+        priority: 'medium' as const,
         createdAt: '2026-01-01T00:00:00Z',
       },
     ];
@@ -808,7 +809,7 @@ describe('hierarchy policy conformance', () => {
       maxSiblings: 7,
       maxActiveSiblings: 3,
       countDoneInLimit: false,
-      enforcementProfile: 'human-cognitive',
+      enforcementProfile: 'human-cognitive' as const,
     };
 
     // Valid placement
@@ -820,10 +821,10 @@ describe('hierarchy policy conformance', () => {
     const errorResult = validateHierarchyPlacement('T999', tasks, policy);
     expect(errorResult).toHaveProperty('valid', false);
     expect(errorResult).toHaveProperty('error');
-    expect(errorResult.error).toHaveProperty('code');
-    expect(errorResult.error).toHaveProperty('message');
-    expect(typeof errorResult.error.code).toBe('string');
-    expect(typeof errorResult.error.message).toBe('string');
+    expect(errorResult.error!).toHaveProperty('code');
+    expect(errorResult.error!).toHaveProperty('message');
+    expect(typeof errorResult.error!.code).toBe('string');
+    expect(typeof errorResult.error!.message).toBe('string');
   });
 
   it('hierarchy error codes follow E_ prefix convention', () => {
@@ -831,8 +832,9 @@ describe('hierarchy policy conformance', () => {
       {
         id: 'T001',
         title: 'Root',
-        status: 'pending',
-        priority: 'medium',
+        description: 'Root task',
+        status: 'pending' as const,
+        priority: 'medium' as const,
         createdAt: '2026-01-01T00:00:00Z',
       },
     ];
@@ -841,11 +843,11 @@ describe('hierarchy policy conformance', () => {
       maxSiblings: 7,
       maxActiveSiblings: 3,
       countDoneInLimit: false,
-      enforcementProfile: 'human-cognitive',
+      enforcementProfile: 'human-cognitive' as const,
     };
 
     const result = validateHierarchyPlacement('T999', tasks, policy);
-    expect(result.error.code).toMatch(/^E_/);
+    expect(result.error!.code).toMatch(/^E_/);
   });
 
   it('hierarchy error flows through LAFS-structured formatError envelope', () => {

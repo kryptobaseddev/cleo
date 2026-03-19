@@ -19,7 +19,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ArchiveFile, DataAccessor, SessionsFile } from '../data-accessor.js';
+import type { ArchiveFile, DataAccessor } from '../data-accessor.js';
+import type { Session } from '@cleocode/contracts';
 
 // Mock git-checkpoint
 vi.mock('../git-checkpoint.js', () => ({
@@ -50,11 +51,7 @@ describe('SafetyDataAccessor', () => {
 
   function createMockAccessor(): DataAccessor {
     const data = {
-      sessions: {
-        sessions: [],
-        version: '1.0.0',
-        _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-      } as SessionsFile,
+      sessions: [] as Session[],
       archive: null as ArchiveFile | null,
     };
 
@@ -69,11 +66,37 @@ describe('SafetyDataAccessor', () => {
       async loadSessions() {
         return data.sessions;
       },
-      async saveSessions(d: SessionsFile) {
+      async saveSessions(d: Session[]) {
         data.sessions = d;
       },
       async appendLog() {},
       async close() {},
+      async getActiveSession() { return null; },
+      async getNextPosition() { return 0; },
+      async shiftPositions() {},
+      async upsertSingleSession() {},
+      async removeSingleSession() {},
+      async upsertSingleTask() {},
+      async archiveSingleTask() {},
+      async removeSingleTask() {},
+      async loadSingleTask() { return null; },
+      async addRelation() {},
+      async getMetaValue() { return null; },
+      async setMetaValue() {},
+      async getSchemaVersion() { return null; },
+      async queryTasks() { return { tasks: [], total: 0 }; },
+      async countTasks() { return 0; },
+      async getChildren() { return []; },
+      async countChildren() { return 0; },
+      async countActiveChildren() { return 0; },
+      async getAncestorChain() { return []; },
+      async getSubtree() { return []; },
+      async getDependents() { return []; },
+      async getDependencyChain() { return []; },
+      async taskExists() { return false; },
+      async loadTasks() { return []; },
+      async updateTaskFields() {},
+      async transaction(fn: any) { return fn({}); },
     };
   }
 
@@ -135,7 +158,7 @@ describe('SafetyDataAccessor', () => {
       const wrapped = new SafetyDataAccessor(inner, tempDir);
 
       const result = await wrapped.loadSessions();
-      expect(result.sessions).toEqual([]);
+      expect(result).toEqual([]);
     });
 
     it('should pass through loadArchive without modification', async () => {
@@ -159,11 +182,7 @@ describe('SafetyDataAccessor', () => {
       const inner = createMockAccessor();
       const wrapped = new SafetyDataAccessor(inner, tempDir, { enabled: true });
 
-      await wrapped.saveSessions({
-        sessions: [],
-        version: '1.0.0',
-        _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-      });
+      await wrapped.saveSessions([]);
 
       expect(getSafetyStats().writes).toBeGreaterThan(0);
     });

@@ -61,6 +61,7 @@ describe('Data Safety Central', () => {
       name: `Session ${i}`,
       status: 'ended' as const,
       scope: { type: 'epic' as const, epicId: 'T001' },
+      taskWork: { taskId: null, setAt: null },
       agent: 'test',
       notes: [],
       tasksCompleted: [],
@@ -87,7 +88,11 @@ describe('Data Safety Central', () => {
     _archive: ArchiveFile | null;
     _logs: Record<string, unknown>[];
   } {
-    const mock = {
+    const mock: DataAccessor & {
+      _sessions: Session[];
+      _archive: ArchiveFile | null;
+      _logs: Record<string, unknown>[];
+    } = {
       engine: 'sqlite' as const,
       _sessions: makeSessions(),
       _archive: null as ArchiveFile | null,
@@ -109,6 +114,32 @@ describe('Data Safety Central', () => {
         mock._logs.push(entry);
       },
       async close() {},
+      async getActiveSession() { return null; },
+      async getNextPosition() { return 0; },
+      async shiftPositions() {},
+      async upsertSingleSession() {},
+      async removeSingleSession() {},
+      async upsertSingleTask() {},
+      async archiveSingleTask() {},
+      async removeSingleTask() {},
+      async loadSingleTask() { return null; },
+      async addRelation() {},
+      async getMetaValue() { return null; },
+      async setMetaValue() {},
+      async getSchemaVersion() { return null; },
+      async queryTasks() { return { tasks: [], total: 0 }; },
+      async countTasks() { return 0; },
+      async getChildren() { return []; },
+      async countChildren() { return 0; },
+      async countActiveChildren() { return 0; },
+      async getAncestorChain() { return []; },
+      async getSubtree() { return []; },
+      async getDependents() { return []; },
+      async getDependencyChain() { return []; },
+      async taskExists() { return false; },
+      async loadTasks() { return []; },
+      async updateTaskFields() {},
+      async transaction(fn: any) { return fn({}); },
     };
     return mock;
   }
@@ -415,7 +446,7 @@ describe('Data Safety Central', () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
       // Add countTasks to mock since runDataIntegrityCheck uses it
-      (accessor as Record<string, unknown>).countTasks = async () => 0;
+      (accessor as unknown as Record<string, unknown>).countTasks = async () => 0;
       accessor._sessions = makeSessions();
 
       const result = await checkIntegrity(accessor, tempDir);
@@ -427,7 +458,7 @@ describe('Data Safety Central', () => {
     it('should report error when task count query fails', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      (accessor as Record<string, unknown>).countTasks = async () => {
+      (accessor as unknown as Record<string, unknown>).countTasks = async () => {
         throw new Error('corrupted');
       };
 
@@ -440,7 +471,7 @@ describe('Data Safety Central', () => {
     it('should report error when task count is negative', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      (accessor as Record<string, unknown>).countTasks = async () => -1;
+      (accessor as unknown as Record<string, unknown>).countTasks = async () => -1;
 
       const result = await checkIntegrity(accessor, tempDir);
 
@@ -450,7 +481,7 @@ describe('Data Safety Central', () => {
     it('should report error when sessions fail to load', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      (accessor as Record<string, unknown>).countTasks = async () => 0;
+      (accessor as unknown as Record<string, unknown>).countTasks = async () => 0;
       accessor.loadSessions = async () => {
         throw new Error('session corruption');
       };

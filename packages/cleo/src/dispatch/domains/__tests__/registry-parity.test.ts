@@ -665,8 +665,8 @@ describe('Registry-Handler Parity (T5671)', () => {
 
           const result =
             op.gateway === 'query'
-              ? await handler.query(op.operation, params)
-              : await handler.mutate(op.operation, params);
+              ? await handler!.query(op.operation, params)
+              : await handler!.mutate(op.operation, params);
 
           // The handler MUST NOT return E_INVALID_OPERATION.
           // Other errors (E_INVALID_INPUT, E_INTERNAL, etc.) are acceptable

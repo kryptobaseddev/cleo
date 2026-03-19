@@ -29,9 +29,8 @@ vi.mock('../../../../../core/src/tasks/find.js', () => ({
     findTasks: vi.fn(),
 }));
 import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
-import { listTasks as coreListTasks } from '../../../../../core/src/tasks/list.js';
+import { listTasks as coreListTasks, toCompact } from '../../../../../core/src/tasks/list.js';
 import { findTasks as coreFindTasksFromFind } from '../../../../../core/src/tasks/find.js';
-import { toCompact } from '../../../../../core/src/tasks/list.js';
 import { taskFind, taskList } from '../../engines/task-engine.js';
 const MOCK_TASKS = [
     {

@@ -41,11 +41,7 @@ describe('SafetyDataAccessor', () => {
     // ---- Fixtures ----
     function createMockAccessor() {
         const data = {
-            sessions: {
-                sessions: [],
-                version: '1.0.0',
-                _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-            },
+            sessions: [],
             archive: null,
         };
         return {
@@ -64,6 +60,32 @@ describe('SafetyDataAccessor', () => {
             },
             async appendLog() { },
             async close() { },
+            async getActiveSession() { return null; },
+            async getNextPosition() { return 0; },
+            async shiftPositions() { },
+            async upsertSingleSession() { },
+            async removeSingleSession() { },
+            async upsertSingleTask() { },
+            async archiveSingleTask() { },
+            async removeSingleTask() { },
+            async loadSingleTask() { return null; },
+            async addRelation() { },
+            async getMetaValue() { return null; },
+            async setMetaValue() { },
+            async getSchemaVersion() { return null; },
+            async queryTasks() { return { tasks: [], total: 0 }; },
+            async countTasks() { return 0; },
+            async getChildren() { return []; },
+            async countChildren() { return 0; },
+            async countActiveChildren() { return 0; },
+            async getAncestorChain() { return []; },
+            async getSubtree() { return []; },
+            async getDependents() { return []; },
+            async getDependencyChain() { return []; },
+            async taskExists() { return false; },
+            async loadTasks() { return []; },
+            async updateTaskFields() { },
+            async transaction(fn) { return fn({}); },
         };
     }
     // ---- Factory Wrapping ----
@@ -109,7 +131,7 @@ describe('SafetyDataAccessor', () => {
             const inner = createMockAccessor();
             const wrapped = new SafetyDataAccessor(inner, tempDir);
             const result = await wrapped.loadSessions();
-            expect(result.sessions).toEqual([]);
+            expect(result).toEqual([]);
         });
         it('should pass through loadArchive without modification', async () => {
             const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
@@ -127,11 +149,7 @@ describe('SafetyDataAccessor', () => {
             resetSafetyStats();
             const inner = createMockAccessor();
             const wrapped = new SafetyDataAccessor(inner, tempDir, { enabled: true });
-            await wrapped.saveSessions({
-                sessions: [],
-                version: '1.0.0',
-                _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-            });
+            await wrapped.saveSessions([]);
             expect(getSafetyStats().writes).toBeGreaterThan(0);
         });
         it('should trigger safety pipeline on saveArchive', async () => {

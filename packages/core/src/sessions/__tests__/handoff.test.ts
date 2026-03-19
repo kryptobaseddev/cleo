@@ -172,7 +172,7 @@ describe('computeHandoff scope resolution', () => {
       scope: { type: 'epic', rootTaskId: 'T100' },
     });
     // Remove epicId to ensure rootTaskId is the only key
-    delete (session.scope as Record<string, unknown>).epicId;
+    delete (session.scope as unknown as Record<string, unknown>).epicId;
 
     setupMockAccessor([session]);
 
@@ -234,8 +234,8 @@ describe('computeHandoff scope resolution', () => {
       scope: { type: 'epic' },
     });
     // Remove both epicId and rootTaskId
-    delete (session.scope as Record<string, unknown>).epicId;
-    delete (session.scope as Record<string, unknown>).rootTaskId;
+    delete (session.scope as unknown as Record<string, unknown>).epicId;
+    delete (session.scope as unknown as Record<string, unknown>).rootTaskId;
 
     setupMockAccessor([session]);
 
@@ -425,7 +425,7 @@ describe('getLastHandoff', () => {
       handoffJson: JSON.stringify(handoffData),
     });
     // Remove epicId to simulate engine-layer session
-    delete (session.scope as Record<string, unknown>).epicId;
+    delete (session.scope as unknown as Record<string, unknown>).epicId;
 
     setupMockAccessor([session]);
 

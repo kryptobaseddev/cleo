@@ -713,6 +713,7 @@ describe('hierarchy policy conformance', () => {
             {
                 id: 'T001',
                 title: 'Root',
+                description: 'Root task',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: '2026-01-01T00:00:00Z',
@@ -743,6 +744,7 @@ describe('hierarchy policy conformance', () => {
             {
                 id: 'T001',
                 title: 'Root',
+                description: 'Root task',
                 status: 'pending',
                 priority: 'medium',
                 createdAt: '2026-01-01T00:00:00Z',

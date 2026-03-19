@@ -84,7 +84,7 @@ describe('analyzeArchive', () => {
   it('returns empty result when no archive exists', async () => {
     const result = await analyzeArchive({}, accessor);
     expect(result.report).toBe('summary');
-    expect((result.data as Record<string, unknown>).totalArchived).toBe(0);
+    expect((result.data as unknown as Record<string, unknown>).totalArchived).toBe(0);
   });
 
   it('returns summary by default', async () => {
@@ -92,7 +92,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({}, accessor);
     expect(result.report).toBe('summary');
 
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.totalArchived).toBe(3);
     expect(data.averageCycleTime).toBe(6);
   });
@@ -102,7 +102,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({ report: 'by-phase' }, accessor);
     expect(result.report).toBe('by-phase');
 
-    const data = result.data as Array<Record<string, unknown>>;
+    const data = result.data as unknown as Array<Record<string, unknown>>;
     expect(data.length).toBe(2);
     const alpha = data.find((d) => d.phase === 'alpha');
     expect(alpha?.count).toBe(2);
@@ -113,7 +113,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({ report: 'by-label' }, accessor);
     expect(result.report).toBe('by-label');
 
-    const data = result.data as Array<{ label: string; count: number }>;
+    const data = result.data as unknown as Array<{ label: string; count: number }>;
     const feature = data.find((d) => d.label === 'feature');
     expect(feature?.count).toBe(1);
   });
@@ -123,7 +123,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({ report: 'by-priority' }, accessor);
     expect(result.report).toBe('by-priority');
 
-    const data = result.data as Array<Record<string, unknown>>;
+    const data = result.data as unknown as Array<Record<string, unknown>>;
     expect(data.length).toBe(3);
   });
 
@@ -132,7 +132,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({ report: 'cycle-times' }, accessor);
     expect(result.report).toBe('cycle-times');
 
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.count).toBe(3);
     expect(data.min).toBe(3);
     expect(data.max).toBe(10);
@@ -144,7 +144,7 @@ describe('analyzeArchive', () => {
     const result = await analyzeArchive({ report: 'trends' }, accessor);
     expect(result.report).toBe('trends');
 
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.totalPeriod).toBe(3);
     expect((data.byDay as unknown[]).length).toBe(3);
   });
@@ -152,21 +152,21 @@ describe('analyzeArchive', () => {
   it('filters by since date', async () => {
     accessor = createMockAccessor(SAMPLE_ARCHIVE);
     const result = await analyzeArchive({ since: '2026-02-01' }, accessor);
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.totalArchived).toBe(1);
   });
 
   it('filters by until date', async () => {
     accessor = createMockAccessor(SAMPLE_ARCHIVE);
     const result = await analyzeArchive({ until: '2026-01-20' }, accessor);
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.totalArchived).toBe(2);
   });
 
   it('applies both since and until filters', async () => {
     accessor = createMockAccessor(SAMPLE_ARCHIVE);
     const result = await analyzeArchive({ since: '2026-01-16', until: '2026-01-25' }, accessor);
-    const data = result.data as Record<string, unknown>;
+    const data = result.data as unknown as Record<string, unknown>;
     expect(data.totalArchived).toBe(1);
   });
 });
