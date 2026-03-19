@@ -1,0 +1,9 @@
+{
+  "extends": "./packages/cleo/tsconfig.json",
+  "include": [
+    "packages/cleo/src/**/*.ts",
+    "packages/core/src/**/*.ts",
+    "packages/contracts/src/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

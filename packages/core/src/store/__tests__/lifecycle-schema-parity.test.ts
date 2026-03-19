@@ -11,8 +11,7 @@ import {
 } from '../tasks-schema.js';
 
 function getMigrationSqlFiles(): Array<{ name: string; sql: string }> {
-  const projectRoot = process.cwd();
-  const drizzleDir = join(projectRoot, 'migrations', 'drizzle-tasks');
+  const drizzleDir = join(import.meta.dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
   const migrationDirs = readdirSync(drizzleDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)

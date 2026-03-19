@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2025",
+    "module": "NodeNext",
+    "lib": ["ES2025"],
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@cleocode/contracts": ["packages/contracts/src/index.ts"],
+      "@cleocode/core": ["packages/core/src/index.ts"],
+      "@cleocode/core/internal": ["packages/core/src/internal.ts"],
+      "@cleocode/adapters": ["packages/adapters/src/index.ts"],
+      "@cleocode/agents": ["packages/agents/src/index.ts"],
+      "@cleocode/skills": ["packages/skills/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts"
+  ]
+}

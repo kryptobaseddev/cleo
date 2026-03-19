@@ -4,8 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { CONTRIBUTION_STAGE, PIPELINE_STAGES } from '../../lifecycle/stages.js';
 import { LIFECYCLE_EVIDENCE_TYPES, LIFECYCLE_GATE_RESULTS, LIFECYCLE_PIPELINE_STATUSES, LIFECYCLE_STAGE_NAMES, LIFECYCLE_STAGE_STATUSES, } from '../tasks-schema.js';
 function getMigrationSqlFiles() {
-    const projectRoot = process.cwd();
-    const drizzleDir = join(projectRoot, 'migrations', 'drizzle-tasks');
+    const drizzleDir = join(import.meta.dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
     const migrationDirs = readdirSync(drizzleDir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)

@@ -20,6 +20,7 @@
   "references": [
     { "path": "./packages/contracts" },
     { "path": "./packages/core" },
+    { "path": "./packages/adapters" },
     { "path": "./packages/cleo" }
   ],
   "exclude": ["node_modules", "dist", "drizzle"]
