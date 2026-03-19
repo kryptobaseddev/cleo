@@ -13,7 +13,7 @@
  * @epic T4540
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { type NexusPermissionLevel, nexusGetProject, nexusSetPermission } from './registry.js';

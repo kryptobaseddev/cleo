@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';

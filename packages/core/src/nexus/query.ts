@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';

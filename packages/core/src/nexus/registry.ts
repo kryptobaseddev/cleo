@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
 import { nexusAuditLog, projectRegistry } from '../store/nexus-schema.js';
