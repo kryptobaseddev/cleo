@@ -1,8 +1,8 @@
 # CLEO API Specification
 
-**Version**: 2.1.0  
-**Status**: Canonical Specification  
-**Date**: 2026-03-08  
+**Version**: 3.0.0
+**Status**: Canonical Specification
+**Date**: 2026-03-18
 **Epic**: T4820 (CLEO Core Architecture)
 
 ---
@@ -11,12 +11,15 @@
 
 The **CLEO API** is the canonical interface for all CLEO operations. It provides a unified, transport-agnostic contract that powers:
 
+- **@cleocode/core**: Typed function API (direct programmatic access, standalone)
 - **CLEO-NEXUS-API**: Cross-project coordination (multi-project view)
-- **CLEO-WEB-API**: HTTP/REST adapter (browser access)
-- **MCP Integration**: AI agent tools (Claude Code)
-- **CLI Interface**: Command-line access
+- **MCP Integration**: AI agent tools (Claude Code) — via `@cleocode/cleo`
+- **CLI Interface**: Command-line access — via `@cleocode/cleo`
+- **CLEO-WEB-API**: HTTP/REST adapter (**Status: PLANNED** — part of CleoOS vision)
 
-All adapters consume the same core API through the Dispatcher layer.
+Consumers can access the API at two levels:
+- **Direct**: Import `@cleocode/core` for typed function calls (no dispatch layer)
+- **Routed**: Use MCP or CLI through `@cleocode/cleo`'s dispatch layer
 
 ---
 
@@ -25,46 +28,55 @@ All adapters consume the same core API through the Dispatcher layer.
 ### 2.1 Unified API Layer
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     API CONSUMERS                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ CLEO-NEXUS   │  │ CLEO-WEB     │  │ MCP/CLI      │      │
-│  │ (Cross-Proj) │  │ (HTTP)       │  │ (Agents)     │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
-│         │                 │                 │               │
-│         └─────────────────┼─────────────────┘               │
-│                           │                                 │
-│                    ┌──────┴──────┐                          │
-│                    │  CLEO API   │                          │
-│                    │  (Canonical)│                          │
-│                    └──────┬──────┘                          │
-│                           │                                 │
-│                    ┌──────┴──────┐                          │
-│                    │  DISPATCHER │                          │
-│                    │  (CQRS)     │                          │
-│                    └──────┬──────┘                          │
-│                           │                                 │
-│         ┌─────────────────┼─────────────────┐               │
-│         │                 │                 │               │
-│         ▼                 ▼                 ▼               │
-│  ┌──────────┐      ┌──────────┐      ┌──────────┐          │
-│  │ tasks.db │      │ brain.db │      │ nexus.db │          │
-│  │(project) │      │(project) │      │ (global) │          │
-│  └──────────┘      └──────────┘      └──────────┘          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       API CONSUMERS                              │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Path A: Direct (no dispatch)       Path B: Routed (dispatch)    │
+│                                                                  │
+│  ┌──────────────────┐       ┌──────────────┐  ┌──────────────┐  │
+│  │ App Developers   │       │ MCP/CLI      │  │ CLEO-NEXUS   │  │
+│  │ (import core)    │       │ (Agents)     │  │ (Cross-Proj) │  │
+│  └────────┬─────────┘       └──────┬───────┘  └──────┬───────┘  │
+│           │                        │                 │           │
+│           │                        └────────┬────────┘           │
+│           │                                 │                    │
+│           │                          ┌──────┴──────┐             │
+│           │                          │  DISPATCHER │             │
+│           │                          │  (CQRS)     │             │
+│           │                          └──────┬──────┘             │
+│           │                                 │                    │
+│           └──────────────┬──────────────────┘                    │
+│                          │                                       │
+│                   ┌──────┴──────┐                                │
+│                   │@cleocode/   │                                │
+│                   │  core       │                                │
+│                   │(typed API)  │                                │
+│                   └──────┬──────┘                                │
+│                          │                                       │
+│        ┌─────────────────┼─────────────────┐                     │
+│        │                 │                 │                     │
+│        ▼                 ▼                 ▼                     │
+│  ┌──────────┐      ┌──────────┐      ┌──────────┐               │
+│  │ tasks.db │      │ brain.db │      │ nexus.db │               │
+│  │(project) │      │(project) │      │ (global) │               │
+│  └──────────┘      └──────────┘      └──────────┘               │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+**Path A** — Direct: `import { addTask } from '@cleocode/core'` — typed function calls, no dispatch overhead.
+**Path B** — Routed: MCP `query tasks.show` or CLI `cleo tasks show T001` — string-addressed dispatch through `@cleocode/cleo`.
 
 ### 2.2 Transport Adapters
 
-| Adapter            | Transport        | Purpose                                   |
-| ------------------ | ---------------- | ----------------------------------------- |
-| **CLEO-NEXUS-API** | HTTP/MCP/CLI     | Cross-project operations, global registry |
-| **CLEO-WEB-API**   | HTTP (Fastify)   | Web dashboard, browser access             |
-| **MCP Tools**      | stdio (JSON-RPC) | AI agents, Claude Code                    |
-| **CLI**            | Process          | Scripts, automation, human use            |
+| Adapter            | Transport        | Status          | Purpose                                   |
+| ------------------ | ---------------- | --------------- | ----------------------------------------- |
+| **@cleocode/core** | Direct import    | **Implemented** | Typed function API for app developers     |
+| **MCP Tools**      | stdio (JSON-RPC) | **Implemented** | AI agents, Claude Code                    |
+| **CLI**            | Process          | **Implemented** | Scripts, automation, human use            |
+| **CLEO-NEXUS-API** | MCP/CLI          | **Implemented** | Cross-project operations, global registry |
+| **CLEO-WEB-API**   | HTTP (Fastify)   | **PLANNED**     | Web dashboard, browser access (CleoOS)    |
 
 ---
 
@@ -179,16 +191,16 @@ export const OPERATIONS: OperationDef[] = [
 
 ### 4.3 Dynamic Generation
 
-API specifications generated from registry:
+> **Status: PLANNED** — The commands below are designed but not yet implemented. No `generate:api` npm script exists today. The operation registry in `packages/cleo/src/dispatch/registry.ts` is the machine-readable source of truth, but automated spec generation tooling has not been built.
 
 ```bash
-# Generate OpenAPI spec
+# PLANNED: Generate OpenAPI spec
 npm run generate:api -- --format openapi
 
-# Generate TypeScript client
+# PLANNED: Generate TypeScript client
 npm run generate:api -- --format typescript
 
-# Generate Markdown docs
+# PLANNED: Generate Markdown docs
 npm run generate:api -- --format markdown
 ```
 
@@ -209,12 +221,16 @@ npm run generate:api -- --format markdown
 ```
 ~/.cleo/
 ├── nexus.db              # Global registry
-└── projects/
-    └── {project-hash}/
-        ├── tasks.db      # Project data
-        ├── brain.db      # BRAIN memory
-        └── config.json   # Project config
+├── templates/            # Global templates
+├── schemas/              # Global schemas
+
+{project-root}/.cleo/
+├── tasks.db              # Per-project tasks
+├── brain.db              # Per-project memory
+├── config.json           # Per-project config
 ```
+
+Per-project databases live **inside the project directory** (under `{project-root}/.cleo/`), not under `~/.cleo/projects/`. Only `nexus.db` and shared global assets live under `~/.cleo/`.
 
 ### 5.3 Grade Analytics and Token Telemetry
 
@@ -262,7 +278,7 @@ Design direction:
 
 ### 6.1 HTTP (CLEO-WEB-API)
 
-See: [CLEO-WEB-API.md](./CLEO-WEB-API.md)
+> **Status: PLANNED** — The HTTP transport layer is not implemented. The endpoints below represent the planned design for CleoOS. No `CLEO-WEB-API.md` spec exists yet.
 
 ```
 POST /api/query   { domain, operation, params }
@@ -270,7 +286,7 @@ POST /api/mutate  { domain, operation, params }
 GET  /api/poll    (ETag-based change detection)
 ```
 
-The HTTP adapter MUST also serve grade analytics and token telemetry through the same dispatch contract. That includes existing `admin.grade*` and `admin.token.*` operations, plus future grade-run, timing, comparison, and eval endpoints.
+When implemented, the HTTP adapter SHOULD serve grade analytics and token telemetry through the same dispatch contract, including `admin.grade*` and `admin.token.*` operations.
 
 ### 6.2 MCP
 
@@ -297,20 +313,24 @@ cleo session start
 
 ## 7. Related Specifications
 
-| Document                                                             | Purpose                                |
-| -------------------------------------------------------------------- | -------------------------------------- |
-| **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)**                         | Cross-project API (builds on CLEO-API) |
-| **[CLEO-WEB-API.md](./CLEO-WEB-API.md)**                             | HTTP adapter specification             |
-| **[CLEO-ARCHITECTURE.md](./CLEO-ARCHITECTURE.md)**                   | System architecture                    |
-| **[LAFS Protocol](https://github.com/kryptobaseddev/lafs-protocol)** | LLM-Agent-First Specification          |
+| Document                                                             | Status          | Purpose                                |
+| -------------------------------------------------------------------- | --------------- | -------------------------------------- |
+| **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)**                         | Exists          | Cross-project API (builds on CLEO-API) |
+| **[CLEO-OPERATION-CONSTITUTION.md](./CLEO-OPERATION-CONSTITUTION.md)**| Exists          | Canonical operation registry (209 ops) |
+| **[VERB-STANDARDS.md](./VERB-STANDARDS.md)**                          | Exists          | Canonical verb definitions             |
+| **[LAFS Protocol](https://github.com/kryptobaseddev/lafs-protocol)** | External        | LLM-Agent-First Specification          |
+| CLEO-WEB-API.md                                                       | **PLANNED**     | HTTP adapter specification (not yet written) |
+| CLEO-ARCHITECTURE.md                                                  | **PLANNED**     | System architecture (not yet written)  |
 
 ---
 
 ## 8. Grade and Token API Plan
 
+> **Status: PLANNED** — The endpoints in this section are designed but not all are in the canonical registry today. Sections 8.1-8.2 describe the current transitional state. Sections 8.3-8.5 describe planned additions that are not yet implemented.
+
 ### 8.1 Canonical Registry Surface
 
-As of v2.1, the canonical registry surface for grade and token analytics is in transition and SHOULD be read from `packages/cleo/src/dispatch/registry.ts` rather than inferred from legacy handler names.
+As of v3.0, the canonical registry surface for grade and token analytics is in transition and SHOULD be read from `packages/cleo/src/dispatch/registry.ts` rather than inferred from legacy handler names.
 
 **Current registry direction includes:**
 
@@ -331,6 +351,8 @@ The runtime handlers are not fully aligned with that registry surface yet.
 This mismatch is a transitional compatibility layer, not a long-term stability guarantee. New specs and client generation SHOULD prefer the canonical registry surface, while runtime callers MAY encounter additional compatibility routes until registry and handlers converge.
 
 ### 8.3 Planned Analytics Endpoints for `ct-grade-v2-1`
+
+> **Not yet implemented.** These operation families are designed but not registered in the canonical dispatch registry.
 
 `ct-grade-v2-1` needs a richer read surface than the legacy grade APIs provide. The following operation families SHOULD be added and documented as first-class analytics endpoints:
 
@@ -364,11 +386,12 @@ This mismatch is a transitional compatibility layer, not a long-term stability g
 
 ```
 CLEO-API.md (Master)
-├── CLEO-NEXUS-API.md (Cross-project layer)
-└── CLEO-WEB-API.md (HTTP transport layer)
+├── CLEO-NEXUS-API.md (Cross-project layer) — EXISTS
+├── CLEO-OPERATION-CONSTITUTION.md (Operation registry) — EXISTS
+└── CLEO-WEB-API.md (HTTP transport layer) — PLANNED, not yet written
 ```
 
 ---
 
-**Version**: 2.1.0  
-**Last Updated**: 2026-03-08
+**Version**: 3.0.0
+**Last Updated**: 2026-03-18
