@@ -402,12 +402,6 @@ All methods are **required** (non-optional) unless explicitly noted:
 interface DataAccessor {
   readonly engine: 'sqlite';
 
-  // ---- Task data (DEPRECATED — use targeted methods below) ----
-  /** @deprecated Use queryTasks/loadSingleTask/getMetaValue instead */
-  loadTaskFile(): Promise<TaskFile>;
-  /** @deprecated Use upsertSingleTask/updateTaskFields/setMetaValue instead */
-  saveTaskFile(data: TaskFile): Promise<void>;
-
   // ---- Archive data ----
   loadArchive(): Promise<ArchiveFile | null>;
   saveArchive(data: ArchiveFile): Promise<void>;
@@ -422,20 +416,11 @@ interface DataAccessor {
   // ---- Lifecycle ----
   close(): Promise<void>;
 
-  // ---- Fine-grained task operations ----
-  upsertSingleTask(task: Task): Promise<void>;
-  archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
-  removeSingleTask(taskId: string): Promise<void>;
+  // ---- Task reads (targeted queries) ----
   loadSingleTask(taskId: string): Promise<Task | null>;
-  addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
-
-  // ---- Metadata (schema_meta KV store) ----
-  getMetaValue<T>(key: string): Promise<T | null>;
-  setMetaValue(key: string, value: unknown): Promise<void>;
-  getSchemaVersion(): Promise<string | null>;
-
-  // ---- Targeted query methods ----
   queryTasks(filters: TaskQueryFilters): Promise<QueryTasksResult>;
+  loadTasks(taskIds: string[]): Promise<Task[]>;
+  taskExists(taskId: string): Promise<boolean>;
   countTasks(filters?: { status?: TaskStatus | TaskStatus[]; parentId?: string }): Promise<number>;
   getChildren(parentId: string): Promise<Task[]>;
   countChildren(parentId: string): Promise<number>;
@@ -444,16 +429,26 @@ interface DataAccessor {
   getSubtree(rootId: string): Promise<Task[]>;
   getDependents(taskId: string): Promise<Task[]>;
   getDependencyChain(taskId: string): Promise<string[]>;
-  taskExists(taskId: string): Promise<boolean>;
-  loadTasks(taskIds: string[]): Promise<Task[]>;
 
-  // ---- Targeted write methods ----
+  // ---- Task writes (targeted mutations) ----
+  upsertSingleTask(task: Task): Promise<void>;
   updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
+  removeSingleTask(taskId: string): Promise<void>;
+  addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
+  getNextPosition(parentId: string | null): Promise<number>;
+  shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void>;
   transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T>;
 
-  // ---- Optional session operations (phased introduction) ----
-  upsertSingleSession?(session: Session): Promise<void>;
-  removeSingleSession?(sessionId: string): Promise<void>;
+  // ---- Metadata (schema_meta KV store) ----
+  getMetaValue<T>(key: string): Promise<T | null>;
+  setMetaValue(key: string, value: unknown): Promise<void>;
+  getSchemaVersion(): Promise<string | null>;
+
+  // ---- Session operations ----
+  getActiveSession(): Promise<Session | null>;
+  upsertSingleSession(session: Session): Promise<void>;
+  removeSingleSession(sessionId: string): Promise<void>;
 }
 ```
 
