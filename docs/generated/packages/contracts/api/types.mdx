@@ -29,9 +29,9 @@ Context monitor provider interface for CLEO provider adapters. Allows providers 
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `processContextInput` | `(input: unknown, cwd?: string \| undefined) => Promise<string>` | No | Process context window input and return a status string |
+| `processContextInput` | `(input: unknown, cwd?: string \| undefined) => Promise&lt;string&gt;` | No | Process context window input and return a status string |
 | `checkStatuslineIntegration` | `() => "configured" \| "not_configured" \| "custom_no_cleo" \| "no_settings"` | Yes | Check if statusline integration is configured |
-| `getStatuslineConfig` | `() => Record<string, unknown>` | Yes | Get the statusline configuration object |
+| `getStatuslineConfig` | `() => Record&lt;string, unknown&gt;` | Yes | Get the statusline configuration object |
 | `getSetupInstructions` | `() => string` | Yes | Get human-readable setup instructions |
 
 ## AdapterHookProvider
@@ -41,9 +41,9 @@ Hook provider interface for CLEO provider adapters. Maps provider-specific event
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `mapProviderEvent` | `(providerEvent: string) => string \| null` | Yes | Map a provider-specific event name to a CAAMP hook event name, or null if unmapped. |
-| `registerNativeHooks` | `(projectDir: string) => Promise<void>` | Yes | Register the provider's native hook mechanism for a project. |
-| `unregisterNativeHooks` | `() => Promise<void>` | Yes | Unregister all native hooks previously registered. |
-| `getEventMap` | `(() => Readonly<Record<string, string>>) \| undefined` | No | Return the full event mapping for introspection. |
+| `registerNativeHooks` | `(projectDir: string) => Promise&lt;void&gt;` | Yes | Register the provider's native hook mechanism for a project. |
+| `unregisterNativeHooks` | `() => Promise&lt;void&gt;` | Yes | Unregister all native hooks previously registered. |
+| `getEventMap` | `(() => Readonly&lt;Record&lt;string, string&gt;>) \| undefined` | No | Return the full event mapping for introspection. |
 
 ## AdapterInstallProvider
 
@@ -51,10 +51,10 @@ Install provider interface for CLEO provider adapters. Handles registration with
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `install` | `(options: InstallOptions) => Promise<InstallResult>` | Yes | install |
-| `uninstall` | `() => Promise<void>` | Yes | uninstall |
-| `isInstalled` | `() => Promise<boolean>` | Yes | isInstalled |
-| `ensureInstructionReferences` | `(projectDir: string) => Promise<void>` | Yes | Ensure the provider's instruction file references CLEO (e.g. AGENTS.md in CLAUDE.md). |
+| `install` | `(options: InstallOptions) => Promise&lt;InstallResult&gt;` | Yes | install |
+| `uninstall` | `() => Promise&lt;void&gt;` | Yes | uninstall |
+| `isInstalled` | `() => Promise&lt;boolean&gt;` | Yes | isInstalled |
+| `ensureInstructionReferences` | `(projectDir: string) => Promise&lt;void&gt;` | Yes | Ensure the provider's instruction file references CLEO (e.g. AGENTS.md in CLAUDE.md). |
 
 ## InstallOptions
 
@@ -72,7 +72,7 @@ Install provider interface for CLEO provider adapters. Handles registration with
 | `installedAt` | `string` | Yes | installedAt |
 | `instructionFileUpdated` | `boolean` | Yes | instructionFileUpdated |
 | `mcpRegistered` | `boolean` | Yes | mcpRegistered |
-| `details` | `Record<string, unknown> \| undefined` | No | details |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | details |
 
 ## AdapterPathProvider
 
@@ -91,10 +91,10 @@ Spawn provider interface for CLEO provider adapters.   T5240
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `canSpawn` | `() => Promise<boolean>` | Yes | canSpawn |
-| `spawn` | `(context: SpawnContext) => Promise<SpawnResult>` | Yes | spawn |
-| `listRunning` | `() => Promise<SpawnResult[]>` | Yes | listRunning |
-| `terminate` | `(instanceId: string) => Promise<void>` | Yes | terminate |
+| `canSpawn` | `() => Promise&lt;boolean&gt;` | Yes | canSpawn |
+| `spawn` | `(context: SpawnContext) => Promise&lt;SpawnResult&gt;` | Yes | spawn |
+| `listRunning` | `() => Promise&lt;SpawnResult[]>` | Yes | listRunning |
+| `terminate` | `(instanceId: string) => Promise&lt;void&gt;` | Yes | terminate |
 
 ## SpawnContext
 
@@ -103,7 +103,7 @@ Spawn provider interface for CLEO provider adapters.   T5240
 | `taskId` | `string` | Yes | taskId |
 | `prompt` | `string` | Yes | prompt |
 | `workingDirectory` | `string \| undefined` | No | workingDirectory |
-| `options` | `Record<string, unknown> \| undefined` | No | options |
+| `options` | `Record&lt;string, unknown&gt; \| undefined` | No | options |
 
 ## SpawnResult
 
@@ -142,7 +142,7 @@ A task as reported by an external provider, normalized to a common shape. Provid
 | `labels` | `string[] \| undefined` | No | Optional labels/tags from the provider. |
 | `url` | `string \| undefined` | No | Optional URL to the external task (for linking). |
 | `parentExternalId` | `string \| undefined` | No | Optional parent external ID (for hierarchy). |
-| `providerMeta` | `Record<string, unknown> \| undefined` | No | Arbitrary provider-specific metadata (opaque to core). |
+| `providerMeta` | `Record&lt;string, unknown&gt; \| undefined` | No | Arbitrary provider-specific metadata (opaque to core). |
 
 ## ExternalLinkType
 
@@ -174,7 +174,7 @@ A link between a CLEO task and an external provider task. Stored in the external
 | `externalTitle` | `string \| null \| undefined` | No | Title at time of last sync. |
 | `linkType` | `ExternalLinkType` | Yes | How this link was established. |
 | `syncDirection` | `SyncDirection` | Yes | Sync direction. |
-| `metadata` | `Record<string, unknown> \| undefined` | No | Provider-specific metadata (JSON). |
+| `metadata` | `Record&lt;string, unknown&gt; \| undefined` | No | Provider-specific metadata (JSON). |
 | `linkedAt` | `string` | Yes | When the link was first established. |
 | `lastSyncAt` | `string \| null \| undefined` | No | When the external task was last synchronized. |
 
@@ -230,7 +230,7 @@ Result of a full reconciliation run.
 | `dryRun` | `boolean` | Yes | Whether this was a dry run. |
 | `providerId` | `string` | Yes | Provider that was reconciled. |
 | `actions` | `ReconcileAction[]` | Yes | Individual actions taken (or planned). |
-| `summary` | `{ created: number; updated: number; completed: number; activated: number; skipped: number; conflicts: number; total: number; applied: number; }` | Yes | Summary counts. |
+| `summary` | `\{ created: number; updated: number; completed: number; activated: number; skipped: number; conflicts: number; total: number; applied: number; \}` | Yes | Summary counts. |
 | `linksAffected` | `number` | Yes | Links created or updated during this reconciliation. |
 
 ## ExternalTaskProvider
@@ -239,8 +239,8 @@ Interface that provider adapters implement to expose their external task system 
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `getExternalTasks` | `(projectDir: string) => Promise<ExternalTask[]>` | Yes | Read the provider's current task state and return normalized ExternalTasks. |
-| `pushTaskState` | `((tasks: readonly { id: string; title: string; status: string; }[], projectDir: string) => Promise<void>) \| undefined` | No | Optionally push CLEO task state back to the provider (outbound sync). Not all providers support bidirectional sync. |
+| `getExternalTasks` | `(projectDir: string) => Promise&lt;ExternalTask[]>` | Yes | Read the provider's current task state and return normalized ExternalTasks. |
+| `pushTaskState` | `((tasks: readonly \{ id: string; title: string; status: string; \}[], projectDir: string) => Promise&lt;void&gt;) \| undefined` | No | Optionally push CLEO task state back to the provider (outbound sync). Not all providers support bidirectional sync. |
 
 ## AdapterTransportProvider
 
@@ -266,9 +266,9 @@ Transport provider interface for CLEO provider adapters. Allows providers to sup
 | `contextMonitor` | `AdapterContextMonitorProvider \| undefined` | No | contextMonitor |
 | `transport` | `AdapterTransportProvider \| undefined` | No | transport |
 | `taskSync` | `ExternalTaskProvider \| undefined` | No | taskSync |
-| `initialize` | `(projectDir: string) => Promise<void>` | Yes | initialize |
-| `dispose` | `() => Promise<void>` | Yes | dispose |
-| `healthCheck` | `() => Promise<AdapterHealthStatus>` | Yes | healthCheck |
+| `initialize` | `(projectDir: string) => Promise&lt;void&gt;` | Yes | initialize |
+| `dispose` | `() => Promise&lt;void&gt;` | Yes | dispose |
+| `healthCheck` | `() => Promise&lt;AdapterHealthStatus&gt;` | Yes | healthCheck |
 
 ## AdapterHealthStatus
 
@@ -276,7 +276,7 @@ Transport provider interface for CLEO provider adapters. Allows providers to sup
 |----------|------|----------|-------------|
 | `healthy` | `boolean` | Yes | healthy |
 | `provider` | `string` | Yes | provider |
-| `details` | `Record<string, unknown> \| undefined` | No | details |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | details |
 
 ## TaskStatus
 
@@ -401,7 +401,7 @@ Task verification state.
 |----------|------|----------|-------------|
 | `passed` | `boolean` | Yes | passed |
 | `round` | `number` | Yes | round |
-| `gates` | `Partial<Record<VerificationGate, boolean \| null>>` | Yes | gates |
+| `gates` | `Partial&lt;Record&lt;VerificationGate, boolean \| null&gt;>` | Yes | gates |
 | `lastAgent` | `VerificationAgent \| null` | Yes | lastAgent |
 | `lastUpdated` | `string \| null` | Yes | lastUpdated |
 | `failureLog` | `VerificationFailure[]` | Yes | failureLog |
@@ -432,7 +432,7 @@ A single CLEO task as stored in the database.  Fields marked as required are enf
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `string` | Yes | Unique task identifier. Must match pattern `T\d{3,}` (e.g., T001, T5800). |
+| `id` | `string` | Yes | Unique task identifier. Must match pattern `T\d\{3,\}` (e.g., T001, T5800). |
 | `title` | `string` | Yes | Human-readable task title. Required, max 120 characters. |
 | `description` | `string` | Yes | Task description. **Required** — CLEO's anti-hallucination rules reject tasks without a description, and require it to differ from the title. |
 | `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | Current task status. Must be a valid `TaskStatus` enum value. |
@@ -562,7 +562,7 @@ Project metadata.
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | name |
 | `currentPhase` | `string \| null \| undefined` | No | currentPhase |
-| `phases` | `Record<string, Phase>` | Yes | phases |
+| `phases` | `Record&lt;string, Phase&gt;` | Yes | phases |
 | `phaseHistory` | `PhaseTransition[] \| undefined` | No | phaseHistory |
 | `releases` | `Release[] \| undefined` | No | releases |
 
@@ -620,7 +620,7 @@ Root task data structure.
 | `taskWork` | `TaskWorkState \| undefined` | No | taskWork |
 | `focus` | `TaskWorkState \| undefined` | No | focus |
 | `tasks` | `Task[]` | Yes | tasks |
-| `labels` | `Record<string, string[]> \| undefined` | No | labels |
+| `labels` | `Record&lt;string, string[]> \| undefined` | No | labels |
 
 ## ArchiveMetadata
 
@@ -656,12 +656,12 @@ Summary report from archive statistics.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `totalArchived` | `number` | Yes | totalArchived |
-| `byStatus` | `Record<string, number>` | Yes | byStatus |
-| `byPriority` | `Record<string, number>` | Yes | byPriority |
+| `byStatus` | `Record&lt;string, number&gt;` | Yes | byStatus |
+| `byPriority` | `Record&lt;string, number&gt;` | Yes | byPriority |
 | `averageCycleTime` | `number \| null` | Yes | averageCycleTime |
 | `oldestArchived` | `string \| null` | Yes | oldestArchived |
 | `newestArchived` | `string \| null` | Yes | newestArchived |
-| `archiveSourceBreakdown` | `Record<string, number>` | Yes | archiveSourceBreakdown |
+| `archiveSourceBreakdown` | `Record&lt;string, number&gt;` | Yes | archiveSourceBreakdown |
 
 ## ArchivePhaseEntry
 
@@ -764,8 +764,8 @@ Archive statistics result envelope.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `report` | `ArchiveReportType` | Yes | report |
-| `filters` | `{ since: string \| null; until: string \| null; } \| null` | Yes | filters |
-| `data` | `ArchiveSummaryReport \| ArchivePhaseEntry[] \| ArchiveLabelEntry[] \| ArchivePriorityEntry[] \| ArchiveCycleTimesReport \| ArchiveTrendsReport \| { ...; }` | Yes | data |
+| `filters` | `\{ since: string \| null; until: string \| null; \} \| null` | Yes | filters |
+| `data` | `ArchiveSummaryReport \| ArchivePhaseEntry[] \| ArchiveLabelEntry[] \| ArchivePriorityEntry[] \| ArchiveCycleTimesReport \| ArchiveTrendsReport \| \{ ...; \}` | Yes | data |
 
 ## BrainEntryRef
 
@@ -1150,12 +1150,12 @@ Subset of DataAccessor methods available inside a transaction callback. Write-on
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `upsertSingleTask` | `(task: Task) => Promise<void>` | Yes | upsertSingleTask |
-| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise<void>` | Yes | archiveSingleTask |
-| `removeSingleTask` | `(taskId: string) => Promise<void>` | Yes | removeSingleTask |
-| `setMetaValue` | `(key: string, value: unknown) => Promise<void>` | Yes | setMetaValue |
-| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise<void>` | Yes | updateTaskFields |
-| `appendLog` | `(entry: Record<string, unknown>) => Promise<void>` | Yes | appendLog |
+| `upsertSingleTask` | `(task: Task) => Promise&lt;void&gt;` | Yes | upsertSingleTask |
+| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise&lt;void&gt;` | Yes | archiveSingleTask |
+| `removeSingleTask` | `(taskId: string) => Promise&lt;void&gt;` | Yes | removeSingleTask |
+| `setMetaValue` | `(key: string, value: unknown) => Promise&lt;void&gt;` | Yes | setMetaValue |
+| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise&lt;void&gt;` | Yes | updateTaskFields |
+| `appendLog` | `(entry: Record&lt;string, unknown&gt;) => Promise&lt;void&gt;` | Yes | appendLog |
 
 ## DataAccessor
 
@@ -1164,38 +1164,38 @@ DataAccessor interface.  Core modules call these methods instead of readJson/sav
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `engine` | `"sqlite"` | Yes | The storage engine backing this accessor. |
-| `loadArchive` | `() => Promise<ArchiveFile \| null>` | Yes | Load the archive file. Returns null if archive doesn't exist. |
-| `saveArchive` | `(data: ArchiveFile) => Promise<void>` | Yes | Save the archive file atomically. Creates backup before write. |
-| `loadSessions` | `() => Promise<Session[]>` | Yes | Load all sessions from the store. Returns empty array if none exist. |
-| `saveSessions` | `(sessions: Session[]) => Promise<void>` | Yes | Save all sessions to the store atomically. |
-| `appendLog` | `(entry: Record<string, unknown>) => Promise<void>` | Yes | Append an entry to the audit log. |
-| `close` | `() => Promise<void>` | Yes | Release any resources (close DB connections, etc.). |
-| `upsertSingleTask` | `(task: Task) => Promise<void>` | Yes | Upsert a single task (targeted write, no full-file reload). |
-| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise<void>` | Yes | Archive a single task by ID (sets status='archived' + archive metadata). |
-| `removeSingleTask` | `(taskId: string) => Promise<void>` | Yes | Delete a single task permanently from the tasks table. |
-| `loadSingleTask` | `(taskId: string) => Promise<Task \| null>` | Yes | Load a single task by ID with its dependencies and relations. Returns null if not found. |
-| `addRelation` | `(taskId: string, relatedTo: string, relationType: string, reason?: string \| undefined) => Promise<void>` | No | Insert a row into the task_relations table (T5168). |
-| `getMetaValue` | `<T>(key: string) => Promise<T \| null>` | Yes | Read a typed value from the metadata store. Returns null if not found. |
-| `setMetaValue` | `(key: string, value: unknown) => Promise<void>` | Yes | Write a typed value to the metadata store. |
-| `getSchemaVersion` | `() => Promise<string \| null>` | Yes | Read the schema version from metadata. Convenience for getMetaValue('schema_version'). |
-| `queryTasks` | `(filters: TaskQueryFilters) => Promise<QueryTasksResult>` | Yes | Query tasks with filters, pagination, and ordering. Returns matching tasks + total count. |
-| `countTasks` | `(filters?: { status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined; parentId?: string \| undefined; } \| undefined) => Promise<...>` | No | Count tasks matching optional filters. Excludes archived by default. |
-| `getChildren` | `(parentId: string) => Promise<Task[]>` | Yes | Get direct children of a parent task. |
-| `countChildren` | `(parentId: string) => Promise<number>` | Yes | Count direct children of a parent task (all statuses except archived). |
-| `countActiveChildren` | `(parentId: string) => Promise<number>` | Yes | Count active (non-terminal) children of a parent task. |
-| `getAncestorChain` | `(taskId: string) => Promise<Task[]>` | Yes | Get ancestor chain from task to root via WITH RECURSIVE CTE. Ordered root-first. |
-| `getSubtree` | `(rootId: string) => Promise<Task[]>` | Yes | Get full subtree rooted at taskId via WITH RECURSIVE CTE. Includes root. |
-| `getDependents` | `(taskId: string) => Promise<Task[]>` | Yes | Get tasks that depend on (are blocked by) the given task. Reverse dep lookup. |
-| `getDependencyChain` | `(taskId: string) => Promise<string[]>` | Yes | Get transitive dependency chain via WITH RECURSIVE CTE. Returns task IDs. |
-| `taskExists` | `(taskId: string) => Promise<boolean>` | Yes | Check if a task exists (any status including archived). |
-| `loadTasks` | `(taskIds: string[]) => Promise<Task[]>` | Yes | Load multiple tasks by ID in a single batch query. |
-| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise<void>` | Yes | Update specific fields on a task without full load/save cycle. |
-| `getNextPosition` | `(parentId: string \| null) => Promise<number>` | Yes | Get next available position for a task within a parent scope (SQL-level, race-safe). |
-| `shiftPositions` | `(parentId: string \| null, fromPosition: number, delta: number) => Promise<void>` | Yes | Shift positions of siblings = fromPosition by delta (bulk SQL update). |
-| `transaction` | `<T>(fn: (tx: TransactionAccessor) => Promise<T>) => Promise<T>` | Yes | Execute a function inside a SQLite transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK). |
-| `getActiveSession` | `() => Promise<Session \| null>` | Yes | Get the currently active session (status='active', most recent). |
-| `upsertSingleSession` | `(session: Session) => Promise<void>` | Yes | Upsert a single session (targeted write). |
-| `removeSingleSession` | `(sessionId: string) => Promise<void>` | Yes | Remove a single session by ID. |
+| `loadArchive` | `() => Promise&lt;ArchiveFile \| null&gt;` | Yes | Load the archive file. Returns null if archive doesn't exist. |
+| `saveArchive` | `(data: ArchiveFile) => Promise&lt;void&gt;` | Yes | Save the archive file atomically. Creates backup before write. |
+| `loadSessions` | `() => Promise&lt;Session[]>` | Yes | Load all sessions from the store. Returns empty array if none exist. |
+| `saveSessions` | `(sessions: Session[]) => Promise&lt;void&gt;` | Yes | Save all sessions to the store atomically. |
+| `appendLog` | `(entry: Record&lt;string, unknown&gt;) => Promise&lt;void&gt;` | Yes | Append an entry to the audit log. |
+| `close` | `() => Promise&lt;void&gt;` | Yes | Release any resources (close DB connections, etc.). |
+| `upsertSingleTask` | `(task: Task) => Promise&lt;void&gt;` | Yes | Upsert a single task (targeted write, no full-file reload). |
+| `archiveSingleTask` | `(taskId: string, fields: ArchiveFields) => Promise&lt;void&gt;` | Yes | Archive a single task by ID (sets status='archived' + archive metadata). |
+| `removeSingleTask` | `(taskId: string) => Promise&lt;void&gt;` | Yes | Delete a single task permanently from the tasks table. |
+| `loadSingleTask` | `(taskId: string) => Promise&lt;Task \| null&gt;` | Yes | Load a single task by ID with its dependencies and relations. Returns null if not found. |
+| `addRelation` | `(taskId: string, relatedTo: string, relationType: string, reason?: string \| undefined) => Promise&lt;void&gt;` | No | Insert a row into the task_relations table (T5168). |
+| `getMetaValue` | `&lt;T&gt;(key: string) => Promise&lt;T \| null&gt;` | Yes | Read a typed value from the metadata store. Returns null if not found. |
+| `setMetaValue` | `(key: string, value: unknown) => Promise&lt;void&gt;` | Yes | Write a typed value to the metadata store. |
+| `getSchemaVersion` | `() => Promise&lt;string \| null&gt;` | Yes | Read the schema version from metadata. Convenience for getMetaValue('schema_version'). |
+| `queryTasks` | `(filters: TaskQueryFilters) => Promise&lt;QueryTasksResult&gt;` | Yes | Query tasks with filters, pagination, and ordering. Returns matching tasks + total count. |
+| `countTasks` | `(filters?: \{ status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined; parentId?: string \| undefined; \} \| undefined) => Promise<...>` | No | Count tasks matching optional filters. Excludes archived by default. |
+| `getChildren` | `(parentId: string) => Promise&lt;Task[]>` | Yes | Get direct children of a parent task. |
+| `countChildren` | `(parentId: string) => Promise&lt;number&gt;` | Yes | Count direct children of a parent task (all statuses except archived). |
+| `countActiveChildren` | `(parentId: string) => Promise&lt;number&gt;` | Yes | Count active (non-terminal) children of a parent task. |
+| `getAncestorChain` | `(taskId: string) => Promise&lt;Task[]>` | Yes | Get ancestor chain from task to root via WITH RECURSIVE CTE. Ordered root-first. |
+| `getSubtree` | `(rootId: string) => Promise&lt;Task[]>` | Yes | Get full subtree rooted at taskId via WITH RECURSIVE CTE. Includes root. |
+| `getDependents` | `(taskId: string) => Promise&lt;Task[]>` | Yes | Get tasks that depend on (are blocked by) the given task. Reverse dep lookup. |
+| `getDependencyChain` | `(taskId: string) => Promise&lt;string[]>` | Yes | Get transitive dependency chain via WITH RECURSIVE CTE. Returns task IDs. |
+| `taskExists` | `(taskId: string) => Promise&lt;boolean&gt;` | Yes | Check if a task exists (any status including archived). |
+| `loadTasks` | `(taskIds: string[]) => Promise&lt;Task[]>` | Yes | Load multiple tasks by ID in a single batch query. |
+| `updateTaskFields` | `(taskId: string, fields: TaskFieldUpdates) => Promise&lt;void&gt;` | Yes | Update specific fields on a task without full load/save cycle. |
+| `getNextPosition` | `(parentId: string \| null) => Promise&lt;number&gt;` | Yes | Get next available position for a task within a parent scope (SQL-level, race-safe). |
+| `shiftPositions` | `(parentId: string \| null, fromPosition: number, delta: number) => Promise&lt;void&gt;` | Yes | Shift positions of siblings = fromPosition by delta (bulk SQL update). |
+| `transaction` | `&lt;T&gt;(fn: (tx: TransactionAccessor) => Promise&lt;T&gt;) => Promise&lt;T&gt;` | Yes | Execute a function inside a SQLite transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK). |
+| `getActiveSession` | `() => Promise&lt;Session \| null&gt;` | Yes | Get the currently active session (status='active', most recent). |
+| `upsertSingleSession` | `(session: Session) => Promise&lt;void&gt;` | Yes | Upsert a single session (targeted write). |
+| `removeSingleSession` | `(sessionId: string) => Promise&lt;void&gt;` | Yes | Remove a single session by ID. |
 
 ## AdapterManifest
 
@@ -1335,7 +1335,7 @@ LAFS error object.
 | `category` | `LAFSErrorCategory` | Yes | category |
 | `message` | `string` | Yes | message |
 | `fix` | `string \| undefined` | No | fix |
-| `details` | `Record<string, unknown> \| undefined` | No | details |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | details |
 
 ## Warning
 
@@ -1452,7 +1452,7 @@ LAFS error detail shared between CLI and MCP.
 | `message` | `string` | Yes | message |
 | `fix` | `string \| undefined` | No | fix |
 | `alternatives` | `LafsAlternative[] \| undefined` | No | alternatives |
-| `details` | `Record<string, unknown> \| undefined` | No | details |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | details |
 
 ## LafsSuccess
 
@@ -2036,14 +2036,14 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `session` | `{ id: string; name: string; status: string; startedAt: string; } \| undefined` | No | session |
-| `currentTask` | `{ id: string; title: string; status: string; } \| undefined` | No | currentTask |
-| `nextSuggestion` | `{ id: string; title: string; score: number; } \| undefined` | No | nextSuggestion |
-| `recentDecisions` | `{ id: string; decision: string; timestamp: string; }[] \| undefined` | No | recentDecisions |
-| `blockers` | `{ taskId: string; title: string; blockedBy: string[]; }[] \| undefined` | No | blockers |
-| `progress` | `{ total: number; done: number; active: number; blocked: number; pending: number; } \| undefined` | No | progress |
-| `contextDrift` | `{ score: number; factors: string[]; } \| undefined` | No | contextDrift |
-| `_meta` | `{ speed: "full" \| "fast" \| "complete"; generatedAt: string; version: string; }` | Yes | _meta |
+| `session` | `\{ id: string; name: string; status: string; startedAt: string; \} \| undefined` | No | session |
+| `currentTask` | `\{ id: string; title: string; status: string; \} \| undefined` | No | currentTask |
+| `nextSuggestion` | `\{ id: string; title: string; score: number; \} \| undefined` | No | nextSuggestion |
+| `recentDecisions` | `\{ id: string; decision: string; timestamp: string; \}[] \| undefined` | No | recentDecisions |
+| `blockers` | `\{ taskId: string; title: string; blockedBy: string[]; \}[] \| undefined` | No | blockers |
+| `progress` | `\{ total: number; done: number; active: number; blocked: number; pending: number; \} \| undefined` | No | progress |
+| `contextDrift` | `\{ score: number; factors: string[]; \} \| undefined` | No | contextDrift |
+| `_meta` | `\{ speed: "full" \| "fast" \| "complete"; generatedAt: string; version: string; \}` | Yes | _meta |
 
 ## OrchestrateStartupParams
 
@@ -2076,7 +2076,7 @@ any
 | `skill` | `string` | Yes | skill |
 | `model` | `string` | Yes | model |
 | `prompt` | `string` | Yes | prompt |
-| `metadata` | `{ tokensUsed: number; protocolsInjected: string[]; dependencies: string[]; }` | Yes | metadata |
+| `metadata` | `\{ tokensUsed: number; protocolsInjected: string[]; dependencies: string[]; \}` | Yes | metadata |
 
 ## OrchestrateHandoffParams
 
@@ -2168,7 +2168,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `type` | `"refactor" \| "docs" \| "feat" \| "fix" \| "test" \| "chore"` | Yes | type |
-| `entries` | `{ taskId: string; message: string; }[]` | Yes | entries |
+| `entries` | `\{ taskId: string; message: string; \}[]` | Yes | entries |
 
 ## ReleasePrepareParams
 
@@ -2385,8 +2385,8 @@ any
 | `complete` | `number` | Yes | complete |
 | `partial` | `number` | Yes | partial |
 | `blocked` | `number` | Yes | blocked |
-| `byAgentType` | `Record<string, number>` | Yes | byAgentType |
-| `byTopic` | `Record<string, number>` | Yes | byTopic |
+| `byAgentType` | `Record&lt;string, number&gt;` | Yes | byAgentType |
+| `byTopic` | `Record&lt;string, number&gt;` | Yes | byTopic |
 | `avgConfidence` | `number` | Yes | avgConfidence |
 
 ## ResearchManifestReadParams
@@ -2573,7 +2573,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `session` | `SessionOp` | Yes | session |
-| `summary` | `{ duration: string; tasksCompleted: number; tasksCreated: number; }` | Yes | summary |
+| `summary` | `\{ duration: string; tasksCompleted: number; tasksCreated: number; \}` | Yes | summary |
 
 ## SessionResumeParams
 
@@ -2656,9 +2656,9 @@ any
 | `sharedResources` | `string[]` | Yes | sharedResources |
 | `compatibility` | `string[]` | Yes | compatibility |
 | `license` | `string` | Yes | license |
-| `metadata` | `Record<string, unknown>` | Yes | metadata |
-| `capabilities` | `{ inputs: string[]; outputs: string[]; dispatch_triggers: string[]; compatible_subagent_types: string[]; chains_to: string[]; dispatch_keywords: { primary: string[]; secondary: string[]; }; } \| undefined` | No | capabilities |
-| `constraints` | `{ max_context_tokens: number; requires_session: boolean; requires_epic: boolean; } \| undefined` | No | constraints |
+| `metadata` | `Record&lt;string, unknown&gt;` | Yes | metadata |
+| `capabilities` | `\{ inputs: string[]; outputs: string[]; dispatch_triggers: string[]; compatible_subagent_types: string[]; chains_to: string[]; dispatch_keywords: \{ primary: string[]; secondary: string[]; \}; \} \| undefined` | No | capabilities |
+| `constraints` | `\{ max_context_tokens: number; requires_session: boolean; requires_epic: boolean; \} \| undefined` | No | constraints |
 
 ## DispatchCandidate
 
@@ -2724,7 +2724,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `query` | `string` | Yes | query |
-| `results` | `(SkillSummary & { score: number; matchReason: string; })[]` | Yes | results |
+| `results` | `(SkillSummary & \{ score: number; matchReason: string; \})[]` | Yes | results |
 
 ## SkillsDispatchParams
 
@@ -2759,7 +2759,7 @@ any
 | `total` | `number` | Yes | total |
 | `passed` | `number` | Yes | passed |
 | `failed` | `number` | Yes | failed |
-| `results` | `{ name: string; valid: boolean; issues: ValidationIssue[]; }[]` | Yes | results |
+| `results` | `\{ name: string; valid: boolean; issues: ValidationIssue[]; \}[]` | Yes | results |
 
 ## SkillsDependenciesParams
 
@@ -2840,7 +2840,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | name |
-| `config` | `Record<string, unknown>` | Yes | config |
+| `config` | `Record&lt;string, unknown&gt;` | Yes | config |
 
 ## SkillsConfigureResult
 
@@ -2848,7 +2848,7 @@ any
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | name |
 | `configured` | `boolean` | Yes | configured |
-| `config` | `Record<string, unknown>` | Yes | config |
+| `config` | `Record&lt;string, unknown&gt;` | Yes | config |
 
 ## SkillsRefreshParams
 
@@ -2878,9 +2878,9 @@ Common system types
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `tasks` | `{ total: number; pending: number; active: number; blocked: number; done: number; }` | Yes | tasks |
-| `sessions` | `{ total: number; active: number; }` | Yes | sessions |
-| `research` | `{ total: number; complete: number; }` | Yes | research |
+| `tasks` | `\{ total: number; pending: number; active: number; blocked: number; done: number; \}` | Yes | tasks |
+| `sessions` | `\{ total: number; active: number; \}` | Yes | sessions |
+| `research` | `\{ total: number; complete: number; \}` | Yes | research |
 
 ## SystemVersionParams
 
@@ -2952,7 +2952,7 @@ any
 | `percentUsed` | `number` | Yes | percentUsed |
 | `level` | `"high" \| "medium" \| "critical" \| "safe"` | Yes | level |
 | `estimatedFiles` | `number` | Yes | estimatedFiles |
-| `largestFile` | `{ path: string; tokens: number; }` | Yes | largestFile |
+| `largestFile` | `\{ path: string; tokens: number; \}` | Yes | largestFile |
 
 ## SystemInitParams
 
@@ -2968,7 +2968,7 @@ any
 | `initialized` | `boolean` | Yes | initialized |
 | `projectType` | `string \| undefined` | No | projectType |
 | `filesCreated` | `string[]` | Yes | filesCreated |
-| `detectedFeatures` | `Record<string, boolean> \| undefined` | No | detectedFeatures |
+| `detectedFeatures` | `Record&lt;string, boolean&gt; \| undefined` | No | detectedFeatures |
 
 ## SystemConfigSetParams
 
@@ -3029,7 +3029,7 @@ any
 |----------|------|----------|-------------|
 | `fromVersion` | `string` | Yes | fromVersion |
 | `toVersion` | `string` | Yes | toVersion |
-| `migrations` | `{ name: string; applied: boolean; error?: string \| undefined; }[]` | No | migrations |
+| `migrations` | `\{ name: string; applied: boolean; error?: string \| undefined; \}[]` | No | migrations |
 | `dryRun` | `boolean` | Yes | dryRun |
 
 ## SystemSyncParams
@@ -3045,7 +3045,7 @@ any
 | `direction` | `string` | Yes | direction |
 | `synced` | `string` | Yes | synced |
 | `tasksSynced` | `number` | Yes | tasksSynced |
-| `conflicts` | `{ taskId: string; resolution: string; }[]` | Yes | conflicts |
+| `conflicts` | `\{ taskId: string; resolution: string; \}[]` | Yes | conflicts |
 
 ## SystemCleanupParams
 
@@ -3485,8 +3485,8 @@ any
 | `passed` | `number` | Yes | passed |
 | `failed` | `number` | Yes | failed |
 | `score` | `number` | Yes | score |
-| `byProtocol` | `Record<string, { passed: number; failed: number; }>` | Yes | byProtocol |
-| `bySeverity` | `Record<ValidationSeverity, number>` | Yes | bySeverity |
+| `byProtocol` | `Record&lt;string, \{ passed: number; failed: number; \}>` | Yes | byProtocol |
+| `bySeverity` | `Record&lt;ValidationSeverity, number&gt;` | Yes | bySeverity |
 
 ## ValidateSchemaParams
 
@@ -3519,7 +3519,7 @@ any
 | `passed` | `boolean` | Yes | passed |
 | `score` | `number` | Yes | score |
 | `violations` | `ValidationViolation[]` | Yes | violations |
-| `requirements` | `{ total: number; met: number; failed: number; }` | Yes | requirements |
+| `requirements` | `\{ total: number; met: number; failed: number; \}` | Yes | requirements |
 
 ## ValidateTaskParams
 
@@ -3535,7 +3535,7 @@ any
 | `taskId` | `string` | Yes | taskId |
 | `valid` | `boolean` | Yes | valid |
 | `violations` | `ValidationViolation[]` | Yes | violations |
-| `checks` | `{ idUniqueness: boolean; titleDescriptionDifferent: boolean; validStatus: boolean; noFutureTimestamps: boolean; noDuplicateDescription: boolean; }` | Yes | checks |
+| `checks` | `\{ idUniqueness: boolean; titleDescriptionDifferent: boolean; validStatus: boolean; noFutureTimestamps: boolean; noDuplicateDescription: boolean; \}` | Yes | checks |
 
 ## ValidateManifestParams
 
@@ -3549,7 +3549,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `valid` | `boolean` | Yes | valid |
-| `entry` | `{ id: string; file: string; exists: boolean; }` | Yes | entry |
+| `entry` | `\{ id: string; file: string; exists: boolean; \}` | Yes | entry |
 | `violations` | `ValidationViolation[]` | Yes | violations |
 
 ## ValidateOutputParams
@@ -3566,7 +3566,7 @@ any
 | `taskId` | `string` | Yes | taskId |
 | `filePath` | `string` | Yes | filePath |
 | `valid` | `boolean` | Yes | valid |
-| `checks` | `{ fileExists: boolean; hasTaskHeader: boolean; hasStatus: boolean; hasSummary: boolean; linkedToTask: boolean; }` | Yes | checks |
+| `checks` | `\{ fileExists: boolean; hasTaskHeader: boolean; hasStatus: boolean; hasSummary: boolean; linkedToTask: boolean; \}` | Yes | checks |
 | `violations` | `ValidationViolation[]` | Yes | violations |
 
 ## ValidateComplianceSummaryParams
@@ -3593,7 +3593,7 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `violations` | `(ValidationViolation & { taskId: string; protocol: string; timestamp: string; })[]` | Yes | violations |
+| `violations` | `(ValidationViolation & \{ taskId: string; protocol: string; timestamp: string; \})[]` | Yes | violations |
 | `total` | `number` | Yes | total |
 
 ## ValidateTestStatusParams
@@ -3611,7 +3611,7 @@ any
 | `failed` | `number` | Yes | failed |
 | `skipped` | `number` | Yes | skipped |
 | `passRate` | `number` | Yes | passRate |
-| `byTask` | `Record<string, { passed: number; failed: number; }> \| undefined` | No | byTask |
+| `byTask` | `Record&lt;string, \{ passed: number; failed: number; \}> \| undefined` | No | byTask |
 
 ## ValidateTestCoverageParams
 
@@ -3767,10 +3767,10 @@ Dashboard result from system.dash query.
 | `project` | `string` | Yes | project |
 | `currentPhase` | `string \| null` | Yes | currentPhase |
 | `summary` | `TaskSummary` | Yes | summary |
-| `taskWork` | `{ currentTask: string \| null; task: TaskRecord \| null; }` | Yes | taskWork |
+| `taskWork` | `\{ currentTask: string \| null; task: TaskRecord \| null; \}` | Yes | taskWork |
 | `activeSession` | `string \| null` | Yes | activeSession |
-| `highPriority` | `{ count: number; tasks: TaskRecord[]; }` | Yes | highPriority |
-| `blockedTasks` | `{ count: number; limit: number; tasks: TaskRecord[]; }` | Yes | blockedTasks |
+| `highPriority` | `\{ count: number; tasks: TaskRecord[]; \}` | Yes | highPriority |
+| `blockedTasks` | `\{ count: number; limit: number; tasks: TaskRecord[]; \}` | Yes | blockedTasks |
 | `recentCompletions` | `TaskRecord[]` | Yes | recentCompletions |
 | `topLabels` | `LabelCount[]` | Yes | topLabels |
 
@@ -3838,9 +3838,9 @@ Stats result from system.stats query.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `currentState` | `StatsCurrentState` | Yes | currentState |
-| `byPriority` | `Record<string, number>` | Yes | byPriority |
-| `byType` | `Record<string, number>` | Yes | byType |
-| `byPhase` | `Record<string, number>` | Yes | byPhase |
+| `byPriority` | `Record&lt;string, number&gt;` | Yes | byPriority |
+| `byType` | `Record&lt;string, number&gt;` | Yes | byType |
+| `byPhase` | `Record&lt;string, number&gt;` | Yes | byPhase |
 | `completionMetrics` | `StatsCompletionMetrics` | Yes | completionMetrics |
 | `activityMetrics` | `StatsActivityMetrics` | Yes | activityMetrics |
 | `allTime` | `StatsAllTime` | Yes | allTime |
@@ -3852,8 +3852,8 @@ Log query result from system.log query.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `entries` | `{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; }[]` | No | entries |
-| `pagination` | `{ total: number; offset: number; limit: number; hasMore: boolean; }` | Yes | pagination |
+| `entries` | `\{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; \}[]` | No | entries |
+| `pagination` | `\{ total: number; offset: number; limit: number; hasMore: boolean; \}` | Yes | pagination |
 
 ## ContextResult
 
@@ -3868,7 +3868,7 @@ Context monitoring data from system.context query.
 | `maxTokens` | `number` | Yes | maxTokens |
 | `timestamp` | `string \| null` | Yes | timestamp |
 | `stale` | `boolean` | Yes | stale |
-| `sessions` | `{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; }[]` | Yes | sessions |
+| `sessions` | `\{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; \}[]` | Yes | sessions |
 
 ## SequenceResult
 
@@ -3926,10 +3926,10 @@ Task analysis result from tasks.analyze.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `recommended` | `(LeveragedTask & { reason: string; }) \| null` | Yes | recommended |
+| `recommended` | `(LeveragedTask & \{ reason: string; \}) \| null` | Yes | recommended |
 | `bottlenecks` | `BottleneckTask[]` | Yes | bottlenecks |
-| `tiers` | `{ critical: LeveragedTask[]; high: LeveragedTask[]; normal: LeveragedTask[]; }` | Yes | tiers |
-| `metrics` | `{ totalTasks: number; actionable: number; blocked: number; avgLeverage: number; }` | Yes | metrics |
+| `tiers` | `\{ critical: LeveragedTask[]; high: LeveragedTask[]; normal: LeveragedTask[]; \}` | Yes | tiers |
+| `metrics` | `\{ totalTasks: number; actionable: number; blocked: number; avgLeverage: number; \}` | Yes | metrics |
 
 ## TaskDepsResult
 
@@ -3995,7 +3995,7 @@ CLEO spawn result Extends CAAMP SpawnResult with CLEO-specific timing and metada
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | Task ID that was spawned |
 | `providerId` | `string` | Yes | Provider ID used for the spawn |
-| `timing` | `{ startTime: string; endTime?: string \| undefined; durationMs?: number \| undefined; }` | No | Timing information for the spawn operation |
+| `timing` | `\{ startTime: string; endTime?: string \| undefined; durationMs?: number \| undefined; \}` | No | Timing information for the spawn operation |
 | `manifestEntryId` | `string \| undefined` | No | Reference to manifest entry if output was captured |
 
 ## CLEOSpawnAdapter
@@ -4006,10 +4006,10 @@ Spawn adapter interface Wraps CAAMP SpawnAdapter with CLEO-specific context and 
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | Unique identifier for this adapter instance |
 | `providerId` | `string` | Yes | Provider ID this adapter uses |
-| `canSpawn` | `() => Promise<boolean>` | Yes | Check if this adapter can spawn in the current environment |
-| `spawn` | `(context: CLEOSpawnContext) => Promise<CLEOSpawnResult>` | Yes | Execute a spawn using the provider's native mechanism |
-| `listRunning` | `() => Promise<CLEOSpawnResult[]>` | Yes | List currently running spawns |
-| `terminate` | `(instanceId: string) => Promise<void>` | Yes | Terminate a running spawn |
+| `canSpawn` | `() => Promise&lt;boolean&gt;` | Yes | Check if this adapter can spawn in the current environment |
+| `spawn` | `(context: CLEOSpawnContext) => Promise&lt;CLEOSpawnResult&gt;` | Yes | Execute a spawn using the provider's native mechanism |
+| `listRunning` | `() => Promise&lt;CLEOSpawnResult[]>` | Yes | List currently running spawns |
+| `terminate` | `(instanceId: string) => Promise&lt;void&gt;` | Yes | Terminate a running spawn |
 
 ## TokenResolution
 
@@ -4115,7 +4115,7 @@ Complete chain definition combining shape and gates.
 | `shape` | `ChainShape` | Yes | shape |
 | `gates` | `GateContract[]` | Yes | gates |
 | `tessera` | `string \| undefined` | No | tessera |
-| `metadata` | `Record<string, unknown> \| undefined` | No | metadata |
+| `metadata` | `Record&lt;string, unknown&gt; \| undefined` | No | metadata |
 
 ## ChainValidation
 
@@ -4138,8 +4138,8 @@ A chain bound to a specific epic.
 | `id` | `string` | Yes | id |
 | `chainId` | `string` | Yes | chainId |
 | `epicId` | `string` | Yes | epicId |
-| `variables` | `Record<string, unknown>` | Yes | variables |
-| `stageToTask` | `Record<string, string>` | Yes | stageToTask |
+| `variables` | `Record&lt;string, unknown&gt;` | Yes | variables |
+| `stageToTask` | `Record&lt;string, string&gt;` | Yes | stageToTask |
 | `status` | `"completed" \| "failed" \| "cancelled" \| "pending" \| "active"` | Yes | status |
 | `currentStage` | `string` | Yes | currentStage |
 | `createdAt` | `string` | Yes | createdAt |
@@ -4188,9 +4188,9 @@ A parameterized WarpChain template with variable bindings.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `variables` | `Record<string, TesseraVariable>` | Yes | variables |
+| `variables` | `Record&lt;string, TesseraVariable&gt;` | Yes | variables |
 | `archetypes` | `string[]` | Yes | archetypes |
-| `defaultValues` | `Record<string, unknown>` | Yes | defaultValues |
+| `defaultValues` | `Record&lt;string, unknown&gt;` | Yes | defaultValues |
 | `category` | `"custom" \| "research" \| "lifecycle" \| "hotfix" \| "security-audit"` | Yes | category |
 
 ## TesseraInstantiationInput
@@ -4201,4 +4201,4 @@ Input for instantiating a Tessera template into a concrete chain.
 |----------|------|----------|-------------|
 | `templateId` | `string` | Yes | templateId |
 | `epicId` | `string` | Yes | epicId |
-| `variables` | `Record<string, unknown>` | Yes | variables |
+| `variables` | `Record&lt;string, unknown&gt;` | Yes | variables |

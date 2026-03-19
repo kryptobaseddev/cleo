@@ -30,12 +30,9 @@ import {
   installSkill,
   removeSkill,
 } from '@cleocode/caamp';
-import {
-  AdapterManager,
-  collectDiagnostics,
-  paginate,
-} from '@cleocode/core/internal';
+import { AdapterManager, collectDiagnostics, paginate } from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
+
 // Re-export EngineResult for consumers
 export type { EngineResult };
 
@@ -699,7 +696,6 @@ export async function toolsProviderInject(
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Adapter query operations

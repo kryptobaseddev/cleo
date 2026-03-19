@@ -1389,7 +1389,9 @@ export async function taskSyncReconcile(
         providerId: params.providerId,
         cwd: projectRoot,
         dryRun: params.dryRun,
-        conflictPolicy: params.conflictPolicy as import('@cleocode/contracts').ConflictPolicy | undefined,
+        conflictPolicy: params.conflictPolicy as
+          | import('@cleocode/contracts').ConflictPolicy
+          | undefined,
         defaultPhase: params.defaultPhase,
         defaultLabels: params.defaultLabels,
       },
@@ -1408,7 +1410,9 @@ export async function taskSyncReconcile(
 export async function taskSyncLinks(
   projectRoot: string,
   params?: { providerId?: string; taskId?: string },
-): Promise<EngineResult<{ links: import('@cleocode/contracts').ExternalTaskLink[]; count: number }>> {
+): Promise<
+  EngineResult<{ links: import('@cleocode/contracts').ExternalTaskLink[]; count: number }>
+> {
   try {
     const { getLinksByProvider, getLinksByTaskId } = await import('@cleocode/core/internal');
 

@@ -6,7 +6,6 @@
  * link tracking via the external_task_links table.
  */
 
-export { reconcile } from './reconciliation-engine.js';
 export {
   createLink,
   getLinkByExternalId,
@@ -15,3 +14,4 @@ export {
   removeLinksByProvider,
   touchLink,
 } from './link-store.js';
+export { reconcile } from './reconciliation-engine.js';

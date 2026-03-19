@@ -198,7 +198,7 @@ Register the CLEO brain plugin in ~/.claude/settings.json.
 
 ## ClaudeCodeSpawnProvider
 
-Spawn provider for Claude Code.  Spawns detached Claude CLI processes for subagent execution. Each spawn writes its prompt to a temporary file, then runs `claude --allow-insecure --no-upgrade-check <tmpFile>` as a detached, unref'd child process.
+Spawn provider for Claude Code.  Spawns detached Claude CLI processes for subagent execution. Each spawn writes its prompt to a temporary file, then runs `claude --allow-insecure --no-upgrade-check &lt;tmpFile&gt;` as a detached, unref'd child process.
 
 **Signature**
 
@@ -689,7 +689,7 @@ Build the markdown content for an OpenCode agent definition file.  OpenCode agen
 
 ## OpenCodeSpawnProvider
 
-Spawn provider for OpenCode.  Spawns detached OpenCode CLI processes for subagent execution. Each spawn ensures a CLEO subagent definition exists, then runs `opencode run --format json --agent <name> --title <title> <prompt>` as a detached, unref'd child process.
+Spawn provider for OpenCode.  Spawns detached OpenCode CLI processes for subagent execution. Each spawn ensures a CLEO subagent definition exists, then runs `opencode run --format json --agent &lt;name&gt; --title &lt;title&gt; &lt;prompt&gt;` as a detached, unref'd child process.
 
 **Signature**
 

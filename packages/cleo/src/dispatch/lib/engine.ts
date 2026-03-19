@@ -250,10 +250,10 @@ export {
   taskRestore,
   taskShow,
   taskStats,
-  taskTree,
   taskSyncLinks,
   taskSyncLinksRemove,
   taskSyncReconcile,
+  taskTree,
   taskUnarchive,
   taskUpdate,
 } from '../engines/task-engine.js';

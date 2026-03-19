@@ -6,9 +6,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
-
 import type { ExternalTaskLink } from '@cleocode/contracts';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '../store/sqlite.js';
 import { externalTaskLinks } from '../store/tasks-schema.js';
 
@@ -55,10 +54,7 @@ export async function getLinkByExternalId(
 /**
  * Find all links for a given CLEO task.
  */
-export async function getLinksByTaskId(
-  taskId: string,
-  cwd?: string,
-): Promise<ExternalTaskLink[]> {
+export async function getLinksByTaskId(taskId: string, cwd?: string): Promise<ExternalTaskLink[]> {
   const db = await getDb(cwd);
   const rows = await db
     .select()
@@ -147,10 +143,7 @@ export async function touchLink(
 /**
  * Remove all links for a provider (used during provider deregistration).
  */
-export async function removeLinksByProvider(
-  providerId: string,
-  cwd?: string,
-): Promise<number> {
+export async function removeLinksByProvider(providerId: string, cwd?: string): Promise<number> {
   const db = await getDb(cwd);
   const result = await db
     .delete(externalTaskLinks)
@@ -172,7 +165,9 @@ function rowToLink(row: typeof externalTaskLinks.$inferSelect): ExternalTaskLink
     externalTitle: row.externalTitle,
     linkType: row.linkType as ExternalTaskLink['linkType'],
     syncDirection: row.syncDirection as ExternalTaskLink['syncDirection'],
-    metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : undefined,
+    metadata: row.metadataJson
+      ? (JSON.parse(row.metadataJson) as Record<string, unknown>)
+      : undefined,
     linkedAt: row.linkedAt,
     lastSyncAt: row.lastSyncAt,
   };

@@ -190,7 +190,9 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'complexity.estimate': {
-          const result = await taskComplexityEstimate(this.projectRoot, { taskId: params!.taskId as string });
+          const result = await taskComplexityEstimate(this.projectRoot, {
+            taskId: params!.taskId as string,
+          });
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -215,7 +217,10 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'sync.links': {
-          const result = await taskSyncLinks(this.projectRoot, params as { providerId?: string; taskId?: string } | undefined);
+          const result = await taskSyncLinks(
+            this.projectRoot,
+            params as { providerId?: string; taskId?: string } | undefined,
+          );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -345,7 +350,11 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'reorder': {
-          const result = await taskReorder(this.projectRoot, params!.taskId as string, params!.position as number);
+          const result = await taskReorder(
+            this.projectRoot,
+            params!.taskId as string,
+            params!.position as number,
+          );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 

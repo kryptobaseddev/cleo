@@ -443,7 +443,7 @@ RFC 9457 Problem Details object. Structured error representation for API/MCP res
 | `status` | `number` | Yes | status |
 | `detail` | `string` | Yes | detail |
 | `instance` | `string \| undefined` | No | instance |
-| `extensions` | `Record<string, unknown> \| undefined` | No | extensions |
+| `extensions` | `Record&lt;string, unknown&gt; \| undefined` | No | extensions |
 
 ## ArchiveFields
 
@@ -506,7 +506,7 @@ Base interface for all hook payloads Provides common fields available across all
 | `sessionId` | `string \| undefined` | No | Optional session ID if firing within a session context |
 | `taskId` | `string \| undefined` | No | Optional task ID if firing within a task context |
 | `providerId` | `string \| undefined` | No | Optional provider ID that triggered the hook |
-| `metadata` | `Record<string, unknown> \| undefined` | No | Optional metadata for extensibility |
+| `metadata` | `Record&lt;string, unknown&gt; \| undefined` | No | Optional metadata for extensibility |
 
 ## OnSessionStartPayload
 
@@ -565,7 +565,7 @@ Hook registration metadata Tracks registered handlers with priority and event bi
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | Unique identifier for this registration |
 | `event` | `HookEvent` | Yes | CAAMP hook event this handler listens for |
-| `handler` | `HookHandler<T>` | Yes | Handler function to execute when event fires |
+| `handler` | `HookHandler&lt;T&gt;` | Yes | Handler function to execute when event fires |
 | `priority` | `number` | Yes | Priority for execution order (higher = earlier) |
 
 ## HookConfig
@@ -575,7 +575,7 @@ Configuration for the hook system Controls which events are enabled/disabled
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `enabled` | `boolean` | Yes | Master switch for hook system |
-| `events` | `Record<HookEvent, boolean>` | Yes | Per-event enable/disable configuration |
+| `events` | `Record&lt;HookEvent, boolean&gt;` | Yes | Per-event enable/disable configuration |
 
 ## OnFileChangePayload
 
@@ -704,7 +704,7 @@ Options for saveJson.
 | `backupDir` | `string \| undefined` | No | Directory for backups. If omitted, no backup is created. |
 | `maxBackups` | `number \| undefined` | No | Maximum number of backups to retain. Default: 5. |
 | `indent` | `number \| undefined` | No | JSON indentation. Default: 2. |
-| `validate` | `((data: unknown) => void \| Promise<void>) \| undefined` | No | Validation function. Called before write; throw to abort. |
+| `validate` | `((data: unknown) => void \| Promise&lt;void&gt;) \| undefined` | No | Validation function. Called before write; throw to abort. |
 
 ## CheckpointConfig
 
@@ -724,7 +724,7 @@ Checkpoint status information.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `config` | `CheckpointConfig` | Yes | config |
-| `status` | `{ isGitRepo: boolean; lastCheckpoint: string; lastCheckpointEpoch: number; pendingChanges: number; suppressed: boolean; }` | Yes | status |
+| `status` | `\{ isGitRepo: boolean; lastCheckpoint: string; lastCheckpointEpoch: number; pendingChanges: number; suppressed: boolean; \}` | Yes | status |
 
 ## ChangedFile
 
@@ -832,7 +832,7 @@ Result of listing tasks.
 | `total` | `number` | Yes | total |
 | `filtered` | `number` | Yes | filtered |
 | `page` | `LAFSPage` | Yes | page |
-| `pagination` | `{ limit: number; offset: number; hasMore: boolean; } \| undefined` | No | pagination |
+| `pagination` | `\{ limit: number; offset: number; hasMore: boolean; \} \| undefined` | No | pagination |
 
 ## FindResult
 
@@ -911,13 +911,13 @@ Parsed ADR frontmatter from .md file
 | `inserted` | `number` | Yes | inserted |
 | `updated` | `number` | Yes | updated |
 | `skipped` | `number` | Yes | skipped |
-| `errors` | `{ file: string; error: string; }[]` | Yes | errors |
+| `errors` | `\{ file: string; error: string; \}[]` | Yes | errors |
 
 ## AdrListResult
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `adrs` | `{ id: string; title: string; status: string; date: string; filePath: string; }[]` | Yes | adrs |
+| `adrs` | `\{ id: string; title: string; status: string; date: string; filePath: string; \}[]` | Yes | adrs |
 | `total` | `number` | Yes | total |
 | `filtered` | `number` | Yes | filtered |
 
@@ -925,7 +925,7 @@ Parsed ADR frontmatter from .md file
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `adrs` | `{ id: string; title: string; status: string; date: string; filePath: string; summary?: string \| undefined; keywords?: string \| undefined; topics?: string \| undefined; score: number; matchedFields: string[]; }[]` | No | adrs |
+| `adrs` | `\{ id: string; title: string; status: string; date: string; filePath: string; summary?: string \| undefined; keywords?: string \| undefined; topics?: string \| undefined; score: number; matchedFields: string[]; \}[]` | No | adrs |
 | `query` | `string` | Yes | query |
 | `total` | `number` | Yes | total |
 
@@ -933,10 +933,10 @@ Parsed ADR frontmatter from .md file
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `linked` | `{ adrId: string; taskId: string; }[]` | Yes | linked |
+| `linked` | `\{ adrId: string; taskId: string; \}[]` | Yes | linked |
 | `synced` | `number` | Yes | synced |
 | `skipped` | `number` | Yes | skipped |
-| `errors` | `{ file: string; error: string; }[]` | Yes | errors |
+| `errors` | `\{ file: string; error: string; \}[]` | Yes | errors |
 
 ## EvidenceType
 
@@ -1073,7 +1073,7 @@ Stage data in an on-disk manifest.
 | `skippedReason` | `string \| undefined` | No | skippedReason |
 | `artifacts` | `string[] \| undefined` | No | artifacts |
 | `notes` | `string \| undefined` | No | notes |
-| `gates` | `Record<string, GateData> \| undefined` | No | gates |
+| `gates` | `Record&lt;string, GateData&gt; \| undefined` | No | gates |
 
 ## RcasdManifest
 
@@ -1083,7 +1083,7 @@ Canonical RCASD manifest-shaped interface for compatibility payloads. Lifecycle 
 |----------|------|----------|-------------|
 | `epicId` | `string` | Yes | epicId |
 | `title` | `string \| undefined` | No | title |
-| `stages` | `Record<string, ManifestStageData>` | Yes | stages |
+| `stages` | `Record&lt;string, ManifestStageData&gt;` | Yes | stages |
 
 ## GateCheckResult
 
@@ -1149,7 +1149,7 @@ Options for envelope formatting.   T4668  T4670  T4663
 |----------|------|----------|-------------|
 | `operation` | `string \| undefined` | No | operation |
 | `page` | `LAFSPage \| undefined` | No | page |
-| `extensions` | `Record<string, unknown> \| undefined` | No | extensions |
+| `extensions` | `Record&lt;string, unknown&gt; \| undefined` | No | extensions |
 | `mvi` | `MVILevel \| undefined` | No | MVI level to embed in the envelope _meta. Defaults to 'standard'.  T4957 |
 
 ## CleoRegistryEntry
@@ -1174,7 +1174,7 @@ Result of creating a test database environment.
 | `tempDir` | `string` | Yes | Temporary directory (the project root). |
 | `cleoDir` | `string` | Yes | Path to .cleo directory. |
 | `accessor` | `DataAccessor` | Yes | SQLite-backed DataAccessor. |
-| `cleanup` | `() => Promise<void>` | Yes | Clean up temp dir and close DB. |
+| `cleanup` | `() => Promise&lt;void&gt;` | Yes | Clean up temp dir and close DB. |
 
 ## HierarchyValidation
 
@@ -1183,7 +1183,7 @@ Validate that adding a child to a parent would not violate constraints.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `valid` | `boolean` | Yes | valid |
-| `error` | `{ code: string; message: string; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; \} \| undefined` | No | error |
 
 ## TaskTreeNode
 
@@ -1209,7 +1209,7 @@ Build a tree structure from flat task list.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `valid` | `boolean` | Yes | valid |
-| `error` | `{ code: string; message: string; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; \} \| undefined` | No | error |
 
 ## AddTaskOptions
 
@@ -1251,8 +1251,8 @@ Options for listing phases.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `currentPhase` | `string \| null` | Yes | currentPhase |
-| `phases` | `{ slug: string; name: string; order: number; status: PhaseStatus; startedAt: string \| null; completedAt: string \| null; isCurrent: boolean; }[]` | Yes | phases |
-| `summary` | `{ total: number; pending: number; active: number; completed: number; }` | Yes | summary |
+| `phases` | `\{ slug: string; name: string; order: number; status: PhaseStatus; startedAt: string \| null; completedAt: string \| null; isCurrent: boolean; \}[]` | Yes | phases |
+| `summary` | `\{ total: number; pending: number; active: number; completed: number; \}` | Yes | summary |
 
 ## SetPhaseOptions
 
@@ -1343,9 +1343,9 @@ Audit entry interface. Used by session-grade and system-engine for behavioral an
 | `sessionId` | `string \| null` | Yes | sessionId |
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown>` | Yes | params |
-| `result` | `{ success: boolean; exitCode: number; duration: number; }` | Yes | result |
-| `metadata` | `{ taskId?: string \| undefined; userId?: string \| undefined; source: "cli" \| "mcp"; gateway?: "query" \| "mutate" \| undefined; }` | No | metadata |
+| `params` | `Record&lt;string, unknown&gt;` | Yes | params |
+| `result` | `\{ success: boolean; exitCode: number; duration: number; \}` | Yes | result |
+| `metadata` | `\{ taskId?: string \| undefined; userId?: string \| undefined; source: "cli" \| "mcp"; gateway?: "query" \| "mutate" \| undefined; \}` | No | metadata |
 | `error` | `string \| undefined` | No | error |
 
 ## SchemaInstallResult
@@ -1443,11 +1443,11 @@ Schema-compliant project context for LLM agent consumption.
 | `projectTypes` | `ProjectType[]` | Yes | projectTypes |
 | `primaryType` | `ProjectType \| undefined` | No | primaryType |
 | `monorepo` | `boolean` | Yes | monorepo |
-| `testing` | `{ framework?: TestFramework \| undefined; command?: string \| undefined; testFilePatterns?: string[] \| undefined; directories?: { unit?: string \| undefined; integration?: string \| undefined; } \| undefined; } \| undefined` | No | testing |
-| `build` | `{ command?: string \| undefined; outputDir?: string \| undefined; } \| undefined` | No | build |
-| `directories` | `{ source?: string \| undefined; tests?: string \| undefined; docs?: string \| undefined; } \| undefined` | No | directories |
-| `conventions` | `{ fileNaming?: FileNamingConvention \| undefined; importStyle?: ImportStyle \| undefined; typeSystem?: string \| undefined; } \| undefined` | No | conventions |
-| `llmHints` | `{ preferredTestStyle?: string \| undefined; typeSystem?: string \| undefined; commonPatterns?: string[] \| undefined; avoidPatterns?: string[] \| undefined; } \| undefined` | No | llmHints |
+| `testing` | `\{ framework?: TestFramework \| undefined; command?: string \| undefined; testFilePatterns?: string[] \| undefined; directories?: \{ unit?: string \| undefined; integration?: string \| undefined; \} \| undefined; \} \| undefined` | No | testing |
+| `build` | `\{ command?: string \| undefined; outputDir?: string \| undefined; \} \| undefined` | No | build |
+| `directories` | `\{ source?: string \| undefined; tests?: string \| undefined; docs?: string \| undefined; \} \| undefined` | No | directories |
+| `conventions` | `\{ fileNaming?: FileNamingConvention \| undefined; importStyle?: ImportStyle \| undefined; typeSystem?: string \| undefined; \} \| undefined` | No | conventions |
+| `llmHints` | `\{ preferredTestStyle?: string \| undefined; typeSystem?: string \| undefined; commonPatterns?: string[] \| undefined; avoidPatterns?: string[] \| undefined; \} \| undefined` | No | llmHints |
 
 ## BrainFtsRow
 
@@ -1515,7 +1515,7 @@ Contract for embedding providers (local models, API services, etc.).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `embed` | `(text: string) => Promise<Float32Array<ArrayBufferLike>>` | Yes | Convert text into a fixed-dimension float vector. |
+| `embed` | `(text: string) => Promise&lt;Float32Array&lt;ArrayBufferLike&gt;>` | Yes | Convert text into a fixed-dimension float vector. |
 | `dimensions` | `number` | Yes | Number of dimensions the provider produces. Must match vec0 table. |
 | `isAvailable` | `() => boolean` | Yes | Whether the provider is ready to produce embeddings. |
 
@@ -1535,10 +1535,10 @@ Search result with BM25 rank.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `decisions` | `{ id: string; createdAt: string; updatedAt: string \| null; type: "architecture" \| "technical" \| "process" \| "strategic" \| "tactical"; confidence: "high" \| "medium" \| "low"; decision: string; ... 5 more ...; contextPhase: string \| null; }[]` | Yes | decisions |
-| `patterns` | `{ id: string; updatedAt: string \| null; type: "success" \| "workflow" \| "failure" \| "blocker" \| "optimization"; pattern: string; context: string; frequency: number; successRate: number \| null; ... 4 more ...; extractedAt: string; }[]` | Yes | patterns |
-| `learnings` | `{ id: string; createdAt: string; updatedAt: string \| null; source: string; confidence: number; insight: string; actionable: boolean; application: string \| null; applicableTypesJson: string \| null; }[]` | Yes | learnings |
-| `observations` | `{ project: string \| null; id: string; createdAt: string; updatedAt: string \| null; title: string; type: "discovery" \| "change" \| "feature" \| "bugfix" \| "decision" \| "refactor"; contentHash: string \| null; ... 8 more ...; discoveryTokens: number \| null; }[]` | Yes | observations |
+| `decisions` | `\{ id: string; createdAt: string; updatedAt: string \| null; type: "architecture" \| "technical" \| "process" \| "strategic" \| "tactical"; confidence: "high" \| "medium" \| "low"; decision: string; ... 5 more ...; contextPhase: string \| null; \}[]` | Yes | decisions |
+| `patterns` | `\{ id: string; updatedAt: string \| null; type: "success" \| "workflow" \| "failure" \| "blocker" \| "optimization"; pattern: string; context: string; frequency: number; successRate: number \| null; ... 4 more ...; extractedAt: string; \}[]` | Yes | patterns |
+| `learnings` | `\{ id: string; createdAt: string; updatedAt: string \| null; source: string; confidence: number; insight: string; actionable: boolean; application: string \| null; applicableTypesJson: string \| null; \}[]` | Yes | learnings |
+| `observations` | `\{ project: string \| null; id: string; createdAt: string; updatedAt: string \| null; title: string; type: "discovery" \| "change" \| "feature" \| "bugfix" \| "decision" \| "refactor"; contentHash: string \| null; ... 8 more ...; discoveryTokens: number \| null; \}[]` | Yes | observations |
 
 ## BrainSearchOptions
 
@@ -1589,7 +1589,7 @@ Options for hybridSearch weighting and limits.
 | `category` | `string` | Yes | category |
 | `status` | `"warning" \| "failed" \| "info" \| "passed"` | Yes | status |
 | `message` | `string` | Yes | message |
-| `details` | `Record<string, unknown>` | Yes | details |
+| `details` | `Record&lt;string, unknown&gt;` | Yes | details |
 | `fix` | `string \| null` | Yes | fix |
 
 ## ScaffoldResult
@@ -1620,7 +1620,7 @@ Result of a check* diagnostic (compatible with doctor/checks.ts CheckResult).
 | `category` | `string` | Yes | category |
 | `status` | `CheckStatus` | Yes | status |
 | `message` | `string` | Yes | message |
-| `details` | `Record<string, unknown>` | Yes | details |
+| `details` | `Record&lt;string, unknown&gt;` | Yes | details |
 | `fix` | `string \| null` | Yes | fix |
 
 ## McpEnvMode
@@ -1673,8 +1673,8 @@ Session object (engine-compatible).
 | `status` | `"active" \| "archived" \| "ended" \| "suspended"` | Yes | status |
 | `agentId` | `string \| undefined` | No | agentId |
 | `name` | `string \| undefined` | No | name |
-| `scope` | `{ type: string; rootTaskId: string; phaseFilter?: string \| null \| undefined; labelFilter?: string[] \| null \| undefined; includeDescendants?: boolean \| undefined; maxDepth?: number \| null \| undefined; explicitTaskIds?: string[] \| ... 1 more ... \| undefined; excludeTaskIds?: string[] \| ... 1 more ... \| undefined; comp...` | No | scope |
-| `focus` | `{ currentTask?: string \| null \| undefined; currentPhase?: string \| null \| undefined; previousTask?: string \| null \| undefined; sessionNote?: string \| null \| undefined; nextAction?: string \| ... 1 more ... \| undefined; blockedReason?: string \| ... 1 more ... \| undefined; focusHistory?: { ...; }[] \| undefined; }` | No | focus |
+| `scope` | `\{ type: string; rootTaskId: string; phaseFilter?: string \| null \| undefined; labelFilter?: string[] \| null \| undefined; includeDescendants?: boolean \| undefined; maxDepth?: number \| null \| undefined; explicitTaskIds?: string[] \| ... 1 more ... \| undefined; excludeTaskIds?: string[] \| ... 1 more ... \| undefined; comp...` | No | scope |
+| `focus` | `\{ currentTask?: string \| null \| undefined; currentPhase?: string \| null \| undefined; previousTask?: string \| null \| undefined; sessionNote?: string \| null \| undefined; nextAction?: string \| ... 1 more ... \| undefined; blockedReason?: string \| ... 1 more ... \| undefined; focusHistory?: \{ ...; \}[] \| undefined; \}` | No | focus |
 | `startedAt` | `string` | Yes | startedAt |
 | `lastActivity` | `string` | Yes | lastActivity |
 | `suspendedAt` | `string \| null \| undefined` | No | suspendedAt |
@@ -1682,7 +1682,7 @@ Session object (engine-compatible).
 | `archivedAt` | `string \| null \| undefined` | No | archivedAt |
 | `resumeCount` | `number \| undefined` | No | resumeCount |
 | `gradeMode` | `boolean \| undefined` | No | Whether full query+mutation audit logging is enabled (behavioral grading). |
-| `stats` | `{ tasksCompleted: number; tasksCreated: number; tasksUpdated: number; focusChanges: number; totalActiveMinutes: number; suspendCount: number; } \| undefined` | No | stats |
+| `stats` | `\{ tasksCompleted: number; tasksCreated: number; tasksUpdated: number; focusChanges: number; totalActiveMinutes: number; suspendCount: number; \} \| undefined` | No | stats |
 | `previousSessionId` | `string \| null \| undefined` | No | Soft FK to predecessor session. |
 | `nextSessionId` | `string \| null \| undefined` | No | Soft FK to successor session. |
 | `agentIdentifier` | `string \| null \| undefined` | No | LLM agent/conversation identifier. |
@@ -1710,9 +1710,9 @@ Task file structure (subset for session operations).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `focus` | `TaskWorkStateExt \| { [key: string]: unknown; currentTask?: string \| null \| undefined; currentPhase?: string \| null \| undefined; } \| undefined` | No | focus |
-| `_meta` | `{ [key: string]: unknown; schemaVersion: string; checksum?: string \| undefined; configVersion?: string \| undefined; lastSessionId?: string \| null \| undefined; activeSessionCount?: number \| undefined; sessionsFile?: string \| ... 1 more ... \| undefined; generation?: number \| undefined; } \| undefined` | No | _meta |
-| `tasks` | `{ [key: string]: unknown; id: string; status: string; parentId?: string \| undefined; completedAt?: string \| undefined; }[] \| undefined` | No | tasks |
+| `focus` | `TaskWorkStateExt \| \{ [key: string]: unknown; currentTask?: string \| null \| undefined; currentPhase?: string \| null \| undefined; \} \| undefined` | No | focus |
+| `_meta` | `\{ [key: string]: unknown; schemaVersion: string; checksum?: string \| undefined; configVersion?: string \| undefined; lastSessionId?: string \| null \| undefined; activeSessionCount?: number \| undefined; sessionsFile?: string \| ... 1 more ... \| undefined; generation?: number \| undefined; \} \| undefined` | No | _meta |
+| `tasks` | `\{ [key: string]: unknown; id: string; status: string; parentId?: string \| undefined; completedAt?: string \| undefined; \}[] \| undefined` | No | tasks |
 | `lastUpdated` | `string \| undefined` | No | lastUpdated |
 
 ## DecisionRecord
@@ -1912,7 +1912,7 @@ Legacy registry file shape (pre-SQLite). Retained for migration compatibility.
 | `$schema` | `string \| undefined` | No | $schema |
 | `schemaVersion` | `string` | Yes | schemaVersion |
 | `lastUpdated` | `string` | Yes | lastUpdated |
-| `projects` | `Record<string, NexusProject>` | Yes | projects |
+| `projects` | `Record&lt;string, NexusProject&gt;` | Yes | projects |
 
 ## PatternType
 
@@ -2128,7 +2128,7 @@ Result from populateEmbeddings backfill.
 |----------|------|----------|-------------|
 | `languages` | `string[]` | Yes | languages |
 | `frameworks` | `string[]` | Yes | frameworks |
-| `dependencies` | `{ name: string; version: string; dev: boolean; }[]` | Yes | dependencies |
+| `dependencies` | `\{ name: string; version: string; dev: boolean; \}[]` | Yes | dependencies |
 | `packageManager` | `string \| undefined` | No | packageManager |
 | `runtime` | `string \| undefined` | No | runtime |
 
@@ -2136,15 +2136,15 @@ Result from populateEmbeddings backfill.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `layers` | `{ name: string; path: string; purpose: string; }[]` | Yes | layers |
-| `entryPoints` | `{ path: string; type: string; }[]` | Yes | entryPoints |
+| `layers` | `\{ name: string; path: string; purpose: string; \}[]` | Yes | layers |
+| `entryPoints` | `\{ path: string; type: string; \}[]` | Yes | entryPoints |
 | `patterns` | `string[]` | Yes | patterns |
 
 ## StructureAnalysis
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `directories` | `{ path: string; purpose: string; fileCount: number; }[]` | Yes | directories |
+| `directories` | `\{ path: string; purpose: string; fileCount: number; \}[]` | Yes | directories |
 | `totalFiles` | `number` | Yes | totalFiles |
 | `totalLines` | `number \| undefined` | No | totalLines |
 
@@ -2184,9 +2184,9 @@ Result from populateEmbeddings backfill.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `todos` | `{ file: string; line: number; text: string; }[]` | Yes | todos |
-| `largeFiles` | `{ path: string; lines: number; }[]` | Yes | largeFiles |
-| `complexity` | `{ high: number; medium: number; low: number; }` | Yes | complexity |
+| `todos` | `\{ file: string; line: number; text: string; \}[]` | Yes | todos |
+| `largeFiles` | `\{ path: string; lines: number; \}[]` | Yes | largeFiles |
+| `complexity` | `\{ high: number; medium: number; low: number; \}` | Yes | complexity |
 
 ## CodebaseMapResult
 
@@ -2310,7 +2310,7 @@ any
 |----------|------|----------|-------------|
 | `imported` | `number` | Yes | imported |
 | `skipped` | `number` | Yes | skipped |
-| `renamed` | `{ oldId: string; newId: string; }[]` | Yes | renamed |
+| `renamed` | `\{ oldId: string; newId: string; \}[]` | Yes | renamed |
 | `totalTasks` | `number` | Yes | totalTasks |
 | `dryRun` | `boolean \| undefined` | No | dryRun |
 
@@ -2433,7 +2433,7 @@ Execution wave (group of parallelizable tasks).
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `wave` | `number` | Yes | wave |
-| `tasks` | `(TaskRef & { depends: string[]; })[]` | Yes | tasks |
+| `tasks` | `(TaskRef & \{ depends: string[]; \})[]` | Yes | tasks |
 
 ## CriticalPathResult
 
@@ -2488,7 +2488,7 @@ Full dependency analysis result for an epic.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `dependencyGraph` | `Record<string, string[]>` | Yes | dependencyGraph |
+| `dependencyGraph` | `Record&lt;string, string[]>` | Yes | dependencyGraph |
 | `circularDependencies` | `CircularDependency[]` | Yes | circularDependencies |
 | `missingDependencies` | `MissingDependency[]` | Yes | missingDependencies |
 
@@ -2503,7 +2503,7 @@ Context estimation result.
 | `manifestEntries` | `number` | Yes | manifestEntries |
 | `estimatedTokens` | `number` | Yes | estimatedTokens |
 | `recommendation` | `string` | Yes | recommendation |
-| `limits` | `{ orchestratorBudget: number; maxFilesPerAgent: number; currentUsage: number; }` | Yes | limits |
+| `limits` | `\{ orchestratorBudget: number; maxFilesPerAgent: number; currentUsage: number; \}` | Yes | limits |
 
 ## Wave
 
@@ -2578,7 +2578,7 @@ Startup summary for an epic.
 | `epicId` | `string` | Yes | epicId |
 | `epicTitle` | `string` | Yes | epicTitle |
 | `initialized` | `boolean` | Yes | initialized |
-| `summary` | `{ totalTasks: number; totalWaves: number; readyTasks: number; byStatus: StatusCounts; }` | Yes | summary |
+| `summary` | `\{ totalTasks: number; totalWaves: number; readyTasks: number; byStatus: StatusCounts; \}` | Yes | summary |
 | `firstWave` | `Wave \| null` | Yes | firstWave |
 
 ## OrchestratorSession
@@ -2603,7 +2603,7 @@ Spawn context for a subagent.
 | `taskId` | `string` | Yes | taskId |
 | `protocol` | `string` | Yes | protocol |
 | `prompt` | `string` | Yes | prompt |
-| `tokenResolution` | `{ fullyResolved: boolean; unresolvedTokens: string[]; }` | Yes | tokenResolution |
+| `tokenResolution` | `\{ fullyResolved: boolean; unresolvedTokens: string[]; \}` | Yes | tokenResolution |
 
 ## TaskReadiness
 
@@ -2625,7 +2625,7 @@ Orchestrator analysis result.
 |----------|------|----------|-------------|
 | `epicId` | `string` | Yes | epicId |
 | `totalTasks` | `number` | Yes | totalTasks |
-| `waves` | `{ wave: number; tasks: TaskRef[]; }[]` | Yes | waves |
+| `waves` | `\{ wave: number; tasks: TaskRef[]; \}[]` | Yes | waves |
 | `readyTasks` | `string[]` | Yes | readyTasks |
 | `blockedTasks` | `string[]` | Yes | blockedTasks |
 | `completedTasks` | `string[]` | Yes | completedTasks |
@@ -2696,7 +2696,7 @@ Result of completing a task.
 |----------|------|----------|-------------|
 | `task` | `Task` | Yes | task |
 | `autoCompleted` | `string[] \| undefined` | No | autoCompleted |
-| `unblockedTasks` | `Pick<TaskRef, "id" \| "title">[] \| undefined` | No | unblockedTasks |
+| `unblockedTasks` | `Pick&lt;TaskRef, "id" \| "title">[] \| undefined` | No | unblockedTasks |
 
 ## UpdateTaskOptions
 
@@ -2753,7 +2753,7 @@ Artifact configuration from release config.
 | `publishCommand` | `string \| undefined` | No | publishCommand |
 | `package` | `string \| undefined` | No | package |
 | `registry` | `string \| undefined` | No | registry |
-| `options` | `{ [key: string]: unknown; provenance?: boolean \| undefined; access?: string \| undefined; tag?: string \| undefined; attestations?: boolean \| undefined; } \| undefined` | No | options |
+| `options` | `\{ [key: string]: unknown; provenance?: boolean \| undefined; access?: string \| undefined; tag?: string \| undefined; attestations?: boolean \| undefined; \} \| undefined` | No | options |
 
 ## ArtifactResult
 
@@ -2771,9 +2771,9 @@ Artifact handler interface.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `build` | `(config: ArtifactConfig, dryRun?: boolean \| undefined) => Promise<ArtifactResult>` | No | build |
-| `validate` | `(config: ArtifactConfig) => Promise<ArtifactResult>` | Yes | validate |
-| `publish` | `(config: ArtifactConfig, dryRun?: boolean \| undefined) => Promise<ArtifactResult>` | No | publish |
+| `build` | `(config: ArtifactConfig, dryRun?: boolean \| undefined) => Promise&lt;ArtifactResult&gt;` | No | build |
+| `validate` | `(config: ArtifactConfig) => Promise&lt;ArtifactResult&gt;` | Yes | validate |
+| `publish` | `(config: ArtifactConfig, dryRun?: boolean \| undefined) => Promise&lt;ArtifactResult&gt;` | No | publish |
 
 ## ReleaseConfig
 
@@ -2787,11 +2787,11 @@ Release configuration shape.
 | `changelogFile` | `string` | Yes | changelogFile |
 | `artifactType` | `string` | Yes | artifactType |
 | `gates` | `ReleaseGate[]` | Yes | gates |
-| `versionBump` | `{ files: { file: string; strategy: string; field?: string \| undefined; }[]; }` | No | versionBump |
-| `security` | `{ enableProvenance: boolean; slsaLevel: number; requireSignedCommits: boolean; }` | Yes | security |
+| `versionBump` | `\{ files: \{ file: string; strategy: string; field?: string \| undefined; \}[]; \}` | No | versionBump |
+| `security` | `\{ enableProvenance: boolean; slsaLevel: number; requireSignedCommits: boolean; \}` | Yes | security |
 | `gitflow` | `GitFlowConfig \| undefined` | No | gitflow |
 | `channels` | `ChannelConfig \| undefined` | No | channels |
-| `push` | `{ mode?: PushMode \| undefined; } \| undefined` | No | push |
+| `push` | `\{ mode?: PushMode \| undefined; \} \| undefined` | No | push |
 
 ## ReleaseGate
 
@@ -2811,7 +2811,7 @@ GitFlow branch configuration.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `enabled` | `boolean` | Yes | enabled |
-| `branches` | `{ main: string; develop: string; featurePrefix: string; hotfixPrefix: string; releasePrefix: string; }` | Yes | branches |
+| `branches` | `\{ main: string; develop: string; featurePrefix: string; hotfixPrefix: string; releasePrefix: string; \}` | Yes | branches |
 
 ## ChannelConfig
 
@@ -2822,7 +2822,7 @@ Channel-to-branch mapping for npm dist-tag resolution.
 | `main` | `string` | Yes | main |
 | `develop` | `string` | Yes | develop |
 | `feature` | `string` | Yes | feature |
-| `custom` | `Record<string, string> \| undefined` | No | custom |
+| `custom` | `Record&lt;string, string&gt; \| undefined` | No | custom |
 
 ## PushMode
 
@@ -2904,7 +2904,7 @@ Epic completeness result.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `hasIncomplete` | `boolean` | Yes | hasIncomplete |
-| `epics` | `{ epicId: string; epicTitle: string; totalChildren: number; includedChildren: number; missingChildren: TaskRef[]; }[]` | Yes | epics |
+| `epics` | `\{ epicId: string; epicTitle: string; totalChildren: number; includedChildren: number; missingChildren: TaskRef[]; \}[]` | Yes | epics |
 | `orphanTasks` | `string[]` | Yes | orphanTasks |
 
 ## DoubleListingResult
@@ -2914,7 +2914,7 @@ Double-listing check result.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `hasDoubleListing` | `boolean` | Yes | hasDoubleListing |
-| `duplicates` | `{ taskId: string; releases: string[]; }[]` | Yes | duplicates |
+| `duplicates` | `\{ taskId: string; releases: string[]; \}[]` | Yes | duplicates |
 
 ## BumpType
 
@@ -3033,7 +3033,7 @@ Push policy configuration from config.release.push.
 | `taskId` | `string \| undefined` | No | taskId |
 | `totalScore` | `number` | Yes | totalScore |
 | `maxScore` | `number` | Yes | maxScore |
-| `dimensions` | `{ sessionDiscipline: DimensionScore; discoveryEfficiency: DimensionScore; taskHygiene: DimensionScore; errorProtocol: DimensionScore; disclosureUse: DimensionScore; }` | Yes | dimensions |
+| `dimensions` | `\{ sessionDiscipline: DimensionScore; discoveryEfficiency: DimensionScore; taskHygiene: DimensionScore; errorProtocol: DimensionScore; disclosureUse: DimensionScore; \}` | Yes | dimensions |
 | `flags` | `string[]` | Yes | flags |
 | `timestamp` | `string` | Yes | timestamp |
 | `entryCount` | `number` | Yes | entryCount |
@@ -3237,7 +3237,7 @@ Parameters for findSessions().
 | `endedAt` | `string \| null \| undefined` | No | endedAt |
 | `tasksCompleted` | `number` | Yes | tasksCompleted |
 | `focusChanges` | `number` | Yes | focusChanges |
-| `focusHistory` | `{ taskId: string; timestamp: string; }[]` | Yes | focusHistory |
+| `focusHistory` | `\{ taskId: string; timestamp: string; \}[]` | Yes | focusHistory |
 
 ## SessionHistoryParams
 
@@ -3258,7 +3258,7 @@ Parameters for findSessions().
 | `totalTasksCompleted` | `number` | Yes | totalTasksCompleted |
 | `totalFocusChanges` | `number` | Yes | totalFocusChanges |
 | `averageResumeCount` | `number` | Yes | averageResumeCount |
-| `session` | `{ id: string; status: string; tasksCompleted: number; focusChanges: number; resumeCount: number; durationMinutes: number; } \| undefined` | No | session |
+| `session` | `\{ id: string; status: string; tasksCompleted: number; focusChanges: number; resumeCount: number; durationMinutes: number; \} \| undefined` | No | session |
 
 ## RuntimeProviderContext
 
@@ -3450,56 +3450,56 @@ Result of deleting a task.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `add` | `(params: { title: string; description: string; parent?: string \| undefined; priority?: TaskPriority \| undefined; type?: TaskType \| undefined; size?: TaskSize \| undefined; phase?: string \| undefined; labels?: string[] \| undefined; depends?: string[] \| undefined; notes?: string \| undefined; }) => Promise<...>` | No | add |
-| `find` | `(params: { query?: string \| undefined; id?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; limit?: number \| undefined; }) => Promise<...>` | No | find |
-| `show` | `(taskId: string) => Promise<unknown>` | Yes | show |
-| `list` | `(params?: { status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; parentId?: string \| undefined; phase?: string \| undefined; limit?: number \| undefined; } \| undefined) => Promise<...>` | No | list |
-| `update` | `(params: { taskId: string; title?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; description?: string \| undefined; notes?: string \| undefined; }) => Promise<...>` | No | update |
-| `complete` | `(params: { taskId: string; notes?: string \| undefined; }) => Promise<unknown>` | No | complete |
-| `delete` | `(params: { taskId: string; force?: boolean \| undefined; }) => Promise<unknown>` | No | delete |
-| `archive` | `(params?: { before?: string \| undefined; taskIds?: string[] \| undefined; dryRun?: boolean \| undefined; } \| undefined) => Promise<unknown>` | No | archive |
+| `add` | `(params: \{ title: string; description: string; parent?: string \| undefined; priority?: TaskPriority \| undefined; type?: TaskType \| undefined; size?: TaskSize \| undefined; phase?: string \| undefined; labels?: string[] \| undefined; depends?: string[] \| undefined; notes?: string \| undefined; \}) => Promise<...>` | No | add |
+| `find` | `(params: \{ query?: string \| undefined; id?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; limit?: number \| undefined; \}) => Promise<...>` | No | find |
+| `show` | `(taskId: string) => Promise&lt;unknown&gt;` | Yes | show |
+| `list` | `(params?: \{ status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; parentId?: string \| undefined; phase?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise<...>` | No | list |
+| `update` | `(params: \{ taskId: string; title?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; description?: string \| undefined; notes?: string \| undefined; \}) => Promise<...>` | No | update |
+| `complete` | `(params: \{ taskId: string; notes?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | complete |
+| `delete` | `(params: \{ taskId: string; force?: boolean \| undefined; \}) => Promise&lt;unknown&gt;` | No | delete |
+| `archive` | `(params?: \{ before?: string \| undefined; taskIds?: string[] \| undefined; dryRun?: boolean \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | archive |
 
 ## SessionsAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `start` | `(params: { name: string; scope: string; agent?: string \| undefined; }) => Promise<unknown>` | No | start |
-| `end` | `(params?: { note?: string \| undefined; } \| undefined) => Promise<unknown>` | No | end |
-| `status` | `() => Promise<unknown>` | Yes | status |
-| `resume` | `(sessionId: string) => Promise<unknown>` | Yes | resume |
-| `list` | `(params?: { status?: string \| undefined; limit?: number \| undefined; } \| undefined) => Promise<unknown>` | No | list |
-| `find` | `(params?: { status?: string \| undefined; scope?: string \| undefined; query?: string \| undefined; limit?: number \| undefined; } \| undefined) => Promise<unknown>` | No | find |
-| `show` | `(sessionId: string) => Promise<unknown>` | Yes | show |
-| `suspend` | `(sessionId: string, reason?: string \| undefined) => Promise<unknown>` | No | suspend |
-| `briefing` | `(params?: { maxNextTasks?: number \| undefined; scope?: string \| undefined; } \| undefined) => Promise<unknown>` | No | briefing |
-| `handoff` | `(sessionId: string, options?: { note?: string \| undefined; nextAction?: string \| undefined; } \| undefined) => Promise<unknown>` | No | handoff |
-| `gc` | `(maxAgeHours?: number \| undefined) => Promise<unknown>` | No | gc |
-| `recordDecision` | `(params: { sessionId: string; taskId: string; decision: string; rationale: string; alternatives?: string[] \| undefined; }) => Promise<unknown>` | No | recordDecision |
-| `recordAssumption` | `(params: { assumption: string; confidence: "high" \| "medium" \| "low"; sessionId?: string \| undefined; taskId?: string \| undefined; }) => Promise<unknown>` | No | recordAssumption |
-| `contextDrift` | `(params?: { sessionId?: string \| undefined; } \| undefined) => Promise<unknown>` | No | contextDrift |
-| `decisionLog` | `(params?: { sessionId?: string \| undefined; taskId?: string \| undefined; } \| undefined) => Promise<unknown>` | No | decisionLog |
-| `lastHandoff` | `(scope?: { type: string; epicId?: string \| undefined; } \| undefined) => Promise<unknown>` | No | lastHandoff |
+| `start` | `(params: \{ name: string; scope: string; agent?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | start |
+| `end` | `(params?: \{ note?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | end |
+| `status` | `() => Promise&lt;unknown&gt;` | Yes | status |
+| `resume` | `(sessionId: string) => Promise&lt;unknown&gt;` | Yes | resume |
+| `list` | `(params?: \{ status?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | list |
+| `find` | `(params?: \{ status?: string \| undefined; scope?: string \| undefined; query?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | find |
+| `show` | `(sessionId: string) => Promise&lt;unknown&gt;` | Yes | show |
+| `suspend` | `(sessionId: string, reason?: string \| undefined) => Promise&lt;unknown&gt;` | No | suspend |
+| `briefing` | `(params?: \{ maxNextTasks?: number \| undefined; scope?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | briefing |
+| `handoff` | `(sessionId: string, options?: \{ note?: string \| undefined; nextAction?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | handoff |
+| `gc` | `(maxAgeHours?: number \| undefined) => Promise&lt;unknown&gt;` | No | gc |
+| `recordDecision` | `(params: \{ sessionId: string; taskId: string; decision: string; rationale: string; alternatives?: string[] \| undefined; \}) => Promise&lt;unknown&gt;` | No | recordDecision |
+| `recordAssumption` | `(params: \{ assumption: string; confidence: "high" \| "medium" \| "low"; sessionId?: string \| undefined; taskId?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | recordAssumption |
+| `contextDrift` | `(params?: \{ sessionId?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | contextDrift |
+| `decisionLog` | `(params?: \{ sessionId?: string \| undefined; taskId?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | decisionLog |
+| `lastHandoff` | `(scope?: \{ type: string; epicId?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | lastHandoff |
 
 ## MemoryAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `observe` | `(params: { text: string; title?: string \| undefined; type?: "discovery" \| "change" \| "feature" \| "bugfix" \| "decision" \| "refactor" \| undefined; }) => Promise<unknown>` | No | observe |
-| `find` | `(params: { query: string; limit?: number \| undefined; tables?: ("decisions" \| "patterns" \| "learnings" \| "observations")[] \| undefined; }) => Promise<unknown>` | No | find |
-| `fetch` | `(params: { ids: string[]; }) => Promise<unknown>` | Yes | fetch |
-| `timeline` | `(params: { anchor: string; depthBefore?: number \| undefined; depthAfter?: number \| undefined; }) => Promise<unknown>` | No | timeline |
-| `search` | `(query: string, options?: { limit?: number \| undefined; } \| undefined) => Promise<unknown>` | No | search |
-| `hybridSearch` | `(query: string, options?: HybridSearchOptions \| undefined) => Promise<unknown>` | No | hybridSearch |
+| `observe` | `(params: \{ text: string; title?: string \| undefined; type?: "discovery" \| "change" \| "feature" \| "bugfix" \| "decision" \| "refactor" \| undefined; \}) => Promise&lt;unknown&gt;` | No | observe |
+| `find` | `(params: \{ query: string; limit?: number \| undefined; tables?: ("decisions" \| "patterns" \| "learnings" \| "observations")[] \| undefined; \}) => Promise&lt;unknown&gt;` | No | find |
+| `fetch` | `(params: \{ ids: string[]; \}) => Promise&lt;unknown&gt;` | Yes | fetch |
+| `timeline` | `(params: \{ anchor: string; depthBefore?: number \| undefined; depthAfter?: number \| undefined; \}) => Promise&lt;unknown&gt;` | No | timeline |
+| `search` | `(query: string, options?: \{ limit?: number \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | search |
+| `hybridSearch` | `(query: string, options?: HybridSearchOptions \| undefined) => Promise&lt;unknown&gt;` | No | hybridSearch |
 
 ## OrchestrationAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `start` | `(epicId: string) => Promise<unknown>` | Yes | start |
-| `analyze` | `(epicId: string) => Promise<unknown>` | Yes | analyze |
-| `readyTasks` | `(epicId: string) => Promise<unknown>` | Yes | readyTasks |
-| `nextTask` | `(epicId: string) => Promise<unknown>` | Yes | nextTask |
-| `context` | `(epicId: string) => Promise<unknown>` | Yes | context |
+| `start` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | start |
+| `analyze` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | analyze |
+| `readyTasks` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | readyTasks |
+| `nextTask` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | nextTask |
+| `context` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | context |
 | `dependencyGraph` | `(tasks: Task[]) => unknown` | Yes | dependencyGraph |
 | `epicStatus` | `(epicId: string, title: string, children: Task[]) => unknown` | Yes | epicStatus |
 | `progress` | `(tasks: Task[]) => unknown` | Yes | progress |
@@ -3508,70 +3508,70 @@ Result of deleting a task.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `status` | `(epicId: string) => Promise<unknown>` | Yes | status |
-| `startStage` | `(epicId: string, stage: string) => Promise<unknown>` | Yes | startStage |
-| `completeStage` | `(epicId: string, stage: string, artifacts?: string[] \| undefined) => Promise<unknown>` | No | completeStage |
-| `skipStage` | `(epicId: string, stage: string, reason: string) => Promise<unknown>` | Yes | skipStage |
-| `checkGate` | `(epicId: string, targetStage: string) => Promise<unknown>` | Yes | checkGate |
-| `history` | `(epicId: string) => Promise<unknown>` | Yes | history |
-| `resetStage` | `(epicId: string, stage: string, reason: string) => Promise<unknown>` | Yes | resetStage |
-| `passGate` | `(epicId: string, gateName: string, agent?: string \| undefined) => Promise<unknown>` | No | passGate |
-| `failGate` | `(epicId: string, gateName: string, reason?: string \| undefined) => Promise<unknown>` | No | failGate |
+| `status` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | status |
+| `startStage` | `(epicId: string, stage: string) => Promise&lt;unknown&gt;` | Yes | startStage |
+| `completeStage` | `(epicId: string, stage: string, artifacts?: string[] \| undefined) => Promise&lt;unknown&gt;` | No | completeStage |
+| `skipStage` | `(epicId: string, stage: string, reason: string) => Promise&lt;unknown&gt;` | Yes | skipStage |
+| `checkGate` | `(epicId: string, targetStage: string) => Promise&lt;unknown&gt;` | Yes | checkGate |
+| `history` | `(epicId: string) => Promise&lt;unknown&gt;` | Yes | history |
+| `resetStage` | `(epicId: string, stage: string, reason: string) => Promise&lt;unknown&gt;` | Yes | resetStage |
+| `passGate` | `(epicId: string, gateName: string, agent?: string \| undefined) => Promise&lt;unknown&gt;` | No | passGate |
+| `failGate` | `(epicId: string, gateName: string, reason?: string \| undefined) => Promise&lt;unknown&gt;` | No | failGate |
 | `stages` | `readonly string[]` | Yes | stages |
 
 ## ReleaseAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `prepare` | `(params: { version: string; tasks?: string[] \| undefined; notes?: string \| undefined; }) => Promise<unknown>` | No | prepare |
-| `commit` | `(params: { version: string; }) => Promise<unknown>` | Yes | commit |
-| `tag` | `(params: { version: string; }) => Promise<unknown>` | Yes | tag |
-| `push` | `(params: { version: string; remote?: string \| undefined; explicitPush?: boolean \| undefined; }) => Promise<unknown>` | No | push |
-| `rollback` | `(params: { version: string; reason?: string \| undefined; }) => Promise<unknown>` | No | rollback |
+| `prepare` | `(params: \{ version: string; tasks?: string[] \| undefined; notes?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | prepare |
+| `commit` | `(params: \{ version: string; \}) => Promise&lt;unknown&gt;` | Yes | commit |
+| `tag` | `(params: \{ version: string; \}) => Promise&lt;unknown&gt;` | Yes | tag |
+| `push` | `(params: \{ version: string; remote?: string \| undefined; explicitPush?: boolean \| undefined; \}) => Promise&lt;unknown&gt;` | No | push |
+| `rollback` | `(params: \{ version: string; reason?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | rollback |
 | `calculateVersion` | `(current: string, bumpType: string) => string` | Yes | calculateVersion |
-| `bumpVersion` | `() => Promise<unknown>` | Yes | bumpVersion |
+| `bumpVersion` | `() => Promise&lt;unknown&gt;` | Yes | bumpVersion |
 
 ## AdminAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `export` | `(params?: Record<string, unknown> \| undefined) => Promise<unknown>` | No | export |
-| `import` | `(params: Omit<ImportParams, "cwd">) => Promise<unknown>` | Yes | import |
+| `export` | `(params?: Record&lt;string, unknown&gt; \| undefined) => Promise&lt;unknown&gt;` | No | export |
+| `import` | `(params: Omit&lt;ImportParams, "cwd">) => Promise&lt;unknown&gt;` | Yes | import |
 
 ## StickyAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `add` | `(params: { content: string; tags?: string[] \| undefined; priority?: string \| undefined; color?: string \| undefined; }) => Promise<unknown>` | No | add |
-| `show` | `(stickyId: string) => Promise<unknown>` | Yes | show |
-| `list` | `(params?: { status?: string \| undefined; color?: string \| undefined; priority?: string \| undefined; limit?: number \| undefined; } \| undefined) => Promise<unknown>` | No | list |
-| `archive` | `(stickyId: string) => Promise<unknown>` | Yes | archive |
-| `purge` | `(stickyId: string) => Promise<unknown>` | Yes | purge |
-| `convert` | `(params: { stickyId: string; targetType: "memory" \| "task" \| "session_note" \| "task_note"; title?: string \| undefined; memoryType?: string \| undefined; taskId?: string \| undefined; }) => Promise<...>` | No | convert |
+| `add` | `(params: \{ content: string; tags?: string[] \| undefined; priority?: string \| undefined; color?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | add |
+| `show` | `(stickyId: string) => Promise&lt;unknown&gt;` | Yes | show |
+| `list` | `(params?: \{ status?: string \| undefined; color?: string \| undefined; priority?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | list |
+| `archive` | `(stickyId: string) => Promise&lt;unknown&gt;` | Yes | archive |
+| `purge` | `(stickyId: string) => Promise&lt;unknown&gt;` | Yes | purge |
+| `convert` | `(params: \{ stickyId: string; targetType: "memory" \| "task" \| "session_note" \| "task_note"; title?: string \| undefined; memoryType?: string \| undefined; taskId?: string \| undefined; \}) => Promise<...>` | No | convert |
 
 ## NexusAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `init` | `() => Promise<unknown>` | Yes | init |
-| `register` | `(params: { path: string; name?: string \| undefined; permissions?: string \| undefined; }) => Promise<unknown>` | No | register |
-| `unregister` | `(params: { name: string; }) => Promise<unknown>` | Yes | unregister |
-| `list` | `() => Promise<unknown>` | Yes | list |
-| `show` | `(params: { name: string; }) => Promise<unknown>` | Yes | show |
-| `sync` | `(params?: { name?: string \| undefined; } \| undefined) => Promise<unknown>` | No | sync |
-| `discover` | `(params: { query: string; method?: string \| undefined; limit?: number \| undefined; }) => Promise<unknown>` | No | discover |
-| `search` | `(params: { pattern: string; project?: string \| undefined; limit?: number \| undefined; }) => Promise<unknown>` | No | search |
-| `setPermission` | `(params: { name: string; level: "read" \| "write" \| "execute"; }) => Promise<unknown>` | Yes | setPermission |
-| `sharingStatus` | `() => Promise<unknown>` | Yes | sharingStatus |
+| `init` | `() => Promise&lt;unknown&gt;` | Yes | init |
+| `register` | `(params: \{ path: string; name?: string \| undefined; permissions?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | register |
+| `unregister` | `(params: \{ name: string; \}) => Promise&lt;unknown&gt;` | Yes | unregister |
+| `list` | `() => Promise&lt;unknown&gt;` | Yes | list |
+| `show` | `(params: \{ name: string; \}) => Promise&lt;unknown&gt;` | Yes | show |
+| `sync` | `(params?: \{ name?: string \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | sync |
+| `discover` | `(params: \{ query: string; method?: string \| undefined; limit?: number \| undefined; \}) => Promise&lt;unknown&gt;` | No | discover |
+| `search` | `(params: \{ pattern: string; project?: string \| undefined; limit?: number \| undefined; \}) => Promise&lt;unknown&gt;` | No | search |
+| `setPermission` | `(params: \{ name: string; level: "read" \| "write" \| "execute"; \}) => Promise&lt;unknown&gt;` | Yes | setPermission |
+| `sharingStatus` | `() => Promise&lt;unknown&gt;` | Yes | sharingStatus |
 
 ## SyncAPI
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `reconcile` | `(params: { externalTasks: ExternalTask[]; providerId: string; dryRun?: boolean \| undefined; conflictPolicy?: ConflictPolicy \| undefined; defaultPhase?: string \| undefined; defaultLabels?: string[] \| undefined; }) => Promise<...>` | No | Reconcile external tasks with CLEO as SSoT. |
-| `getLinks` | `(providerId: string) => Promise<ExternalTaskLink[]>` | Yes | Get all external task links for a provider. |
-| `getTaskLinks` | `(taskId: string) => Promise<ExternalTaskLink[]>` | Yes | Get all external task links for a CLEO task. |
-| `removeProviderLinks` | `(providerId: string) => Promise<number>` | Yes | Remove all external task links for a provider. |
+| `reconcile` | `(params: \{ externalTasks: ExternalTask[]; providerId: string; dryRun?: boolean \| undefined; conflictPolicy?: ConflictPolicy \| undefined; defaultPhase?: string \| undefined; defaultLabels?: string[] \| undefined; \}) => Promise<...>` | No | Reconcile external tasks with CLEO as SSoT. |
+| `getLinks` | `(providerId: string) => Promise&lt;ExternalTaskLink[]>` | Yes | Get all external task links for a provider. |
+| `getTaskLinks` | `(taskId: string) => Promise&lt;ExternalTaskLink[]>` | Yes | Get all external task links for a CLEO task. |
+| `removeProviderLinks` | `(providerId: string) => Promise&lt;number&gt;` | Yes | Remove all external task links for a provider. |
 
 ## CleoInitOptions
 
@@ -3589,7 +3589,7 @@ Canonical EngineResult type used by all engines and core engine-compat modules.
 | `success` | `boolean` | Yes | success |
 | `data` | `T \| undefined` | No | data |
 | `page` | `LAFSPage \| undefined` | No | page |
-| `error` | `{ code: string; message: string; exitCode?: number \| undefined; details?: unknown; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; exitCode?: number \| undefined; details?: unknown; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; \} \| undefined` | No | error |
 
 ## ExportMeta
 
@@ -3600,7 +3600,7 @@ Export package metadata.
 | `format` | `"cleo-export"` | Yes | format |
 | `version` | `string` | Yes | version |
 | `exportedAt` | `string` | Yes | exportedAt |
-| `source` | `{ project: string; cleo_version: string; nextId: number; }` | Yes | source |
+| `source` | `\{ project: string; cleo_version: string; nextId: number; \}` | Yes | source |
 | `checksum` | `string` | Yes | checksum |
 | `taskCount` | `number` | Yes | taskCount |
 | `exportMode` | `string` | Yes | exportMode |
@@ -3634,8 +3634,8 @@ Relationship graph.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `hierarchy` | `Record<string, string[]>` | Yes | hierarchy |
-| `dependencies` | `Record<string, string[]>` | Yes | dependencies |
+| `hierarchy` | `Record&lt;string, string[]>` | Yes | hierarchy |
+| `dependencies` | `Record&lt;string, string[]>` | Yes | dependencies |
 | `roots` | `string[]` | Yes | roots |
 
 ## ExportPackage
@@ -3647,7 +3647,7 @@ Complete export package.
 | `$schema` | `string` | Yes | $schema |
 | `_meta` | `ExportMeta` | Yes | _meta |
 | `selection` | `ExportSelection` | Yes | selection |
-| `idMap` | `Record<string, IdMapEntry>` | Yes | idMap |
+| `idMap` | `Record&lt;string, IdMapEntry&gt;` | Yes | idMap |
 | `tasks` | `Task[]` | Yes | tasks |
 | `relationshipGraph` | `RelationshipGraph` | Yes | relationshipGraph |
 
@@ -3729,8 +3729,8 @@ Forward and reverse remap tables.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `forward` | `Map<string, string>` | Yes | forward |
-| `reverse` | `Map<string, string>` | Yes | reverse |
+| `forward` | `Map&lt;string, string&gt;` | Yes | forward |
+| `reverse` | `Map&lt;string, string&gt;` | Yes | reverse |
 
 ## ImportTasksParams
 
@@ -3754,9 +3754,9 @@ Forward and reverse remap tables.
 |----------|------|----------|-------------|
 | `imported` | `number` | Yes | imported |
 | `skipped` | `number` | Yes | skipped |
-| `idRemap` | `Record<string, string>` | Yes | idRemap |
+| `idRemap` | `Record&lt;string, string&gt;` | Yes | idRemap |
 | `dryRun` | `boolean \| undefined` | No | dryRun |
-| `preview` | `{ tasks: { id: string; title: string; type: string; }[]; } \| undefined` | No | preview |
+| `preview` | `\{ tasks: \{ id: string; title: string; type: string; \}[]; \} \| undefined` | No | preview |
 
 ## ValidationError
 
@@ -4024,7 +4024,7 @@ Aggregated token counts.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `session_id` | `string \| null` | Yes | session_id |
-| `tokens` | `{ input: number; output: number; cache_read: number; cache_creation: number; total: number; effective: number; }` | Yes | tokens |
+| `tokens` | `\{ input: number; output: number; cache_read: number; cache_creation: number; total: number; effective: number; \}` | Yes | tokens |
 | `api_requests` | `number` | Yes | api_requests |
 | `source` | `"otel"` | Yes | source |
 
@@ -4058,7 +4058,7 @@ A/B test summary result.
 | `tokens_consumed` | `number` | Yes | tokens_consumed |
 | `token_source` | `string` | Yes | token_source |
 | `tasks_completed` | `number` | Yes | tasks_completed |
-| `validations` | `{ passed: number; failed: number; total: number; pass_rate_percent: number; }` | Yes | validations |
+| `validations` | `\{ passed: number; failed: number; total: number; pass_rate_percent: number; \}` | Yes | validations |
 | `notes` | `string` | Yes | notes |
 
 ## Severity
@@ -4203,7 +4203,7 @@ A token usage event entry.
 | `source` | `string` | Yes | source |
 | `task_id` | `string \| null` | Yes | task_id |
 | `session_id` | `string \| null` | Yes | session_id |
-| `context` | `Record<string, unknown>` | Yes | context |
+| `context` | `Record&lt;string, unknown&gt;` | Yes | context |
 
 ## TokenSessionSummary
 
@@ -4214,8 +4214,8 @@ Token session summary shape.
 | `session_id` | `string` | Yes | session_id |
 | `start` | `string` | Yes | start |
 | `end` | `string` | Yes | end |
-| `tokens` | `{ manifest_reads: number; full_file_reads: number; skill_injections: number; prompt_builds: number; total: number; }` | Yes | tokens |
-| `savings` | `{ avoided_tokens: number; savings_percent: number; }` | Yes | savings |
+| `tokens` | `\{ manifest_reads: number; full_file_reads: number; skill_injections: number; prompt_builds: number; total: number; \}` | Yes | tokens |
+| `savings` | `\{ avoided_tokens: number; savings_percent: number; \}` | Yes | savings |
 
 ## VerificationResult
 
@@ -4248,7 +4248,7 @@ Single migration log entry
 | `operation` | `string` | Yes | Specific operation within phase |
 | `message` | `string` | Yes | Human-readable message |
 | `durationMs` | `number` | Yes | Duration since migration start in milliseconds |
-| `data` | `Record<string, unknown> \| undefined` | No | Additional structured data |
+| `data` | `Record&lt;string, unknown&gt; \| undefined` | No | Additional structured data |
 
 ## MigrationLoggerConfig
 
@@ -4270,7 +4270,7 @@ Pre-flight check result.
 | `currentEngine` | `"sqlite" \| "none"` | Yes | Current detected storage engine. Always 'sqlite' or 'none'. |
 | `summary` | `string` | Yes | Human-readable summary of what was detected. |
 | `fix` | `string \| null` | Yes | Actionable fix command. |
-| `details` | `{ todoJsonExists: boolean; todoJsonTaskCount: number; archiveJsonExists: boolean; archiveJsonTaskCount: number; sessionsJsonExists: boolean; sessionsJsonCount: number; tasksDbExists: boolean; tasksDbSize: number; configEngine: string \| null; }` | Yes | Detailed diagnostics. |
+| `details` | `\{ todoJsonExists: boolean; todoJsonTaskCount: number; archiveJsonExists: boolean; archiveJsonTaskCount: number; sessionsJsonExists: boolean; sessionsJsonCount: number; tasksDbExists: boolean; tasksDbSize: number; configEngine: string \| null; \}` | Yes | Detailed diagnostics. |
 
 ## MigrationPhase
 
@@ -4314,7 +4314,7 @@ Complete migration state structure
 | `version` | `"1.0.0"` | Yes | version |
 | `startedAt` | `string` | Yes | startedAt |
 | `phase` | `MigrationPhase` | Yes | phase |
-| `sourceFiles` | `{ todoJson?: SourceFileInfo \| undefined; sessionsJson?: SourceFileInfo \| undefined; archiveJson?: SourceFileInfo \| undefined; }` | No | sourceFiles |
+| `sourceFiles` | `\{ todoJson?: SourceFileInfo \| undefined; sessionsJson?: SourceFileInfo \| undefined; archiveJson?: SourceFileInfo \| undefined; \}` | No | sourceFiles |
 | `backupPath` | `string \| undefined` | No | backupPath |
 | `tempPath` | `string \| undefined` | No | tempPath |
 | `progress` | `MigrationProgress` | Yes | progress |
@@ -4454,7 +4454,7 @@ Critical path result.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `criticalPath` | `{ query: string; title: string; }[]` | Yes | criticalPath |
+| `criticalPath` | `\{ query: string; title: string; \}[]` | Yes | criticalPath |
 | `length` | `number` | Yes | length |
 | `blockedBy` | `string` | Yes | blockedBy |
 
@@ -4465,7 +4465,7 @@ Blocking analysis result.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `task` | `string` | Yes | task |
-| `blocking` | `{ query: string; project: string; }[]` | Yes | blocking |
+| `blocking` | `\{ query: string; project: string; \}[]` | Yes | blocking |
 | `impactScore` | `number` | Yes | impactScore |
 
 ## OrphanEntry
@@ -4502,7 +4502,7 @@ A parsed pino log entry from a CLEO log file. Core fields are always present; ad
 | `subsystem` | `string \| undefined` | No | Logical subsystem name (from child logger) |
 | `code` | `string \| undefined` | No | CLEO error code (on warn/error entries) |
 | `exitCode` | `number \| undefined` | No | Numeric exit code (on warn/error entries) |
-| `extra` | `Record<string, unknown>` | Yes | Any additional fields not in the core schema |
+| `extra` | `Record&lt;string, unknown&gt;` | Yes | Any additional fields not in the core schema |
 
 ## LogFileInfo
 
@@ -4563,9 +4563,9 @@ Summary of log activity across files.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `totalEntries` | `number` | Yes | totalEntries |
-| `byLevel` | `Record<string, number>` | Yes | byLevel |
-| `bySubsystem` | `Record<string, number>` | Yes | bySubsystem |
-| `dateRange` | `{ earliest: string; latest: string; } \| null` | Yes | dateRange |
+| `byLevel` | `Record&lt;string, number&gt;` | Yes | byLevel |
+| `bySubsystem` | `Record&lt;string, number&gt;` | Yes | bySubsystem |
+| `dateRange` | `\{ earliest: string; latest: string; \} \| null` | Yes | dateRange |
 | `files` | `LogFileInfo[]` | Yes | files |
 
 ## RemoteConfig
@@ -4655,7 +4655,7 @@ Capability report returned by system.doctor
 | `native` | `number` | Yes | native |
 | `cli` | `number` | Yes | cli |
 | `hybrid` | `number` | Yes | hybrid |
-| `domains` | `Record<string, { native: string[]; cli: string[]; hybrid: string[]; }>` | Yes | domains |
+| `domains` | `Record&lt;string, \{ native: string[]; cli: string[]; hybrid: string[]; \}>` | Yes | domains |
 
 ## RateLimitConfig
 
@@ -4809,8 +4809,8 @@ Standard API response envelope.
 |----------|------|----------|-------------|
 | `success` | `boolean` | Yes | success |
 | `data` | `T \| undefined` | No | data |
-| `error` | `{ code: string; message: string; } \| undefined` | No | error |
-| `meta` | `{ page?: number \| undefined; pageSize?: number \| undefined; total?: number \| undefined; } \| undefined` | No | meta |
+| `error` | `\{ code: string; message: string; \} \| undefined` | No | error |
+| `meta` | `\{ page?: number \| undefined; pageSize?: number \| undefined; total?: number \| undefined; \} \| undefined` | No | meta |
 
 ## AgentRegistration
 
@@ -4840,13 +4840,13 @@ Provider-neutral interface for inter-agent communication.  Implementations: - Si
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | Transport name for logging and diagnostics. |
-| `register` | `(name: string, agentClass: AgentClass, privacyTier: PrivacyTier) => Promise<AgentRegistration>` | Yes | Register an agent with the transport layer. |
-| `deregister` | `(agentId: string) => Promise<void>` | Yes | Deregister an agent from the transport layer. |
-| `send` | `(fromAgentId: string, toAgentId: string, content: string, conversationId?: string \| undefined) => Promise<MessageResult>` | No | Send a message to another agent. |
-| `poll` | `(agentId: string, since?: string \| undefined) => Promise<Message[]>` | No | Poll for new messages addressed to this agent. |
-| `heartbeat` | `(agentId: string) => Promise<void>` | Yes | Send a heartbeat to keep the agent connection alive. |
-| `createConversation` | `(participants: string[], visibility?: ConversationVisibility \| undefined) => Promise<Conversation>` | No | Create a conversation between agents. |
-| `getAgent` | `(agentId: string) => Promise<Agent \| null>` | Yes | Get agent info by ID. |
+| `register` | `(name: string, agentClass: AgentClass, privacyTier: PrivacyTier) => Promise&lt;AgentRegistration&gt;` | Yes | Register an agent with the transport layer. |
+| `deregister` | `(agentId: string) => Promise&lt;void&gt;` | Yes | Deregister an agent from the transport layer. |
+| `send` | `(fromAgentId: string, toAgentId: string, content: string, conversationId?: string \| undefined) => Promise&lt;MessageResult&gt;` | No | Send a message to another agent. |
+| `poll` | `(agentId: string, since?: string \| undefined) => Promise&lt;Message[]>` | No | Poll for new messages addressed to this agent. |
+| `heartbeat` | `(agentId: string) => Promise&lt;void&gt;` | Yes | Send a heartbeat to keep the agent connection alive. |
+| `createConversation` | `(participants: string[], visibility?: ConversationVisibility \| undefined) => Promise&lt;Conversation&gt;` | No | Create a conversation between agents. |
+| `getAgent` | `(agentId: string) => Promise&lt;Agent \| null&gt;` | Yes | Get agent info by ID. |
 
 ## SignalDockTransportConfig
 
@@ -4923,7 +4923,7 @@ Skill manifest (cached aggregate of all discovered skills).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ generatedAt: string; ttlSeconds: number; skillCount: number; searchPaths: string[]; }` | Yes | _meta |
+| `_meta` | `\{ generatedAt: string; ttlSeconds: number; skillCount: number; searchPaths: string[]; \}` | Yes | _meta |
 | `skills` | `SkillSummary[]` | Yes | skills |
 
 ## SkillProtocolType
@@ -4963,7 +4963,7 @@ Agent registry (persisted).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ version: string; lastUpdated: string; }` | Yes | _meta |
+| `_meta` | `\{ version: string; lastUpdated: string; \}` | Yes | _meta |
 | `agents` | `AgentRegistryEntry[]` | Yes | agents |
 
 ## SkillSearchScope
@@ -5058,10 +5058,10 @@ Pre-spawn check result.
 | `canSpawn` | `boolean` | Yes | canSpawn |
 | `spawnStatus` | `"warning" \| "ok" \| "blocked" \| "stale"` | Yes | spawnStatus |
 | `recommendation` | `"continue" \| "wrap_up" \| "stop" \| "verify_compliance"` | Yes | recommendation |
-| `context` | `{ percentage: number; currentTokens: number; maxTokens: number; warningThreshold: number; criticalThreshold: number; status: string; stale: boolean; }` | Yes | context |
-| `reasons` | `{ code: string; message: string; }[]` | Yes | reasons |
-| `taskValidation` | `{ exists: boolean; taskId: string; status?: string \| undefined; title?: string \| undefined; spawnable: boolean; } \| null \| undefined` | No | taskValidation |
-| `complianceValidation` | `Record<string, unknown> \| null \| undefined` | No | complianceValidation |
+| `context` | `\{ percentage: number; currentTokens: number; maxTokens: number; warningThreshold: number; criticalThreshold: number; status: string; stale: boolean; \}` | Yes | context |
+| `reasons` | `\{ code: string; message: string; \}[]` | Yes | reasons |
+| `taskValidation` | `\{ exists: boolean; taskId: string; status?: string \| undefined; title?: string \| undefined; spawnable: boolean; \} \| null \| undefined` | No | taskValidation |
+| `complianceValidation` | `Record&lt;string, unknown&gt; \| null \| undefined` | No | complianceValidation |
 
 ## SpawnPromptResult
 
@@ -5084,7 +5084,7 @@ Dependency wave for parallel execution.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `wave` | `number` | Yes | wave |
-| `tasks` | `{ id: string; title: string; priority?: string \| undefined; status: string; depends: string[]; }[]` | No | tasks |
+| `tasks` | `\{ id: string; title: string; priority?: string \| undefined; status: string; depends: string[]; \}[]` | No | tasks |
 
 ## DependencyAnalysis
 
@@ -5098,8 +5098,8 @@ Dependency analysis result.
 | `pendingTasks` | `number` | Yes | pendingTasks |
 | `activeTasks` | `number` | Yes | activeTasks |
 | `waves` | `DependencyWave[]` | Yes | waves |
-| `readyToSpawn` | `{ id: string; title: string; priority?: string \| undefined; wave: number; }[]` | No | readyToSpawn |
-| `blockedTasks` | `{ id: string; title: string; depends: string[]; wave: number; }[]` | Yes | blockedTasks |
+| `readyToSpawn` | `\{ id: string; title: string; priority?: string \| undefined; wave: number; \}[]` | No | readyToSpawn |
+| `blockedTasks` | `\{ id: string; title: string; depends: string[]; wave: number; \}[]` | Yes | blockedTasks |
 
 ## HitlSummary
 
@@ -5109,12 +5109,12 @@ HITL summary for session handoff.
 |----------|------|----------|-------------|
 | `timestamp` | `string` | Yes | timestamp |
 | `stopReason` | `string` | Yes | stopReason |
-| `session` | `{ id: string \| null; epicId: string \| null; focusedTask: string \| null; progressNote: string \| null; }` | Yes | session |
-| `progress` | `{ completed: number; pending: number; active: number; blocked: number; total: number; percentComplete: number; }` | Yes | progress |
-| `completedTasks` | `Pick<TaskRef, "id" \| "title">[]` | Yes | completedTasks |
-| `remainingTasks` | `(TaskRef & { priority?: string \| undefined; })[]` | No | remainingTasks |
+| `session` | `\{ id: string \| null; epicId: string \| null; focusedTask: string \| null; progressNote: string \| null; \}` | Yes | session |
+| `progress` | `\{ completed: number; pending: number; active: number; blocked: number; total: number; percentComplete: number; \}` | Yes | progress |
+| `completedTasks` | `Pick&lt;TaskRef, "id" \| "title">[]` | Yes | completedTasks |
+| `remainingTasks` | `(TaskRef & \{ priority?: string \| undefined; \})[]` | No | remainingTasks |
 | `readyToSpawn` | `TaskRefPriority[]` | Yes | readyToSpawn |
-| `handoff` | `{ resumeCommand: string; nextSteps: string[]; }` | Yes | handoff |
+| `handoff` | `\{ resumeCommand: string; nextSteps: string[]; \}` | Yes | handoff |
 
 ## ManifestEntry
 
@@ -5133,7 +5133,7 @@ Research manifest entry (MANIFEST.jsonl).
 | `actionable` | `boolean` | Yes | actionable |
 | `needs_followup` | `string[]` | Yes | needs_followup |
 | `linked_tasks` | `string[] \| undefined` | No | linked_tasks |
-| `audit` | `Record<string, unknown> \| undefined` | No | audit |
+| `audit` | `Record&lt;string, unknown&gt; \| undefined` | No | audit |
 
 ## ManifestValidationResult
 
@@ -5143,7 +5143,7 @@ Manifest validation result.
 |----------|------|----------|-------------|
 | `exists` | `boolean` | Yes | exists |
 | `passed` | `boolean` | Yes | passed |
-| `stats` | `{ totalLines: number; validEntries: number; invalidEntries: number; } \| undefined` | No | stats |
+| `stats` | `\{ totalLines: number; validEntries: number; invalidEntries: number; \} \| undefined` | No | stats |
 | `issues` | `string[]` | Yes | issues |
 
 ## ComplianceResult
@@ -5154,7 +5154,7 @@ Compliance verification result.
 |----------|------|----------|-------------|
 | `previousTaskId` | `string` | Yes | previousTaskId |
 | `researchId` | `string \| null` | Yes | researchId |
-| `checks` | `{ manifestEntryExists: boolean; researchLinkedToTask: boolean; returnStatusValid: boolean \| null; }` | Yes | checks |
+| `checks` | `\{ manifestEntryExists: boolean; researchLinkedToTask: boolean; returnStatusValid: boolean \| null; \}` | Yes | checks |
 | `canSpawnNext` | `boolean` | Yes | canSpawnNext |
 | `violations` | `string[]` | Yes | violations |
 | `warnings` | `string[]` | Yes | warnings |
@@ -5177,8 +5177,8 @@ Installed skills file.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ version: string; lastUpdated: string; }` | Yes | _meta |
-| `skills` | `Record<string, InstalledSkill>` | Yes | skills |
+| `_meta` | `\{ version: string; lastUpdated: string; \}` | Yes | _meta |
+| `skills` | `Record&lt;string, InstalledSkill&gt;` | Yes | skills |
 
 ## TokenValues
 
@@ -5196,7 +5196,7 @@ Result of multi-skill composition.
 |----------|------|----------|-------------|
 | `skillCount` | `number` | Yes | skillCount |
 | `primarySkill` | `string` | Yes | primarySkill |
-| `skills` | `{ skill: string; mode: "full" \| "progressive"; estimatedTokens: number; }[]` | Yes | skills |
+| `skills` | `\{ skill: string; mode: "full" \| "progressive"; estimatedTokens: number; \}[]` | Yes | skills |
 | `totalEstimatedTokens` | `number` | Yes | totalEstimatedTokens |
 | `prompt` | `string` | Yes | prompt |
 
@@ -5233,7 +5233,7 @@ Consensus result from weighted voting.
 |----------|------|----------|-------------|
 | `decision` | `string` | Yes | decision |
 | `confidence` | `number` | Yes | confidence |
-| `votes` | `{ agentId: string; weight: number; vote: string; }[]` | Yes | votes |
+| `votes` | `\{ agentId: string; weight: number; vote: string; \}[]` | Yes | votes |
 | `conflicts` | `ContributionConflict[]` | Yes | conflicts |
 
 ## SkillsMpConfig
@@ -5267,7 +5267,7 @@ Result of a single spawn within a batch.
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | taskId |
 | `success` | `boolean` | Yes | success |
-| `result` | `(SpawnPromptResult & { spawnTimestamp: string; }) \| undefined` | No | result |
+| `result` | `(SpawnPromptResult & \{ spawnTimestamp: string; \}) \| undefined` | No | result |
 | `error` | `string \| undefined` | No | error |
 
 ## BatchSpawnResult
@@ -5375,7 +5375,7 @@ Snapshot metadata.
 | `format` | `"cleo-snapshot"` | Yes | format |
 | `version` | `string` | Yes | version |
 | `createdAt` | `string` | Yes | createdAt |
-| `source` | `{ project: string; cleoVersion: string; }` | Yes | source |
+| `source` | `\{ project: string; cleoVersion: string; \}` | Yes | source |
 | `checksum` | `string` | Yes | checksum |
 | `taskCount` | `number` | Yes | taskCount |
 
@@ -5408,7 +5408,7 @@ Complete snapshot package.
 |----------|------|----------|-------------|
 | `$schema` | `string` | Yes | $schema |
 | `_meta` | `SnapshotMeta` | Yes | _meta |
-| `project` | `{ name: string; currentPhase?: string \| null \| undefined; }` | No | project |
+| `project` | `\{ name: string; currentPhase?: string \| null \| undefined; \}` | No | project |
 | `tasks` | `SnapshotTask[]` | Yes | tasks |
 
 ## ImportResult
@@ -5467,12 +5467,12 @@ Summary report result.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `totalArchived` | `number` | Yes | totalArchived |
-| `byStatus` | `Record<string, number>` | Yes | byStatus |
-| `byPriority` | `Record<string, number>` | Yes | byPriority |
+| `byStatus` | `Record&lt;string, number&gt;` | Yes | byStatus |
+| `byPriority` | `Record&lt;string, number&gt;` | Yes | byPriority |
 | `averageCycleTime` | `number \| null` | Yes | averageCycleTime |
 | `oldestArchived` | `string \| null` | Yes | oldestArchived |
 | `newestArchived` | `string \| null` | Yes | newestArchived |
-| `archiveSourceBreakdown` | `Record<string, number>` | Yes | archiveSourceBreakdown |
+| `archiveSourceBreakdown` | `Record&lt;string, number&gt;` | Yes | archiveSourceBreakdown |
 
 ## PhaseGroupEntry
 
@@ -5592,7 +5592,7 @@ The envelope returned by analyzeArchive.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `report` | `R` | Yes | report |
-| `filters` | `{ since: string \| null; until: string \| null; } \| null` | Yes | filters |
+| `filters` | `\{ since: string \| null; until: string \| null; \} \| null` | Yes | filters |
 | `data` | `ArchiveReportDataMap[R] \| EmptyArchiveData` | Yes | data |
 
 ## AnalyzeArchiveOptions
@@ -5611,9 +5611,9 @@ Options for analyzeArchive.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `totalArchived` | `number` | Yes | totalArchived |
-| `byReason` | `Record<string, number>` | Yes | byReason |
+| `byReason` | `Record&lt;string, number&gt;` | Yes | byReason |
 | `averageCycleTimeDays` | `number \| null` | Yes | averageCycleTimeDays |
-| `archiveRate` | `{ periodDays: number; archivedInPeriod: number; }` | Yes | archiveRate |
+| `archiveRate` | `\{ periodDays: number; archivedInPeriod: number; \}` | Yes | archiveRate |
 | `lastArchived` | `string \| null` | Yes | lastArchived |
 
 ## AuditIssue
@@ -5631,7 +5631,7 @@ Options for analyzeArchive.
 |----------|------|----------|-------------|
 | `scope` | `string` | Yes | scope |
 | `issues` | `AuditIssue[]` | Yes | issues |
-| `summary` | `{ errors: number; warnings: number; fixed: number; }` | Yes | summary |
+| `summary` | `\{ errors: number; warnings: number; fixed: number; \}` | Yes | summary |
 
 ## BackupResult
 
@@ -5702,7 +5702,7 @@ any
 | `category` | `string` | Yes | category |
 | `status` | `CheckStatus` | Yes | status |
 | `message` | `string` | Yes | message |
-| `details` | `Record<string, unknown>` | Yes | details |
+| `details` | `Record&lt;string, unknown&gt;` | Yes | details |
 | `fix` | `string \| null` | Yes | fix |
 
 ## HealthCheck
@@ -5737,7 +5737,7 @@ any
 |----------|------|----------|-------------|
 | `timestamp` | `string` | Yes | timestamp |
 | `checks` | `DiagnosticsCheck[]` | Yes | checks |
-| `summary` | `{ total: number; passed: number; warned: number; failed: number; }` | Yes | summary |
+| `summary` | `\{ total: number; passed: number; warned: number; failed: number; \}` | Yes | summary |
 
 ## DoctorCheck
 
@@ -5746,7 +5746,7 @@ any
 | `check` | `string` | Yes | check |
 | `status` | `"error" \| "warning" \| "ok"` | Yes | status |
 | `message` | `string` | Yes | message |
-| `details` | `Record<string, unknown> \| undefined` | No | details |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | details |
 | `fix` | `string \| undefined` | No | fix |
 
 ## DoctorReport
@@ -5806,7 +5806,7 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `labels` | `{ label: string; count: number; tasks: string[]; }[]` | Yes | labels |
+| `labels` | `\{ label: string; count: number; tasks: string[]; \}[]` | Yes | labels |
 | `totalLabels` | `number` | Yes | totalLabels |
 | `totalTagged` | `number` | Yes | totalTagged |
 | `totalUntagged` | `number` | Yes | totalUntagged |
@@ -5815,9 +5815,9 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `tokens` | `{ input: number; output: number; cache: number; total: number; }` | Yes | tokens |
-| `compliance` | `{ total: number; passed: number; failed: number; score: number; }` | Yes | compliance |
-| `sessions` | `{ total: number; active: number; completed: number; }` | Yes | sessions |
+| `tokens` | `\{ input: number; output: number; cache: number; total: number; \}` | Yes | tokens |
+| `compliance` | `\{ total: number; passed: number; failed: number; score: number; \}` | Yes | compliance |
+| `sessions` | `\{ total: number; active: number; completed: number; \}` | Yes | sessions |
 
 ## MigrateResult
 
@@ -5825,7 +5825,7 @@ any
 |----------|------|----------|-------------|
 | `from` | `string` | Yes | from |
 | `to` | `string` | Yes | to |
-| `migrations` | `{ name: string; applied: boolean; }[]` | Yes | migrations |
+| `migrations` | `\{ name: string; applied: boolean; \}[]` | Yes | migrations |
 | `dryRun` | `boolean` | Yes | dryRun |
 
 ## RuntimeDiagnostics
@@ -5838,13 +5838,13 @@ any
 | `version` | `string` | Yes | version |
 | `installed` | `string` | Yes | installed |
 | `dataRoot` | `string` | Yes | dataRoot |
-| `invocation` | `{ executable: string; script: string; args: string[]; }` | Yes | invocation |
-| `naming` | `{ cli: string; mcp: string; server: string; }` | Yes | naming |
+| `invocation` | `\{ executable: string; script: string; args: string[]; \}` | Yes | invocation |
+| `naming` | `\{ cli: string; mcp: string; server: string; \}` | Yes | naming |
 | `node` | `string` | Yes | node |
 | `platform` | `string` | Yes | platform |
 | `arch` | `string` | Yes | arch |
-| `binaries` | `Record<string, string> \| undefined` | No | binaries |
-| `package` | `{ name: string; version: string; } \| undefined` | No | package |
+| `binaries` | `Record&lt;string, string&gt; \| undefined` | No | binaries |
+| `package` | `\{ name: string; version: string; \} \| undefined` | No | package |
 | `warnings` | `string[]` | Yes | warnings |
 
 ## SafestopResult
@@ -5973,7 +5973,7 @@ Result type for template parser operations.
 |----------|------|----------|-------------|
 | `success` | `boolean` | Yes | success |
 | `data` | `T \| undefined` | No | data |
-| `error` | `{ code: string; message: string; details?: Record<string, unknown> \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; details?: Record&lt;string, unknown&gt; \| undefined; \} \| undefined` | No | error |
 
 ## ShellType
 
@@ -5990,7 +5990,7 @@ Grouped changelog sections.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `title` | `string` | Yes | title |
-| `entries` | `{ taskId: string; description: string; }[]` | Yes | entries |
+| `entries` | `\{ taskId: string; description: string; \}[]` | Yes | entries |
 
 ## CommandMeta
 
@@ -6047,9 +6047,9 @@ any
 | `source` | `string` | Yes | source |
 | `sourceId` | `string` | Yes | sourceId |
 | `period` | `string` | Yes | period |
-| `compliance` | `{ compliancePassRate: number; ruleAdherenceScore: number; violationCount: number; violationSeverity: Severity; manifestIntegrity: ManifestIntegrity; }` | Yes | compliance |
+| `compliance` | `\{ compliancePassRate: number; ruleAdherenceScore: number; violationCount: number; violationSeverity: Severity; manifestIntegrity: ManifestIntegrity; \}` | Yes | compliance |
 | `tags` | `string[]` | Yes | tags |
-| `context` | `{ taskId: string; researchLinked: boolean; returnFormatValid: boolean; }` | Yes | context |
+| `context` | `\{ taskId: string; researchLinked: boolean; returnFormatValid: boolean; \}` | Yes | context |
 
 ## ManifestEntry
 
@@ -6165,7 +6165,7 @@ any
 |----------|------|----------|-------------|
 | `version` | `string` | Yes | version |
 | `lastUpdated` | `string` | Yes | lastUpdated |
-| `projects` | `Record<string, ProjectCacheEntry>` | Yes | projects |
+| `projects` | `Record&lt;string, ProjectCacheEntry&gt;` | Yes | projects |
 
 ## ProjectDetail
 
@@ -6243,7 +6243,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `tasks` | `Task[]` | Yes | tasks |
-| `project` | `{ currentPhase?: string \| undefined; phases?: Record<string, { status?: string \| undefined; startedAt?: string \| undefined; completedAt?: string \| undefined; }> \| undefined; } \| undefined` | No | project |
+| `project` | `\{ currentPhase?: string \| undefined; phases?: Record&lt;string, \{ status?: string \| undefined; startedAt?: string \| undefined; completedAt?: string \| undefined; \}> \| undefined; \} \| undefined` | No | project |
 
 ## ArchiveFile
 
@@ -6258,7 +6258,7 @@ any
 | `schemaErrors` | `number` | Yes | schemaErrors |
 | `semanticErrors` | `number` | Yes | semanticErrors |
 | `exitCode` | `number` | Yes | exitCode |
-| `checks` | `{ name: string; passed: boolean; message: string; }[]` | Yes | checks |
+| `checks` | `\{ name: string; passed: boolean; message: string; \}[]` | Yes | checks |
 
 ## ManifestDoc
 
@@ -6343,9 +6343,9 @@ any
 | `timestamp` | `string` | Yes | timestamp |
 | `source_id` | `string` | Yes | source_id |
 | `source_type` | `string` | Yes | source_type |
-| `compliance` | `{ compliance_pass_rate: number; rule_adherence_score: number; violation_count: number; violation_severity: "error" \| "warning" \| "none"; manifest_integrity: "valid" \| "violations_found"; }` | Yes | compliance |
-| `efficiency` | `{ input_tokens: number; output_tokens: number; context_utilization: number; token_utilization_rate: number; }` | Yes | efficiency |
-| `_context` | `{ agent_type: string; validation_score: number; violations: ManifestViolation[]; }` | Yes | _context |
+| `compliance` | `\{ compliance_pass_rate: number; rule_adherence_score: number; violation_count: number; violation_severity: "error" \| "warning" \| "none"; manifest_integrity: "valid" \| "violations_found"; \}` | Yes | compliance |
+| `efficiency` | `\{ input_tokens: number; output_tokens: number; context_utilization: number; token_utilization_rate: number; \}` | Yes | efficiency |
+| `_context` | `\{ agent_type: string; validation_score: number; violations: ManifestViolation[]; \}` | Yes | _context |
 
 ## ProtocolViolation
 
@@ -6470,7 +6470,7 @@ Protocol rule definition
 | `level` | `RequirementLevel` | Yes | RFC 2119 level |
 | `message` | `string` | Yes | Rule description |
 | `fix` | `string` | Yes | Suggested fix command |
-| `validate` | `(manifestEntry: Record<string, unknown>, additionalData?: Record<string, unknown> \| undefined) => boolean \| Promise<boolean>` | No | Validation function |
+| `validate` | `(manifestEntry: Record&lt;string, unknown&gt;, additionalData?: Record&lt;string, unknown&gt; \| undefined) => boolean \| Promise&lt;boolean&gt;` | No | Validation function |
 
 ## ProtocolViolation
 
@@ -6572,7 +6572,7 @@ Request shape used by the protocol enforcement system. Minimal interface matchin
 | `gateway` | `"query" \| "mutate"` | Yes | gateway |
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## ProtocolResponse
 
@@ -6580,11 +6580,11 @@ Response shape used by the protocol enforcement system.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `_meta` | `\{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; \}` | Yes | _meta |
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `partial` | `boolean \| undefined` | No | partial |
-| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; exitCode?: number \| undefined; message: string; details?: Record&lt;string, unknown&gt; \| undefined; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; \} \| undefined` | No | error |
 
 ## ProtocolType
 
@@ -6680,7 +6680,7 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `options` | `{ name: string; confidence: number; rationale?: string \| undefined; }[]` | No | options |
+| `options` | `\{ name: string; confidence: number; rationale?: string \| undefined; \}[]` | No | options |
 | `threshold` | `number \| undefined` | No | threshold |
 
 ## ClaudeMemMigrationResult
@@ -6783,7 +6783,7 @@ any
 | `taskId` | `string \| undefined` | No | taskId |
 | `requestId` | `string \| undefined` | No | requestId |
 | `cwd` | `string \| undefined` | No | cwd |
-| `metadata` | `Record<string, unknown> \| undefined` | No | metadata |
+| `metadata` | `Record&lt;string, unknown&gt; \| undefined` | No | metadata |
 
 ## TokenMeasurement
 
@@ -6800,7 +6800,7 @@ any
 | `model` | `string \| undefined` | No | model |
 | `requestHash` | `string \| undefined` | No | requestHash |
 | `responseHash` | `string \| undefined` | No | responseHash |
-| `metadata` | `Record<string, unknown>` | Yes | metadata |
+| `metadata` | `Record&lt;string, unknown&gt;` | Yes | metadata |
 
 ## TokenUsageFilters
 
@@ -6829,9 +6829,9 @@ any
 | `inputTokens` | `number` | Yes | inputTokens |
 | `outputTokens` | `number` | Yes | outputTokens |
 | `totalTokens` | `number` | Yes | totalTokens |
-| `byMethod` | `{ method: string; count: number; totalTokens: number; }[]` | Yes | byMethod |
-| `byTransport` | `{ transport: string; count: number; totalTokens: number; }[]` | Yes | byTransport |
-| `byOperation` | `{ key: string; count: number; totalTokens: number; }[]` | Yes | byOperation |
+| `byMethod` | `\{ method: string; count: number; totalTokens: number; \}[]` | Yes | byMethod |
+| `byTransport` | `\{ transport: string; count: number; totalTokens: number; \}[]` | Yes | byTransport |
+| `byOperation` | `\{ key: string; count: number; totalTokens: number; \}[]` | Yes | byOperation |
 
 ## SkillEntry
 
@@ -6850,7 +6850,7 @@ any
 | `content` | `string` | Yes | content |
 | `contentLength` | `number` | Yes | contentLength |
 | `estimatedTokens` | `number` | Yes | estimatedTokens |
-| `references` | `{ name: string; path: string; }[]` | Yes | references |
+| `references` | `\{ name: string; path: string; \}[]` | Yes | references |
 | `path` | `string` | Yes | path |
 
 ## HighImpactTask
@@ -6868,7 +6868,7 @@ any
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | taskId |
 | `title` | `string` | Yes | title |
-| `remainingBlocker` | `Pick<TaskRef, "id" \| "title">` | Yes | remainingBlocker |
+| `remainingBlocker` | `Pick&lt;TaskRef, "id" \| "title">` | Yes | remainingBlocker |
 
 ## CommonBlocker
 
@@ -7133,7 +7133,7 @@ Result of a cancel operation.
 | `taskId` | `string` | Yes | taskId |
 | `reason` | `string \| undefined` | No | reason |
 | `cancelledAt` | `string \| undefined` | No | cancelledAt |
-| `error` | `{ code: string; message: string; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; \} \| undefined` | No | error |
 
 ## FlatTreeNode
 
@@ -7199,48 +7199,48 @@ Store provider interface. Backed by SQLite (ADR-006 canonical storage).
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `engine` | `"sqlite"` | Yes | engine |
-| `createTask` | `(task: Task) => Promise<Task>` | Yes | createTask |
-| `getTask` | `(taskId: string) => Promise<Task \| null>` | Yes | getTask |
-| `updateTask` | `(taskId: string, updates: Partial<Task>) => Promise<Task \| null>` | Yes | updateTask |
-| `deleteTask` | `(taskId: string) => Promise<boolean>` | Yes | deleteTask |
-| `listTasks` | `(filters?: TaskFilters \| undefined) => Promise<Task[]>` | No | listTasks |
-| `findTasks` | `(query: string, limit?: number \| undefined) => Promise<Task[]>` | No | findTasks |
-| `archiveTask` | `(taskId: string, reason?: string \| undefined) => Promise<boolean>` | No | archiveTask |
-| `createSession` | `(session: Session) => Promise<Session>` | Yes | createSession |
-| `getSession` | `(sessionId: string) => Promise<Session \| null>` | Yes | getSession |
-| `updateSession` | `(sessionId: string, updates: Partial<Session>) => Promise<Session \| null>` | Yes | updateSession |
-| `listSessions` | `(filters?: SessionFilters \| undefined) => Promise<Session[]>` | No | listSessions |
-| `endSession` | `(sessionId: string, note?: string \| undefined) => Promise<Session \| null>` | No | endSession |
-| `startTaskOnSession` | `(sessionId: string, taskId: string) => Promise<void>` | Yes | startTaskOnSession |
-| `getCurrentTaskForSession` | `(sessionId: string) => Promise<{ taskId: string \| null; since: string \| null; }>` | Yes | getCurrentTaskForSession |
-| `stopTaskOnSession` | `(sessionId: string) => Promise<void>` | Yes | stopTaskOnSession |
-| `close` | `() => Promise<void>` | Yes | close |
-| `addTask` | `(options: AddTaskOptions) => Promise<AddTaskResult>` | Yes | Add a task with full validation, ID generation, and logging. |
-| `completeTask` | `(options: CompleteTaskOptions) => Promise<CompleteTaskResult>` | Yes | Complete a task with dependency checks and optional auto-completion. |
-| `richUpdateTask` | `(options: UpdateTaskOptions) => Promise<UpdateTaskResult>` | Yes | Update a task with rich options (addLabels, removeDepends, etc.). |
-| `showTask` | `(taskId: string) => Promise<Task>` | Yes | Show a task by ID (throws CleoError if not found). |
-| `richDeleteTask` | `(options: DeleteTaskOptions) => Promise<DeleteTaskResult>` | Yes | Delete a task with force/cascade options. |
-| `richFindTasks` | `(options: FindTasksOptions) => Promise<FindTasksResult>` | Yes | Find tasks with fuzzy/ID/exact search and filtering. |
-| `richListTasks` | `(options: ListTasksOptions) => Promise<ListTasksResult>` | Yes | List tasks with full filtering and pagination. |
-| `richArchiveTasks` | `(options: ArchiveTasksOptions) => Promise<ArchiveTasksResult>` | Yes | Archive tasks in batch with filtering options. |
-| `startSession` | `(options: { name: string; scope: string; autoStart?: boolean \| undefined; startTask?: string \| undefined; agent?: string \| undefined; }) => Promise<Session>` | No | Start a new session with scope, auto-start, etc. |
-| `richEndSession` | `(options?: { sessionId?: string \| undefined; note?: string \| undefined; } \| undefined) => Promise<Session>` | No | End a session, optionally by ID with a note. |
-| `sessionStatus` | `() => Promise<Session \| null>` | Yes | Get the current active session status. |
-| `resumeSession` | `(sessionId: string) => Promise<Session>` | Yes | Resume a previously ended session. |
-| `richListSessions` | `(options?: { status?: string \| undefined; limit?: number \| undefined; } \| undefined) => Promise<Session[]>` | No | List sessions with status/limit filters. |
-| `gcSessions` | `(maxAgeHours?: number \| undefined) => Promise<{ orphaned: string[]; removed: string[]; }>` | No | Garbage collect old sessions. |
-| `currentTask` | `() => Promise<TaskCurrentResult>` | Yes | Show current task work state. |
-| `startTask` | `(taskId: string) => Promise<TaskStartResult>` | Yes | Start working on a task by ID. |
-| `stopTask` | `() => Promise<{ previousTask: string \| null; }>` | Yes | Stop working on the current task. |
-| `getWorkHistory` | `() => Promise<TaskWorkHistoryEntry[]>` | Yes | Get task work history. |
-| `listLabels` | `() => Promise<{ label: string; count: number; statuses: Record<string, number>; }[]>` | Yes | List all labels with task counts. |
-| `showLabelTasks` | `(label: string) => Promise<Record<string, unknown>>` | Yes | Show tasks with a specific label. |
-| `getLabelStats` | `() => Promise<Record<string, unknown>>` | Yes | Get detailed label statistics. |
-| `suggestRelated` | `(taskId: string, opts?: { threshold?: number \| undefined; } \| undefined) => Promise<Record<string, unknown>>` | No | Suggest related tasks based on shared attributes. |
-| `addRelation` | `(from: string, to: string, type: string, reason: string) => Promise<Record<string, unknown>>` | Yes | Add a relationship between two tasks. |
-| `discoverRelated` | `(taskId: string) => Promise<Record<string, unknown>>` | Yes | Discover related tasks using various methods. |
-| `listRelations` | `(taskId: string) => Promise<Record<string, unknown>>` | Yes | List existing relations for a task. |
-| `analyzeTaskPriority` | `(opts?: { autoStart?: boolean \| undefined; } \| undefined) => Promise<AnalysisResult>` | No | Analyze task priority with leverage scoring. |
+| `createTask` | `(task: Task) => Promise&lt;Task&gt;` | Yes | createTask |
+| `getTask` | `(taskId: string) => Promise&lt;Task \| null&gt;` | Yes | getTask |
+| `updateTask` | `(taskId: string, updates: Partial&lt;Task&gt;) => Promise&lt;Task \| null&gt;` | Yes | updateTask |
+| `deleteTask` | `(taskId: string) => Promise&lt;boolean&gt;` | Yes | deleteTask |
+| `listTasks` | `(filters?: TaskFilters \| undefined) => Promise&lt;Task[]>` | No | listTasks |
+| `findTasks` | `(query: string, limit?: number \| undefined) => Promise&lt;Task[]>` | No | findTasks |
+| `archiveTask` | `(taskId: string, reason?: string \| undefined) => Promise&lt;boolean&gt;` | No | archiveTask |
+| `createSession` | `(session: Session) => Promise&lt;Session&gt;` | Yes | createSession |
+| `getSession` | `(sessionId: string) => Promise&lt;Session \| null&gt;` | Yes | getSession |
+| `updateSession` | `(sessionId: string, updates: Partial&lt;Session&gt;) => Promise&lt;Session \| null&gt;` | Yes | updateSession |
+| `listSessions` | `(filters?: SessionFilters \| undefined) => Promise&lt;Session[]>` | No | listSessions |
+| `endSession` | `(sessionId: string, note?: string \| undefined) => Promise&lt;Session \| null&gt;` | No | endSession |
+| `startTaskOnSession` | `(sessionId: string, taskId: string) => Promise&lt;void&gt;` | Yes | startTaskOnSession |
+| `getCurrentTaskForSession` | `(sessionId: string) => Promise<\{ taskId: string \| null; since: string \| null; \}>` | Yes | getCurrentTaskForSession |
+| `stopTaskOnSession` | `(sessionId: string) => Promise&lt;void&gt;` | Yes | stopTaskOnSession |
+| `close` | `() => Promise&lt;void&gt;` | Yes | close |
+| `addTask` | `(options: AddTaskOptions) => Promise&lt;AddTaskResult&gt;` | Yes | Add a task with full validation, ID generation, and logging. |
+| `completeTask` | `(options: CompleteTaskOptions) => Promise&lt;CompleteTaskResult&gt;` | Yes | Complete a task with dependency checks and optional auto-completion. |
+| `richUpdateTask` | `(options: UpdateTaskOptions) => Promise&lt;UpdateTaskResult&gt;` | Yes | Update a task with rich options (addLabels, removeDepends, etc.). |
+| `showTask` | `(taskId: string) => Promise&lt;Task&gt;` | Yes | Show a task by ID (throws CleoError if not found). |
+| `richDeleteTask` | `(options: DeleteTaskOptions) => Promise&lt;DeleteTaskResult&gt;` | Yes | Delete a task with force/cascade options. |
+| `richFindTasks` | `(options: FindTasksOptions) => Promise&lt;FindTasksResult&gt;` | Yes | Find tasks with fuzzy/ID/exact search and filtering. |
+| `richListTasks` | `(options: ListTasksOptions) => Promise&lt;ListTasksResult&gt;` | Yes | List tasks with full filtering and pagination. |
+| `richArchiveTasks` | `(options: ArchiveTasksOptions) => Promise&lt;ArchiveTasksResult&gt;` | Yes | Archive tasks in batch with filtering options. |
+| `startSession` | `(options: \{ name: string; scope: string; autoStart?: boolean \| undefined; startTask?: string \| undefined; agent?: string \| undefined; \}) => Promise&lt;Session&gt;` | No | Start a new session with scope, auto-start, etc. |
+| `richEndSession` | `(options?: \{ sessionId?: string \| undefined; note?: string \| undefined; \} \| undefined) => Promise&lt;Session&gt;` | No | End a session, optionally by ID with a note. |
+| `sessionStatus` | `() => Promise&lt;Session \| null&gt;` | Yes | Get the current active session status. |
+| `resumeSession` | `(sessionId: string) => Promise&lt;Session&gt;` | Yes | Resume a previously ended session. |
+| `richListSessions` | `(options?: \{ status?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise&lt;Session[]>` | No | List sessions with status/limit filters. |
+| `gcSessions` | `(maxAgeHours?: number \| undefined) => Promise<\{ orphaned: string[]; removed: string[]; \}>` | No | Garbage collect old sessions. |
+| `currentTask` | `() => Promise&lt;TaskCurrentResult&gt;` | Yes | Show current task work state. |
+| `startTask` | `(taskId: string) => Promise&lt;TaskStartResult&gt;` | Yes | Start working on a task by ID. |
+| `stopTask` | `() => Promise<\{ previousTask: string \| null; \}>` | Yes | Stop working on the current task. |
+| `getWorkHistory` | `() => Promise&lt;TaskWorkHistoryEntry[]>` | Yes | Get task work history. |
+| `listLabels` | `() => Promise<\{ label: string; count: number; statuses: Record&lt;string, number&gt;; \}[]>` | Yes | List all labels with task counts. |
+| `showLabelTasks` | `(label: string) => Promise&lt;Record&lt;string, unknown&gt;>` | Yes | Show tasks with a specific label. |
+| `getLabelStats` | `() => Promise&lt;Record&lt;string, unknown&gt;>` | Yes | Get detailed label statistics. |
+| `suggestRelated` | `(taskId: string, opts?: \{ threshold?: number \| undefined; \} \| undefined) => Promise&lt;Record&lt;string, unknown&gt;>` | No | Suggest related tasks based on shared attributes. |
+| `addRelation` | `(from: string, to: string, type: string, reason: string) => Promise&lt;Record&lt;string, unknown&gt;>` | Yes | Add a relationship between two tasks. |
+| `discoverRelated` | `(taskId: string) => Promise&lt;Record&lt;string, unknown&gt;>` | Yes | Discover related tasks using various methods. |
+| `listRelations` | `(taskId: string) => Promise&lt;Record&lt;string, unknown&gt;>` | Yes | List existing relations for a task. |
+| `analyzeTaskPriority` | `(opts?: \{ autoStart?: boolean \| undefined; \} \| undefined) => Promise&lt;AnalysisResult&gt;` | No | Analyze task priority with leverage scoring. |
 
 ## MigrationResult
 
@@ -7254,8 +7254,8 @@ Migration result.
 | `sessionsImported` | `number` | Yes | sessionsImported |
 | `errors` | `string[]` | Yes | errors |
 | `warnings` | `string[]` | Yes | warnings |
-| `existingCounts` | `{ tasks: number; archived: number; sessions: number; } \| undefined` | No | existingCounts |
-| `jsonCounts` | `{ tasks: number; archived: number; sessions: number; } \| undefined` | No | jsonCounts |
+| `existingCounts` | `\{ tasks: number; archived: number; sessions: number; \} \| undefined` | No | existingCounts |
+| `jsonCounts` | `\{ tasks: number; archived: number; sessions: number; \} \| undefined` | No | jsonCounts |
 
 ## MigrationOptions
 
@@ -7299,7 +7299,7 @@ Full upgrade result.
 | `actions` | `UpgradeAction[]` | Yes | actions |
 | `applied` | `number` | Yes | applied |
 | `errors` | `string[]` | Yes | errors |
-| `storageMigration` | `{ migrated: boolean; tasksImported: number; archivedImported: number; sessionsImported: number; warnings: string[]; } \| undefined` | No | Storage migration sub-result (if migration was triggered). |
+| `storageMigration` | `\{ migrated: boolean; tasksImported: number; archivedImported: number; sessionsImported: number; warnings: string[]; \} \| undefined` | No | Storage migration sub-result (if migration was triggered). |
 
 ## GateLayer
 
@@ -7366,7 +7366,7 @@ Complete verification result across all 4 layers
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `passed` | `boolean` | Yes | passed |
-| `layers` | `Record<GateLayer, LayerResult>` | Yes | layers |
+| `layers` | `Record&lt;GateLayer, LayerResult&gt;` | Yes | layers |
 | `totalViolations` | `number` | Yes | totalViolations |
 | `exitCode` | `ProtocolExitCode` | Yes | exitCode |
 | `category` | `ErrorCategory` | Yes | category |
@@ -7382,7 +7382,7 @@ Operation context for gate validation
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
 | `gateway` | `"query" \| "mutate"` | Yes | gateway |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 | `taskId` | `string \| undefined` | No | taskId |
 | `protocolType` | `ProtocolType \| undefined` | No | protocolType |
 
@@ -7455,21 +7455,21 @@ any
 | `type` | `JsonSchemaType` | Yes | type |
 | `description` | `string` | Yes | description |
 | `enum` | `readonly string[] \| undefined` | No | enum |
-| `items` | `{ type: JsonSchemaType; } \| undefined` | No | items |
+| `items` | `\{ type: JsonSchemaType; \} \| undefined` | No | items |
 
 ## JSONSchemaObject
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `type` | `"object"` | Yes | type |
-| `properties` | `Record<string, JsonSchemaProperty>` | Yes | properties |
+| `properties` | `Record&lt;string, JsonSchemaProperty&gt;` | Yes | properties |
 | `required` | `string[]` | Yes | required |
 
 ## CommanderArgSplit
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `positionals` | `ParamDef[]` | Yes | Params that map to `.argument('<name>')` or `.argument('[name]')`. |
+| `positionals` | `ParamDef[]` | Yes | Params that map to `.argument('&lt;name&gt;')` or `.argument('[name]')`. |
 | `options` | `ParamDef[]` | Yes | Params that map to `.option(...)` calls. |
 
 ## ValidationResult
@@ -7490,7 +7490,7 @@ Individual validation error
 | `path` | `string` | Yes | path |
 | `message` | `string` | Yes | message |
 | `keyword` | `string` | Yes | keyword |
-| `params` | `Record<string, unknown>` | Yes | params |
+| `params` | `Record&lt;string, unknown&gt;` | Yes | params |
 
 ## SchemaType
 
@@ -7521,7 +7521,7 @@ Compliance entry stored in COMPLIANCE.jsonl
 | `taskId` | `string` | Yes | taskId |
 | `protocol` | `string` | Yes | protocol |
 | `result` | `"pass" \| "fail" \| "partial"` | Yes | result |
-| `violations` | `{ code: string; message: string; severity: "error" \| "warning"; }[] \| undefined` | No | violations |
+| `violations` | `\{ code: string; message: string; severity: "error" \| "warning"; \}[] \| undefined` | No | violations |
 | `linkedTask` | `string \| undefined` | No | linkedTask |
 | `agent` | `string \| undefined` | No | agent |
 
@@ -7588,7 +7588,7 @@ Result from validate + fix operation.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `defaultPrecedence` | `SkillsPrecedence \| undefined` | No | defaultPrecedence |
-| `providerOverrides` | `Record<string, SkillsPrecedence> \| undefined` | No | providerOverrides |
+| `providerOverrides` | `Record&lt;string, SkillsPrecedence&gt; \| undefined` | No | providerOverrides |
 
 ## ResolvedSkillPath
 
@@ -7683,8 +7683,8 @@ RCASD-INDEX.json top-level structure.
 |----------|------|----------|-------------|
 | `$schema` | `string` | Yes | $schema |
 | `_meta` | `IndexMeta` | Yes | _meta |
-| `authorities` | `Record<string, string>` | Yes | authorities |
-| `taskAnchored` | `Record<string, TaskAnchor>` | Yes | taskAnchored |
+| `authorities` | `Record&lt;string, string&gt;` | Yes | authorities |
+| `taskAnchored` | `Record&lt;string, TaskAnchor&gt;` | Yes | taskAnchored |
 | `specs` | `SpecEntry[]` | Yes | specs |
 | `reports` | `ReportEntry[]` | Yes | reports |
 | `pipeline` | `PipelineState \| undefined` | No | pipeline |
@@ -7766,7 +7766,7 @@ Pipeline state.
 |----------|------|----------|-------------|
 | `activeOperations` | `PipelineOperation[]` | Yes | activeOperations |
 | `queuedTasks` | `string[]` | Yes | queuedTasks |
-| `lastCompleted` | `{ taskId: string; stage: string; completedAt: string; } \| undefined` | No | lastCompleted |
+| `lastCompleted` | `\{ taskId: string; stage: string; completedAt: string; \} \| undefined` | No | lastCompleted |
 
 ## PipelineOperation
 
@@ -7929,7 +7929,7 @@ Stage context within a pipeline.   T4805
 | `skippedAt` | `Date \| undefined` | No | Skip information |
 | `skipReason` | `string \| undefined` | No | skipReason |
 | `notes` | `string[]` | Yes | Stage notes |
-| `metadata` | `Record<string, unknown>` | Yes | Stage metadata |
+| `metadata` | `Record&lt;string, unknown&gt;` | Yes | Stage metadata |
 
 ## GateResultContext
 
@@ -8031,7 +8031,7 @@ Options for session start with resume check.   T4805
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `autoResume` | `boolean \| undefined` | No | Whether to auto-resume if only one candidate |
-| `scope` | `{ type: "global" \| "epic"; epicId?: string \| undefined; } \| undefined` | No | Scope to filter resumable pipelines |
+| `scope` | `\{ type: "global" \| "epic"; epicId?: string \| undefined; \} \| undefined` | No | Scope to filter resumable pipelines |
 | `minPriority` | `"high" \| "medium" \| "low" \| "critical" \| undefined` | No | Minimum priority to consider |
 | `includeBlocked` | `boolean \| undefined` | No | Whether to include blocked pipelines |
 
@@ -8059,7 +8059,7 @@ Prerequisite check result.   T4800
 | `completed` | `("research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release")[]` | Yes | Stages that are completed or skipped |
 | `pending` | `("research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release")[]` | Yes | Stages that are pending or blocked |
 | `failed` | `("research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release")[]` | Yes | Stages that failed |
-| `blockers` | `{ stage: "research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"; reason: string; severity: "error" \| ... 1 more ... \| "info"; }[]` | Yes | Blocking issues preventing progression |
+| `blockers` | `\{ stage: "research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"; reason: string; severity: "error" \| ... 1 more ... \| "info"; \}[]` | Yes | Blocking issues preventing progression |
 | `canForce` | `boolean` | Yes | Whether the check can be overridden with force |
 | `summary` | `string` | Yes | Human-readable summary |
 
@@ -8100,7 +8100,7 @@ State machine context for a pipeline.   T4800
 |----------|------|----------|-------------|
 | `pipelineId` | `string` | Yes | pipelineId |
 | `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | currentStage |
-| `stages` | `Record<"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release", StageState>` | Yes | stages |
+| `stages` | `Record<"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release", StageState&gt;` | Yes | stages |
 | `transitionCount` | `number` | Yes | transitionCount |
 | `version` | `number` | Yes | version |
 
@@ -8137,7 +8137,7 @@ Context window input from Claude Code.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `context_window` | `{ context_window_size?: number \| undefined; current_usage?: { input_tokens?: number \| undefined; output_tokens?: number \| undefined; cache_creation_input_tokens?: number \| undefined; cache_read_input_tokens?: number \| undefined; } \| undefined; }` | No | context_window |
+| `context_window` | `\{ context_window_size?: number \| undefined; current_usage?: \{ input_tokens?: number \| undefined; output_tokens?: number \| undefined; cache_creation_input_tokens?: number \| undefined; cache_read_input_tokens?: number \| undefined; \} \| undefined; \}` | No | context_window |
 
 ## ContextStatus
 
@@ -8178,7 +8178,7 @@ HITL warnings result.
 | `requiresHuman` | `boolean` | Yes | requiresHuman |
 | `warnings` | `HITLWarning[]` | Yes | warnings |
 | `activeLocks` | `LockInfo[]` | Yes | activeLocks |
-| `summary` | `{ total: number; byLevel: { block: number; warn: number; info: number; }; } \| null` | Yes | summary |
+| `summary` | `\{ total: number; byLevel: \{ block: number; warn: number; info: number; \}; \} \| null` | Yes | summary |
 
 ## EnforcementMode
 
@@ -8196,7 +8196,7 @@ Session info for enforcement checks.
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | id |
 | `name` | `string` | Yes | name |
-| `scope` | `{ type: string; epicId?: string \| undefined; }` | No | scope |
+| `scope` | `\{ type: string; epicId?: string \| undefined; \}` | No | scope |
 
 ## EnforcementResult
 
@@ -8303,9 +8303,9 @@ Row shape for pipeline + stage + task JOIN.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `pipeline` | `{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; }` | Yes | pipeline |
-| `stage` | `{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; }` | Yes | stage |
-| `task` | `{ sessionId: string \| null; id: string; description: string \| null; createdAt: string; updatedAt: string \| null; status: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"; ... 24 more ...; modifiedBy: string \| null; }` | Yes | task |
+| `pipeline` | `\{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; \}` | Yes | pipeline |
+| `stage` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stage |
+| `task` | `\{ sessionId: string \| null; id: string; description: string \| null; createdAt: string; updatedAt: string \| null; status: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"; ... 24 more ...; modifiedBy: string \| null; \}` | Yes | task |
 
 ## PipelineStageRow
 
@@ -8313,8 +8313,8 @@ Row shape for pipeline + stage JOIN.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `pipeline` | `{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; }` | Yes | pipeline |
-| `stageRecord` | `{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; }` | Yes | stageRecord |
+| `pipeline` | `\{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; \}` | Yes | pipeline |
+| `stageRecord` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stageRecord |
 
 ## InsertProjectRegistry
 
@@ -8408,8 +8408,8 @@ Affected tasks info.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `primary` | `Pick<Task, "id" \| "status" \| "title" \| "type" \| "parentId" \| "labels"> \| null` | Yes | primary |
-| `children` | `Pick<Task, "id" \| "status" \| "title" \| "type" \| "parentId" \| "labels">[]` | Yes | children |
+| `primary` | `Pick&lt;Task, "id" \| "status" \| "title" \| "type" \| "parentId" \| "labels"> \| null` | Yes | primary |
+| `children` | `Pick&lt;Task, "id" \| "status" \| "title" \| "type" \| "parentId" \| "labels">[]` | Yes | children |
 | `totalCount` | `number` | Yes | totalCount |
 | `error` | `string \| undefined` | No | error |
 
@@ -8440,7 +8440,7 @@ Full preview result.
 | `strategy` | `string \| undefined` | No | strategy |
 | `reason` | `string \| null \| undefined` | No | reason |
 | `timestamp` | `string \| undefined` | No | timestamp |
-| `error` | `{ code: string; message: string; suggestion?: string \| undefined; childCount?: number \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; suggestion?: string \| undefined; childCount?: number \| undefined; \} \| undefined` | No | error |
 
 ## ChildStrategy
 
@@ -8462,7 +8462,7 @@ Result from a strategy handler.
 | `affectedTasks` | `string[]` | Yes | affectedTasks |
 | `affectedCount` | `number \| undefined` | No | affectedCount |
 | `message` | `string` | Yes | message |
-| `error` | `{ code: string; message: string; childCount?: number \| undefined; childIds?: string[] \| undefined; suggestion?: string \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; childCount?: number \| undefined; childIds?: string[] \| undefined; suggestion?: string \| undefined; \} \| undefined` | No | error |
 
 ## DiscoveryMethod
 

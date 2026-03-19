@@ -335,7 +335,13 @@ export { computeChecksum, readJson } from './store/json.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export { createTask } from './store/task-store.js';
-export { auditLog, externalTaskLinks, releaseManifests, taskDependencies, tasks } from './store/tasks-schema.js';
+export {
+  auditLog,
+  externalTaskLinks,
+  releaseManifests,
+  taskDependencies,
+  tasks,
+} from './store/tasks-schema.js';
 export { AuditLogInsertSchema } from './store/validation-schemas.js';
 export type {
   AnalyzeArchiveOptions,

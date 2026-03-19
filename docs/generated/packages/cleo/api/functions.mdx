@@ -406,7 +406,7 @@ Composes an array of Middleware functions into a single Middleware function. Exe
 
 ## deriveGatewayMatrix()
 
-Derive a gateway operation matrix from the registry.  Returns `Record<string, string[]>` containing: - All canonical domains with their operations  This is the SINGLE derivation point — gateways use this instead of maintaining independent operation lists.
+Derive a gateway operation matrix from the registry.  Returns `Record&lt;string, string[]>` containing: - All canonical domains with their operations  This is the SINGLE derivation point — gateways use this instead of maintaining independent operation lists.
 
 **Signature**
 
@@ -526,7 +526,7 @@ Create a typed engine error result with pino logging and correct exit code.
 |------|------|-------------|
 | `code` | `string` | String error code (e.g., 'E_NOT_FOUND') |
 | `message` | `string` | Human-readable error message |
-| `options` | `: { details?: Record<string` | Optional details, fix command, and alternatives |
+| `options` | `: \{ details?: Record&lt;string` | Optional details, fix command, and alternatives |
 
 **Returns** — EngineResult with success=false and properly structured error
 
@@ -4070,7 +4070,7 @@ Apply budget enforcement to an MCP response envelope.  Converts the DomainRespon
 
 | Name | Type | Description |
 |------|------|-------------|
-| `response` | `Record<string` | The MCP domain response object |
+| `response` | `Record&lt;string` | The MCP domain response object |
 | `budget` | `: number \| undefined` | Maximum allowed tokens (defaults to DEFAULT_BUDGET) |
 
 **Returns** — The response, potentially truncated, with budget metadata   T4701  T4663
@@ -5151,8 +5151,8 @@ Resolve output format from Commander.js option values.  Reads --json, --human, a
 
 | Name | Type | Description |
 |------|------|-------------|
-| `opts` | `Record<string` | Commander.js parsed options object |
-| `defaults` | `: { projectDefault?: "json" \| "human" \| undefined; userDefault?: "json" \| "human" \| undefined; } \| undefined` | Optional project/user defaults |
+| `opts` | `Record&lt;string` | Commander.js parsed options object |
+| `defaults` | `: \{ projectDefault?: "json" \| "human" \| undefined; userDefault?: "json" \| "human" \| undefined; \} \| undefined` | Optional project/user defaults |
 
 **Returns** — Resolved format with source provenance   T4703  T4663
 
@@ -5527,7 +5527,7 @@ Register MCP resource handlers on the server.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `server` | `Server<{ method: string; params?: { [x: string]: unknown; _meta?: { [x: string]: unknown; progressToken?: string \| number \| undefined; "io.modelcontextprotocol/related-task"?: { taskId: string; } \| undefined; } \| undefined; } \| undefined; }` | MCP Server instance |
+| `server` | `Server<\{ method: string; params?: \{ [x: string]: unknown; _meta?: \{ [x: string]: unknown; progressToken?: string \| number \| undefined; "io.modelcontextprotocol/related-task"?: \{ taskId: string; \} \| undefined; \} \| undefined; \} \| undefined; \}` | MCP Server instance |
 
 ## readMemoryResource(uri, tokenBudget)
 
@@ -5580,7 +5580,7 @@ Query audit log entries from the SQLite audit_log table in the test environment.
 
 ## unwrapPayload()
 
-Extract the actual payload from an executor result's data field.  The LAFS envelope format uses `result` instead of `data` for the payload. When the executor encounters `{success:true, result:{...}}`, it may place the full envelope into `ExecutorResult.data` because it doesn't recognize `result` as the payload wrapper. This helper unwraps that case.
+Extract the actual payload from an executor result's data field.  The LAFS envelope format uses `result` instead of `data` for the payload. When the executor encounters `\{success:true, result:\{...\}\}`, it may place the full envelope into `ExecutorResult.data` because it doesn't recognize `result` as the payload wrapper. This helper unwraps that case.
 
 **Signature**
 
@@ -5994,7 +5994,7 @@ Sanitize all params in a DomainRequest before routing  Applies appropriate sanit
 
 | Name | Type | Description |
 |------|------|-------------|
-| `params` | `Record<string` | Raw request parameters |
+| `params` | `Record&lt;string` | Raw request parameters |
 | `projectRoot` | `: string \| undefined` | Project root for path sanitization |
 
 **Returns** — Sanitized parameters

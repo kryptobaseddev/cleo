@@ -1293,8 +1293,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'sync.reconcile',
-    description:
-      'tasks.sync.reconcile (mutate) — reconcile external tasks with CLEO as SSoT',
+    description: 'tasks.sync.reconcile (mutate) — reconcile external tasks with CLEO as SSoT',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -1342,8 +1341,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'sync.links',
-    description:
-      'tasks.sync.links (query) — list external task links by provider or task ID',
+    description: 'tasks.sync.links (query) — list external task links by provider or task ID',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -1367,8 +1365,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'sync.links.remove',
-    description:
-      'tasks.sync.links.remove (mutate) — remove all external task links for a provider',
+    description: 'tasks.sync.links.remove (mutate) — remove all external task links for a provider',
     tier: 1,
     idempotent: true,
     sessionRequired: false,

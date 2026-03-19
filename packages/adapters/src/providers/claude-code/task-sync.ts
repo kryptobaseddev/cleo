@@ -9,11 +9,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type {
-  ExternalTask,
-  ExternalTaskProvider,
-  ExternalTaskStatus,
-} from '@cleocode/contracts';
+import type { ExternalTask, ExternalTaskProvider, ExternalTaskStatus } from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // TodoWrite native types (Claude-specific, never exposed beyond this file)

@@ -1163,7 +1163,7 @@ Append a line to a JSONL file atomically. Used for manifest entries and audit lo
 
 ## readLogEntries()
 
-Read log entries from a hybrid JSON/JSONL file. Handles three formats:   1. Pure JSON: `{ "entries": [...] }` (legacy bash format)   2. Pure JSONL: one JSON object per line (new TS format)   3. Hybrid: JSON object followed by JSONL lines (migration state) Returns a flat array of all entries found.  T4622
+Read log entries from a hybrid JSON/JSONL file. Handles three formats:   1. Pure JSON: `\{ "entries": [...] \}` (legacy bash format)   2. Pure JSONL: one JSON object per line (new TS format)   3. Hybrid: JSON object followed by JSONL lines (migration state) Returns a flat array of all entries found.  T4622
 
 **Signature**
 
@@ -2159,7 +2159,7 @@ Record an evidence artifact linked to a lifecycle stage.  Writes to the SQLite `
 | `stage` | `string` | Canonical stage name (e.g. 'research') |
 | `uri` | `string` | URI of the evidence artifact |
 | `type` | `EvidenceType` | Evidence type: 'file', 'url', or 'manifest' |
-| `options` | `: { agent?: string \| undefined; description?: string \| undefined; cwd?: string \| undefined; } \| undefined` | Optional agent and description |
+| `options` | `: \{ agent?: string \| undefined; description?: string \| undefined; cwd?: string \| undefined; \} \| undefined` | Optional agent and description |
 
 **Returns** — The created evidence record
 
@@ -2261,7 +2261,7 @@ Get the absolute path to the `.cleo/rcasd/` base directory.
 
 ## getEpicDir(epicId, cwd)
 
-Get the absolute path to `.cleo/rcasd/{epicId}/`. Uses the normalized epic ID (without suffixes).
+Get the absolute path to `.cleo/rcasd/\{epicId\}/`. Uses the normalized epic ID (without suffixes).
 
 **Signature**
 
@@ -2354,7 +2354,7 @@ Get the manifest path for an epic under the default rcasd directory.
 | `epicId` | `string` | Epic identifier |
 | `cwd` | `: string \| undefined` | Optional working directory override |
 
-**Returns** — Absolute path to `.cleo/rcasd/{epicId}/_manifest.json`
+**Returns** — Absolute path to `.cleo/rcasd/\{epicId\}/_manifest.json`
 
 ## findManifestPath(epicId, cwd)
 
@@ -2482,7 +2482,7 @@ Convenience builder for common frontmatter patterns.  Auto-sets `updated` to the
 |------|------|-------------|
 | `epicId` | `string` | Epic identifier (e.g. `T4881`) |
 | `stage` | `string` | RCASD stage name (e.g. `research`) |
-| `options` | `: { task?: string \| undefined; related?: RelatedLink[] \| undefined; created?: string \| undefined; } \| undefined` | Optional fields: task, related links, created date |
+| `options` | `: \{ task?: string \| undefined; related?: RelatedLink[] \| undefined; created?: string \| undefined; \} \| undefined` | Optional fields: task, related links, created date |
 
 **Returns** — A FrontmatterMetadata object ready for serialization
 
@@ -5106,7 +5106,7 @@ Backfill embeddings for existing observations that lack them.  Iterates through 
 | Name | Type | Description |
 |------|------|-------------|
 | `projectRoot` | `string` | Project root directory |
-| `options` | `: { batchSize?: number \| undefined; } \| undefined` | Optional batch size configuration |
+| `options` | `: \{ batchSize?: number \| undefined; \} \| undefined` | Optional batch size configuration |
 
 **Returns** — Count of processed and skipped observations
 
@@ -5833,7 +5833,7 @@ Detect circular dependencies using DFS traversal.
 | Name | Type | Description |
 |------|------|-------------|
 | `tasks` | `Task[]` | The set of tasks to analyze |
-| `graph` | `: Map<string` | Pre-built dependency graph (optional; built from tasks if not provided) |
+| `graph` | `: Map&lt;string` | Pre-built dependency graph (optional; built from tasks if not provided) |
 
 **Returns** — Array of circular dependency cycles (each cycle is an array of task IDs)
 
@@ -7082,8 +7082,8 @@ Retrieve session memory for a given scope. Used by briefing/handoff to enrich re
 | Name | Type | Description |
 |------|------|-------------|
 | `projectRoot` | `string` | Project root directory |
-| `scope` | `: { type: string; epicId?: string \| undefined; rootTaskId?: string \| undefined; } \| undefined` | Session scope for filtering (epic:T### or global) |
-| `options` | `: { limit?: number \| undefined; includeDecisions?: boolean \| undefined; includePatterns?: boolean \| undefined; } \| undefined` | Retrieval options |
+| `scope` | `: \{ type: string; epicId?: string \| undefined; rootTaskId?: string \| undefined; \} \| undefined` | Session scope for filtering (epic:T### or global) |
+| `options` | `: \{ limit?: number \| undefined; includeDecisions?: boolean \| undefined; includePatterns?: boolean \| undefined; \} \| undefined` | Retrieval options |
 
 **Returns** — Relevant brain memory entries
 
@@ -7102,7 +7102,7 @@ Check if all dependencies of a task are satisfied.
 | Name | Type | Description |
 |------|------|-------------|
 | `depends` | `string[] \| undefined` | Array of dependency task IDs (may be undefined/empty) |
-| `taskLookup` | `ReadonlyMap<string` | Map from task ID to a task-like object with at least  status: string |
+| `taskLookup` | `ReadonlyMap&lt;string` | Map from task ID to a task-like object with at least  status: string |
 
 **Returns** — true if all dependencies are done/cancelled, or if no dependencies exist
 
@@ -8364,7 +8364,7 @@ Apply temporal decay to brain_learnings confidence values.  Entries older than `
 | Name | Type | Description |
 |------|------|-------------|
 | `projectRoot` | `string` | Project root directory for brain.db resolution |
-| `options` | `: { decayRate?: number \| undefined; olderThanDays?: number \| undefined; } \| undefined` | Decay configuration |
+| `options` | `: \{ decayRate?: number \| undefined; olderThanDays?: number \| undefined; \} \| undefined` | Decay configuration |
 
 **Returns** — Count of updated rows and tables processed
 
@@ -8383,7 +8383,7 @@ Consolidate old observations by keyword similarity.  Groups observations older t
 | Name | Type | Description |
 |------|------|-------------|
 | `projectRoot` | `string` | Project root directory for brain.db resolution |
-| `options` | `: { olderThanDays?: number \| undefined; minClusterSize?: number \| undefined; } \| undefined` | Consolidation configuration |
+| `options` | `: \{ olderThanDays?: number \| undefined; minClusterSize?: number \| undefined; \} \| undefined` | Consolidation configuration |
 
 **Returns** — Counts of grouped, merged, and archived observations
 
@@ -9408,7 +9408,7 @@ Create initial migration state at the start of migration.  Captures source file 
 | Name | Type | Description |
 |------|------|-------------|
 | `cleoDir` | `string` | Path to .cleo directory |
-| `sourceFiles` | `: { todoJson?: SourceFileInfo \| undefined; sessionsJson?: SourceFileInfo \| undefined; archiveJson?: SourceFileInfo \| undefined; } \| undefined` | Optional pre-computed source file info |
+| `sourceFiles` | `: \{ todoJson?: SourceFileInfo \| undefined; sessionsJson?: SourceFileInfo \| undefined; archiveJson?: SourceFileInfo \| undefined; \} \| undefined` | Optional pre-computed source file info |
 
 **Returns** — The created migration state  T4726
 
@@ -9427,7 +9427,7 @@ Update migration state with partial updates.  Merges updates with existing state
 | Name | Type | Description |
 |------|------|-------------|
 | `cleoDir` | `string` | Path to .cleo directory |
-| `updates` | `Partial<MigrationState>` | Partial state updates to apply |
+| `updates` | `Partial&lt;MigrationState&gt;` | Partial state updates to apply |
 
 **Returns** — The updated migration state  T4726
 
@@ -9465,7 +9465,7 @@ Update progress counters during import.
 | Name | Type | Description |
 |------|------|-------------|
 | `cleoDir` | `string` | Path to .cleo directory |
-| `progress` | `Partial<MigrationProgress>` | Progress updates (only changed counters needed) |
+| `progress` | `Partial&lt;MigrationProgress&gt;` | Progress updates (only changed counters needed) |
 
 **Returns** — The updated migration state  T4726
 
@@ -15633,10 +15633,10 @@ Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight
 
 | Name | Type | Description |
 |------|------|-------------|
-| `` | `: { dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; }` | options.dryRun  Preview changes without applying |
-| `` | `: { dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; }` | options.includeGlobal  Also check global ~/.cleo |
-| `` | `: { dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; }` | options.autoMigrate  Auto-migrate storage if needed (default: true) |
-| `` | `: { dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; }` | options.cwd  Project directory override |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.dryRun  Preview changes without applying |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.includeGlobal  Also check global ~/.cleo |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.autoMigrate  Auto-migrate storage if needed (default: true) |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.cwd  Project directory override |
 
 ## VerificationGate
 
@@ -16737,7 +16737,7 @@ Migrate `.cleo/contributions/` files to appropriate epic's contributions/ subdir
 
 ## migrateLooseFiles()
 
-Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/{epicId}/research/` subdirectories.
+Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/\{epicId\}/research/` subdirectories.
 
 **Signature**
 
@@ -16747,7 +16747,7 @@ Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/{epicId}/r
 
 ## consolidateRcasd(, )
 
-Consolidate all provenance files into the unified `.cleo/rcasd/{epicId}/` structure with stage subdirectories.  Performs migrations in order:   1. Rename suffixed directories (T4881_install-channels → T4881)   2. Move consensus files to appropriate epic's consensus/ subdirectory   3. Move contribution files to appropriate epic's contributions/ subdirectory   4. Move loose research files to appropriate epic's research/ subdirectory
+Consolidate all provenance files into the unified `.cleo/rcasd/\{epicId\}/` structure with stage subdirectories.  Performs migrations in order:   1. Rename suffixed directories (T4881_install-channels → T4881)   2. Move consensus files to appropriate epic's consensus/ subdirectory   3. Move contribution files to appropriate epic's contributions/ subdirectory   4. Move loose research files to appropriate epic's research/ subdirectory
 
 **Signature**
 
@@ -17098,7 +17098,7 @@ Resume a specific stage in a pipeline.  Updates the stage status from 'blocked' 
 |------|------|-------------|
 | `taskId` | `string` | The task ID |
 | `targetStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | The stage to resume |
-| `options` | `: { ...; }` | Resume options |
+| `options` | `: \{ ...; \}` | Resume options |
 | `cwd` | `: string \| undefined` | Working directory for database |
 
 **Returns** — Promise resolving to resume result
@@ -18259,7 +18259,7 @@ Insert a new transition record.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `transition` | `{ id: string; pipelineId: string; fromStageId: string; toStageId: string; createdAt?: string \| undefined; transitionType?: "automatic" \| "manual" \| "forced" \| undefined; transitionedBy?: string \| ... 1 more ... \| undefined; }` | Transition data to insert |
+| `transition` | `\{ id: string; pipelineId: string; fromStageId: string; toStageId: string; createdAt?: string \| undefined; transitionType?: "automatic" \| "manual" \| "forced" \| undefined; transitionedBy?: string \| ... 1 more ... \| undefined; \}` | Transition data to insert |
 | `cwd` | `: string \| undefined` | Working directory for database |
 
 ## checkAtomicity()

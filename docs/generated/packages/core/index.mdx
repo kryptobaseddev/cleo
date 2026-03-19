@@ -187,7 +187,7 @@ description: "core package overview"
 | [`getEvidenceSummary()`](/packages/core/api/index#getevidencesummary) | function | Aggregate evidence counts per stage for an epic. |
 | [`normalizeEpicId()`](/packages/core/api/index#normalizeepicid) | function | Strip suffixes from epic directory names. E.g. `T4881_install-channels` - `T4... |
 | [`getRcasdBaseDir()`](/packages/core/api/index#getrcasdbasedir) | function | Get the absolute path to the `.cleo/rcasd/` base directory. |
-| [`getEpicDir()`](/packages/core/api/index#getepicdir) | function | Get the absolute path to `.cleo/rcasd/{epicId}/`. Uses the normalized epic ID... |
+| [`getEpicDir()`](/packages/core/api/index#getepicdir) | function | Get the absolute path to `.cleo/rcasd/\{epicId\}/`. Uses the normalized epic ID... |
 | [`findEpicDir()`](/packages/core/api/index#findepicdir) | function | Search both `rcasd/` and legacy `rcsd/` for an existing epic directory. Also ... |
 | [`getStagePath()`](/packages/core/api/index#getstagepath) | function | Get the stage subdirectory path for an epic. Uses STAGE_SUBDIRS mapping, fall... |
 | [`ensureStagePath()`](/packages/core/api/index#ensurestagepath) | function | Get the stage subdirectory path, creating it if it does not exist. |
@@ -1422,8 +1422,8 @@ description: "core package overview"
 | [`normalizeDirectoryNames()`](/packages/core/api/index#normalizedirectorynames) | function | Rename suffixed epic directories (e.g. `T4881_install-channels` → `T4881`). |
 | [`migrateConsensusFiles()`](/packages/core/api/index#migrateconsensusfiles) | function | Migrate `.cleo/consensus/` files to appropriate epic's consensus/ subdirector... |
 | [`migrateContributionFiles()`](/packages/core/api/index#migratecontributionfiles) | function | Migrate `.cleo/contributions/` files to appropriate epic's contributions/ sub... |
-| [`migrateLooseFiles()`](/packages/core/api/index#migrateloosefiles) | function | Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/{epicId... |
-| [`consolidateRcasd()`](/packages/core/api/index#consolidatercasd) | function | Consolidate all provenance files into the unified `.cleo/rcasd/{epicId}/` str... |
+| [`migrateLooseFiles()`](/packages/core/api/index#migrateloosefiles) | function | Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/\{epicId... |
+| [`consolidateRcasd()`](/packages/core/api/index#consolidatercasd) | function | Consolidate all provenance files into the unified `.cleo/rcasd/\{epicId\}/` str... |
 | [`initializePipeline()`](/packages/core/api/index#initializepipeline) | function | Initialize a new pipeline for a task.  Creates a new pipeline record in the d... |
 | [`getPipeline()`](/packages/core/api/index#getpipeline) | function | Retrieve a pipeline by task ID.  Returns the complete pipeline state includin... |
 | [`advanceStage()`](/packages/core/api/index#advancestage) | function | Advance a pipeline to the next stage.  Performs atomic stage transition with ... |

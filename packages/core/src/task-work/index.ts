@@ -232,4 +232,3 @@ export async function getWorkHistory(
  * @task T5323
  */
 export const getTaskHistory = getWorkHistory;
-

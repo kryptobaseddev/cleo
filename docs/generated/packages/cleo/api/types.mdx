@@ -12,7 +12,7 @@ Type contracts exported by this package: interfaces, type aliases, and enums.
 | `message` | `string \| undefined` | No | Optional success message for JSON envelope. |
 | `operation` | `string \| undefined` | No | Operation name for LAFS _meta. |
 | `page` | `LAFSPage \| undefined` | No | Pagination for LAFS envelope. |
-| `extensions` | `Record<string, unknown> \| undefined` | No | Extra LAFS extensions. |
+| `extensions` | `Record&lt;string, unknown&gt; \| undefined` | No | Extra LAFS extensions. |
 
 ## CliErrorDetails
 
@@ -62,7 +62,7 @@ CLI-specific decoration for a parameter. All fields are optional — omit the en
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `positional` | `boolean \| undefined` | No | When true, registers as `.argument('<name>')` (positional). When false or omitted, registers as `.option('--name <value>')`.  false |
+| `positional` | `boolean \| undefined` | No | When true, registers as `.argument('&lt;name&gt;')` (positional). When false or omitted, registers as `.option('--name &lt;value&gt;')`.  false |
 | `short` | `string \| undefined` | No | Short flag alias, e.g. `'-t'` for `--type`, `'-s'` for `--status`. Only meaningful when `positional` is false/omitted. |
 | `flag` | `string \| undefined` | No | Override the CLI flag name when it differs from the param's `name`. e.g. `name: 'includeArchive'` but `flag: 'include-archive'` Defaults to kebab-case of `name`. |
 | `variadic` | `boolean \| undefined` | No | For array-type params on the CLI: when true the option can be repeated. When false/omitted, the CLI accepts a single comma-separated string.  false |
@@ -85,7 +85,7 @@ A fully-described parameter definition.  One `ParamDef` entry drives:  - Command
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | Canonical camelCase parameter name (matches the key in `params` dict). |
 | `type` | `ParamType` | Yes | Runtime value type. Drives JSON Schema `type` and Commander parsing. |
-| `required` | `boolean` | Yes | When true:  - Commander: positional argument (`<name>` or `[name]`)  - MCP: included in `required[]` array of the input_schema |
+| `required` | `boolean` | Yes | When true:  - Commander: positional argument (`&lt;name&gt;` or `[name]`)  - MCP: included in `required[]` array of the input_schema |
 | `description` | `string` | Yes | Human-readable description used in Commander help text and MCP tool docs. |
 | `cli` | `ParamCliDef \| undefined` | No | CLI-specific metadata. Omit entire key if this param has no CLI surface. |
 | `mcp` | `ParamMcpDef \| undefined` | No | MCP-specific metadata. Omit entire key if this param has no MCP surface. |
@@ -105,7 +105,7 @@ Canonical request shape that both CLI and MCP adapters produce.  The dispatcher 
 | `gateway` | `Gateway` | Yes | CQRS gateway. |
 | `domain` | `string` | Yes | Target domain (canonical name). |
 | `operation` | `string` | Yes | Domain-specific operation name. |
-| `params` | `Record<string, unknown> \| undefined` | No | Operation parameters (already sanitized by middleware). |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | Operation parameters (already sanitized by middleware). |
 | `source` | `Source` | Yes | Where this request came from. |
 | `requestId` | `string` | Yes | Unique request identifier for tracing. |
 | `sessionId` | `string \| undefined` | No | Bound session ID, if any. |
@@ -132,9 +132,9 @@ Structured error shape (LAFS-compatible).
 | `code` | `string` | Yes | Machine-readable error code (E_NOT_FOUND, E_VALIDATION_FAILED, …). |
 | `exitCode` | `number \| undefined` | No | LAFS exit code (1-99). |
 | `message` | `string` | Yes | Human-readable message. |
-| `details` | `Record<string, unknown> \| undefined` | No | Additional structured details. |
+| `details` | `Record&lt;string, unknown&gt; \| undefined` | No | Additional structured details. |
 | `fix` | `string \| undefined` | No | Copy-paste fix command. |
-| `alternatives` | `{ action: string; command: string; }[] \| undefined` | No | Alternative actions the caller can try. |
+| `alternatives` | `\{ action: string; command: string; \}[] \| undefined` | No | Alternative actions the caller can try. |
 | `problemDetails` | `ProblemDetails \| undefined` | No | RFC 9457 Problem Details (optional, populated from CleoError.toProblemDetails()). |
 
 ## DispatchResponse
@@ -143,7 +143,7 @@ Canonical response shape returned by the dispatcher.  Adapters translate this in
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ [key: string]: unknown; gateway: Gateway; domain: string; operation: string; timestamp: string; duration_ms: number; source: Source; requestId: string; rateLimit?: RateLimitMeta \| undefined; sessionId?: string \| undefined; version?: string \| undefined; }` | No | _meta |
+| `_meta` | `\{ [key: string]: unknown; gateway: Gateway; domain: string; operation: string; timestamp: string; duration_ms: number; source: Source; requestId: string; rateLimit?: RateLimitMeta \| undefined; sessionId?: string \| undefined; version?: string \| undefined; \}` | No | _meta |
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `page` | `LAFSPage \| undefined` | No | page |
@@ -156,9 +156,9 @@ Contract for domain handlers.  Each of the 9 target domains (tasks, session, mem
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `query` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DispatchResponse>` | No | Execute a read-only query operation. |
-| `mutate` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DispatchResponse>` | No | Execute a state-modifying mutation operation. |
-| `getSupportedOperations` | `() => { query: string[]; mutate: string[]; }` | Yes | Declared operations for introspection and validation. |
+| `query` | `(operation: string, params?: Record&lt;string, unknown&gt; \| undefined) => Promise&lt;DispatchResponse&gt;` | No | Execute a read-only query operation. |
+| `mutate` | `(operation: string, params?: Record&lt;string, unknown&gt; \| undefined) => Promise&lt;DispatchResponse&gt;` | No | Execute a state-modifying mutation operation. |
+| `getSupportedOperations` | `() => \{ query: string[]; mutate: string[]; \}` | Yes | Declared operations for introspection and validation. |
 
 ## DispatchNext
 
@@ -206,7 +206,7 @@ Resolution output for a dispatch request.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `handlers` | `Map<string, DomainHandler>` | Yes | handlers |
+| `handlers` | `Map&lt;string, DomainHandler&gt;` | Yes | handlers |
 | `middlewares` | `Middleware[] \| undefined` | No | middlewares |
 
 ## TaskRecord
@@ -230,7 +230,7 @@ Task object as stored in task data.
 | `position` | `number \| null \| undefined` | No | position |
 | `positionVersion` | `number \| undefined` | No | positionVersion |
 | `depends` | `string[] \| undefined` | No | depends |
-| `relates` | `{ taskId: string; type: string; reason?: string \| undefined; }[] \| undefined` | No | relates |
+| `relates` | `\{ taskId: string; type: string; reason?: string \| undefined; \}[] \| undefined` | No | relates |
 | `files` | `string[] \| undefined` | No | files |
 | `acceptance` | `string[] \| undefined` | No | acceptance |
 | `notes` | `string[] \| undefined` | No | notes |
@@ -244,7 +244,7 @@ Task object as stored in task data.
 | `validatedBy` | `string \| null \| undefined` | No | validatedBy |
 | `testedBy` | `string \| null \| undefined` | No | testedBy |
 | `lifecycleState` | `string \| null \| undefined` | No | lifecycleState |
-| `validationHistory` | `Record<string, unknown>[] \| undefined` | No | validationHistory |
+| `validationHistory` | `Record&lt;string, unknown&gt;[] \| undefined` | No | validationHistory |
 | `blockedBy` | `string[] \| undefined` | No | blockedBy |
 | `cancellationReason` | `string \| undefined` | No | cancellationReason |
 
@@ -272,33 +272,33 @@ any
 |----------|------|----------|-------------|
 | `project` | `string` | Yes | project |
 | `currentPhase` | `string \| null` | Yes | currentPhase |
-| `summary` | `{ pending: number; active: number; blocked: number; done: number; cancelled: number; total: number; archived: number; grandTotal: number; }` | Yes | summary |
-| `taskWork` | `{ currentTask: string \| null; task: TaskRecord \| null; }` | Yes | taskWork |
+| `summary` | `\{ pending: number; active: number; blocked: number; done: number; cancelled: number; total: number; archived: number; grandTotal: number; \}` | Yes | summary |
+| `taskWork` | `\{ currentTask: string \| null; task: TaskRecord \| null; \}` | Yes | taskWork |
 | `activeSession` | `string \| null` | Yes | activeSession |
-| `highPriority` | `{ count: number; tasks: TaskRecord[]; }` | Yes | highPriority |
-| `blockedTasks` | `{ count: number; limit: number; tasks: TaskRecord[]; }` | Yes | blockedTasks |
+| `highPriority` | `\{ count: number; tasks: TaskRecord[]; \}` | Yes | highPriority |
+| `blockedTasks` | `\{ count: number; limit: number; tasks: TaskRecord[]; \}` | Yes | blockedTasks |
 | `recentCompletions` | `TaskRecord[]` | Yes | recentCompletions |
-| `topLabels` | `{ label: string; count: number; }[]` | Yes | topLabels |
+| `topLabels` | `\{ label: string; count: number; \}[]` | Yes | topLabels |
 
 ## StatsData
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `currentState` | `{ pending: number; active: number; done: number; blocked: number; cancelled: number; totalActive: number; archived: number; grandTotal: number; }` | Yes | currentState |
-| `byPriority` | `Record<string, number>` | Yes | byPriority |
-| `byType` | `Record<string, number>` | Yes | byType |
-| `byPhase` | `Record<string, number>` | Yes | byPhase |
-| `completionMetrics` | `{ periodDays: number; completedInPeriod: number; createdInPeriod: number; completionRate: number; }` | Yes | completionMetrics |
-| `activityMetrics` | `{ createdInPeriod: number; completedInPeriod: number; archivedInPeriod: number; }` | Yes | activityMetrics |
-| `allTime` | `{ totalCreated: number; totalCompleted: number; totalCancelled: number; totalArchived: number; archivedCompleted: number; }` | Yes | allTime |
-| `cycleTimes` | `{ averageDays: number \| null; samples: number; }` | Yes | cycleTimes |
+| `currentState` | `\{ pending: number; active: number; done: number; blocked: number; cancelled: number; totalActive: number; archived: number; grandTotal: number; \}` | Yes | currentState |
+| `byPriority` | `Record&lt;string, number&gt;` | Yes | byPriority |
+| `byType` | `Record&lt;string, number&gt;` | Yes | byType |
+| `byPhase` | `Record&lt;string, number&gt;` | Yes | byPhase |
+| `completionMetrics` | `\{ periodDays: number; completedInPeriod: number; createdInPeriod: number; completionRate: number; \}` | Yes | completionMetrics |
+| `activityMetrics` | `\{ createdInPeriod: number; completedInPeriod: number; archivedInPeriod: number; \}` | Yes | activityMetrics |
+| `allTime` | `\{ totalCreated: number; totalCompleted: number; totalCancelled: number; totalArchived: number; archivedCompleted: number; \}` | Yes | allTime |
+| `cycleTimes` | `\{ averageDays: number \| null; samples: number; \}` | Yes | cycleTimes |
 
 ## LogQueryData
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `entries` | `{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; }[]` | No | entries |
-| `pagination` | `{ total: number; offset: number; limit: number; hasMore: boolean; }` | Yes | pagination |
+| `entries` | `\{ [key: string]: unknown; operation: string; taskId?: string \| undefined; timestamp: string; \}[]` | No | entries |
+| `pagination` | `\{ total: number; offset: number; limit: number; hasMore: boolean; \}` | Yes | pagination |
 
 ## ContextData
 
@@ -311,7 +311,7 @@ any
 | `maxTokens` | `number` | Yes | maxTokens |
 | `timestamp` | `string \| null` | Yes | timestamp |
 | `stale` | `boolean` | Yes | stale |
-| `sessions` | `{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; }[]` | Yes | sessions |
+| `sessions` | `\{ file: string; sessionId: string \| null; percentage: number; status: string; timestamp: string; \}[]` | Yes | sessions |
 
 ## SequenceData
 
@@ -327,10 +327,10 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `currentVersion` | `string` | Yes | currentVersion |
-| `upcoming` | `{ id: string; title: string; status: string; priority: string; phase?: string \| undefined; childCount: number; completedChildren: number; }[]` | No | upcoming |
-| `releaseHistory` | `{ version: string; date: string; }[] \| undefined` | No | releaseHistory |
+| `upcoming` | `\{ id: string; title: string; status: string; priority: string; phase?: string \| undefined; childCount: number; completedChildren: number; \}[]` | No | upcoming |
+| `releaseHistory` | `\{ version: string; date: string; \}[] \| undefined` | No | releaseHistory |
 | `completedEpics` | `number \| undefined` | No | completedEpics |
-| `summary` | `{ totalUpcoming: number; totalTasks: number; }` | Yes | summary |
+| `summary` | `\{ totalUpcoming: number; totalTasks: number; \}` | Yes | summary |
 
 ## ComplianceData
 
@@ -341,7 +341,7 @@ any
 | `averageAdherence` | `number` | Yes | averageAdherence |
 | `totalViolations` | `number` | Yes | totalViolations |
 | `trend` | `string \| undefined` | No | trend |
-| `dataPoints` | `{ date: string; entries: number; avgPassRate: number; violations: number; }[] \| undefined` | No | dataPoints |
+| `dataPoints` | `\{ date: string; entries: number; avgPassRate: number; violations: number; \}[] \| undefined` | No | dataPoints |
 
 ## HelpData
 
@@ -369,7 +369,7 @@ Engine result shape accepted by wrapResult. Matches the union of what all engine
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `page` | `LAFSPage \| undefined` | No | page |
-| `error` | `{ code: string; message: string; details?: unknown; exitCode?: number \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; problemDetails?: ProblemDetails \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; message: string; details?: unknown; exitCode?: number \| undefined; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; problemDetails?: ProblemDetails \| undefined; \} \| undefined` | No | error |
 
 ## JobStatus
 
@@ -410,7 +410,7 @@ Immutable snapshot of the bound session context.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `sessionId` | `string` | Yes | Active session ID. |
-| `scope` | `{ type: string; epicId?: string \| undefined; }` | No | Session scope. |
+| `scope` | `\{ type: string; epicId?: string \| undefined; \}` | No | Session scope. |
 | `gradeMode` | `boolean` | Yes | Whether full audit logging is enabled for behavioral grading. |
 | `agentPid` | `number` | Yes | PID of the process that bound this context. |
 | `boundAt` | `string` | Yes | ISO timestamp when this context was bound. |
@@ -529,7 +529,7 @@ Rate Limit Configuration
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `rateLimiting` | `Partial<RateLimitingConfig> \| undefined` | No | rateLimiting |
+| `rateLimiting` | `Partial&lt;RateLimitingConfig&gt; \| undefined` | No | rateLimiting |
 | `strictMode` | `boolean \| undefined` | No | strictMode |
 
 ## GatewayMetaRecord
@@ -598,7 +598,7 @@ Request from MCP gateway (inline — replaces legacy router.ts import)
 | `gateway` | `"query" \| "mutate"` | Yes | gateway |
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## DomainResponse
 
@@ -606,11 +606,11 @@ Response from domain handler (inline — replaces legacy router.ts import)
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `_meta` | `\{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; \}` | Yes | _meta |
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `partial` | `boolean \| undefined` | No | partial |
-| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; exitCode?: number \| undefined; message: string; details?: Record&lt;string, unknown&gt; \| undefined; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; \} \| undefined` | No | error |
 
 ## MutateRequest
 
@@ -620,7 +620,7 @@ Mutate request interface
 |----------|------|----------|-------------|
 | `domain` | `MutateDomain` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## MutateResponse
 
@@ -639,7 +639,7 @@ Request from MCP gateway (inline — replaces legacy router.ts import)
 | `gateway` | `"query" \| "mutate"` | Yes | gateway |
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## DomainResponse
 
@@ -647,11 +647,11 @@ Response from domain handler (inline — replaces legacy router.ts import)
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `_meta` | `\{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; \}` | Yes | _meta |
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `partial` | `boolean \| undefined` | No | partial |
-| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; exitCode?: number \| undefined; message: string; details?: Record&lt;string, unknown&gt; \| undefined; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; \} \| undefined` | No | error |
 
 ## QueryRequest
 
@@ -661,7 +661,7 @@ Query request interface
 |----------|------|----------|-------------|
 | `domain` | `QueryDomain` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## QueryResponse
 
@@ -681,7 +681,7 @@ Cache statistics
 | `misses` | `number` | Yes | misses |
 | `evictions` | `number` | Yes | evictions |
 | `size` | `number` | Yes | size |
-| `domains` | `Record<string, number>` | Yes | domains |
+| `domains` | `Record&lt;string, number&gt;` | Yes | domains |
 
 ## McpResource
 
@@ -736,7 +736,7 @@ Request from MCP gateway
 | `gateway` | `"query" \| "mutate"` | Yes | gateway |
 | `domain` | `string` | Yes | domain |
 | `operation` | `string` | Yes | operation |
-| `params` | `Record<string, unknown> \| undefined` | No | params |
+| `params` | `Record&lt;string, unknown&gt; \| undefined` | No | params |
 
 ## DomainResponse
 
@@ -744,11 +744,11 @@ Response from domain handler
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `_meta` | `{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; }` | Yes | _meta |
+| `_meta` | `\{ [key: string]: unknown; gateway: string; domain: string; operation: string; timestamp: string; duration_ms: number; \}` | Yes | _meta |
 | `success` | `boolean` | Yes | success |
 | `data` | `unknown` | Yes | data |
 | `partial` | `boolean \| undefined` | No | partial |
-| `error` | `{ code: string; exitCode?: number \| undefined; message: string; details?: Record<string, unknown> \| undefined; fix?: string \| undefined; alternatives?: { action: string; command: string; }[] \| undefined; } \| undefined` | No | error |
+| `error` | `\{ code: string; exitCode?: number \| undefined; message: string; details?: Record&lt;string, unknown&gt; \| undefined; fix?: string \| undefined; alternatives?: \{ action: string; command: string; \}[] \| undefined; \} \| undefined` | No | error |
 
 ## DomainHandler
 
@@ -756,9 +756,9 @@ Domain handler interface (legacy - retained for type compatibility)
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `query` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DomainResponse>` | No | query |
-| `mutate` | `(operation: string, params?: Record<string, unknown> \| undefined) => Promise<DomainResponse>` | No | mutate |
-| `getSupportedOperations` | `() => { query: string[]; mutate: string[]; }` | Yes | getSupportedOperations |
+| `query` | `(operation: string, params?: Record&lt;string, unknown&gt; \| undefined) => Promise&lt;DomainResponse&gt;` | No | query |
+| `mutate` | `(operation: string, params?: Record&lt;string, unknown&gt; \| undefined) => Promise&lt;DomainResponse&gt;` | No | mutate |
+| `getSupportedOperations` | `() => \{ query: string[]; mutate: string[]; \}` | Yes | getSupportedOperations |
 
 ## RateLimitConfig
 
