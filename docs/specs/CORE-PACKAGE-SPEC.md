@@ -382,7 +382,7 @@ The public barrel re-exports all types from `@cleocode/contracts` via `export * 
 | Adapter types | `CLEOProviderAdapter`, `AdapterManifest`, `DetectionPattern`, `AdapterCapabilities` |
 | WarpChain types | `WarpChain`, `WarpChainInstance`, `WarpStage`, `ChainShape`, `GateContract` |
 | Tessera types | `TesseraTemplate`, `TesseraVariable`, `TesseraInstantiationInput` |
-| TodoWrite types | `TodoWriteItem`, `TodoWriteState`, `TodoWriteMergeResult` |
+| Task Sync types | `ExternalTask`, `ExternalTaskLink`, `ExternalTaskProvider`, `ReconcileResult` |
 | Spawn types | `CLEOSpawnContext`, `CLEOSpawnResult`, `CLEOSpawnAdapter` |
 | Operations types | `ops` namespace (wire-format types for dispatch/LAFS, namespaced to avoid collision with domain types) |
 

@@ -1,5 +1,5 @@
 /**
- * CLI inject command - prepare tasks for TodoWrite injection.
+ * CLI inject command - prepare tasks for external injection.
  * @task T4539
  * @epic T4454
  */
@@ -10,7 +10,7 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerInjectCommand(program: Command): void {
   program
     .command('inject')
-    .description('Inject/prepare tasks for TodoWrite format (session start)')
+    .description('Prepare tasks for external system injection')
     .option('--max-tasks <n>', 'Maximum tasks to inject', '8')
     .option('--focused-only', 'Only inject the focused task')
     .option('--phase <slug>', 'Filter tasks to specific phase')

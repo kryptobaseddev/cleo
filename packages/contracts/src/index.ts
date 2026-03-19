@@ -244,15 +244,17 @@ export type {
 } from './task-record.js';
 // === Task Sync Types (provider-agnostic reconciliation) ===
 export type {
-  AdapterTaskSyncProvider,
   ConflictPolicy,
+  ExternalLinkType,
   ExternalTask,
+  ExternalTaskLink,
+  ExternalTaskProvider,
   ExternalTaskStatus,
   ReconcileAction,
   ReconcileActionType,
   ReconcileOptions,
   ReconcileResult,
-  SyncSessionState,
+  SyncDirection,
 } from './task-sync.js';
 // === Tessera Types ===
 export type {
@@ -260,17 +262,6 @@ export type {
   TesseraTemplate,
   TesseraVariable,
 } from './tessera.js';
-// === TodoWrite Types (deprecated — use task-sync types) ===
-export type {
-  TodoWriteChange,
-  TodoWriteChangeAction,
-  TodoWriteChangeSet,
-  TodoWriteItem,
-  TodoWriteItemStatus,
-  TodoWriteMergeResult,
-  TodoWriteState,
-  TodoWriteSyncSessionState,
-} from './todowrite.js';
 export type { AdapterTransportProvider } from './transport.js';
 // === WarpChain Types ===
 export type {

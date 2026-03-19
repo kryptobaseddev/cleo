@@ -61,7 +61,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'query',
@@ -184,7 +184,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'query',
@@ -194,7 +194,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'query' as const,
@@ -1175,7 +1175,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['title'],
   },
   {
     gateway: 'mutate',
@@ -1185,7 +1185,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1195,7 +1195,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1216,7 +1216,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1236,7 +1236,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1246,7 +1246,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1256,7 +1256,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId', 'position'],
   },
   {
     gateway: 'mutate',
@@ -1266,7 +1266,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId', 'type'],
   },
   {
     gateway: 'mutate',
@@ -1276,7 +1276,7 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['taskId'],
   },
   {
     gateway: 'mutate',
@@ -1287,6 +1287,100 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+  },
+  // === tasks.sync sub-domain (provider-agnostic task reconciliation) ===
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'sync.reconcile',
+    description:
+      'tasks.sync.reconcile (mutate) — reconcile external tasks with CLEO as SSoT',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['providerId', 'externalTasks'],
+    params: [
+      {
+        name: 'providerId',
+        type: 'string',
+        required: true,
+        description: 'Provider identifier (e.g. linear, jira, github)',
+      },
+      {
+        name: 'externalTasks',
+        type: 'array',
+        required: true,
+        description: 'Array of normalized ExternalTask objects',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Compute actions without applying them',
+      },
+      {
+        name: 'conflictPolicy',
+        type: 'string',
+        required: false,
+        description: 'Conflict resolution: cleo-wins, provider-wins, latest-wins, report-only',
+      },
+      {
+        name: 'defaultPhase',
+        type: 'string',
+        required: false,
+        description: 'Default phase for newly created tasks',
+      },
+      {
+        name: 'defaultLabels',
+        type: 'array',
+        required: false,
+        description: 'Default labels for newly created tasks',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'sync.links',
+    description:
+      'tasks.sync.links (query) — list external task links by provider or task ID',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'providerId',
+        type: 'string',
+        required: false,
+        description: 'Filter links by provider',
+      },
+      {
+        name: 'taskId',
+        type: 'string',
+        required: false,
+        description: 'Filter links by CLEO task ID',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'sync.links.remove',
+    description:
+      'tasks.sync.links.remove (mutate) — remove all external task links for a provider',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['providerId'],
+    params: [
+      {
+        name: 'providerId',
+        type: 'string',
+        required: true,
+        description: 'Provider whose links should be removed',
+      },
+    ],
   },
   {
     gateway: 'mutate',
@@ -1893,7 +1987,6 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
-  // admin.sync/sync.status/sync.clear moved to tools.todowrite.* (T5615)
   {
     gateway: 'mutate',
     domain: 'admin',
@@ -1978,47 +2071,6 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
-  },
-  // TodoWrite ops moved from admin domain (T5615)
-  {
-    gateway: 'query',
-    domain: 'tools',
-    operation: 'todowrite.status',
-    description:
-      'tools.todowrite.status (query) — TodoWrite sync status; moved from admin.sync.status (T5615)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tools',
-    operation: 'todowrite.sync',
-    description: 'tools.todowrite.sync (mutate) — TodoWrite sync; moved from admin.sync (T5615)',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tools',
-    operation: 'todowrite.clear',
-    description:
-      'tools.todowrite.clear (mutate) — clear TodoWrite sync state; moved from admin.sync.clear (T5615)',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [
-      {
-        name: 'dryRun',
-        type: 'boolean',
-        required: false,
-        description: 'Preview what would be cleared',
-      },
-    ],
   },
   // === adapter sub-domain (T5240) ===
   {

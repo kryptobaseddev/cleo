@@ -1,11 +1,10 @@
 /**
  * Task synchronization contracts for provider-agnostic task reconciliation.
  *
- * Replaces the legacy Claude Code-specific TodoWrite integration with a
- * provider-agnostic system. Any provider adapter can implement
- * AdapterTaskSyncProvider to sync its external task system with CLEO as SSoT.
- *
- * @task T5800
+ * Defines the interface for syncing external issue/task systems (Linear, Jira,
+ * GitHub Issues, GitLab, etc.) with CLEO as SSoT. Provider adapters normalize
+ * their native formats into ExternalTask[], and the reconciliation engine
+ * handles diffing, creating, updating, and linking.
  */
 
 // ---------------------------------------------------------------------------
@@ -22,37 +21,63 @@ export type ExternalTaskStatus = 'pending' | 'active' | 'completed' | 'removed';
 export interface ExternalTask {
   /** Provider-assigned identifier for this task (opaque to core). */
   externalId: string;
-  /** Mapped CLEO task ID, or null if the task is new / unmatched. */
-  cleoTaskId: string | null;
   /** Human-readable title. */
   title: string;
   /** Normalized status. */
   status: ExternalTaskStatus;
   /** Optional description text. */
   description?: string;
+  /** Optional priority mapping (provider decides how to map). */
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  /** Optional task type mapping. */
+  type?: 'epic' | 'task' | 'subtask';
   /** Optional labels/tags from the provider. */
   labels?: string[];
+  /** Optional URL to the external task (for linking). */
+  url?: string;
+  /** Optional parent external ID (for hierarchy). */
+  parentExternalId?: string;
   /** Arbitrary provider-specific metadata (opaque to core). */
   providerMeta?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
-// Sync session state
+// External task link (DB-backed tracking)
 // ---------------------------------------------------------------------------
 
+/** How an external task link was established. */
+export type ExternalLinkType = 'created' | 'matched' | 'manual';
+
+/** Direction of the sync that established the link. */
+export type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
+
 /**
- * Persistent state for a sync session between CLEO and a provider.
- * Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+ * A link between a CLEO task and an external provider task.
+ * Stored in the external_task_links table in tasks.db.
  */
-export interface SyncSessionState {
-  /** CLEO task IDs that were injected into the provider's task list. */
-  injectedTaskIds: string[];
-  /** Optional phase context when tasks were injected. */
-  injectedPhase?: string;
-  /** Per-task metadata at injection time. */
-  taskMetadata?: Record<string, { phase?: string }>;
-  /** ISO timestamp of the last successful reconciliation. */
-  lastSyncAt?: string;
+export interface ExternalTaskLink {
+  /** Link ID (UUID). */
+  id: string;
+  /** CLEO task ID. */
+  taskId: string;
+  /** Provider identifier (e.g. 'linear', 'jira', 'github'). */
+  providerId: string;
+  /** Provider-assigned external task ID. */
+  externalId: string;
+  /** URL to the external task. */
+  externalUrl?: string | null;
+  /** Title at time of last sync. */
+  externalTitle?: string | null;
+  /** How this link was established. */
+  linkType: ExternalLinkType;
+  /** Sync direction. */
+  syncDirection: SyncDirection;
+  /** Provider-specific metadata (JSON). */
+  metadata?: Record<string, unknown>;
+  /** When the link was first established. */
+  linkedAt: string;
+  /** When the external task was last synchronized. */
+  lastSyncAt?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +100,7 @@ export type ConflictPolicy = 'cleo-wins' | 'provider-wins' | 'latest-wins' | 're
 
 /** Options for the reconciliation engine. */
 export interface ReconcileOptions {
-  /** Provider ID (e.g. 'claude-code', 'cursor'). */
+  /** Provider ID (e.g. 'linear', 'jira', 'github'). */
   providerId: string;
   /** Working directory (project root). */
   cwd?: string;
@@ -91,10 +116,10 @@ export interface ReconcileOptions {
 
 /** The type of action the reconciliation engine will take. */
 export type ReconcileActionType =
+  | 'create'
+  | 'update'
   | 'complete'
   | 'activate'
-  | 'create'
-  | 'remove'
   | 'skip'
   | 'conflict';
 
@@ -104,12 +129,14 @@ export interface ReconcileAction {
   type: ReconcileActionType;
   /** The CLEO task ID affected (null for creates before they happen). */
   cleoTaskId: string | null;
-  /** The external task that triggered this action. */
+  /** The external task ID that triggered this action. */
   externalId: string;
   /** Human-readable description of the action. */
   summary: string;
   /** Whether this action was actually applied. */
   applied: boolean;
+  /** The link ID if a link was created or updated. */
+  linkId?: string;
   /** Error message if the action failed during apply. */
   error?: string;
 }
@@ -124,16 +151,17 @@ export interface ReconcileResult {
   actions: ReconcileAction[];
   /** Summary counts. */
   summary: {
+    created: number;
+    updated: number;
     completed: number;
     activated: number;
-    created: number;
-    removed: number;
     skipped: number;
     conflicts: number;
+    total: number;
     applied: number;
   };
-  /** Whether sync session state was cleared after apply. */
-  sessionCleared: boolean;
+  /** Links created or updated during this reconciliation. */
+  linksAffected: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +172,29 @@ export interface ReconcileResult {
  * Interface that provider adapters implement to expose their external
  * task system to the reconciliation engine.
  *
- * Provider-specific parsing lives here — core never sees native formats.
+ * Provider-specific parsing lives in the adapter — core never sees native formats.
+ * Consumers implement this interface to integrate their issue tracker with CLEO.
+ *
+ * @example
+ * ```typescript
+ * class LinearAdapter implements ExternalTaskProvider {
+ *   async getExternalTasks(projectDir: string): Promise<ExternalTask[]> {
+ *     const issues = await linearClient.issues({ projectId: '...' });
+ *     return issues.map(issue => ({
+ *       externalId: issue.id,
+ *       title: issue.title,
+ *       status: mapLinearStatus(issue.state),
+ *       description: issue.description,
+ *       priority: mapLinearPriority(issue.priority),
+ *       labels: issue.labels.map(l => l.name),
+ *       url: issue.url,
+ *       providerMeta: { linearId: issue.identifier },
+ *     }));
+ *   }
+ * }
+ * ```
  */
-export interface AdapterTaskSyncProvider {
+export interface ExternalTaskProvider {
   /**
    * Read the provider's current task state and return normalized ExternalTasks.
    *
@@ -156,7 +204,7 @@ export interface AdapterTaskSyncProvider {
   getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
 
   /**
-   * Optionally push CLEO task state back to the provider.
+   * Optionally push CLEO task state back to the provider (outbound sync).
    * Not all providers support bidirectional sync.
    *
    * @param tasks - Current CLEO tasks to push.
@@ -166,11 +214,4 @@ export interface AdapterTaskSyncProvider {
     tasks: ReadonlyArray<{ id: string; title: string; status: string }>,
     projectDir: string,
   ): Promise<void>;
-
-  /**
-   * Clean up provider-specific sync artifacts (e.g. state files).
-   *
-   * @param projectDir - Project root directory.
-   */
-  cleanup?(projectDir: string): Promise<void>;
 }

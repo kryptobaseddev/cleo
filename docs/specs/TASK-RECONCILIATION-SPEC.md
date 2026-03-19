@@ -1,32 +1,31 @@
 # Provider-Agnostic Task Reconciliation Specification
 
-**Version**: 2026.3.18
-**Status**: DRAFT
-**Date**: 2026-03-18
+**Version**: 2026.3.19
+**Status**: APPROVED
 
 ---
 
 ## 1. Overview
 
-Replaces the legacy Claude Code-specific TodoWrite integration with a provider-agnostic task reconciliation system. Any provider adapter can implement `AdapterTaskSyncProvider` to sync its external task system with CLEO as the SSoT.
+Provider-agnostic task reconciliation system for syncing external issue/task systems (Linear, Jira, GitHub Issues, GitLab, etc.) with CLEO as SSoT. Provider adapters normalize their native formats into `ExternalTask[]`, and the reconciliation engine handles diffing, creating, updating, and linking.
 
 ## 2. Architecture
 
 ```
-Provider's external task system (any format)
-  → Adapter's TaskSyncProvider (provider-specific parsing)
-    → ExternalTask[] (normalized, provider-agnostic)
-      → ReconciliationEngine (in @cleocode/core)
-        → CLEO core task operations (addTask, completeTask, updateTask)
+External issue tracker (any format)
+  -> Provider adapter (implements ExternalTaskProvider)
+    -> ExternalTask[] (normalized, provider-agnostic)
+      -> ReconciliationEngine (in @cleocode/core)
+        -> CLEO core task operations (addTask, completeTask, updateTask)
+        -> external_task_links table (DB-backed link tracking)
 ```
 
-## 3. Key Contract: AdapterTaskSyncProvider
+## 3. Key Contract: ExternalTaskProvider
 
 ```typescript
-interface AdapterTaskSyncProvider {
+interface ExternalTaskProvider {
   getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
   pushTaskState?(tasks: Task[], projectDir: string): Promise<void>;
-  cleanup?(projectDir: string): Promise<void>;
 }
 ```
 
@@ -34,27 +33,67 @@ interface AdapterTaskSyncProvider {
 
 ```typescript
 interface ExternalTask {
-  externalId: string;
-  cleoTaskId: string | null;
-  title: string;
+  externalId: string;        // Provider-assigned ID
+  title: string;             // Human-readable title
   status: 'pending' | 'active' | 'completed' | 'removed';
   description?: string;
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  type?: 'epic' | 'task' | 'subtask';
   labels?: string[];
+  url?: string;              // Link back to external system
+  parentExternalId?: string; // Hierarchy support
   providerMeta?: Record<string, unknown>;
 }
 ```
 
-## 5. Conflict Resolution
+## 5. External Task Links (DB-backed)
+
+Links between CLEO tasks and external tasks are stored in the `external_task_links` table in tasks.db:
+
+```typescript
+interface ExternalTaskLink {
+  id: string;                // UUID
+  taskId: string;            // FK to tasks.id
+  providerId: string;        // e.g. 'linear', 'jira', 'github'
+  externalId: string;        // Provider-assigned ID
+  externalUrl?: string;      // URL for human navigation
+  externalTitle?: string;    // Title at last sync
+  linkType: 'created' | 'matched' | 'manual';
+  syncDirection: 'inbound' | 'outbound' | 'bidirectional';
+  metadata?: Record<string, unknown>;
+  linkedAt: string;          // ISO 8601
+  lastSyncAt?: string;       // ISO 8601
+}
+```
+
+## 6. Conflict Resolution
 
 Configurable via `ConflictPolicy`: `'cleo-wins'` (default), `'provider-wins'`, `'latest-wins'`, `'report-only'`.
 
-## 6. Migration Path
+## 7. Consumer API
 
-1. Add contracts (non-breaking)
-2. Implement reconciliation engine (non-breaking)
-3. Implement adapter TaskSyncProviders (non-breaking)
-4. Rewire dispatch + deprecate TodoWrite (internal breaking)
+```typescript
+import { Cleo } from '@cleocode/core';
 
-## 7. References
+const cleo = await Cleo.init('./project');
 
-Full design document produced by task-reconciliation-architect agent.
+// Reconcile external tasks
+const result = await cleo.sync.reconcile({
+  externalTasks: normalizedTasks,
+  providerId: 'linear',
+  dryRun: false,
+});
+
+// Query links
+const links = await cleo.sync.getLinks('linear');
+const taskLinks = await cleo.sync.getTaskLinks('T123');
+
+// Cleanup
+await cleo.sync.removeProviderLinks('linear');
+```
+
+## 8. References
+
+- `packages/contracts/src/task-sync.ts` — Type contracts
+- `packages/core/src/reconciliation/` — Engine and link store
+- `packages/core/src/store/tasks-schema.ts` — `external_task_links` table

@@ -233,16 +233,3 @@ export async function getWorkHistory(
  */
 export const getTaskHistory = getWorkHistory;
 
-export type {
-  ChangeSet as TodoWriteChangeSet,
-  SyncSessionState,
-  TodoWriteItem,
-  TodoWriteMergeOptions,
-  TodoWriteMergeResult,
-  TodoWriteState,
-} from './todowrite-merge.js';
-// TodoWrite merge
-export {
-  analyzeChanges as analyzeTodoWriteChanges,
-  mergeTodoWriteState,
-} from './todowrite-merge.js';

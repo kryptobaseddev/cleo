@@ -510,7 +510,7 @@ export class AdminHandler implements DomainHandler {
           }
           // Default: standard export
           const result = await exportTasks({
-            format: params?.format as 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite' | undefined,
+            format: params?.format as 'json' | 'csv' | 'tsv' | 'markdown' | undefined,
             output: params?.output as string | undefined,
             status: params?.status as string | undefined,
             parent: params?.parent as string | undefined,

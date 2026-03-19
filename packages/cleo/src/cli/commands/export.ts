@@ -11,10 +11,10 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerExportCommand(program: Command): void {
   program
     .command('export')
-    .description('Export tasks to CSV, TSV, JSON, markdown, or TodoWrite format')
+    .description('Export tasks to CSV, TSV, JSON, or markdown format')
     .option(
       '--export-format <format>',
-      'Export format: json, csv, tsv, markdown, todowrite',
+      'Export format: json, csv, tsv, markdown',
       'json',
     )
     .option('--output <file>', 'Output file path (stdout if omitted)')

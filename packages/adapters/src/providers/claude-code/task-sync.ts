@@ -4,16 +4,14 @@
  *
  * All Claude Code / TodoWrite-specific parsing lives here.
  * The core reconciliation engine never sees TodoWrite formats.
- *
- * @task T5800
  */
 
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type {
-  AdapterTaskSyncProvider,
   ExternalTask,
+  ExternalTaskProvider,
   ExternalTaskStatus,
 } from '@cleocode/contracts';
 
@@ -89,7 +87,7 @@ function getTodoWriteFilePath(projectDir: string): string {
  *
  * Optional: accepts a custom file path for testing.
  */
-export class ClaudeCodeTaskSyncProvider implements AdapterTaskSyncProvider {
+export class ClaudeCodeTaskSyncProvider implements ExternalTaskProvider {
   private readonly customFilePath?: string;
 
   constructor(options?: { filePath?: string }) {
@@ -131,11 +129,11 @@ export class ClaudeCodeTaskSyncProvider implements AdapterTaskSyncProvider {
 
       tasks.push({
         externalId: cleoTaskId ?? `tw-new-${syntheticIndex++}`,
-        cleoTaskId,
         title,
         status: mapStatus(item.status),
         providerMeta: {
           source: 'todowrite',
+          cleoTaskId,
           activeForm: item.activeForm,
           rawContent: item.content,
         },
@@ -143,14 +141,5 @@ export class ClaudeCodeTaskSyncProvider implements AdapterTaskSyncProvider {
     }
 
     return tasks;
-  }
-
-  async cleanup(projectDir: string): Promise<void> {
-    const filePath = this.customFilePath ?? getTodoWriteFilePath(projectDir);
-    try {
-      await rm(filePath);
-    } catch {
-      // File may not exist — that's fine
-    }
   }
 }

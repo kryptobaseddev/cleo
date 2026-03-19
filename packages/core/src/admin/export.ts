@@ -10,7 +10,7 @@ import { writeFile } from 'node:fs/promises';
 import type { Task } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 
-export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite';
+export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown';
 
 function taskToCsvRow(task: Task, delimiter: string): string {
   const escapeField = (val: string) => {
@@ -36,16 +36,6 @@ function taskToMarkdown(task: Task): string {
   const status = task.status === 'done' ? 'x' : ' ';
   const priority = task.priority === 'critical' ? '!!!' : task.priority === 'high' ? '!!' : '';
   return `- [${status}] **${task.id}** ${priority} ${task.title}`;
-}
-
-function taskToTodoWrite(task: Task): Record<string, unknown> {
-  return {
-    id: task.id,
-    content: task.title,
-    status:
-      task.status === 'done' ? 'completed' : task.status === 'active' ? 'in_progress' : 'pending',
-    priority: task.priority === 'critical' ? 'high' : task.priority,
-  };
 }
 
 export interface ExportParams {
@@ -132,13 +122,8 @@ export async function exportTasks(params: ExportParams): Promise<ExportResult> {
       content = lines.join('\n');
       break;
     }
-    case 'todowrite': {
-      const items = tasks.map(taskToTodoWrite);
-      content = JSON.stringify(items, null, 2);
-      break;
-    }
     default:
-      throw new Error(`Unknown format: ${format}. Valid: json, csv, tsv, markdown, todowrite`);
+      throw new Error(`Unknown format: ${format}. Valid: json, csv, tsv, markdown`);
   }
 
   if (params.output) {

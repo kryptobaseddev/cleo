@@ -87,7 +87,7 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `check` | Schema validation, protocol compliance, test execution, grading | tasks.db (audit) |
 | `pipeline` | RCASD-IVTR+C lifecycle stages, manifest ledger, release management | MANIFEST.jsonl, tasks.db |
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution | tasks.db |
-| `tools` | Skills, providers, TodoWrite integration, CAAMP catalog | .cleo/skills/ |
+| `tools` | Skills, providers, CAAMP catalog | .cleo/skills/ |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs, protocol injection | config.json, tasks.db |
 | `nexus` | Cross-project coordination, registry, dependency graph | nexus.db |
 | `sticky` | Ephemeral project-wide capture, quick notes before formal task creation | brain.db |
@@ -182,11 +182,11 @@ interface OperationDef {
 
 ## 7. Domain Operation Tables
 
-### 6.1 tasks (26 operations)
+### 6.1 tasks (29 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
-| query | `show` | Show task details by ID | 0 | -- | Yes |
+| query | `show` | Show task details by ID | 0 | `taskId` | Yes |
 | query | `list` | List tasks with filters | 1 | -- | Yes |
 | query | `find` | Search tasks by keyword | 0 | -- | Yes |
 | query | `tree` | Display task hierarchy tree | 1 | -- | Yes |
@@ -195,23 +195,26 @@ interface OperationDef {
 | query | `analyze` | Analyze task metrics | 1 | -- | Yes |
 | query | `next` | Suggest next task to work on | 0 | -- | Yes |
 | query | `plan` | Composite planning view (epics, ready, blocked, bugs) | 0 | -- | Yes |
-| query | `relates` | Show related tasks; accepts `mode:"suggest"\|"discover"` | 1 | -- | Yes |
-| query | `complexity.estimate` | Estimate task complexity | 1 | -- | Yes |
+| query | `relates` | Show related tasks; accepts `mode:"suggest"\|"discover"` | 1 | `taskId` | Yes |
+| query | `complexity.estimate` | Estimate task complexity | 1 | `taskId` | Yes |
 | query | `current` | Show currently active task | 0 | -- | Yes |
 | query | `history` | Show task work history (time tracked per task) | 1 | -- | Yes |
 | query | `label.list` | List all labels; accepts optional `label` filter | 1 | -- | Yes |
-| mutate | `add` | Create new task | 0 | -- | No |
-| mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
-| mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | -- | No |
+| query | `sync.links` | List external task links by provider or task ID | 1 | -- | Yes |
+| mutate | `add` | Create new task | 0 | `title` | No |
+| mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | `taskId` | No |
+| mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | `taskId` | No |
 | mutate | `cancel` | Cancel task (soft terminal state — reversible via `restore`) | 1 | `taskId` | No |
-| mutate | `delete` | Permanently remove task | 1 | -- | No |
+| mutate | `delete` | Permanently remove task | 1 | `taskId` | No |
 | mutate | `archive` | Soft-delete task to archive | 1 | -- | No |
-| mutate | `restore` | Restore task from terminal state; accepts `from:"done"\|"archive"` | 1 | -- | No |
-| mutate | `reparent` | Move task to new parent; `newParentId: null` promotes to top-level | 1 | -- | No |
-| mutate | `reorder` | Reorder tasks within parent | 1 | -- | No |
-| mutate | `relates.add` | Add task relationship | 1 | -- | No |
-| mutate | `start` | Begin working on task | 0 | -- | No |
+| mutate | `restore` | Restore task from terminal state; accepts `from:"done"\|"archive"` | 1 | `taskId` | No |
+| mutate | `reparent` | Move task to new parent; `newParentId: null` promotes to top-level | 1 | `taskId` | No |
+| mutate | `reorder` | Reorder tasks within parent | 1 | `taskId`, `position` | No |
+| mutate | `relates.add` | Add task relationship | 1 | `taskId`, `type` | No |
+| mutate | `start` | Begin working on task | 0 | `taskId` | No |
 | mutate | `stop` | Stop working on task | 0 | -- | No |
+| mutate | `sync.reconcile` | Reconcile external tasks with CLEO as SSoT | 1 | `providerId`, `externalTasks` | No |
+| mutate | `sync.links.remove` | Remove all external task links for a provider | 1 | `providerId` | Yes |
 
 **Merged operations (removed from registry):**
 - `tasks.exists` → use `tasks.find {exact:true}` and check `results.length > 0`
@@ -412,7 +415,7 @@ The entire orchestrate domain is tier 1. All operations are orchestrator-specifi
 - `orchestrate.chain.plan` — dead handler code, not in registry
 - `orchestrate.verify` — dead handler code, not in registry
 
-### 6.7 tools (22 operations)
+### 6.7 tools (25 operations)
 
 The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue.*` operations have been extracted to the `ct-github-issues` plugin and are not counted in core.
 
@@ -433,13 +436,10 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 | query | `provider.inject.status` | Provider injection status | 1 | -- | Yes |
 | query | `provider.supports` | Check if provider supports capability | 1 | -- | Yes |
 | query | `provider.hooks` | List providers by hook event support | 1 | -- | Yes |
-| query | `todowrite.status` | TodoWrite sync status (moved from admin) | 1 | -- | Yes |
 | mutate | `skill.install` | Install skill | 1 | -- | No |
 | mutate | `skill.uninstall` | Uninstall skill | 1 | -- | No |
 | mutate | `skill.refresh` | Refresh skill catalog | 1 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 1 | -- | No |
-| mutate | `todowrite.sync` | Synchronize TodoWrite integration (moved from admin) | 1 | -- | No |
-| mutate | `todowrite.clear` | Clear TodoWrite sync state (moved from admin) | 1 | -- | No |
 | query | `adapter.list` | List all discovered provider adapters | 2 | -- | Yes |
 | query | `adapter.show` | Show details for a specific adapter | 2 | `id` | Yes |
 | query | `adapter.detect` | Detect active providers in current environment | 2 | -- | Yes |
@@ -465,9 +465,7 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 - `tools.skill.precedence.show`, `tools.skill.precedence.resolve` → unified as `tools.skill.precedence {action}`
 
 **Moved in from admin:**
-- `admin.sync` → `tools.todowrite.sync`
-- `admin.sync.status` → `tools.todowrite.status`
-- `admin.sync.clear` → `tools.todowrite.clear`
+- `admin.sync` / `admin.sync.status` / `admin.sync.clear` → Removed (TodoWrite system replaced by provider-agnostic reconciliation engine in `@cleocode/core`)
 
 ### 6.8 admin (30 operations)
 
@@ -526,9 +524,7 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 - `admin.sequence` (mutate form) → removed; use `admin.config.set` if needed
 
 **Moved out:**
-- `admin.sync` → `tools.todowrite.sync`
-- `admin.sync.status` → `tools.todowrite.status`
-- `admin.sync.clear` → `tools.todowrite.clear`
+- `admin.sync` / `admin.sync.status` / `admin.sync.clear` → Removed (TodoWrite system replaced by provider-agnostic reconciliation engine in `@cleocode/core`)
 - `admin.grade` → `check.grade`
 - `admin.grade.list` → absorbed into `check.grade {action:"list"}`
 - `admin.archive.stats` → `check.archive.stats`
@@ -603,19 +599,19 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 14 | 12 | 26 |
+| tasks | 15 | 14 | 29 |
 | session | 8 | 7 | 15 |
 | memory | 11 | 7 | 18 |
 | check | 13 | 4 | 17 |
 | pipeline | 14 | 17 | 31 |
 | orchestrate | 9 | 7 | 16 |
-| tools | 20 | 8 | 28 |
+| tools | 19 | 6 | 25 |
 | admin | 16 | 16 | 32 |
 | nexus | 12 | 8 | 20 |
 | sticky | 2 | 4 | 6 |
 | **Total** | **119** | **90** | **209** |
 
-> These counts match `packages/cleo/src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
+> These counts match `packages/cleo/src/dispatch/registry.ts` exactly (209 total). The registry is the authoritative source of truth.
 
 ---
 
@@ -717,9 +713,7 @@ Operations moved between domains as part of the 268→195 rationalization. These
 | Old operation | New operation | Direction | Rationale |
 |---------------|---------------|-----------|-----------|
 | `session.context.inject` | `admin.context.inject` | session → admin | Reads filesystem protocol files; bootstrap utility, not session state |
-| `admin.sync` | `tools.todowrite.sync` | admin → tools | TodoWrite is an external integration; belongs with tools |
-| `admin.sync.status` | `tools.todowrite.status` | admin → tools | Same rationale |
-| `admin.sync.clear` | `tools.todowrite.clear` | admin → tools | Same rationale |
+| `admin.sync` / `admin.sync.status` / `admin.sync.clear` | Removed | admin → removed | TodoWrite replaced by provider-agnostic reconciliation engine in `@cleocode/core` |
 | `admin.grade` | `check.grade` | admin → check | Behavioral grading is a compliance/quality check |
 | `admin.grade.list` | `check.grade {action:"list"}` | admin → check | Grade history; same rationale |
 | `admin.archive.stats` | `check.archive.stats` | admin → check | Archive analytics; reporting/compliance |
@@ -947,9 +941,7 @@ Quick reference for agents and code calling removed operations.
 | `admin.grade` | `check.grade` (domain changed) |
 | `admin.grade.list` | `check.grade {action:"list"}` (domain changed) |
 | `admin.archive.stats` | `check.archive.stats` (domain changed) |
-| `admin.sync` | `tools.todowrite.sync` (domain changed) |
-| `admin.sync.status` | `tools.todowrite.status` (domain changed) |
-| `admin.sync.clear` | `tools.todowrite.clear` (domain changed) |
+| `admin.sync` / `admin.sync.status` / `admin.sync.clear` | Removed — use `@cleocode/core` reconciliation engine |
 | `nexus.query` | `nexus.resolve` (renamed; `query` is a prohibited verb) |
 | `nexus.critical-path` | `nexus.path.show` (alias removed) |
 | `nexus.blocking` | `nexus.blockers.show` (alias removed) |

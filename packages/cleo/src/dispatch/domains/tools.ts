@@ -9,7 +9,6 @@
  *   issue.*      - Issue diagnostics (templates/create extracted to ct-github-issues)
  *   skill.*      - Skill discovery, dispatch, catalog
  *   provider.*   - CAAMP provider registry
- *   todowrite.*  - TodoWrite sync state (moved from admin domain, T5615)
  *   adapter.*    - Provider adapter management
  *
  * @epic T4820
@@ -47,9 +46,6 @@ import {
   toolsSkillSpawnProviders,
   toolsSkillUninstall,
   toolsSkillVerify,
-  toolsTodowriteClear,
-  toolsTodowriteStatus,
-  toolsTodowriteSync,
 } from '../engines/tools-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
@@ -96,11 +92,6 @@ export class ToolsHandler implements DomainHandler {
         return await this.queryProvider(operation.slice('provider.'.length), params, startTime);
       }
 
-      // TodoWrite sub-domain
-      if (operation.startsWith('todowrite.')) {
-        return await this.queryTodowrite(operation.slice('todowrite.'.length), params, startTime);
-      }
-
       // Adapter sub-domain
       if (operation.startsWith('adapter.')) {
         return this.queryAdapter(operation.slice('adapter.'.length), params, startTime);
@@ -129,11 +120,6 @@ export class ToolsHandler implements DomainHandler {
       // Provider sub-domain
       if (operation.startsWith('provider.')) {
         return await this.mutateProvider(operation.slice('provider.'.length), params, startTime);
-      }
-
-      // TodoWrite sub-domain
-      if (operation.startsWith('todowrite.')) {
-        return await this.mutateTodowrite(operation.slice('todowrite.'.length), params, startTime);
       }
 
       // Adapter sub-domain
@@ -168,8 +154,6 @@ export class ToolsHandler implements DomainHandler {
         'provider.inject.status',
         'provider.supports',
         'provider.hooks',
-        // todowrite
-        'todowrite.status',
         // adapter
         'adapter.list',
         'adapter.show',
@@ -183,9 +167,6 @@ export class ToolsHandler implements DomainHandler {
         'skill.refresh',
         // provider
         'provider.inject',
-        // todowrite
-        'todowrite.sync',
-        'todowrite.clear',
         // adapter
         'adapter.activate',
         'adapter.dispose',
@@ -569,55 +550,6 @@ export class ToolsHandler implements DomainHandler {
 
       default:
         return unsupportedOp('mutate', 'tools', `provider.${sub}`, startTime);
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // TodoWrite queries (T5615 — moved from admin domain)
-  // -----------------------------------------------------------------------
-
-  private async queryTodowrite(
-    sub: string,
-    _params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'status': {
-        const result = await toolsTodowriteStatus(this.projectRoot);
-        return wrapResult(result, 'query', 'tools', 'todowrite.status', startTime);
-      }
-
-      default:
-        return unsupportedOp('query', 'tools', `todowrite.${sub}`, startTime);
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // TodoWrite mutations (T5615 — moved from admin domain)
-  // -----------------------------------------------------------------------
-
-  private async mutateTodowrite(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'sync': {
-        const result = toolsTodowriteSync(
-          this.projectRoot,
-          params as { direction?: string } | undefined,
-        );
-        return wrapResult(result, 'mutate', 'tools', 'todowrite.sync', startTime);
-      }
-
-      case 'clear': {
-        const dryRun = params?.dryRun as boolean | undefined;
-        const result = await toolsTodowriteClear(this.projectRoot, dryRun);
-        return wrapResult(result, 'mutate', 'tools', 'todowrite.clear', startTime);
-      }
-
-      default:
-        return unsupportedOp('mutate', 'tools', `todowrite.${sub}`, startTime);
     }
   }
 

@@ -1,5 +1,7 @@
 /**
- * TodoWrite injection core module.
+ * Task injection core module.
+ *
+ * Selects and formats tasks for injection into external systems.
  *
  * ARCHITECTURE NOTE: Instruction injection is a CAAMP domain responsibility.
  * Once @cleocode/caamp is available as a dependency, the injection formatting
@@ -14,8 +16,6 @@
 import type { Task, TaskFile } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-
-// CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 
 /**
  * Select tasks eligible for injection based on filters.
@@ -59,11 +59,11 @@ function selectTasksForInjection(
 }
 
 /**
- * Format tasks for TodoWrite injection.
+ * Format tasks for injection.
  * Format: [T###] [!]? [BLOCKED]? <title>
  * @task T4539
  */
-function formatForTodoWrite(tasks: Task[]): Array<{ id: string; text: string; status: string }> {
+function formatForInjection(tasks: Task[]): Array<{ id: string; text: string; status: string }> {
   return tasks.map((t) => {
     let prefix = `[${t.id}]`;
     if (t.priority === 'critical' || t.priority === 'high') prefix += ' [!]';
@@ -72,7 +72,7 @@ function formatForTodoWrite(tasks: Task[]): Array<{ id: string; text: string; st
   });
 }
 
-/** Inject tasks into TodoWrite format. */
+/** Inject tasks for external consumption. */
 export async function injectTasks(
   opts: {
     maxTasks?: number;
@@ -97,7 +97,7 @@ export async function injectTasks(
   } as TaskFile;
 
   const selectedTasks = selectTasksForInjection(data, opts);
-  const formatted = formatForTodoWrite(selectedTasks);
+  const formatted = formatForInjection(selectedTasks);
 
   const phase = opts.phase ?? projectMeta?.currentPhase ?? null;
 

@@ -28,12 +28,6 @@ export { exportTasksPackage } from './admin/export-tasks.js';
 export { computeHelp } from './admin/help.js';
 export { importTasks } from './admin/import.js';
 export { importTasksPackage } from './admin/import-tasks.js';
-// Alias for cleo compatibility (admin sync status)
-export {
-  clearSyncState,
-  getSyncStatus,
-  getSyncStatus as getAdminSyncStatus,
-} from './admin/sync.js';
 // ADRs
 export { findAdrs } from './adrs/find.js';
 export { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from './adrs/index.js';
@@ -206,10 +200,13 @@ export { listPhases, showPhase } from './pipeline/index.js';
 export { getNodeUpgradeInstructions, getNodeVersionInfo } from './platform.js';
 // Reconciliation (additional)
 export {
-  clearSyncState as clearProviderSyncState,
-  readSyncState,
-  writeSyncState,
-} from './reconciliation/sync-state.js';
+  createLink,
+  getLinkByExternalId,
+  getLinksByProvider,
+  getLinksByTaskId,
+  removeLinksByProvider,
+  touchLink,
+} from './reconciliation/link-store.js';
 // Release
 export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './release/channel.js';
 export type { PRResult } from './release/github-pr.js';
@@ -338,7 +335,7 @@ export { computeChecksum, readJson } from './store/json.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export { createTask } from './store/task-store.js';
-export { auditLog, releaseManifests, taskDependencies, tasks } from './store/tasks-schema.js';
+export { auditLog, externalTaskLinks, releaseManifests, taskDependencies, tasks } from './store/tasks-schema.js';
 export { AuditLogInsertSchema } from './store/validation-schemas.js';
 export type {
   AnalyzeArchiveOptions,
@@ -384,18 +381,6 @@ export {
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
-export type {
-  ChangeSet as TodoWriteChangeSet,
-  SyncSessionState,
-  TodoWriteItem,
-  TodoWriteMergeOptions,
-  TodoWriteMergeResult,
-  TodoWriteState,
-} from './task-work/todowrite-merge.js';
-export {
-  analyzeChanges as analyzeTodoWriteChanges,
-  mergeTodoWriteState,
-} from './task-work/todowrite-merge.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
 export { getCriticalPath } from './tasks/graph-ops.js';

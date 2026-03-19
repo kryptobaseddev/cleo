@@ -95,6 +95,51 @@ function isValidVersion(version: string): boolean {
   return /^v?\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/.test(version);
 }
 
+function validateCalVerWindow(
+  version: string,
+  now = new Date(),
+): { valid: boolean; message: string } {
+  const normalized = version.startsWith('v') ? version.slice(1) : version;
+  const base = normalized.split('-')[0] ?? normalized;
+  const parts = base.split('.');
+
+  if (parts.length !== 3) {
+    return { valid: false, message: `Invalid CalVer format: ${version}` };
+  }
+
+  const tagYear = Number.parseInt(parts[0] ?? '', 10);
+  const tagMonth = Number.parseInt(parts[1] ?? '', 10);
+  if (!Number.isInteger(tagYear) || !Number.isInteger(tagMonth)) {
+    return { valid: false, message: `Invalid CalVer date components: ${version}` };
+  }
+
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
+  const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+  const nextYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+
+  const isPreRelease = normalized.includes('-');
+  if (isPreRelease) {
+    const valid =
+      (tagYear === currentYear || tagYear === nextYear) &&
+      (tagMonth === currentMonth || tagMonth === nextMonth);
+    return {
+      valid,
+      message: valid
+        ? `CalVer OK (pre-release): ${version}`
+        : `Pre-release ${version} outside allowed CalVer range ${currentYear}.${currentMonth} or ${nextYear}.${nextMonth}`,
+    };
+  }
+
+  const valid = tagYear === currentYear && tagMonth === currentMonth;
+  return {
+    valid,
+    message: valid
+      ? `CalVer OK (stable): ${version}`
+      : `${version} does not match current CalVer ${currentYear}.${currentMonth}`,
+  };
+}
+
 function normalizeVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`;
 }
@@ -723,6 +768,16 @@ export async function runReleaseGates(
       : 'Invalid version format',
   });
 
+  const releaseConfig = loadReleaseConfig(cwd);
+  if (releaseConfig.versioningScheme === 'calver') {
+    const calver = validateCalVerWindow(normalizedVersion);
+    gates.push({
+      name: 'calver_window',
+      status: calver.valid ? 'passed' : 'failed',
+      message: calver.message,
+    });
+  }
+
   gates.push({
     name: 'has_tasks',
     status: releaseTasks.length > 0 ? 'passed' : 'failed',
@@ -824,7 +879,6 @@ export async function runReleaseGates(
     /* git not available — skip */
   }
 
-  const releaseConfig = loadReleaseConfig(cwd);
   const gitFlowCfg = getGitFlowConfig(releaseConfig);
   const channelCfg = getChannelConfig(releaseConfig);
 

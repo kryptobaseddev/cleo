@@ -101,6 +101,10 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'tasks', operation: 'relates.add', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'start', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'stop', gateway: 'mutate', mode: 'native' },
+  // Sync sub-domain (provider-agnostic task reconciliation)
+  { domain: 'tasks', operation: 'sync.reconcile', gateway: 'mutate', mode: 'native' },
+  { domain: 'tasks', operation: 'sync.links', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'sync.links.remove', gateway: 'mutate', mode: 'native' },
 
   // === Session Domain ===
   // Query operations
@@ -278,11 +282,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'tools', operation: 'provider.supports', gateway: 'query', mode: 'native' },
   { domain: 'tools', operation: 'provider.hooks', gateway: 'query', mode: 'native' },
   { domain: 'tools', operation: 'provider.inject', gateway: 'mutate', mode: 'native' },
-  // TodoWrite operations
-  { domain: 'tools', operation: 'todowrite.status', gateway: 'query', mode: 'native' },
-  { domain: 'tools', operation: 'todowrite.sync', gateway: 'mutate', mode: 'native' },
-  { domain: 'tools', operation: 'todowrite.clear', gateway: 'mutate', mode: 'native' },
-
   // === Nexus Domain ===
   // Query operations
   { domain: 'nexus', operation: 'status', gateway: 'query', mode: 'native' },

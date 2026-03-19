@@ -645,6 +645,56 @@ export const adrRelations = sqliteTable(
   (table) => [primaryKey({ columns: [table.fromAdrId, table.toAdrId, table.relationType] })],
 );
 
+// === EXTERNAL TASK LINKS (provider-agnostic task reconciliation) ===
+
+/**
+ * Tracks links between CLEO tasks and external system tasks (Linear, Jira, GitHub, etc.).
+ * Used by the reconciliation engine to match external tasks to existing CLEO tasks,
+ * detect updates, and maintain bidirectional traceability.
+ *
+ * Each row represents one link: one CLEO task ↔ one external task from one provider.
+ * A CLEO task MAY have links from multiple providers (e.g., both Linear and GitHub).
+ * An external task SHOULD have at most one link per provider.
+ */
+export const externalTaskLinks = sqliteTable(
+  'external_task_links',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Provider identifier (e.g. 'linear', 'jira', 'github', 'gitlab'). */
+    providerId: text('provider_id').notNull(),
+    /** Provider-assigned identifier for the external task (opaque to CLEO). */
+    externalId: text('external_id').notNull(),
+    /** Optional URL to the external task (for human navigation). */
+    externalUrl: text('external_url'),
+    /** Title of the external task at the time of last sync. */
+    externalTitle: text('external_title'),
+    /** How this link was established. */
+    linkType: text('link_type', {
+      enum: ['created', 'matched', 'manual'],
+    }).notNull(),
+    /** Direction of the sync that created this link. */
+    syncDirection: text('sync_direction', {
+      enum: ['inbound', 'outbound', 'bidirectional'],
+    })
+      .notNull()
+      .default('inbound'),
+    /** Arbitrary provider-specific metadata (JSON). */
+    metadataJson: text('metadata_json').default('{}'),
+    /** When the link was first established. */
+    linkedAt: text('linked_at').notNull().default(sql`(datetime('now'))`),
+    /** When the external task was last synchronized. */
+    lastSyncAt: text('last_sync_at'),
+  },
+  (table) => [
+    index('idx_ext_links_task_id').on(table.taskId),
+    index('idx_ext_links_provider_external').on(table.providerId, table.externalId),
+    index('idx_ext_links_provider_id').on(table.providerId),
+  ],
+);
+
 // === STATUS REGISTRY (ADR-018) ===
 
 export const statusRegistryTable = sqliteTable(
@@ -702,3 +752,5 @@ export type PipelineManifestRow = typeof pipelineManifest.$inferSelect;
 export type NewPipelineManifestRow = typeof pipelineManifest.$inferInsert;
 export type ReleaseManifestRow = typeof releaseManifests.$inferSelect;
 export type NewReleaseManifestRow = typeof releaseManifests.$inferInsert;
+export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;
+export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;

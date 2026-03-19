@@ -400,7 +400,6 @@ As of 2026-03-06, implementation counts are:
 | `backup`          | Create backup           | `type?`, `note?`          | Backup path           |
 | `restore`         | Restore from backup     | `backupId`                | Restore status        |
 | `migrate`         | Run migrations          | `version?`, `dryRun?`     | Migration result      |
-| `sync`            | Sync with TodoWrite     | `direction?`              | Sync result           |
 | `cleanup`         | Cleanup stale data      | `type`, `olderThan?`      | Cleanup count         |
 | `job.cancel`      | Cancel background job   | `jobId`                   | Cancellation status   |
 | `safestop`        | Graceful agent shutdown | `reason?`                 | Shutdown confirmation |

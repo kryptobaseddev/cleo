@@ -18,9 +18,9 @@ import path from 'node:path';
 import type {
   DataAccessor,
   ExternalTask,
+  ExternalTaskLink,
   ReconcileOptions,
   ReconcileResult,
-  SyncSessionState,
   Task,
   TaskPriority,
   TaskSize,
@@ -80,7 +80,7 @@ import {
 } from './orchestration/index.js';
 // Reconciliation (sync)
 import { reconcile } from './reconciliation/index.js';
-import { clearSyncState, readSyncState, writeSyncState } from './reconciliation/sync-state.js';
+import { getLinksByProvider, getLinksByTaskId, removeLinksByProvider } from './reconciliation/link-store.js';
 
 // Release
 import {
@@ -303,6 +303,7 @@ export interface NexusAPI {
 }
 
 export interface SyncAPI {
+  /** Reconcile external tasks with CLEO as SSoT. */
   reconcile(params: {
     externalTasks: ExternalTask[];
     providerId: string;
@@ -311,9 +312,12 @@ export interface SyncAPI {
     defaultPhase?: string;
     defaultLabels?: string[];
   }): Promise<ReconcileResult>;
-  readState(providerId: string): Promise<SyncSessionState | null>;
-  writeState(providerId: string, state: SyncSessionState): Promise<void>;
-  clearState(providerId: string): Promise<void>;
+  /** Get all external task links for a provider. */
+  getLinks(providerId: string): Promise<ExternalTaskLink[]>;
+  /** Get all external task links for a CLEO task. */
+  getTaskLinks(taskId: string): Promise<ExternalTaskLink[]>;
+  /** Remove all external task links for a provider. */
+  removeProviderLinks(providerId: string): Promise<number>;
 }
 
 // ============================================================================
@@ -580,9 +584,9 @@ export class Cleo {
           },
           store,
         ),
-      readState: (providerId) => readSyncState(providerId, root),
-      writeState: (providerId, state) => writeSyncState(providerId, state, root),
-      clearState: (providerId) => clearSyncState(providerId, root),
+      getLinks: (providerId) => getLinksByProvider(providerId, root),
+      getTaskLinks: (taskId) => getLinksByTaskId(taskId, root),
+      removeProviderLinks: (providerId) => removeLinksByProvider(providerId, root),
     };
   }
 }

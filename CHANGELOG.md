@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.3.40] (2026-03-19)
+
+### Added
+- **Task Reconciliation Engine**: Provider-agnostic external task sync system in `@cleocode/core`. Consumers implement `ExternalTaskProvider` to sync any issue tracker (Linear, Jira, GitHub, GitLab) with CLEO as SSoT.
+- **External Task Links**: New `external_task_links` table in tasks.db for DB-backed bidirectional traceability between CLEO tasks and external system tasks.
+- **Link Store API**: `createLink`, `getLinksByProvider`, `getLinksByTaskId`, `getLinkByExternalId`, `touchLink`, `removeLinksByProvider` in `@cleocode/core`.
+- **Cleo Facade SyncAPI**: `cleo.sync.reconcile()`, `cleo.sync.getLinks()`, `cleo.sync.getTaskLinks()`, `cleo.sync.removeProviderLinks()`.
+- **Dispatch Operations**: `tasks.sync.reconcile` (mutate), `tasks.sync.links` (query), `tasks.sync.links.remove` (mutate) — wired through registry, capability matrix, task engine, and domain handler.
+
+### Removed
+- **TodoWrite System**: Completely removed all TodoWrite code, types, contracts, CLI commands, dispatch operations, and file-based sync state (`todowrite-session.json`, `todowrite-state.json`).
+  - Deleted: `contracts/todowrite.ts`, `core/task-work/todowrite-merge.ts`, `core/admin/sync.ts`, `core/reconciliation/sync-state.ts`, CLI `extract` and `sync` commands, `tools.todowrite.*` dispatch ops and registry entries.
+  - Removed `todowrite` export format from `admin/export.ts`.
+- **Stale Compiled Artifacts**: Cleaned all `.js`, `.d.ts`, `.js.map`, `.d.ts.map` files for deleted source modules.
+
+### Changed
+- **Contracts**: `AdapterTaskSyncProvider` renamed to `ExternalTaskProvider`. `ExternalTask` enriched with `priority`, `type`, `url`, `parentExternalId`. `SyncSessionState` removed (replaced by DB-backed links). `ReconcileResult` gains `updated`, `linksAffected`, `total` counts.
+- **DRY requiredParams**: Moved param validation from 13 inline handler checks to `requiredParams` declarations in the dispatch registry for the entire tasks domain.
+
 ## [2026.3.39] (2026-03-19)
 
 ### Fixed

@@ -4,7 +4,8 @@
  * Handles all task CRUD and non-CRUD operations: show, list, find, exists,
  * tree, blockers, depends, analyze, next, relates, complexity.estimate,
  * current, add, update, complete, delete, archive, restore, reparent,
- * promote, reorder, relates.add, start, stop.
+ * promote, reorder, relates.add, start, stop, sync.reconcile, sync.links,
+ * sync.links.remove.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -43,6 +44,9 @@ import {
   taskShow,
   taskStart,
   taskStop,
+  taskSyncLinks,
+  taskSyncLinksRemove,
+  taskSyncReconcile,
   taskTree,
   taskUnarchive,
   taskUpdate,
@@ -72,18 +76,7 @@ export class TasksHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'show': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskShow(this.projectRoot, taskId);
+          const result = await taskShow(this.projectRoot, params!.taskId as string);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -183,17 +176,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'relates': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
+          const taskId = params!.taskId as string;
           // Consolidated: mode param routes to relates.find logic (T5615/T5671)
           if (params?.mode) {
             const result = await taskRelatesFind(this.projectRoot, taskId, {
@@ -207,18 +190,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'complexity.estimate': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'query',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskComplexityEstimate(this.projectRoot, { taskId });
+          const result = await taskComplexityEstimate(this.projectRoot, { taskId: params!.taskId as string });
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -239,6 +211,11 @@ export class TasksHandler implements DomainHandler {
 
         case 'label.list': {
           const result = await taskLabelList(this.projectRoot);
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
+        }
+
+        case 'sync.links': {
+          const result = await taskSyncLinks(this.projectRoot, params as { providerId?: string; taskId?: string } | undefined);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -264,20 +241,9 @@ export class TasksHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'add': {
-          const title = params?.title as string;
-          if (!title) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'title is required',
-              startTime,
-            );
-          }
           const result = await taskCreate(this.projectRoot, {
-            title,
-            description: (params?.description as string) ?? title,
+            title: params!.title as string,
+            description: (params?.description as string) ?? (params!.title as string),
             parent: (params?.parent ?? params?.parentId) as string | undefined,
             depends: params?.depends as string[] | undefined,
             priority: params?.priority as string | undefined,
@@ -288,18 +254,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'update': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskUpdate(this.projectRoot, taskId, {
+          const result = await taskUpdate(this.projectRoot, params!.taskId as string, {
             title: params?.title as string | undefined,
             description: params?.description as string | undefined,
             status: params?.status as string | undefined,
@@ -320,40 +275,18 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'complete': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
           const result = await taskComplete(
             this.projectRoot,
-            taskId,
+            params!.taskId as string,
             params?.notes as string | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'delete': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
           const result = await taskDelete(
             this.projectRoot,
-            taskId,
+            params!.taskId as string,
             params?.force as boolean | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
@@ -369,17 +302,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'restore': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
+          const taskId = params!.taskId as string;
           // Consolidated: from param routes to reopen/unarchive logic (T5615/T5671)
           const from = params?.from as string | undefined;
           if (from === 'done') {
@@ -404,115 +327,75 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'cancel': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
           const result = await taskCancel(
             this.projectRoot,
-            taskId,
+            params!.taskId as string,
             params?.reason as string | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'reparent': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
           const result = await taskReparent(
             this.projectRoot,
-            taskId,
+            params!.taskId as string,
             (params?.newParentId as string | null) ?? null,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'reorder': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const position = params?.position as number;
-          if (position === undefined || position === null) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'position is required',
-              startTime,
-            );
-          }
-          const result = await taskReorder(this.projectRoot, taskId, position);
+          const result = await taskReorder(this.projectRoot, params!.taskId as string, params!.position as number);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'relates.add': {
-          const taskId = params?.taskId as string;
           // Accept both targetId and relatedId for compatibility (T5149)
           const relatedId = (params?.relatedId ?? params?.targetId) as string;
-          const type = params?.type as string;
-          if (!taskId || !relatedId || !type) {
+          if (!relatedId) {
             return errorResult(
               'mutate',
               'tasks',
               operation,
               'E_INVALID_INPUT',
-              'taskId, relatedId (or targetId), and type are required',
+              'relatedId (or targetId) is required',
               startTime,
             );
           }
           const result = await taskRelatesAdd(
             this.projectRoot,
-            taskId,
+            params!.taskId as string,
             relatedId,
-            type,
+            params!.type as string,
             params?.reason as string | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'start': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'tasks',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-          const result = await taskStart(this.projectRoot, taskId);
+          const result = await taskStart(this.projectRoot, params!.taskId as string);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'stop': {
           const result = await taskStop(this.projectRoot);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
+        case 'sync.reconcile': {
+          const result = await taskSyncReconcile(this.projectRoot, {
+            providerId: params!.providerId as string,
+            externalTasks: params!.externalTasks as import('@cleocode/contracts').ExternalTask[],
+            dryRun: params?.dryRun as boolean | undefined,
+            conflictPolicy: params?.conflictPolicy as string | undefined,
+            defaultPhase: params?.defaultPhase as string | undefined,
+            defaultLabels: params?.defaultLabels as string[] | undefined,
+          });
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
+        case 'sync.links.remove': {
+          const result = await taskSyncLinksRemove(this.projectRoot, params!.providerId as string);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
@@ -549,6 +432,7 @@ export class TasksHandler implements DomainHandler {
         'history',
         'current',
         'label.list',
+        'sync.links',
       ],
       mutate: [
         'add',
@@ -563,6 +447,8 @@ export class TasksHandler implements DomainHandler {
         'relates.add',
         'start',
         'stop',
+        'sync.reconcile',
+        'sync.links.remove',
       ],
     };
   }

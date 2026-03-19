@@ -1361,3 +1361,87 @@ export async function taskLabelShow(
     return engineError('E_INTERNAL', message);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Sync sub-domain (provider-agnostic task reconciliation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile external tasks with CLEO as SSoT.
+ */
+export async function taskSyncReconcile(
+  projectRoot: string,
+  params: {
+    providerId: string;
+    externalTasks: Array<import('@cleocode/contracts').ExternalTask>;
+    dryRun?: boolean;
+    conflictPolicy?: string;
+    defaultPhase?: string;
+    defaultLabels?: string[];
+  },
+): Promise<EngineResult<import('@cleocode/contracts').ReconcileResult>> {
+  try {
+    const { reconcile } = await import('@cleocode/core/internal');
+    const accessor = await getAccessor(projectRoot);
+    const result = await reconcile(
+      params.externalTasks,
+      {
+        providerId: params.providerId,
+        cwd: projectRoot,
+        dryRun: params.dryRun,
+        conflictPolicy: params.conflictPolicy as import('@cleocode/contracts').ConflictPolicy | undefined,
+        defaultPhase: params.defaultPhase,
+        defaultLabels: params.defaultLabels,
+      },
+      accessor,
+    );
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_INTERNAL', message);
+  }
+}
+
+/**
+ * List external task links by provider or task ID.
+ */
+export async function taskSyncLinks(
+  projectRoot: string,
+  params?: { providerId?: string; taskId?: string },
+): Promise<EngineResult<{ links: import('@cleocode/contracts').ExternalTaskLink[]; count: number }>> {
+  try {
+    const { getLinksByProvider, getLinksByTaskId } = await import('@cleocode/core/internal');
+
+    if (params?.taskId) {
+      const links = await getLinksByTaskId(params.taskId, projectRoot);
+      return { success: true, data: { links, count: links.length } };
+    }
+
+    if (params?.providerId) {
+      const links = await getLinksByProvider(params.providerId, projectRoot);
+      return { success: true, data: { links, count: links.length } };
+    }
+
+    return engineError('E_INVALID_INPUT', 'Either providerId or taskId is required');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_INTERNAL', message);
+  }
+}
+
+/**
+ * Remove all external task links for a provider.
+ */
+export async function taskSyncLinksRemove(
+  projectRoot: string,
+  providerId: string,
+): Promise<EngineResult<{ providerId: string; removed: number }>> {
+  try {
+    const { removeLinksByProvider } = await import('@cleocode/core/internal');
+    const removed = await removeLinksByProvider(providerId, projectRoot);
+    return { success: true, data: { providerId, removed } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_INTERNAL', message);
+  }
+}

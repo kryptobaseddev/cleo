@@ -8,7 +8,6 @@
  *   issue.*      - Issue diagnostics
  *   skill.*      - Skill discovery, dispatch, catalog, precedence
  *   provider.*   - CAAMP provider registry
- *   todowrite.*  - TodoWrite sync state
  *   adapter.*    - Provider adapter management
  *
  * @task T5703
@@ -33,14 +32,10 @@ import {
 } from '@cleocode/caamp';
 import {
   AdapterManager,
-  clearSyncState,
   collectDiagnostics,
-  getSyncStatus,
   paginate,
 } from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
-import { systemSync } from './system-engine.js';
-
 // Re-export EngineResult for consumers
 export type { EngineResult };
 
@@ -705,50 +700,6 @@ export async function toolsProviderInject(
   }
 }
 
-// ---------------------------------------------------------------------------
-// TodoWrite operations
-// ---------------------------------------------------------------------------
-
-/**
- * Get TodoWrite sync status.
- */
-export async function toolsTodowriteStatus(projectRoot: string): Promise<EngineResult<unknown>> {
-  try {
-    const result = await getSyncStatus(projectRoot);
-    return result;
-  } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
- * Trigger TodoWrite sync.
- */
-export function toolsTodowriteSync(
-  projectRoot: string,
-  params?: { direction?: string },
-): EngineResult<unknown> {
-  try {
-    return systemSync(projectRoot, params);
-  } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
- * Clear TodoWrite sync state.
- */
-export async function toolsTodowriteClear(
-  projectRoot: string,
-  dryRun?: boolean,
-): Promise<EngineResult<unknown>> {
-  try {
-    const result = await clearSyncState(projectRoot, dryRun);
-    return result;
-  } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Adapter query operations
