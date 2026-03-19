@@ -26,10 +26,7 @@ export async function validateSpawnReadiness(
   accessor?: DataAccessor,
 ): Promise<SpawnValidationResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const tasks = data?.tasks ?? [];
-  const task = tasks.find((t) => t.id === taskId);
+  const task = await acc.loadSingleTask(taskId);
 
   if (!task) {
     return {
@@ -54,8 +51,10 @@ export async function validateSpawnReadiness(
   }
 
   if (task.depends) {
+    const depTasks = await acc.loadTasks(task.depends);
+    const depMap = new Map(depTasks.map((t) => [t.id, t]));
     for (const dep of task.depends) {
-      const depTask = tasks.find((t) => t.id === dep);
+      const depTask = depMap.get(dep);
       if (!depTask) {
         issues.push({
           code: 'V_MISSING_DEP',

@@ -7,9 +7,8 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Session } from '@cleocode/contracts';
+import type { FileMeta, Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { toTaskFileExt } from './types.js';
 
 /**
  * Suspend an active session.
@@ -22,8 +21,6 @@ export async function suspendSession(
   reason?: string,
 ): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 
@@ -55,11 +52,11 @@ export async function suspendSession(
   }
 
   // Clear active session in task data if this was the active one
-  if (current._meta?.activeSession === sessionId) {
-    current._meta.activeSession = null;
-    current._meta.generation = (current._meta.generation || 0) + 1;
-    (current as Record<string, unknown>).lastUpdated = now;
-    await accessor.saveTaskFile(taskData);
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+  if (fileMeta?.activeSession === sessionId) {
+    fileMeta.activeSession = null;
+    fileMeta.generation = (fileMeta.generation || 0) + 1;
+    await accessor.setMetaValue('file_meta', fileMeta);
   }
 
   await accessor.saveSessions(sessions);

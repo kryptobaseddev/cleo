@@ -87,8 +87,7 @@ export async function startOrchestration(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<OrchestratorSession> {
-  const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find((t) => t.id === epicId);
+  const epic = await accessor!.loadSingleTask(epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
@@ -122,14 +121,13 @@ export async function analyzeEpic(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<AnalysisResult> {
-  const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find((t) => t.id === epicId);
+  const epic = await accessor!.loadSingleTask(epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
   }
 
-  const childTasks = data.tasks.filter((t) => t.parentId === epicId);
+  const childTasks = await accessor!.getChildren(epicId);
   const waves = await getExecutionWaves(epicId, cwd, accessor);
 
   const completedTasks = childTasks.filter((t) => t.status === 'done').map((t) => t.id);
@@ -167,9 +165,9 @@ export async function getReadyTasks(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskReadiness[]> {
-  const data = await accessor!.loadTaskFile();
-  const childTasks = data.tasks.filter((t) => t.parentId === epicId);
-  const completedIds = new Set(data.tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const childTasks = await accessor!.getChildren(epicId);
+  const { tasks: allTasks } = await accessor!.queryTasks({});
+  const completedIds = new Set(allTasks.filter((t) => t.status === 'done').map((t) => t.id));
 
   return childTasks
     .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
@@ -214,8 +212,7 @@ export async function prepareSpawn(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<SpawnContext> {
-  const data = await accessor!.loadTaskFile();
-  const task = data.tasks.find((t) => t.id === taskId);
+  const task = await accessor!.loadSingleTask(taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
@@ -277,14 +274,13 @@ export async function getOrchestratorContext(
   pending: number;
   completionPercent: number;
 }> {
-  const data = await accessor!.loadTaskFile();
-  const epic = data.tasks.find((t) => t.id === epicId);
+  const epic = await accessor!.loadSingleTask(epicId);
 
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
   }
 
-  const children = data.tasks.filter((t) => t.parentId === epicId);
+  const children = await accessor!.getChildren(epicId);
   const completed = children.filter((t) => t.status === 'done').length;
   const inProgress = children.filter((t) => t.status === 'active').length;
   const blocked = children.filter((t) => t.status === 'blocked').length;

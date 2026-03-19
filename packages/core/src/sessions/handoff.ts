@@ -17,10 +17,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Session } from '@cleocode/contracts';
+import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getDecisionLog } from './decisions.js';
-import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -79,8 +78,14 @@ export async function computeHandoff(
   }
 
   // Load task data for scope analysis
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
+  const { tasks } = await accessor.queryTasks({});
+  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+  const current = {
+    tasks,
+    focus: focus ?? undefined,
+    _meta: fileMeta ?? undefined,
+  } as unknown as TaskFileExt;
 
   // Get decisions recorded during this session
   const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });

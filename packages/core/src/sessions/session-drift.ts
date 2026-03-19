@@ -7,9 +7,8 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Session } from '@cleocode/contracts';
+import type { FileMeta, Session, Task, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { toTaskFileExt } from './types.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -24,7 +23,7 @@ export interface ContextDriftResult {
  */
 function collectDescendantIds(
   parentId: string,
-  tasks: Array<{ id: string; [key: string]: unknown }>,
+  tasks: Task[],
 ): Set<string> {
   const result = new Set<string>();
 
@@ -51,8 +50,14 @@ export async function getContextDrift(
   params?: { sessionId?: string },
 ): Promise<ContextDriftResult> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
+  const { tasks } = await accessor.queryTasks({});
+  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+  const current = {
+    tasks,
+    focus: focus ?? undefined,
+    _meta: fileMeta ?? undefined,
+  };
 
   // Find the active session (or specified session)
   let session: Session | undefined;
@@ -71,7 +76,6 @@ export async function getContextDrift(
     }
   }
 
-  const tasks = current.tasks || [];
   const factors: string[] = [];
 
   // If no session with scope, compute a basic drift from focus state

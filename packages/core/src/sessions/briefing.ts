@@ -18,11 +18,10 @@
  */
 
 import { getAccessor } from '../store/data-accessor.js';
-import type { Session } from '@cleocode/contracts';
+import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import { toTaskFileExt } from './types.js';
 import type { TaskFileExt } from './types.js';
 
 /**
@@ -137,9 +136,16 @@ export async function computeBriefing(
   options: BriefingOptions = {},
 ): Promise<SessionBriefing> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
-  const tasks = current.tasks || [];
+  const { tasks } = await accessor.queryTasks({});
+  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+
+  // Build a TaskFileExt-compatible shape from targeted queries
+  const current = {
+    tasks,
+    focus: focus ?? undefined,
+    _meta: fileMeta ?? undefined,
+  } as unknown as TaskFileExt;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -150,7 +156,7 @@ export async function computeBriefing(
   // Compute in-scope task IDs (undefined = all tasks in scope)
   const scopeTaskIds = getScopeTaskIdSet(
     scopeFilter,
-    tasks as Array<{ id: string; parentId?: string; [key: string]: unknown }>,
+    tasks as unknown as Array<{ id: string; parentId?: string; [key: string]: unknown }>,
   );
 
   // 1. Last session handoff

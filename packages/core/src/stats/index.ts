@@ -86,14 +86,8 @@ export async function getProjectStats(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const periodDays = resolvePeriod(opts.period ?? '30');
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await (await getAccessor(opts.cwd)).loadTaskFile();
-  if (!data) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
-  }
-
-  const tasks = data.tasks ?? [];
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const { tasks } = await acc.queryTasks({});
   const pending = tasks.filter((t) => t.status === 'pending').length;
   const active = tasks.filter((t) => t.status === 'active').length;
   const done = tasks.filter((t) => t.status === 'done').length;
@@ -272,14 +266,9 @@ export async function getDashboard(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await (await getAccessor(opts.cwd)).loadTaskFile();
-  if (!data) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
-  }
+  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const { tasks } = await acc.queryTasks({});
 
-  const tasks = data.tasks ?? [];
   const pending = tasks.filter((t) => t.status === 'pending').length;
   const active = tasks.filter((t) => t.status === 'active').length;
   const done = tasks.filter((t) => t.status === 'done').length;
@@ -304,10 +293,12 @@ export async function getDashboard(
     // archived count unavailable; grandTotal will equal total
   }
 
-  const project = data.project?.name ?? 'Unknown Project';
-  const currentPhase = data.project?.currentPhase ?? null;
+  const meta = await acc.getMetaValue<import('@cleocode/contracts').ProjectMeta>('project_meta');
+  const project = meta?.name ?? 'Unknown Project';
+  const currentPhase = meta?.currentPhase ?? null;
 
-  const focusId = data.focus?.currentTask ?? null;
+  const focus = await acc.getMetaValue<import('@cleocode/contracts').TaskWorkState>('focus_state');
+  const focusId = focus?.currentTask ?? null;
   let focusTask: Task | null = null;
   if (focusId) {
     focusTask = tasks.find((t) => t.id === focusId) ?? null;

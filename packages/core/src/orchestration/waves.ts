@@ -95,10 +95,7 @@ export async function getEnrichedWaves(
   accessor?: DataAccessor,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const tasks = data?.tasks ?? [];
-  const children = tasks.filter((t) => t.parentId === epicId);
+  const children = await acc.getChildren(epicId);
   const waves = computeWaves(children);
   const taskMap = new Map(children.map((t) => [t.id, t]));
 

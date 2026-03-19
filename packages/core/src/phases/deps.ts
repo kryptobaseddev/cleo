@@ -7,19 +7,18 @@
  */
 
 import type { DataAccessor } from '../store/data-accessor.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskFile, TaskRef } from '@cleocode/contracts';
+import type { Task, TaskRef } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /**
- * Cached TaskFile loader to avoid repeated file reads within a single operation.
- * Cache is keyed by resolved path and invalidated after 1 second.
+ * Load all tasks via targeted query.
  * @task T4659
  * @epic T4654
  */
-async function loadTaskData(_cwd?: string, accessor?: DataAccessor): Promise<TaskFile> {
-  return accessor!.loadTaskFile();
+async function loadAllTasks(_cwd?: string, accessor?: DataAccessor): Promise<Task[]> {
+  const { tasks } = await accessor!.queryTasks({});
+  return tasks;
 }
 
 /**
@@ -116,13 +115,13 @@ export async function getDepsOverview(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DepsOverviewResult> {
-  const data = await loadTaskData(cwd, accessor);
-  const graph = buildGraph(data.tasks);
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const graph = buildGraph(allTasks);
   const nodes = Array.from(graph.values());
 
   return {
     nodes,
-    totalTasks: data.tasks.length,
+    totalTasks: allTasks.length,
     withDependencies: nodes.filter((n) => n.depends.length > 0).length,
     withDependents: nodes.filter((n) => n.dependents.length > 0).length,
     roots: nodes.filter((n) => n.depends.length === 0).map((n) => n.id),
@@ -139,16 +138,16 @@ export async function getTaskDeps(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskDepsResult> {
-  const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find((t) => t.id === taskId);
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const graph = buildGraph(data.tasks);
+  const graph = buildGraph(allTasks);
   const node = graph.get(taskId)!;
-  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   const toSummary = (id: string) => {
     const t = taskMap.get(id);
@@ -222,16 +221,16 @@ export async function getExecutionWaves(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ExecutionWave[]> {
-  const data = await loadTaskData(cwd, accessor);
-  let tasks = data.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
+  const allTasks = await loadAllTasks(cwd, accessor);
+  let tasks = allTasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
 
   // Scope to epic if provided
   if (epicId) {
-    const epicTask = data.tasks.find((t) => t.id === epicId);
+    const epicTask = allTasks.find((t) => t.id === epicId);
     if (!epicTask) {
       throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
     }
-    const childIds = new Set(data.tasks.filter((t) => t.parentId === epicId).map((t) => t.id));
+    const childIds = new Set(allTasks.filter((t) => t.parentId === epicId).map((t) => t.id));
     tasks = tasks.filter((t) => childIds.has(t.id) || t.id === epicId);
   }
 
@@ -296,15 +295,15 @@ export async function getCriticalPath(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CriticalPathResult> {
-  const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find((t) => t.id === taskId);
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const graph = buildGraph(data.tasks);
-  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
+  const graph = buildGraph(allTasks);
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   // DFS to find longest path from this task through dependents
   function findLongestPath(id: string, visited: Set<string>): string[] {
@@ -350,14 +349,14 @@ export async function getImpact(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<string[]> {
-  const data = await loadTaskData(cwd, accessor);
-  const task = data.tasks.find((t) => t.id === taskId);
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const graph = buildGraph(data.tasks);
+  const graph = buildGraph(allTasks);
   const impacted = new Set<string>();
 
   function traverse(id: string, depth: number): void {
@@ -383,8 +382,8 @@ export async function getImpact(
  * @task T4464
  */
 export async function detectCycles(cwd?: string, accessor?: DataAccessor): Promise<CycleResult> {
-  const data = await loadTaskData(cwd, accessor);
-  const graph = buildGraph(data.tasks);
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const graph = buildGraph(allTasks);
   const cycles: string[][] = [];
   const visited = new Set<string>();
   const stack = new Set<string>();
@@ -439,12 +438,12 @@ export async function getTaskTree(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TreeNode[]> {
-  const data = await loadTaskData(cwd, accessor);
+  const allTasks = await loadAllTasks(cwd, accessor);
 
-  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   function buildChildren(parentId: string | null): TreeNode[] {
-    const children = data.tasks
+    const children = allTasks
       .filter((t) => (parentId ? t.parentId === parentId : !t.parentId))
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
@@ -495,15 +494,13 @@ export async function addRelation(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ taskId: string; relatedId: string }> {
-  const data = await accessor!.loadTaskFile();
-
-  const task = data.tasks.find((t) => t.id === taskId);
+  const task = await accessor!.loadSingleTask(taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const related = data.tasks.find((t) => t.id === relatedId);
-  if (!related) {
+  const relatedExists = await accessor!.taskExists(relatedId);
+  if (!relatedExists) {
     throw new CleoError(ExitCode.NOT_FOUND, `Related task not found: ${relatedId}`);
   }
 
@@ -513,10 +510,7 @@ export async function addRelation(
     task.depends.push(relatedId);
   }
 
-  data.lastUpdated = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-
-  await accessor!.saveTaskFile(data);
+  await accessor!.upsertSingleTask(task);
   invalidateDepsCache();
 
   return { taskId, relatedId };

@@ -10,6 +10,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
+import type { FileMeta } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { AssumptionRecord } from './types.js';
 
@@ -38,9 +39,9 @@ export async function recordAssumption(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
 
-  const sessionId = params.sessionId || taskData._meta?.activeSession || 'default';
+  const sessionId = params.sessionId || fileMeta?.activeSession || 'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
 

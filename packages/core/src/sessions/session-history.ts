@@ -35,8 +35,8 @@ export async function getSessionHistory(
 ): Promise<{ sessions: SessionHistoryEntry[] }> {
   const accessor = await getAccessor(projectRoot);
 
-  // Verify project is initialized by loading todo file
-  await accessor.loadTaskFile();
+  // Verify project is initialized by checking task count
+  await accessor.countTasks();
 
   const allSessions: Session[] = await accessor.loadSessions();
 

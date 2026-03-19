@@ -94,6 +94,11 @@ function createMockStore() {
     _meta: { schemaVersion: '1.0.0', activeSession: null },
   };
 
+  const metaStore: Record<string, unknown> = {
+    focus_state: taskData.focus,
+    file_meta: taskData._meta,
+  };
+
   return {
     sessions,
     taskData,
@@ -102,6 +107,12 @@ function createMockStore() {
       saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
       loadTaskFile: vi.fn().mockImplementation(() => Promise.resolve(taskData)),
       saveTaskFile: vi.fn().mockImplementation(() => Promise.resolve()),
+      queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
+      getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+      setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
+        metaStore[key] = value;
+        return Promise.resolve();
+      }),
     },
   };
 }

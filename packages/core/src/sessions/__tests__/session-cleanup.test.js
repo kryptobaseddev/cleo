@@ -37,6 +37,9 @@ function daysAgo(days) {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 function setupMockAccessor(sessions) {
+    const metaStore = {
+        file_meta: { schemaVersion: '2.10.0' },
+    };
     const mockAccessor = {
         loadSessions: vi.fn().mockResolvedValue(sessions),
         saveSessions: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +48,11 @@ function setupMockAccessor(sessions) {
             _meta: {
                 schemaVersion: '2.10.0',
             },
+        }),
+        getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
+        setMetaValue: vi.fn().mockImplementation((key, value) => {
+            metaStore[key] = value;
+            return Promise.resolve();
         }),
         saveTaskFile: vi.fn().mockResolvedValue(undefined),
         loadArchive: vi.fn().mockResolvedValue(null),
@@ -194,18 +202,20 @@ describe('cleanupSessions', () => {
                 startedAt: daysAgo(2),
             });
             const store = setupMockAccessor([endedSession]);
-            // Override task file to have a stale activeSession reference
-            store.loadTaskFile.mockResolvedValue({
-                tasks: [],
-                _meta: {
-                    schemaVersion: '2.10.0',
-                    activeSession: 'session-ended', // Points to a non-active session
-                    generation: 5,
-                },
+            // Override getMetaValue to return stale activeSession reference
+            store.getMetaValue.mockImplementation((key) => {
+                if (key === 'file_meta') {
+                    return Promise.resolve({
+                        schemaVersion: '2.10.0',
+                        activeSession: 'session-ended', // Points to a non-active session
+                        generation: 5,
+                    });
+                }
+                return Promise.resolve(null);
             });
             const result = await cleanupSessions('/fake/project');
             expect(result.cleaned).toBe(true);
-            expect(store.saveTaskFile).toHaveBeenCalled();
+            expect(store.setMetaValue).toHaveBeenCalled();
         });
     });
 });

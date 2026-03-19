@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import { getDashboard, rankBlockedTask } from '../index.js';
 
 // ---------------------------------------------------------------------------
@@ -23,18 +23,17 @@ function makeTask(overrides: Partial<Task> & { id: string; title: string }): Tas
 }
 
 function makeAccessor(tasks: Task[], focusId?: string): DataAccessor {
-  const taskFile: TaskFile = {
-    version: '1.0.0',
-    project: { name: 'Test', phases: {} },
-    lastUpdated: new Date().toISOString(),
-    _meta: { schemaVersion: '1.0.0', checksum: '', configVersion: '1.0.0' },
-    focus: focusId ? { currentTask: focusId } : undefined,
-    tasks,
-  };
   return {
     engine: 'sqlite',
-    loadTaskFile: vi.fn().mockResolvedValue(taskFile),
-    saveTaskFile: vi.fn(),
+    queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+    getMetaValue: vi.fn().mockImplementation((key: string) => {
+      if (key === 'project_meta') return Promise.resolve({ name: 'Test', phases: {} });
+      if (key === 'focus_state') return Promise.resolve(focusId ? { currentTask: focusId } : null);
+      return Promise.resolve(null);
+    }),
+    loadSingleTask: vi.fn().mockImplementation((id: string) =>
+      Promise.resolve(tasks.find((t) => t.id === id) ?? null),
+    ),
     loadArchive: vi.fn().mockResolvedValue(null),
     saveArchive: vi.fn(),
     loadSessions: vi.fn().mockResolvedValue([]),

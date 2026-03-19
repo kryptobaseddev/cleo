@@ -214,11 +214,11 @@ export async function mergeTodoWriteState(
 
   if (!dryRun) {
     // Load task data once for existence checks
-    const data = await acc.loadTaskFile();
+    const { tasks: allTasks } = await acc.queryTasks({});
 
     // Apply completed tasks via core completeTask
     for (const taskId of changes.completed) {
-      const task = data.tasks.find((t) => t.id === taskId);
+      const task = allTasks.find((t) => t.id === taskId);
       if (!task) continue;
       if (task.status === 'done') continue;
 
@@ -236,7 +236,7 @@ export async function mergeTodoWriteState(
 
     // Apply progressed tasks via core updateTask
     for (const taskId of changes.progressed) {
-      const task = data.tasks.find((t) => t.id === taskId);
+      const task = allTasks.find((t) => t.id === taskId);
       if (!task) continue;
       if (task.status !== 'pending' && task.status !== 'blocked') continue;
 

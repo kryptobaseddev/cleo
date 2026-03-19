@@ -49,9 +49,8 @@ export async function buildBrainState(
 
   // --- Tasks & Progress ---
   const acc = accessor ?? (await getAccessor(projectRoot));
-  const data = await acc.loadTaskFile();
+  const { tasks } = await acc.queryTasks({});
 
-  const tasks = data?.tasks ?? [];
   brain.progress = {
     total: tasks.length,
     done: tasks.filter((t) => t.status === 'done').length,
@@ -61,7 +60,8 @@ export async function buildBrainState(
   };
 
   // --- Current Task (from focus or session) ---
-  const focusTaskId = data?.focus?.currentTask ?? null;
+  const focus = await acc.getMetaValue<import('@cleocode/contracts').TaskWorkState>('focus_state');
+  const focusTaskId = focus?.currentTask ?? null;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {

@@ -7,8 +7,8 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
+import type { TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
@@ -47,15 +47,13 @@ export async function currentTask(
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const focus = data.focus ?? {};
+  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
   return {
-    currentTask: focus.currentTask ?? null,
-    currentPhase: focus.currentPhase ?? null,
-    sessionNote: focus.sessionNote ?? null,
-    nextAction: focus.nextAction ?? null,
+    currentTask: focus?.currentTask ?? null,
+    currentPhase: focus?.currentPhase ?? null,
+    sessionNote: focus?.sessionNote ?? null,
+    nextAction: focus?.nextAction ?? null,
   };
 }
 
@@ -74,10 +72,9 @@ export async function startTask(
   }
 
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
 
   // Verify task exists
-  const task = data.tasks.find((t) => t.id === taskId);
+  const task = await acc.loadSingleTask(taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
       fix: `Use 'cleo find "${taskId}"' to search`,
@@ -85,7 +82,8 @@ export async function startTask(
   }
 
   // Block starting a task with unresolved dependencies
-  const unresolvedDeps = getUnresolvedDeps(taskId, data.tasks);
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const unresolvedDeps = getUnresolvedDeps(taskId, allTasks);
   if (unresolvedDeps.length > 0) {
     throw new CleoError(
       ExitCode.DEPENDENCY_ERROR,
@@ -96,31 +94,24 @@ export async function startTask(
     );
   }
 
-  const previousTask = data.focus?.currentTask ?? null;
+  const focus = (await acc.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
+  const previousTask = focus.currentTask ?? null;
 
   // Update focus
-  if (!data.focus) {
-    data.focus = {};
-  }
-  data.focus.currentTask = taskId;
-  data.focus.currentPhase = task.phase ?? null;
+  focus.currentTask = taskId;
+  focus.currentPhase = task.phase ?? null;
 
   // Add to session notes for work history tracking
   const noteEntry = {
     note: `Started work on ${taskId}: ${task.title}`,
     timestamp: new Date().toISOString(),
   };
-  if (!data.focus.sessionNotes) {
-    data.focus.sessionNotes = [];
+  if (!focus.sessionNotes) {
+    focus.sessionNotes = [];
   }
-  data.focus.sessionNotes.push(noteEntry);
+  focus.sessionNotes.push(noteEntry);
 
-  // Update metadata
-  const now = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = now;
-
-  await acc.saveTaskFile(data);
+  await acc.setMetaValue('focus_state', focus);
 
   await logOperation(
     'task_start',
@@ -161,24 +152,22 @@ export async function stopTask(
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
+  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
-  const previousTask = data.focus?.currentTask ?? null;
+  const previousTask = focus?.currentTask ?? null;
 
-  if (!data.focus) {
+  if (!focus) {
     return { previousTask: null };
   }
 
   // Get task info before clearing focus for hook dispatch
-  const taskId = data.focus.currentTask;
-  const task = taskId ? data.tasks.find((t) => t.id === taskId) : undefined;
+  const taskId = focus.currentTask;
+  const task = taskId ? await acc.loadSingleTask(taskId) : undefined;
 
-  data.focus.currentTask = null;
-  data.focus.nextAction = null;
+  focus.currentTask = null;
+  focus.nextAction = null;
 
   const now = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = now;
 
   // Dispatch onToolComplete hook (best-effort, don't await)
   if (taskId && task) {
@@ -195,7 +184,7 @@ export async function stopTask(
       });
   }
 
-  await acc.saveTaskFile(data);
+  await acc.setMetaValue('focus_state', focus);
 
   await logOperation(
     'task_stop',
@@ -219,9 +208,9 @@ export async function getWorkHistory(
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
+  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
-  const notes = data.focus?.sessionNotes ?? [];
+  const notes = focus?.sessionNotes ?? [];
   const history: TaskWorkHistoryEntry[] = [];
 
   for (const note of notes) {

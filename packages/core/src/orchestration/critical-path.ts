@@ -28,9 +28,7 @@ export async function getCriticalPath(
   accessor?: DataAccessor,
 ): Promise<CriticalPathResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const tasks = data?.tasks ?? [];
+  const { tasks } = await acc.queryTasks({});
 
   if (tasks.length === 0) {
     return { path: [], length: 0, totalEffort: 0, completedInPath: 0, remainingInPath: 0 };

@@ -101,13 +101,25 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 }
 
 function setupMockAccessor(sessions: Session[], tasks: unknown[] = makeMockTasks()) {
+  const focus = { currentTask: null, currentPhase: null };
+  const fileMeta = { schemaVersion: '2.10.0' };
+  const metaStore: Record<string, unknown> = {
+    focus_state: focus,
+    file_meta: fileMeta,
+  };
   const mockAccessor = {
     loadSessions: vi.fn().mockResolvedValue(sessions),
     saveSessions: vi.fn().mockResolvedValue(undefined),
     loadTaskFile: vi.fn().mockResolvedValue({
       tasks,
-      focus: { currentTask: null, currentPhase: null },
-      _meta: { schemaVersion: '2.10.0' },
+      focus,
+      _meta: fileMeta,
+    }),
+    queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+    getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+    setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
+      metaStore[key] = value;
+      return Promise.resolve();
     }),
     loadArchive: vi.fn().mockResolvedValue(null),
     saveArchive: vi.fn().mockResolvedValue(undefined),

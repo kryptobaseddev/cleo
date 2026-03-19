@@ -5,9 +5,8 @@
  */
 
 import type { DataAccessor } from '../store/data-accessor.js';
-import { computeChecksum } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { PhaseStatus, PhaseTransition, TaskFile } from '@cleocode/contracts';
+import type { PhaseStatus, PhaseTransition, ProjectMeta, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { logOperation } from '../tasks/add.js';
 
@@ -92,9 +91,9 @@ export async function listPhases(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ListPhasesResult> {
-  const data = await accessor!.loadTaskFile();
-  const phases = data.project?.phases ?? {};
-  const currentPhase = data.project?.currentPhase ?? null;
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phases = meta?.phases ?? {};
+  const currentPhase = meta?.currentPhase ?? null;
 
   const entries = Object.entries(phases)
     .map(([slug, phase]) => ({
@@ -129,19 +128,19 @@ export async function showPhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ShowPhaseResult> {
-  const data = await accessor!.loadTaskFile();
-  const targetSlug = slug ?? data.project?.currentPhase ?? null;
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const targetSlug = slug ?? meta?.currentPhase ?? null;
 
   if (!targetSlug) {
     throw new CleoError(ExitCode.NOT_FOUND, 'No current phase set');
   }
 
-  const phase = data.project?.phases?.[targetSlug];
+  const phase = meta?.phases?.[targetSlug];
   if (!phase) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${targetSlug}' not found`);
   }
 
-  const phaseTasks = data.tasks.filter((t) => t.phase === targetSlug);
+  const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: targetSlug });
   const completedTasks = phaseTasks.filter((t) => t.status === 'done');
 
   return {
@@ -165,15 +164,15 @@ export async function setPhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<SetPhaseResult> {
-  const data = await accessor!.loadTaskFile();
-  const phases = data.project?.phases ?? {};
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phases = meta?.phases ?? {};
 
   // Validate phase exists
   if (!phases[options.slug]) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${options.slug}' does not exist`);
   }
 
-  const oldPhase = data.project?.currentPhase ?? null;
+  const oldPhase = meta?.currentPhase ?? null;
   let isRollback = false;
   let isSkip = false;
   let skippedPhases = 0;
@@ -213,20 +212,17 @@ export async function setPhase(
     };
   }
 
-  // Update current phase
-  if (!data.project) {
-    data.project = { name: '', phases: {} };
-  }
-  data.project.currentPhase = options.slug;
-  data.lastUpdated = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
+  // Update current phase in project metadata
+  const updatedMeta: ProjectMeta = meta ?? { name: '', phases: {} };
+  updatedMeta.currentPhase = options.slug;
 
-  // Add phase history entry
+  // Add phase history entry for rollback
   if (isRollback && oldPhase) {
-    addPhaseHistoryEntry(data, options.slug, 'rollback', oldPhase, `Rollback from ${oldPhase}`);
+    const taskCount = await accessor!.countTasks({ status: undefined });
+    addPhaseHistoryEntryToMeta(updatedMeta, options.slug, 'rollback', oldPhase, `Rollback from ${oldPhase}`, taskCount);
   }
 
-  await accessor!.saveTaskFile(data);
+  await accessor!.setMetaValue('project_meta', updatedMeta);
   await logOperation(
     'phase_set',
     options.slug,
@@ -258,8 +254,8 @@ export async function startPhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ phase: string; startedAt: string }> {
-  const data = await accessor!.loadTaskFile();
-  const phase = data.project?.phases?.[slug];
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phase = meta?.phases?.[slug];
 
   if (!phase) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${slug}' does not exist`);
@@ -275,12 +271,12 @@ export async function startPhase(
   const now = new Date().toISOString();
   phase.status = 'active';
   phase.startedAt = now;
-  data.lastUpdated = now;
-  data._meta.checksum = computeChecksum(data.tasks);
 
-  addPhaseHistoryEntry(data, slug, 'started', null, 'Phase started');
+  const updatedMeta = meta!;
+  const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: slug });
+  addPhaseHistoryEntryToMeta(updatedMeta, slug, 'started', null, 'Phase started', phaseTasks.length);
 
-  await accessor!.saveTaskFile(data);
+  await accessor!.setMetaValue('project_meta', updatedMeta);
   await logOperation('phase_started', slug, {}, accessor);
 
   return { phase: slug, startedAt: now };
@@ -295,8 +291,8 @@ export async function completePhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ phase: string; completedAt: string }> {
-  const data = await accessor!.loadTaskFile();
-  const phase = data.project?.phases?.[slug];
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phase = meta?.phases?.[slug];
 
   if (!phase) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${slug}' does not exist`);
@@ -310,7 +306,8 @@ export async function completePhase(
   }
 
   // Check for incomplete tasks
-  const incompleteTasks = data.tasks.filter((t) => t.phase === slug && t.status !== 'done');
+  const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: slug });
+  const incompleteTasks = phaseTasks.filter((t) => t.status !== 'done');
   if (incompleteTasks.length > 0) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
@@ -321,12 +318,11 @@ export async function completePhase(
   const now = new Date().toISOString();
   phase.status = 'completed';
   phase.completedAt = now;
-  data.lastUpdated = now;
-  data._meta.checksum = computeChecksum(data.tasks);
 
-  addPhaseHistoryEntry(data, slug, 'completed', null, 'Phase completed');
+  const updatedMeta = meta!;
+  addPhaseHistoryEntryToMeta(updatedMeta, slug, 'completed', null, 'Phase completed', phaseTasks.length);
 
-  await accessor!.saveTaskFile(data);
+  await accessor!.setMetaValue('project_meta', updatedMeta);
   await logOperation('phase_completed', slug, {}, accessor);
 
   return { phase: slug, completedAt: now };
@@ -341,14 +337,14 @@ export async function advancePhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<AdvancePhaseResult> {
-  const data = await accessor!.loadTaskFile();
-  const currentSlug = data.project?.currentPhase ?? null;
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const currentSlug = meta?.currentPhase ?? null;
 
   if (!currentSlug) {
     throw new CleoError(ExitCode.NOT_FOUND, 'No current phase set');
   }
 
-  const phases = data.project?.phases ?? {};
+  const phases = meta?.phases ?? {};
   const currentPhase = phases[currentSlug];
   if (!currentPhase) {
     throw new CleoError(ExitCode.NOT_FOUND, `Current phase '${currentSlug}' not found`);
@@ -365,7 +361,8 @@ export async function advancePhase(
   const [nextSlug] = sortedEntries[currentIndex + 1]!;
 
   // Check incomplete tasks
-  const incompleteTasks = data.tasks.filter((t) => t.phase === currentSlug && t.status !== 'done');
+  const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: currentSlug });
+  const incompleteTasks = phaseTasks.filter((t) => t.status !== 'done');
   if (incompleteTasks.length > 0) {
     // Check critical tasks
     const criticalTasks = incompleteTasks.filter((t) => t.priority === 'critical');
@@ -377,7 +374,7 @@ export async function advancePhase(
     }
 
     // Check completion threshold
-    const totalTasks = data.tasks.filter((t) => t.phase === currentSlug).length;
+    const totalTasks = phaseTasks.length;
     const completionPercent =
       totalTasks > 0 ? Math.floor(((totalTasks - incompleteTasks.length) * 100) / totalTasks) : 0;
     const threshold = 90;
@@ -402,20 +399,24 @@ export async function advancePhase(
   nextPhase.startedAt = now;
 
   // Update current phase pointer
-  data.project.currentPhase = nextSlug;
-  data.lastUpdated = now;
-  data._meta.checksum = computeChecksum(data.tasks);
+  const updatedMeta = meta!;
+  updatedMeta.currentPhase = nextSlug;
 
-  addPhaseHistoryEntry(data, currentSlug, 'completed', null, 'Phase completed via advance');
-  addPhaseHistoryEntry(
-    data,
+  const currentPhaseTaskCount = phaseTasks.length;
+  const { tasks: nextPhaseTasks } = await accessor!.queryTasks({ phase: nextSlug });
+  const nextPhaseTaskCount = nextPhaseTasks.length;
+
+  addPhaseHistoryEntryToMeta(updatedMeta, currentSlug, 'completed', null, 'Phase completed via advance', currentPhaseTaskCount);
+  addPhaseHistoryEntryToMeta(
+    updatedMeta,
     nextSlug,
     'started',
     currentSlug,
     `Phase started via advance from ${currentSlug}`,
+    nextPhaseTaskCount,
   );
 
-  await accessor!.saveTaskFile(data);
+  await accessor!.setMetaValue('project_meta', updatedMeta);
 
   return {
     previousPhase: currentSlug,
@@ -434,8 +435,8 @@ export async function renamePhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<RenamePhaseResult> {
-  const data = await accessor!.loadTaskFile();
-  const phases = data.project?.phases ?? {};
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phases = meta?.phases ?? {};
 
   if (!phases[oldName]) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${oldName}' does not exist`);
@@ -452,30 +453,30 @@ export async function renamePhase(
   delete phases[oldName];
 
   // Update task references
+  const { tasks: oldPhaseTasks } = await accessor!.queryTasks({ phase: oldName });
   let tasksUpdated = 0;
-  for (const task of data.tasks) {
-    if (task.phase === oldName) {
-      task.phase = newName;
-      tasksUpdated++;
-    }
+  for (const task of oldPhaseTasks) {
+    task.phase = newName;
+    await accessor!.upsertSingleTask(task);
+    tasksUpdated++;
   }
 
   // Update current phase reference
+  const updatedMeta = meta!;
   let currentPhaseUpdated = false;
-  if (data.project.currentPhase === oldName) {
-    data.project.currentPhase = newName;
+  if (updatedMeta.currentPhase === oldName) {
+    updatedMeta.currentPhase = newName;
     currentPhaseUpdated = true;
   }
 
-  // Update focus
-  if (data.focus?.currentPhase === oldName) {
-    data.focus.currentPhase = newName;
+  await accessor!.setMetaValue('project_meta', updatedMeta);
+
+  // Update focus if needed
+  const focus = await accessor!.getMetaValue<TaskWorkState>('focus_state');
+  if (focus?.currentPhase === oldName) {
+    focus.currentPhase = newName;
+    await accessor!.setMetaValue('focus_state', focus);
   }
-
-  data.lastUpdated = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-
-  await accessor!.saveTaskFile(data);
 
   return { oldName, newName, tasksUpdated, currentPhaseUpdated };
 }
@@ -490,21 +491,21 @@ export async function deletePhase(
   _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeletePhaseResult> {
-  const data = await accessor!.loadTaskFile();
-  const phases = data.project?.phases ?? {};
+  const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
+  const phases = meta?.phases ?? {};
 
   if (!phases[slug]) {
     throw new CleoError(ExitCode.NOT_FOUND, `Phase '${slug}' does not exist`);
   }
 
-  if (data.project?.currentPhase === slug) {
+  if (meta?.currentPhase === slug) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Cannot delete current project phase '${slug}'. Use 'phase set' to change phase first`,
     );
   }
 
-  const phaseTasks = data.tasks.filter((t) => t.phase === slug);
+  const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: slug });
 
   if (phaseTasks.length > 0 && !options.reassignTo) {
     throw new CleoError(
@@ -530,20 +531,16 @@ export async function deletePhase(
   // Reassign tasks
   let tasksReassigned = 0;
   if (options.reassignTo) {
-    for (const task of data.tasks) {
-      if (task.phase === slug) {
-        task.phase = options.reassignTo;
-        tasksReassigned++;
-      }
+    for (const task of phaseTasks) {
+      task.phase = options.reassignTo;
+      await accessor!.upsertSingleTask(task);
+      tasksReassigned++;
     }
   }
 
   // Delete phase
   delete phases[slug];
-  data.lastUpdated = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-
-  await accessor!.saveTaskFile(data);
+  await accessor!.setMetaValue('project_meta', meta!);
 
   return {
     deletedPhase: slug,
@@ -553,23 +550,22 @@ export async function deletePhase(
 }
 
 /**
- * Add a phase history entry.
+ * Add a phase history entry to a ProjectMeta object (in-memory mutation).
  * @task T4464
  */
-function addPhaseHistoryEntry(
-  data: TaskFile,
+function addPhaseHistoryEntryToMeta(
+  meta: ProjectMeta,
   phase: string,
   transitionType: PhaseTransition['transitionType'],
   fromPhase: string | null,
   reason: string,
+  taskCount: number,
 ): void {
-  if (!data.project.phaseHistory) {
-    data.project.phaseHistory = [];
+  if (!meta.phaseHistory) {
+    meta.phaseHistory = [];
   }
 
-  const taskCount = data.tasks.filter((t) => t.phase === phase).length;
-
-  data.project.phaseHistory.push({
+  meta.phaseHistory.push({
     phase,
     transitionType,
     timestamp: new Date().toISOString(),

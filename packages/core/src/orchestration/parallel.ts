@@ -64,15 +64,12 @@ export async function startParallelExecution(
   }
 
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const tasks = data?.tasks ?? [];
-  const epic = tasks.find((t) => t.id === epicId);
+  const epic = await acc.loadSingleTask(epicId);
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic ${epicId} not found`);
   }
 
-  const children = tasks.filter((t) => t.parentId === epicId);
+  const children = await acc.getChildren(epicId);
   const waves = computeWaves(children);
   const targetWave = waves.find((w) => w.waveNumber === wave);
 

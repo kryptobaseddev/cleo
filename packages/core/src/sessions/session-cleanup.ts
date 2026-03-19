@@ -8,7 +8,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { getRawConfigValue } from '../config.js';
-import { toTaskFileExt } from './types.js';
+import type { FileMeta } from '@cleocode/contracts';
 
 /** Default auto-end threshold when no config is set (7 days). */
 const DEFAULT_AUTO_END_DAYS = 7;
@@ -26,8 +26,6 @@ export async function cleanupSessions(
   projectRoot: string,
 ): Promise<{ removed: string[]; autoEnded: string[]; cleaned: boolean }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 
@@ -37,7 +35,7 @@ export async function cleanupSessions(
 
   const removed: string[] = [];
   const autoEnded: string[] = [];
-  let todoUpdated = false;
+  let metaUpdated = false;
 
   // Read auto-end threshold from config
   const configDays = await getRawConfigValue('retention.autoEndActiveAfterDays', projectRoot);
@@ -65,25 +63,23 @@ export async function cleanupSessions(
     }
   }
 
-  // Clean stale references in task data
-  if (current._meta?.activeSession) {
+  // Clean stale references in file metadata
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+  if (fileMeta?.activeSession) {
     const activeExists = sessions.some(
-      (s) => s.id === current._meta!.activeSession && s.status === 'active',
+      (s) => s.id === fileMeta.activeSession && s.status === 'active',
     );
     if (!activeExists) {
-      current._meta.activeSession = null;
-      current._meta.generation = (current._meta.generation || 0) + 1;
-      current.lastUpdated = new Date().toISOString();
-      todoUpdated = true;
+      fileMeta.activeSession = null;
+      fileMeta.generation = (fileMeta.generation || 0) + 1;
+      await accessor.setMetaValue('file_meta', fileMeta);
+      metaUpdated = true;
     }
   }
 
-  if (removed.length > 0 || autoEnded.length > 0 || todoUpdated) {
+  if (removed.length > 0 || autoEnded.length > 0 || metaUpdated) {
     await accessor.saveSessions(sessions);
-    if (todoUpdated) {
-      await accessor.saveTaskFile(taskData);
-    }
   }
 
-  return { removed, autoEnded, cleaned: removed.length > 0 || autoEnded.length > 0 || todoUpdated };
+  return { removed, autoEnded, cleaned: removed.length > 0 || autoEnded.length > 0 || metaUpdated };
 }

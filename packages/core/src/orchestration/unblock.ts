@@ -74,9 +74,7 @@ export async function getUnblockOpportunities(
   accessor?: DataAccessor,
 ): Promise<UnblockResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-
-  const tasks = data?.tasks ?? [];
+  const { tasks } = await acc.queryTasks({});
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const completedIds = new Set(
     tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),

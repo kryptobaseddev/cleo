@@ -7,9 +7,8 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Session } from '@cleocode/contracts';
+import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { toTaskFileExt } from './types.js';
 
 /**
  * Switch to a different session.
@@ -18,8 +17,6 @@ import { toTaskFileExt } from './types.js';
  */
 export async function switchSession(projectRoot: string, sessionId: string): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = toTaskFileExt(taskData);
 
   const sessions = await accessor.loadSessions();
 
@@ -40,7 +37,8 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   const now = new Date().toISOString();
 
   // Suspend the current active session (if different from target)
-  const currentActiveId = current._meta?.activeSession;
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
+  const currentActiveId = fileMeta?.activeSession;
   if (currentActiveId && currentActiveId !== sessionId) {
     const currentSession = sessions.find((s) => s.id === currentActiveId);
     if (currentSession && currentSession.status === 'active') {
@@ -58,19 +56,20 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 
-  // Update task data
-  if (current._meta) {
-    current._meta.activeSession = sessionId;
-    current._meta.generation = (current._meta.generation || 0) + 1;
+  // Update file metadata
+  if (fileMeta) {
+    fileMeta.activeSession = sessionId;
+    fileMeta.generation = (fileMeta.generation || 0) + 1;
+    await accessor.setMetaValue('file_meta', fileMeta);
   }
 
-  if (targetSession.taskWork?.taskId && current.focus) {
-    current.focus.currentTask = targetSession.taskWork.taskId;
+  // Update focus if target session has a task
+  if (targetSession.taskWork?.taskId) {
+    const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
+    focus.currentTask = targetSession.taskWork.taskId;
+    await accessor.setMetaValue('focus_state', focus);
   }
 
-  current.lastUpdated = now;
-
-  await accessor.saveTaskFile(taskData);
   await accessor.saveSessions(sessions);
 
   return targetSession;

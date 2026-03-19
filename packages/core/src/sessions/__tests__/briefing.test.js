@@ -120,6 +120,12 @@ function makeMockTasks() {
     ];
 }
 function setupMockAccessor(tasks = makeMockTasks(), meta = {}) {
+    const focus = { currentTask: null, currentPhase: null };
+    const fileMeta = { schemaVersion: '2.10.0', activeSession: null, ...meta };
+    const metaStore = {
+        focus_state: focus,
+        file_meta: fileMeta,
+    };
     const mockAccessor = {
         loadSessions: vi.fn().mockResolvedValue({
             version: '1.0.0',
@@ -129,8 +135,14 @@ function setupMockAccessor(tasks = makeMockTasks(), meta = {}) {
         saveSessions: vi.fn().mockResolvedValue(undefined),
         loadTaskFile: vi.fn().mockResolvedValue({
             tasks,
-            focus: { currentTask: null, currentPhase: null },
-            _meta: { schemaVersion: '2.10.0', activeSession: null, ...meta },
+            focus,
+            _meta: fileMeta,
+        }),
+        queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+        getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
+        setMetaValue: vi.fn().mockImplementation((key, value) => {
+            metaStore[key] = value;
+            return Promise.resolve();
         }),
         loadArchive: vi.fn().mockResolvedValue(null),
         saveArchive: vi.fn().mockResolvedValue(undefined),
@@ -246,6 +258,12 @@ describe('computeBriefing scope filtering', () => {
     });
     it('currentTask is populated when focus is set', async () => {
         const tasks = makeMockTasks();
+        const focusState = { currentTask: 'T101', currentPhase: null };
+        const fileMetaVal = { schemaVersion: '2.10.0', activeSession: null };
+        const inlineMetaStore = {
+            focus_state: focusState,
+            file_meta: fileMetaVal,
+        };
         const mockAccessor = {
             loadSessions: vi.fn().mockResolvedValue({
                 version: '1.0.0',
@@ -255,8 +273,14 @@ describe('computeBriefing scope filtering', () => {
             saveSessions: vi.fn().mockResolvedValue(undefined),
             loadTaskFile: vi.fn().mockResolvedValue({
                 tasks,
-                focus: { currentTask: 'T101', currentPhase: null },
-                _meta: { schemaVersion: '2.10.0', activeSession: null },
+                focus: focusState,
+                _meta: fileMetaVal,
+            }),
+            queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+            getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(inlineMetaStore[key] ?? null)),
+            setMetaValue: vi.fn().mockImplementation((key, value) => {
+                inlineMetaStore[key] = value;
+                return Promise.resolve();
             }),
             loadArchive: vi.fn().mockResolvedValue(null),
             saveArchive: vi.fn().mockResolvedValue(undefined),

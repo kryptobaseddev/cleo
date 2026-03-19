@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTestDb,
-  makeTaskFile,
+  seedTasks,
   type TestDbEnv,
 } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -83,9 +83,8 @@ async function writeTodo(
   overrides: Record<string, unknown> = {},
   tasks?: Array<Partial<Task> & { id: string }>,
 ) {
-  const taskFile = makeTaskFile(tasks ?? defaultTasks);
-  taskFile.project = { ...defaultProjectMeta, ...overrides } as typeof taskFile.project;
-  await accessor.saveTaskFile(taskFile);
+  await seedTasks(accessor, tasks ?? defaultTasks);
+  await accessor.setMetaValue('project_meta', { ...defaultProjectMeta, ...overrides });
 }
 
 describe('listPhases', () => {
@@ -186,7 +185,7 @@ describe('startPhase', () => {
 describe('completePhase', () => {
   it('completes active phase with no incomplete tasks', async () => {
     // Make core have all done tasks
-    const taskFile = makeTaskFile([
+    await seedTasks(accessor, [
       {
         id: 'T001',
         title: 'Task 1',
@@ -196,8 +195,7 @@ describe('completePhase', () => {
         createdAt: '2026-01-01T00:00:00Z',
       },
     ]);
-    taskFile.project = { ...defaultProjectMeta } as typeof taskFile.project;
-    await accessor.saveTaskFile(taskFile);
+    await accessor.setMetaValue('project_meta', { ...defaultProjectMeta });
 
     const result = await completePhase('core', env.tempDir, accessor);
     expect(result.phase).toBe('core');
@@ -230,15 +228,14 @@ describe('renamePhase', () => {
 describe('deletePhase', () => {
   it('deletes empty phase with force', async () => {
     // Add a phase with no tasks
-    const taskFile = makeTaskFile(defaultTasks);
-    taskFile.project = {
+    await seedTasks(accessor, defaultTasks);
+    await accessor.setMetaValue('project_meta', {
       ...defaultProjectMeta,
       phases: {
         ...defaultProjectMeta.phases,
         empty: { order: 4, name: 'Empty', status: 'pending' },
       },
-    } as typeof taskFile.project;
-    await accessor.saveTaskFile(taskFile);
+    });
 
     const result = await deletePhase('empty', { force: true }, env.tempDir, accessor);
     expect(result.deletedPhase).toBe('empty');
@@ -260,15 +257,14 @@ describe('deletePhase', () => {
 
   it('requires force flag', async () => {
     // Use a phase with no tasks
-    const taskFile = makeTaskFile(defaultTasks);
-    taskFile.project = {
+    await seedTasks(accessor, defaultTasks);
+    await accessor.setMetaValue('project_meta', {
       ...defaultProjectMeta,
       phases: {
         ...defaultProjectMeta.phases,
         empty: { order: 4, name: 'Empty', status: 'pending' },
       },
-    } as typeof taskFile.project;
-    await accessor.saveTaskFile(taskFile);
+    });
 
     await expect(deletePhase('empty', {}, env.tempDir, accessor)).rejects.toThrow('force');
   });
