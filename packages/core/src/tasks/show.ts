@@ -97,10 +97,10 @@ export async function showTask(
       detail.dependents = dependentTasks.map((t) => t.id);
     }
 
-    // Build hierarchy path via recursive ancestor chain
+    // Build hierarchy path via recursive ancestor chain (root-first, then append self)
     const ancestors = await acc.getAncestorChain(taskId);
-    if (ancestors.length > 1) {
-      detail.hierarchyPath = ancestors.map((t) => t.id);
+    if (ancestors.length > 0) {
+      detail.hierarchyPath = [...ancestors.map((t) => t.id), taskId];
     }
   }
 

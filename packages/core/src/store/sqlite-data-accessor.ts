@@ -131,6 +131,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
   // Eagerly initialize the database to ensure tables exist
   await getDb(cwd);
 
+  /** Load all task IDs for cross-task dependency validation. */
+  async function getAllTaskIds(): Promise<Set<string>> {
+    const db = await getDb(cwd);
+    const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks).all();
+    return new Set(rows.map((r) => r.id));
+  }
+
   const accessor: DataAccessor = {
     engine: 'sqlite' as const,
 
@@ -486,7 +493,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .all();
       if (rows.length === 0 || !rows[0]) return null;
       const task = rowToTask(rows[0]);
-      await loadDependenciesForTasks(db, [task]);
+      // Load all task IDs so dependency validation doesn't filter out cross-task refs
+      const allIdRows = await db.select({ id: schema.tasks.id }).from(schema.tasks).all();
+      const allIds = new Set(allIdRows.map((r) => r.id));
+      await loadDependenciesForTasks(db, [task], allIds);
       await loadRelationsForTasks(db, [task]);
       return task;
     },
@@ -596,9 +606,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const rows = await query.all();
       const tasks = rows.map(rowToTask);
 
-      // Load dependencies and relations
+      // Load dependencies and relations with full ID set for cross-task refs
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+        const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
 
@@ -641,7 +652,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .all();
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+        const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;
@@ -712,7 +724,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }
 
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+        const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;
@@ -747,7 +760,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+        const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;
@@ -773,7 +787,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+          const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;
@@ -820,7 +835,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
+          const allIds = await getAllTaskIds();
+        await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;

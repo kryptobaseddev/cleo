@@ -17,7 +17,7 @@ import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult, TaskRef, BottleneckTask, ProjectMeta } from '@cleocode/contracts';
-import { cancelTask } from './cancel-ops.js';
+import { canCancel } from './cancel-ops.js';
 import {
   detectCircularDeps,
   getBlockedTasks,
@@ -694,31 +694,24 @@ export async function coreTaskCancel(
   params?: { reason?: string },
 ): Promise<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
+  const task = await accessor.loadSingleTask(taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found`);
   }
 
-  const { tasks: updatedTasks, result } = cancelTask(
-    taskId,
-    current.tasks as Parameters<typeof cancelTask>[1],
-    params?.reason,
-  );
-
-  if (!result.success) {
-    throw new Error(result.error!.message);
+  const check = canCancel(task);
+  if (!check.allowed) {
+    throw new Error(check.reason!);
   }
 
-  current.tasks = updatedTasks as typeof current.tasks;
+  const cancelledAt = new Date().toISOString();
+  task.status = 'cancelled';
+  task.cancelledAt = cancelledAt;
+  task.cancellationReason = params?.reason ?? undefined;
+  task.updatedAt = cancelledAt;
+  await accessor.upsertSingleTask(task);
 
-  const cancelledTask = updatedTasks.find((t) => t.id === taskId);
-  if (cancelledTask) {
-    await accessor.upsertSingleTask(
-      cancelledTask as Parameters<typeof accessor.upsertSingleTask>[0],
-    );
-  }
-
-  return { task: taskId, cancelled: true, reason: result.reason, cancelledAt: result.cancelledAt! };
+  return { task: taskId, cancelled: true, reason: params?.reason, cancelledAt };
 }
 
 // ============================================================================
@@ -735,9 +728,11 @@ export async function coreTaskUnarchive(
   params?: { status?: string; preserveStatus?: boolean },
 ): Promise<{ task: string; unarchived: boolean; title: string; status: string }> {
   const accessor = await getAccessor(projectRoot);
-  const taskFile = await accessor.loadTaskFile();
-  if (!taskFile || !taskFile.tasks) {
-    throw new Error('No valid task data found');
+
+  // Check if task already exists in active tasks
+  const existingTask = await accessor.taskExists(taskId);
+  if (existingTask) {
+    throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
   const archive = await accessor.loadArchive();
@@ -750,11 +745,7 @@ export async function coreTaskUnarchive(
     throw new Error(`Task '${taskId}' not found in archive`);
   }
 
-  if (taskFile.tasks.some((t) => t.id === taskId)) {
-    throw new Error(`Task '${taskId}' already exists in active tasks`);
-  }
-
-  const task = archive.archivedTasks[taskIndex];
+  const task = archive.archivedTasks[taskIndex]!;
 
   // Remove archive metadata if present on the raw record
   if ('_archive' in task) {
@@ -775,12 +766,8 @@ export async function coreTaskUnarchive(
 
   task.updatedAt = new Date().toISOString();
 
-  taskFile.tasks.push(task);
-  archive.archivedTasks.splice(taskIndex, 1);
-
-  // Fine-grained: upsert the restored task (now active), remove from archive
-  const restoredTaskRef = taskFile.tasks.find((t) => t.id === taskId)!;
-  await accessor.upsertSingleTask(restoredTaskRef);
+  // Fine-grained: upsert the restored task (now active)
+  await accessor.upsertSingleTask(task);
 
   return { task: taskId, unarchived: true, title: task.title, status: task.status };
 }
@@ -858,13 +845,8 @@ export async function coreTaskReparent(
   newType?: string;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
 
-  const taskMap = new Map(current.tasks.map((t) => [t.id, t]));
-  const task = taskMap.get(taskId);
+  const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
@@ -877,13 +859,12 @@ export async function coreTaskReparent(
     if (task.type === 'subtask') task.type = 'task';
     task.updatedAt = new Date().toISOString();
 
-    const taskRef = current.tasks.find((t) => t.id === taskId)!;
-    await accessor.upsertSingleTask(taskRef);
+    await accessor.upsertSingleTask(task);
 
     return { task: taskId, reparented: true, oldParent, newParent: null, newType: task.type };
   }
 
-  const newParent = taskMap.get(effectiveParentId);
+  const newParent = await accessor.loadSingleTask(effectiveParentId);
   if (!newParent) {
     throw new Error(`Parent task '${effectiveParentId}' not found`);
   }
@@ -892,36 +873,25 @@ export async function coreTaskReparent(
     throw new Error(`Cannot parent under subtask '${effectiveParentId}'`);
   }
 
-  // Check circular reference
-  let ancestor: TaskRecord | undefined = newParent;
-  while (ancestor) {
-    if (ancestor.id === taskId) {
-      throw new Error(
-        `Moving '${taskId}' under '${effectiveParentId}' would create circular reference`,
-      );
-    }
-    if (!ancestor.parentId) break;
-    ancestor = taskMap.get(ancestor.parentId);
-    if (!ancestor) break;
+  // Check circular reference using subtree
+  const subtree = await accessor.getSubtree(taskId);
+  if (subtree.some((t) => t.id === effectiveParentId)) {
+    throw new Error(
+      `Moving '${taskId}' under '${effectiveParentId}' would create circular reference`,
+    );
   }
 
-  // Check depth limit
-  let parentDepth = 0;
-  let cur: TaskRecord | undefined = newParent;
-  while (cur?.parentId) {
-    parentDepth++;
-    cur = taskMap.get(cur.parentId);
-    if (!cur || parentDepth > 10) break;
-  }
+  // Check depth limit using ancestor chain
+  const ancestors = await accessor.getAncestorChain(effectiveParentId);
+  const parentDepth = ancestors.length;
   const reparentLimits = getHierarchyLimits(projectRoot);
   if (parentDepth + 1 >= reparentLimits.maxDepth) {
     throw new Error(`Move would exceed max depth of ${reparentLimits.maxDepth}`);
   }
 
   // Check sibling limit (0 = unlimited)
-  const siblingCount = current.tasks.filter(
-    (t) => t.parentId === effectiveParentId && t.id !== taskId,
-  ).length;
+  const children = await accessor.getChildren(effectiveParentId);
+  const siblingCount = children.filter((t) => t.id !== taskId).length;
   if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
     throw new Error(
       `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`,
@@ -937,8 +907,7 @@ export async function coreTaskReparent(
 
   task.updatedAt = new Date().toISOString();
 
-  const reparentRef = current.tasks.find((t) => t.id === taskId)!;
-  await accessor.upsertSingleTask(reparentRef);
+  await accessor.upsertSingleTask(task);
 
   return {
     task: taskId,
@@ -1766,10 +1735,9 @@ export async function coreTaskImport(
   remapTable?: Record<string, string>;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTaskFile();
-  if (!current || !current.tasks) {
-    throw new Error('No valid task data found');
-  }
+
+  // Load all existing task IDs using queryTasks (bulk operation needs full ID set)
+  const { tasks: existingTasks } = await accessor.queryTasks({});
 
   let importData: unknown;
   try {
@@ -1792,20 +1760,18 @@ export async function coreTaskImport(
     return { imported: 0, skipped: 0, errors: ['No tasks found in import source'] };
   }
 
-  const existingIds = new Set(current.tasks.map((t) => t.id));
-  const allIds = new Set(current.tasks.map((t) => t.id));
+  const existingIds = new Set(existingTasks.map((t) => t.id));
+  const allIds = new Set(existingTasks.map((t) => t.id));
   const errors: string[] = [];
   let imported = 0;
   let skipped = 0;
   const remapTable: Record<string, string> = {};
 
   let nextIdNum = 0;
-  for (const t of current.tasks) {
+  for (const t of existingTasks) {
     const num = parseInt(t.id.replace('T', ''), 10);
     if (!Number.isNaN(num) && num > nextIdNum) nextIdNum = num;
   }
-
-  const tasksList = current.tasks;
 
   for (const importTask of importTasks) {
     if (!importTask.id || !importTask.title) {
@@ -1834,21 +1800,11 @@ export async function coreTaskImport(
       updatedAt: now,
     };
 
-    if (overwrite && existingIds.has(importTask.id)) {
-      const idx = tasksList.findIndex((t) => t.id === importTask.id);
-      if (idx !== -1) {
-        tasksList[idx] = newTask;
-      }
-    } else {
-      tasksList.push(newTask);
-    }
+    // Use targeted upsert per task instead of bulk saveTaskFile
+    await accessor.upsertSingleTask(newTask);
 
     allIds.add(newId);
     imported++;
-  }
-
-  if (imported > 0) {
-    await accessor.saveTaskFile(current);
   }
 
   return {

@@ -27,8 +27,9 @@ export async function collectAllIds(projectRoot: string): Promise<Set<string>> {
   const ids = new Set<string>();
   const accessor = await getAccessor(projectRoot);
 
-  const taskData = await accessor.loadTaskFile();
-  for (const task of taskData.tasks ?? []) {
+  // Use targeted queryTasks instead of loadTaskFile
+  const { tasks } = await accessor.queryTasks({});
+  for (const task of tasks) {
     if (task.id) ids.add(task.id);
   }
 

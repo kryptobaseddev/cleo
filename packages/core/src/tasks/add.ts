@@ -10,14 +10,12 @@ import { setMetaValue } from '../store/sqlite-data-accessor.js';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { createTask, updateTask } from '../store/task-store.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType, ProjectMeta } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import {
-  countActiveChildren,
   resolveHierarchyPolicy,
-  validateHierarchyPlacement,
 } from './hierarchy-policy.js';
 
 /**
@@ -429,9 +427,6 @@ export async function addTask(
   const dataAccessor =
     accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
 
-  // Read current data
-  const data = await dataAccessor.loadTaskFile();
-
   // Resolve defaults
   const status = options.status ?? 'pending';
   const priority = normalizePriority(options.priority ?? 'medium');
@@ -444,14 +439,33 @@ export async function addTask(
   // priority is already normalized above
   validateSize(size);
   if (options.labels?.length) validateLabels(options.labels);
-  if (options.depends?.length) validateDepends(options.depends, data.tasks);
 
-  // Phase validation
+  // Validate dependency IDs exist using targeted queries
+  if (options.depends?.length) {
+    for (const depId of options.depends) {
+      const trimmed = depId.trim();
+      if (!/^T\d{3,}$/.test(trimmed)) {
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `Invalid dependency ID format: '${trimmed}' (must be T### format)`,
+        );
+      }
+      const exists = await dataAccessor.taskExists(trimmed);
+      if (!exists) {
+        throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`);
+      }
+    }
+  }
+
+  // Phase validation using targeted metadata queries
   let phase = options.phase;
+  const projectMeta = await dataAccessor.getMetaValue<ProjectMeta>('project_meta');
+  let updatedProjectMeta: ProjectMeta | null = null;
+
   if (phase) {
     validatePhaseFormat(phase);
     // Check if phase exists in project
-    const phases = data.project?.phases ?? {};
+    const phases = projectMeta?.phases ?? {};
     if (!phases[phase]) {
       if (!options.addPhase) {
         const validPhases = Object.keys(phases).join(', ');
@@ -466,39 +480,58 @@ export async function addTask(
         .split('-')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
-      if (!data.project) {
-        data.project = { name: '', phases: {} };
-      }
-      if (!data.project.phases) data.project.phases = {};
-      data.project.phases[phase] = { order, name, status: 'pending' as const };
+      updatedProjectMeta = projectMeta ?? { name: '', phases: {} };
+      if (!updatedProjectMeta.phases) updatedProjectMeta.phases = {};
+      updatedProjectMeta.phases[phase] = { order, name, status: 'pending' as const };
     }
   } else {
     // Inherit from project.currentPhase
-    if (data.project?.currentPhase) {
-      phase = data.project.currentPhase;
+    if (projectMeta?.currentPhase) {
+      phase = projectMeta.currentPhase;
     }
   }
 
-  // Parent hierarchy validation
+  // Parent hierarchy validation using targeted queries
   if (parentId) {
     if (!/^T\d{3,}$/.test(parentId)) {
       throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`);
     }
+    // Validate parent exists
+    const parentTask = await dataAccessor.loadSingleTask(parentId);
+    if (!parentTask) {
+      throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${parentId} not found`);
+    }
+
     // Read hierarchy limits from config via policy module
     const config = await loadConfig(cwd);
     const policy = resolveHierarchyPolicy(config);
-    const placement = validateHierarchyPlacement(parentId, data.tasks, policy);
-    if (!placement.valid) {
-      const code =
-        placement.error?.code === 'E_PARENT_NOT_FOUND'
-          ? ExitCode.PARENT_NOT_FOUND
-          : placement.error?.code === 'E_DEPTH_EXCEEDED'
-            ? ExitCode.DEPTH_EXCEEDED
-            : ExitCode.SIBLING_LIMIT;
-      throw new CleoError(code, placement.error?.message ?? 'Hierarchy constraint violated');
+
+    // Depth check using ancestor chain
+    const ancestors = await dataAccessor.getAncestorChain(parentId);
+    const parentDepth = ancestors.length;
+    if (parentDepth + 1 >= policy.maxDepth) {
+      throw new CleoError(
+        ExitCode.DEPTH_EXCEEDED,
+        `Maximum nesting depth ${policy.maxDepth} would be exceeded`,
+      );
     }
+
+    // Sibling limit (0 = unlimited)
+    if (policy.maxSiblings > 0) {
+      const children = await dataAccessor.getChildren(parentId);
+      const counted = policy.countDoneInLimit
+        ? children.length
+        : children.filter((t) => t.status !== 'done').length;
+      if (counted >= policy.maxSiblings) {
+        throw new CleoError(
+          ExitCode.SIBLING_LIMIT,
+          `Parent ${parentId} already has ${counted} children (limit: ${policy.maxSiblings})`,
+        );
+      }
+    }
+
     // Active siblings cap
-    const activeCount = countActiveChildren(parentId, data.tasks);
+    const activeCount = await dataAccessor.countActiveChildren(parentId);
     if (policy.maxActiveSiblings > 0 && activeCount >= policy.maxActiveSiblings) {
       throw new CleoError(
         ExitCode.SIBLING_LIMIT,
@@ -527,11 +560,24 @@ export async function addTask(
   if (taskType) {
     validateTaskType(taskType);
   } else {
-    taskType = inferTaskType(parentId, data.tasks);
+    // Infer type from parent using targeted query
+    if (!parentId) {
+      taskType = 'task';
+    } else {
+      const parent = await dataAccessor.loadSingleTask(parentId);
+      if (!parent) {
+        taskType = 'task';
+      } else if (parent.type === 'epic') {
+        taskType = 'task';
+      } else {
+        taskType = 'subtask';
+      }
+    }
   }
 
-  // Duplicate detection
-  const duplicate = findRecentDuplicate(options.title, phase, data.tasks);
+  // Duplicate detection using targeted query
+  const { tasks: candidateDupes } = await dataAccessor.queryTasks({ search: options.title, limit: 50 });
+  const duplicate = findRecentDuplicate(options.title, phase, candidateDupes);
   if (duplicate) {
     return { task: duplicate, duplicate: true };
   }
@@ -539,7 +585,23 @@ export async function addTask(
   const taskId = await allocateNextTaskId(cwd);
 
   const now = new Date().toISOString();
-  const position = options.position ?? getNextPosition(parentId, data.tasks);
+
+  // Compute next position using targeted queries
+  let position: number;
+  if (options.position !== undefined) {
+    position = options.position;
+  } else {
+    const { tasks: siblings } = parentId
+      ? await dataAccessor.queryTasks({ parentId })
+      : await dataAccessor.queryTasks({ parentId: null });
+    let maxPos = 0;
+    for (const s of siblings) {
+      if (s.position !== undefined && s.position !== null && s.position > maxPos) {
+        maxPos = s.position;
+      }
+    }
+    position = maxPos + 1;
+  }
 
   // Build task object
   const task: Task = {
@@ -584,10 +646,11 @@ export async function addTask(
 
   // Position shuffling via targeted SQL updates
   if (options.position !== undefined) {
-    for (const t of data.tasks) {
-      const isInScope = parentId ? t.parentId === parentId : !t.parentId || t.parentId === null;
+    const { tasks: scopedSiblings } = parentId
+      ? await dataAccessor.queryTasks({ parentId })
+      : await dataAccessor.queryTasks({ parentId: null });
+    for (const t of scopedSiblings) {
       if (
-        isInScope &&
         t.position !== undefined &&
         t.position !== null &&
         t.position >= options.position
@@ -608,8 +671,8 @@ export async function addTask(
   await createTask(task, cwd);
 
   // Update project metadata if a new phase was created
-  if (options.addPhase && phase && data.project?.phases?.[phase]) {
-    await setMetaValue(cwd, 'project_meta', data.project);
+  if (options.addPhase && phase && updatedProjectMeta?.phases?.[phase]) {
+    await setMetaValue(cwd, 'project_meta', updatedProjectMeta);
   }
 
   await dataAccessor.appendLog({

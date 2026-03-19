@@ -19,7 +19,8 @@ import {
   validateTitle,
 } from './add.js';
 import { completeTask } from './complete.js';
-import { reparentTask } from './reparent.js';
+import { loadConfig } from '../config.js';
+import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
   'title',
@@ -229,23 +230,63 @@ export async function updateTask(
     changes.push('noAutoComplete');
   }
 
-  // Handle parentId change (reparent)
+  // Handle parentId change (reparent) using targeted queries
   // Supports: parentId="T001" to set parent, parentId=null or parentId="" to promote to root
   if (options.parentId !== undefined) {
     const newParentId = options.parentId || null; // normalize "" to null
     const currentParentId = task.parentId ?? null;
 
     if (newParentId !== currentParentId) {
-      const data = await acc.loadTaskFile();
-      const result = await reparentTask(data, {
-        taskId: options.taskId,
-        newParentId,
-      });
-      // reparentTask mutates the task in-place and updates data._meta/lastUpdated
-      // so we just need to track the change
-      changes.push('parentId');
-      if (result.newType !== (options.type ?? task.type)) {
-        changes.push('type');
+      const originalType = task.type;
+
+      if (!newParentId) {
+        // Promote to root
+        task.parentId = null;
+        if (task.type === 'subtask') task.type = 'task';
+        changes.push('parentId');
+        if (task.type !== originalType) changes.push('type');
+      } else {
+        // Validate target parent exists
+        const newParent = await acc.loadSingleTask(newParentId);
+        if (!newParent) {
+          throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${newParentId} not found`);
+        }
+        if (newParent.type === 'subtask') {
+          throw new CleoError(
+            ExitCode.INVALID_PARENT_TYPE,
+            `Cannot parent under subtask '${newParentId}'`,
+          );
+        }
+
+        // Circular reference check: ensure newParentId is not a descendant of taskId
+        const subtree = await acc.getSubtree(options.taskId);
+        if (subtree.some((t) => t.id === newParentId)) {
+          throw new CleoError(
+            ExitCode.CIRCULAR_REFERENCE,
+            `Moving '${options.taskId}' under '${newParentId}' would create a circular reference`,
+          );
+        }
+
+        // Depth check
+        const ancestors = await acc.getAncestorChain(newParentId);
+        const parentDepth = ancestors.length;
+        const config = await loadConfig(cwd);
+        const policy = resolveHierarchyPolicy(config);
+        if (parentDepth + 1 >= policy.maxDepth) {
+          throw new CleoError(
+            ExitCode.DEPTH_EXCEEDED,
+            `Maximum nesting depth ${policy.maxDepth} would be exceeded`,
+          );
+        }
+
+        // Apply reparent
+        task.parentId = newParentId;
+        const newDepth = parentDepth + 1;
+        if (newDepth === 1) task.type = 'task';
+        else if (newDepth >= 2) task.type = 'subtask';
+
+        changes.push('parentId');
+        if (task.type !== originalType) changes.push('type');
       }
     }
   }
