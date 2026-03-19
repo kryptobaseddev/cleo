@@ -12,11 +12,7 @@ export function registerExportCommand(program: Command): void {
   program
     .command('export')
     .description('Export tasks to CSV, TSV, JSON, or markdown format')
-    .option(
-      '--export-format <format>',
-      'Export format: json, csv, tsv, markdown',
-      'json',
-    )
+    .option('--export-format <format>', 'Export format: json, csv, tsv, markdown', 'json')
     .option('--output <file>', 'Output file path (stdout if omitted)')
     .option('--status <statuses>', 'Filter by status (comma-separated)')
     .option('--parent <id>', 'Filter by parent task')
