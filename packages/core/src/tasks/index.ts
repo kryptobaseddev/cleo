@@ -9,7 +9,6 @@ export {
   type AddTaskResult,
   addTask,
   findRecentDuplicate,
-  generateTaskId,
   getNextPosition,
   getTaskDepth,
   inferTaskType,

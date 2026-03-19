@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../../store/__tests__/test-db-helper.js';
-import { addTask, findRecentDuplicate, generateTaskId, getNextPosition, getTaskDepth, inferTaskType, validateLabels, validateParent, validatePhaseFormat, validatePriority, validateSize, validateStatus, validateTaskType, validateTitle, } from '../add.js';
+import { addTask, findRecentDuplicate, getNextPosition, getTaskDepth, inferTaskType, validateLabels, validateParent, validatePhaseFormat, validatePriority, validateSize, validateStatus, validateTaskType, validateTitle, } from '../add.js';
 describe('validateTitle', () => {
     it('accepts valid titles', () => {
         expect(() => validateTitle('Implement auth')).not.toThrow();
@@ -75,20 +75,6 @@ describe('validatePhaseFormat', () => {
     it('rejects invalid formats', () => {
         expect(() => validatePhaseFormat('Phase1')).toThrow('Invalid phase format');
         expect(() => validatePhaseFormat('123')).toThrow('Invalid phase format');
-    });
-});
-describe('generateTaskId', () => {
-    it('generates T001 for empty task list', () => {
-        expect(generateTaskId([])).toBe('T001');
-    });
-    it('generates next sequential ID', () => {
-        const tasks = [{ id: 'T001' }, { id: 'T003' }];
-        expect(generateTaskId(tasks)).toBe('T004');
-    });
-    it('considers archived tasks', () => {
-        const tasks = [{ id: 'T001' }];
-        const archived = [{ id: 'T005' }];
-        expect(generateTaskId(tasks, archived)).toBe('T006');
     });
 });
 describe('inferTaskType', () => {

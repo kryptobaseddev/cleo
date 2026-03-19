@@ -5,8 +5,6 @@
  * Ensures uniqueness across active and archived tasks.
  */
 
-import { getAccessor } from '../store/data-accessor.js';
-
 /**
  * Task ID pattern: T followed by 3+ digits
  */
@@ -21,28 +19,6 @@ function extractNumber(id: string): number {
 }
 
 /**
- * Collect all existing task IDs from task data and archive.
- */
-export async function collectAllIds(projectRoot: string): Promise<Set<string>> {
-  const ids = new Set<string>();
-  const accessor = await getAccessor(projectRoot);
-
-  // Use targeted queryTasks instead of loadTaskFile
-  const { tasks } = await accessor.queryTasks({});
-  for (const task of tasks) {
-    if (task.id) ids.add(task.id);
-  }
-
-  const archiveData = await accessor.loadArchive();
-  if (archiveData?.archivedTasks) {
-    for (const task of archiveData.archivedTasks) {
-      if (task.id) ids.add(task.id);
-    }
-  }
-  return ids;
-}
-
-/**
  * Find the highest existing task ID number
  */
 export function findHighestId(existingIds: Set<string>): number {
@@ -54,28 +30,6 @@ export function findHighestId(existingIds: Set<string>): number {
     }
   }
   return highest;
-}
-
-/**
- * Generate the next available task ID.
- *
- * Finds the highest existing ID number across active and archived tasks,
- * then returns the next sequential ID.
- *
- * @deprecated Use {@link import('../sequence/index.js').allocateNextTaskId} for
- * SQLite paths. This function is vulnerable to TOCTOU race conditions
- * under concurrent access (T5184).
- * @param projectRoot - Project root directory
- * @returns New unique task ID (e.g., "T4321")
- */
-export async function generateNextId(projectRoot: string): Promise<string> {
-  const existingIds = await collectAllIds(projectRoot);
-  const highest = findHighestId(existingIds);
-  const next = highest + 1;
-
-  // Pad to at least 3 digits
-  const padded = next.toString().padStart(3, '0');
-  return `T${padded}`;
 }
 
 /**

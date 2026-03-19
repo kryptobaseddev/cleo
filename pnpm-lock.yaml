@@ -57,6 +57,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.6
         version: 2.4.8
+      '@forge-ts/cli':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@types/node':
         specifier: ^22.19.11
         version: 22.19.15
@@ -658,6 +661,25 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@forge-ts/api@0.6.0':
+    resolution: {integrity: sha512-+J+TzIsttVl68jcBkrUO310K6a1sMOvR2CFlnrO90Z7KgrIUKiRHVJq8ZXI/+QohnZi2RTOiDl4IfGs/af7DlQ==}
+
+  '@forge-ts/cli@0.6.0':
+    resolution: {integrity: sha512-ROA0t5gC/HggTx+i988t8C2+el9Zu/JmdmWbxjWGT1Eo0BiMr7tL4Y1Je0aUG9t1a394JHB77hCLLagSyzdVwQ==}
+    hasBin: true
+
+  '@forge-ts/core@0.6.0':
+    resolution: {integrity: sha512-2EX04b9eqBTOp0CuQNmEJSx05kxSvAg9JneRq19fvgYTEs5ZYQ+n+N7l1NI27yjXJ6O4zrm9k/hGZVzwuy67XQ==}
+
+  '@forge-ts/doctest@0.6.0':
+    resolution: {integrity: sha512-x6EzdbxZolP4x/xj0nEwyDDXacMjLG8JdH8iHtqAQCQwKy7VHksfM5P6NPZ+4INmWjdaWDmlomPJIOWZs8JDlA==}
+
+  '@forge-ts/enforcer@0.6.0':
+    resolution: {integrity: sha512-nqnSD+xpfTDhFcqxNMOjRvqRsElpJKxuDvFo6iP7DJ0zyP+OgU2sgzXfJ10VgzZf0S2Baq6Caq31kKsBzZtPQQ==}
+
+  '@forge-ts/gen@0.6.0':
+    resolution: {integrity: sha512-rRdrqt4LZiC/47dC2psrj63kkVduMjjXcsiXyJ9IcoMnLVUjwvC0OXc0Rz5QxHEojrVWrX9xzuCCAXZdEiVybg==}
+
   '@hono/node-server@1.19.11':
     resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
     engines: {node: '>=18.14.1'}
@@ -682,6 +704,9 @@ packages:
 
   '@kwsites/promise-deferred@1.1.1':
     resolution: {integrity: sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw==}
+
+  '@microsoft/tsdoc@0.15.1':
+    resolution: {integrity: sha512-4aErSrCR/On/e5G2hDP0wjooqDdauzEbIq8hIkIe5pXV0rtWJZvdCEKL0ykZxex+IxIwBp0eGeV48hQN07dXtw==}
 
   '@modelcontextprotocol/sdk@1.27.1':
     resolution: {integrity: sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA==}
@@ -1831,6 +1856,11 @@ packages:
     resolution: {integrity: sha512-OZs6gsjF4vMp32qrCbiVSkrFmXtG/AZhY3t0iAMrMBiAZyV9oALtXO8hsrHbMXF9x6L3grlFuwW2oAz7cav+Gw==}
     engines: {node: '>= 0.6'}
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@6.0.1-rc:
     resolution: {integrity: sha512-7XlzYb+p/7YxX6qSOzwB4mxVFRdAgWWkj1PgAZ+jzldeuFV6Z77vwFbNxHsUXAL/bhlWY2jCT8shLwDJR8337g==}
     engines: {node: '>=14.17'}
@@ -2355,6 +2385,41 @@ snapshots:
   '@esbuild/win32-x64@0.27.4':
     optional: true
 
+  '@forge-ts/api@0.6.0':
+    dependencies:
+      '@forge-ts/core': 0.6.0
+
+  '@forge-ts/cli@0.6.0':
+    dependencies:
+      '@cleocode/lafs-protocol': 1.7.0
+      '@forge-ts/api': 0.6.0
+      '@forge-ts/core': 0.6.0
+      '@forge-ts/doctest': 0.6.0
+      '@forge-ts/enforcer': 0.6.0
+      '@forge-ts/gen': 0.6.0
+      citty: 0.2.1
+    transitivePeerDependencies:
+      - '@bufbuild/protobuf'
+      - '@grpc/grpc-js'
+      - supports-color
+
+  '@forge-ts/core@0.6.0':
+    dependencies:
+      '@microsoft/tsdoc': 0.15.1
+      typescript: 5.9.3
+
+  '@forge-ts/doctest@0.6.0':
+    dependencies:
+      '@forge-ts/core': 0.6.0
+
+  '@forge-ts/enforcer@0.6.0':
+    dependencies:
+      '@forge-ts/core': 0.6.0
+
+  '@forge-ts/gen@0.6.0':
+    dependencies:
+      '@forge-ts/core': 0.6.0
+
   '@hono/node-server@1.19.11(hono@4.12.8)':
     dependencies:
       hono: 4.12.8
@@ -2376,6 +2441,8 @@ snapshots:
       - supports-color
 
   '@kwsites/promise-deferred@1.1.1': {}
+
+  '@microsoft/tsdoc@0.15.1': {}
 
   '@modelcontextprotocol/sdk@1.27.1(zod@3.25.76)':
     dependencies:
@@ -3454,6 +3521,8 @@ snapshots:
       content-type: 1.0.5
       media-typer: 1.1.0
       mime-types: 3.0.2
+
+  typescript@5.9.3: {}
 
   typescript@6.0.1-rc: {}
 

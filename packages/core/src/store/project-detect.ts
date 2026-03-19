@@ -88,9 +88,6 @@ export interface ProjectContext {
   };
 }
 
-/** @deprecated Use ProjectContext instead. */
-export type ProjectInfo = ProjectContext;
-
 /**
  * Detect project type from directory contents.
  * Returns a schema-compliant ProjectContext object.

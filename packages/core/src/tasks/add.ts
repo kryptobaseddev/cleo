@@ -225,27 +225,6 @@ export function validateDepends(depends: string[], tasks: Task[]): void {
 }
 
 /**
- * Generate the next task ID by scanning existing tasks and archive.
- *
- * @deprecated Use {@link allocateNextTaskId} for SQLite paths. This function
- * is vulnerable to TOCTOU race conditions under concurrent access (T5184).
- * Kept for legacy JSON accessor paths where single-process guarantees hold.
- * @task T4460
- */
-export function generateTaskId(tasks: Task[], archivedTasks?: Array<{ id: string }>): string {
-  let maxId = 0;
-  const allTasks = [...tasks, ...(archivedTasks ?? [])];
-  for (const task of allTasks) {
-    const match = task.id.match(/^T(\d+)$/);
-    if (match) {
-      const num = parseInt(match[1]!, 10);
-      if (num > maxId) maxId = num;
-    }
-  }
-  return `T${String(maxId + 1).padStart(3, '0')}`;
-}
-
-/**
  * Validate parent hierarchy constraints.
  * @task T4460
  */

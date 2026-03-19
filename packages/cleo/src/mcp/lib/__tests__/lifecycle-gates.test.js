@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { lifecycleScenarios } from '../../__tests__/fixtures/lifecycle-scenarios.js';
-import { ExitCode } from '../exit-codes.js';
+import { ExitCode } from '@cleocode/contracts';
 import { ProtocolEnforcer } from '../protocol-enforcement.js';
 describe('Lifecycle Gate Enforcement', () => {
     let enforcer;
@@ -348,7 +348,7 @@ describe('Lifecycle Gate Enforcement', () => {
         it('should map gate failures to exit code 80', () => {
             // This is tested through the domain router integration
             // Exit code 80 = E_LIFECYCLE_GATE_FAILED (moved from 75 to avoid Nexus conflict)
-            expect(ExitCode.E_LIFECYCLE_GATE_FAILED).toBe(80);
+            expect(ExitCode.LIFECYCLE_GATE_FAILED).toBe(80);
         });
     });
 });

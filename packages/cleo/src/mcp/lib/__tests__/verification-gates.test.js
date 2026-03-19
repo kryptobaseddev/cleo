@@ -5,7 +5,7 @@
  * @epic T2908
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ExitCode } from '../exit-codes.js';
+import { ExitCode } from '@cleocode/contracts';
 import { ProtocolType } from '../protocol-enforcement.js';
 import { createVerificationGate, GATE_SEQUENCE, GateLayer, GateStatus, getWorkflowGateDefinition, isValidWorkflowGateName, VerificationGate, WORKFLOW_GATE_DEFINITIONS, WORKFLOW_GATE_SEQUENCE, WorkflowGateName, WorkflowGateTracker, } from '../verification-gates.js';
 describe('VerificationGate', () => {
@@ -315,7 +315,7 @@ describe('VerificationGate', () => {
                 },
             };
             const result = await gate.verifyOperation(context);
-            expect(result.exitCode).toBe(ExitCode.E_VALIDATION_ERROR);
+            expect(result.exitCode).toBe(ExitCode.VALIDATION_ERROR);
         });
         it('should map semantic errors to appropriate codes', async () => {
             const context = {
@@ -328,7 +328,7 @@ describe('VerificationGate', () => {
                 },
             };
             const result = await gate.verifyOperation(context);
-            expect(result.exitCode).toBe(ExitCode.E_VALIDATION_ERROR);
+            expect(result.exitCode).toBe(ExitCode.VALIDATION_ERROR);
         });
         it('should map referential errors to E_NOT_FOUND', async () => {
             const context = {
@@ -340,7 +340,7 @@ describe('VerificationGate', () => {
                 },
             };
             const result = await gate.verifyOperation(context);
-            expect(result.exitCode).toBe(ExitCode.E_NOT_FOUND);
+            expect(result.exitCode).toBe(ExitCode.NOT_FOUND);
         });
     });
     describe('Static Helper Methods', () => {

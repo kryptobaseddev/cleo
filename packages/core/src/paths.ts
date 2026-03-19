@@ -335,29 +335,12 @@ export function getAgentsHome(): string {
 }
 
 /**
- * Get the Claude Code global directory.
- * @deprecated Use AdapterPathProvider.getProviderDir() from the active adapter instead.
- * Respects CLAUDE_HOME env var, defaults to ~/.claude.
- */
-export function getClaudeDir(): string {
-  return process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude');
-}
-
-/**
  * Get the Claude Code agents directory (~/.claude/agents by default).
  * @deprecated Use AdapterPathProvider.getAgentInstallDir() from the active adapter instead.
  */
 export function getClaudeAgentsDir(): string {
-  return join(getClaudeDir(), 'agents');
-}
-
-/**
- * Get the Claude Code settings.json path.
- * @deprecated Use AdapterPathProvider.getSettingsPath() from the active adapter instead.
- * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
- */
-export function getClaudeSettingsPath(): string {
-  return process.env['CLAUDE_SETTINGS'] ?? join(getClaudeDir(), 'settings.json');
+  const claudeDir = process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude');
+  return join(claudeDir, 'agents');
 }
 
 /**

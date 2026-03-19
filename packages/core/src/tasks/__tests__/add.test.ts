@@ -11,7 +11,6 @@ import type { Task } from '@cleocode/contracts';
 import {
   addTask,
   findRecentDuplicate,
-  generateTaskId,
   getNextPosition,
   getTaskDepth,
   inferTaskType,
@@ -108,23 +107,6 @@ describe('validatePhaseFormat', () => {
   it('rejects invalid formats', () => {
     expect(() => validatePhaseFormat('Phase1')).toThrow('Invalid phase format');
     expect(() => validatePhaseFormat('123')).toThrow('Invalid phase format');
-  });
-});
-
-describe('generateTaskId', () => {
-  it('generates T001 for empty task list', () => {
-    expect(generateTaskId([])).toBe('T001');
-  });
-
-  it('generates next sequential ID', () => {
-    const tasks = [{ id: 'T001' }, { id: 'T003' }] as Task[];
-    expect(generateTaskId(tasks)).toBe('T004');
-  });
-
-  it('considers archived tasks', () => {
-    const tasks = [{ id: 'T001' }] as Task[];
-    const archived = [{ id: 'T005' }];
-    expect(generateTaskId(tasks, archived)).toBe('T006');
   });
 });
 
