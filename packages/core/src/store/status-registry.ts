@@ -4,9 +4,21 @@
  * The canonical status definitions now live in @cleocode/contracts.
  * This file exists for backward compatibility within the store layer.
  */
+
+export type {
+  AdrStatus,
+  EntityType,
+  GateStatus,
+  ManifestStatus,
+  PipelineStatus,
+  SessionStatus,
+  StageStatus,
+  TaskStatus,
+} from '@cleocode/contracts';
 export {
   ADR_STATUSES,
   GATE_STATUSES,
+  isValidStatus,
   LIFECYCLE_PIPELINE_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
@@ -20,16 +32,4 @@ export {
   TERMINAL_PIPELINE_STATUSES,
   TERMINAL_STAGE_STATUSES,
   TERMINAL_TASK_STATUSES,
-  isValidStatus,
-} from '@cleocode/contracts';
-
-export type {
-  AdrStatus,
-  EntityType,
-  GateStatus,
-  ManifestStatus,
-  PipelineStatus,
-  SessionStatus,
-  StageStatus,
-  TaskStatus,
 } from '@cleocode/contracts';

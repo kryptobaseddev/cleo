@@ -2,8 +2,9 @@
  * Tests for atomicity module.
  * @task T5001
  */
-import { describe, expect, it } from 'vitest';
+
 import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { ATOMICITY_CRITERIA, checkAtomicity } from '../atomicity.js';
 
 // ---------------------------------------------------------------------------

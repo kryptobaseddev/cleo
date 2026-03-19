@@ -4,7 +4,7 @@
  * @epic T4454
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, } from '../../store/__tests__/test-db-helper.js';
+import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { analyzeEpic, autoDispatch, getNextTask, getOrchestratorContext, getReadyTasks, prepareSpawn, resolveTokens, startOrchestration, } from '../index.js';
 let env;
 let accessor;

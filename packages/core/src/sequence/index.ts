@@ -6,12 +6,12 @@
 
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import { createDataAccessor, type DataAccessor } from '../store/data-accessor.js';
 import { setMetaValue } from '../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../store/tasks-schema.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 
 const SEQUENCE_META_KEY = 'task_id_sequence';
 
@@ -172,7 +172,10 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
   };
 }
 
-async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Array<Pick<Task, 'id'>>> {
+async function loadAllTasks(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Array<Pick<Task, 'id'>>> {
   let localAccessor: DataAccessor | null = null;
   const activeAccessor = accessor ?? (await createDataAccessor(undefined, cwd));
   if (!accessor) {

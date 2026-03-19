@@ -6,8 +6,8 @@
  * @epic T4545
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerExportTasksCommand(program: Command): void {
   program

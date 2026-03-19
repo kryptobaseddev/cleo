@@ -272,11 +272,7 @@ export async function reconcile(
               {
                 title: ext.title,
                 description: ext.description ?? `Created during ${providerId} task sync`,
-                labels: [
-                  ...(defaultLabels ?? []),
-                  ...(ext.labels ?? []),
-                  'sync-created',
-                ],
+                labels: [...(defaultLabels ?? []), ...(ext.labels ?? []), 'sync-created'],
                 ...(defaultPhase ? { phase: defaultPhase, addPhase: true } : {}),
               },
               cwd,
@@ -296,8 +292,7 @@ export async function reconcile(
           }
         }
       } catch (err) {
-        action.error =
-          err instanceof Error ? err.message : String(err);
+        action.error = err instanceof Error ? err.message : String(err);
       }
     }
 

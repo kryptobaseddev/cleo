@@ -9,8 +9,8 @@
 
 import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,

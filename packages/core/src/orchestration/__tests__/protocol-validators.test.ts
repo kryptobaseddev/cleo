@@ -6,8 +6,8 @@
  * @epic T4498
  */
 
-import { describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
 import {
   type ManifestEntryInput,

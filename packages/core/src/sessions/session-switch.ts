@@ -5,10 +5,10 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Session, TaskWorkState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 /**
  * Switch to a different session.
@@ -55,7 +55,8 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
 
   // Update focus if target session has a task
   if (targetSession.taskWork?.taskId) {
-    const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
+    const focus =
+      (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
     focus.currentTask = targetSession.taskWork.taskId;
     await accessor.setMetaValue('focus_state', focus);
   }

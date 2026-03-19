@@ -13,7 +13,9 @@ import { default as AjvImport } from 'ajv';
 
 // Handle ESM/CJS interop for Ajv
 const ajvMod = AjvImport as Record<string, unknown>;
-const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (opts?: Record<string, unknown>) => AjvInstance;
+const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (
+  opts?: Record<string, unknown>,
+) => AjvInstance;
 
 import { parseAdrFile } from './parse.js';
 

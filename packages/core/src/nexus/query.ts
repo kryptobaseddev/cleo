@@ -13,10 +13,10 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 import { nexusGetProject, readRegistry } from './registry.js';
 
 // ── Types ────────────────────────────────────────────────────────────

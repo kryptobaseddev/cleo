@@ -4,9 +4,9 @@
  * @epic T4454
  */
 
+import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;

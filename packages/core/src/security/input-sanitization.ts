@@ -12,13 +12,13 @@
  * @epic T3125
  */
 
-import { isAbsolute, normalize, relative, resolve } from 'path';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
   SESSION_STATUSES,
   TASK_STATUSES,
 } from '@cleocode/contracts';
+import { isAbsolute, normalize, relative, resolve } from 'path';
 import { TASK_PRIORITIES } from '../store/tasks-schema.js';
 import { normalizeTaskId } from '../tasks/id-generator.js';
 

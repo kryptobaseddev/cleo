@@ -4,8 +4,8 @@
  * @epic T4454
  */
 
-import { describe, expect, it } from 'vitest';
 import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import {
   classifyStaleness,
   DEFAULT_THRESHOLDS,

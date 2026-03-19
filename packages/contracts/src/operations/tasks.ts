@@ -14,6 +14,7 @@
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
+
 export type { TaskStatus };
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 

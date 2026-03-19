@@ -29,4 +29,6 @@ export interface SpawnResult {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   startTime: string;
   endTime?: string;
+  /** Error message when status is 'failed'. Contains details about what went wrong. */
+  error?: string;
 }

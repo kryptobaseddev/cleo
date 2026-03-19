@@ -9,8 +9,8 @@
 import { OpenCodeAdapter } from './adapter.js';
 export { OpenCodeAdapter } from './adapter.js';
 export { OpenCodeHookProvider } from './hooks.js';
-export { OpenCodeSpawnProvider } from './spawn.js';
 export { OpenCodeInstallProvider } from './install.js';
+export { OpenCodeSpawnProvider } from './spawn.js';
 export default OpenCodeAdapter;
 /**
  * Factory function for creating adapter instances.

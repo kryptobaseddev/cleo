@@ -11,11 +11,10 @@
  * @epic T4732
  */
 
+import type { Session, Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import { checkSequence, repairSequence } from '../sequence/index.js';
-import type { Session } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { getDb } from './sqlite.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';

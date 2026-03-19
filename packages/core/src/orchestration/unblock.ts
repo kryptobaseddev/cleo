@@ -3,9 +3,9 @@
  * @task T4784
  */
 
+import type { Task, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task, TaskRef } from '@cleocode/contracts';
 
 export interface HighImpactTask {
   taskId: string;

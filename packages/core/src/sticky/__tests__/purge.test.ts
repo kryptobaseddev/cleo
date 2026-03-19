@@ -31,10 +31,7 @@ describe('purgeSticky', () => {
 
   it('should permanently delete an active sticky note', async () => {
     // Create a sticky note
-    const sticky = await addSticky(
-      { content: 'Test sticky to purge', tags: ['test'] },
-      tempDir,
-    );
+    const sticky = await addSticky({ content: 'Test sticky to purge', tags: ['test'] }, tempDir);
 
     // Verify it exists
     const beforePurge = await getSticky(sticky.id, tempDir);

@@ -15,13 +15,13 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import * as schema from '../store/tasks-schema.js';
-import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
 import { ExitCode } from '@cleocode/contracts';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { syncAdrsToDb } from '../adrs/sync.js';
 import { CleoError } from '../errors.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import * as schema from '../store/tasks-schema.js';
+import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
 import { linkProvenance } from './evidence.js';
 import { ensureStageArtifact } from './stage-artifacts.js';
 

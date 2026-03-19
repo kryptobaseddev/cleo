@@ -8,13 +8,13 @@
  * @epic T5323
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
 import {
   listPhases as coreListPhases,
   showPhase as coreShowPhase,
   type ListPhasesResult,
   type ShowPhaseResult,
 } from '../phases/index.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 /**
  * List all phases with status summaries.

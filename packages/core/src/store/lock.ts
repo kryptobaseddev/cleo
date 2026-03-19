@@ -5,9 +5,9 @@
  * @task T4457
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import lockfile from 'proper-lockfile';
 import { CleoError } from '../errors.js';
-import { ExitCode } from '@cleocode/contracts';
 
 /** Default lock options. */
 const DEFAULT_LOCK_OPTIONS = {

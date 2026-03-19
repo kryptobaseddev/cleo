@@ -288,9 +288,11 @@ async function getLastHandoffSafe(
 
 function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
   try {
-    return typedAll<DecisionRow>(db,
+    return typedAll<DecisionRow>(
+      db,
       'SELECT id, decision, created_at FROM brain_decisions ORDER BY created_at DESC LIMIT ?',
-      limit);
+      limit,
+    );
   } catch {
     return [];
   }
@@ -300,12 +302,14 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
   try {
     // Fetch more than needed so we can apply decay filtering client-side.
     // We fetch 3x the limit to account for entries that will be filtered out.
-    const candidates = typedAll<LearningRow>(db,
+    const candidates = typedAll<LearningRow>(
+      db,
       `SELECT id, insight, confidence, created_at, updated_at FROM brain_learnings
          WHERE CAST(confidence AS REAL) >= 0.3
          ORDER BY confidence DESC, created_at DESC
          LIMIT ?`,
-      limit * 3);
+      limit * 3,
+    );
 
     // Apply confidence decay based on age (T028).
     // Uses updated_at if available (referenced memories decay slower),
@@ -318,8 +322,7 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
         const referenceDate = row.updated_at || row.created_at;
         const ageDays = Math.max(0, (now - new Date(referenceDate).getTime()) / MS_PER_DAY);
         const rawConfidence = parseFloat(row.confidence) || 0;
-        const effectiveConfidence =
-          rawConfidence * Math.pow(DECAY_RATE, ageDays / DECAY_HALF_LIFE_DAYS);
+        const effectiveConfidence = rawConfidence * DECAY_RATE ** (ageDays / DECAY_HALF_LIFE_DAYS);
         return { ...row, effectiveConfidence };
       })
       .filter((row) => row.effectiveConfidence >= DECAY_MIN_CONFIDENCE_THRESHOLD)
@@ -337,9 +340,12 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
 
 function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRow[] {
   try {
-    return typedAll<PatternRow>(db,
+    return typedAll<PatternRow>(
+      db,
       'SELECT id, pattern, type, impact, extracted_at FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC LIMIT ?',
-      type, limit);
+      type,
+      limit,
+    );
   } catch {
     return [];
   }
@@ -347,7 +353,8 @@ function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRo
 
 function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRow[] {
   try {
-    return typedAll<ObservationRow>(db,
+    return typedAll<ObservationRow>(
+      db,
       `SELECT id, title, type, created_at FROM brain_observations
          WHERE type != 'change'
            AND title NOT LIKE 'File changed:%'
@@ -355,7 +362,8 @@ function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRo
            AND title NOT LIKE 'Task complete:%'
            AND title NOT LIKE '[hook]%'
          ORDER BY created_at DESC LIMIT ?`,
-      limit);
+      limit,
+    );
   } catch {
     return [];
   }

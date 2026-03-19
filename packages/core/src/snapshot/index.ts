@@ -12,9 +12,9 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { getAccessor } from '../store/data-accessor.js';
 import type { Task } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../paths.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 /** Snapshot format version. */
 const SNAPSHOT_FORMAT_VERSION = '1.0.0';
@@ -111,7 +111,9 @@ function computeChecksum(tasks: SnapshotTask[]): string {
 export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
   const accessor = await getAccessor(cwd);
   const { tasks } = await accessor.queryTasks({});
-  const projectMeta = await accessor.getMetaValue<{ name?: string; currentPhase?: string | null }>('project');
+  const projectMeta = await accessor.getMetaValue<{ name?: string; currentPhase?: string | null }>(
+    'project',
+  );
   const version = await accessor.getMetaValue<string>('version');
 
   const snapshotTasks = tasks.map(toSnapshotTask);

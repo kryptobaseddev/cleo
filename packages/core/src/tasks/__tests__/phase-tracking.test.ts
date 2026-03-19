@@ -4,8 +4,8 @@
  * @epic T4454
  */
 
-import { describe, expect, it } from 'vitest';
 import type { Phase, ProjectMeta, Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import {
   allPhasesComplete,
   applyPhaseTransition,

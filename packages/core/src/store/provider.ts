@@ -8,6 +8,7 @@
  * @task W1-T6
  */
 
+import type { Session, Task, TaskStatus, TaskType } from '@cleocode/contracts';
 import type {
   TaskCurrentResult,
   TaskStartResult,
@@ -22,8 +23,6 @@ import type { DeleteTaskOptions, DeleteTaskResult } from '../tasks/delete.js';
 import type { FindTasksOptions, FindTasksResult } from '../tasks/find.js';
 import type { ListTasksOptions, ListTasksResult } from '../tasks/list.js';
 import type { UpdateTaskOptions, UpdateTaskResult } from '../tasks/update.js';
-import type { Session } from '@cleocode/contracts';
-import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
 import type { DataAccessor } from './data-accessor.js';
 import { getAccessor } from './data-accessor.js';
 
@@ -31,22 +30,22 @@ import { getAccessor } from './data-accessor.js';
 export type {
   AddTaskOptions,
   AddTaskResult,
+  AnalysisResult,
+  ArchiveTasksOptions,
+  ArchiveTasksResult,
   CompleteTaskOptions,
   CompleteTaskResult,
-  UpdateTaskOptions,
-  UpdateTaskResult,
   DeleteTaskOptions,
   DeleteTaskResult,
   FindTasksOptions,
   FindTasksResult,
   ListTasksOptions,
   ListTasksResult,
-  ArchiveTasksOptions,
-  ArchiveTasksResult,
   TaskCurrentResult,
   TaskStartResult,
   TaskWorkHistoryEntry,
-  AnalysisResult,
+  UpdateTaskOptions,
+  UpdateTaskResult,
 };
 
 /**

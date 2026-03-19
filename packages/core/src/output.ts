@@ -14,12 +14,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs-protocol';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
+import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs-protocol';
 import { CleoError } from './errors.js';
 import { getCurrentSessionId } from './sessions/context-alert.js';
 
-export type { LafsSuccess, LafsError, LafsEnvelope };
+export type { LafsEnvelope, LafsError, LafsSuccess };
 
 /**
  * Accumulated warnings for the current request.

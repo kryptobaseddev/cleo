@@ -18,9 +18,9 @@ type StatuslineStatus = 'configured' | 'not_configured' | 'custom_no_cleo' | 'no
  * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
  */
 function getClaudeSettingsPath(): string {
-  return process.env['CLAUDE_SETTINGS'] ?? join(
-    process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
-    'settings.json',
+  return (
+    process.env['CLAUDE_SETTINGS'] ??
+    join(process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'), 'settings.json')
   );
 }
 

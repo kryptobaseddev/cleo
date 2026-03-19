@@ -13,8 +13,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../../errors.js';
 import { getAgentOutputsDir, getTaskPath } from '../../paths.js';
 import { findSkill, mapSkillName } from '../discovery.js';

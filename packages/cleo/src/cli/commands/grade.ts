@@ -8,8 +8,9 @@
  *
  * @task T4916
  */
-import type { ShimCommand as Command } from '../commander-shim.js';
+
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerGradeCommand(program: Command): void {
   program

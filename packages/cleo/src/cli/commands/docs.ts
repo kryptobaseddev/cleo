@@ -7,9 +7,8 @@
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CleoError, formatError, getAgentOutputsAbsolute } from '@cleocode/core/internal';
+import { CleoError, formatError, getAgentOutputsAbsolute, readJson } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { readJson } from '@cleocode/core/internal';
 import { cliOutput } from '../renderers/index.js';
 
 /** Drift detection result. */

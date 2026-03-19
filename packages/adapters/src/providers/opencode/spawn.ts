@@ -42,10 +42,7 @@ interface TrackedProcess {
  * @param instructions - Markdown instructions body
  * @returns Complete agent definition markdown
  */
-export function buildOpenCodeAgentMarkdown(
-  description: string,
-  instructions: string,
-): string {
+export function buildOpenCodeAgentMarkdown(description: string, instructions: string): string {
   const normalizedDesc = description.replace(/\s+/g, ' ').trim();
   return [
     '---',
@@ -68,9 +65,7 @@ export function buildOpenCodeAgentMarkdown(
  * @param workingDirectory - Project root directory
  * @returns The agent name to use for spawning
  */
-async function ensureSubagentDefinition(
-  workingDirectory: string,
-): Promise<string> {
+async function ensureSubagentDefinition(workingDirectory: string): Promise<string> {
   const agentDir = join(workingDirectory, '.opencode', 'agent');
   const agentPath = join(agentDir, `${OPENCODE_SUBAGENT_NAME}.md`);
   const description = 'CLEO task executor with protocol compliance.';

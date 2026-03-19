@@ -4,9 +4,9 @@
  * @task T0000
  */
 
+import type { Task } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import type { Task } from '@cleocode/contracts';
 import { getDashboard, rankBlockedTask } from '../index.js';
 
 // ---------------------------------------------------------------------------
@@ -31,9 +31,9 @@ function makeAccessor(tasks: Task[], focusId?: string): DataAccessor {
       if (key === 'focus_state') return Promise.resolve(focusId ? { currentTask: focusId } : null);
       return Promise.resolve(null);
     }),
-    loadSingleTask: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(tasks.find((t) => t.id === id) ?? null),
-    ),
+    loadSingleTask: vi
+      .fn()
+      .mockImplementation((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     loadArchive: vi.fn().mockResolvedValue(null),
     saveArchive: vi.fn(),
     loadSessions: vi.fn().mockResolvedValue([]),

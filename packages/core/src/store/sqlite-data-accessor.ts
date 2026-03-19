@@ -11,12 +11,8 @@
  * @epic T4454
  */
 
+import type { Session, Task, TaskStatus } from '@cleocode/contracts';
 import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
-import type { Session } from '@cleocode/contracts';
-import type {
-  Task,
-  TaskStatus,
-} from '@cleocode/contracts';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import type {
   ArchiveFile,
@@ -449,7 +445,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const total = countResult?.count ?? 0;
 
       // Build ordered query
-      let orderClause;
+      let orderClause: ReturnType<typeof sql>;
       switch (filters.orderBy) {
         case 'createdAt':
           orderClause = sql`${schema.tasks.createdAt} ASC`;
@@ -491,9 +487,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       return { tasks, total };
     },
 
-    async countTasks(
-      filters?: { status?: TaskStatus | TaskStatus[]; parentId?: string },
-    ): Promise<number> {
+    async countTasks(filters?: {
+      status?: TaskStatus | TaskStatus[];
+      parentId?: string;
+    }): Promise<number> {
       const db = await getDb(cwd);
       const conditions = [];
 
@@ -627,11 +624,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const db = await getDb(cwd);
       const ids = idRows.map((r) => r.id);
-      const rows = await db
-        .select()
-        .from(schema.tasks)
-        .where(inArray(schema.tasks.id, ids))
-        .all();
+      const rows = await db.select().from(schema.tasks).where(inArray(schema.tasks.id, ids)).all();
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
@@ -662,7 +655,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-          const allIds = await getAllTaskIds();
+        const allIds = await getAllTaskIds();
         await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
@@ -710,7 +703,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks = rows.map(rowToTask);
       if (tasks.length > 0) {
-          const allIds = await getAllTaskIds();
+        const allIds = await getAllTaskIds();
         await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
@@ -724,29 +717,42 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
-      const row = parentId === null
-        ? nativeDb.prepare(
-            `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id IS NULL AND status != 'archived'`,
-          ).get() as { next_pos: number } | undefined
-        : nativeDb.prepare(
-            `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id = ? AND status != 'archived'`,
-          ).get(parentId) as { next_pos: number } | undefined;
+      const row =
+        parentId === null
+          ? (nativeDb
+              .prepare(
+                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id IS NULL AND status != 'archived'`,
+              )
+              .get() as { next_pos: number } | undefined)
+          : (nativeDb
+              .prepare(
+                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id = ? AND status != 'archived'`,
+              )
+              .get(parentId) as { next_pos: number } | undefined);
       return row?.next_pos ?? 1;
     },
 
-    async shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void> {
+    async shiftPositions(
+      parentId: string | null,
+      fromPosition: number,
+      delta: number,
+    ): Promise<void> {
       const nativeDb = getNativeTasksDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
       if (parentId === null) {
-        nativeDb.prepare(
-          `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
-        ).run(delta, new Date().toISOString(), fromPosition);
+        nativeDb
+          .prepare(
+            `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
+          )
+          .run(delta, new Date().toISOString(), fromPosition);
       } else {
-        nativeDb.prepare(
-          `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
-        ).run(delta, new Date().toISOString(), parentId, fromPosition);
+        nativeDb
+          .prepare(
+            `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
+          )
+          .run(delta, new Date().toISOString(), parentId, fromPosition);
       }
     },
 
@@ -793,11 +799,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         }
       }
 
-      await db
-        .update(schema.tasks)
-        .set(updateRow)
-        .where(eq(schema.tasks.id, taskId))
-        .run();
+      await db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run();
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {

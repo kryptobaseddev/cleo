@@ -20,6 +20,7 @@ import {
   cleanupSystem,
   systemCreateBackup as createBackup,
   generateInjection,
+  getAccessor,
   getArchiveStats,
   getDashboard,
   getLabels,
@@ -36,7 +37,6 @@ import {
   safestop,
   uncancelTask,
 } from '@cleocode/core/internal';
-import { getAccessor } from '@cleocode/core/internal';
 import { type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 

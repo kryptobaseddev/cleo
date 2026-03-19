@@ -389,9 +389,7 @@ export async function toolsSkillPrecedenceShow(): Promise<
   EngineResult<{ precedenceMap: unknown }>
 > {
   try {
-    const { getSkillsMapWithPrecedence } = await import(
-      '@cleocode/core/internal'
-    );
+    const { getSkillsMapWithPrecedence } = await import('@cleocode/core/internal');
     const map = getSkillsMapWithPrecedence();
     return engineSuccess({ precedenceMap: map });
   } catch (error) {
@@ -408,9 +406,7 @@ export async function toolsSkillPrecedenceResolve(
   projectRoot: string,
 ): Promise<EngineResult<{ providerId: string; scope: string; paths: unknown }>> {
   try {
-    const { resolveSkillPathsForProvider } = await import(
-      '@cleocode/core/internal'
-    );
+    const { resolveSkillPathsForProvider } = await import('@cleocode/core/internal');
     const paths = await resolveSkillPathsForProvider(providerId, scope, projectRoot);
     return engineSuccess({ providerId, scope, paths });
   } catch (error) {
@@ -447,9 +443,7 @@ export async function toolsSkillInstall(
     const resolvedSource = source ?? `library:${name}`;
     const providerIds = providers.map((p) => p.id);
 
-    const { determineInstallationTargets } = await import(
-      '@cleocode/core/internal'
-    );
+    const { determineInstallationTargets } = await import('@cleocode/core/internal');
     const targets = await determineInstallationTargets({
       skillName: name,
       source: resolvedSource,

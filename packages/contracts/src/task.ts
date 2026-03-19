@@ -22,6 +22,7 @@
  */
 
 import type { TaskStatus } from './status-registry.js';
+
 export type { TaskStatus };
 
 /** Task priority levels. */

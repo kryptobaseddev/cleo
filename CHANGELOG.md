@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.3.39] (2026-03-19)
+
+### Fixed
+- **CI/CD Pipeline**: Fixed pnpm version conflict in release workflow, added agents and skills packages to version sync and npm publish
+- **Error Handling**: Created central error utilities in contracts package with proper TypeScript types
+- **CLI Type Safety**: Completely removed commander-shim, migrated to clean citty-based CLI with zero `any` types
+- **CAAMP Integration**: Updated to @cleocode/caamp@1.7.1 with proper exports, removed mock files
+- **Documentation**: Added comprehensive README files for root and all packages
+- **Code Quality**: Fixed all lint warnings, updated biome.json schema
+
 ## [2026.3.38] (2026-03-19)
 
 Auto-prepared by release.ship (T021)

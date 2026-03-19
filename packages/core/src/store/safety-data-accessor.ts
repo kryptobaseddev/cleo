@@ -14,9 +14,8 @@
  * @epic T4732
  */
 
+import type { Session, Task, TaskStatus } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
-import type { Session } from '@cleocode/contracts';
-import type { Task, TaskStatus } from '@cleocode/contracts';
 import type {
   ArchiveFile,
   DataAccessor,
@@ -214,7 +213,10 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.queryTasks(filters);
   }
 
-  async countTasks(filters?: { status?: TaskStatus | TaskStatus[]; parentId?: string }): Promise<number> {
+  async countTasks(filters?: {
+    status?: TaskStatus | TaskStatus[];
+    parentId?: string;
+  }): Promise<number> {
     return this.inner.countTasks(filters);
   }
 
@@ -271,7 +273,11 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.getNextPosition(parentId);
   }
 
-  async shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void> {
+  async shiftPositions(
+    parentId: string | null,
+    fromPosition: number,
+    delta: number,
+  ): Promise<void> {
     return this.inner.shiftPositions(parentId, fromPosition, delta);
   }
 

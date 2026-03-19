@@ -15,14 +15,14 @@
  * @task T4912 - Pipeline Validation & Tests (SQLite wiring implementation)
  */
 
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { getDb } from '../store/sqlite.js';
 import type { PipelineStatus } from '@cleocode/contracts';
-import * as schema from '../store/tasks-schema.js';
 import { ExitCode } from '@cleocode/contracts';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { CleoError } from '../errors.js';
 import { getProjectRoot } from '../paths.js';
+import { getDb } from '../store/sqlite.js';
+import * as schema from '../store/tasks-schema.js';
 import type { Stage, StageStatus } from './stages.js';
 
 // =============================================================================

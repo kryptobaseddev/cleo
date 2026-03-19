@@ -5,11 +5,11 @@
  * @epic T4454
  */
 
+import type { TaskWorkState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { TaskWorkState } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 
@@ -233,11 +233,6 @@ export async function getWorkHistory(
  */
 export const getTaskHistory = getWorkHistory;
 
-// TodoWrite merge
-export {
-  analyzeChanges as analyzeTodoWriteChanges,
-  mergeTodoWriteState,
-} from './todowrite-merge.js';
 export type {
   ChangeSet as TodoWriteChangeSet,
   SyncSessionState,
@@ -245,4 +240,9 @@ export type {
   TodoWriteMergeOptions,
   TodoWriteMergeResult,
   TodoWriteState,
+} from './todowrite-merge.js';
+// TodoWrite merge
+export {
+  analyzeChanges as analyzeTodoWriteChanges,
+  mergeTodoWriteState,
 } from './todowrite-merge.js';

@@ -199,9 +199,7 @@ export function renderFind(data: Record<string, unknown>, quiet: boolean): strin
   }
 
   if (quiet) {
-    return results
-      .map((t) => `${t.id} ${t.title}`)
-      .join('\n');
+    return results.map((t) => `${t.id} ${t.title}`).join('\n');
   }
 
   const lines: string[] = [];

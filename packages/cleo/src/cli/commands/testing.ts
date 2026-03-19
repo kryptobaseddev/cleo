@@ -5,8 +5,8 @@
  * @epic T4545
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
  * Register the testing command.

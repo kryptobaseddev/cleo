@@ -456,8 +456,8 @@ export async function validateProtocolSpecification(
 // Gate Verification (T5327)
 // ============================================================================
 
-import { getAccessor } from '@cleocode/core/internal';
 import type { TaskVerification, VerificationGate } from '@cleocode/contracts';
+import { getAccessor } from '@cleocode/core/internal';
 
 const VALID_GATES: VerificationGate[] = [
   'implemented',

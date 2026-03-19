@@ -8,15 +8,15 @@
  * @task W1-T3
  */
 
-import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
+import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { rowToTask, taskToRow } from './converters.js';
 import {
   type SafetyConfig,
   safeCreateTask,
   safeDeleteTask,
   safeUpdateTask,
 } from './data-safety.js';
-import { rowToTask, taskToRow } from './converters.js';
 import { getDb, getNativeDb } from './sqlite.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';

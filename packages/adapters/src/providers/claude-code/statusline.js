@@ -14,7 +14,8 @@ import { join } from 'node:path';
  * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
  */
 function getClaudeSettingsPath() {
-    return process.env['CLAUDE_SETTINGS'] ?? join(process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'), 'settings.json');
+    return (process.env['CLAUDE_SETTINGS'] ??
+        join(process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'), 'settings.json'));
 }
 /**
  * Check if statusline integration is configured.

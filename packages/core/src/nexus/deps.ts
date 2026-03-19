@@ -10,10 +10,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 import { checkPermission } from './permissions.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { type NexusRegistryFile, readRegistryRequired } from './registry.js';

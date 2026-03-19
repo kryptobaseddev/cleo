@@ -5,10 +5,10 @@
  * @epic T4454
  */
 
-import { createPage } from '@cleocode/core';
-import type { ShimCommand as Command } from '../commander-shim.js';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { ExitCode } from '@cleocode/contracts';
+import { createPage } from '@cleocode/core';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**

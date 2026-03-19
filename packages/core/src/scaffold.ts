@@ -17,9 +17,9 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { saveJson } from './store/json.js';
 import { generateProjectHash } from './nexus/hash.js';
 import { getCleoDirAbsolute, getCleoHome, getCleoTemplatesDir, getConfigPath } from './paths.js';
+import { saveJson } from './store/json.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -528,7 +528,11 @@ export async function ensureProjectContext(
     if (existsSync(schemaPath)) {
       const AjvModule = await import('ajv');
       const ajvMod = AjvModule as Record<string, unknown>;
-      const AjvClass = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvModule.default) as new (opts?: Record<string, unknown>) => { validate(schema: unknown, data: unknown): boolean; errors?: unknown[] | null };
+      const AjvClass = (
+        typeof ajvMod.default === 'function' ? ajvMod.default : AjvModule.default
+      ) as new (
+        opts?: Record<string, unknown>,
+      ) => { validate(schema: unknown, data: unknown): boolean; errors?: unknown[] | null };
       const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
       const ajv = new AjvClass({ strict: false });
       const valid = ajv.validate(schema, context);

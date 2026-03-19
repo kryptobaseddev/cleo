@@ -9,9 +9,9 @@
  */
 
 import { basename, relative } from 'node:path';
-import * as schema from '../store/tasks-schema.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import * as schema from '../store/tasks-schema.js';
 
 const log = getLogger('lifecycle:evidence');
 

@@ -6,8 +6,7 @@
  * @task T5001
  */
 
-import type { CleoConfig } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
+import type { CleoConfig, Task } from '@cleocode/contracts';
 import { getChildren, getDepth, wouldCreateCircle } from './hierarchy.js';
 
 // ---------------------------------------------------------------------------

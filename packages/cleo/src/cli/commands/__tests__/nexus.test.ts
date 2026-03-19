@@ -9,12 +9,18 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { nexusGetProject, nexusInit, nexusList, nexusRegister } from '@cleocode/core/internal';
-import { ShimCommand as Command } from '../../commander-shim.js';
+import {
+  closeAllDatabases,
+  createSqliteDataAccessor,
+  nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusRegister,
+  resetDbState,
+} from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { closeAllDatabases, resetDbState } from '@cleocode/core/internal';
-import { createSqliteDataAccessor } from '@cleocode/core/internal';
+import { ShimCommand as Command } from '../../commander-shim.js';
 import { registerNexusCommand } from '../nexus.js';
 
 let testDir: string;

@@ -46,9 +46,9 @@ vi.mock('../../../../../core/src/task-work/index.js', () => ({
     startTask: vi.fn(),
     stopTask: vi.fn(),
 }));
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '@cleocode/core';
 import { getLastHandoff } from '@cleocode/core/internal';
-import { ExitCode } from '@cleocode/contracts';
 import { sessionHandoff } from '../session-engine.js';
 const mockGetLastHandoff = vi.mocked(getLastHandoff);
 describe('sessionHandoff (T5123)', () => {

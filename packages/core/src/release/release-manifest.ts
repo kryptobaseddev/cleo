@@ -13,9 +13,9 @@ import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, count, desc, eq } from 'drizzle-orm';
-import * as schema from '../store/tasks-schema.js';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import * as schema from '../store/tasks-schema.js';
 import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
 import type { ReleaseChannel } from './channel.js';
 import { resolveChannelFromBranch } from './channel.js';
@@ -764,9 +764,7 @@ export async function runReleaseGates(
     gates.push({
       name: 'build_artifact',
       status: distExists ? 'passed' : 'failed',
-      message: distExists
-        ? 'Build artifacts present'
-        : 'dist/ not built — run: pnpm run build',
+      message: distExists ? 'Build artifacts present' : 'dist/ not built — run: pnpm run build',
     });
   }
 

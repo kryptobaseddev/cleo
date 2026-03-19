@@ -4,12 +4,12 @@
  * @epic T4454
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import type { Task } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {

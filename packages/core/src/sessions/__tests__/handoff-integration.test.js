@@ -97,7 +97,8 @@ function createMockStore() {
             loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessions)),
             saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
             getActiveSession: vi.fn().mockImplementation(() => {
-                const active = sessions.filter((s) => s.status === 'active')
+                const active = sessions
+                    .filter((s) => s.status === 'active')
                     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
                 return Promise.resolve(active[0] ?? null);
             }),
@@ -110,8 +111,12 @@ function createMockStore() {
                 return Promise.resolve();
             }),
             removeSingleSession: vi.fn().mockImplementation(() => Promise.resolve()),
-            queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
-            getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
+            queryTasks: vi
+                .fn()
+                .mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
+            getMetaValue: vi
+                .fn()
+                .mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
             setMetaValue: vi.fn().mockImplementation((key, value) => {
                 metaStore[key] = value;
                 return Promise.resolve();

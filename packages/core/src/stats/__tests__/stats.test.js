@@ -27,7 +27,9 @@ function makeAccessor(tasks, focusId) {
                 return Promise.resolve(focusId ? { currentTask: focusId } : null);
             return Promise.resolve(null);
         }),
-        loadSingleTask: vi.fn().mockImplementation((id) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
+        loadSingleTask: vi
+            .fn()
+            .mockImplementation((id) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
         loadArchive: vi.fn().mockResolvedValue(null),
         saveArchive: vi.fn(),
         loadSessions: vi.fn().mockResolvedValue([]),

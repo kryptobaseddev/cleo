@@ -12,14 +12,14 @@
  * @task T2922
  */
 export interface TestEnvironment {
-    /** Path to the temporary CLEO project root */
-    projectRoot: string;
-    /** Pre-created epic ID */
-    epicId: string;
-    /** Pre-created task IDs (children of the epic) */
-    taskIds: string[];
-    /** Path to the CLEO CLI */
-    cliPath: string;
+  /** Path to the temporary CLEO project root */
+  projectRoot: string;
+  /** Pre-created epic ID */
+  epicId: string;
+  /** Pre-created task IDs (children of the epic) */
+  taskIds: string[];
+  /** Path to the CLEO CLI */
+  cliPath: string;
 }
 /**
  * Create an isolated test CLEO environment.
@@ -36,9 +36,12 @@ export declare function destroyTestEnvironment(env: TestEnvironment): Promise<vo
  * Query audit log entries from the SQLite audit_log table in the test environment.
  * Replaces legacy todo-log.jsonl readers (T5338, ADR-024).
  */
-export declare function readAuditEntries(projectRoot: string, filter?: {
+export declare function readAuditEntries(
+  projectRoot: string,
+  filter?: {
     action?: string;
     taskId?: string;
     sessionId?: string;
-}): Promise<any[]>;
+  },
+): Promise<any[]>;
 //# sourceMappingURL=test-environment.d.ts.map

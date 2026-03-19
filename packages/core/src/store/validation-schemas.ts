@@ -18,6 +18,7 @@ import { z } from 'zod/v4';
 // namespace shape (works correctly at runtime).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { createInsertSchema, createSelectSchema } = createSchemaFactory(z as any);
+
 import {
   architectureDecisions,
   auditLog,

@@ -60,32 +60,66 @@ describe('SafetyDataAccessor', () => {
             },
             async appendLog() { },
             async close() { },
-            async getActiveSession() { return null; },
-            async getNextPosition() { return 0; },
+            async getActiveSession() {
+                return null;
+            },
+            async getNextPosition() {
+                return 0;
+            },
             async shiftPositions() { },
             async upsertSingleSession() { },
             async removeSingleSession() { },
             async upsertSingleTask() { },
             async archiveSingleTask() { },
             async removeSingleTask() { },
-            async loadSingleTask() { return null; },
+            async loadSingleTask() {
+                return null;
+            },
             async addRelation() { },
-            async getMetaValue() { return null; },
+            async getMetaValue() {
+                return null;
+            },
             async setMetaValue() { },
-            async getSchemaVersion() { return null; },
-            async queryTasks() { return { tasks: [], total: 0 }; },
-            async countTasks() { return 0; },
-            async getChildren() { return []; },
-            async countChildren() { return 0; },
-            async countActiveChildren() { return 0; },
-            async getAncestorChain() { return []; },
-            async getSubtree() { return []; },
-            async getDependents() { return []; },
-            async getDependencyChain() { return []; },
-            async taskExists() { return false; },
-            async loadTasks() { return []; },
+            async getSchemaVersion() {
+                return null;
+            },
+            async queryTasks() {
+                return { tasks: [], total: 0 };
+            },
+            async countTasks() {
+                return 0;
+            },
+            async getChildren() {
+                return [];
+            },
+            async countChildren() {
+                return 0;
+            },
+            async countActiveChildren() {
+                return 0;
+            },
+            async getAncestorChain() {
+                return [];
+            },
+            async getSubtree() {
+                return [];
+            },
+            async getDependents() {
+                return [];
+            },
+            async getDependencyChain() {
+                return [];
+            },
+            async taskExists() {
+                return false;
+            },
+            async loadTasks() {
+                return [];
+            },
             async updateTaskFields() { },
-            async transaction(fn) { return fn({}); },
+            async transaction(fn) {
+                return fn({});
+            },
         };
     }
     // ---- Factory Wrapping ----

@@ -4,11 +4,11 @@
  * @task T5240
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeCodeAdapter } from '../adapter.js';
 import { ClaudeCodeHookProvider } from '../hooks.js';
-import { ClaudeCodeSpawnProvider } from '../spawn.js';
 import { ClaudeCodeInstallProvider } from '../install.js';
+import { ClaudeCodeSpawnProvider } from '../spawn.js';
 
 // Mock child_process for health check and spawn tests
 vi.mock('node:child_process', () => ({

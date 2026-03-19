@@ -8,8 +8,8 @@
  * @epic T4914
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data-accessor before importing handoff module
 vi.mock('../../store/data-accessor.js', () => ({
@@ -114,7 +114,9 @@ function setupMockAccessor(sessions: Session[], tasks: unknown[] = makeMockTasks
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
-    getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+    getMetaValue: vi
+      .fn()
+      .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
     setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
       metaStore[key] = value;
       return Promise.resolve();

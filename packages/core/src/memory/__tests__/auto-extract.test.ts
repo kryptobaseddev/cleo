@@ -4,8 +4,8 @@
  * All external dependencies are mocked — this tests extraction logic only.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---- mocks ----------------------------------------------------------------
 
@@ -28,8 +28,8 @@ vi.mock('../../store/data-accessor.js', () => ({
 
 // ---- imports after mocks --------------------------------------------------
 
-import { getAccessor } from '../../store/data-accessor.js';
 import type { SessionBridgeData } from '../../sessions/session-memory-bridge.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import {
   extractSessionEndMemory,
   extractTaskCompletionMemory,

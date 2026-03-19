@@ -57,9 +57,7 @@ export function getProviderManifests(): AdapterManifest[] {
  *
  * Returns a map of provider ID to adapter factory function.
  */
-export async function discoverProviders(): Promise<
-  Map<string, () => Promise<unknown>>
-> {
+export async function discoverProviders(): Promise<Map<string, () => Promise<unknown>>> {
   const providers = new Map<string, () => Promise<unknown>>();
 
   providers.set('claude-code', async () => {

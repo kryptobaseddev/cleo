@@ -4,10 +4,10 @@
  * @epic T4454
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { PhaseStatus, PhaseTransition, ProjectMeta, TaskWorkState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 
 /** Options for listing phases. */
@@ -219,7 +219,14 @@ export async function setPhase(
   // Add phase history entry for rollback
   if (isRollback && oldPhase) {
     const taskCount = await accessor!.countTasks({ status: undefined });
-    addPhaseHistoryEntryToMeta(updatedMeta, options.slug, 'rollback', oldPhase, `Rollback from ${oldPhase}`, taskCount);
+    addPhaseHistoryEntryToMeta(
+      updatedMeta,
+      options.slug,
+      'rollback',
+      oldPhase,
+      `Rollback from ${oldPhase}`,
+      taskCount,
+    );
   }
 
   await accessor!.setMetaValue('project_meta', updatedMeta);
@@ -274,7 +281,14 @@ export async function startPhase(
 
   const updatedMeta = meta!;
   const { tasks: phaseTasks } = await accessor!.queryTasks({ phase: slug });
-  addPhaseHistoryEntryToMeta(updatedMeta, slug, 'started', null, 'Phase started', phaseTasks.length);
+  addPhaseHistoryEntryToMeta(
+    updatedMeta,
+    slug,
+    'started',
+    null,
+    'Phase started',
+    phaseTasks.length,
+  );
 
   await accessor!.setMetaValue('project_meta', updatedMeta);
   await logOperation('phase_started', slug, {}, accessor);
@@ -320,7 +334,14 @@ export async function completePhase(
   phase.completedAt = now;
 
   const updatedMeta = meta!;
-  addPhaseHistoryEntryToMeta(updatedMeta, slug, 'completed', null, 'Phase completed', phaseTasks.length);
+  addPhaseHistoryEntryToMeta(
+    updatedMeta,
+    slug,
+    'completed',
+    null,
+    'Phase completed',
+    phaseTasks.length,
+  );
 
   await accessor!.setMetaValue('project_meta', updatedMeta);
   await logOperation('phase_completed', slug, {}, accessor);
@@ -406,7 +427,14 @@ export async function advancePhase(
   const { tasks: nextPhaseTasks } = await accessor!.queryTasks({ phase: nextSlug });
   const nextPhaseTaskCount = nextPhaseTasks.length;
 
-  addPhaseHistoryEntryToMeta(updatedMeta, currentSlug, 'completed', null, 'Phase completed via advance', currentPhaseTaskCount);
+  addPhaseHistoryEntryToMeta(
+    updatedMeta,
+    currentSlug,
+    'completed',
+    null,
+    'Phase completed via advance',
+    currentPhaseTaskCount,
+  );
   addPhaseHistoryEntryToMeta(
     updatedMeta,
     nextSlug,

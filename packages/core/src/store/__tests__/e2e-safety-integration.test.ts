@@ -397,9 +397,7 @@ describe('E2E Safety Integration', () => {
 
   describe('Checksum Verification E2E', () => {
     it('should detect file tampering via checksums', async () => {
-      const { computeChecksum, compareChecksums } = await import(
-        '../../migration/checksum.js'
-      );
+      const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
 
       // Create original file
       const filePath = join(cleoDir, 'test-data.json');

@@ -12,11 +12,11 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import type { Task } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts';
+import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
-import { TASK_STATUSES } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
-import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
 import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
@@ -47,7 +47,6 @@ export interface ComplianceEntry {
   linkedTask?: string;
   agent?: string;
 }
-
 
 /** Coherence issue found during graph validation. */
 export interface CoherenceIssue {
@@ -477,7 +476,9 @@ export async function coreValidateTask(
   const allIds = new Set(allValidationTasks.map((t) => t.id));
   violations.push(...validateIdUniqueness(task.id, allIds));
 
-  const allDescriptions = allValidationTasks.filter((t) => t.id !== task.id).map((t) => t.description ?? '');
+  const allDescriptions = allValidationTasks
+    .filter((t) => t.id !== task.id)
+    .map((t) => t.description ?? '');
   violations.push(...validateNoDuplicateDescription(task.description ?? '', allDescriptions));
 
   if (task.parentId) {
@@ -1163,7 +1164,7 @@ export async function coreBatchValidate(projectRoot: string): Promise<{
     violations.push(...validateIdUniqueness(task.id, allIds));
 
     const otherDescs = allDescriptions.filter((_, i) => allTasks[i]!.id !== task.id);
-    violations.push(...validateNoDuplicateDescription(task.description ?? "", otherDescs));
+    violations.push(...validateNoDuplicateDescription(task.description ?? '', otherDescs));
 
     if (task.parentId) {
       const parent = allTasks.find((t) => t.id === task.parentId);

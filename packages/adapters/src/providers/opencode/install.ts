@@ -13,10 +13,7 @@ import { join } from 'node:path';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 
 /** Lines that should appear in AGENTS.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = [
-  '@~/.cleo/templates/CLEO-INJECTION.md',
-  '@.cleo/memory-bridge.md',
-];
+const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
 /** MCP server registration key used in OpenCode config. */
 const MCP_SERVER_KEY = 'cleo';

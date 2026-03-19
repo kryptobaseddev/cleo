@@ -14,15 +14,15 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
+import { getLogger } from '../logger.js';
+import { getCleoHome } from '../paths.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
 import { nexusAuditLog, projectRegistry } from '../store/nexus-schema.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
-import { ExitCode } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
-import { getLogger } from '../logger.js';
-import { getCleoHome } from '../paths.js';
 import { generateProjectHash } from './hash.js';
 
 // ── Domain types ─────────────────────────────────────────────────────

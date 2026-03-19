@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { ERROR_CATALOG, getAllErrorDefinitions, getErrorDefinition, getErrorDefinitionByLafsCode, } from '../error-catalog.js';
 import { CleoError } from '../errors.js';
 describe('error-catalog', () => {

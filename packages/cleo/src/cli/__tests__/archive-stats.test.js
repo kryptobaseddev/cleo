@@ -3,8 +3,8 @@
  * @task T4555
  * @epic T4545
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { analyzeArchive } from '@cleocode/core/internal';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 const SAMPLE_ARCHIVE = {
     archivedTasks: [
         {

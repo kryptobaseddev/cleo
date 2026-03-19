@@ -4,11 +4,11 @@
  * @epic T4454
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Task, TaskRef } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getExecutionWaves } from '../phases/deps.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access

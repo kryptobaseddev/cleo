@@ -16,7 +16,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
 import { promisify } from 'node:util';
+import { ExitCode } from '@cleocode/contracts';
 import {
+  BUILD_CONFIG,
   CleoError,
   checkStorageMigration,
   formatError,
@@ -26,8 +28,6 @@ import {
 } from '@cleocode/core/internal';
 // CLI-only: self-update requires file system ops and external process execution
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { BUILD_CONFIG } from '@cleocode/core/internal';
-import { ExitCode } from '@cleocode/contracts';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';
 

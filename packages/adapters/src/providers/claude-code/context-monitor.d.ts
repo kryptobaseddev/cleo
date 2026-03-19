@@ -15,10 +15,10 @@ import type { AdapterContextMonitorProvider } from '@cleocode/contracts';
  * and setup instructions specific to Claude Code's settings.json.
  */
 export declare class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorProvider {
-    private pathProvider;
-    processContextInput(input: unknown, cwd?: string): Promise<string>;
-    checkStatuslineIntegration(): 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
-    getStatuslineConfig(): Record<string, unknown>;
-    getSetupInstructions(): string;
+  private pathProvider;
+  processContextInput(input: unknown, cwd?: string): Promise<string>;
+  checkStatuslineIntegration(): 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
+  getStatuslineConfig(): Record<string, unknown>;
+  getSetupInstructions(): string;
 }
 //# sourceMappingURL=context-monitor.d.ts.map

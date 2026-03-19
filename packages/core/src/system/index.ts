@@ -4,8 +4,8 @@
  */
 
 export type {
-  AnalyzeArchiveOptions,
   AnalyticsTask,
+  AnalyzeArchiveOptions,
   ArchiveAnalyticsResult,
   ArchiveMetadata,
   ArchiveReportDataMap,

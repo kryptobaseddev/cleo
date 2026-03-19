@@ -48,7 +48,9 @@ describe('Import Graph Verification (T4796)', () => {
                 // Match `from '...'` lines (handles multi-line imports)
                 // T5718: engines now import via @cleocode/core (not relative ../../core/)
                 const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
-                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'));
+                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") ||
+                    line.includes("'@cleocode/core/internal'") ||
+                    line.includes('../../../core/src/store/'));
                 // Every engine file should have at least one core/store import
                 expect(coreImports.length).toBeGreaterThanOrEqual(1);
             });
@@ -63,7 +65,9 @@ describe('Import Graph Verification (T4796)', () => {
                     .filter((line) => !line.includes("'node:"))
                     .filter((line) => !line.includes("'vitest"));
                 // Count @cleocode/core + store imports
-                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'));
+                const coreImports = fromLines.filter((line) => line.includes("'@cleocode/core'") ||
+                    line.includes("'@cleocode/core/internal'") ||
+                    line.includes('../../../core/src/store/'));
                 // Core imports should exist
                 if (fromLines.length > 0) {
                     expect(coreImports.length).toBeGreaterThanOrEqual(1);

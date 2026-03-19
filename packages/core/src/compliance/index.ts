@@ -6,8 +6,8 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { atomicWriteJson } from '../store/atomic.js';
 import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
+import { atomicWriteJson } from '../store/atomic.js';
 import { getComplianceJsonlPath, readComplianceJsonl } from './store.js';
 // CleoError and ExitCode available if needed for future error cases
 

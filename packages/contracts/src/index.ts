@@ -6,272 +6,25 @@
  * Implementation packages (@cleocode/core, @cleocode/cleo) import from here.
  */
 
-// === Status Registry (MUST be first — everything depends on this) ===
-export {
-  // Constants
-  TASK_STATUSES,
-  SESSION_STATUSES,
-  LIFECYCLE_PIPELINE_STATUSES,
-  LIFECYCLE_STAGE_STATUSES,
-  ADR_STATUSES,
-  GATE_STATUSES,
-  MANIFEST_STATUSES,
-  // Derived types
-  type TaskStatus,
-  type SessionStatus,
-  type PipelineStatus,
-  type StageStatus,
-  type AdrStatus,
-  type GateStatus,
-  type ManifestStatus,
-  // Terminal state sets
-  TERMINAL_TASK_STATUSES,
-  TERMINAL_PIPELINE_STATUSES,
-  TERMINAL_STAGE_STATUSES,
-  // Registry
-  type EntityType,
-  STATUS_REGISTRY,
-  isValidStatus,
-  // Display icons
-  PIPELINE_STATUS_ICONS,
-  STAGE_STATUS_ICONS,
-  TASK_STATUS_SYMBOLS_UNICODE,
-  TASK_STATUS_SYMBOLS_ASCII,
-} from './status-registry.js';
-
-// === Task Types ===
-export type {
-  TaskPriority,
-  TaskType,
-  TaskSize,
-  EpicLifecycle,
-  TaskOrigin,
-  VerificationAgent,
-  VerificationGate,
-  VerificationFailure,
-  TaskVerification,
-  TaskProvenance,
-  TaskRelation,
-  Task,
-  TaskCreate,
-  CompletedTask,
-  CancelledTask,
-  PhaseStatus,
-  Phase,
-  PhaseTransition,
-  ReleaseStatus,
-  Release,
-  ProjectMeta,
-  FileMeta,
-  SessionNote,
-  TaskWorkState,
-  TaskFile,
-} from './task.js';
-
-// === Session Types ===
-export { SessionView } from './session.js';
-export type {
-  SessionScope,
-  SessionStats,
-  SessionTaskWork,
-  Session,
-} from './session.js';
-
-// === Exit Codes ===
-export {
-  ExitCode,
-  isErrorCode,
-  isSuccessCode,
-  isNoChangeCode,
-  isRecoverableCode,
-  getExitCodeName,
-} from './exit-codes.js';
-
-// === Configuration Types ===
-export type {
-  OutputFormat,
-  DateFormat,
-  OutputConfig,
-  BackupConfig,
-  EnforcementProfile,
-  HierarchyConfig,
-  SessionConfig,
-  LogLevel,
-  LoggingConfig,
-  LifecycleEnforcementMode,
-  LifecycleConfig,
-  SharingMode,
-  SharingConfig,
-  SignalDockMode,
-  SignalDockConfig,
-  CleoConfig,
-  ConfigSource,
-  ResolvedValue,
-} from './config.js';
-
-// === LAFS Envelope Types ===
-export {
-  isLafsSuccess,
-  isLafsError,
-  isGatewayEnvelope,
-} from './lafs.js';
-export type {
-  LAFSErrorCategory,
-  LAFSError,
-  Warning,
-  LAFSTransport,
-  MVILevel,
-  LAFSPageNone,
-  LAFSPageOffset,
-  LAFSPage,
-  LAFSMeta,
-  LAFSEnvelope,
-  FlagInput,
-  ConformanceReport,
-  LafsAlternative,
-  LafsErrorDetail,
-  LafsSuccess,
-  LafsError,
-  LafsEnvelope,
-  GatewayMeta,
-  GatewaySuccess,
-  GatewayError,
-  GatewayEnvelope,
-  CleoResponse,
-} from './lafs.js';
-
-// === DataAccessor Interface ===
-export type {
-  ArchiveFields,
-  ArchiveFile,
-  TaskQueryFilters,
-  QueryTasksResult,
-  TaskFieldUpdates,
-  TransactionAccessor,
-  DataAccessor,
-} from './data-accessor.js';
-
 // === Provider Adapter Contracts ===
-export type { CLEOProviderAdapter, AdapterHealthStatus } from './adapter.js';
-export type { AdapterCapabilities } from './capabilities.js';
-export type { AdapterManifest, DetectionPattern } from './discovery.js';
-export type { AdapterHookProvider } from './hooks.js';
-export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
-export type {
-  MemoryBridgeConfig,
-  MemoryBridgeContent,
-  SessionSummary,
-  BridgeLearning,
-  BridgePattern,
-  BridgeDecision,
-  BridgeObservation,
-} from './memory.js';
-export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
-export type { AdapterPathProvider } from './provider-paths.js';
-export type { AdapterContextMonitorProvider } from './context-monitor.js';
-export type { AdapterTransportProvider } from './transport.js';
-
-// === CLEO Spawn Types (distinct from adapter spawn) ===
-export type {
-  Provider,
-  CAAMPSpawnOptions,
-  CAAMPSpawnResult,
-  CLEOSpawnContext,
-  CLEOSpawnResult,
-  CLEOSpawnAdapter,
-  TokenResolution,
-  SpawnStatus,
-} from './spawn-types.js';
-
-// === WarpChain Types ===
-export type {
-  ProtocolType,
-  GateName,
-  WarpStage,
-  WarpLink,
-  ChainShape,
-  GateCheck,
-  GateContract,
-  WarpChain,
-  ChainValidation,
-  WarpChainInstance,
-  GateResult,
-  WarpChainExecution,
-} from './warp-chain.js';
-
-// === Tessera Types ===
-export type {
-  TesseraVariable,
-  TesseraTemplate,
-  TesseraInstantiationInput,
-} from './tessera.js';
-
+export type { AdapterHealthStatus, CLEOProviderAdapter } from './adapter.js';
 // === Archive Types ===
 export type {
-  ArchiveMetadata,
-  ArchivedTask,
-  ArchiveReportType,
-  ArchiveSummaryReport,
-  ArchivePhaseEntry,
-  ArchiveLabelEntry,
-  ArchivePriorityEntry,
-  CycleTimeDistribution,
-  CycleTimePercentiles,
   ArchiveCycleTimesReport,
   ArchiveDailyTrend,
+  ArchivedTask,
+  ArchiveLabelEntry,
+  ArchiveMetadata,
   ArchiveMonthlyTrend,
-  ArchiveTrendsReport,
+  ArchivePhaseEntry,
+  ArchivePriorityEntry,
+  ArchiveReportType,
   ArchiveStatsEnvelope,
+  ArchiveSummaryReport,
+  ArchiveTrendsReport,
+  CycleTimeDistribution,
+  CycleTimePercentiles,
 } from './archive.js';
-
-// === TodoWrite Types (deprecated — use task-sync types) ===
-export type {
-  TodoWriteItemStatus,
-  TodoWriteItem,
-  TodoWriteState,
-  TodoWriteSyncSessionState,
-  TodoWriteChangeSet,
-  TodoWriteChangeAction,
-  TodoWriteChange,
-  TodoWriteMergeResult,
-} from './todowrite.js';
-
-// === Task Sync Types (provider-agnostic reconciliation) ===
-export type {
-  ExternalTaskStatus,
-  ExternalTask,
-  SyncSessionState,
-  ConflictPolicy,
-  ReconcileOptions,
-  ReconcileActionType,
-  ReconcileAction,
-  ReconcileResult,
-  AdapterTaskSyncProvider,
-} from './task-sync.js';
-
-// === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
-export type {
-  TaskSummary,
-  LabelCount,
-  DashboardResult,
-  StatsCurrentState,
-  StatsCompletionMetrics,
-  StatsActivityMetrics,
-  StatsAllTime,
-  StatsCycleTimes,
-  StatsResult,
-  LogQueryResult,
-  ContextResult,
-  SequenceResult,
-  TaskRef,
-  TaskRefPriority,
-  LeveragedTask,
-  BottleneckTask,
-  TaskAnalysisResult,
-  TaskDepsResult,
-  CompleteTaskUnblocked,
-} from './results.js';
-
 // === Brain/Memory Types ===
 export type {
   BrainEntryRef,
@@ -279,20 +32,258 @@ export type {
   ContradictionDetail,
   SupersededEntry,
 } from './brain.js';
-
-// === TaskRecord Types (string-widened for dispatch/LAFS) ===
+export type { AdapterCapabilities } from './capabilities.js';
+// === Configuration Types ===
 export type {
-  TaskRecordRelation,
-  ValidationHistoryEntry,
-  TaskRecord,
-  MinimalTaskRecord,
-} from './task-record.js';
-
-// === Session Start Result ===
-export type { SessionStartResult } from './session.js';
-
+  BackupConfig,
+  CleoConfig,
+  ConfigSource,
+  DateFormat,
+  EnforcementProfile,
+  HierarchyConfig,
+  LifecycleConfig,
+  LifecycleEnforcementMode,
+  LoggingConfig,
+  LogLevel,
+  OutputConfig,
+  OutputFormat,
+  ResolvedValue,
+  SessionConfig,
+  SharingConfig,
+  SharingMode,
+  SignalDockConfig,
+  SignalDockMode,
+} from './config.js';
+export type { AdapterContextMonitorProvider } from './context-monitor.js';
+// === DataAccessor Interface ===
+export type {
+  ArchiveFields,
+  ArchiveFile,
+  DataAccessor,
+  QueryTasksResult,
+  TaskFieldUpdates,
+  TaskQueryFilters,
+  TransactionAccessor,
+} from './data-accessor.js';
+export type { AdapterManifest, DetectionPattern } from './discovery.js';
+// === Error Utilities ===
+export {
+  createErrorResult,
+  createSuccessResult,
+  formatError,
+  getErrorMessage,
+  isErrorResult,
+  isErrorType,
+  normalizeError,
+} from './errors.js';
+// === Exit Codes ===
+export {
+  ExitCode,
+  getExitCodeName,
+  isErrorCode,
+  isNoChangeCode,
+  isRecoverableCode,
+  isSuccessCode,
+} from './exit-codes.js';
+export type { AdapterHookProvider } from './hooks.js';
+export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
+export type {
+  CleoResponse,
+  ConformanceReport,
+  FlagInput,
+  GatewayEnvelope,
+  GatewayError,
+  GatewayMeta,
+  GatewaySuccess,
+  LAFSEnvelope,
+  LAFSError,
+  LAFSErrorCategory,
+  LAFSMeta,
+  LAFSPage,
+  LAFSPageNone,
+  LAFSPageOffset,
+  LAFSTransport,
+  LafsAlternative,
+  LafsEnvelope,
+  LafsError,
+  LafsErrorDetail,
+  LafsSuccess,
+  MVILevel,
+  Warning,
+} from './lafs.js';
+// === LAFS Envelope Types ===
+export {
+  isGatewayEnvelope,
+  isLafsError,
+  isLafsSuccess,
+} from './lafs.js';
+export type {
+  BridgeDecision,
+  BridgeLearning,
+  BridgeObservation,
+  BridgePattern,
+  MemoryBridgeConfig,
+  MemoryBridgeContent,
+  SessionSummary,
+} from './memory.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
-
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
+export type { AdapterPathProvider } from './provider-paths.js';
+// === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
+export type {
+  BottleneckTask,
+  CompleteTaskUnblocked,
+  ContextResult,
+  DashboardResult,
+  LabelCount,
+  LeveragedTask,
+  LogQueryResult,
+  SequenceResult,
+  StatsActivityMetrics,
+  StatsAllTime,
+  StatsCompletionMetrics,
+  StatsCurrentState,
+  StatsCycleTimes,
+  StatsResult,
+  TaskAnalysisResult,
+  TaskDepsResult,
+  TaskRef,
+  TaskRefPriority,
+  TaskSummary,
+} from './results.js';
+// === Session Start Result ===
+export type {
+  Session,
+  SessionScope,
+  SessionStartResult,
+  SessionStats,
+  SessionTaskWork,
+} from './session.js';
+// === Session Types ===
+export { SessionView } from './session.js';
+export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
+// === CLEO Spawn Types (distinct from adapter spawn) ===
+export type {
+  CAAMPSpawnOptions,
+  CAAMPSpawnResult,
+  CLEOSpawnAdapter,
+  CLEOSpawnContext,
+  CLEOSpawnResult,
+  Provider,
+  SpawnStatus,
+  TokenResolution,
+} from './spawn-types.js';
+// === Status Registry (MUST be first — everything depends on this) ===
+export {
+  ADR_STATUSES,
+  type AdrStatus,
+  // Registry
+  type EntityType,
+  GATE_STATUSES,
+  type GateStatus,
+  isValidStatus,
+  LIFECYCLE_PIPELINE_STATUSES,
+  LIFECYCLE_STAGE_STATUSES,
+  MANIFEST_STATUSES,
+  type ManifestStatus,
+  // Display icons
+  PIPELINE_STATUS_ICONS,
+  type PipelineStatus,
+  SESSION_STATUSES,
+  type SessionStatus,
+  STAGE_STATUS_ICONS,
+  STATUS_REGISTRY,
+  type StageStatus,
+  TASK_STATUS_SYMBOLS_ASCII,
+  TASK_STATUS_SYMBOLS_UNICODE,
+  // Constants
+  TASK_STATUSES,
+  // Derived types
+  type TaskStatus,
+  TERMINAL_PIPELINE_STATUSES,
+  TERMINAL_STAGE_STATUSES,
+  // Terminal state sets
+  TERMINAL_TASK_STATUSES,
+} from './status-registry.js';
+// === Task Types ===
+export type {
+  CancelledTask,
+  CompletedTask,
+  EpicLifecycle,
+  FileMeta,
+  Phase,
+  PhaseStatus,
+  PhaseTransition,
+  ProjectMeta,
+  Release,
+  ReleaseStatus,
+  SessionNote,
+  Task,
+  TaskCreate,
+  TaskFile,
+  TaskOrigin,
+  TaskPriority,
+  TaskProvenance,
+  TaskRelation,
+  TaskSize,
+  TaskType,
+  TaskVerification,
+  TaskWorkState,
+  VerificationAgent,
+  VerificationFailure,
+  VerificationGate,
+} from './task.js';
+// === TaskRecord Types (string-widened for dispatch/LAFS) ===
+export type {
+  MinimalTaskRecord,
+  TaskRecord,
+  TaskRecordRelation,
+  ValidationHistoryEntry,
+} from './task-record.js';
+// === Task Sync Types (provider-agnostic reconciliation) ===
+export type {
+  AdapterTaskSyncProvider,
+  ConflictPolicy,
+  ExternalTask,
+  ExternalTaskStatus,
+  ReconcileAction,
+  ReconcileActionType,
+  ReconcileOptions,
+  ReconcileResult,
+  SyncSessionState,
+} from './task-sync.js';
+// === Tessera Types ===
+export type {
+  TesseraInstantiationInput,
+  TesseraTemplate,
+  TesseraVariable,
+} from './tessera.js';
+// === TodoWrite Types (deprecated — use task-sync types) ===
+export type {
+  TodoWriteChange,
+  TodoWriteChangeAction,
+  TodoWriteChangeSet,
+  TodoWriteItem,
+  TodoWriteItemStatus,
+  TodoWriteMergeResult,
+  TodoWriteState,
+  TodoWriteSyncSessionState,
+} from './todowrite.js';
+export type { AdapterTransportProvider } from './transport.js';
+// === WarpChain Types ===
+export type {
+  ChainShape,
+  ChainValidation,
+  GateCheck,
+  GateContract,
+  GateName,
+  GateResult,
+  ProtocolType,
+  WarpChain,
+  WarpChainExecution,
+  WarpChainInstance,
+  WarpLink,
+  WarpStage,
+} from './warp-chain.js';

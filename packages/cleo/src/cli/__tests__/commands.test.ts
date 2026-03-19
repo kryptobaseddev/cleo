@@ -4,8 +4,8 @@
  * @epic T4545
  */
 
-import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it } from 'vitest';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { registerCommandsCommand } from '../commands/commands.js';
 
 describe('registerCommandsCommand', () => {

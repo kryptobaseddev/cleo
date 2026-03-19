@@ -6,11 +6,11 @@
  * to work during a session but were lost on restart.
  */
 
+import type { Task } from '@cleocode/contracts';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
 
 describe('Task Relations Persistence (T5168)', () => {

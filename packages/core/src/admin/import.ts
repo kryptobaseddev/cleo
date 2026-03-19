@@ -8,8 +8,8 @@
 
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
-import { getAccessor } from '../store/data-accessor.js';
 import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
+import { getAccessor } from '../store/data-accessor.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
 
@@ -137,7 +137,8 @@ export async function importTasks(params: ImportParams): Promise<ImportResult> {
     imported.push(importTask);
   }
 
-  const totalTasks = existingTasks.length + imported.filter((t) => !existingTasks.some((e) => e.id === t.id)).length;
+  const totalTasks =
+    existingTasks.length + imported.filter((t) => !existingTasks.some((e) => e.id === t.id)).length;
 
   if (params.dryRun) {
     return {

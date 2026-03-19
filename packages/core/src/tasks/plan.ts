@@ -4,11 +4,10 @@
  * @epic T4454
  */
 
+import type { ProjectMeta, Task } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
-
 import { depsReady } from './deps-ready.js';
 
-import type { Task, ProjectMeta } from '@cleocode/contracts';
 type TaskRecord = Task;
 
 /** In-progress epic entry. */

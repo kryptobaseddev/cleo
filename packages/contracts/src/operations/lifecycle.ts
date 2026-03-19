@@ -6,6 +6,7 @@
  */
 
 import type { StageStatus } from '../status-registry.js';
+
 export type { StageStatus };
 
 /**

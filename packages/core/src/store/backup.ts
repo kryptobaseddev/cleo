@@ -7,8 +7,8 @@
 
 import { copyFile, rename as fsRename, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { CleoError } from '../errors.js';
 import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 
 const DEFAULT_MAX_BACKUPS = 5;
 

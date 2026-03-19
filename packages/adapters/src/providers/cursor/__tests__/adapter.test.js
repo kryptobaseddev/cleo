@@ -3,11 +3,11 @@
  *
  * @task T5240
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CursorAdapter } from '../adapter.js';
 import { CursorHookProvider } from '../hooks.js';
-import { CursorSpawnProvider } from '../spawn.js'; // spawn.ts still exists for direct use
 import { CursorInstallProvider } from '../install.js';
+import { CursorSpawnProvider } from '../spawn.js'; // spawn.ts still exists for direct use
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal();
     return {

@@ -2,9 +2,9 @@
  * Tests for hierarchy-policy module.
  * @task T5001
  */
+
+import type { CleoConfig, Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import type { CleoConfig } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 import type { HierarchyPolicy } from '../hierarchy-policy.js';
 import {
   assertNoCycle,

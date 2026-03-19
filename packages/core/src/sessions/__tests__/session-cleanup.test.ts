@@ -4,8 +4,8 @@
  * @task T2304
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data-accessor before importing cleanup module
 vi.mock('../../store/data-accessor.js', () => ({
@@ -17,8 +17,8 @@ vi.mock('../../config.js', () => ({
   getRawConfigValue: vi.fn(),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
 import { getRawConfigValue } from '../../config.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { cleanupSessions } from '../session-cleanup.js';
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,9 @@ function setupMockAccessor(sessions: Session[]) {
     saveSessions: vi.fn().mockResolvedValue(undefined),
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
-    getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+    getMetaValue: vi
+      .fn()
+      .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
     setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
       metaStore[key] = value;
       return Promise.resolve();

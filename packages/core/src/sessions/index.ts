@@ -5,11 +5,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import type { Session, SessionScope } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { Session, SessionScope } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';

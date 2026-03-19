@@ -4,9 +4,9 @@
  * @epic T4545
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '@cleocode/contracts';
 import { analyzeArchive } from '@cleocode/core/internal';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SAMPLE_ARCHIVE = {
   archivedTasks: [

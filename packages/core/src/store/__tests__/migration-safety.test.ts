@@ -22,9 +22,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Session, Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Session } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 
 describe('Migration Safety Integration Tests', () => {
   let tempDir: string;
@@ -335,9 +334,7 @@ describe('Migration Safety Integration Tests', () => {
       expect(existsSync(dbPath)).toBe(true);
 
       // Create backup with checksum verification
-      const { computeChecksum, compareChecksums } = await import(
-        '../../migration/checksum.js'
-      );
+      const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
       const originalChecksum = await computeChecksum(dbPath);
 
       const backupPath = join(safetyDir, 'tasks.db.pre-migration.checksum');
@@ -570,9 +567,7 @@ describe('Migration Safety Integration Tests', () => {
 
   describe('Safety Mechanisms', () => {
     it('should create state file during migration', async () => {
-      const { createMigrationState, loadMigrationState } = await import(
-        '../../migration/state.js'
-      );
+      const { createMigrationState, loadMigrationState } = await import('../../migration/state.js');
 
       // Create migration state
       await writeFile(
@@ -701,9 +696,7 @@ describe('Migration Safety Integration Tests', () => {
     });
 
     it('should compute consistent checksums for same content', async () => {
-      const { computeChecksum, compareChecksums } = await import(
-        '../../migration/checksum.js'
-      );
+      const { computeChecksum, compareChecksums } = await import('../../migration/checksum.js');
 
       const content = JSON.stringify({ test: 'data', array: [1, 2, 3] });
       const file1 = join(cleoDir, 'test1.json');

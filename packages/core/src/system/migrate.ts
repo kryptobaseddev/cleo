@@ -5,9 +5,9 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface MigrateResult {
   from: string;

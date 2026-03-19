@@ -15,6 +15,7 @@
  * @epic T4654
  */
 
+import type { Task } from '@cleocode/contracts';
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import {
@@ -53,10 +54,9 @@ import {
   coreTaskTree,
   coreTaskUnarchive,
   updateTask as coreUpdateTask,
+  getAccessor,
   toCompact,
 } from '@cleocode/core/internal';
-import { getAccessor } from '@cleocode/core/internal';
-import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineError } from './_error.js';
 
 const TASK_COMPLETE_EXIT_TO_ENGINE_CODE: Record<number, string> = {
@@ -673,10 +673,7 @@ export async function taskBlockers(
  * @task T4790
  * @epic T4654
  */
-export async function taskTree(
-  projectRoot: string,
-  taskId?: string,
-): Promise<EngineResult> {
+export async function taskTree(projectRoot: string, taskId?: string): Promise<EngineResult> {
   try {
     const result = await coreTaskTree(projectRoot, taskId);
     return { success: true, data: result };

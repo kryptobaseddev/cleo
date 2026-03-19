@@ -17,8 +17,8 @@ vi.mock('../decisions.js', () => ({
   getDecisionLog: vi.fn().mockResolvedValue([]),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
 import type { Session, SessionScope } from '@cleocode/contracts';
+import { getAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 import { computeHandoff, getHandoff, getLastHandoff, persistHandoff } from '../handoff.js';
 
@@ -106,8 +106,12 @@ function createMockStore() {
       loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessions)),
       saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
       getActiveSession: vi.fn().mockImplementation(() => {
-        const active = sessions.filter((s: Session) => s.status === 'active')
-          .sort((a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        const active = sessions
+          .filter((s: Session) => s.status === 'active')
+          .sort(
+            (a: Session, b: Session) =>
+              new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+          );
         return Promise.resolve(active[0] ?? null);
       }),
       upsertSingleSession: vi.fn().mockImplementation((session: Session) => {
@@ -117,8 +121,14 @@ function createMockStore() {
         return Promise.resolve();
       }),
       removeSingleSession: vi.fn().mockImplementation(() => Promise.resolve()),
-      queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
-      getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+      queryTasks: vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length }),
+        ),
+      getMetaValue: vi
+        .fn()
+        .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
       setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
         metaStore[key] = value;
         return Promise.resolve();

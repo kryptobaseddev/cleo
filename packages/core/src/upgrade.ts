@@ -22,7 +22,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from './store/index.js';
 import { ensureGitHooks } from './hooks.js';
 import {
   initAgentDefinition,
@@ -45,6 +44,7 @@ import {
   removeCleoFromRootGitignore,
 } from './scaffold.js';
 import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
+import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from './store/index.js';
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 
 /** A single upgrade action with status. */

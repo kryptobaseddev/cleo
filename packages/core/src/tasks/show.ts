@@ -4,11 +4,11 @@
  * @epic T4454
  */
 
+import type { Task, TaskRef } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskRef } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 
 /** Enriched task with hierarchy info. */
 export interface TaskDetail extends Task {

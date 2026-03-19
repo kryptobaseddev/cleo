@@ -6,12 +6,11 @@
  * @task T4476
  */
 
+import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { resetDbState } from '@cleocode/core/internal';
-import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import {
   releaseChangelog,
   releaseCommit,

@@ -22,11 +22,8 @@ import { z } from 'zod/v4';
 // namespace shape (works correctly at runtime).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { createInsertSchema, createSelectSchema } = createSchemaFactory(z as any);
-import {
-  nexusAuditLog,
-  nexusSchemaMeta,
-  projectRegistry,
-} from './nexus-schema.js';
+
+import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from './nexus-schema.js';
 
 // === PROJECT REGISTRY ===
 

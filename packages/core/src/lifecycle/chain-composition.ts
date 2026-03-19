@@ -7,13 +7,7 @@
  * @task T5406
  */
 
-import type {
-  ChainShape,
-  GateContract,
-  WarpChain,
-  WarpLink,
-  WarpStage,
-} from '@cleocode/contracts';
+import type { ChainShape, GateContract, WarpChain, WarpLink, WarpStage } from '@cleocode/contracts';
 import { validateChain } from '../validation/chain-validation.js';
 
 /**

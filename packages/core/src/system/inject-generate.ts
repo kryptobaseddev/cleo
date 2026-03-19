@@ -5,9 +5,9 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getSessionsPath } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { getSessionsPath } from '../paths.js';
 
 export interface InjectGenerateResult {
   injection: string;

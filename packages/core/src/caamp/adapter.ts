@@ -517,22 +517,21 @@ export async function dualScopeConfigure(
 // Utility Re-exports (passthrough, no EngineResult wrapping)
 // ============================================================
 
+// Re-export CAAMP types for downstream consumers
+export type {
+  BatchInstallOptions as CaampBatchInstallOptions,
+  BatchInstallResult as CaampBatchInstallResult,
+  DetectionResult as CaampDetectionResult,
+  DualScopeConfigureOptions as CaampDualScopeConfigureOptions,
+  DualScopeConfigureResult as CaampDualScopeConfigureResult,
+  InjectionStatus as CaampInjectionStatus,
+  InstallResult as CaampInstallResult,
+  McpServerConfig as CaampMcpServerConfig,
+  Provider as CaampProvider,
+};
 export {
-  resolveAlias as caampResolveAlias,
   buildServerConfig as caampBuildServerConfig,
   generateInjectionContent as caampGenerateInjectionContent,
   getInstructionFiles as caampGetInstructionFiles,
-};
-
-// Re-export CAAMP types for downstream consumers
-export type {
-  Provider as CaampProvider,
-  McpServerConfig as CaampMcpServerConfig,
-  DetectionResult as CaampDetectionResult,
-  InstallResult as CaampInstallResult,
-  InjectionStatus as CaampInjectionStatus,
-  BatchInstallOptions as CaampBatchInstallOptions,
-  BatchInstallResult as CaampBatchInstallResult,
-  DualScopeConfigureOptions as CaampDualScopeConfigureOptions,
-  DualScopeConfigureResult as CaampDualScopeConfigureResult,
+  resolveAlias as caampResolveAlias,
 };

@@ -8,9 +8,9 @@
  * Covers enforcement modes (strict/advisory/off) and prerequisite checking.
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { lifecycleScenarios } from '../../__tests__/fixtures/lifecycle-scenarios.js';
-import { ExitCode } from '@cleocode/contracts';
 import { ProtocolEnforcer } from '../protocol-enforcement.js';
 
 describe('Lifecycle Gate Enforcement', () => {

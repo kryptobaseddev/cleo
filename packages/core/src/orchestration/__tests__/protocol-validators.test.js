@@ -5,8 +5,8 @@
  * @task T4499
  * @epic T4498
  */
-import { describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
 import { PROTOCOL_EXIT_CODES, PROTOCOL_TYPES, validateArtifactPublishProtocol, validateConsensusProtocol, validateContributionProtocol, validateDecompositionProtocol, validateImplementationProtocol, validateProtocol, validateProvenanceProtocol, validateReleaseProtocol, validateResearchProtocol, validateSpecificationProtocol, } from '../protocol-validators.js';
 // ============================================================

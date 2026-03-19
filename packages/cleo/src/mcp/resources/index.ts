@@ -14,9 +14,9 @@
  * @task T5240
  */
 
-import type { StatementSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { StatementSync } from 'node:sqlite';
 
 /**
  * Execute a prepared statement and return typed rows.
@@ -26,6 +26,7 @@ import { join } from 'node:path';
 function typedAll<T>(stmt: StatementSync): T[] {
   return stmt.all() as T[];
 }
+
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   ListResourcesRequestSchema,

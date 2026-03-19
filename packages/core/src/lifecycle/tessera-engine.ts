@@ -12,8 +12,9 @@ import type {
   TesseraInstantiationInput,
   TesseraTemplate,
   TesseraVariable,
+  WarpChain,
+  WarpChainInstance,
 } from '@cleocode/contracts';
-import type { WarpChain, WarpChainInstance } from '@cleocode/contracts';
 import { validateChain } from '../validation/chain-validation.js';
 import { addChain, createInstance, showChain } from './chain-store.js';
 import { buildDefaultChain } from './default-chain.js';

@@ -29,8 +29,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -102,7 +100,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for pkg in packages/contracts packages/core packages/adapters packages/cleo; do
+          for pkg in packages/contracts packages/core packages/adapters packages/cleo packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -261,7 +259,19 @@ jobs:
           fi
           cd ../..
 
-          # 4. cleo — depends on core + contracts (assembled product, published last)
+          # 4. agents — no workspace deps, content package
+          echo "--- Publishing @cleocode/agents ---"
+          cd packages/agents
+          pnpm publish --tag "$TAG" --access public --no-git-checks
+          cd ../..
+
+          # 5. skills — no workspace deps, content package
+          echo "--- Publishing @cleocode/skills ---"
+          cd packages/skills
+          pnpm publish --tag "$TAG" --access public --no-git-checks
+          cd ../..
+
+          # 6. cleo — depends on core + contracts (assembled product, published last)
           echo "--- Publishing @cleocode/cleo ---"
           cd packages/cleo
           pnpm publish --tag "$TAG" --access public --no-git-checks

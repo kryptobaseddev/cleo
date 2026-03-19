@@ -17,10 +17,10 @@
  * @epic T4914
  */
 
-import { getAccessor } from '../store/data-accessor.js';
-import type { DataAccessor } from '../store/data-accessor.js';
 import type { FileMeta, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
 import type { TaskFileExt } from './types.js';

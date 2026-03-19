@@ -7,8 +7,8 @@
  * @task T5240
  */
 
-import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs-protocol';
 import { ExitCode, getExitCodeName, isRecoverableCode } from '@cleocode/contracts';
+import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs-protocol';
 import { getErrorDefinition } from './error-catalog.js';
 
 /**

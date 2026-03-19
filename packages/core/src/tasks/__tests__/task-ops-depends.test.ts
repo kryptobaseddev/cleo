@@ -3,8 +3,8 @@
  * @task T5069
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the data accessor
 vi.mock('../../store/data-accessor.js', () => ({

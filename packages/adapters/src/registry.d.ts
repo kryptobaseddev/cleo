@@ -8,18 +8,18 @@
  */
 /** Minimal manifest shape for provider discovery. */
 export interface AdapterManifest {
-    id: string;
-    name: string;
-    version: string;
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  provider: string;
+  entryPoint: string;
+  capabilities: Record<string, unknown>;
+  detectionPatterns: Array<{
+    type: string;
+    pattern: string;
     description: string;
-    provider: string;
-    entryPoint: string;
-    capabilities: Record<string, unknown>;
-    detectionPatterns: Array<{
-        type: string;
-        pattern: string;
-        description: string;
-    }>;
+  }>;
 }
 /**
  * Get the manifests for all bundled provider adapters.

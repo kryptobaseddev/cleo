@@ -50,10 +50,7 @@ vi.mock('../../../../../core/src/tasks/task-ops.js', () => ({
     coreTaskBatchValidate: vi.fn(),
     coreTaskImport: vi.fn(),
 }));
-import { completeTask as coreCompleteTask } from '@cleocode/core';
-import { showTask } from '@cleocode/core';
-import { updateTask } from '@cleocode/core';
-import { getAccessor } from '@cleocode/core';
+import { completeTask as coreCompleteTask, getAccessor, showTask, updateTask, } from '@cleocode/core';
 import { taskComplete } from '../task-engine.js';
 const mockShowTask = vi.mocked(showTask);
 const mockUpdateTask = vi.mocked(updateTask);

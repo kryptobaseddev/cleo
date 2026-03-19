@@ -3,8 +3,8 @@
  * @task T4551
  * @epic T4545
  */
-import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it } from 'vitest';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { registerDocsCommand } from '../commands/docs.js';
 describe('registerDocsCommand', () => {
     it('registers a docs command with subcommands', () => {

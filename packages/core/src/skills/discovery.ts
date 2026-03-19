@@ -383,4 +383,4 @@ export function resolveTemplatePath(name: string, cwd?: string): string | null {
  *
  * @task T4679
  */
-export { caampParseSkillFile, caampDiscoverSkill, caampDiscoverSkills };
+export { caampDiscoverSkill, caampDiscoverSkills, caampParseSkillFile };

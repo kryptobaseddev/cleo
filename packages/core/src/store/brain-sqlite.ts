@@ -89,7 +89,9 @@ function runBrainMigrations(
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_dbPath, backupPath);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 
@@ -298,8 +300,8 @@ export function getBrainNativeDb(): DatabaseSync | null {
   return _nativeDb;
 }
 
+export type { NodeSQLiteDatabase };
 /**
  * Re-export brain schema for external use.
  */
 export { brainSchema };
-export type { NodeSQLiteDatabase };

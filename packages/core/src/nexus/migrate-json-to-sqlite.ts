@@ -12,9 +12,9 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
+import { getLogger } from '../logger.js';
 import { projectRegistry } from '../store/nexus-schema.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
-import { getLogger } from '../logger.js';
 import { getRegistryPath } from './registry.js';
 
 /**

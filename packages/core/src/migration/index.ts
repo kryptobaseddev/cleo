@@ -71,10 +71,10 @@ export {
 } from './validate.js';
 
 import { join } from 'node:path';
-import { readJson, saveJson } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getBackupDir, getCleoDirAbsolute, getConfigPath, getTaskPath } from '../paths.js';
+import { readJson, saveJson } from '../store/json.js';
 
 /** Schema version info. */
 export interface SchemaVersion {

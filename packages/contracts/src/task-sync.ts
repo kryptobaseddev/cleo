@@ -90,7 +90,13 @@ export interface ReconcileOptions {
 }
 
 /** The type of action the reconciliation engine will take. */
-export type ReconcileActionType = 'complete' | 'activate' | 'create' | 'remove' | 'skip' | 'conflict';
+export type ReconcileActionType =
+  | 'complete'
+  | 'activate'
+  | 'create'
+  | 'remove'
+  | 'skip'
+  | 'conflict';
 
 /** A single reconciliation action (planned or applied). */
 export interface ReconcileAction {
@@ -156,7 +162,10 @@ export interface AdapterTaskSyncProvider {
    * @param tasks - Current CLEO tasks to push.
    * @param projectDir - Project root directory.
    */
-  pushTaskState?(tasks: ReadonlyArray<{ id: string; title: string; status: string }>, projectDir: string): Promise<void>;
+  pushTaskState?(
+    tasks: ReadonlyArray<{ id: string; title: string; status: string }>,
+    projectDir: string,
+  ): Promise<void>;
 
   /**
    * Clean up provider-specific sync artifacts (e.g. state files).

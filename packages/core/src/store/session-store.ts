@@ -7,8 +7,8 @@
  * @task W1-T4
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { Session } from '@cleocode/contracts';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { rowToSession } from './converters.js';
 import { getDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';

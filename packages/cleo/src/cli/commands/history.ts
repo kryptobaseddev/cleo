@@ -5,8 +5,8 @@
  * @task T5323
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerHistoryCommand(program: Command): void {
   const history = program

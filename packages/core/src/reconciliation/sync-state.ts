@@ -63,10 +63,7 @@ export async function writeSyncState(
 /**
  * Clear (delete) sync session state for a provider.
  */
-export async function clearSyncState(
-  providerId: string,
-  cwd?: string,
-): Promise<void> {
+export async function clearSyncState(providerId: string, cwd?: string): Promise<void> {
   const filePath = getStateFilePath(providerId, cwd);
   try {
     await rm(filePath);

@@ -22,8 +22,8 @@ vi.mock('../../../../core/src/paths.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
-import { ShimCommand as Command } from '../commander-shim.js';
 import { readJson } from '@cleocode/core/internal';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { registerCheckpointCommand } from '../commands/checkpoint.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);

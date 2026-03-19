@@ -52,9 +52,7 @@ export async function loadAdapterFromManifest(
   if (typeof adapterModule.createAdapter === 'function') {
     const adapter = adapterModule.createAdapter();
     if (isValidAdapter(adapter)) return adapter;
-    throw new Error(
-      `createAdapter() in ${manifest.id} did not return a valid CLEOProviderAdapter`,
-    );
+    throw new Error(`createAdapter() in ${manifest.id} did not return a valid CLEOProviderAdapter`);
   }
 
   // Fall back to default export (may be a class constructor)

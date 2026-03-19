@@ -8,9 +8,9 @@
  * @epic T4454
  */
 
+import type { Task, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task, TaskRef } from '@cleocode/contracts';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {

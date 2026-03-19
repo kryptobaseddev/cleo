@@ -5,8 +5,8 @@
  * @task T4454, T5323, T5328
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerImportCommand(program: Command): void {
   program

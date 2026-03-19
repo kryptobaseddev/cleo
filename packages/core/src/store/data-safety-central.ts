@@ -16,9 +16,9 @@
  * @epic T4732
  */
 
+import type { Session } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { checkSequence, repairSequence } from '../sequence/index.js';
-import type { Session } from '@cleocode/contracts';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';

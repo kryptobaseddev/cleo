@@ -12,8 +12,8 @@
  * @epic T4663
  */
 
-import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
 import { ExitCode } from '@cleocode/contracts';
+import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
 
 /**
  * Entry in the CLEO-to-LAFS error registry.

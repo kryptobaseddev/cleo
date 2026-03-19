@@ -8,9 +8,9 @@
  * @epic T4545
  */
 
+import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task } from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // Types

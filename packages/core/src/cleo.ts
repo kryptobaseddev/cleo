@@ -27,17 +27,71 @@ import type {
   TaskStatus,
   TaskType,
 } from '@cleocode/contracts';
+// Admin
+import { exportTasks } from './admin/export.js';
+import type { ImportParams } from './admin/import.js';
+import { importTasks } from './admin/import.js';
+// Lifecycle
+import {
+  checkGate,
+  completeStage,
+  failGate,
+  getLifecycleHistory,
+  getLifecycleStatus,
+  PIPELINE_STAGES,
+  passGate,
+  resetStage,
+  skipStage,
+  startStage,
+} from './lifecycle/index.js';
+import type { BrainObservationType } from './memory/brain-retrieval.js';
+// Memory
+import {
+  fetchBrainEntries,
+  observeBrain,
+  searchBrainCompact,
+  timelineBrain,
+} from './memory/brain-retrieval.js';
+import type { HybridSearchOptions } from './memory/brain-search.js';
+import { hybridSearch, searchBrain } from './memory/brain-search.js';
+// Nexus
+import { discoverRelated, searchAcrossProjects } from './nexus/discover.js';
+import { setPermission } from './nexus/permissions.js';
+import {
+  nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusRegister,
+  nexusSync,
+  nexusSyncAll,
+  nexusUnregister,
+} from './nexus/registry.js';
+import { getSharingStatus } from './nexus/sharing/index.js';
+// Orchestration
+import {
+  analyzeEpic,
+  buildDependencyGraph,
+  computeEpicStatus,
+  computeProgress,
+  getNextTask,
+  getOrchestratorContext,
+  getReadyTasks,
+  startOrchestration,
+} from './orchestration/index.js';
+// Reconciliation (sync)
+import { reconcile } from './reconciliation/index.js';
+import { clearSyncState, readSyncState, writeSyncState } from './reconciliation/sync-state.js';
 
-// Tasks
-import { addTask } from './tasks/add.js';
-import { archiveTasks } from './tasks/archive.js';
-import { completeTask } from './tasks/complete.js';
-import { deleteTask } from './tasks/delete.js';
-import { findTasks } from './tasks/find.js';
-import { listTasks } from './tasks/list.js';
-import { showTask } from './tasks/show.js';
-import { updateTask } from './tasks/update.js';
-
+// Release
+import {
+  bumpVersionFromConfig,
+  calculateNewVersion,
+  commitRelease,
+  prepareRelease,
+  pushRelease,
+  rollbackRelease,
+  tagRelease,
+} from './release/index.js';
 // Sessions
 import {
   computeBriefing,
@@ -57,60 +111,6 @@ import {
   startSession,
   suspendSession,
 } from './sessions/index.js';
-
-// Memory
-import {
-  fetchBrainEntries,
-  observeBrain,
-  searchBrainCompact,
-  timelineBrain,
-} from './memory/brain-retrieval.js';
-import type { BrainObservationType } from './memory/brain-retrieval.js';
-import { hybridSearch, searchBrain } from './memory/brain-search.js';
-import type { HybridSearchOptions } from './memory/brain-search.js';
-
-// Orchestration
-import {
-  analyzeEpic,
-  buildDependencyGraph,
-  computeEpicStatus,
-  computeProgress,
-  getNextTask,
-  getOrchestratorContext,
-  getReadyTasks,
-  startOrchestration,
-} from './orchestration/index.js';
-
-// Lifecycle
-import {
-  checkGate,
-  completeStage,
-  failGate,
-  getLifecycleHistory,
-  getLifecycleStatus,
-  passGate,
-  PIPELINE_STAGES,
-  resetStage,
-  skipStage,
-  startStage,
-} from './lifecycle/index.js';
-
-// Release
-import {
-  bumpVersionFromConfig,
-  calculateNewVersion,
-  commitRelease,
-  prepareRelease,
-  pushRelease,
-  rollbackRelease,
-  tagRelease,
-} from './release/index.js';
-
-// Admin
-import { exportTasks } from './admin/export.js';
-import { importTasks } from './admin/import.js';
-import type { ImportParams } from './admin/import.js';
-
 // Sticky
 import {
   addSticky,
@@ -121,27 +121,17 @@ import {
   listStickies,
   purgeSticky,
 } from './sticky/index.js';
-
-// Reconciliation (sync)
-import { reconcile } from './reconciliation/index.js';
-import { clearSyncState, readSyncState, writeSyncState } from './reconciliation/sync-state.js';
-
-// Nexus
-import { discoverRelated, searchAcrossProjects } from './nexus/discover.js';
-import { setPermission } from './nexus/permissions.js';
-import {
-  nexusGetProject,
-  nexusInit,
-  nexusList,
-  nexusRegister,
-  nexusSync,
-  nexusSyncAll,
-  nexusUnregister,
-} from './nexus/registry.js';
-import { getSharingStatus } from './nexus/sharing/index.js';
-
 // Store
 import { getAccessor } from './store/data-accessor.js';
+// Tasks
+import { addTask } from './tasks/add.js';
+import { archiveTasks } from './tasks/archive.js';
+import { completeTask } from './tasks/complete.js';
+import { deleteTask } from './tasks/delete.js';
+import { findTasks } from './tasks/find.js';
+import { listTasks } from './tasks/list.js';
+import { showTask } from './tasks/show.js';
+import { updateTask } from './tasks/update.js';
 
 // ============================================================================
 // Domain API interfaces
@@ -160,7 +150,12 @@ export interface TasksAPI {
     depends?: string[];
     notes?: string;
   }): Promise<unknown>;
-  find(params: { query?: string; id?: string; status?: TaskStatus; limit?: number }): Promise<unknown>;
+  find(params: {
+    query?: string;
+    id?: string;
+    status?: TaskStatus;
+    limit?: number;
+  }): Promise<unknown>;
   show(taskId: string): Promise<unknown>;
   list(params?: {
     status?: TaskStatus;
@@ -188,7 +183,12 @@ export interface SessionsAPI {
   status(): Promise<unknown>;
   resume(sessionId: string): Promise<unknown>;
   list(params?: { status?: string; limit?: number }): Promise<unknown>;
-  find(params?: { status?: string; scope?: string; query?: string; limit?: number }): Promise<unknown>;
+  find(params?: {
+    status?: string;
+    scope?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<unknown>;
   show(sessionId: string): Promise<unknown>;
   suspend(sessionId: string, reason?: string): Promise<unknown>;
   briefing(params?: { maxNextTasks?: number; scope?: string }): Promise<unknown>;
@@ -265,9 +265,19 @@ export interface AdminAPI {
 }
 
 export interface StickyAPI {
-  add(params: { content: string; tags?: string[]; priority?: string; color?: string }): Promise<unknown>;
+  add(params: {
+    content: string;
+    tags?: string[];
+    priority?: string;
+    color?: string;
+  }): Promise<unknown>;
   show(stickyId: string): Promise<unknown>;
-  list(params?: { status?: string; color?: string; priority?: string; limit?: number }): Promise<unknown>;
+  list(params?: {
+    status?: string;
+    color?: string;
+    priority?: string;
+    limit?: number;
+  }): Promise<unknown>;
   archive(stickyId: string): Promise<unknown>;
   purge(stickyId: string): Promise<unknown>;
   convert(params: {
@@ -343,14 +353,55 @@ export class Cleo {
     const root = this.projectRoot;
     const store = this._store ?? undefined;
     return {
-      add: (p) => addTask({ title: p.title, description: p.description, parentId: p.parent, priority: p.priority, type: p.type, size: p.size, phase: p.phase, labels: p.labels, depends: p.depends, notes: p.notes }, root, store),
-      find: (p) => findTasks({ query: p.query, id: p.id, status: p.status, limit: p.limit }, root, store),
+      add: (p) =>
+        addTask(
+          {
+            title: p.title,
+            description: p.description,
+            parentId: p.parent,
+            priority: p.priority,
+            type: p.type,
+            size: p.size,
+            phase: p.phase,
+            labels: p.labels,
+            depends: p.depends,
+            notes: p.notes,
+          },
+          root,
+          store,
+        ),
+      find: (p) =>
+        findTasks({ query: p.query, id: p.id, status: p.status, limit: p.limit }, root, store),
       show: (taskId) => showTask(taskId, root, store),
-      list: (p) => listTasks({ status: p?.status, priority: p?.priority, parentId: p?.parentId, phase: p?.phase, limit: p?.limit }, root, store),
-      update: (p) => updateTask({ taskId: p.taskId, title: p.title, status: p.status, priority: p.priority, description: p.description, notes: p.notes }, root, store),
+      list: (p) =>
+        listTasks(
+          {
+            status: p?.status,
+            priority: p?.priority,
+            parentId: p?.parentId,
+            phase: p?.phase,
+            limit: p?.limit,
+          },
+          root,
+          store,
+        ),
+      update: (p) =>
+        updateTask(
+          {
+            taskId: p.taskId,
+            title: p.title,
+            status: p.status,
+            priority: p.priority,
+            description: p.description,
+            notes: p.notes,
+          },
+          root,
+          store,
+        ),
       complete: (p) => completeTask({ taskId: p.taskId, notes: p.notes }, root, store),
       delete: (p) => deleteTask({ taskId: p.taskId, force: p.force }, root, store),
-      archive: (p) => archiveTasks({ before: p?.before, taskIds: p?.taskIds, dryRun: p?.dryRun }, root, store),
+      archive: (p) =>
+        archiveTasks({ before: p?.before, taskIds: p?.taskIds, dryRun: p?.dryRun }, root, store),
     };
   }
 
@@ -364,11 +415,18 @@ export class Cleo {
       status: () => sessionStatus(root, store),
       resume: (id) => resumeSession(id, root, store),
       list: (p) => listSessions({ status: p?.status, limit: p?.limit }, root, store),
-      find: async (p) => findSessions(store ?? await getAccessor(root), { status: p?.status, scope: p?.scope, query: p?.query, limit: p?.limit }),
+      find: async (p) =>
+        findSessions(store ?? (await getAccessor(root)), {
+          status: p?.status,
+          scope: p?.scope,
+          query: p?.query,
+          limit: p?.limit,
+        }),
       show: (id) => showSession(root, id),
       suspend: (id, reason) => suspendSession(root, id, reason),
       briefing: (p) => computeBriefing(root, { maxNextTasks: p?.maxNextTasks, scope: p?.scope }),
-      handoff: (id, opts) => computeHandoff(root, { sessionId: id, note: opts?.note, nextAction: opts?.nextAction }),
+      handoff: (id, opts) =>
+        computeHandoff(root, { sessionId: id, note: opts?.note, nextAction: opts?.nextAction }),
       gc: (hours) => gcSessions(hours, root, store),
       recordDecision: (p) => recordDecision(root, p),
       recordAssumption: (p) => recordAssumption(root, p),
@@ -385,7 +443,12 @@ export class Cleo {
       observe: (p) => observeBrain(root, { text: p.text, title: p.title, type: p.type }),
       find: (p) => searchBrainCompact(root, { query: p.query, limit: p.limit, tables: p.tables }),
       fetch: (p) => fetchBrainEntries(root, { ids: p.ids }),
-      timeline: (p) => timelineBrain(root, { anchor: p.anchor, depthBefore: p.depthBefore, depthAfter: p.depthAfter }),
+      timeline: (p) =>
+        timelineBrain(root, {
+          anchor: p.anchor,
+          depthBefore: p.depthBefore,
+          depthAfter: p.depthAfter,
+        }),
       search: (query, opts) => searchBrain(root, query, { limit: opts?.limit }),
       hybridSearch: (query, opts) => hybridSearch(query, root, opts),
     };
@@ -451,9 +514,27 @@ export class Cleo {
   get sticky(): StickyAPI {
     const root = this.projectRoot;
     return {
-      add: (p) => addSticky({ content: p.content, tags: p.tags, priority: p.priority as 'low' | 'medium' | 'high' | undefined, color: p.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined }, root),
+      add: (p) =>
+        addSticky(
+          {
+            content: p.content,
+            tags: p.tags,
+            priority: p.priority as 'low' | 'medium' | 'high' | undefined,
+            color: p.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
+          },
+          root,
+        ),
       show: (id) => getSticky(id, root),
-      list: (p) => listStickies({ status: p?.status as 'active' | 'converted' | 'archived' | undefined, color: p?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined, priority: p?.priority as 'low' | 'medium' | 'high' | undefined, limit: p?.limit }, root),
+      list: (p) =>
+        listStickies(
+          {
+            status: p?.status as 'active' | 'converted' | 'archived' | undefined,
+            color: p?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
+            priority: p?.priority as 'low' | 'medium' | 'high' | undefined,
+            limit: p?.limit,
+          },
+          root,
+        ),
       archive: (id) => archiveSticky(id, root),
       purge: (id) => purgeSticky(id, root),
       convert: (p) => {
@@ -468,7 +549,8 @@ export class Cleo {
   get nexus(): NexusAPI {
     return {
       init: () => nexusInit(),
-      register: (p) => nexusRegister(p.path, p.name, p.permissions as 'read' | 'write' | 'execute' | undefined),
+      register: (p) =>
+        nexusRegister(p.path, p.name, p.permissions as 'read' | 'write' | 'execute' | undefined),
       unregister: (p) => nexusUnregister(p.name),
       list: () => nexusList(),
       show: (p) => nexusGetProject(p.name),

@@ -6,14 +6,10 @@
  * @epic T4498
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createTestDb,
-  seedTasks,
-  type TestDbEnv,
-} from '../../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
 import type { Task } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   analyzeEpic,
   autoDispatch,

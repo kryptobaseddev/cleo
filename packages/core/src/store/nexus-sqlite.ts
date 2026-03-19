@@ -85,7 +85,9 @@ function runNexusMigrations(
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_nexusDbPath, backupPath);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 
@@ -237,8 +239,8 @@ export function getNexusNativeDb(): DatabaseSync | null {
   return _nexusNativeDb;
 }
 
+export type { NodeSQLiteDatabase };
 /**
  * Re-export nexus schema for external use.
  */
 export { nexusSchema };
-export type { NodeSQLiteDatabase };

@@ -18,12 +18,12 @@
 
 import { createHash } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
-import type { BrainAnchor, BrainFtsRow, BrainNarrativeRow } from './brain-row-types.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from '../store/brain-schema.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
+import type { BrainAnchor, BrainFtsRow, BrainNarrativeRow } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
 
 // ============================================================================

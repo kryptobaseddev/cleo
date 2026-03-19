@@ -6,8 +6,8 @@
  */
 
 import { CleoError, formatError, loadConfig } from '@cleocode/core';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 export function registerConfigCommand(program: Command): void {

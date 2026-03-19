@@ -13,8 +13,8 @@ export { ClaudeCodeHookProvider } from './hooks.js';
 export { ClaudeCodeInstallProvider } from './install.js';
 export { ClaudeCodePathProvider } from './paths.js';
 export { ClaudeCodeSpawnProvider } from './spawn.js';
+export { checkStatuslineIntegration, getSetupInstructions, getStatuslineConfig, } from './statusline.js';
 export { ClaudeCodeTransportProvider } from './transport.js';
-export { checkStatuslineIntegration, getStatuslineConfig, getSetupInstructions, } from './statusline.js';
 export default ClaudeCodeAdapter;
 /**
  * Factory function for creating adapter instances.

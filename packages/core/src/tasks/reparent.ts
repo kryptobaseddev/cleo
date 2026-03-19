@@ -9,8 +9,8 @@
  * @epic T4454
  */
 
-import { ExitCode } from '@cleocode/contracts';
 import type { TaskFile } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { getDepth, wouldCreateCircle } from './hierarchy.js';

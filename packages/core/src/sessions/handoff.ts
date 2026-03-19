@@ -15,10 +15,10 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 import { getDecisionLog } from './decisions.js';
 import type { TaskFileExt } from './types.js';
 

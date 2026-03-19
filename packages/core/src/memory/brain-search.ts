@@ -16,9 +16,9 @@ import type {
   BrainObservationRow,
   BrainPatternRow,
 } from '../store/brain-schema.js';
+import type { BrainSearchHit } from './brain-row-types.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
-import type { BrainSearchHit } from './brain-row-types.js';
 
 /** Search result with BM25 rank. */
 export interface BrainSearchResult {

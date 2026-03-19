@@ -6,14 +6,16 @@
  */
 // CLI-only: git checkpoint has no dispatch route (git operations not suitable for MCP)
 
-import { CleoError, formatError, getCleoDir } from '@cleocode/core/internal';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { ExitCode } from '@cleocode/contracts';
 import {
+  CleoError,
+  formatError,
+  getCleoDir,
   gitCheckpoint,
   gitCheckpointStatus,
   isCleoGitInitialized,
 } from '@cleocode/core/internal';
-import { ExitCode } from '@cleocode/contracts';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**

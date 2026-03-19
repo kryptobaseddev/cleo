@@ -6,9 +6,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { atomicWrite, safeReadFile } from '../store/atomic.js';
-import type { DataAccessor } from '../store/data-accessor.js';
-import { appendJsonl, readJson, saveJson } from '../store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import {
@@ -18,6 +15,9 @@ import {
   getManifestArchivePath,
   getProjectRoot,
 } from '../paths.js';
+import { atomicWrite, safeReadFile } from '../store/atomic.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { appendJsonl, readJson, saveJson } from '../store/json.js';
 import { logOperation } from '../tasks/add.js';
 
 /** Research entry attached to a task. */

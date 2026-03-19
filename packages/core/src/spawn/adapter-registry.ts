@@ -17,8 +17,14 @@ import {
   type Provider,
   providerSupportsById,
 } from '@cleocode/caamp';
-import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
-import type { CLEOSpawnAdapter, CLEOSpawnContext, CLEOSpawnResult } from '@cleocode/contracts';
+import type {
+  AdapterSpawnProvider,
+  CLEOSpawnAdapter,
+  CLEOSpawnContext,
+  CLEOSpawnResult,
+  SpawnContext,
+  SpawnResult,
+} from '@cleocode/contracts';
 
 /**
  * Spawn capability type - subset of provider capabilities related to spawning
@@ -192,7 +198,7 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {
         instanceId: result.instanceId,
-        output: result.output ?? "",
+        output: result.output ?? '',
         exitCode: result.exitCode ?? 0,
         status: result.status as CLEOSpawnResult['status'],
         taskId: result.taskId,
@@ -208,7 +214,7 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
       const results: SpawnResult[] = await delegate.listRunning();
       return results.map((r) => ({
         instanceId: r.instanceId,
-        output: r.output ?? "",
+        output: r.output ?? '',
         exitCode: r.exitCode ?? 0,
         status: r.status as CLEOSpawnResult['status'],
         taskId: r.taskId,
@@ -252,10 +258,7 @@ export async function initializeSpawnAdapters(
       // Look for an exported spawn provider class — convention: <Name>SpawnProvider
       let SpawnProviderClass: (new () => AdapterSpawnProvider) | undefined;
       for (const [exportName, exportValue] of Object.entries(adapterModule)) {
-        if (
-          exportName.endsWith('SpawnProvider') &&
-          typeof exportValue === 'function'
-        ) {
+        if (exportName.endsWith('SpawnProvider') && typeof exportValue === 'function') {
           SpawnProviderClass = exportValue as new () => AdapterSpawnProvider;
           break;
         }

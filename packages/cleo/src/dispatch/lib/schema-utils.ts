@@ -14,7 +14,7 @@
 
 import { OPERATIONS, type OperationDef } from '../registry.js';
 import type { Gateway } from '../types.js';
-import { type JSONSchemaObject, type JsonSchemaProperty, type JsonSchemaType } from './param-utils.js';
+import type { JSONSchemaObject, JsonSchemaProperty, JsonSchemaType } from './param-utils.js';
 
 /**
  * Build an MCP input schema directly from cleo's OperationDef.

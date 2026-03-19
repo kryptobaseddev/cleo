@@ -13,10 +13,18 @@
  * @epic T4654
  */
 
+import type {
+  BottleneckTask,
+  ProjectMeta,
+  Task,
+  TaskAnalysisResult,
+  TaskDepsResult,
+  TaskRef,
+  TaskStatus,
+} from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
-import { TASK_STATUSES } from '@cleocode/contracts';
-import type { Task, TaskStatus, TaskAnalysisResult, TaskDepsResult, TaskRef, BottleneckTask, ProjectMeta } from '@cleocode/contracts';
 import { canCancel } from './cancel-ops.js';
 import {
   detectCircularDeps,
@@ -411,10 +419,7 @@ export async function coreTaskTree(
  * Show dependencies for a task.
  * @task T4790
  */
-export async function coreTaskDeps(
-  projectRoot: string,
-  taskId: string,
-): Promise<TaskDepsResult> {
+export async function coreTaskDeps(projectRoot: string, taskId: string): Promise<TaskDepsResult> {
   const allTasks = await loadAllTasks(projectRoot);
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
@@ -793,14 +798,14 @@ export async function coreTaskReorder(
   }
 
   // Get siblings: tasks with same parentId
-  const parentFilter = task.parentId
-    ? { parentId: task.parentId }
-    : {};
+  const parentFilter = task.parentId ? { parentId: task.parentId } : {};
   const { tasks: siblingCandidates } = await accessor.queryTasks(parentFilter);
   // For root-level tasks (no parentId), filter to only those without a parentId
   const allSiblings = task.parentId
     ? siblingCandidates.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    : siblingCandidates.filter((t) => !t.parentId).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    : siblingCandidates
+        .filter((t) => !t.parentId)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
   const currentIndex = allSiblings.findIndex((t) => t.id === taskId);
   const newIndex = Math.max(0, Math.min(position - 1, allSiblings.length - 1));

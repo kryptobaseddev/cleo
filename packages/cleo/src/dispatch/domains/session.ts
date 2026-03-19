@@ -183,7 +183,7 @@ export class SessionHandler implements DomainHandler {
               startTime,
             );
           }
-          let result = await sessionStart(this.projectRoot, {
+          const result = await sessionStart(this.projectRoot, {
             scope,
             name: params?.name as string | undefined,
             autoStart: params?.autoStart as boolean | undefined,
@@ -258,9 +258,7 @@ export class SessionHandler implements DomainHandler {
               // Wave 3A: Persist session memory to brain.db (best-effort)
               if (debriefResult?.success && debriefResult.data) {
                 try {
-                  const { persistSessionMemory } = await import(
-                    '@cleocode/core/internal'
-                  );
+                  const { persistSessionMemory } = await import('@cleocode/core/internal');
                   await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
                 } catch {
                   // Memory persistence failure should not fail session end

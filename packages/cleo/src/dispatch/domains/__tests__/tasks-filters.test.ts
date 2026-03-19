@@ -34,8 +34,8 @@ vi.mock('../../../../../core/src/tasks/find.js', () => ({
 }));
 
 import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
-import { listTasks as coreListTasks, toCompact } from '../../../../../core/src/tasks/list.js';
 import { findTasks as coreFindTasksFromFind } from '../../../../../core/src/tasks/find.js';
+import { listTasks as coreListTasks, toCompact } from '../../../../../core/src/tasks/list.js';
 import { taskFind, taskList } from '../../engines/task-engine.js';
 
 const MOCK_TASKS = [
@@ -258,8 +258,12 @@ describe('taskList compact mode', () => {
     expect(result.data!.total).toBe(2);
     expect(result.data!.filtered).toBe(2);
     expect(result.data!.tasks).toHaveLength(2);
-    expect(result.data!.tasks[0]).toEqual(expect.objectContaining({ id: 'T001', title: 'Task one' }));
-    expect(result.data!.tasks[1]).toEqual(expect.objectContaining({ id: 'T002', title: 'Task two' }));
+    expect(result.data!.tasks[0]).toEqual(
+      expect.objectContaining({ id: 'T001', title: 'Task one' }),
+    );
+    expect(result.data!.tasks[1]).toEqual(
+      expect.objectContaining({ id: 'T002', title: 'Task two' }),
+    );
     expect(result.page).toEqual({ mode: 'none' });
   });
 

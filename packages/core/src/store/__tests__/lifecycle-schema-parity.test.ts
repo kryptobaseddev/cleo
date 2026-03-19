@@ -67,7 +67,8 @@ describe('lifecycle schema parity guardrails', () => {
     const sql = getLatestPipelineMigrationSql();
     // Initial CREATE TABLE migrations don't embed CHECK constraint values;
     // only incremental ALTER TABLE / rebuild migrations do.
-    const hasCheckConstraints = sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines');
+    const hasCheckConstraints =
+      sql.includes('chk_lifecycle_pipelines_status') || sql.includes('__new_lifecycle_pipelines');
     if (hasCheckConstraints) {
       for (const status of LIFECYCLE_PIPELINE_STATUSES) {
         expect(sql, `Missing pipeline status '${status}' in latest pipeline migration`).toContain(
@@ -84,7 +85,8 @@ describe('lifecycle schema parity guardrails', () => {
     const sql = getLatestStageMigrationSql();
     // Initial CREATE TABLE migrations don't embed CHECK constraint values;
     // only incremental ALTER TABLE / rebuild migrations do.
-    const hasCheckConstraints = sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages');
+    const hasCheckConstraints =
+      sql.includes('chk_lifecycle_stages_stage_name') || sql.includes('__new_lifecycle_stages');
 
     if (hasCheckConstraints) {
       for (const stageName of LIFECYCLE_STAGE_NAMES) {

@@ -9,6 +9,7 @@
 
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ExportPackage } from '../store/export.js';
 import {
@@ -17,7 +18,6 @@ import {
   remapTaskReferences,
   resolveDuplicateTitle,
 } from '../store/import-remap.js';
-import type { Task, TaskStatus } from '@cleocode/contracts';
 
 type OnConflict = 'duplicate' | 'rename' | 'skip' | 'fail';
 type OnMissingDep = 'strip' | 'placeholder' | 'fail';

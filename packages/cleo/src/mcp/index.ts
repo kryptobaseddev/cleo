@@ -13,7 +13,19 @@
  * @see MCP-SERVER-SPECIFICATION.md for complete API documentation
  */
 
-import { hooks } from '@cleocode/core/internal';
+// Hook handlers are auto-registered via @cleocode/core module evaluation
+// (core/hooks/index.ts re-exports handlers/index.ts which triggers registration)
+import { join } from 'node:path';
+import {
+  autoRecordDispatchTokenUsage,
+  closeLogger,
+  getCleoVersion,
+  getLogger,
+  getProjectInfoSync,
+  hooks,
+  initLogger,
+  pruneAuditLog,
+} from '@cleocode/core/internal';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -24,20 +36,8 @@ import { BackgroundJobManager } from './lib/background-jobs.js';
 import { enforceBudget } from './lib/budget.js';
 import { QueryCache } from './lib/cache.js';
 import { loadConfig } from './lib/config.js';
-import { registerMemoryResources } from './resources/index.js';
-// Hook handlers are auto-registered via @cleocode/core module evaluation
-// (core/hooks/index.ts re-exports handlers/index.ts which triggers registration)
-import { join } from 'node:path';
-import {
-  autoRecordDispatchTokenUsage,
-  closeLogger,
-  getCleoVersion,
-  getLogger,
-  getProjectInfoSync,
-  initLogger,
-  pruneAuditLog,
-} from '@cleocode/core/internal';
 import { setJobManager } from './lib/job-manager-accessor.js';
+import { registerMemoryResources } from './resources/index.js';
 
 /**
  * Server state for cleanup
@@ -349,14 +349,11 @@ async function main(): Promise<void> {
             data: result.data,
             error: result.error,
           };
-          const { response: enforced, enforcement } = enforceBudget(
-            budgetInput,
-            tokenBudget,
-          );
+          const { response: enforced, enforcement } = enforceBudget(budgetInput, tokenBudget);
           result = {
             ...result,
             data: enforced['data'],
-            _meta: { ...result._meta, ...(enforced['_meta'] as Record<string, unknown> ?? {}) },
+            _meta: { ...result._meta, ...((enforced['_meta'] as Record<string, unknown>) ?? {}) },
           };
           reqLog.debug(
             {

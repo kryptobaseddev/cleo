@@ -35,7 +35,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { readJson } from './store/json.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
@@ -56,6 +55,7 @@ import {
   removeCleoFromRootGitignore,
 } from './scaffold.js';
 import { ensureGlobalSchemas } from './schema-management.js';
+import { readJson } from './store/json.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 

@@ -15,13 +15,7 @@
 
 import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
-import type {
-  Task,
-  TaskPriority,
-  TaskSize,
-  TaskStatus,
-  TaskType,
-} from './task.js';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from './task.js';
 
 /** Archive-specific fields for task upsert. */
 export interface ArchiveFields {

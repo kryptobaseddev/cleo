@@ -9,6 +9,16 @@
  * @epic T2908
  */
 
+export type {
+  GateViolation,
+  LayerResult,
+  OperationContext,
+  VerificationResult,
+  WorkflowGateAgent,
+  WorkflowGateDefinition,
+  WorkflowGateState,
+  WorkflowGateStatus,
+} from '@cleocode/core/internal';
 export {
   createVerificationGate,
   GATE_SEQUENCE,
@@ -21,15 +31,4 @@ export {
   WORKFLOW_GATE_SEQUENCE,
   WorkflowGateName,
   WorkflowGateTracker,
-} from '@cleocode/core/internal';
-
-export type {
-  GateViolation,
-  LayerResult,
-  OperationContext,
-  VerificationResult,
-  WorkflowGateAgent,
-  WorkflowGateDefinition,
-  WorkflowGateState,
-  WorkflowGateStatus,
 } from '@cleocode/core/internal';

@@ -14,6 +14,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
   addChain,
   advanceInstance,
@@ -29,7 +30,6 @@ import {
   resolveChannelFromBranch,
   showChain,
 } from '@cleocode/core/internal';
-import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
   lifecycleCheck,
   lifecycleGateFail,

@@ -8,8 +8,8 @@
  * @task T4696
  * @epic T4663
  */
-import { describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { CleoError } from '../errors.js';
 import { formatError, formatSuccess } from '../output.js';
 import { defaultFlags, isJsonOutput, parseCommonFlags, resolveFormat } from '../ui/flags.js';

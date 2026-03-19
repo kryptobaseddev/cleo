@@ -8,8 +8,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { warpChainInstances, warpChains } from '../store/chain-schema.js';
 import type { GateResult, WarpChain, WarpChainInstance } from '@cleocode/contracts';
+import { warpChainInstances, warpChains } from '../store/chain-schema.js';
 import { validateChain } from '../validation/chain-validation.js';
 
 export interface ChainFindCriteria {

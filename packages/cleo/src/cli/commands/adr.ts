@@ -23,8 +23,8 @@
  * @see schemas/adr-frontmatter.schema.json for validation schema
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerAdrCommand(program: Command): void {
   const adr = program

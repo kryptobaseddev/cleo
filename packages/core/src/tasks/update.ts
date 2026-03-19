@@ -4,12 +4,13 @@
  * @epic T4454
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
+import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 import {
   normalizePriority,
   validateLabels,
@@ -19,7 +20,6 @@ import {
   validateTitle,
 } from './add.js';
 import { completeTask } from './complete.js';
-import { loadConfig } from '../config.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [

@@ -49,15 +49,23 @@ export declare function extractSessionId(result: any): string;
  * are accepted for API compatibility but not validated against the
  * executor result (which lacks MCP envelope metadata).
  */
-export declare function verifyResponseFormat(response: any, _expectedGateway: 'query' | 'mutate', _expectedDomain: string, _expectedOperation: string): void;
+export declare function verifyResponseFormat(
+  response: any,
+  _expectedGateway: 'query' | 'mutate',
+  _expectedDomain: string,
+  _expectedOperation: string,
+): void;
 /**
  * Wait for condition to be true with timeout
  */
-export declare function waitFor(condition: () => Promise<boolean>, options?: {
+export declare function waitFor(
+  condition: () => Promise<boolean>,
+  options?: {
     timeout?: number;
     interval?: number;
     errorMessage?: string;
-}): Promise<void>;
+  },
+): Promise<void>;
 /**
  * Sleep helper for timing-dependent tests
  */

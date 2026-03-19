@@ -4,7 +4,7 @@
  * @epic T4454
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, } from '../../store/__tests__/test-db-helper.js';
+import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { listTasks } from '../list.js';
 describe('listTasks', () => {
     let env;

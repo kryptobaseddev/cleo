@@ -21,16 +21,16 @@ import { TasksHandler } from './tasks.js';
 import { ToolsHandler } from './tools.js';
 
 export {
-  TasksHandler,
-  SessionHandler,
-  CheckHandler,
   AdminHandler,
+  CheckHandler,
   MemoryHandler,
+  NexusHandler,
   OrchestrateHandler,
   PipelineHandler,
-  ToolsHandler,
-  NexusHandler,
+  SessionHandler,
   StickyHandler,
+  TasksHandler,
+  ToolsHandler,
 };
 
 /**

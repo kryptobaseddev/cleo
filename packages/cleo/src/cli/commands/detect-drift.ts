@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getErrorMessage } from '@cleocode/contracts';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -188,12 +189,12 @@ export function registerDetectDriftCommand(program: Command): void {
             );
           }
         }
-      } catch (e: any) {
-        addCheck('Gateway-to-spec sync', 'fail', `Error: ${e.message}`, [
+      } catch (e: unknown) {
+        addCheck('Gateway-to-spec sync', 'fail', `Error: ${getErrorMessage(e)}`, [
           {
             severity: 'error',
             category: 'system',
-            message: e.message,
+            message: getErrorMessage(e),
             recommendation: 'Check file permissions and paths',
           },
         ]);
@@ -228,8 +229,8 @@ export function registerDetectDriftCommand(program: Command): void {
           );
           addCheck('CLI-to-core sync', 'pass', `Found ${files.length} CLI command implementations`);
         }
-      } catch (e: any) {
-        addCheck('CLI-to-core sync', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('CLI-to-core sync', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 3: Domain handler coverage
@@ -248,8 +249,8 @@ export function registerDetectDriftCommand(program: Command): void {
           const files = readdirSync(domainsDir).filter((f) => f.endsWith('.ts'));
           addCheck('Domain handler coverage', 'pass', `Found ${files.length} domain handlers`);
         }
-      } catch (e: any) {
-        addCheck('Domain handler coverage', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Domain handler coverage', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 4: Capability matrix
@@ -267,8 +268,8 @@ export function registerDetectDriftCommand(program: Command): void {
         } else {
           addCheck('Capability matrix', 'pass', 'Capability matrix exists');
         }
-      } catch (e: any) {
-        addCheck('Capability matrix', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Capability matrix', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 5: Schema validation
@@ -304,8 +305,8 @@ export function registerDetectDriftCommand(program: Command): void {
             addCheck('Schema validation', 'pass', `Schema defines ${tableCount} tables`);
           }
         }
-      } catch (e: any) {
-        addCheck('Schema validation', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Schema validation', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 6: Canonical identity
@@ -368,8 +369,8 @@ export function registerDetectDriftCommand(program: Command): void {
             addCheck('Canonical identity', 'pass', 'All canonical pillars documented');
           }
         }
-      } catch (e: any) {
-        addCheck('Canonical identity', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Canonical identity', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 7: Agent injection template
@@ -400,8 +401,8 @@ export function registerDetectDriftCommand(program: Command): void {
             addCheck('Agent injection', 'pass', 'Agent injection template exists');
           }
         }
-      } catch (e: any) {
-        addCheck('Agent injection', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Agent injection', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Check 8: Exit codes
@@ -421,8 +422,8 @@ export function registerDetectDriftCommand(program: Command): void {
           const codeCount = (content.match(/= \d+/g) || []).length;
           addCheck('Exit codes', 'pass', `${codeCount} exit codes defined`);
         }
-      } catch (e: any) {
-        addCheck('Exit codes', 'fail', `Error: ${e.message}`);
+      } catch (e: unknown) {
+        addCheck('Exit codes', 'fail', `Error: ${getErrorMessage(e)}`);
       }
 
       // Generate top-level recommendations based on findings

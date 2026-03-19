@@ -10,8 +10,8 @@
  * @epic T4545
  */
 
-import { CleoError } from '../errors.js';
 import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 
 /** Minimal task shape needed for topological sorting. */
 export interface SortableTask {

@@ -409,10 +409,7 @@ const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
  * @task T4837 - ADR-012 drizzle-kit migration system
  * @task T5185 - Retry+backoff for SQLITE_BUSY during migrations
  */
-function runMigrations(
-  nativeDb: DatabaseSync,
-  db: NodeSQLiteDatabase<typeof schema>,
-): void {
+function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof schema>): void {
   const migrationsFolder = resolveMigrationsFolder();
 
   // If existing DB with pending migrations, create safety backup (cleo compat)
@@ -421,7 +418,9 @@ function runMigrations(
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_dbPath, backupPath);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 
@@ -545,11 +544,11 @@ export function getNativeTasksDb(): DatabaseSync | null {
   return _nativeDb;
 }
 
+export type { NodeSQLiteDatabase };
 /**
  * Re-export schema for external use.
  */
 export { schema };
-export type { NodeSQLiteDatabase };
 
 /**
  * Close ALL database singletons (tasks.db, brain.db, nexus.db).

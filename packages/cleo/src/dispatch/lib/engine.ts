@@ -8,6 +8,7 @@
  * @task T4815
  */
 
+export type { Session as SessionRecord } from '@cleocode/contracts';
 // Pipeline manifest functions (moved from memory domain in T5241)
 export {
   filterEntries as filterManifestEntries,
@@ -21,7 +22,6 @@ export {
   pipelineManifestStats,
   readManifestEntries,
 } from '@cleocode/core/internal';
-export type { Session as SessionRecord } from '@cleocode/contracts';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';
 // Config engine

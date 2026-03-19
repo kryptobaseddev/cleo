@@ -14,8 +14,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getCurrentSessionId } from '@cleocode/core/internal';
 import type { GatewayMeta } from '@cleocode/contracts';
+import { getCurrentSessionId } from '@cleocode/core/internal';
 
 /**
  * GatewayMeta with an index signature for DomainResponse._meta

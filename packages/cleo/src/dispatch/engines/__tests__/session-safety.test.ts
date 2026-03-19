@@ -11,8 +11,8 @@
  * @task T5122
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mocks — mirror the pattern from session-handoff-fix.test.ts

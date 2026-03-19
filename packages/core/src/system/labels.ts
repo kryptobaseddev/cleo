@@ -3,10 +3,10 @@
  * @task T4783
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface LabelsResult {
   labels: Array<{ label: string; count: number; tasks: string[] }>;

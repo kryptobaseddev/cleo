@@ -8,7 +8,7 @@
  */
 import type { AdapterTransportProvider } from '@cleocode/contracts';
 export declare class ClaudeCodeTransportProvider implements AdapterTransportProvider {
-    readonly transportName = "claude-code";
-    createTransport(): unknown;
+  readonly transportName = 'claude-code';
+  createTransport(): unknown;
 }
 //# sourceMappingURL=transport.d.ts.map

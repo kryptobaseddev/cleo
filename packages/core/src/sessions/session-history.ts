@@ -5,8 +5,8 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../store/data-accessor.js';
 import type { Session } from '@cleocode/contracts';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface SessionHistoryEntry {
   id: string;

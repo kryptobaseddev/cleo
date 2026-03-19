@@ -6,9 +6,9 @@
  * @task T5240
  */
 
+import { getExitCodeName } from '@cleocode/contracts';
 import type { CleoError } from '@cleocode/core';
 import { getErrorDefinition } from '@cleocode/core';
-import { getExitCodeName } from '@cleocode/contracts';
 
 /**
  * Render a CleoError as structured markdown for CLI display.

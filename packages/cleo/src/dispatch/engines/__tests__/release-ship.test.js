@@ -6,10 +6,9 @@
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { resetDbState } from '@cleocode/core/internal';
-import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import { releaseShip } from '../release-engine.js';
 // Hoist mocks so they apply when the module is first imported
 vi.mock('../../../../../core/src/release/changelog-writer.js', () => ({

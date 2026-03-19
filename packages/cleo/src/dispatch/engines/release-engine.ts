@@ -22,6 +22,7 @@ import {
   commitRelease,
   createPullRequest,
   generateReleaseChangelog,
+  getAccessor,
   getGitFlowConfig,
   getPushMode,
   getVersionBumpConfig,
@@ -41,7 +42,6 @@ import {
   showManifestRelease,
   tagRelease,
 } from '@cleocode/core/internal';
-import { getAccessor } from '@cleocode/core/internal';
 
 import { type EngineResult, engineError } from './_error.js';
 

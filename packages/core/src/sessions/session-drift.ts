@@ -5,10 +5,10 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Session, Task, TaskWorkState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -21,10 +21,7 @@ export interface ContextDriftResult {
 /**
  * Collect all descendant task IDs for a given parent task.
  */
-function collectDescendantIds(
-  parentId: string,
-  tasks: Task[],
-): Set<string> {
+function collectDescendantIds(parentId: string, tasks: Task[]): Set<string> {
   const result = new Set<string>();
 
   for (const task of tasks) {

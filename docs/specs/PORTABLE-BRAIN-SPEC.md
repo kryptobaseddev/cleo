@@ -244,7 +244,6 @@ Documentation and implementation MUST use the same canonical terms for:
 - `README.md`
 - `docs/ROADMAP.md`
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
-- `docs/specs/CLEO-NEXUS-SPECIFICATION.md`
 - `docs/specs/MCP-SERVER-SPECIFICATION.md`
 - `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit, historical)
 - `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

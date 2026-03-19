@@ -4,10 +4,10 @@
  * @epic T4454
  */
 
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
-import type { Task, TaskStatus } from '@cleocode/contracts';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {

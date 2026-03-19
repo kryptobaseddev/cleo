@@ -4,8 +4,8 @@
  * @epic T4454
  */
 
-import { describe, expect, it } from 'vitest';
 import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { canCancel, cancelMultiple, cancelTask } from '../cancel-ops.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {

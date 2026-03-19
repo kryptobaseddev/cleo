@@ -18,6 +18,9 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "docs:check": "forge-ts check",
+    "docs:build": "forge-ts build",
+    "docs:dev": "forge-ts docs dev",
     "clean": "rm -rf packages/*/dist",
     "db:generate": "drizzle-kit generate --config drizzle/tasks.config.ts",
     "db:generate:brain": "drizzle-kit generate --config drizzle/brain.config.ts",
@@ -43,7 +46,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/caamp": "^1.7.1",
     "@cleocode/lafs-protocol": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.18.0",

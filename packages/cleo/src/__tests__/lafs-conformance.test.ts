@@ -15,22 +15,26 @@
  * @epic T4663
  */
 
+import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
 import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs-protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
-import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
+import {
+  getCleoErrorRegistry,
+  getRegistryEntry,
+  isCleoRegisteredCode,
+} from '../../../core/src/error-registry.js';
+import { CleoError } from '../../../core/src/errors.js';
+import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
+import { createPage, paginate } from '../../../core/src/pagination.js';
 import {
   createTestDb,
   makeTaskFile,
   type TestDbEnv,
 } from '../../../core/src/store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../core/src/store/data-accessor.js';
-import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
-import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode } from '../../../core/src/error-registry.js';
-import { CleoError } from '../../../core/src/errors.js';
-import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
-import { createPage, paginate } from '../../../core/src/pagination.js';
 import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
+import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
+import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 
 // ============================
 // FULL LAFS ENVELOPE VALIDATION
@@ -379,7 +383,11 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('addTask result produces valid full LAFS envelope (no operation)', async () => {
     const { addTask } = await import('../../../core/src/tasks/add.js');
-    const result = await addTask({ title: 'New task', description: 'LAFS conformance test task' }, env.tempDir, accessor);
+    const result = await addTask(
+      { title: 'New task', description: 'LAFS conformance test task' },
+      env.tempDir,
+      accessor,
+    );
     const json = formatSuccess({ task: result.task });
     expect(isValidLafsEnvelope(json).valid).toBe(true);
     const envelope = JSON.parse(json);
@@ -389,7 +397,11 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
     const { addTask } = await import('../../../core/src/tasks/add.js');
-    const result = await addTask({ title: 'Full LAFS task', description: 'LAFS envelope with explicit operation' }, env.tempDir, accessor);
+    const result = await addTask(
+      { title: 'Full LAFS task', description: 'LAFS envelope with explicit operation' },
+      env.tempDir,
+      accessor,
+    );
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
     const envelope = JSON.parse(json);
     const validation = validateEnvelope(envelope);

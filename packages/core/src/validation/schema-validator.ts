@@ -8,19 +8,23 @@
  * compatible `validateSchema()` calls with raw data.
  */
 
-import type { ErrorObject, ValidateFunction, Ajv as AjvInstance } from 'ajv';
+import type { Ajv as AjvInstance, ErrorObject, ValidateFunction } from 'ajv';
 import AjvModule from 'ajv';
 import addFormatsModule from 'ajv-formats';
 import { readFileSync } from 'fs';
-import { insertTaskSchema } from '../store/validation-schemas.js';
 import { resolveSchemaPath as resolveSchemaPathGlobal } from '../schema-management.js';
+import { insertTaskSchema } from '../store/validation-schemas.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
 // CJS bundlers may wrap default exports; detect and unwrap.
 const _ajvMod = AjvModule as Record<string, unknown>;
-const Ajv = (typeof _ajvMod['default'] === 'function' ? _ajvMod['default'] : AjvModule) as new (opts?: Record<string, unknown>) => AjvInstance;
+const Ajv = (typeof _ajvMod['default'] === 'function' ? _ajvMod['default'] : AjvModule) as new (
+  opts?: Record<string, unknown>,
+) => AjvInstance;
 const _fmtMod = addFormatsModule as Record<string, unknown>;
-const addFormats = (typeof _fmtMod['default'] === 'function' ? _fmtMod['default'] : addFormatsModule) as (ajv: AjvInstance) => AjvInstance;
+const addFormats = (
+  typeof _fmtMod['default'] === 'function' ? _fmtMod['default'] : addFormatsModule
+) as (ajv: AjvInstance) => AjvInstance;
 
 /**
  * Validation result

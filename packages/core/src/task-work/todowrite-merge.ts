@@ -16,14 +16,14 @@ import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
+import { getCleoDir } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { readJson } from '../store/json.js';
-import { getCleoDir } from '../paths.js';
-import { CleoError } from '../errors.js';
+import { addTask } from '../tasks/add.js';
 import { completeTask } from '../tasks/complete.js';
 import { updateTask } from '../tasks/update.js';
-import { addTask } from '../tasks/add.js';
 
 // ---------------------------------------------------------------------------
 // Types (preserved for backward compatibility)
@@ -223,11 +223,7 @@ export async function mergeTodoWriteState(
       if (task.status === 'done') continue;
 
       try {
-        await completeTask(
-          { taskId, notes: 'Completed via TodoWrite session sync' },
-          cwd,
-          acc,
-        );
+        await completeTask({ taskId, notes: 'Completed via TodoWrite session sync' }, cwd, acc);
         appliedCount++;
       } catch {
         // Task may have dependency issues — skip silently during merge

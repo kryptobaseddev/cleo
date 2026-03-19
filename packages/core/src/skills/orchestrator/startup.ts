@@ -403,10 +403,7 @@ export async function getNextTask(
  * Get all tasks ready to spawn in parallel (no inter-dependencies).
  * @task T4519
  */
-export async function getReadyTasks(
-  epicId: string,
-  cwd?: string,
-): Promise<TaskRefPriority[]> {
+export async function getReadyTasks(epicId: string, cwd?: string): Promise<TaskRefPriority[]> {
   const analysis = await analyzeDependencies(epicId, cwd);
   const readyIds = new Set(analysis.readyToSpawn.map((t) => t.id));
 

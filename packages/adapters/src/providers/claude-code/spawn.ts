@@ -15,6 +15,7 @@ import { exec, spawn as nodeSpawn } from 'node:child_process';
 import { unlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
+import { getErrorMessage } from '@cleocode/contracts';
 
 const execAsync = promisify(exec);
 
@@ -108,6 +109,9 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         startTime,
       };
     } catch (error) {
+      // Log spawn failure for debugging
+      console.error(`[ClaudeCodeSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
+
       if (tmpFile) {
         try {
           await unlink(tmpFile);
@@ -123,6 +127,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         status: 'failed',
         startTime,
         endTime: new Date().toISOString(),
+        error: getErrorMessage(error),
       };
     }
   }

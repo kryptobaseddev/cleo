@@ -4,18 +4,22 @@
  * @task T4458
  */
 
-import type { ValidateFunction, Ajv as AjvInstance } from 'ajv';
+import { ExitCode } from '@cleocode/contracts';
+import type { Ajv as AjvInstance, ValidateFunction } from 'ajv';
 import { default as AjvImport } from 'ajv';
 import { default as addFormatsImport } from 'ajv-formats';
-import { readJson } from './store/json.js';
-import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from './errors.js';
+import { readJson } from './store/json.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
 const ajvMod = AjvImport as Record<string, unknown>;
-const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (opts?: Record<string, unknown>) => AjvInstance;
+const Ajv = (typeof ajvMod.default === 'function' ? ajvMod.default : AjvImport) as new (
+  opts?: Record<string, unknown>,
+) => AjvInstance;
 const fmtMod = addFormatsImport as Record<string, unknown>;
-const addFormats = (typeof fmtMod.default === 'function' ? fmtMod.default : addFormatsImport) as (ajv: AjvInstance) => AjvInstance;
+const addFormats = (typeof fmtMod.default === 'function' ? fmtMod.default : addFormatsImport) as (
+  ajv: AjvInstance,
+) => AjvInstance;
 
 /** Singleton ajv instance. */
 let ajvInstance: AjvInstance | null = null;

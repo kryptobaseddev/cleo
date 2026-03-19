@@ -82,7 +82,9 @@ export interface TaskWorkStateExt {
  * Task file structure (subset for session operations).
  */
 export interface TaskFileExt {
-  focus?: TaskWorkStateExt | { currentTask?: string | null; currentPhase?: string | null; [key: string]: unknown };
+  focus?:
+    | TaskWorkStateExt
+    | { currentTask?: string | null; currentPhase?: string | null; [key: string]: unknown };
   _meta?: {
     schemaVersion: string;
     checksum?: string;
@@ -135,7 +137,9 @@ export interface AssumptionRecord {
  * Accepts any object with at least the basic TaskFileExt structure.
  * The runtime object is the same reference — this only changes the TS type.
  */
-export function toTaskFileExt<T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string }>(taskFile: T): TaskFileExt {
+export function toTaskFileExt<
+  T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string },
+>(taskFile: T): TaskFileExt {
   // The incoming object structurally satisfies TaskFileExt at runtime;
   // this conversion bridges the strict contracts type to the loose session type.
   return taskFile as TaskFileExt;

@@ -3,8 +3,8 @@
  * @task T4522
  */
 
-import { describe, expect, it } from 'vitest';
 import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { autoDispatch, getProtocolForDispatch, prepareSpawnContext } from '../dispatch.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {

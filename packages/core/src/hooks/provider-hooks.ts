@@ -38,5 +38,5 @@ export function getSharedHookEvents(providerIds?: string[]): CAAMPHookEvent[] {
   return getCommonHookEvents(providerIds);
 }
 
-export { getProvidersByHookEvent, getCommonHookEvents };
 export type { CAAMPHookEvent as ProviderHookEvent, HookEvent };
+export { getCommonHookEvents, getProvidersByHookEvent };

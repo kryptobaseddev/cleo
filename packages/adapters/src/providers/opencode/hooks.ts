@@ -28,7 +28,7 @@ const OPENCODE_EVENT_MAP: Record<string, string> = {
   'session.end': 'onSessionEnd',
   'tool.start': 'onToolStart',
   'tool.complete': 'onToolComplete',
-  'error': 'onError',
+  error: 'onError',
   'prompt.submit': 'onPromptSubmit',
 };
 

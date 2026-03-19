@@ -8,6 +8,7 @@
  */
 
 import type { SessionStatus } from './status-registry.js';
+
 export type { SessionStatus };
 
 /** Session scope JSON blob shape. */

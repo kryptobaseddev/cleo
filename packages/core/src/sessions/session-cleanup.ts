@@ -6,8 +6,8 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../store/data-accessor.js';
 import { getRawConfigValue } from '../config.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 /** Default auto-end threshold when no config is set (7 days). */
 const DEFAULT_AUTO_END_DAYS = 7;

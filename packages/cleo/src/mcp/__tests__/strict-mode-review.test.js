@@ -10,9 +10,9 @@
  * @task T4693
  * @epic T4663
  */
+import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, formatSuccess } from '@cleocode/core';
 import { describe, expect, it } from 'vitest';
-import { ExitCode } from '@cleocode/contracts';
 import { DEFAULT_CONFIG, DEFAULT_PROTOCOL_VALIDATION } from '../lib/defaults.js';
 import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { createVerificationGate } from '../lib/verification-gates.js';

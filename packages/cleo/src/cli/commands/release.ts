@@ -4,8 +4,8 @@
  * @epic T4454
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 
 export function registerReleaseCommand(program: Command): void {
   const release = program.command('release').description('Release lifecycle management');

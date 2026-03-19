@@ -6,8 +6,8 @@
  */
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
 import { TASK_STATUSES } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_RATE_LIMITS, RateLimiter, SecurityError, sanitizeContent, sanitizeParams, sanitizePath, sanitizeTaskId, VALID_DOMAINS, VALID_GATEWAYS, VALID_PRIORITIES, validateEnum, } from '../security.js';
 describe('Security Module', () => {
     describe('sanitizeTaskId', () => {

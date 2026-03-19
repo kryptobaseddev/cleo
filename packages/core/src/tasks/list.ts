@@ -4,10 +4,10 @@
  * @epic T4454
  */
 
-import type { LAFSPage } from '@cleocode/lafs-protocol';
-import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
+import type { LAFSPage } from '@cleocode/lafs-protocol';
 import { paginate } from '../pagination.js';
+import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
@@ -83,7 +83,7 @@ export async function listTasks(
   if (options.label) queryFilters.label = options.label;
 
   const queryResult = await dataAccessor.queryTasks(queryFilters);
-  let filtered = queryResult.tasks;
+  const filtered = queryResult.tasks;
   const filteredCount = queryResult.total;
 
   // Get total count of all tasks (unfiltered) for the response

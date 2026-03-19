@@ -4,6 +4,7 @@
  * @task T4884
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import {
   addRemote,
   CleoError,
@@ -15,7 +16,6 @@ import {
   removeRemote,
 } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { ExitCode } from '@cleocode/contracts';
 import { cliOutput } from '../renderers/index.js';
 
 /**

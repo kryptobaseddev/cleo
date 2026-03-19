@@ -3,10 +3,10 @@
  * @task T4784
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 import { computeWaves } from './waves.js';
 
 interface ParallelState {

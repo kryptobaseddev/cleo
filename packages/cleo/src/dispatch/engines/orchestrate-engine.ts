@@ -9,6 +9,7 @@
  */
 
 import type { Provider } from '@cleocode/caamp';
+import type { BrainState, CLEOSpawnAdapter, CLEOSpawnContext, Task } from '@cleocode/contracts';
 // Core module imports
 import {
   orchestrationAnalyzeDependencies as analyzeDependencies,
@@ -20,6 +21,7 @@ import {
   computeStartupSummary,
   endParallelExecution,
   estimateContext,
+  getAccessor,
   orchestrationGetCriticalPath as getCriticalPath,
   getEnrichedWaves,
   orchestrationGetNextTask as getNextTask,
@@ -32,10 +34,6 @@ import {
   startParallelExecution,
   validateSpawnReadiness,
 } from '@cleocode/core/internal';
-import { getAccessor } from '@cleocode/core/internal';
-import type { BrainState } from '@cleocode/contracts';
-import type { CLEOSpawnAdapter, CLEOSpawnContext } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineError } from './_error.js';
 import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
 
@@ -149,10 +147,7 @@ export async function orchestrateAnalyze(
     // Add dependency graph and circular dep detection via core analyze module
     const tasks = await loadTasks(root);
     const children = tasks.filter((t) => t.parentId === epicId);
-    const depAnalysis = analyzeDependencies(
-      children,
-      tasks,
-    );
+    const depAnalysis = analyzeDependencies(children, tasks);
 
     return {
       success: true,
@@ -342,9 +337,7 @@ export async function orchestrateSpawnSelectProvider(
   }
 
   try {
-    const { initializeDefaultAdapters, spawnRegistry } = await import(
-      '@cleocode/core/internal'
-    );
+    const { initializeDefaultAdapters, spawnRegistry } = await import('@cleocode/core/internal');
     const { getAllProviders, getProvidersBySpawnCapability, providerSupportsById } = await import(
       '@cleocode/caamp'
     );
@@ -443,9 +436,7 @@ export async function orchestrateSpawnExecute(
 
   try {
     // Get spawn registry
-    const { initializeDefaultAdapters, spawnRegistry } = await import(
-      '@cleocode/core/internal'
-    );
+    const { initializeDefaultAdapters, spawnRegistry } = await import('@cleocode/core/internal');
     await initializeDefaultAdapters();
 
     // Find adapter
@@ -633,12 +624,7 @@ export async function orchestrateStartup(
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
-    const summary = computeStartupSummary(
-      epicId,
-      epic.title,
-      children,
-      ready.length,
-    );
+    const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
     return { success: true, data: summary };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';

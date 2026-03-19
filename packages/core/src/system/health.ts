@@ -9,7 +9,6 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { getAccessor } from '../store/data-accessor.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkInjection } from '../injection.js';
 import { getAgentsHome, isProjectInitialized } from '../paths.js';
@@ -29,6 +28,7 @@ import {
   ensureGlobalScaffold,
 } from '../scaffold.js';
 import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../schema-management.js';
+import { getAccessor } from '../store/data-accessor.js';
 import {
   type CheckResult,
   checkCleoGitignore,
@@ -587,7 +587,7 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     try {
       const accessor = await getAccessor(projectRoot);
       const taskCount = await accessor.countTasks();
-      const schemaVersion = await accessor.getMetaValue<string>('schemaVersion') ?? 'unknown';
+      const schemaVersion = (await accessor.getMetaValue<string>('schemaVersion')) ?? 'unknown';
       checks.push({
         check: 'tasks_db_data',
         status: 'ok',
@@ -752,9 +752,7 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
       message: existsSync(gitHubTemplatesDir)
         ? '.github/ISSUE_TEMPLATE/ present'
         : '.github/ISSUE_TEMPLATE/ not found — run: cleo init or cleo upgrade',
-      ...(existsSync(gitHubTemplatesDir)
-        ? {}
-        : { fix: 'cleo init' }),
+      ...(existsSync(gitHubTemplatesDir) ? {} : { fix: 'cleo init' }),
     });
   }
 

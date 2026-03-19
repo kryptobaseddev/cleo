@@ -4,11 +4,11 @@
  * @epic T4454
  */
 
+import type { Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 
 /** Minimal audit row for stats queries. */
 interface AuditRow {

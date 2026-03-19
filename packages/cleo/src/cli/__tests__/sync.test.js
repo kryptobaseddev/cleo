@@ -3,8 +3,8 @@
  * @task T4551
  * @epic T4545
  */
-import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it, vi } from 'vitest';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { registerSyncCommand } from '../commands/sync.js';
 vi.mock('../../../../core/src/store/json.js', () => ({
     readJson: vi.fn().mockResolvedValue(null),

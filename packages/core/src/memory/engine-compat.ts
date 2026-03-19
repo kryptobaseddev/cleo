@@ -13,16 +13,12 @@
  * @epic T5149
  */
 
+import type { BrainEntrySummary, ContradictionDetail, SupersededEntry } from '@cleocode/contracts';
+import type { EngineResult } from '../engine-result.js';
+import { getProjectRoot } from '../paths.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { EngineResult } from '../engine-result.js';
-import { getProjectRoot } from '../paths.js';
-import type {
-  BrainEntrySummary,
-  ContradictionDetail,
-  SupersededEntry,
-} from '@cleocode/contracts';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
 import {
@@ -779,10 +775,7 @@ export async function memorySuperseded(
     const superseded: SupersededEntry[] = [];
 
     // Helper to normalize and group by key
-    const addSuperseded = (
-      entries: BrainEntrySummary[],
-      groupKey: string,
-    ) => {
+    const addSuperseded = (entries: BrainEntrySummary[], groupKey: string) => {
       if (entries.length < 2) return;
 
       // Sort by creation date (oldest first)

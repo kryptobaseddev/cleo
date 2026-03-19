@@ -135,10 +135,7 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
       // Strip any legacy CLEO blocks first
       if (existsSync(globalAgentsMd)) {
         const content = await readFile(globalAgentsMd, 'utf8');
-        const stripped = content.replace(
-          /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g,
-          '',
-        );
+        const stripped = content.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
         if (stripped !== content) {
           await writeFile(globalAgentsMd, stripped, 'utf8');
         }

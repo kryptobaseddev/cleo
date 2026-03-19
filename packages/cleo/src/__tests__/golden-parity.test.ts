@@ -9,12 +9,12 @@
  * @epic T4663
  */
 
-import { describe, expect, it } from 'vitest';
-import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 import { ExitCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { CleoError } from '../../../core/src/errors.js';
 import { formatError, formatSuccess } from '../../../core/src/output.js';
 import { createPage } from '../../../core/src/pagination.js';
+import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 
 /**
  * Canonical LAFS success envelope shape.

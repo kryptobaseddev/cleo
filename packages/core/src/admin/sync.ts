@@ -9,8 +9,8 @@
 
 import { rm, rmdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readJson } from '../store/json.js';
 import { getCleoDir } from '../paths.js';
+import { readJson } from '../store/json.js';
 
 /** Sync session state stored in .cleo/sync/todowrite-session.json. */
 interface SyncSessionState {

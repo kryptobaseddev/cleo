@@ -8,9 +8,9 @@
  */
 
 import { writeFile } from 'node:fs/promises';
+import type { Task } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 import { buildExportPackage } from '../store/export.js';
-import type { Task } from '@cleocode/contracts';
 
 interface FilterEntry {
   key: string;
@@ -175,7 +175,10 @@ export async function exportTasksPackage(params: ExportTasksParams): Promise<Exp
   }
 
   const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
-  const taskData = { tasks: allTasks, project: projectMeta } as import('@cleocode/contracts').TaskFile;
+  const taskData = {
+    tasks: allTasks,
+    project: projectMeta,
+  } as import('@cleocode/contracts').TaskFile;
   const pkg = buildExportPackage(selectedTasks, taskData, {
     mode: exportMode,
     rootTaskIds: parsedIds.length > 0 ? parsedIds : selectedTasks.map((t) => t.id),

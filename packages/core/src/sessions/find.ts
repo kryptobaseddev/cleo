@@ -8,8 +8,8 @@
  * @task T5119
  */
 
-import type { DataAccessor } from '../store/data-accessor.js';
 import type { Session, SessionScope } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 /** Minimal session record returned by findSessions(). */
 export interface MinimalSessionRecord {

@@ -11,9 +11,9 @@
  * @epic T4454
  */
 
+import type { Task, TaskFile } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import type { Task, TaskFile } from '@cleocode/contracts';
 
 // CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 

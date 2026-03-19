@@ -8,6 +8,9 @@
  * @epic T4654
  */
 
+import type { Session, TaskWorkState } from '@cleocode/contracts';
+import { getExitCodeName } from '@cleocode/contracts';
+// ... existing imports ...
 import {
   archiveSessions,
   CleoError,
@@ -22,6 +25,7 @@ import {
   type FindSessionsParams,
   findSessions,
   generateSessionId,
+  getAccessor,
   getContextDrift,
   getDecisionLog,
   getLastHandoff,
@@ -44,19 +48,11 @@ import {
   switchSession,
   type TaskWorkHistoryEntry,
 } from '@cleocode/core/internal';
-// ... existing imports ...
-import { getAccessor } from '@cleocode/core/internal';
-import { getExitCodeName } from '@cleocode/contracts';
-import type { Session } from '@cleocode/contracts';
-import type { TaskWorkState } from '@cleocode/contracts';
 import { type EngineResult, engineError } from './_error.js';
 
 // Re-export types for consumers
-export type { Session as SessionRecord };
-export type { DecisionRecord };
-
 // Re-export EngineResult for consumers
-export type { EngineResult };
+export type { DecisionRecord, EngineResult, Session as SessionRecord };
 
 /**
  * Get current session status.
@@ -380,7 +376,7 @@ export async function sessionStart(
     };
 
     // Update focus state via metadata
-    const existingFocus = await accessor.getMetaValue<TaskWorkState>('focus_state') ?? {
+    const existingFocus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? {
       currentTask: null,
       currentPhase: null,
       blockedUntil: null,
@@ -400,32 +396,28 @@ export async function sessionStart(
     await accessor.setMetaValue('focus_state', existingFocus);
 
     // Update file meta (activeSession no longer stored — session.status is source of truth)
-    const currentMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
+    const currentMeta = (await accessor.getMetaValue<Record<string, unknown>>('file_meta')) ?? {};
     currentMeta.lastSessionId = sessionId;
     currentMeta.generation = ((currentMeta.generation as number) || 0) + 1;
     await accessor.setMetaValue('file_meta', currentMeta);
+    // T4959: Set chain fields on new session
+    if (previousSessionId) {
+      newSession.previousSessionId = previousSessionId;
 
-    // Write to sessions store so resume/suspend can find the session.
-    {
-      // T4959: Set chain fields on new session
-      if (previousSessionId) {
-        newSession.previousSessionId = previousSessionId;
-
-        // Update predecessor's nextSessionId
-        const sessions = await accessor.loadSessions();
-        const pred = sessions.find((s: Session) => s.id === previousSessionId);
-        if (pred) {
-          pred.nextSessionId = sessionId;
-          await accessor.upsertSingleSession(pred);
-        }
+      // Update predecessor's nextSessionId
+      const sessions = await accessor.loadSessions();
+      const pred = sessions.find((s: Session) => s.id === previousSessionId);
+      if (pred) {
+        pred.nextSessionId = sessionId;
+        await accessor.upsertSingleSession(pred);
       }
-
-      if (agentIdentifier) {
-        newSession.agentIdentifier = agentIdentifier;
-      }
-
-      await accessor.upsertSingleSession(newSession);
     }
+
+    if (agentIdentifier) {
+      newSession.agentIdentifier = agentIdentifier;
+    }
+
+    await accessor.upsertSingleSession(newSession);
 
     // Enable grade mode: set env vars so audit middleware logs queries too
     if (params.grade) {
@@ -575,7 +567,7 @@ export async function sessionResume(
     session.resumeCount = (session.resumeCount || 0) + 1;
 
     // Bump file_meta generation (activeSession no longer stored — status is source of truth)
-    const resumeMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
+    const resumeMeta = (await accessor.getMetaValue<Record<string, unknown>>('file_meta')) ?? {};
     resumeMeta.generation = ((resumeMeta.generation as number) || 0) + 1;
     await accessor.setMetaValue('file_meta', resumeMeta);
 
@@ -591,9 +583,7 @@ export async function sessionResume(
     await accessor.upsertSingleSession(session);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
-    let memoryContext:
-      | import('@cleocode/core/internal').SessionMemoryContext
-      | undefined;
+    let memoryContext: import('@cleocode/core/internal').SessionMemoryContext | undefined;
     try {
       const { getSessionMemoryContext } = await import('@cleocode/core/internal');
       const scopeType = session.scope?.type;

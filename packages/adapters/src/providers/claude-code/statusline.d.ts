@@ -20,5 +20,4 @@ export declare function getStatuslineConfig(cleoHome: string): Record<string, un
  * Get human-readable setup instructions.
  */
 export declare function getSetupInstructions(cleoHome: string): string;
-export {};
 //# sourceMappingURL=statusline.d.ts.map

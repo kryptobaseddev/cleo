@@ -1,528 +1,369 @@
 /**
- * CLEO V2 CLI entry point — citty-based (ESM-native).
+ * CLEO CLI - Clean citty-based command interface
  *
- * Replaces the Commander.js entry point with citty for clean ESM bundling.
- * Individual command files still use the Commander shim API (ShimCommand)
- * which is translated into citty subcommands at startup.
+ * Thin wrapper around the dispatch layer. Each command maps CLI arguments
+ * to a dispatch call (domain, operation, params).
  *
- * @epic T4454
- * @task T4455
+ * @example
+ * cleo add "Task title" --priority high
+ * → dispatch('mutate', 'tasks', 'add', { title: "Task title", priority: "high" })
  */
 
-import { defineCommand, runMain } from 'citty';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { type CommandDef, defineCommand, runMain } from 'citty';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../dispatch/adapters/cli.js';
+import { cliOutput } from './renderers/index.js';
 
-import {
-  checkStorageMigration,
-  getNodeUpgradeInstructions,
-  getNodeVersionInfo,
-  loadConfig as loadCoreConfig,
-  MINIMUM_NODE_MAJOR,
-} from '@cleocode/core/internal';
+const CLI_VERSION = '2026.3.38';
 
-import { ShimCommand } from './commander-shim.js';
-import { resolveFieldContext, setFieldContext } from './field-context.js';
-import { setFormatContext } from './format-context.js';
-import { initCliLogger } from './logger-bootstrap.js';
-import { resolveFormat } from './middleware/output-format.js';
+// ============================================================================
+// Type Definitions
+// ============================================================================
 
-// ---------------------------------------------------------------------------
-// Node.js version gate
-// ---------------------------------------------------------------------------
-
-const nodeInfo = getNodeVersionInfo();
-if (!nodeInfo.meetsMinimum) {
-  const upgrade = getNodeUpgradeInstructions();
-  process.stderr.write(
-    `\nError: CLEO requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n` +
-      `\nUpgrade options:\n` +
-      upgrade.instructions.map((i: string) => `  - ${i}`).join('\n') +
-      `\n\n`,
-  );
-  process.exit(1);
+/** CLI argument definition - strict typing, no 'any' */
+interface StringArg {
+  type: 'positional';
+  description: string;
+  required?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Version from package.json
-// ---------------------------------------------------------------------------
-
-function getPackageVersion(): string {
-  try {
-    const moduleRoot = join(import.meta.dirname ?? '', '..', '..');
-    const pkg = JSON.parse(readFileSync(join(moduleRoot, 'package.json'), 'utf-8'));
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+interface StringOption {
+  type: 'string';
+  description: string;
+  alias?: string;
+  default?: string;
 }
 
-const CLI_VERSION = getPackageVersion();
-
-// ---------------------------------------------------------------------------
-// Pre-action hooks (logger, format, field context, migration check)
-// ---------------------------------------------------------------------------
-
-let loggerInitialized = false;
-
-async function runPreActionHooks(commandName: string): Promise<void> {
-  // 1. Logger init (once)
-  if (!loggerInitialized) {
-    loggerInitialized = true;
-    try {
-      const config = await loadCoreConfig();
-      initCliLogger(process.cwd(), config.logging);
-
-      const { pruneAuditLog } = await import('@cleocode/core/internal');
-      pruneAuditLog(join(process.cwd(), '.cleo'), config.logging).catch(() => {
-        /* non-blocking */
-      });
-    } catch {
-      // Logger init is best-effort
-    }
-  }
-
-  // 2. Output format resolution from global flags
-  // Global flags are parsed from process.argv directly since citty
-  // doesn't propagate parent args to subcommands automatically.
-  const globalOpts = parseGlobalFlags(process.argv.slice(2));
-  try {
-    const resolution = resolveFormat(globalOpts);
-    setFormatContext(resolution);
-  } catch {
-    // Fallback: leave default (json) format
-  }
-
-  // 3. Field extraction context
-  try {
-    setFieldContext(resolveFieldContext(globalOpts));
-  } catch (err) {
-    const e = err as { message?: string };
-    process.stderr.write(`Error: ${e.message ?? String(err)}\n`);
-    process.exit(2);
-  }
-
-  // 4. Pre-flight migration check
-  const SKIP_PREFLIGHT = new Set(['version', 'init', 'self-update', 'upgrade', 'help']);
-  if (!SKIP_PREFLIGHT.has(commandName)) {
-    try {
-      const result = checkStorageMigration();
-      if (result.migrationNeeded) {
-        process.stderr.write(
-          `\n⚠ Storage migration needed: ${result.summary}\n` + `  Fix: ${result.fix}\n\n`,
-        );
-      }
-    } catch {
-      // Never block CLI operation due to preflight failure
-    }
-  }
+interface BooleanOption {
+  type: 'boolean';
+  description: string;
+  alias?: string;
+  default?: boolean;
 }
+
+interface EnumOption {
+  type: 'enum';
+  description: string;
+  options: readonly string[];
+  alias?: string;
+  default?: string;
+}
+
+type ArgDef = StringArg | StringOption | BooleanOption | EnumOption;
+
+/** Command handler function */
+type CommandHandler<TArgs extends Record<string, ArgDef>> = (
+  args: {
+    [K in keyof TArgs]: TArgs[K] extends { type: 'positional'; required: true }
+      ? string
+      : TArgs[K] extends { type: 'positional' }
+        ? string | undefined
+        : TArgs[K] extends { type: 'string'; required: true }
+          ? string
+          : TArgs[K] extends { type: 'string' }
+            ? string | undefined
+            : TArgs[K] extends { type: 'boolean'; required: true }
+              ? boolean
+              : TArgs[K] extends { type: 'boolean' }
+                ? boolean | undefined
+                : TArgs[K] extends { type: 'enum'; required: true }
+                  ? TArgs[K]['options'][number]
+                  : TArgs[K] extends { type: 'enum' }
+                    ? TArgs[K]['options'][number] | undefined
+                    : never;
+  },
+) => Promise<void> | void;
+
+// ============================================================================
+// Command Registry
+// ============================================================================
+
+const commands: Record<string, CommandDef> = {};
 
 /**
- * Parse global flags from raw argv (before citty consumes them).
- * Extracts --json, --human, --quiet, --field, --fields, --mvi.
+ * Helper to define a command with full type safety
  */
-function parseGlobalFlags(argv: string[]): Record<string, unknown> {
-  const opts: Record<string, unknown> = {};
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--json') opts['json'] = true;
-    else if (arg === '--human') opts['human'] = true;
-    else if (arg === '--quiet') opts['quiet'] = true;
-    else if (arg === '--field' && i + 1 < argv.length) opts['field'] = argv[++i];
-    else if (arg === '--fields' && i + 1 < argv.length) opts['fields'] = argv[++i];
-    else if (arg === '--mvi' && i + 1 < argv.length) opts['mvi'] = argv[++i];
-  }
-  return opts;
-}
-
-// ---------------------------------------------------------------------------
-// Domain grouping for help display
-// ---------------------------------------------------------------------------
-
-export const DOMAIN_GROUPS: Record<string, string[]> = {
-  Tasks: [
-    'add', 'list', 'show', 'find', 'complete', 'update', 'delete', 'archive',
-    'start', 'stop', 'current', 'next', 'archive-stats', 'restore', 'reorder',
-    'reparent', 'relates', 'tree', 'deps', 'labels', 'tags', 'blockers',
-    'exists', 'stats', 'history',
-  ],
-  Session: ['session', 'briefing', 'phase', 'checkpoint', 'safestop'],
-  Memory: [
-    'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync',
-    'sticky', 'note', 'refresh-memory',
-  ],
-  Check: ['validate', 'verify', 'compliance', 'doctor', 'analyze'],
-  Pipeline: [
-    'release', 'lifecycle', 'promote', 'upgrade', 'specification',
-    'detect-drift', 'roadmap', 'plan', 'log', 'issue', 'bug',
-    'generate-changelog', 'phases',
-  ],
-  Orchestration: [
-    'orchestrate', 'ops', 'consensus', 'contribution', 'decomposition',
-    'implementation', 'sequence', 'dash',
-  ],
-  Research: ['research', 'extract', 'web', 'docs'],
-  Nexus: ['nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'],
-  Admin: [
-    'config', 'backup', 'export-tasks', 'import-tasks', 'env', 'mcp-install',
-    'testing', 'skills', 'self-update', 'install-global', 'grade',
-    'migrate-claude-mem', 'migrate', 'otel', 'token', 'adr', 'map', 'commands',
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// Shim-to-citty bridge: convert ShimCommand trees into citty subcommands
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a ShimCommand (with possible sub-subcommands) into a citty
- * defineCommand() result.
- */
-function shimToCitty(shim: ShimCommand): ReturnType<typeof defineCommand> {
-  // Build citty args from shim options + positional args
-  const cittyArgs: Record<string, {
-    type: 'positional' | 'string' | 'boolean';
-    description?: string;
-    required?: boolean;
-    alias?: string[];
-    default?: unknown;
-  }> = {};
-
-  // Positional arguments
-  for (const arg of shim._args) {
-    cittyArgs[arg.name] = {
-      type: 'positional',
-      description: arg.name,
-      required: arg.required,
-    };
-  }
-
-  // Named options
-  for (const opt of shim._options) {
-    cittyArgs[opt.longName] = {
-      type: opt.takesValue ? 'string' : 'boolean',
-      description: opt.description,
-      required: opt.required,
-      ...(opt.shortName ? { alias: [opt.shortName] } : {}),
-      ...(opt.defaultValue !== undefined ? { default: opt.defaultValue } : {}),
-    };
-  }
-
-  // Sub-subcommands (e.g. session start, session stop, compliance summary)
-  const subCommands: Record<string, ReturnType<typeof defineCommand>> = {};
-  let defaultSub: ShimCommand | undefined;
-  for (const sub of shim._subcommands) {
-    subCommands[sub._name] = shimToCitty(sub);
-    if (sub._isDefault) defaultSub = sub;
-    // Register aliases as additional entries pointing to the same command
-    for (const alias of sub._aliases) {
-      subCommands[alias] = shimToCitty(sub);
-    }
-  }
-
-  return defineCommand({
-    meta: {
-      name: shim._name,
-      description: shim._description,
-    },
-    args: cittyArgs as any,
-    ...(Object.keys(subCommands).length > 0 ? { subCommands } : {}),
+function cmd<const TArgs extends Record<string, ArgDef>>(
+  name: string,
+  description: string,
+  args: TArgs,
+  handler: CommandHandler<TArgs>,
+): void {
+  commands[name] = defineCommand({
+    meta: { name, description },
+    args: args as Record<string, import('citty').ArgDef>,
     async run({ args }) {
-      // Run pre-action hooks
-      await runPreActionHooks(shim._name);
-
-      // citty always runs the parent's run() even when a subcommand was matched.
-      // Detect if a subcommand was selected by checking process.argv for subcommand names.
-      if (Object.keys(subCommands).length > 0) {
-        const subNames = new Set(Object.keys(subCommands));
-        const argv = process.argv.slice(2);
-        // Find the position of this command in argv, then check if next arg is a subcommand
-        const cmdIdx = argv.indexOf(shim._name);
-        const nextArg = cmdIdx >= 0 ? argv[cmdIdx + 1] : undefined;
-        if (nextArg && subNames.has(nextArg)) {
-          // A subcommand was matched — citty already ran it, skip parent run
-          return;
-        }
-        // No subcommand matched — if there's a default, run it
-        if (!shim._action && defaultSub?._action) {
-          await defaultSub._action({}, defaultSub);
-          return;
-        }
-      }
-
-      if (shim._action) {
-        // Reconstruct the Commander-style call signature:
-        // Commander calls action(positionalArg1, positionalArg2, ..., optsObject)
-        const positionalValues: unknown[] = [];
-        for (const arg of shim._args) {
-          positionalValues.push(args[arg.name]);
-        }
-
-        // Build opts object from named options (non-positional args)
-        const opts: Record<string, unknown> = {};
-        for (const opt of shim._options) {
-          const val = args[opt.longName];
-          if (val !== undefined && val !== false) {
-            // Apply custom parse function if provided
-            if (opt.parseFn && typeof val === 'string') {
-              opts[opt.longName] = opt.parseFn(val);
-            } else {
-              opts[opt.longName] = val;
-            }
-          }
-        }
-
-        // Commander calls: action(pos1, pos2, ..., opts, command)
-        // With 0 positional args: action(opts, command)
-        // With 1 positional arg: action(pos1, opts, command)
-        // The command instance is passed last for opts()/optsWithGlobals() compat.
-        await shim._action(...positionalValues, opts, shim);
-      }
+      await handler(args as Parameters<typeof handler>[0]);
     },
   });
 }
 
-// ---------------------------------------------------------------------------
-// Collect all command registrations via the shim
-// ---------------------------------------------------------------------------
+// ============================================================================
+// Task Commands
+// ============================================================================
 
-const rootShim = new ShimCommand();
+cmd(
+  'add',
+  'Create a new task',
+  {
+    title: { type: 'positional', description: 'Task title', required: true },
+    status: { type: 'string', description: 'Task status', alias: 's' },
+    priority: {
+      type: 'enum',
+      description: 'Priority level',
+      options: ['low', 'medium', 'high', 'critical'] as const,
+      alias: 'p',
+    },
+    type: {
+      type: 'enum',
+      description: 'Task type',
+      options: ['epic', 'task', 'subtask'] as const,
+      alias: 't',
+    },
+    parent: { type: 'string', description: 'Parent task ID' },
+    size: {
+      type: 'enum',
+      description: 'Scope size',
+      options: ['small', 'medium', 'large'] as const,
+    },
+    phase: { type: 'string', description: 'Phase slug', alias: 'P' },
+    description: { type: 'string', description: 'Task description', alias: 'd' },
+    labels: { type: 'string', description: 'Comma-separated labels', alias: 'l' },
+    depends: { type: 'string', description: 'Comma-separated dependency IDs', alias: 'D' },
+    dryRun: { type: 'boolean', description: 'Show what would be created without making changes' },
+  },
+  async (args) => {
+    const params: Record<string, unknown> = {
+      title: args.title,
+      description: args.description ?? args.title,
+    };
 
-// Import all register functions. Each one calls rootShim.command() to register.
-// The imports are static so they're tree-shakeable by esbuild.
-import { registerAddCommand } from './commands/add.js';
-import { registerAdrCommand } from './commands/adr.js';
-import { registerAnalyzeCommand } from './commands/analyze.js';
-import { registerArchiveCommand } from './commands/archive.js';
-import { registerArchiveStatsCommand } from './commands/archive-stats.js';
-import { registerBackupCommand } from './commands/backup.js';
-import { registerBlockersCommand } from './commands/blockers.js';
-import { registerBriefingCommand } from './commands/briefing.js';
-import { registerBugCommand } from './commands/bug.js';
-import { registerCheckpointCommand } from './commands/checkpoint.js';
-import { registerCommandsCommand } from './commands/commands.js';
-import { registerCompleteCommand } from './commands/complete.js';
-import { registerComplianceCommand } from './commands/compliance.js';
-import { registerConfigCommand } from './commands/config.js';
-import { registerConsensusCommand } from './commands/consensus.js';
-import { registerContextCommand } from './commands/context.js';
-import { registerContributionCommand } from './commands/contribution.js';
-import { registerCurrentCommand } from './commands/current.js';
-import { registerDashCommand } from './commands/dash.js';
-import { registerDecompositionCommand } from './commands/decomposition.js';
-import { registerDeleteCommand } from './commands/delete.js';
-import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
-import { registerDetectDriftCommand } from './commands/detect-drift.js';
-import { registerDocsCommand } from './commands/docs.js';
-import { registerDoctorCommand } from './commands/doctor.js';
-import { registerEnvCommand } from './commands/env.js';
-import { registerExistsCommand } from './commands/exists.js';
-import { registerExportCommand } from './commands/export.js';
-import { registerExportTasksCommand } from './commands/export-tasks.js';
-import { registerExtractCommand } from './commands/extract.js';
-import { registerFindCommand } from './commands/find.js';
-import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
-import { registerGradeCommand } from './commands/grade.js';
-import { registerHistoryCommand } from './commands/history.js';
-import { registerImplementationCommand } from './commands/implementation.js';
-import { registerImportCommand } from './commands/import.js';
-import { registerImportTasksCommand } from './commands/import-tasks.js';
-import { registerInitCommand } from './commands/init.js';
-import { registerInjectCommand } from './commands/inject.js';
-import { registerInstallGlobalCommand } from './commands/install-global.js';
-import { registerIssueCommand } from './commands/issue.js';
-import { registerLabelsCommand } from './commands/labels.js';
-import { registerLifecycleCommand } from './commands/lifecycle.js';
-import { registerListCommand } from './commands/list.js';
-import { registerLogCommand } from './commands/log.js';
-import { registerMapCommand } from './commands/map.js';
-import { registerMcpInstallCommand } from './commands/mcp-install.js';
-import { registerMemoryBrainCommand } from './commands/memory-brain.js';
-import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
-import { registerNextCommand } from './commands/next.js';
-import { registerNexusCommand } from './commands/nexus.js';
-import { registerObserveCommand } from './commands/observe.js';
-import { registerOpsCommand } from './commands/ops.js';
-import { registerOrchestrateCommand } from './commands/orchestrate.js';
-import { registerOtelCommand } from './commands/otel.js';
-import { registerPhaseCommand } from './commands/phase.js';
-import { registerPhasesCommand } from './commands/phases.js';
-import { registerPlanCommand } from './commands/plan.js';
-import { registerPromoteCommand } from './commands/promote.js';
-import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
-import { registerRelatesCommand } from './commands/relates.js';
-import { registerReleaseCommand } from './commands/release.js';
-import { registerRemoteCommand } from './commands/remote.js';
-import { registerReorderCommand } from './commands/reorder.js';
-import { registerReparentCommand } from './commands/reparent.js';
-import { registerResearchCommand } from './commands/research.js';
-import { registerRestoreCommand } from './commands/restore.js';
-import { registerRoadmapCommand } from './commands/roadmap.js';
-import { registerSafestopCommand } from './commands/safestop.js';
-import { registerSelfUpdateCommand } from './commands/self-update.js';
-import { registerSequenceCommand } from './commands/sequence.js';
-import { registerSessionCommand } from './commands/session.js';
-import { registerShowCommand } from './commands/show.js';
-import { registerSkillsCommand } from './commands/skills.js';
-import { registerSnapshotCommand } from './commands/snapshot.js';
-import { registerSpecificationCommand } from './commands/specification.js';
-import { registerStartCommand } from './commands/start.js';
-import { registerStatsCommand } from './commands/stats.js';
-import { registerStickyCommand } from './commands/sticky.js';
-import { registerStopCommand } from './commands/stop.js';
-import { registerSyncCommand } from './commands/sync.js';
-import { registerTestingCommand } from './commands/testing.js';
-import { registerTokenCommand } from './commands/token.js';
-import { registerUpdateCommand } from './commands/update.js';
-import { registerUpgradeCommand } from './commands/upgrade.js';
-import { registerValidateCommand } from './commands/validate.js';
-import { registerVerifyCommand } from './commands/verify.js';
-import { registerWebCommand } from './commands/web.js';
+    if (args.status) params.status = args.status;
+    if (args.priority) params.priority = args.priority;
+    if (args.type) params.type = args.type;
+    if (args.parent) params.parent = args.parent;
+    if (args.size) params.size = args.size;
+    if (args.phase) params.phase = args.phase;
+    if (args.labels) params.labels = args.labels.split(',').map((s: string) => s.trim());
+    if (args.depends) params.depends = args.depends.split(',').map((s: string) => s.trim());
+    if (args.dryRun) params.dryRun = true;
 
-// Register all commands against the shim. Each function calls rootShim.command()
-// which captures the definition without any real Commander.js dependency.
-// The ShimCommand is type-compatible with Commander's Command interface for
-// the subset of API that command files actually use.
-registerAddCommand(rootShim);
-registerListCommand(rootShim);
-registerShowCommand(rootShim);
-registerFindCommand(rootShim);
-registerCompleteCommand(rootShim);
-registerUpdateCommand(rootShim);
-registerDeleteCommand(rootShim);
-registerArchiveCommand(rootShim);
-registerStartCommand(rootShim);
-registerStopCommand(rootShim);
-registerCurrentCommand(rootShim);
-registerBriefingCommand(rootShim);
-registerSessionCommand(rootShim);
-registerPhaseCommand(rootShim);
-registerDepsCommand(rootShim);
-registerTreeCommand(rootShim);
-registerResearchCommand(rootShim);
-registerOrchestrateCommand(rootShim);
-registerLifecycleCommand(rootShim);
-registerReleaseCommand(rootShim);
-registerEnvCommand(rootShim);
-registerMcpInstallCommand(rootShim);
-registerCheckpointCommand(rootShim);
-registerCommandsCommand(rootShim);
-registerDocsCommand(rootShim);
-registerExportTasksCommand(rootShim);
-registerExtractCommand(rootShim);
-registerImportTasksCommand(rootShim);
-registerSafestopCommand(rootShim);
-registerSyncCommand(rootShim);
-registerTestingCommand(rootShim);
-registerWebCommand(rootShim);
-registerNexusCommand(rootShim);
-registerArchiveStatsCommand(rootShim);
-registerGenerateChangelogCommand(rootShim);
-registerIssueCommand(rootShim);
-registerSkillsCommand(rootShim);
-registerExistsCommand(rootShim);
-registerBugCommand(rootShim);
-registerAnalyzeCommand(rootShim);
-registerMapCommand(rootShim);
-registerBackupCommand(rootShim);
-registerBlockersCommand(rootShim);
-registerComplianceCommand(rootShim);
-registerConfigCommand(rootShim);
-registerConsensusCommand(rootShim);
-registerContextCommand(rootShim);
-registerContributionCommand(rootShim);
-registerDashCommand(rootShim);
-registerDecompositionCommand(rootShim);
-registerDoctorCommand(rootShim);
-registerExportCommand(rootShim);
-registerHistoryCommand(rootShim);
-registerImplementationCommand(rootShim);
-registerImportCommand(rootShim);
-registerInitCommand(rootShim);
-registerInjectCommand(rootShim);
-registerLabelsCommand(rootShim);
-registerLogCommand(rootShim);
-registerNextCommand(rootShim);
-registerPlanCommand(rootShim);
-registerOtelCommand(rootShim);
-registerTokenCommand(rootShim);
-registerPhasesCommand(rootShim);
-registerPromoteCommand(rootShim);
-registerRelatesCommand(rootShim);
-registerReorderCommand(rootShim);
-registerReparentCommand(rootShim);
-registerRestoreCommand(rootShim);
-registerRoadmapCommand(rootShim);
-registerSelfUpdateCommand(rootShim);
-registerSequenceCommand(rootShim);
-registerSpecificationCommand(rootShim);
-registerStatsCommand(rootShim);
-registerUpgradeCommand(rootShim);
-registerValidateCommand(rootShim);
-registerVerifyCommand(rootShim);
-registerDetectDriftCommand(rootShim);
-registerOpsCommand(rootShim);
-registerSnapshotCommand(rootShim);
-registerRemoteCommand(rootShim);
-registerInstallGlobalCommand(rootShim);
-registerGradeCommand(rootShim);
-registerAdrCommand(rootShim);
-registerMemoryBrainCommand(rootShim);
-registerMigrateClaudeMemCommand(rootShim);
-registerStickyCommand(rootShim);
-registerRefreshMemoryCommand(rootShim);
-registerObserveCommand(rootShim);
+    const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 
-// ---------------------------------------------------------------------------
-// Build citty subCommands from shim registrations
-// ---------------------------------------------------------------------------
+    if (!response.success) {
+      handleRawError(response, { command: 'add', operation: 'tasks.add' });
+      return;
+    }
 
-const subCommands: Record<string, ReturnType<typeof defineCommand>> = {};
+    const data = response.data as { duplicate?: boolean; dryRun?: boolean };
+    const message = data.duplicate
+      ? 'Task with identical title was created recently'
+      : data.dryRun
+        ? 'Dry run - no changes made'
+        : undefined;
 
-// Add built-in 'version' command
-subCommands['version'] = defineCommand({
+    cliOutput(response.data as Record<string, unknown>, {
+      command: 'add',
+      operation: 'tasks.add',
+      message,
+    });
+  },
+);
+
+cmd(
+  'list',
+  'List tasks',
+  {
+    status: { type: 'string', description: 'Filter by status', alias: 's' },
+    priority: { type: 'string', description: 'Filter by priority', alias: 'p' },
+    label: { type: 'string', description: 'Filter by label', alias: 'l' },
+    limit: { type: 'string', description: 'Limit results', alias: 'n' },
+    json: { type: 'boolean', description: 'Output as JSON' },
+  },
+  async (args) => {
+    const params: Record<string, unknown> = {};
+    if (args.status) params.status = args.status;
+    if (args.priority) params.priority = args.priority;
+    if (args.label) params.label = args.label;
+    if (args.limit) params.limit = parseInt(args.limit, 10);
+    if (args.json) params.format = 'json';
+
+    await dispatchFromCli('query', 'tasks', 'list', params, {
+      command: 'list',
+      operation: 'tasks.list',
+    });
+  },
+);
+
+cmd(
+  'show',
+  'Show task details',
+  {
+    taskId: { type: 'positional', description: 'Task ID', required: true },
+    json: { type: 'boolean', description: 'Output as JSON' },
+  },
+  async (args) => {
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'show',
+      { taskId: args.taskId, format: args.json ? 'json' : 'human' },
+      { command: 'show', operation: 'tasks.show' },
+    );
+  },
+);
+
+cmd(
+  'complete',
+  'Mark task as complete',
+  {
+    taskId: { type: 'positional', description: 'Task ID', required: true },
+    notes: { type: 'string', description: 'Completion notes', alias: 'n' },
+    force: { type: 'boolean', description: 'Force completion even if blocked', alias: 'f' },
+  },
+  async (args) => {
+    const params: Record<string, unknown> = { taskId: args.taskId };
+    if (args.notes) params.notes = args.notes;
+    if (args.force) params.force = true;
+
+    await dispatchFromCli('mutate', 'tasks', 'complete', params, {
+      command: 'complete',
+      operation: 'tasks.complete',
+    });
+  },
+);
+
+cmd(
+  'update',
+  'Update task fields',
+  {
+    taskId: { type: 'positional', description: 'Task ID', required: true },
+    title: { type: 'string', description: 'New title', alias: 't' },
+    status: { type: 'string', description: 'New status', alias: 's' },
+    priority: { type: 'string', description: 'New priority', alias: 'p' },
+    description: { type: 'string', description: 'New description', alias: 'd' },
+  },
+  async (args) => {
+    const params: Record<string, unknown> = { taskId: args.taskId };
+    if (args.title) params.title = args.title;
+    if (args.status) params.status = args.status;
+    if (args.priority) params.priority = args.priority;
+    if (args.description) params.description = args.description;
+
+    await dispatchFromCli('mutate', 'tasks', 'update', params, {
+      command: 'update',
+      operation: 'tasks.update',
+    });
+  },
+);
+
+cmd(
+  'delete',
+  'Delete a task',
+  {
+    taskId: { type: 'positional', description: 'Task ID', required: true },
+    force: { type: 'boolean', description: 'Skip confirmation', alias: 'f' },
+  },
+  async (args) => {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'delete',
+      { taskId: args.taskId, force: args.force },
+      { command: 'delete', operation: 'tasks.delete' },
+    );
+  },
+);
+
+// ============================================================================
+// Session Commands
+// ============================================================================
+
+cmd(
+  'session',
+  'Manage sessions',
+  {
+    action: { type: 'positional', description: 'Action: start, stop, show, list' },
+    name: { type: 'string', description: 'Session name', alias: 'n' },
+  },
+  async (args) => {
+    const action = args.action ?? 'show';
+
+    switch (action) {
+      case 'start':
+        await dispatchFromCli(
+          'mutate',
+          'session',
+          'start',
+          { name: args.name },
+          { command: 'session', operation: 'session.start' },
+        );
+        break;
+      case 'stop':
+        await dispatchFromCli(
+          'mutate',
+          'session',
+          'stop',
+          {},
+          { command: 'session', operation: 'session.stop' },
+        );
+        break;
+      case 'show':
+      default:
+        await dispatchFromCli(
+          'query',
+          'session',
+          'show',
+          {},
+          { command: 'session', operation: 'session.show' },
+        );
+    }
+  },
+);
+
+// ============================================================================
+// Core/Dash Command
+// ============================================================================
+
+cmd(
+  'dash',
+  'Show project dashboard',
+  {
+    json: { type: 'boolean', description: 'Output as JSON' },
+    human: { type: 'boolean', description: 'Human-readable output' },
+  },
+  async (args) => {
+    await dispatchFromCli(
+      'query',
+      'system',
+      'dash',
+      { format: args.json ? 'json' : args.human ? 'human' : 'auto' },
+      { command: 'dash', operation: 'system.dash' },
+    );
+  },
+);
+
+// ============================================================================
+// Version Command
+// ============================================================================
+
+commands['version'] = defineCommand({
   meta: { name: 'version', description: 'Display CLEO version' },
   async run() {
-    await runPreActionHooks('version');
-    const { cliOutput } = await import('./renderers/index.js');
     cliOutput({ version: CLI_VERSION }, { command: 'version' });
   },
 });
 
-// Convert all shim-registered commands to citty commands
-for (const shim of rootShim._subcommands) {
-  subCommands[shim._name] = shimToCitty(shim);
-  // Register aliases as additional top-level entries
-  for (const alias of shim._aliases) {
-    subCommands[alias] = shimToCitty(shim);
-  }
-}
+// ============================================================================
+// Main CLI
+// ============================================================================
 
-// ---------------------------------------------------------------------------
-// MCP server: `cleo mcp` — spawn the MCP server process
-// ---------------------------------------------------------------------------
+const main = defineCommand({
+  meta: {
+    name: 'cleo',
+    version: CLI_VERSION,
+    description: 'CLEO V2 - Task management for AI coding agents',
+  },
+  subCommands: commands,
+});
 
-if (process.argv[2] === 'mcp') {
-  const mcpPath = join(import.meta.dirname ?? '', '..', 'mcp', 'index.js');
-  const { spawn } = await import('node:child_process');
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', mcpPath], {
-    stdio: 'inherit',
-  });
-  child.on('exit', (code) => process.exit(code ?? 0));
-} else {
-  // ---------------------------------------------------------------------------
-  // Define and run the main citty command
-  // ---------------------------------------------------------------------------
-
-  const main = defineCommand({
-    meta: {
-      name: 'cleo',
-      version: CLI_VERSION,
-      description: 'CLEO V2 - Task management for AI coding agents',
-    },
-    subCommands,
-  });
-
-  runMain(main);
-}
+runMain(main);

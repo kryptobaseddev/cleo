@@ -10,8 +10,8 @@
  * @epic T4763
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 export function registerMemoryBrainCommand(program: Command): void {

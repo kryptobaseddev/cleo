@@ -3,11 +3,11 @@
  *
  * @task T5240
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenCodeAdapter } from '../adapter.js';
 import { OpenCodeHookProvider } from '../hooks.js';
-import { OpenCodeSpawnProvider } from '../spawn.js';
 import { OpenCodeInstallProvider } from '../install.js';
+import { OpenCodeSpawnProvider } from '../spawn.js';
 // Mock child_process for health check and spawn tests
 vi.mock('node:child_process', () => ({
     exec: vi.fn(),

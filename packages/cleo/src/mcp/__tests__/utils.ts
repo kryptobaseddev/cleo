@@ -62,7 +62,7 @@ interface MinimalTask {
 }
 
 // Re-export for consumers
-export type { CLIExecutor, ExecutorResult, Task, MinimalTask };
+export type { CLIExecutor, ExecutorResult, MinimalTask, Task };
 
 /**
  * Creates a mock CLIExecutor for testing

@@ -10,12 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { projectRegistry } from '../../store/nexus-schema.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
-import { CleoError } from '../../errors.js';
 import { generateProjectHash } from '../hash.js';
 import {
   nexusGetProject,

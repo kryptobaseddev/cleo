@@ -17,11 +17,11 @@ import type { AdapterTaskSyncProvider, ExternalTask } from '@cleocode/contracts'
  * Optional: accepts a custom file path for testing.
  */
 export declare class ClaudeCodeTaskSyncProvider implements AdapterTaskSyncProvider {
-    private readonly customFilePath?;
-    constructor(options?: {
-        filePath?: string;
-    });
-    getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
-    cleanup(projectDir: string): Promise<void>;
+  private readonly customFilePath?;
+  constructor(options?: {
+    filePath?: string;
+  });
+  getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
+  cleanup(projectDir: string): Promise<void>;
 }
 //# sourceMappingURL=task-sync.d.ts.map

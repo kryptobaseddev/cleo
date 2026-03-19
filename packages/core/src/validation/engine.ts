@@ -9,8 +9,7 @@
  * @epic T4454
  */
 
-import { TASK_STATUSES, type TaskStatus } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, TASK_STATUSES, type TaskStatus } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 export type { TaskStatus } from '@cleocode/contracts';

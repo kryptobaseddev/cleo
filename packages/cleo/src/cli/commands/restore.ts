@@ -7,11 +7,10 @@
  * @task T5329
  */
 
-import { CleoError, formatError } from '@cleocode/core';
-import type { ShimCommand as Command } from '../commander-shim.js';
-import { dispatchRaw } from '../../dispatch/adapters/cli.js';
-import { getAccessor } from '@cleocode/core';
 import { ExitCode } from '@cleocode/contracts';
+import { CleoError, formatError, getAccessor } from '@cleocode/core';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 export function registerRestoreCommand(program: Command): void {

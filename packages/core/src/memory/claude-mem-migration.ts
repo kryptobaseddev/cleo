@@ -12,13 +12,16 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { getClaudeMemDbPath } from '../paths.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../store/brain-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
-import { getClaudeMemDbPath } from '../paths.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
 /** Type-safe wrapper for StatementSync.all(). */
-function typedAll<T>(db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } }, sql: string): T[] {
+function typedAll<T>(
+  db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } },
+  sql: string,
+): T[] {
   return db.prepare(sql).all() as T[];
 }
 
@@ -181,7 +184,10 @@ export async function migrateClaudeMem(
     ensureFts5Tables(nativeDb);
 
     // --- Phase 1: Migrate observations ---
-    const observations = typedAll<ClaudeMemObservation>(sourceDb, 'SELECT * FROM observations ORDER BY id');
+    const observations = typedAll<ClaudeMemObservation>(
+      sourceDb,
+      'SELECT * FROM observations ORDER BY id',
+    );
 
     // Process observations in batches
     for (let i = 0; i < observations.length; i += batchSize) {
@@ -291,7 +297,10 @@ export async function migrateClaudeMem(
     // --- Phase 2: Migrate session_summaries (learned -> brain_learnings) ---
     let summaries: ClaudeMemSessionSummary[] = [];
     try {
-      summaries = typedAll<ClaudeMemSessionSummary>(sourceDb, 'SELECT * FROM session_summaries ORDER BY id');
+      summaries = typedAll<ClaudeMemSessionSummary>(
+        sourceDb,
+        'SELECT * FROM session_summaries ORDER BY id',
+      );
     } catch {
       // session_summaries table may not exist in all claude-mem versions
       // This is not an error — just skip

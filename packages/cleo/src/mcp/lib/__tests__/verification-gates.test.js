@@ -4,8 +4,8 @@
  * @task T2936
  * @epic T2908
  */
-import { beforeEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ProtocolType } from '../protocol-enforcement.js';
 import { createVerificationGate, GATE_SEQUENCE, GateLayer, GateStatus, getWorkflowGateDefinition, isValidWorkflowGateName, VerificationGate, WORKFLOW_GATE_DEFINITIONS, WORKFLOW_GATE_SEQUENCE, WorkflowGateName, WorkflowGateTracker, } from '../verification-gates.js';
 describe('VerificationGate', () => {

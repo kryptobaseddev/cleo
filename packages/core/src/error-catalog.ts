@@ -9,8 +9,8 @@
  * @task T5240
  */
 
-import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
 import { ExitCode } from '@cleocode/contracts';
+import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
 
 /**
  * A single entry in the unified error catalog.

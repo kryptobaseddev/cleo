@@ -7,9 +7,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
+import { getSessionsPath } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { getSessionsPath } from '../paths.js';
 
 /** Build brain state for agent bootstrapping. */
 export async function buildBrainState(

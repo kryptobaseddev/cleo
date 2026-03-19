@@ -3,7 +3,7 @@
  * @task T5069
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, } from '../../store/__tests__/test-db-helper.js';
+import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { showTask } from '../show.js';
 describe('showTask dependency enrichment', () => {
     let env;

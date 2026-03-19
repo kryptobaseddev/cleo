@@ -7,12 +7,11 @@
  *
  * @task T4279
  */
+import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { resetDbState } from '@cleocode/core/internal';
-import { createSqliteDataAccessor } from '@cleocode/core/internal';
 import { releasePrepare, releasePush } from '../release-engine.js';
 const TEST_ROOT = join(process.cwd(), '.test-release-push-guard');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');

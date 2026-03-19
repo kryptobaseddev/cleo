@@ -14,8 +14,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type NewTokenUsageRow, type TokenUsageRow, tokenUsage } from '../store/tasks-schema.js';
 import { getCleoHome } from '../paths.js';
+import { type NewTokenUsageRow, type TokenUsageRow, tokenUsage } from '../store/tasks-schema.js';
 import { resolveProviderFromModelRegistry } from './model-provider-registry.js';
 import { detectRuntimeProviderContext } from './provider-detection.js';
 

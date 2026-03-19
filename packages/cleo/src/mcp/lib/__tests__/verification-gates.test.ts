@@ -5,8 +5,8 @@
  * @epic T2908
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '@cleocode/contracts';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ProtocolType } from '../protocol-enforcement.js';
 import {
   createVerificationGate,

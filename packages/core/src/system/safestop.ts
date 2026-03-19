@@ -5,9 +5,9 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface SafestopResult {
   stopped: boolean;
@@ -84,7 +84,7 @@ export async function uncancelTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  let task;
+  let task: Task | null;
   try {
     task = await accessor.loadSingleTask(params.taskId);
   } catch {
@@ -109,7 +109,10 @@ export async function uncancelTask(
     if (params.notes) {
       notes.push(`[${new Date().toISOString()}] ${params.notes}`);
     }
-    await accessor.updateTaskFields(params.taskId, { status: 'pending', notesJson: JSON.stringify(notes) });
+    await accessor.updateTaskFields(params.taskId, {
+      status: 'pending',
+      notesJson: JSON.stringify(notes),
+    });
     if (params.cascade) {
       const children = await accessor.getChildren(params.taskId);
       for (const child of children) {

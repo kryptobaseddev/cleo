@@ -7,8 +7,8 @@
  * @task T5243
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { createDoctorProgress } from '../progress.js';
 
 export function registerDoctorCommand(program: Command): void {

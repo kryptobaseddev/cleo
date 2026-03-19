@@ -5,9 +5,17 @@
  * and session-store.ts.
  */
 
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
+import type {
+  Session,
+  SessionScope,
+  SessionStats,
+  Task,
+  TaskPriority,
+  TaskSize,
+  TaskStatus,
+  TaskType,
+} from '@cleocode/contracts';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
-import type { Session, SessionScope, SessionStats } from '@cleocode/contracts';
 import type { SessionStatus } from './status-registry.js';
 import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
 

@@ -5,8 +5,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DataAccessor } from '../store/data-accessor.js';
 import { readComplianceJsonl } from '../compliance/store.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 export interface SystemMetricsResult {
   tokens: {

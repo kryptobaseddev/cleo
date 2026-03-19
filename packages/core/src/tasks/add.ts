@@ -5,18 +5,21 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { DataAccessor } from '../store/data-accessor.js';
+import type {
+  ProjectMeta,
+  Task,
+  TaskPriority,
+  TaskSize,
+  TaskStatus,
+  TaskType,
+} from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
-import { TASK_STATUSES } from '@cleocode/contracts';
-import type { TransactionAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType, ProjectMeta } from '@cleocode/contracts';
+import { ExitCode, TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { allocateNextTaskId } from '../sequence/index.js';
-import {
-  resolveHierarchyPolicy,
-} from './hierarchy-policy.js';
+import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
+import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 /**
  * Options for creating a task.
@@ -555,7 +558,10 @@ export async function addTask(
   }
 
   // Duplicate detection using targeted query
-  const { tasks: candidateDupes } = await dataAccessor.queryTasks({ search: options.title, limit: 50 });
+  const { tasks: candidateDupes } = await dataAccessor.queryTasks({
+    search: options.title,
+    limit: 50,
+  });
   const duplicate = findRecentDuplicate(options.title, phase, candidateDupes);
   if (duplicate) {
     return { task: duplicate, duplicate: true };

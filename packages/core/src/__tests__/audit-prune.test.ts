@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LoggingConfig } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pruneAuditLog } from '../audit-prune.js';
 
 /** Insert audit_log rows with given timestamps into a test DB. */

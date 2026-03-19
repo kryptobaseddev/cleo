@@ -15,8 +15,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, count, desc, eq, gte, isNull, like, lte, or, type SQL } from 'drizzle-orm';
-import { pipelineManifest } from '../store/tasks-schema.js';
 import type { EngineResult } from '../engine-result.js';
+import { pipelineManifest } from '../store/tasks-schema.js';
 
 async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js')['getDb']> {
   const { getDb: _getDb } = await import('../store/sqlite.js');
@@ -42,7 +42,7 @@ import {
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
 export type ManifestEntry = ExtendedManifestEntry;
-export type { ResearchFilter, ContradictionDetail, SupersededDetail };
+export type { ContradictionDetail, ResearchFilter, SupersededDetail };
 export { filterManifestEntries };
 
 interface PipelineManifestListParams extends ResearchFilter {

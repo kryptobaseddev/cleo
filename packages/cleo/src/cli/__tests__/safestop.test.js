@@ -4,8 +4,8 @@
  * @epic T4545
  *  T4904
  */
-import { ShimCommand as Command } from '../commander-shim.js';
 import { describe, expect, it, vi } from 'vitest';
+import { ShimCommand as Command } from '../commander-shim.js';
 import { registerSafestopCommand } from '../commands/safestop.js';
 vi.mock('../../dispatch/adapters/cli.js', () => ({
     dispatchFromCli: vi.fn().mockResolvedValue(undefined),

@@ -10,9 +10,9 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { readJson, saveJson } from './store/json.js';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
+import { readJson, saveJson } from './store/json.js';
 
 /** Default configuration values. */
 const DEFAULTS: CleoConfig = {

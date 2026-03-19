@@ -39,8 +39,8 @@ export class CursorSpawnProvider implements AdapterSpawnProvider {
   async spawn(_context: SpawnContext): Promise<SpawnResult> {
     throw new Error(
       'Cursor does not support subagent spawning. ' +
-      'Cursor is a GUI-based editor without CLI subagent capabilities. ' +
-      'Use a provider that supports spawning (e.g., Claude Code or OpenCode).',
+        'Cursor is a GUI-based editor without CLI subagent capabilities. ' +
+        'Use a provider that supports spawning (e.g., Claude Code or OpenCode).',
     );
   }
 

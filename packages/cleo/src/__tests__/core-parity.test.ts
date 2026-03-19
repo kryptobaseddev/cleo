@@ -56,7 +56,10 @@ describe('Import Graph Verification (T4796)', () => {
         const fromLines = content.split('\n').filter((line) => line.match(/from\s+['"]/));
 
         const coreImports = fromLines.filter(
-          (line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'),
+          (line) =>
+            line.includes("'@cleocode/core'") ||
+            line.includes("'@cleocode/core/internal'") ||
+            line.includes('../../../core/src/store/'),
         );
 
         // Every engine file should have at least one core/store import
@@ -77,7 +80,10 @@ describe('Import Graph Verification (T4796)', () => {
 
         // Count @cleocode/core + store imports
         const coreImports = fromLines.filter(
-          (line) => line.includes("'@cleocode/core'") || line.includes("'@cleocode/core/internal'") || line.includes('../../../core/src/store/'),
+          (line) =>
+            line.includes("'@cleocode/core'") ||
+            line.includes("'@cleocode/core/internal'") ||
+            line.includes('../../../core/src/store/'),
         );
 
         // Core imports should exist

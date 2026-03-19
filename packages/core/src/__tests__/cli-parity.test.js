@@ -5,8 +5,8 @@
  * @task T4504
  * @epic T4498
  */
-import { describe, expect, it } from 'vitest';
 import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 import { CleoError } from '../errors.js';
 import { formatError, formatSuccess } from '../output.js';
 // ============================================================

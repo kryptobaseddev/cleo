@@ -12,12 +12,11 @@
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { Session, Task } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getCleoDirAbsolute } from '../paths.js';
-import type { Session } from '@cleocode/contracts';
-import type { Task } from '@cleocode/contracts';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
 import * as schema from './tasks-schema.js';

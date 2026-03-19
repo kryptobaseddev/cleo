@@ -92,9 +92,7 @@ export class ClaudeCodeTaskSyncProvider {
         let syntheticIndex = 0;
         for (const item of state.todos) {
             const cleoTaskId = parseTaskId(item.content);
-            const title = cleoTaskId
-                ? stripPrefixes(item.content).trim()
-                : item.content.trim();
+            const title = cleoTaskId ? stripPrefixes(item.content).trim() : item.content.trim();
             if (!title)
                 continue;
             tasks.push({

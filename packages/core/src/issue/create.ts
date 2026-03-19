@@ -9,8 +9,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { BUILD_CONFIG } from '../config/build-config.js';
 import { ExitCode } from '@cleocode/contracts';
+import { BUILD_CONFIG } from '../config/build-config.js';
 import { CleoError } from '../errors.js';
 import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';
 import { getTemplateForSubcommand } from './template-parser.js';

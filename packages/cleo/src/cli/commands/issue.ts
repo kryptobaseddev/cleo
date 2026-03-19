@@ -7,9 +7,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { BUILD_CONFIG } from '@cleocode/core/internal';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;

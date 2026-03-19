@@ -12,8 +12,8 @@ vi.mock('../../store/data-accessor.js', () => ({
 vi.mock('../../config.js', () => ({
     getRawConfigValue: vi.fn(),
 }));
-import { getAccessor } from '../../store/data-accessor.js';
 import { getRawConfigValue } from '../../config.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { cleanupSessions } from '../session-cleanup.js';
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,7 +45,9 @@ function setupMockAccessor(sessions) {
         saveSessions: vi.fn().mockResolvedValue(undefined),
         upsertSingleSession: vi.fn().mockResolvedValue(undefined),
         removeSingleSession: vi.fn().mockResolvedValue(undefined),
-        getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
+        getMetaValue: vi
+            .fn()
+            .mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
         setMetaValue: vi.fn().mockImplementation((key, value) => {
             metaStore[key] = value;
             return Promise.resolve();

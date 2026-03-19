@@ -16,9 +16,9 @@ import type { AdapterPathProvider } from '@cleocode/contracts';
  * - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB)
  */
 export declare class ClaudeCodePathProvider implements AdapterPathProvider {
-    getProviderDir(): string;
-    getSettingsPath(): string | null;
-    getAgentInstallDir(): string | null;
-    getMemoryDbPath(): string | null;
+  getProviderDir(): string;
+  getSettingsPath(): string | null;
+  getAgentInstallDir(): string | null;
+  getMemoryDbPath(): string | null;
 }
 //# sourceMappingURL=paths.d.ts.map

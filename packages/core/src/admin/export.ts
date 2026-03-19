@@ -7,8 +7,8 @@
  */
 
 import { writeFile } from 'node:fs/promises';
-import { getAccessor } from '../store/data-accessor.js';
 import type { Task } from '@cleocode/contracts';
+import { getAccessor } from '../store/data-accessor.js';
 
 export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite';
 

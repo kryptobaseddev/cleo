@@ -11,8 +11,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MANIFEST_STATUSES } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
+import { MANIFEST_STATUSES } from '@cleocode/contracts';
 import {
   getAgentOutputsAbsolute,
   getManifestPath as getManifestPathFromPaths,
