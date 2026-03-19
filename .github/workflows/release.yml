@@ -232,49 +232,33 @@ jobs:
       # Publish in dependency order so downstream packages can resolve workspace:*
       # refs correctly when pnpm replaces them with real version numbers.
 
+      # npm Trusted Publishing via OIDC — no NPM_TOKEN secret needed.
+      # Requires: each @cleocode/* package on npmjs.com configured with
+      # GitHub Actions trusted publishing (Settings → Publishing access).
       - name: Publish packages to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           TAG: ${{ steps.version.outputs.dist_tag }}
         run: |
-          # 1. contracts — no workspace deps
+          PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
+
           echo "--- Publishing @cleocode/contracts ---"
-          cd packages/contracts
-          pnpm publish --tag "$TAG" --access public --no-git-checks
-          cd ../..
+          cd packages/contracts && pnpm publish $PUBLISH_ARGS && cd ../..
 
-          # 2. core — depends on contracts
           echo "--- Publishing @cleocode/core ---"
-          cd packages/core
-          pnpm publish --tag "$TAG" --access public --no-git-checks
-          cd ../..
+          cd packages/core && pnpm publish $PUBLISH_ARGS && cd ../..
 
-          # 3. adapters — depends on contracts
           echo "--- Publishing @cleocode/adapters ---"
           cd packages/adapters
-          if [[ -d dist ]]; then
-            pnpm publish --tag "$TAG" --access public --no-git-checks
-          else
-            echo "SKIP: packages/adapters has no dist — not publishing"
-          fi
+          if [[ -d dist ]]; then pnpm publish $PUBLISH_ARGS; else echo "SKIP: no dist"; fi
           cd ../..
 
-          # 4. agents — no workspace deps, content package
           echo "--- Publishing @cleocode/agents ---"
-          cd packages/agents
-          pnpm publish --tag "$TAG" --access public --no-git-checks
-          cd ../..
+          cd packages/agents && pnpm publish $PUBLISH_ARGS && cd ../..
 
-          # 5. skills — no workspace deps, content package
           echo "--- Publishing @cleocode/skills ---"
-          cd packages/skills
-          pnpm publish --tag "$TAG" --access public --no-git-checks
-          cd ../..
+          cd packages/skills && pnpm publish $PUBLISH_ARGS && cd ../..
 
-          # 6. cleo — depends on core + contracts (assembled product, published last)
           echo "--- Publishing @cleocode/cleo ---"
-          cd packages/cleo
-          pnpm publish --tag "$TAG" --access public --no-git-checks
-          cd ../..
+          cd packages/cleo && pnpm publish $PUBLISH_ARGS && cd ../..
 
           echo "All packages published with dist-tag: $TAG"
