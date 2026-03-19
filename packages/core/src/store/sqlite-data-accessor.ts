@@ -14,12 +14,8 @@
 import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { Session } from '@cleocode/contracts';
 import type {
-  FileMeta,
-  ProjectMeta,
   Task,
-  TaskFile,
   TaskStatus,
-  TaskWorkState,
 } from '@cleocode/contracts';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import type {
@@ -39,7 +35,6 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { computeChecksum } from './json.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import * as schema from './tasks-schema.js';
@@ -90,32 +85,6 @@ export async function setMetaValue(
     .run();
 }
 
-// ---- Default structures ----
-
-const DEFAULT_PROJECT_META: ProjectMeta = {
-  name: 'project',
-  currentPhase: null,
-  phases: {},
-  phaseHistory: [],
-  releases: [],
-};
-
-const DEFAULT_FILE_META: FileMeta = {
-  schemaVersion: '2.10.0',
-  checksum: '',
-  configVersion: '1.0.0',
-};
-
-const DEFAULT_WORK_STATE: TaskWorkState = {
-  currentTask: null,
-  currentPhase: null,
-  blockedUntil: null,
-  sessionNote: null,
-  sessionNotes: [],
-  nextAction: null,
-  primarySession: null,
-};
-
 // ---- Accessor factory ----
 
 /**
@@ -140,113 +109,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
   const accessor: DataAccessor = {
     engine: 'sqlite' as const,
-
-    // ---- loadTaskFile ----
-
-    async loadTaskFile(): Promise<TaskFile> {
-      const db = await getDb(cwd);
-
-      // 1. Query all non-archived tasks
-      const taskRows = await db
-        .select()
-        .from(schema.tasks)
-        .where(ne(schema.tasks.status, 'archived'))
-        .all();
-
-      const tasks: Task[] = taskRows.map(rowToTask);
-
-      // 2. Load dependencies and relations for all tasks (batch query), filtering orphaned refs
-      if (tasks.length > 0) {
-        await loadDependenciesForTasks(db, tasks);
-        await loadRelationsForTasks(db, tasks);
-      }
-
-      // 3. Load project metadata from schema_meta
-      const projectMeta =
-        (await getMetaValue<ProjectMeta>(cwd, 'project_meta')) ?? DEFAULT_PROJECT_META;
-
-      // 4. Load work state from schema_meta
-      const workState =
-        (await getMetaValue<TaskWorkState>(cwd, 'focus_state')) ?? DEFAULT_WORK_STATE;
-
-      // 5. Load labels from schema_meta
-      const labels = (await getMetaValue<Record<string, string[]>>(cwd, 'labels')) ?? undefined;
-
-      // 6. Load file meta from schema_meta
-      const storedMeta = await getMetaValue<FileMeta>(cwd, 'file_meta');
-
-      // 7. Compute checksum over task data
-      const checksum = computeChecksum(tasks);
-
-      const fileMeta: FileMeta = {
-        ...(storedMeta ?? DEFAULT_FILE_META),
-        checksum,
-      };
-
-      // 8. Build and return the TaskFile
-      const taskFile: TaskFile = {
-        version: storedMeta?.schemaVersion ?? DEFAULT_FILE_META.schemaVersion,
-        project: projectMeta,
-        lastUpdated: new Date().toISOString(),
-        _meta: fileMeta,
-        focus: workState,
-        tasks,
-      };
-
-      if (labels) {
-        taskFile.labels = labels;
-      }
-
-      return taskFile;
-    },
-
-    // ---- saveTaskFile ----
-
-    async saveTaskFile(data: TaskFile): Promise<void> {
-      const db = await getDb(cwd);
-
-      // 1. Determine which task IDs are in the incoming data
-      const incomingIds = new Set(data.tasks.map((t) => t.id));
-
-      // 2. Get existing non-archived task IDs from DB
-      const existingRows = await db
-        .select({ id: schema.tasks.id })
-        .from(schema.tasks)
-        .where(ne(schema.tasks.status, 'archived'))
-        .all();
-      const existingIds = new Set(existingRows.map((r) => r.id));
-
-      // 3. Delete tasks that are in DB but NOT in incoming data (non-archived only)
-      for (const eid of existingIds) {
-        if (!incomingIds.has(eid)) {
-          await db
-            .delete(schema.taskDependencies)
-            .where(eq(schema.taskDependencies.taskId, eid))
-            .run();
-          await db.delete(schema.tasks).where(eq(schema.tasks.id, eid)).run();
-        }
-      }
-
-      // 4. Upsert all tasks from data.tasks
-      for (const task of data.tasks) {
-        const row = taskToRow(task);
-        await upsertTask(db, row);
-        await updateDependencies(db, task.id, task.depends ?? [], incomingIds);
-      }
-
-      // 5. Store project metadata, focus state, labels, and file meta in schema_meta
-      await setMetaValue(cwd, 'project_meta', data.project);
-      if (data.focus) {
-        await setMetaValue(cwd, 'focus_state', data.focus);
-      }
-      if (data.labels) {
-        await setMetaValue(cwd, 'labels', data.labels);
-      }
-      await setMetaValue(cwd, 'file_meta', {
-        ...data._meta,
-        checksum: computeChecksum(data.tasks),
-      });
-    },
 
     // ---- loadArchive ----
 

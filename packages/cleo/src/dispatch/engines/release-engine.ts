@@ -76,8 +76,8 @@ async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
   const root = projectRoot ?? resolveProjectRoot();
   try {
     const accessor = await getAccessor(root);
-    const taskFile = await accessor.loadTaskFile();
-    return (taskFile?.tasks as ReleaseTaskRecord[]) ?? [];
+    const result = await accessor.queryTasks({});
+    return (result?.tasks as ReleaseTaskRecord[]) ?? [];
   } catch (error: unknown) {
     throw new Error(`Failed to load task data: ${(error as Error).message}`);
   }

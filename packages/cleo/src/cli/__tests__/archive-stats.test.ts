@@ -58,7 +58,6 @@ function createMockAccessor(archiveData: unknown = null): DataAccessor {
     loadArchive: vi.fn().mockResolvedValue(archiveData),
     close: vi.fn(),
     // Stub remaining DataAccessor methods — only loadArchive is used by analyzeArchive
-    loadTaskFile: vi.fn(),
     saveTodoFile: vi.fn(),
     saveArchive: vi.fn(),
     loadSessions: vi.fn(),

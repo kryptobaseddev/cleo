@@ -16,14 +16,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 const mockLoadSessions = vi.fn();
 const mockSaveSessions = vi.fn();
-const mockLoadTaskFile = vi.fn();
-const mockSaveTaskFile = vi.fn();
+const mockGetMetaValue = vi.fn().mockResolvedValue(null);
+const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockImplementation(() => Promise.resolve({
         loadSessions: mockLoadSessions,
         saveSessions: mockSaveSessions,
-        loadTaskFile: mockLoadTaskFile,
-        saveTaskFile: mockSaveTaskFile,
+        getMetaValue: mockGetMetaValue,
+        setMetaValue: mockSetMetaValue,
     })),
 }));
 vi.mock('../../../../../core/src/sessions/index.js', async (importOriginal) => {

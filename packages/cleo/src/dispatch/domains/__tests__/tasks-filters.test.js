@@ -51,7 +51,7 @@ const MOCK_TASKS = [
         parentId: 'T001',
     },
 ];
-const mockAccessor = { loadTaskFile: vi.fn() };
+const mockAccessor = { queryTasks: vi.fn() };
 describe('taskFind filter passthrough', () => {
     beforeEach(() => {
         vi.clearAllMocks();

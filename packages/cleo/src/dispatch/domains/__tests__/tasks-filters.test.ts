@@ -58,7 +58,7 @@ const MOCK_TASKS = [
   },
 ];
 
-const mockAccessor = { loadTaskFile: vi.fn() };
+const mockAccessor = { queryTasks: vi.fn() };
 
 describe('taskFind filter passthrough', () => {
   beforeEach(() => {

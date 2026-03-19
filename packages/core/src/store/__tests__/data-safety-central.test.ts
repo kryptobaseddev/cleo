@@ -5,7 +5,7 @@
  * with sequence validation, write verification, and checkpointing.
  *
  * Coverage:
- * - safeSaveTaskFile: sequence check -> write -> verify -> checkpoint
+ * - safeSaveSessions: write -> verify -> checkpoint
  * - safeSaveSessions: write -> verify -> checkpoint
  * - safeSaveArchive: write -> verify -> checkpoint
  * - safeAppendLog: write -> checkpoint (no verification)
@@ -22,7 +22,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@cleocode/contracts';
-import type { TaskFile } from '@cleocode/contracts';
 import type { ArchiveFile, DataAccessor } from '../data-accessor.js';
 
 // Mock git-checkpoint to prevent real git operations
@@ -56,14 +55,6 @@ describe('Data Safety Central', () => {
 
   // ---- Fixtures ----
 
-  const makeTaskFile = (tasks: TaskFile['tasks'] = []): TaskFile => ({
-    version: '2.10.0',
-    project: { name: 'test', phases: {} },
-    lastUpdated: new Date().toISOString(),
-    _meta: { schemaVersion: '2.10.0', checksum: '0', configVersion: '1.0.0' },
-    tasks,
-  });
-
   const makeSessions = (count = 0): Session[] =>
     Array.from({ length: count }, (_, i) => ({
       id: `sess-${i}`,
@@ -92,30 +83,16 @@ describe('Data Safety Central', () => {
    * Create a mock DataAccessor that stores data in memory.
    */
   function createMockAccessor(): DataAccessor & {
-    _taskFile: TaskFile;
     _sessions: Session[];
     _archive: ArchiveFile | null;
     _logs: Record<string, unknown>[];
   } {
     const mock = {
       engine: 'sqlite' as const,
-      _taskFile: makeTaskFile(),
       _sessions: makeSessions(),
       _archive: null as ArchiveFile | null,
       _logs: [] as Record<string, unknown>[],
 
-      async loadTaskFile() {
-        return mock._taskFile;
-      },
-      async saveTaskFile(data: TaskFile) {
-        mock._taskFile = data;
-      },
-      async loadTodoFile() {
-        return mock._taskFile;
-      },
-      async saveTodoFile(data: TaskFile) {
-        mock._taskFile = data;
-      },
       async loadArchive() {
         return mock._archive;
       },
@@ -150,15 +127,14 @@ describe('Data Safety Central', () => {
     });
 
     it('should reset stats correctly', async () => {
-      const { resetSafetyStats, getSafetyStats, safeSaveTaskFile } = await import(
+      const { resetSafetyStats, getSafetyStats, safeSaveSessions } = await import(
         '../data-safety-central.js'
       );
       const accessor = createMockAccessor();
 
       // Perform a write to increment stats
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         checkpoint: false,
-        validateSequence: false,
       });
 
       expect(getSafetyStats().writes).toBeGreaterThan(0);
@@ -169,201 +145,64 @@ describe('Data Safety Central', () => {
       expect(stats.verifications).toBe(0);
     });
 
-    it('should increment writes on saveTaskFile', async () => {
-      const { safeSaveTaskFile, getSafetyStats, resetSafetyStats } = await import(
+    it('should increment writes on saveSessions', async () => {
+      const { safeSaveSessions, getSafetyStats, resetSafetyStats } = await import(
         '../data-safety-central.js'
       );
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         checkpoint: false,
-        validateSequence: false,
       });
 
       expect(getSafetyStats().writes).toBe(1);
     });
 
     it('should increment verifications when verify is enabled', async () => {
-      const { safeSaveTaskFile, getSafetyStats, resetSafetyStats } = await import(
+      const { safeSaveSessions, getSafetyStats, resetSafetyStats } = await import(
         '../data-safety-central.js'
       );
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         verify: true,
         checkpoint: false,
-        validateSequence: false,
       });
 
       expect(getSafetyStats().verifications).toBe(1);
     });
 
     it('should not increment verifications when verify is disabled', async () => {
-      const { safeSaveTaskFile, getSafetyStats, resetSafetyStats } = await import(
+      const { safeAppendLog, getSafetyStats, resetSafetyStats } = await import(
         '../data-safety-central.js'
       );
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
-        verify: false,
+      await safeAppendLog(accessor, { action: 'test' }, tempDir, {
         checkpoint: false,
-        validateSequence: false,
       });
 
+      // safeAppendLog always sets verify: false
       expect(getSafetyStats().verifications).toBe(0);
     });
 
     it('should increment checkpoints after write', async () => {
-      const { safeSaveTaskFile, getSafetyStats, resetSafetyStats } = await import(
+      const { safeSaveSessions, getSafetyStats, resetSafetyStats } = await import(
         '../data-safety-central.js'
       );
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         verify: false,
         checkpoint: true,
-        validateSequence: false,
       });
 
       expect(getSafetyStats().checkpoints).toBe(1);
       expect(getSafetyStats().lastCheckpoint).not.toBeNull();
-    });
-  });
-
-  // ---- Write Verification ----
-
-  describe('Write Verification', () => {
-    it('should pass verification when task count matches', async () => {
-      const { safeSaveTaskFile } = await import('../data-safety-central.js');
-      const accessor = createMockAccessor();
-      const taskFile = makeTaskFile([
-        {
-          id: 'T001',
-          title: 'Test',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: new Date().toISOString(),
-        },
-      ] as TaskFile['tasks']);
-
-      // Should not throw
-      await safeSaveTaskFile(accessor, taskFile, tempDir, {
-        verify: true,
-        checkpoint: false,
-        validateSequence: false,
-      });
-
-      // Verify the data was actually stored
-      expect(accessor._taskFile.tasks?.length).toBe(1);
-    });
-
-    it('should fail verification when task count mismatches', async () => {
-      const { safeSaveTaskFile } = await import('../data-safety-central.js');
-
-      // Create an accessor where saveTaskFile loses a task
-      const accessor = createMockAccessor();
-      const originalSave = accessor.saveTaskFile.bind(accessor);
-      accessor.saveTaskFile = async (data: TaskFile) => {
-        // Simulate data loss: save fewer tasks than written
-        const modified = { ...data, tasks: (data.tasks ?? []).slice(0, 1) };
-        await originalSave(modified);
-      };
-
-      const taskFile = makeTaskFile([
-        {
-          id: 'T001',
-          title: 'A',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'T002',
-          title: 'B',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: new Date().toISOString(),
-        },
-      ] as TaskFile['tasks']);
-
-      await expect(
-        safeSaveTaskFile(accessor, taskFile, tempDir, {
-          verify: true,
-          checkpoint: false,
-          validateSequence: false,
-          strict: true,
-        }),
-      ).rejects.toThrow('count mismatch');
-    });
-
-    it('should fail verification when tasks array is missing', async () => {
-      const { safeSaveTaskFile } = await import('../data-safety-central.js');
-
-      const accessor = createMockAccessor();
-      // After save, the loadTaskFile returns data without tasks array
-      accessor.loadTaskFile = async () => ({
-        ...makeTaskFile(),
-        tasks: undefined as unknown as TaskFile['tasks'],
-      });
-
-      const taskFile = makeTaskFile([
-        {
-          id: 'T001',
-          title: 'A',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: new Date().toISOString(),
-        },
-      ] as TaskFile['tasks']);
-
-      await expect(
-        safeSaveTaskFile(accessor, taskFile, tempDir, {
-          verify: true,
-          checkpoint: false,
-          validateSequence: false,
-          strict: true,
-        }),
-      ).rejects.toThrow('tasks array missing');
-    });
-
-    it('should fail verification when last written task is not found', async () => {
-      const { safeSaveTaskFile } = await import('../data-safety-central.js');
-
-      const accessor = createMockAccessor();
-      // Return different tasks than what was written
-      accessor.loadTaskFile = async () =>
-        makeTaskFile([
-          {
-            id: 'T999',
-            title: 'Wrong',
-            status: 'pending',
-            priority: 'medium',
-            createdAt: new Date().toISOString(),
-          },
-        ] as TaskFile['tasks']);
-
-      const taskFile = makeTaskFile([
-        {
-          id: 'T001',
-          title: 'Correct',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: new Date().toISOString(),
-        },
-      ] as TaskFile['tasks']);
-
-      await expect(
-        safeSaveTaskFile(accessor, taskFile, tempDir, {
-          verify: true,
-          checkpoint: false,
-          validateSequence: false,
-          strict: true,
-        }),
-      ).rejects.toThrow('not found');
     });
   });
 
@@ -474,33 +313,31 @@ describe('Data Safety Central', () => {
   describe('Checkpointing', () => {
     it('should call gitCheckpoint when checkpoint is enabled', async () => {
       const { gitCheckpoint } = await import('../git-checkpoint.js');
-      const { safeSaveTaskFile, resetSafetyStats } = await import('../data-safety-central.js');
+      const { safeSaveSessions, resetSafetyStats } = await import('../data-safety-central.js');
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         verify: false,
         checkpoint: true,
-        validateSequence: false,
       });
 
       expect(gitCheckpoint).toHaveBeenCalledWith(
         'auto',
-        expect.stringContaining('TaskFile'),
+        expect.stringContaining('Sessions'),
         tempDir,
       );
     });
 
     it('should NOT call gitCheckpoint when checkpoint is disabled', async () => {
       const { gitCheckpoint } = await import('../git-checkpoint.js');
-      const { safeSaveTaskFile, resetSafetyStats } = await import('../data-safety-central.js');
+      const { safeSaveSessions, resetSafetyStats } = await import('../data-safety-central.js');
       resetSafetyStats();
       const accessor = createMockAccessor();
 
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         verify: false,
         checkpoint: false,
-        validateSequence: false,
       });
 
       expect(gitCheckpoint).not.toHaveBeenCalled();
@@ -510,17 +347,16 @@ describe('Data Safety Central', () => {
       const gitMod = await import('../git-checkpoint.js');
       vi.mocked(gitMod.gitCheckpoint).mockRejectedValueOnce(new Error('git not found'));
 
-      const { safeSaveTaskFile, getSafetyStats, resetSafetyStats } = await import(
+      const { safeSaveSessions, getSafetyStats, resetSafetyStats } = await import(
         '../data-safety-central.js'
       );
       resetSafetyStats();
       const accessor = createMockAccessor();
 
       // Should not throw even though checkpoint fails
-      await safeSaveTaskFile(accessor, makeTaskFile(), tempDir, {
+      await safeSaveSessions(accessor, makeSessions(1), tempDir, {
         verify: false,
         checkpoint: true,
-        validateSequence: false,
       });
 
       // Write still succeeded
@@ -532,34 +368,25 @@ describe('Data Safety Central', () => {
 
   describe('Safety Toggle', () => {
     it('should disable all safety options', async () => {
-      const { disableSafety, safeSaveTaskFile, getSafetyStats, resetSafetyStats, enableSafety } =
+      const { disableSafety, safeAppendLog, getSafetyStats, resetSafetyStats, enableSafety } =
         await import('../data-safety-central.js');
       resetSafetyStats();
 
       disableSafety();
 
       const accessor = createMockAccessor();
-      // Even with corrupted data, should not throw because strict is off
-      accessor.loadTaskFile = async () => ({
-        ...makeTaskFile(),
-        tasks: undefined as unknown as TaskFile['tasks'],
-      });
 
       // Will not throw because verify=false when disabled
-      await safeSaveTaskFile(
-        accessor,
-        makeTaskFile([
-          { id: 'T001', title: 'X', status: 'pending', priority: 'medium', createdAt: '' },
-        ] as TaskFile['tasks']),
-        tempDir,
-      );
+      await safeAppendLog(accessor, { action: 'test' }, tempDir);
+
+      expect(getSafetyStats().writes).toBe(1);
 
       // Re-enable for other tests
       enableSafety();
     });
 
     it('should re-enable safety after disable', async () => {
-      const { disableSafety, enableSafety, safeSaveTaskFile } = await import(
+      const { disableSafety, enableSafety, safeSaveSessions } = await import(
         '../data-safety-central.js'
       );
 
@@ -567,25 +394,17 @@ describe('Data Safety Central', () => {
       enableSafety();
 
       const accessor = createMockAccessor();
-      accessor.loadTaskFile = async () => ({
-        ...makeTaskFile(),
-        tasks: undefined as unknown as TaskFile['tasks'],
-      });
+      // After save, return mismatched session count to trigger verification failure
+      accessor.loadSessions = async () => makeSessions(0);
 
       // Now verification should be active again and should throw
       await expect(
-        safeSaveTaskFile(
-          accessor,
-          makeTaskFile([
-            { id: 'T001', title: 'X', status: 'pending', priority: 'medium', createdAt: '' },
-          ] as TaskFile['tasks']),
-          tempDir,
-          {
-            validateSequence: false,
-            checkpoint: false,
-          },
-        ),
-      ).rejects.toThrow();
+        safeSaveSessions(accessor, makeSessions(3), tempDir, {
+          verify: true,
+          checkpoint: false,
+          strict: true,
+        }),
+      ).rejects.toThrow('count mismatch');
     });
   });
 
@@ -595,7 +414,8 @@ describe('Data Safety Central', () => {
     it('should pass when all data loads correctly', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      accessor._taskFile = makeTaskFile();
+      // Add countTasks to mock since runDataIntegrityCheck uses it
+      (accessor as Record<string, unknown>).countTasks = async () => 0;
       accessor._sessions = makeSessions();
 
       const result = await checkIntegrity(accessor, tempDir);
@@ -604,33 +424,33 @@ describe('Data Safety Central', () => {
       expect(result.stats).toBeDefined();
     });
 
-    it('should report error when TaskFile fails to load', async () => {
+    it('should report error when task count query fails', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      accessor.loadTaskFile = async () => {
+      (accessor as Record<string, unknown>).countTasks = async () => {
         throw new Error('corrupted');
       };
 
       const result = await checkIntegrity(accessor, tempDir);
 
       expect(result.passed).toBe(false);
-      expect(result.errors.some((e) => e.includes('TaskFile load failed'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('Task data query failed'))).toBe(true);
     });
 
-    it('should report error when TaskFile is missing tasks array', async () => {
+    it('should report error when task count is negative', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      accessor.loadTaskFile = async () =>
-        ({ ...makeTaskFile(), tasks: undefined }) as unknown as TaskFile;
+      (accessor as Record<string, unknown>).countTasks = async () => -1;
 
       const result = await checkIntegrity(accessor, tempDir);
 
-      expect(result.errors.some((e) => e.includes('tasks array'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('negative'))).toBe(true);
     });
 
     it('should report error when sessions fail to load', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
+      (accessor as Record<string, unknown>).countTasks = async () => 0;
       accessor.loadSessions = async () => {
         throw new Error('session corruption');
       };

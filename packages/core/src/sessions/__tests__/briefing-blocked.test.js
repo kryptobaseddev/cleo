@@ -27,11 +27,6 @@ function setupMockAccessor(tasks, focus = {
             _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
         }),
         saveSessions: vi.fn().mockResolvedValue(undefined),
-        loadTaskFile: vi.fn().mockResolvedValue({
-            tasks,
-            focus,
-            _meta: { schemaVersion: '2.10.0', activeSession: null },
-        }),
         queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
         getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(meta[key] ?? null)),
         setMetaValue: vi.fn().mockImplementation((key, value) => {
@@ -40,7 +35,6 @@ function setupMockAccessor(tasks, focus = {
         }),
         loadArchive: vi.fn().mockResolvedValue(null),
         saveArchive: vi.fn().mockResolvedValue(undefined),
-        saveTaskFile: vi.fn().mockResolvedValue(undefined),
         appendLog: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
         engine: 'sqlite',

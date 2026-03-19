@@ -14,14 +14,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 const mockLoadSessions = vi.fn();
 const mockSaveSessions = vi.fn();
-const mockLoadTaskFile = vi.fn();
-const mockSaveTaskFile = vi.fn();
+const mockGetMetaValue = vi.fn();
+const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
+const mockLoadSingleTask = vi.fn();
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockImplementation(() => Promise.resolve({
         loadSessions: mockLoadSessions,
         saveSessions: mockSaveSessions,
-        loadTaskFile: mockLoadTaskFile,
-        saveTaskFile: mockSaveTaskFile,
+        getMetaValue: mockGetMetaValue,
+        setMetaValue: mockSetMetaValue,
+        loadSingleTask: mockLoadSingleTask,
     })),
 }));
 vi.mock('../../../../../core/src/sessions/index.js', () => ({
@@ -66,17 +68,15 @@ import { sessionStart } from '../session-engine.js';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function makeTaskFile(tasks) {
-    return {
-        tasks,
-        _meta: {
-            activeSession: null,
-            checksum: 'abc',
-            generation: 1,
-        },
-        focus: null,
-        lastUpdated: new Date().toISOString(),
-    };
+/** Set up meta value mocks for a given activeSession value. */
+function setupMetaMocks(activeSession = null) {
+    mockGetMetaValue.mockImplementation((key) => {
+        if (key === 'file_meta')
+            return Promise.resolve({ activeSession, checksum: 'abc', generation: 1 });
+        if (key === 'focus_state')
+            return Promise.resolve(null);
+        return Promise.resolve(null);
+    });
 }
 const PROJECT_ROOT = '/mock/project';
 // ---------------------------------------------------------------------------
@@ -87,16 +87,12 @@ describe('Session Engine Scope (T5240)', () => {
         vi.clearAllMocks();
         mockLoadSessions.mockResolvedValue([]);
         mockSaveSessions.mockResolvedValue(undefined);
-        mockSaveTaskFile.mockResolvedValue(undefined);
+        mockSetMetaValue.mockResolvedValue(undefined);
+        mockLoadSingleTask.mockResolvedValue(null);
     });
     it('does not auto-end active session when scope is invalid', async () => {
         // Set up an active session
-        mockLoadTaskFile.mockResolvedValue({
-            tasks: [{ id: 'T001', title: 'Test', status: 'active' }],
-            _meta: { activeSession: 'ses-existing', checksum: 'abc', generation: 1 },
-            focus: null,
-            lastUpdated: new Date().toISOString(),
-        });
+        setupMetaMocks('ses-existing');
         const result = await sessionStart(PROJECT_ROOT, { scope: 'invalid-scope' });
         // Should fail without auto-ending the active session
         expect(result.success).toBe(false);
@@ -105,7 +101,7 @@ describe('Session Engine Scope (T5240)', () => {
         expect(mockSaveSessions).not.toHaveBeenCalled();
     });
     it('starts session with global scope', async () => {
-        mockLoadTaskFile.mockResolvedValue(makeTaskFile([{ id: 'T001', title: 'Test task', status: 'pending' }]));
+        setupMetaMocks(null);
         const result = await sessionStart(PROJECT_ROOT, { scope: 'global' });
         expect(result.success).toBe(true);
         expect(result.data).toBeDefined();
@@ -113,7 +109,8 @@ describe('Session Engine Scope (T5240)', () => {
         expect(result.data.id).toBe('ses-test-scope-001');
     });
     it('starts session with epic:T### scope', async () => {
-        mockLoadTaskFile.mockResolvedValue(makeTaskFile([{ id: 'T001', title: 'Epic task', status: 'active' }]));
+        setupMetaMocks(null);
+        mockLoadSingleTask.mockResolvedValue({ id: 'T001', title: 'Epic task', status: 'active' });
         const result = await sessionStart(PROJECT_ROOT, { scope: 'epic:T001' });
         expect(result.success).toBe(true);
         expect(result.data).toBeDefined();
@@ -121,7 +118,9 @@ describe('Session Engine Scope (T5240)', () => {
         expect(result.data.scope.rootTaskId).toBe('T001');
     });
     it('rejects epic scope when root task does not exist', async () => {
-        mockLoadTaskFile.mockResolvedValue(makeTaskFile([{ id: 'T001', title: 'Test', status: 'pending' }]));
+        setupMetaMocks(null);
+        // T999 does not exist — loadSingleTask returns null
+        mockLoadSingleTask.mockResolvedValue(null);
         const result = await sessionStart(PROJECT_ROOT, { scope: 'epic:T999' });
         expect(result.success).toBe(false);
         expect(result.error.message).toContain('not found');

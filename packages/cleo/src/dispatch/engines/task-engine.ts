@@ -335,8 +335,7 @@ export async function taskExists(
 ): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const data = await accessor.loadTaskFile();
-    const exists = data.tasks.some((t) => t.id === taskId);
+    const exists = await accessor.taskExists(taskId);
     return { success: true, data: { exists, taskId } };
   } catch {
     return { success: true, data: { exists: false, taskId } };

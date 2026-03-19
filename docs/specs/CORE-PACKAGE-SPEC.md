@@ -402,8 +402,10 @@ All methods are **required** (non-optional) unless explicitly noted:
 interface DataAccessor {
   readonly engine: 'sqlite';
 
-  // ---- Task data (file-level read-modify-write) ----
+  // ---- Task data (DEPRECATED — use targeted methods below) ----
+  /** @deprecated Use queryTasks/loadSingleTask/getMetaValue instead */
   loadTaskFile(): Promise<TaskFile>;
+  /** @deprecated Use upsertSingleTask/updateTaskFields/setMetaValue instead */
   saveTaskFile(data: TaskFile): Promise<void>;
 
   // ---- Archive data ----

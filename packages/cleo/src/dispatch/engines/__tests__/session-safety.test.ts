@@ -20,16 +20,16 @@ import type { Session } from '@cleocode/contracts';
 
 const mockLoadSessions = vi.fn<() => Promise<Session[]>>();
 const mockSaveSessions = vi.fn<(sessions: Session[]) => Promise<void>>();
-const mockLoadTaskFile = vi.fn();
-const mockSaveTaskFile = vi.fn();
+const mockGetMetaValue = vi.fn().mockResolvedValue(null);
+const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockImplementation(() =>
     Promise.resolve({
       loadSessions: mockLoadSessions,
       saveSessions: mockSaveSessions,
-      loadTaskFile: mockLoadTaskFile,
-      saveTaskFile: mockSaveTaskFile,
+      getMetaValue: mockGetMetaValue,
+      setMetaValue: mockSetMetaValue,
     }),
   ),
 }));

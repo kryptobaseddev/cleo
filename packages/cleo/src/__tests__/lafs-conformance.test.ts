@@ -364,11 +364,13 @@ describe('LAFS Integration with Core Modules', () => {
         createdAt: '2026-01-01T00:00:00Z',
       },
     ]);
-    taskFile.project = {
+    for (const task of taskFile.tasks) {
+      await accessor.upsertSingleTask(task);
+    }
+    await accessor.setMetaValue('project_meta', {
       name: 'Test',
       phases: { core: { order: 1, name: 'Core', status: 'active' } },
-    } as typeof taskFile.project;
-    await accessor.saveTaskFile(taskFile);
+    });
   });
 
   afterEach(async () => {

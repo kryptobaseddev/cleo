@@ -15,11 +15,10 @@
  * @epic T4732
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TaskFile } from '@cleocode/contracts';
 import type { ArchiveFile, DataAccessor, SessionsFile } from '../data-accessor.js';
 
 // Mock git-checkpoint
@@ -49,17 +48,8 @@ describe('SafetyDataAccessor', () => {
 
   // ---- Fixtures ----
 
-  const makeTaskFile = (): TaskFile => ({
-    version: '2.10.0',
-    project: { name: 'test', phases: {} },
-    lastUpdated: new Date().toISOString(),
-    _meta: { schemaVersion: '2.10.0', checksum: '0', configVersion: '1.0.0' },
-    tasks: [],
-  });
-
   function createMockAccessor(): DataAccessor {
     const data = {
-      taskFile: makeTaskFile(),
       sessions: {
         sessions: [],
         version: '1.0.0',
@@ -70,18 +60,6 @@ describe('SafetyDataAccessor', () => {
 
     return {
       engine: 'sqlite' as const,
-      async loadTaskFile() {
-        return data.taskFile;
-      },
-      async saveTaskFile(d: TaskFile) {
-        data.taskFile = d;
-      },
-      async loadTodoFile() {
-        return data.taskFile;
-      },
-      async saveTodoFile(d: TaskFile) {
-        data.taskFile = d;
-      },
       async loadArchive() {
         return data.archive;
       },
@@ -151,16 +129,6 @@ describe('SafetyDataAccessor', () => {
   // ---- Read Pass-Through ----
 
   describe('Read Operations', () => {
-    it('should pass through loadTaskFile without modification', async () => {
-      const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
-      const inner = createMockAccessor();
-      const wrapped = new SafetyDataAccessor(inner, tempDir);
-
-      const result = await wrapped.loadTaskFile();
-      expect(result).toBeDefined();
-      expect(result.version).toBe('2.10.0');
-    });
-
     it('should pass through loadSessions without modification', async () => {
       const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
       const inner = createMockAccessor();
@@ -183,25 +151,6 @@ describe('SafetyDataAccessor', () => {
   // ---- Write Operations with Safety ----
 
   describe('Write Operations', () => {
-    it('should trigger safety pipeline on saveTaskFile', async () => {
-      const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
-      const { getSafetyStats, resetSafetyStats } = await import('../data-safety-central.js');
-      resetSafetyStats();
-
-      // Create sequence file so sequence validation doesn't fail
-      await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 100 }));
-
-      const inner = createMockAccessor();
-      const wrapped = new SafetyDataAccessor(inner, tempDir, { enabled: true });
-
-      const taskFile = makeTaskFile();
-      await wrapped.saveTaskFile(taskFile);
-
-      // Stats should reflect the write
-      const stats = getSafetyStats();
-      expect(stats.writes).toBeGreaterThan(0);
-    });
-
     it('should trigger safety pipeline on saveSessions', async () => {
       const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
       const { getSafetyStats, resetSafetyStats } = await import('../data-safety-central.js');
@@ -247,35 +196,4 @@ describe('SafetyDataAccessor', () => {
     });
   });
 
-  // ---- Deprecated Aliases ----
-  // Note: SafetyDataAccessor no longer exposes loadTodoFile/saveTodoFile aliases.
-  // These tests now verify the canonical loadTaskFile/saveTaskFile methods work.
-
-  describe('Deprecated Aliases', () => {
-    it('should route loadTodoFile to loadTaskFile', async () => {
-      const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
-      const inner = createMockAccessor();
-      const wrapped = new SafetyDataAccessor(inner, tempDir);
-
-      const result = await wrapped.loadTaskFile();
-      expect(result).toBeDefined();
-      expect(result.version).toBe('2.10.0');
-    });
-
-    it('should route saveTodoFile to saveTaskFile', async () => {
-      const { SafetyDataAccessor } = await import('../safety-data-accessor.js');
-      const { getSafetyStats, resetSafetyStats } = await import('../data-safety-central.js');
-      resetSafetyStats();
-
-      // Create sequence file so sequence validation doesn't fail
-      await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 100 }));
-
-      const inner = createMockAccessor();
-      const wrapped = new SafetyDataAccessor(inner, tempDir, { enabled: true });
-
-      await wrapped.saveTaskFile(makeTaskFile());
-
-      expect(getSafetyStats().writes).toBeGreaterThan(0);
-    });
-  });
 });

@@ -457,7 +457,6 @@ export async function validateProtocolSpecification(
 // ============================================================================
 
 import { getAccessor } from '@cleocode/core/internal';
-import { computeChecksum } from '@cleocode/core/internal';
 import type { TaskVerification, VerificationGate } from '@cleocode/contracts';
 
 const VALID_GATES: VerificationGate[] = [
@@ -543,9 +542,7 @@ export async function validateGateVerify(
     }
 
     const accessor = await getAccessor(root);
-    const data = await accessor.loadTaskFile();
-
-    const task = data.tasks.find((t) => t.id === taskId);
+    const task = await accessor.loadSingleTask(taskId);
     if (!task) {
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
     }
@@ -620,10 +617,7 @@ export async function validateGateVerify(
     task.verification = verification;
     task.updatedAt = now;
 
-    data._meta.checksum = computeChecksum(data.tasks);
-    data.lastUpdated = now;
-
-    await accessor.saveTaskFile(data);
+    await accessor.upsertSingleTask(task);
 
     const missing = getMissingGates(verification);
     const result: GateVerifyResult = {

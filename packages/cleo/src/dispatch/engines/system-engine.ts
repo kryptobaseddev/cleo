@@ -333,8 +333,8 @@ export async function systemStats(
       accessor,
     );
     // Core stats lacks byPriority, byType, byPhase, cycleTimes — fill from accessor
-    const taskData = await accessor.loadTaskFile();
-    const tasks = (taskData as { tasks: TaskRecord[] })?.tasks ?? [];
+    const queryResult = await accessor.queryTasks({});
+    const tasks = (queryResult?.tasks as TaskRecord[]) ?? [];
 
     // Distribution breakdowns: active tasks only (exclude cancelled — not actionable work)
     const activeTasks = tasks.filter((t) => t.status !== 'cancelled');

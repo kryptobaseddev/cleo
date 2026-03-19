@@ -118,7 +118,7 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
  *     const data = await readJsonFile<TaskFile>(taskPath);
  *     // NEW (correct):
  *     const accessor = await getAccessor(cwd);
- *     const data = await accessor.loadTaskFile();
+ *     const data = await accessor.queryTasks({});
  */
 export function getTaskPath(cwd?: string): string {
   return join(getCleoDirAbsolute(cwd), 'tasks.db');

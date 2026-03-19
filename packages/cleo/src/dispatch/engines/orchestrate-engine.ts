@@ -83,8 +83,8 @@ async function loadTasks(projectRoot?: string): Promise<Task[]> {
   const root = projectRoot || resolveProjectRoot();
   try {
     const accessor = await getAccessor(root);
-    const taskData = await accessor.loadTaskFile();
-    return taskData?.tasks ?? [];
+    const result = await accessor.queryTasks({});
+    return result?.tasks ?? [];
   } catch {
     return [];
   }

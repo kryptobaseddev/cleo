@@ -140,11 +140,6 @@ function setupMockAccessor(tasks: unknown[] = makeMockTasks(), meta: Record<stri
       _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
     }),
     saveSessions: vi.fn().mockResolvedValue(undefined),
-    loadTaskFile: vi.fn().mockResolvedValue({
-      tasks,
-      focus,
-      _meta: fileMeta,
-    }),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
     getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
     setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
@@ -153,7 +148,6 @@ function setupMockAccessor(tasks: unknown[] = makeMockTasks(), meta: Record<stri
     }),
     loadArchive: vi.fn().mockResolvedValue(null),
     saveArchive: vi.fn().mockResolvedValue(undefined),
-    saveTaskFile: vi.fn().mockResolvedValue(undefined),
     appendLog: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     engine: 'sqlite' as const,
@@ -317,11 +311,6 @@ describe('computeBriefing scope filtering', () => {
         _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
       }),
       saveSessions: vi.fn().mockResolvedValue(undefined),
-      loadTaskFile: vi.fn().mockResolvedValue({
-        tasks,
-        focus: focusState,
-        _meta: fileMetaVal,
-      }),
       queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
       getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(inlineMetaStore[key] ?? null)),
       setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
@@ -330,7 +319,6 @@ describe('computeBriefing scope filtering', () => {
       }),
       loadArchive: vi.fn().mockResolvedValue(null),
       saveArchive: vi.fn().mockResolvedValue(undefined),
-      saveTaskFile: vi.fn().mockResolvedValue(undefined),
       appendLog: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
       engine: 'sqlite' as const,

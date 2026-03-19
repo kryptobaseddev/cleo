@@ -96,8 +96,6 @@ function createMockStore() {
         accessor: {
             loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessions)),
             saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
-            loadTaskFile: vi.fn().mockImplementation(() => Promise.resolve(taskData)),
-            saveTaskFile: vi.fn().mockImplementation(() => Promise.resolve()),
             queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
             getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
             setMetaValue: vi.fn().mockImplementation((key, value) => {

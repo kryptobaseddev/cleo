@@ -71,7 +71,7 @@ export async function sessionStatus(projectRoot: string): Promise<
 > {
   try {
     const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
+    const focusState = await accessor.getMetaValue<TaskWorkState>('focus_state');
 
     const sessions = await accessor.loadSessions();
     const active = sessions.find((s: Session) => s.status === 'active');
@@ -81,7 +81,7 @@ export async function sessionStatus(projectRoot: string): Promise<
       data: {
         hasActiveSession: !!active,
         session: active || null,
-        taskWork: (taskData.focus as TaskWorkState | undefined) || null,
+        taskWork: focusState || null,
       },
     };
   } catch {
@@ -296,7 +296,6 @@ export async function sessionStart(
 ): Promise<EngineResult<Session>> {
   try {
     let accessor = await getAccessor(projectRoot);
-    let taskData = await accessor.loadTaskFile();
 
     // Validate scope BEFORE auto-ending active session (prevents data loss on invalid input)
     let scope: ReturnType<typeof parseScope>;
@@ -308,19 +307,19 @@ export async function sessionStart(
 
     // For non-global scopes, verify root task exists before auto-ending
     if (scope.type !== 'global') {
-      const rootTask = taskData.tasks?.find((t) => t.id === scope.rootTaskId);
+      const rootTask = await accessor.loadSingleTask(scope.rootTaskId!);
       if (!rootTask) {
         return engineError('E_NOT_FOUND', `Root task '${scope.rootTaskId}' not found`);
       }
     }
 
     // Auto-end any active session before starting a new one
-    const activeSessionId = taskData._meta?.activeSession;
+    const fileMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta');
+    const activeSessionId = fileMeta?.activeSession as string | undefined;
     if (activeSessionId) {
       await sessionEnd(projectRoot);
-      // Reload after auto-end modified the task file
+      // Reload after auto-end
       accessor = await getAccessor(projectRoot);
-      taskData = await accessor.loadTaskFile();
     }
 
     const now = new Date().toISOString();
@@ -381,34 +380,32 @@ export async function sessionStart(
       },
     };
 
-    // Update focus in task file
-    if (!taskData.focus) {
-      taskData.focus = {
-        currentTask: null,
-        currentPhase: null,
-        blockedUntil: null,
-        sessionNote: null,
-        sessionNotes: [],
-        nextAction: null,
-        primarySession: null,
-      };
-    }
+    // Update focus state via metadata
+    const existingFocus = await accessor.getMetaValue<TaskWorkState>('focus_state') ?? {
+      currentTask: null,
+      currentPhase: null,
+      blockedUntil: null,
+      sessionNote: null,
+      sessionNotes: [],
+      nextAction: null,
+      primarySession: null,
+    };
 
     const startingTask = params.startTask;
     if (startingTask) {
-      taskData.focus.currentTask = startingTask;
+      existingFocus.currentTask = startingTask;
     } else if (params.autoStart && rootTaskId) {
-      taskData.focus.currentTask = rootTaskId;
+      existingFocus.currentTask = rootTaskId;
     }
 
-    if (taskData._meta) {
-      taskData._meta.lastSessionId = sessionId;
-      taskData._meta.activeSession = sessionId;
-      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
-    }
+    await accessor.setMetaValue('focus_state', existingFocus);
 
-    taskData.lastUpdated = now;
-    await accessor.saveTaskFile(taskData);
+    // Update file meta
+    const currentMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
+    currentMeta.lastSessionId = sessionId;
+    currentMeta.activeSession = sessionId;
+    currentMeta.generation = ((currentMeta.generation as number) || 0) + 1;
+    await accessor.setMetaValue('file_meta', currentMeta);
 
     // Write to sessions store so resume/suspend can find the session.
     {
@@ -498,9 +495,9 @@ export async function sessionEnd(
 ): Promise<EngineResult<{ sessionId: string; ended: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
+    const fileMetaEnd = await accessor.getMetaValue<Record<string, unknown>>('file_meta');
 
-    const sessionId = taskData._meta?.activeSession;
+    const sessionId = fileMetaEnd?.activeSession as string | undefined;
     if (!sessionId) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
         fix: 'Start a session first with: session start --scope <scope> --name <name>',
@@ -513,21 +510,22 @@ export async function sessionEnd(
     // is responsible for cleanup after evaluation completes.
 
     // Clear focus
-    if (taskData.focus) {
-      taskData.focus.currentTask = null;
+    const focusEnd = await accessor.getMetaValue<TaskWorkState>('focus_state');
+    if (focusEnd) {
+      focusEnd.currentTask = null;
       if (notes) {
-        if (!taskData.focus.sessionNotes) taskData.focus.sessionNotes = [];
-        taskData.focus.sessionNotes.push({ timestamp: now, note: notes });
+        if (!focusEnd.sessionNotes) focusEnd.sessionNotes = [];
+        focusEnd.sessionNotes.push({ timestamp: now, note: notes });
       }
+      await accessor.setMetaValue('focus_state', focusEnd);
     }
 
-    if (taskData._meta) {
-      taskData._meta.activeSession = null;
-      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
+    // Clear active session in file meta
+    if (fileMetaEnd) {
+      fileMetaEnd.activeSession = null;
+      fileMetaEnd.generation = ((fileMetaEnd.generation as number) || 0) + 1;
+      await accessor.setMetaValue('file_meta', fileMetaEnd);
     }
-
-    taskData.lastUpdated = now;
-    await accessor.saveTaskFile(taskData);
 
     // Update session record in SQLite
     if (sessionId !== 'default') {
@@ -559,7 +557,6 @@ export async function sessionResume(
 ): Promise<EngineResult<Session>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
 
     // Look up sessions from the store.
     const sessions = await accessor.loadSessions();
@@ -582,25 +579,25 @@ export async function sessionResume(
       );
     }
 
-    const now = new Date().toISOString();
-
     session.status = 'active';
     session.endedAt = undefined;
     session.resumeCount = (session.resumeCount || 0) + 1;
 
-    // Update task file to reflect active session
-    if (taskData._meta) {
-      taskData._meta.activeSession = sessionId;
-      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
+    // Update file meta to reflect active session
+    const resumeMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
+    resumeMeta.activeSession = sessionId;
+    resumeMeta.generation = ((resumeMeta.generation as number) || 0) + 1;
+    await accessor.setMetaValue('file_meta', resumeMeta);
+
+    // Restore focus from session task work
+    if (session.taskWork?.taskId) {
+      const resumeFocus = await accessor.getMetaValue<TaskWorkState>('focus_state');
+      if (resumeFocus) {
+        resumeFocus.currentTask = session.taskWork.taskId;
+        await accessor.setMetaValue('focus_state', resumeFocus);
+      }
     }
 
-    if (session.taskWork?.taskId && taskData.focus) {
-      taskData.focus.currentTask = session.taskWork.taskId;
-    }
-
-    taskData.lastUpdated = now;
-
-    await accessor.saveTaskFile(taskData);
     await accessor.saveSessions(sessions);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)

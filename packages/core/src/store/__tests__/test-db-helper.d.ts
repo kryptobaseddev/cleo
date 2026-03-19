@@ -33,7 +33,7 @@ export interface TestDbEnv {
 export declare function createTestDb(): Promise<TestDbEnv>;
 /**
  * Build a TaskFile structure from a list of task partials.
- * Useful for seeding test data via accessor.saveTaskFile().
+ * Useful for seeding test data via accessor.upsertSingleTask().
  */
 export declare function makeTaskFile(tasks: Array<Partial<Task> & {
     id: string;

@@ -41,7 +41,7 @@ export async function createTestDb() {
 }
 /**
  * Build a TaskFile structure from a list of task partials.
- * Useful for seeding test data via accessor.saveTaskFile().
+ * Useful for seeding test data via accessor.upsertSingleTask().
  */
 export function makeTaskFile(tasks) {
     const fullTasks = tasks.map((t) => ({

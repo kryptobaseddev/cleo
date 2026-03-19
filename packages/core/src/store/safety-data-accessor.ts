@@ -16,7 +16,7 @@
 
 import { getLogger } from '../logger.js';
 import type { Session } from '@cleocode/contracts';
-import type { Task, TaskFile, TaskStatus } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import type {
   ArchiveFile,
   DataAccessor,
@@ -30,7 +30,6 @@ import {
   safeAppendLog,
   safeSaveArchive,
   safeSaveSessions,
-  safeSaveTaskFile,
   safeSingleTaskWrite,
 } from './data-safety-central.js';
 import type { ArchiveFields } from './db-helpers.js';
@@ -118,12 +117,6 @@ export class SafetyDataAccessor implements DataAccessor {
 
   // ---- Read operations (pass-through) ----
 
-  async loadTaskFile(): Promise<TaskFile> {
-    this.logVerbose('Loading TaskFile (pass-through)');
-    // Call deprecated method on inner accessor (underlying implementations use old names)
-    return this.inner.loadTaskFile();
-  }
-
   async loadArchive(): Promise<ArchiveFile | null> {
     this.logVerbose('Loading ArchiveFile (pass-through)');
     return this.inner.loadArchive();
@@ -135,11 +128,6 @@ export class SafetyDataAccessor implements DataAccessor {
   }
 
   // ---- Write operations (with safety) ----
-
-  async saveTaskFile(data: TaskFile): Promise<void> {
-    this.logVerbose(`Saving TaskFile with ${data.tasks?.length ?? 0} tasks`);
-    await safeSaveTaskFile(this.inner, data, this.cwd, this.getSafetyOptions());
-  }
 
   async saveSessions(data: Session[]): Promise<void> {
     this.logVerbose(`Saving sessions with ${data.length} sessions`);

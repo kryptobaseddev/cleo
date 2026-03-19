@@ -19,7 +19,6 @@
 import { getLogger } from '../logger.js';
 import { checkSequence, repairSequence } from '../sequence/index.js';
 import type { Session } from '@cleocode/contracts';
-import type { TaskFile } from '@cleocode/contracts';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';
@@ -130,78 +129,6 @@ async function checkpoint(context: string, cwd?: string, options?: SafetyOptions
 }
 
 /**
- * Verify tasks were written correctly.
- * Uses targeted queries instead of full-file reload where possible.
- */
-async function verifyTaskData(
-  data: TaskFile,
-  accessor: DataAccessor,
-  options?: SafetyOptions,
-): Promise<void> {
-  if (!options?.verify) return;
-
-  stats.verifications++;
-
-  // Use countTasks for count validation if available, fall back to loadTaskFile
-  if (typeof accessor.countTasks === 'function') {
-    const expectedCount = data.tasks?.length ?? 0;
-    const actualCount = await accessor.countTasks();
-
-    if (actualCount !== expectedCount) {
-      throw new DataSafetyError(
-        `Task data verification failed: task count mismatch. Expected ${expectedCount}, got ${actualCount}`,
-        'VERIFICATION_FAILED',
-        { expected: expectedCount, actual: actualCount },
-      );
-    }
-
-    // Verify specific tasks via loadSingleTask
-    if (data.tasks && data.tasks.length > 0 && typeof accessor.loadSingleTask === 'function') {
-      const lastTask = data.tasks[data.tasks.length - 1];
-      const found = await accessor.loadSingleTask(lastTask!.id);
-      if (!found && options.strict) {
-        throw new DataSafetyError(
-          `Task data verification failed: last written task ${lastTask!.id} not found`,
-          'VERIFICATION_FAILED',
-          { taskId: lastTask!.id },
-        );
-      }
-    }
-  } else {
-    // Fallback for accessors without targeted query methods
-    const readBack = await accessor.loadTaskFile();
-
-    if (!readBack.tasks) {
-      throw new DataSafetyError(
-        'TaskFile verification failed: tasks array missing after write',
-        'VERIFICATION_FAILED',
-        { expected: data.tasks?.length, actual: readBack.tasks },
-      );
-    }
-
-    if (readBack.tasks.length !== data.tasks?.length) {
-      throw new DataSafetyError(
-        `TaskFile verification failed: task count mismatch. Expected ${data.tasks?.length}, got ${readBack.tasks.length}`,
-        'VERIFICATION_FAILED',
-        { expected: data.tasks?.length, actual: readBack.tasks.length },
-      );
-    }
-
-    if (data.tasks && data.tasks.length > 0) {
-      const lastTask = data.tasks[data.tasks.length - 1];
-      const found = readBack.tasks.find((t) => t.id === lastTask!.id);
-      if (!found && options.strict) {
-        throw new DataSafetyError(
-          `TaskFile verification failed: last written task ${lastTask!.id} not found`,
-          'VERIFICATION_FAILED',
-          { taskId: lastTask!.id },
-        );
-      }
-    }
-  }
-}
-
-/**
  * Verify sessions were written correctly.
  */
 async function verifySessions(
@@ -252,51 +179,6 @@ async function verifyArchiveFile(
       { expected: data.archivedTasks.length, actual: readBack.archivedTasks.length },
     );
   }
-}
-
-/**
- * Safe wrapper for DataAccessor.saveTaskFile()
- *
- * Performs:
- * 1. Sequence validation
- * 2. Write operation
- * 3. Verification (read back and validate)
- * 4. Git checkpoint
- */
-export async function safeSaveTaskFile(
-  accessor: DataAccessor,
-  data: TaskFile,
-  cwd?: string,
-  options?: Partial<SafetyOptions>,
-): Promise<void> {
-  const opts = { ...DEFAULT_SAFETY, ...options };
-
-  // 1. Validate sequence
-  await ensureSequenceValid(cwd, opts);
-
-  // 2. Perform write
-  await accessor.saveTaskFile(data);
-  stats.writes++;
-
-  // 3. Verify write
-  await verifyTaskData(data, accessor, opts);
-
-  // 4. Checkpoint
-  const taskCount = data.tasks?.length ?? 0;
-  await checkpoint(`saved TaskFile (${taskCount} tasks)`, cwd, opts);
-}
-
-/**
- * Preferred alias for task domain data writes.
- * Maintained alongside safeSaveTaskFile for compatibility.
- */
-export async function safeSaveTaskData(
-  accessor: DataAccessor,
-  data: TaskFile,
-  cwd?: string,
-  options?: Partial<SafetyOptions>,
-): Promise<void> {
-  await safeSaveTaskFile(accessor, data, cwd, options);
 }
 
 /**
@@ -422,16 +304,9 @@ export async function runDataIntegrityCheck(
 
   // 2. Verify task data can be queried
   try {
-    if (typeof accessor.countTasks === 'function') {
-      const count = await accessor.countTasks();
-      if (count < 0) {
-        errors.push('Task count returned negative value');
-      }
-    } else {
-      const tasks = await accessor.loadTaskFile();
-      if (!tasks.tasks) {
-        errors.push('TaskFile missing tasks array');
-      }
+    const count = await accessor.countTasks();
+    if (count < 0) {
+      errors.push('Task count returned negative value');
     }
   } catch (err) {
     errors.push(`Task data query failed: ${String(err)}`);

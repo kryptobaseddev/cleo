@@ -60,7 +60,7 @@ export async function createTestDb(): Promise<TestDbEnv> {
 
 /**
  * Build a TaskFile structure from a list of task partials.
- * Useful for seeding test data via accessor.saveTaskFile().
+ * Useful for seeding test data via accessor.upsertSingleTask().
  */
 export function makeTaskFile(tasks: Array<Partial<Task> & { id: string }>): TaskFile {
   const fullTasks: Task[] = tasks.map(

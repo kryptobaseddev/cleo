@@ -1,7 +1,7 @@
 /**
  * DataAccessor: File-level storage abstraction for core modules.
  *
- * Core modules operate on whole-file data structures (TaskFile, ArchiveFile, SessionsFile).
+ * Core modules operate on whole-file data structures (ArchiveFile, SessionsFile).
  * The DataAccessor abstracts WHERE that data is stored (SQLite via Drizzle ORM)
  * while preserving the read-modify-write pattern that core business logic relies on.
  *
@@ -17,7 +17,6 @@ import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
 import type {
   Task,
-  TaskFile,
   TaskPriority,
   TaskSize,
   TaskStatus,
@@ -115,29 +114,6 @@ export interface TransactionAccessor {
 export interface DataAccessor {
   /** The storage engine backing this accessor. */
   readonly engine: 'sqlite';
-
-  // ---- Task data ----
-
-  /**
-   * Load the full TaskFile (tasks + project meta + work state).
-   *
-   * @deprecated Use targeted query methods instead: `queryTasks()`, `loadSingleTask()`,
-   * `getMetaValue()`, `getChildren()`, `getDependents()`, `getAncestorChain()`, `getSubtree()`,
-   * `loadTasks()`, `countTasks()`. Loading the entire task database into memory is inefficient
-   * and creates TOCTOU race conditions in concurrent multi-agent workflows.
-   * Retained only for data-safety-central fallback paths and SafetyDataAccessor passthrough.
-   */
-  loadTaskFile(): Promise<TaskFile>;
-
-  /**
-   * Save the full TaskFile atomically. Creates backup before write.
-   *
-   * @deprecated Use targeted write methods instead: `upsertSingleTask()`, `updateTaskFields()`,
-   * `setMetaValue()`, `archiveSingleTask()`, `transaction()`. Full-file saves cause N+1 UPSERT
-   * queries and silently clobber concurrent writes from other agents.
-   * Retained only for data-safety-central `safeSaveTaskFile()` wrapper.
-   */
-  saveTaskFile(data: TaskFile): Promise<void>;
 
   // ---- Archive data ----
 

@@ -100,8 +100,7 @@ export function registerRestoreCommand(program: Command): void {
         const accessor = await getAccessor();
 
         // First, check if task exists in active tasks
-        const data = await accessor.loadTaskFile();
-        const activeTask = data.tasks.find((t) => t.id === taskId);
+        const activeTask = await accessor.loadSingleTask(taskId);
 
         if (activeTask) {
           // Task is active but might be in terminal state (cancelled, done)

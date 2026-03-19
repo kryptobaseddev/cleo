@@ -5,7 +5,7 @@
  * with sequence validation, write verification, and checkpointing.
  *
  * Coverage:
- * - safeSaveTaskFile: sequence check -> write -> verify -> checkpoint
+ * - safeSaveSessions: write -> verify -> checkpoint
  * - safeSaveSessions: write -> verify -> checkpoint
  * - safeSaveArchive: write -> verify -> checkpoint
  * - safeAppendLog: write -> checkpoint (no verification)
