@@ -1,7 +1,7 @@
 # . - Full Context
 
 Root: .
-Generated: 2026-03-19T19:05:15.908Z
+Generated: 2026-03-19T20:29:41.352Z
 
 ## Functions
 
@@ -48054,131 +48054,131 @@ Query operation matrix - all read operations by domain.  DERIVED from the dispat
 
 ### getAllProviders
 
-any
+Mock<() => never[]>
 
 ### getProvider
 
-any
+Mock<() => null>
 
 ### resolveAlias
 
-any
+Mock<(alias: string) => string>
 
 ### detectAllProviders
 
-any
+Mock<() => never[]>
 
 ### getInstalledProviders
 
-any
+Mock<() => never[]>
 
 ### getProviderCount
 
-any
+Mock<() => number>
 
 ### getRegistryVersion
 
-any
+Mock<() => string>
 
 ### getInstructionFiles
 
-any
+Mock<() => never[]>
 
 ### getProvidersByHookEvent
 
-any
+Mock<() => never[]>
 
 ### getCommonHookEvents
 
-any
+Mock<() => never[]>
 
 ### installMcpServer
 
-any
+Mock<() => Promise<{ installed: boolean; }>>
 
 ### listMcpServers
 
-any
+Mock<() => Promise<never[]>>
 
 ### listAllMcpServers
 
-any
+Mock<() => Promise<never[]>>
 
 ### removeMcpServer
 
-any
+Mock<() => Promise<boolean>>
 
 ### resolveConfigPath
 
-any
+Mock<() => null>
 
 ### buildServerConfig
 
-any
+Mock<() => {}>
 
 ### inject
 
-any
+Mock<() => Promise<string>>
 
 ### checkInjection
 
-any
+Mock<() => Promise<{ injected: boolean; }>>
 
 ### checkAllInjections
 
-any
+Mock<() => Promise<never[]>>
 
 ### injectAll
 
-any
+Mock<() => Promise<Map<any, any>>>
 
 ### generateInjectionContent
 
-any
+Mock<() => string>
 
 ### installBatchWithRollback
 
-any
+Mock<() => Promise<{ success: boolean; results: never[]; rolledBack: boolean; }>>
 
 ### configureProviderGlobalAndProject
 
-any
+Mock<() => Promise<{ global: { success: boolean; }; project: { success: boolean; }; }>>
 
 ### getCanonicalSkillsDir
 
-any
+Mock<() => string>
 
 ### parseSkillFile
 
-any
+Mock<() => Promise<null>>
 
 ### discoverSkill
 
-any
+Mock<() => Promise<null>>
 
 ### discoverSkills
 
-any
+Mock<() => Promise<never[]>>
 
 ### getTrackedSkills
 
-any
+Mock<() => Promise<{}>>
 
 ### recordSkillInstall
 
-any
+Mock<() => Promise<void>>
 
 ### removeSkillFromLock
 
-any
+Mock<() => Promise<boolean>>
 
 ### checkSkillUpdate
 
-any
+Mock<() => Promise<{ needsUpdate: boolean; }>>
 
 ### catalog
 
-{ getSkills: any; listSkills: any; getSkill: any; getCoreSkills: any; getSkillsByCategory: any; getDispatchMatrix: any; getManifest: any; getVersion: any; isCatalogAvailable: any; validateSkillFrontmatter: any; ... 15 more ...; getLibraryRoot: any; }
+{ getSkills: Mock<() => never[]>; listSkills: Mock<() => never[]>; getSkill: Mock<() => undefined>; getCoreSkills: Mock<() => never[]>; getSkillsByCategory: Mock<() => never[]>; ... 20 more ...; getLibraryRoot: Mock<...>; }
 
 ### fixtures
 

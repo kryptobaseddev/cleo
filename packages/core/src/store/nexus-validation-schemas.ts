@@ -20,8 +20,9 @@ import { z } from 'zod/v4';
 // the same z we use everywhere. The type assertion is needed because
 // drizzle-orm beta.18's CoerceOptions type doesn't match zod/v4's coerce
 // namespace shape (works correctly at runtime).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { createInsertSchema, createSelectSchema } = createSchemaFactory(z as any);
+const { createInsertSchema, createSelectSchema } = createSchemaFactory(
+  z as unknown as Parameters<typeof createSchemaFactory>[0],
+);
 
 import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from './nexus-schema.js';
 

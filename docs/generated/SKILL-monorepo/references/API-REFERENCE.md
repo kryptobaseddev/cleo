@@ -37516,193 +37516,193 @@ Record<string, string[]>
 ### `getAllProviders`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProvider`
 
 ```typescript
-any
+Mock<() => null>
 ```
 
 ### `resolveAlias`
 
 ```typescript
-any
+Mock<(alias: string) => string>
 ```
 
 ### `detectAllProviders`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getInstalledProviders`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProviderCount`
 
 ```typescript
-any
+Mock<() => number>
 ```
 
 ### `getRegistryVersion`
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `getInstructionFiles`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProvidersByHookEvent`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getCommonHookEvents`
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `installMcpServer`
 
 ```typescript
-any
+Mock<() => Promise<{ installed: boolean; }>>
 ```
 
 ### `listMcpServers`
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `listAllMcpServers`
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `removeMcpServer`
 
 ```typescript
-any
+Mock<() => Promise<boolean>>
 ```
 
 ### `resolveConfigPath`
 
 ```typescript
-any
+Mock<() => null>
 ```
 
 ### `buildServerConfig`
 
 ```typescript
-any
+Mock<() => {}>
 ```
 
 ### `inject`
 
 ```typescript
-any
+Mock<() => Promise<string>>
 ```
 
 ### `checkInjection`
 
 ```typescript
-any
+Mock<() => Promise<{ injected: boolean; }>>
 ```
 
 ### `checkAllInjections`
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `injectAll`
 
 ```typescript
-any
+Mock<() => Promise<Map<any, any>>>
 ```
 
 ### `generateInjectionContent`
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `installBatchWithRollback`
 
 ```typescript
-any
+Mock<() => Promise<{ success: boolean; results: never[]; rolledBack: boolean; }>>
 ```
 
 ### `configureProviderGlobalAndProject`
 
 ```typescript
-any
+Mock<() => Promise<{ global: { success: boolean; }; project: { success: boolean; }; }>>
 ```
 
 ### `getCanonicalSkillsDir`
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `parseSkillFile`
 
 ```typescript
-any
+Mock<() => Promise<null>>
 ```
 
 ### `discoverSkill`
 
 ```typescript
-any
+Mock<() => Promise<null>>
 ```
 
 ### `discoverSkills`
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `getTrackedSkills`
 
 ```typescript
-any
+Mock<() => Promise<{}>>
 ```
 
 ### `recordSkillInstall`
 
 ```typescript
-any
+Mock<() => Promise<void>>
 ```
 
 ### `removeSkillFromLock`
 
 ```typescript
-any
+Mock<() => Promise<boolean>>
 ```
 
 ### `checkSkillUpdate`
 
 ```typescript
-any
+Mock<() => Promise<{ needsUpdate: boolean; }>>
 ```
 
 ### `catalog`
 
 ```typescript
-{ getSkills: any; listSkills: any; getSkill: any; getCoreSkills: any; getSkillsByCategory: any; getDispatchMatrix: any; getManifest: any; getVersion: any; isCatalogAvailable: any; validateSkillFrontmatter: any; ... 15 more ...; getLibraryRoot: any; }
+{ getSkills: Mock<() => never[]>; listSkills: Mock<() => never[]>; getSkill: Mock<() => undefined>; getCoreSkills: Mock<() => never[]>; getSkillsByCategory: Mock<() => never[]>; ... 20 more ...; getLibraryRoot: Mock<...>; }
 ```
 
 ### `fixtures`

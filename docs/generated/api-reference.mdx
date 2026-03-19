@@ -11803,7 +11803,7 @@ Creates an error executor result
 
 ### `getResponseData()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:22`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:23`_
 
 ```typescript
 (result: any) => any
@@ -11813,7 +11813,7 @@ Extract data payload from an ExecutorResult, handling LAFS envelope.  When the e
 
 ### `setupE2ETest()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:43`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:44`_
 
 ```typescript
 () => Promise<IntegrationTestContext>
@@ -11823,7 +11823,7 @@ Setup E2E test environment  Creates a fresh integration test context with: - CLI
 
 ### `cleanupE2ETest()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:57`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:58`_
 
 ```typescript
 () => Promise<void>
@@ -11833,7 +11833,7 @@ Cleanup E2E test environment  Archives all created tasks, ends session, removes 
 
 ### `getE2EContext()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:69`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:70`_
 
 ```typescript
 () => IntegrationTestContext
@@ -11843,7 +11843,7 @@ Get current E2E test context
 
 ### `extractTaskId()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:79`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:80`_
 
 ```typescript
 (result: any) => string
@@ -11853,7 +11853,7 @@ Extract task ID from operation result
 
 ### `extractSessionId()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:100`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:101`_
 
 ```typescript
 (result: any) => string
@@ -11863,7 +11863,7 @@ Extract session ID from operation result
 
 ### `verifyResponseFormat()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:125`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:126`_
 
 ```typescript
 (response: any, _expectedGateway: "query" | "mutate", _expectedDomain: string, _expectedOperation: string) => void
@@ -11873,7 +11873,7 @@ Verify response format matches specification  E2E tests run through the CLI exec
 
 ### `waitFor()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:148`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:149`_
 
 ```typescript
 (condition: () => Promise<boolean>, options?: { timeout?: number | undefined; interval?: number | undefined; errorMessage?: string | undefined; } | undefined) => Promise<void>
@@ -11883,7 +11883,7 @@ Wait for condition to be true with timeout
 
 ### `sleep()`
 
-_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:173`_
+_Defined in `packages/cleo/src/mcp/__tests__/e2e/setup.ts:174`_
 
 ```typescript
 (ms: number) => Promise<void>
@@ -86464,258 +86464,258 @@ Query operation matrix - all read operations by domain.  DERIVED from the dispat
 
 ### `getAllProviders`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:12`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:14`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProvider`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:13`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:15`_
 
 ```typescript
-any
+Mock<() => null>
 ```
 
 ### `resolveAlias`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:14`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:16`_
 
 ```typescript
-any
+Mock<(alias: string) => string>
 ```
 
 ### `detectAllProviders`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:15`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:17`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getInstalledProviders`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:16`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:18`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProviderCount`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:17`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:19`_
 
 ```typescript
-any
+Mock<() => number>
 ```
 
 ### `getRegistryVersion`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:18`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:20`_
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `getInstructionFiles`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:19`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:21`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getProvidersByHookEvent`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:20`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:22`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `getCommonHookEvents`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:21`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:23`_
 
 ```typescript
-any
+Mock<() => never[]>
 ```
 
 ### `installMcpServer`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:24`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:26`_
 
 ```typescript
-any
+Mock<() => Promise<{ installed: boolean; }>>
 ```
 
 ### `listMcpServers`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:25`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:27`_
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `listAllMcpServers`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:26`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:28`_
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `removeMcpServer`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:27`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:29`_
 
 ```typescript
-any
+Mock<() => Promise<boolean>>
 ```
 
 ### `resolveConfigPath`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:28`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:30`_
 
 ```typescript
-any
+Mock<() => null>
 ```
 
 ### `buildServerConfig`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:29`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:31`_
 
 ```typescript
-any
+Mock<() => {}>
 ```
 
 ### `inject`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:32`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:34`_
 
 ```typescript
-any
+Mock<() => Promise<string>>
 ```
 
 ### `checkInjection`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:33`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:35`_
 
 ```typescript
-any
+Mock<() => Promise<{ injected: boolean; }>>
 ```
 
 ### `checkAllInjections`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:34`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:36`_
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `injectAll`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:35`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:37`_
 
 ```typescript
-any
+Mock<() => Promise<Map<any, any>>>
 ```
 
 ### `generateInjectionContent`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:36`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:38`_
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `installBatchWithRollback`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:39`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:41`_
 
 ```typescript
-any
+Mock<() => Promise<{ success: boolean; results: never[]; rolledBack: boolean; }>>
 ```
 
 ### `configureProviderGlobalAndProject`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:44`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:46`_
 
 ```typescript
-any
+Mock<() => Promise<{ global: { success: boolean; }; project: { success: boolean; }; }>>
 ```
 
 ### `getCanonicalSkillsDir`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:50`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:52`_
 
 ```typescript
-any
+Mock<() => string>
 ```
 
 ### `parseSkillFile`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:51`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:53`_
 
 ```typescript
-any
+Mock<() => Promise<null>>
 ```
 
 ### `discoverSkill`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:52`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:54`_
 
 ```typescript
-any
+Mock<() => Promise<null>>
 ```
 
 ### `discoverSkills`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:53`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:55`_
 
 ```typescript
-any
+Mock<() => Promise<never[]>>
 ```
 
 ### `getTrackedSkills`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:54`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:56`_
 
 ```typescript
-any
+Mock<() => Promise<{}>>
 ```
 
 ### `recordSkillInstall`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:55`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:57`_
 
 ```typescript
-any
+Mock<() => Promise<void>>
 ```
 
 ### `removeSkillFromLock`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:56`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:58`_
 
 ```typescript
-any
+Mock<() => Promise<boolean>>
 ```
 
 ### `checkSkillUpdate`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:57`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:59`_
 
 ```typescript
-any
+Mock<() => Promise<{ needsUpdate: boolean; }>>
 ```
 
 ### `catalog`
 
-_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:58`_
+_Defined in `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts:60`_
 
 ```typescript
-{ getSkills: any; listSkills: any; getSkill: any; getCoreSkills: any; getSkillsByCategory: any; getDispatchMatrix: any; getManifest: any; getVersion: any; isCatalogAvailable: any; validateSkillFrontmatter: any; ... 15 more ...; getLibraryRoot: any; }
+{ getSkills: Mock<() => never[]>; listSkills: Mock<() => never[]>; getSkill: Mock<() => undefined>; getCoreSkills: Mock<() => never[]>; getSkillsByCategory: Mock<() => never[]>; ... 20 more ...; getLibraryRoot: Mock<...>; }
 ```
 
 ### `fixtures`

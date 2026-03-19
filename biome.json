@@ -48,9 +48,12 @@
   },
   "overrides": [
     {
-      "includes": ["**/*.test.ts", "**/__tests__/**"],
+      "includes": ["**/*.test.ts", "**/__tests__/**", "**/__mocks__/**", "**/*.d.ts"],
       "linter": {
         "rules": {
+          "complexity": {
+            "noBannedTypes": "off"
+          },
           "suspicious": {
             "noExplicitAny": "off"
           },

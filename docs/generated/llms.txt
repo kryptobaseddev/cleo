@@ -1118,38 +1118,38 @@ any - MCP Resource content response.
 () => McpResource[] - List all available CLEO memory resources.
 (server: Server<{ method: string; params?: { [x: string]: unknown; _meta?: { [x: string]: unknown; progressToken?: string | number | undefined; "io.modelcontextprotocol/related-task"?: { taskId: string; } | undefined; } | undefined; } | undefined; }, { ...; }, { ...; }>) => void - Register MCP resource handlers on the server.
 (uri: string, tokenBudget?: number | undefined) => Promise<McpResourceContent | null> - Read a CLEO memory resource by URI.
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-{ getSkills: any; listSkills: any; getSkill: any; getCoreSkills: any; getSkillsByCategory: any; getDispatchMatrix: any; getManifest: any; getVersion: any; isCatalogAvailable: any; validateSkillFrontmatter: any; ... 15 more ...; getLibraryRoot: any; }
+Mock<() => never[]>
+Mock<() => null>
+Mock<(alias: string) => string>
+Mock<() => never[]>
+Mock<() => never[]>
+Mock<() => number>
+Mock<() => string>
+Mock<() => never[]>
+Mock<() => never[]>
+Mock<() => never[]>
+Mock<() => Promise<{ installed: boolean; }>>
+Mock<() => Promise<never[]>>
+Mock<() => Promise<never[]>>
+Mock<() => Promise<boolean>>
+Mock<() => null>
+Mock<() => {}>
+Mock<() => Promise<string>>
+Mock<() => Promise<{ injected: boolean; }>>
+Mock<() => Promise<never[]>>
+Mock<() => Promise<Map<any, any>>>
+Mock<() => string>
+Mock<() => Promise<{ success: boolean; results: never[]; rolledBack: boolean; }>>
+Mock<() => Promise<{ global: { success: boolean; }; project: { success: boolean; }; }>>
+Mock<() => string>
+Mock<() => Promise<null>>
+Mock<() => Promise<null>>
+Mock<() => Promise<never[]>>
+Mock<() => Promise<{}>>
+Mock<() => Promise<void>>
+Mock<() => Promise<boolean>>
+Mock<() => Promise<{ needsUpdate: boolean; }>>
+{ getSkills: Mock<() => never[]>; listSkills: Mock<() => never[]>; getSkill: Mock<() => undefined>; getCoreSkills: Mock<() => never[]>; getSkillsByCategory: Mock<() => never[]>; ... 20 more ...; getLibraryRoot: Mock<...>; }
 any
 () => Promise<TestEnvironment> - Create an isolated test CLEO environment.  This initializes a fresh CLEO project in a temporary directory, disables session enforcement, and pre-populates test data.
 (env: TestEnvironment) => Promise<void> - Destroy the test environment and clean up all temporary files.
