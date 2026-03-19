@@ -18,7 +18,8 @@
  */
 
 import { getAccessor } from '../store/data-accessor.js';
-import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
+import type { TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
@@ -138,20 +139,18 @@ export async function computeBriefing(
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
 
   // Build a TaskFileExt-compatible shape from targeted queries
   const current = {
     tasks,
     focus: focus ?? undefined,
-    _meta: fileMeta ?? undefined,
   } as unknown as TaskFileExt;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // Determine scope
-  const scopeFilter = parseScope(options.scope, current);
+  const scopeFilter = await parseScope(options.scope, accessor);
 
   // Compute in-scope task IDs (undefined = all tasks in scope)
   const scopeTaskIds = getScopeTaskIdSet(
@@ -224,14 +223,15 @@ export async function computeBriefing(
 
 /**
  * Parse scope string into filter config.
+ * Uses getActiveSession() to auto-detect scope when no explicit scope is provided.
  */
-function parseScope(
+async function parseScope(
   scopeStr: string | undefined,
-  current: TaskFileExt,
-): { type: 'global' | 'epic'; epicId?: string } | undefined {
+  accessor: DataAccessor,
+): Promise<{ type: 'global' | 'epic'; epicId?: string } | undefined> {
   if (!scopeStr) {
-    // Auto-detect from current focus or active session
-    const activeSession = findActiveSession(current);
+    // Auto-detect from active session
+    const activeSession = await accessor.getActiveSession();
     if (activeSession?.scope?.type === 'epic') {
       return { type: 'epic', epicId: activeSession.scope.rootTaskId };
     }
@@ -249,33 +249,6 @@ function parseScope(
     return { type: 'epic', epicId: match[1] };
   }
   return undefined;
-}
-
-/**
- * Find the active session from task data.
- * T4959: Now loads real session data from the accessor instead of
- * synthesizing a stub record from the task file focus.
- */
-function findActiveSession(current: TaskFileExt): Session | undefined {
-  const activeSessionId = current._meta?.activeSession;
-  if (!activeSessionId) return undefined;
-
-  // Try to get process-scoped session context first (MCP path)
-  try {
-    // Dynamic import avoided here to keep this synchronous.
-    // Instead, build a minimal record from _meta + focus.
-    const focusTaskId = current.focus?.currentTask;
-    return {
-      id: activeSessionId,
-      name: '',
-      status: 'active',
-      scope: { type: 'task', rootTaskId: focusTaskId ?? '' },
-      taskWork: { taskId: focusTaskId ?? null, setAt: new Date().toISOString() },
-      startedAt: new Date().toISOString(),
-    } as Session;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

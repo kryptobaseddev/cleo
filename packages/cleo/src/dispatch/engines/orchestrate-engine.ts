@@ -760,18 +760,18 @@ export async function orchestrateParallelStart(
  * orchestrate.parallel.end - End parallel execution for a wave
  * @task T4632
  */
-export function orchestrateParallelEnd(
+export async function orchestrateParallelEnd(
   epicId: string,
   wave: number,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const result = endParallelExecution(epicId, wave, root);
+    const result = await endParallelExecution(epicId, wave, root);
 
     if (result.alreadyEnded) {
       return {
@@ -799,7 +799,7 @@ export function orchestrateParallelEnd(
 export async function orchestrateCheck(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
-    const parallelState = getParallelStatus(root);
+    const parallelState = await getParallelStatus(root);
     const tasks = await loadTasks(root);
 
     const activeTasks = tasks.filter((t) => t.status === 'active');

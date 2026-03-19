@@ -561,18 +561,23 @@ export async function observeBrain(
   });
 
   // Populate embedding if provider is available (T5387).
-  // Embedding failure must never prevent the observation from being saved.
+  // Fire-and-forget: embedding runs in the background so it never blocks the CLI.
+  // The observation is already saved above — if embedding fails, the observation
+  // still exists, just without vector similarity search capability. (T027)
   if (isEmbeddingAvailable()) {
-    try {
-      const vector = await embedText(text);
-      if (vector && nativeDb) {
-        nativeDb
-          .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-          .run(id, Buffer.from(vector.buffer));
-      }
-    } catch {
-      // Silently skip embedding failures
-    }
+    setImmediate(() => {
+      embedText(text)
+        .then((vector) => {
+          if (vector && nativeDb) {
+            nativeDb
+              .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+              .run(id, Buffer.from(vector.buffer));
+          }
+        })
+        .catch(() => {
+          // Silently skip embedding failures — observation is already persisted
+        });
+    });
   }
 
   // Regenerate memory bridge for high-value observation types (T5240).

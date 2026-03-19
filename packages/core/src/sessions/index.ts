@@ -154,7 +154,8 @@ export async function startSession(
   }
 
   sessions.push(session);
-  await saveSessions(sessions, cwd, accessor);
+  const acc = accessor ?? (await getAccessor(cwd));
+  await acc.upsertSingleSession(session);
 
   // Best-effort adapter activation based on detected provider (T5240)
   if (session.providerId) {
@@ -277,7 +278,8 @@ export async function endSession(
     session.notes.push(options.note);
   }
 
-  await saveSessions(sessions, cwd, accessor);
+  const acc = accessor ?? (await getAccessor(cwd));
+  await acc.upsertSingleSession(session);
 
   return session;
 }
@@ -329,7 +331,8 @@ export async function resumeSession(
     if (!session.notes) session.notes = [];
     session.notes.push(`Resumed at ${new Date().toISOString()}`);
 
-    await saveSessions(sessions, cwd, accessor);
+    const acc = accessor ?? (await getAccessor(cwd));
+    await acc.upsertSingleSession(session);
   }
 
   return session;
@@ -402,8 +405,18 @@ export async function gcSessions(
     return true;
   });
 
-  if (orphaned.length > 0 || removed.length > 0) {
-    await saveSessions(sessions, cwd, accessor);
+  const acc = accessor ?? (await getAccessor(cwd));
+
+  // Upsert orphaned sessions individually
+  for (const session of sessions) {
+    if (orphaned.includes(session.id)) {
+      await acc.upsertSingleSession(session);
+    }
+  }
+
+  // Remove old sessions individually
+  for (const id of removed) {
+    await acc.removeSingleSession(id);
   }
 
   return { orphaned, removed };

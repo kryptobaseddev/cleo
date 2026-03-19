@@ -267,7 +267,7 @@ export async function persistHandoff(
   // Store handoff data as JSON string on the typed Session field
   session.handoffJson = JSON.stringify(handoff);
 
-  await accessor.saveSessions(sessions);
+  await accessor.upsertSingleSession(session);
 }
 
 /**

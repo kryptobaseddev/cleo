@@ -361,7 +361,7 @@ export class OrchestrateHandler implements DomainHandler {
                   startTime,
                 );
               }
-              const result = orchestrateParallelEnd(epicId, wave, this.projectRoot);
+              const result = await orchestrateParallelEnd(epicId, wave, this.projectRoot);
               return wrapResult(result, 'mutate', 'orchestrate', 'parallel', startTime);
             },
           });

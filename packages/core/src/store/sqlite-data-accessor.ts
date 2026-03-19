@@ -363,6 +363,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       return task;
     },
 
+    async getActiveSession(): Promise<Session | null> {
+      const db = await getDb(cwd);
+      const rows = await db
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.status, 'active'))
+        .orderBy(sql`${schema.sessions.startedAt} DESC`)
+        .limit(1)
+        .all();
+      if (rows.length === 0 || !rows[0]) return null;
+      return rowToSession(rows[0]);
+    },
+
     async upsertSingleSession(session: Session): Promise<void> {
       const db = await getDb(cwd);
       await upsertSession(db, session);
@@ -702,6 +715,39 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         await loadRelationsForTasks(db, tasks);
       }
       return tasks;
+    },
+
+    // ---- Position helpers (T024/T025) ----
+
+    async getNextPosition(parentId: string | null): Promise<number> {
+      const nativeDb = getNativeTasksDb();
+      if (!nativeDb) {
+        throw new Error('Native database not initialized');
+      }
+      const row = parentId === null
+        ? nativeDb.prepare(
+            `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id IS NULL AND status != 'archived'`,
+          ).get() as { next_pos: number } | undefined
+        : nativeDb.prepare(
+            `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id = ? AND status != 'archived'`,
+          ).get(parentId) as { next_pos: number } | undefined;
+      return row?.next_pos ?? 1;
+    },
+
+    async shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void> {
+      const nativeDb = getNativeTasksDb();
+      if (!nativeDb) {
+        throw new Error('Native database not initialized');
+      }
+      if (parentId === null) {
+        nativeDb.prepare(
+          `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
+        ).run(delta, new Date().toISOString(), fromPosition);
+      } else {
+        nativeDb.prepare(
+          `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
+        ).run(delta, new Date().toISOString(), parentId, fromPosition);
+      }
     },
 
     // ---- Targeted write methods ----

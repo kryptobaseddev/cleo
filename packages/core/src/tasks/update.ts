@@ -6,7 +6,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { safeAppendLog } from '../store/data-safety-central.js';
+// safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -297,10 +297,10 @@ export async function updateTask(
 
   task.updatedAt = now;
 
-  await acc.upsertSingleTask(task);
-  await safeAppendLog(
-    acc,
-    {
+  // Wrap writes in a transaction for TOCTOU safety (T023)
+  await acc.transaction(async (tx) => {
+    await tx.upsertSingleTask(task);
+    await tx.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_updated',
@@ -309,9 +309,8 @@ export async function updateTask(
       details: { changes, title: task.title },
       before: null,
       after: { changes, title: task.title },
-    },
-    cwd,
-  );
+    });
+  });
 
   return { task, changes };
 }

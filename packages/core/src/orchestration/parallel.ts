@@ -3,8 +3,6 @@
  * @task T4784
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
@@ -19,25 +17,15 @@ interface ParallelState {
   tasks?: string[];
 }
 
-function getParallelStatePath(projectRoot: string): string {
-  return join(projectRoot, '.cleo', 'parallel-state.json');
+const PARALLEL_STATE_KEY = 'parallel_state';
+
+async function readParallelState(accessor: DataAccessor): Promise<ParallelState> {
+  const state = await accessor.getMetaValue<ParallelState>(PARALLEL_STATE_KEY);
+  return state ?? { active: false };
 }
 
-function readParallelState(projectRoot: string): ParallelState {
-  const statePath = getParallelStatePath(projectRoot);
-  if (!existsSync(statePath)) return { active: false };
-  try {
-    return JSON.parse(readFileSync(statePath, 'utf-8'));
-  } catch {
-    return { active: false };
-  }
-}
-
-function writeParallelState(state: ParallelState, projectRoot: string): void {
-  const statePath = getParallelStatePath(projectRoot);
-  const dir = dirname(statePath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
+async function writeParallelState(state: ParallelState, accessor: DataAccessor): Promise<void> {
+  await accessor.setMetaValue(PARALLEL_STATE_KEY, state);
 }
 
 /** Start parallel execution for a wave. */
@@ -53,9 +41,9 @@ export async function startParallelExecution(
   taskCount: number;
   startedAt: string;
 }> {
-  const projectRoot = cwd ?? process.cwd();
+  const acc = accessor ?? (await getAccessor(cwd));
 
-  const currentState = readParallelState(projectRoot);
+  const currentState = await readParallelState(acc);
   if (currentState.active) {
     throw new CleoError(
       ExitCode.GENERAL_ERROR,
@@ -63,7 +51,6 @@ export async function startParallelExecution(
     );
   }
 
-  const acc = accessor ?? (await getAccessor(cwd));
   const epic = await acc.loadSingleTask(epicId);
   if (!epic) {
     throw new CleoError(ExitCode.NOT_FOUND, `Epic ${epicId} not found`);
@@ -86,7 +73,7 @@ export async function startParallelExecution(
     tasks: targetWave.tasks,
   };
 
-  writeParallelState(state, projectRoot);
+  await writeParallelState(state, acc);
 
   return {
     epicId,
@@ -98,11 +85,12 @@ export async function startParallelExecution(
 }
 
 /** End parallel execution for a wave. */
-export function endParallelExecution(
+export async function endParallelExecution(
   epicId: string,
   wave: number,
   cwd?: string,
-): {
+  accessor?: DataAccessor,
+): Promise<{
   epicId: string;
   wave: number;
   tasks: string[];
@@ -111,9 +99,9 @@ export function endParallelExecution(
   endedAt: string;
   durationMs: number;
   alreadyEnded?: boolean;
-} {
-  const projectRoot = cwd ?? process.cwd();
-  const currentState = readParallelState(projectRoot);
+}> {
+  const acc = accessor ?? (await getAccessor(cwd));
+  const currentState = await readParallelState(acc);
 
   if (!currentState.active) {
     return {
@@ -139,7 +127,7 @@ export function endParallelExecution(
     ? Date.now() - new Date(currentState.startedAt).getTime()
     : 0;
 
-  writeParallelState({ active: false }, projectRoot);
+  await writeParallelState({ active: false }, acc);
 
   return {
     epicId,
@@ -153,6 +141,10 @@ export function endParallelExecution(
 }
 
 /** Get current parallel execution state. */
-export function getParallelStatus(cwd?: string): ParallelState {
-  return readParallelState(cwd ?? process.cwd());
+export async function getParallelStatus(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ParallelState> {
+  const acc = accessor ?? (await getAccessor(cwd));
+  return readParallelState(acc);
 }

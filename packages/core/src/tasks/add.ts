@@ -6,9 +6,9 @@
 
 import { randomBytes } from 'node:crypto';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { setMetaValue } from '../store/sqlite-data-accessor.js';
+// setMetaValue now called via tx.setMetaValue inside transaction (T023)
 import { TASK_STATUSES } from '@cleocode/contracts';
-import { createTask, updateTask } from '../store/task-store.js';
+import type { TransactionAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
 import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType, ProjectMeta } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
@@ -586,21 +586,12 @@ export async function addTask(
 
   const now = new Date().toISOString();
 
-  // Compute next position using targeted queries
+  // Compute next position using SQL-level allocation (race-safe, T024)
   let position: number;
   if (options.position !== undefined) {
     position = options.position;
   } else {
-    const { tasks: siblings } = parentId
-      ? await dataAccessor.queryTasks({ parentId })
-      : await dataAccessor.queryTasks({ parentId: null });
-    let maxPos = 0;
-    for (const s of siblings) {
-      if (s.position !== undefined && s.position !== null && s.position > maxPos) {
-        maxPos = s.position;
-      }
-    }
-    position = maxPos + 1;
+    position = await dataAccessor.getNextPosition(parentId);
   }
 
   // Build task object
@@ -644,46 +635,32 @@ export async function addTask(
     return { task, dryRun: true };
   }
 
-  // Position shuffling via targeted SQL updates
-  if (options.position !== undefined) {
-    const { tasks: scopedSiblings } = parentId
-      ? await dataAccessor.queryTasks({ parentId })
-      : await dataAccessor.queryTasks({ parentId: null });
-    for (const t of scopedSiblings) {
-      if (
-        t.position !== undefined &&
-        t.position !== null &&
-        t.position >= options.position
-      ) {
-        await updateTask(
-          t.id,
-          {
-            position: t.position + 1,
-            positionVersion: (t.positionVersion ?? 0) + 1,
-          },
-          cwd,
-        );
-      }
+  // Wrap all writes in a transaction for TOCTOU safety (T023)
+  await dataAccessor.transaction(async (tx: TransactionAccessor) => {
+    // Position shuffling via bulk SQL update (T025)
+    if (options.position !== undefined) {
+      await dataAccessor.shiftPositions(parentId, options.position, 1);
     }
-  }
 
-  // Insert only the new task (with collision detection + write verification)
-  await createTask(task, cwd);
+    // Insert the new task
+    await tx.upsertSingleTask(task);
 
-  // Update project metadata if a new phase was created
-  if (options.addPhase && phase && updatedProjectMeta?.phases?.[phase]) {
-    await setMetaValue(cwd, 'project_meta', updatedProjectMeta);
-  }
+    // Update project metadata if a new phase was created
+    if (options.addPhase && phase && updatedProjectMeta?.phases?.[phase]) {
+      await tx.setMetaValue('project_meta', updatedProjectMeta);
+    }
 
-  await dataAccessor.appendLog({
-    id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
-    timestamp: new Date().toISOString(),
-    action: 'task_created',
-    taskId,
-    actor: 'system',
-    details: { title: options.title, status, priority },
-    before: null,
-    after: { title: options.title, status, priority },
+    // Audit log
+    await tx.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_created',
+      taskId,
+      actor: 'system',
+      details: { title: options.title, status, priority },
+      before: null,
+      after: { title: options.title, status, priority },
+    });
   });
 
   return { task };

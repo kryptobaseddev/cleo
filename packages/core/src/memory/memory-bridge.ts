@@ -47,6 +47,26 @@ const DEFAULT_CONFIG: MemoryBridgeConfig = {
   includeAntiPatterns: true,
 };
 
+// ============================================================================
+// Memory Decay Configuration (T028)
+// ============================================================================
+
+/**
+ * Confidence decay for old memories.
+ *
+ * effectiveConfidence = confidence * decayRate ^ (ageDays / halfLifeDays)
+ *
+ * With defaults: confidence halves every 90 days.
+ * A 0.9-confidence learning that is 180 days old has effective confidence:
+ *   0.9 * 0.5^(180/90) = 0.9 * 0.25 = 0.225 → would be filtered out (< 0.6 threshold).
+ *
+ * Memories with an `updated_at` timestamp use that instead of `created_at`,
+ * so referenced/updated memories decay more slowly.
+ */
+const DECAY_RATE = 0.5;
+const DECAY_HALF_LIFE_DAYS = 90;
+const DECAY_MIN_CONFIDENCE_THRESHOLD = 0.6;
+
 /** Type-safe wrapper for StatementSync.all(). */
 function typedAll<T>(db: DatabaseSync, sql: string, ...params: (string | number | null)[]): T[] {
   return db.prepare(sql).all(...params) as T[];
@@ -72,6 +92,7 @@ interface LearningRow {
   insight: string;
   confidence: string;
   created_at: string;
+  updated_at: string | null;
 }
 
 interface ObservationRow {
@@ -277,12 +298,38 @@ function queryRecentDecisions(db: DatabaseSync, limit: number): DecisionRow[] {
 
 function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): LearningRow[] {
   try {
-    return typedAll<LearningRow>(db,
-      `SELECT id, insight, confidence, created_at FROM brain_learnings
-         WHERE CAST(confidence AS REAL) >= 0.6
+    // Fetch more than needed so we can apply decay filtering client-side.
+    // We fetch 3x the limit to account for entries that will be filtered out.
+    const candidates = typedAll<LearningRow>(db,
+      `SELECT id, insight, confidence, created_at, updated_at FROM brain_learnings
+         WHERE CAST(confidence AS REAL) >= 0.3
          ORDER BY confidence DESC, created_at DESC
          LIMIT ?`,
-      limit);
+      limit * 3);
+
+    // Apply confidence decay based on age (T028).
+    // Uses updated_at if available (referenced memories decay slower),
+    // otherwise falls back to created_at.
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    return candidates
+      .map((row) => {
+        const referenceDate = row.updated_at || row.created_at;
+        const ageDays = Math.max(0, (now - new Date(referenceDate).getTime()) / MS_PER_DAY);
+        const rawConfidence = parseFloat(row.confidence) || 0;
+        const effectiveConfidence =
+          rawConfidence * Math.pow(DECAY_RATE, ageDays / DECAY_HALF_LIFE_DAYS);
+        return { ...row, effectiveConfidence };
+      })
+      .filter((row) => row.effectiveConfidence >= DECAY_MIN_CONFIDENCE_THRESHOLD)
+      .sort((a, b) => b.effectiveConfidence - a.effectiveConfidence)
+      .slice(0, limit)
+      .map(({ effectiveConfidence, ...row }) => ({
+        ...row,
+        // Override displayed confidence with effective value for transparency
+        confidence: effectiveConfidence.toFixed(2),
+      }));
   } catch {
     return [];
   }

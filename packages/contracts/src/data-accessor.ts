@@ -214,16 +214,25 @@ export interface DataAccessor {
   /** Update specific fields on a task without full load/save cycle. */
   updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
 
+  /** Get next available position for a task within a parent scope (SQL-level, race-safe). */
+  getNextPosition(parentId: string | null): Promise<number>;
+
+  /** Shift positions of siblings >= fromPosition by delta (bulk SQL update). */
+  shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void>;
+
   /** Execute a function inside a SQLite transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK). */
   transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T>;
 
-  // ---- Fine-grained session operations (optional, phased introduction) ----
+  // ---- Fine-grained session operations ----
 
-  /** Upsert a single session (targeted write). Optional — phased introduction. */
-  upsertSingleSession?(session: Session): Promise<void>;
+  /** Get the currently active session (status='active', most recent). */
+  getActiveSession(): Promise<Session | null>;
 
-  /** Remove a single session by ID. Optional — phased introduction. */
-  removeSingleSession?(sessionId: string): Promise<void>;
+  /** Upsert a single session (targeted write). */
+  upsertSingleSession(session: Session): Promise<void>;
+
+  /** Remove a single session by ID. */
+  removeSingleSession(sessionId: string): Promise<void>;
 }
 
 // Factory functions (createDataAccessor, getAccessor) live in @cleocode/core,

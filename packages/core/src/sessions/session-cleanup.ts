@@ -8,7 +8,6 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { getRawConfigValue } from '../config.js';
-import type { FileMeta } from '@cleocode/contracts';
 
 /** Default auto-end threshold when no config is set (7 days). */
 const DEFAULT_AUTO_END_DAYS = 7;
@@ -35,7 +34,6 @@ export async function cleanupSessions(
 
   const removed: string[] = [];
   const autoEnded: string[] = [];
-  let metaUpdated = false;
 
   // Read auto-end threshold from config
   const configDays = await getRawConfigValue('retention.autoEndActiveAfterDays', projectRoot);
@@ -54,6 +52,7 @@ export async function cleanupSessions(
         if (!session.notes) session.notes = [];
         session.notes.push(`Auto-ended: session exceeded ${autoEndDays}-day inactivity threshold`);
         autoEnded.push(session.id);
+        await accessor.upsertSingleSession(session);
       }
     }
 
@@ -63,23 +62,10 @@ export async function cleanupSessions(
     }
   }
 
-  // Clean stale references in file metadata
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-  if (fileMeta?.activeSession) {
-    const activeExists = sessions.some(
-      (s) => s.id === fileMeta.activeSession && s.status === 'active',
-    );
-    if (!activeExists) {
-      fileMeta.activeSession = null;
-      fileMeta.generation = (fileMeta.generation || 0) + 1;
-      await accessor.setMetaValue('file_meta', fileMeta);
-      metaUpdated = true;
-    }
+  // Remove archived sessions
+  for (const id of removed) {
+    await accessor.removeSingleSession(id);
   }
 
-  if (removed.length > 0 || autoEnded.length > 0 || metaUpdated) {
-    await accessor.saveSessions(sessions);
-  }
-
-  return { removed, autoEnded, cleaned: removed.length > 0 || autoEnded.length > 0 || metaUpdated };
+  return { removed, autoEnded, cleaned: removed.length > 0 || autoEnded.length > 0 };
 }

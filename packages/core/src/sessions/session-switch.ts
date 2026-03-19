@@ -7,7 +7,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
+import type { Session, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /**
@@ -37,17 +37,14 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   const now = new Date().toISOString();
 
   // Suspend the current active session (if different from target)
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-  const currentActiveId = fileMeta?.activeSession;
-  if (currentActiveId && currentActiveId !== sessionId) {
-    const currentSession = sessions.find((s) => s.id === currentActiveId);
-    if (currentSession && currentSession.status === 'active') {
-      currentSession.status = 'suspended';
-      Object.assign(currentSession, { suspendedAt: now });
-      if (currentSession.stats) {
-        currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
-      }
+  const currentActive = await accessor.getActiveSession();
+  if (currentActive && currentActive.id !== sessionId) {
+    currentActive.status = 'suspended';
+    Object.assign(currentActive, { suspendedAt: now });
+    if (currentActive.stats) {
+      currentActive.stats.suspendCount = (currentActive.stats.suspendCount || 0) + 1;
     }
+    await accessor.upsertSingleSession(currentActive);
   }
 
   // Activate the target session
@@ -56,13 +53,6 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 
-  // Update file metadata
-  if (fileMeta) {
-    fileMeta.activeSession = sessionId;
-    fileMeta.generation = (fileMeta.generation || 0) + 1;
-    await accessor.setMetaValue('file_meta', fileMeta);
-  }
-
   // Update focus if target session has a task
   if (targetSession.taskWork?.taskId) {
     const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
@@ -70,7 +60,7 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
     await accessor.setMetaValue('focus_state', focus);
   }
 
-  await accessor.saveSessions(sessions);
+  await accessor.upsertSingleSession(targetSession);
 
   return targetSession;
 }

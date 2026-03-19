@@ -7,7 +7,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { FileMeta, Session, Task, TaskWorkState } from '@cleocode/contracts';
+import type { Session, Task, TaskWorkState } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 export interface ContextDriftResult {
@@ -52,11 +52,9 @@ export async function getContextDrift(
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
   const current = {
     tasks,
     focus: focus ?? undefined,
-    _meta: fileMeta ?? undefined,
   };
 
   // Find the active session (or specified session)
@@ -69,11 +67,8 @@ export async function getContextDrift(
       throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${params.sessionId}' not found`);
     }
   } else {
-    const activeSessionId = current._meta?.activeSession;
-    if (activeSessionId) {
-      const sessions = await accessor.loadSessions();
-      session = sessions.find((s) => s.id === activeSessionId);
-    }
+    const activeSession = await accessor.getActiveSession();
+    session = activeSession ?? undefined;
   }
 
   const factors: string[] = [];

@@ -6,7 +6,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { safeAppendLog } from '../store/data-safety-central.js';
+// safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import type { Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -73,11 +73,10 @@ export async function deleteTask(
         }
       }
     } else if (options.force) {
-      // Orphan children by clearing their parentId
+      // Orphan children - prepare mutations (written inside transaction below)
       for (const child of children) {
         child.parentId = null;
         child.type = 'task';
-        await acc.upsertSingleTask(child);
       }
     }
   }
@@ -97,30 +96,45 @@ export async function deleteTask(
   // Determine IDs to delete
   const idsToDelete = new Set<string>([options.taskId, ...cascadeDeleted]);
 
-  // Archive each deleted task
-  const now = new Date().toISOString();
-  for (const id of idsToDelete) {
-    await acc.archiveSingleTask(id, {
-      archivedAt: now,
-      archiveReason: 'deleted',
-    });
-  }
-
-  // Clean up dependency references on tasks that depended on deleted tasks
+  // Gather dependency cleanup data before the transaction (reads outside)
+  const depsToUpdate: Task[] = [];
   for (const deletedId of idsToDelete) {
     const dependents = await acc.getDependents(deletedId);
     for (const dep of dependents) {
       if (!idsToDelete.has(dep.id)) {
         dep.depends = (dep.depends ?? []).filter((d) => !idsToDelete.has(d));
         if (dep.depends.length === 0) delete dep.depends;
-        await acc.upsertSingleTask(dep);
+        depsToUpdate.push(dep);
       }
     }
   }
 
-  await safeAppendLog(
-    acc,
-    {
+  const now = new Date().toISOString();
+
+  // Wrap all writes in a transaction for TOCTOU safety (T023)
+  await acc.transaction(async (tx) => {
+    // Orphan children if force (mutations prepared above)
+    if (options.force && children.length > 0 && !options.cascade) {
+      for (const child of children) {
+        await tx.upsertSingleTask(child);
+      }
+    }
+
+    // Archive each deleted task
+    for (const id of idsToDelete) {
+      await tx.archiveSingleTask(id, {
+        archivedAt: now,
+        archiveReason: 'deleted',
+      });
+    }
+
+    // Clean up dependency references
+    for (const dep of depsToUpdate) {
+      await tx.upsertSingleTask(dep);
+    }
+
+    // Audit log
+    await tx.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_deleted',
@@ -135,9 +149,8 @@ export async function deleteTask(
         title: task.title,
         cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
       },
-    },
-    cwd,
-  );
+    });
+  });
 
   return {
     deletedTask: task,

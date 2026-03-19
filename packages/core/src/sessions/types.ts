@@ -88,7 +88,6 @@ export interface TaskFileExt {
     checksum?: string;
     configVersion?: string;
     lastSessionId?: string | null;
-    activeSession?: string | null;
     activeSessionCount?: number;
     sessionsFile?: string | null;
     generation?: number;

@@ -6,7 +6,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { safeAppendLog } from '../store/data-safety-central.js';
+// safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import type { Task, VerificationGate, TaskRef } from '@cleocode/contracts';
 import { getRawConfigValue } from '../config.js';
@@ -264,13 +264,13 @@ export async function completeTask(
     }
   }
 
-  await acc.upsertSingleTask(task);
-  for (const parentTask of autoCompletedTasks) {
-    await acc.upsertSingleTask(parentTask);
-  }
-  await safeAppendLog(
-    acc,
-    {
+  // Wrap writes in a transaction for TOCTOU safety (T023)
+  await acc.transaction(async (tx) => {
+    await tx.upsertSingleTask(task);
+    for (const parentTask of autoCompletedTasks) {
+      await tx.upsertSingleTask(parentTask);
+    }
+    await tx.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_completed',
@@ -279,9 +279,8 @@ export async function completeTask(
       details: { title: task.title, previousStatus: before.status },
       before: null,
       after: { title: task.title, previousStatus: before.status },
-    },
-    cwd,
-  );
+    });
+  });
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
   const dependents = await acc.getDependents(options.taskId);

@@ -267,6 +267,14 @@ export class SafetyDataAccessor implements DataAccessor {
     );
   }
 
+  async getNextPosition(parentId: string | null): Promise<number> {
+    return this.inner.getNextPosition(parentId);
+  }
+
+  async shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void> {
+    return this.inner.shiftPositions(parentId, fromPosition, delta);
+  }
+
   async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
     this.logVerbose('Starting transaction');
     // Transaction wraps its own BEGIN/COMMIT/ROLLBACK.
@@ -275,14 +283,18 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.transaction(fn);
   }
 
-  // ---- Fine-grained session operations (optional pass-through) ----
+  // ---- Fine-grained session operations (pass-through) ----
+
+  async getActiveSession(): Promise<Session | null> {
+    return this.inner.getActiveSession();
+  }
 
   async upsertSingleSession(session: import('@cleocode/contracts').Session): Promise<void> {
-    return this.inner.upsertSingleSession?.(session);
+    return this.inner.upsertSingleSession(session);
   }
 
   async removeSingleSession(sessionId: string): Promise<void> {
-    return this.inner.removeSingleSession?.(sessionId);
+    return this.inner.removeSingleSession(sessionId);
   }
 
   // ---- Lifecycle ----

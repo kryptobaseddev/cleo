@@ -7,7 +7,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import { ExitCode } from '@cleocode/contracts';
-import type { FileMeta, Session } from '@cleocode/contracts';
+import type { Session } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /**
@@ -51,15 +51,7 @@ export async function suspendSession(
     session.notes.push(reason);
   }
 
-  // Clear active session in task data if this was the active one
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-  if (fileMeta?.activeSession === sessionId) {
-    fileMeta.activeSession = null;
-    fileMeta.generation = (fileMeta.generation || 0) + 1;
-    await accessor.setMetaValue('file_meta', fileMeta);
-  }
-
-  await accessor.saveSessions(sessions);
+  await accessor.upsertSingleSession(session);
 
   return session;
 }

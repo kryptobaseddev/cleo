@@ -808,13 +808,23 @@ export async function coreTaskReorder(
   allSiblings.splice(currentIndex, 1);
   allSiblings.splice(newIndex, 0, task);
 
+  // Use bulk SQL for position updates (T025) — updateTaskFields is lighter than upsertSingleTask
   const now = new Date().toISOString();
   for (let i = 0; i < allSiblings.length; i++) {
     const sibling = allSiblings[i]!;
-    sibling.position = i + 1;
-    sibling.positionVersion = ((sibling.positionVersion as number | undefined) ?? 0) + 1;
+    const newPos = i + 1;
+    const newVersion = ((sibling.positionVersion as number | undefined) ?? 0) + 1;
+    // Only update if position actually changed
+    if (sibling.position !== newPos || sibling.id === taskId) {
+      await accessor.updateTaskFields(sibling.id, {
+        position: newPos,
+        positionVersion: newVersion,
+        updatedAt: now,
+      });
+    }
+    sibling.position = newPos;
+    sibling.positionVersion = newVersion;
     sibling.updatedAt = now;
-    await accessor.upsertSingleTask(sibling);
   }
 
   return {
