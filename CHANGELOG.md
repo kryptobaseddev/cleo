@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026.3.42] (2026-03-19)
+
+### Fixed
+- **npm Publish**: Add `.npmignore` to all publishable packages. Root `.gitignore` had `dist/` which caused pnpm publish to exclude the entire `dist/` directory (including all `.d.ts` type declarations and sub-module `.js` files) from published tarballs. Consumers got packages with `types` pointing to non-existent files. This was broken since the first publish.
+
 ## [2026.3.41] (2026-03-19)
 
 ### Fixed

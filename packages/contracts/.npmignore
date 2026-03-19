@@ -1,0 +1,8 @@
+# Override root .gitignore which excludes dist/
+# When .npmignore exists, .gitignore is not used for publish
+src/**/__tests__
+src/**/*.test.ts
+*.tsbuildinfo
+coverage/
+.test-*
+node_modules/
