@@ -183,6 +183,9 @@ API reference for the `cleo` package.
 | [`taskRelatesFind()`](/packages/cleo/api/functions#taskrelatesfind) | function | Find related tasks using semantic search or keyword matching.  T5672 |
 | [`taskLabelList()`](/packages/cleo/api/functions#tasklabellist) | function | List all labels used in tasks.  T5672 |
 | [`taskLabelShow()`](/packages/cleo/api/functions#tasklabelshow) | function | Show tasks associated with a label.  T5672 |
+| [`taskSyncReconcile()`](/packages/cleo/api/functions#tasksyncreconcile) | function | Reconcile external tasks with CLEO as SSoT. |
+| [`taskSyncLinks()`](/packages/cleo/api/functions#tasksynclinks) | function | List external task links by provider or task ID. |
+| [`taskSyncLinksRemove()`](/packages/cleo/api/functions#tasksynclinksremove) | function | Remove all external task links for a provider. |
 | [`systemDash()`](/packages/cleo/api/functions#systemdash) | function | Project dashboard: task counts by status, active session info, current focus,... |
 | [`systemStats()`](/packages/cleo/api/functions#systemstats) | function | Detailed statistics: tasks by status/priority/type/phase, completion rate, av... |
 | [`systemLabels()`](/packages/cleo/api/functions#systemlabels) | function | List all unique labels across tasks with counts and task IDs per label. |
@@ -311,9 +314,6 @@ API reference for the `cleo` package.
 | [`toolsProviderSupports()`](/packages/cleo/api/functions#toolsprovidersupports) | function | Check if a provider supports a specific capability. |
 | [`toolsProviderHooks()`](/packages/cleo/api/functions#toolsproviderhooks) | function | Query hook providers for a specific event. |
 | [`toolsProviderInject()`](/packages/cleo/api/functions#toolsproviderinject) | function | Inject CLEO directives into all installed provider instruction files. |
-| [`toolsTodowriteStatus()`](/packages/cleo/api/functions#toolstodowritestatus) | function | Get TodoWrite sync status. |
-| [`toolsTodowriteSync()`](/packages/cleo/api/functions#toolstodowritesync) | function | Trigger TodoWrite sync. |
-| [`toolsTodowriteClear()`](/packages/cleo/api/functions#toolstodowriteclear) | function | Clear TodoWrite sync state. |
 | [`toolsAdapterList()`](/packages/cleo/api/functions#toolsadapterlist) | function | List all discovered adapters. |
 | [`toolsAdapterShow()`](/packages/cleo/api/functions#toolsadaptershow) | function | Show a single adapter by ID. |
 | [`toolsAdapterDetect()`](/packages/cleo/api/functions#toolsadapterdetect) | function | Detect active adapters. |
@@ -390,7 +390,6 @@ API reference for the `cleo` package.
 | [`registerExistsCommand()`](/packages/cleo/api/functions#registerexistscommand) | function |  |
 | [`registerExportCommand()`](/packages/cleo/api/functions#registerexportcommand) | function |  |
 | [`registerExportTasksCommand()`](/packages/cleo/api/functions#registerexporttaskscommand) | function |  |
-| [`registerExtractCommand()`](/packages/cleo/api/functions#registerextractcommand) | function | Register the extract command.  T4551 |
 | [`registerFindCommand()`](/packages/cleo/api/functions#registerfindcommand) | function | Register the find command.  T4460  T4668 |
 | [`registerGenerateChangelogCommand()`](/packages/cleo/api/functions#registergeneratechangelogcommand) | function | Register the generate-changelog command.  T4555 |
 | [`registerGradeCommand()`](/packages/cleo/api/functions#registergradecommand) | function |  |
@@ -442,7 +441,6 @@ API reference for the `cleo` package.
 | [`registerStatsCommand()`](/packages/cleo/api/functions#registerstatscommand) | function | Register the stats command.  T4535 |
 | [`registerStickyCommand()`](/packages/cleo/api/functions#registerstickycommand) | function | Register the sticky command group.  T5281 |
 | [`registerStopCommand()`](/packages/cleo/api/functions#registerstopcommand) | function | Register the stop command.  T4756  T4666 |
-| [`registerSyncCommand()`](/packages/cleo/api/functions#registersynccommand) | function | Register the sync command.  T4551, T5326 |
 | [`registerTestingCommand()`](/packages/cleo/api/functions#registertestingcommand) | function | Register the testing command.  T4551 |
 | [`registerTokenCommand()`](/packages/cleo/api/functions#registertokencommand) | function |  |
 | [`registerUpdateCommand()`](/packages/cleo/api/functions#registerupdatecommand) | function | Register the update command.  T4461 |

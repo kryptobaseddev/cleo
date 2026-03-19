@@ -1,7 +1,7 @@
 ---
 name: SKILL-monorepo
 description: >
-  Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard directory layout: - Config dir: ~/.claude (or CLAUDE_HOME) - Settings: ~/.claude/settings.json (or CLAUDE_SETTINGS) - Agents: ~/.claude/agents - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB) Use when: (1) calling its 2029 API functions, (2) configuring @cleocode/monorepo, (3) understanding its 1355 type definitions, (4) working with its 58 classes, (5) user mentions "@cleocode/monorepo" or asks about its API.
+  Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard directory layout: - Config dir: ~/.claude (or CLAUDE_HOME) - Settings: ~/.claude/settings.json (or CLAUDE_SETTINGS) - Agents: ~/.claude/agents - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB) Use when: (1) calling its 2026 API functions, (2) configuring @cleocode/monorepo, (3) understanding its 1343 type definitions, (4) working with its 58 classes, (5) user mentions "@cleocode/monorepo" or asks about its API.
 ---
 
 # @cleocode/monorepo
@@ -42,7 +42,7 @@ try {
 | `setFormatContext()` | Set the resolved format for this CLI invocation. Called once from the preAction hook in src/cli/index.ts. |
 | `getFormatContext()` | Get the current resolved format. |
 | `isJsonFormat()` | Check if output should be JSON format. |
-| ... | 2014 more — see API reference |
+| ... | 2011 more — see API reference |
 
 ## Configuration
 
@@ -63,14 +63,6 @@ See [references/CONFIGURATION.md](references/CONFIGURATION.md) for full details.
 - `getClaudeAgentsDir` is deprecated: Use AdapterPathProvider.getAgentInstallDir() from the active adapter instead.
 - `getClaudeMemDbPath` is deprecated: Use AdapterPathProvider.getMemoryDbPath() from the active adapter instead. Respects CLAUDE_MEM_DB env var, defaults to ~/.claude-mem/claude-mem.db. This is a third-party tool path; homedir() is correct here (no env-paths standard).
 - `getRegistryPath` is deprecated: Use nexus.db via getNexusDb() instead. Retained for JSON-to-SQLite migration.
-- `TodoWriteItem` is deprecated: Use ExternalTask from cleocode/contracts instead.
-- `TodoWriteState` is deprecated: Use AdapterTaskSyncProvider.getExternalTasks() instead.
-- `SyncSessionState` is deprecated: Use SyncSessionState from cleocode/contracts instead.
-- `ChangeSet` is deprecated: Use ReconcileAction from cleocode/contracts instead.
-- `TodoWriteMergeOptions` is deprecated: Use ReconcileOptions from cleocode/contracts instead.
-- `TodoWriteMergeResult` is deprecated: Use ReconcileResult from cleocode/contracts instead.
-- `analyzeChanges` is deprecated: Use reconcile() from the reconciliation engine instead.
-- `mergeTodoWriteState` is deprecated: Use the provider-agnostic reconciliation engine instead:   import  reconcile  from '../reconciliation/index.js';   import  ClaudeCodeTaskSyncProvider  from 'cleocode/adapters';  This function is preserved for backward compatibility.
 - `bindSession()` throws: if a session is already bound (call unbindSession first).
 - `checkTaskExists()` throws: SafetyError if task exists and strict mode is enabled
 - `verifyTaskWrite()` throws: SafetyError if verification fails

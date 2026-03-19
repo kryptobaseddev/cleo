@@ -1778,6 +1778,36 @@ Show tasks associated with a label.  T5672
 (projectRoot: string, label: string) => Promise<EngineResult<Record<string, unknown>>>
 ```
 
+## taskSyncReconcile()
+
+Reconcile external tasks with CLEO as SSoT.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params: { providerId: string; externalTasks: ExternalTask[]; dryRun?: boolean | undefined; conflictPolicy?: string | undefined; defaultPhase?: string | undefined; defaultLabels?: string[] | undefined; }) => Promise<...>
+```
+
+## taskSyncLinks()
+
+List external task links by provider or task ID.
+
+**Signature**
+
+```typescript
+(projectRoot: string, params?: { providerId?: string | undefined; taskId?: string | undefined; } | undefined) => Promise<EngineResult<{ links: ExternalTaskLink[]; count: number; }>>
+```
+
+## taskSyncLinksRemove()
+
+Remove all external task links for a provider.
+
+**Signature**
+
+```typescript
+(projectRoot: string, providerId: string) => Promise<EngineResult<{ providerId: string; removed: number; }>>
+```
+
 ## systemDash()
 
 Project dashboard: task counts by status, active session info, current focus, recent completions.
@@ -3461,36 +3491,6 @@ Inject CLEO directives into all installed provider instruction files.
 (projectRoot: string, scope?: "global" | "project" | undefined, references?: string[] | undefined, content?: string | undefined) => Promise<EngineResult<{ actions: { file: string; action: string; }[]; count: number; }>>
 ```
 
-## toolsTodowriteStatus()
-
-Get TodoWrite sync status.
-
-**Signature**
-
-```typescript
-(projectRoot: string) => Promise<EngineResult<unknown>>
-```
-
-## toolsTodowriteSync()
-
-Trigger TodoWrite sync.
-
-**Signature**
-
-```typescript
-(projectRoot: string, params?: { direction?: string | undefined; } | undefined) => EngineResult<unknown>
-```
-
-## toolsTodowriteClear()
-
-Clear TodoWrite sync state.
-
-**Signature**
-
-```typescript
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<EngineResult<unknown>>
-```
-
 ## toolsAdapterList()
 
 List all discovered adapters.
@@ -3610,18 +3610,6 @@ typeof ToolsHandler
 ```
 
 ### mutateProvider()
-
-```typescript
-(sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
-```
-
-### queryTodowrite()
-
-```typescript
-(sub: string, _params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
-```
-
-### mutateTodowrite()
 
 ```typescript
 (sub: string, params: Record<string, unknown> | undefined, startTime: number) => Promise<DispatchResponse>
@@ -4168,7 +4156,7 @@ Add a positional argument after command creation. Commander compat: .argument('[
 ### action()
 
 ```typescript
-<T extends (...args: any[]) => Promise<void> | void>(fn: T) => this
+(fn: (...args: any[]) => void | Promise<void>) => this
 ```
 
 ### allowUnknownOption()
@@ -4596,16 +4584,6 @@ Register the env command group.  T4581
 ```
 
 ## registerExportTasksCommand()
-
-**Signature**
-
-```typescript
-(program: ShimCommand) => void
-```
-
-## registerExtractCommand()
-
-Register the extract command.  T4551
 
 **Signature**
 
@@ -5070,16 +5048,6 @@ Register the sticky command group.  T5281
 ## registerStopCommand()
 
 Register the stop command.  T4756  T4666
-
-**Signature**
-
-```typescript
-(program: ShimCommand) => void
-```
-
-## registerSyncCommand()
-
-Register the sync command.  T4551, T5326
 
 **Signature**
 

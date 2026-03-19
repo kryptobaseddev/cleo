@@ -245,6 +245,9 @@ any - Minimal task representation for find results
 (projectRoot: string, taskId: string, params?: { mode?: "suggest" | "discover" | undefined; threshold?: number | undefined; } | undefined) => Promise<EngineResult<Record<string, unknown>>> - Find related tasks using semantic search or keyword matching.  T5672
 (projectRoot: string) => Promise<EngineResult<{ labels: unknown[]; count: number; }>> - List all labels used in tasks.  T5672
 (projectRoot: string, label: string) => Promise<EngineResult<Record<string, unknown>>> - Show tasks associated with a label.  T5672
+(projectRoot: string, params: { providerId: string; externalTasks: ExternalTask[]; dryRun?: boolean | undefined; conflictPolicy?: string | undefined; defaultPhase?: string | undefined; defaultLabels?: string[] | undefined; }) => Promise<...> - Reconcile external tasks with CLEO as SSoT.
+(projectRoot: string, params?: { providerId?: string | undefined; taskId?: string | undefined; } | undefined) => Promise<EngineResult<{ links: ExternalTaskLink[]; count: number; }>> - List external task links by provider or task ID.
+(projectRoot: string, providerId: string) => Promise<EngineResult<{ providerId: string; removed: number; }>> - Remove all external task links for a provider.
 any
 any
 any
@@ -388,9 +391,6 @@ typeof TasksHandler
 (providerId: string, capability: string) => Promise<EngineResult<{ providerId: string; capability: string; supported: boolean; }>> - Check if a provider supports a specific capability.
 (event: string) => Promise<EngineResult<unknown>> - Query hook providers for a specific event.
 (projectRoot: string, scope?: "global" | "project" | undefined, references?: string[] | undefined, content?: string | undefined) => Promise<EngineResult<{ actions: { file: string; action: string; }[]; count: number; }>> - Inject CLEO directives into all installed provider instruction files.
-(projectRoot: string) => Promise<EngineResult<unknown>> - Get TodoWrite sync status.
-(projectRoot: string, params?: { direction?: string | undefined; } | undefined) => EngineResult<unknown> - Trigger TodoWrite sync.
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<EngineResult<unknown>> - Clear TodoWrite sync state.
 (projectRoot: string) => EngineResult<{ adapters: AdapterInfo[]; count: number; }> - List all discovered adapters.
 (projectRoot: string, id: string) => EngineResult<{ manifest: unknown; initialized: boolean; active: boolean; }> - Show a single adapter by ID.
 (projectRoot: string) => EngineResult<{ detected: string[]; count: number; }> - Detect active adapters.
@@ -524,7 +524,10 @@ SQLiteTableWithColumns<{ name: "token_usage"; schema: undefined; columns: { id: 
 SQLiteTableWithColumns<{ name: "architecture_decisions"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "architecture_decisions"; dataType: "string"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}>; ... 16 more ...; topics: SQLiteColumn<...>; ... - Architecture Decision Records (ADRs) stored in the database. Corresponds to the physical ADR markdown files in .cleo/adrs/. Created by migration 20260225024442_sync-lifecycle-enums-and-arch-decisions. Self-referential FKs (supersedes_id, superseded_by_id) are enforced at the DB level by the migration; omitted here to avoid Drizzle circular-ref syntax.
 SQLiteTableWithColumns<{ name: "adr_task_links"; schema: undefined; columns: { adrId: SQLiteColumn<{ name: string; tableName: "adr_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; taskId: SQLiteColumn<...>; linkType: S... - ADR-to-Task links (soft FK — tasks can be purged)
 SQLiteTableWithColumns<{ name: "adr_relations"; schema: undefined; columns: { fromAdrId: SQLiteColumn<{ name: string; tableName: "adr_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; toAdrId: SQLiteColumn<...>; relation... - ADR cross-reference relationships
+SQLiteTableWithColumns<{ name: "external_task_links"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQL... - Tracks links between CLEO tasks and external system tasks (Linear, Jira, GitHub, etc.). Used by the reconciliation engine to match external tasks to existing CLEO tasks, detect updates, and maintain bidirectional traceability.  Each row represents one link: one CLEO task ↔ one external task from one provider. A CLEO task MAY have links from multiple providers (e.g., both Linear and GitHub). An external task SHOULD have at most one link per provider.
 SQLiteTableWithColumns<{ name: "status_registry"; schema: undefined; columns: { name: SQLiteColumn<{ name: string; tableName: "status_registry"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; entityType: SQLiteColumn<...>; namesp...
+any
+any
 any
 any
 any
@@ -1017,7 +1020,6 @@ typeof Spinner - Simple spinner for indeterminate progress.
 (program: ShimCommand) => void
 (program: ShimCommand) => void
 (program: ShimCommand) => void
-(program: ShimCommand) => void - Register the extract command.  T4551
 (program: ShimCommand) => void - Register the find command.  T4460  T4668
 (program: ShimCommand) => void - Register the generate-changelog command.  T4555
 (program: ShimCommand) => void
@@ -1069,7 +1071,6 @@ typeof Spinner - Simple spinner for indeterminate progress.
 (program: ShimCommand) => void - Register the stats command.  T4535
 (program: ShimCommand) => void - Register the sticky command group.  T5281
 (program: ShimCommand) => void - Register the stop command.  T4756  T4666
-(program: ShimCommand) => void - Register the sync command.  T4551, T5326
 (program: ShimCommand) => void - Register the testing command.  T4551
 (program: ShimCommand) => void
 (program: ShimCommand) => void - Register the update command.  T4461
@@ -1230,13 +1231,15 @@ any
 any
 any - Normalized status for tasks coming from an external provider.
 any - A task as reported by an external provider, normalized to a common shape. Provider-specific adapters translate their native format into this.
-any - Persistent state for a sync session between CLEO and a provider. Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+any - How an external task link was established.
+any - Direction of the sync that established the link.
+any - A link between a CLEO task and an external provider task. Stored in the external_task_links table in tasks.db.
 any - Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins`: CLEO state takes precedence (default). - `provider-wins`: Provider state takes precedence. - `latest-wins`: Most recently modified value wins. - `report-only`: Report conflicts without applying changes.
 any - Options for the reconciliation engine.
 any - The type of action the reconciliation engine will take.
 any - A single reconciliation action (planned or applied).
 any - Result of a full reconciliation run.
-any - Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives here — core never sees native formats.
+any - Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO.
 any - Transport provider interface for CLEO provider adapters. Allows providers to supply custom inter-agent transport mechanisms.  T5240
 any
 any
@@ -1692,14 +1695,6 @@ any - Runtime state of a chain instance execution.
 any - A variable declaration within a Tessera template.
 any - A parameterized WarpChain template with variable bindings.
 any - Input for instantiating a Tessera template into a concrete chain.
-any - TodoWrite item status as exported by Claude.
-any - TodoWrite item as exported by Claude.
-any - TodoWrite state file format.
-any - Sync session state for TodoWrite integration.
-any - Detected changes from TodoWrite state analysis.
-any - Action type for a TodoWrite merge change.
-any - A single change applied during TodoWrite merge.
-any - Result of a TodoWrite merge operation.
 any
 (cleoDir: string, config: LoggingConfig) => Promise<PruneResult> - Prune old audit_log rows from tasks.db.  1. If auditRetentionDays is 0 or undefined, skip age-based pruning. 2. Compute cutoff timestamp from auditRetentionDays. 3. If archiveBeforePrune, select rows older than cutoff and write to    .cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz. 4. Delete rows older than cutoff from audit_log.  Idempotent — safe to call multiple times. Never throws — returns zero counts on any error.
 any - Audit entry interface. Used by session-grade and system-engine for behavioral analysis.
@@ -1805,7 +1800,7 @@ any - Resolved environment mode for MCP server config.
 any
 any
 any
-readonly ["commit-msg", "pre-commit"] - Git hooks managed by CLEO.
+readonly ["commit-msg", "pre-commit", "pre-push"] - Git hooks managed by CLEO.
 any
 (projectRoot: string, opts?: EnsureGitHooksOptions | undefined) => Promise<ScaffoldResult> - Install or update managed git hooks from templates/git-hooks/ into .git/hooks/.  Handles: - No .git directory (skips gracefully) - No source templates directory (skips gracefully) - Hooks already installed (skips unless force) - Sets executable permissions on installed hooks
 (projectRoot: string) => Promise<HookCheckResult[]> - Verify managed hooks are installed and current.  Compares installed hooks in .git/hooks/ against source templates in the package's templates/git-hooks/ directory. Returns per-hook status including whether the hook is installed and whether its content matches the source.
@@ -2041,9 +2036,12 @@ any - Result of completing a task.
 any - Options for updating a task.
 any - Result of updating a task.
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult> - Update a task's fields.  T4461
-(providerId: string, cwd?: string | undefined) => Promise<SyncSessionState | null> - Read sync session state for a provider. Returns null if no state file exists.
-(providerId: string, state: SyncSessionState, cwd?: string | undefined) => Promise<void> - Write sync session state for a provider.
-(providerId: string, cwd?: string | undefined) => Promise<void> - Clear (delete) sync session state for a provider.
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given provider.
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null> - Find a link by provider + external ID.
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given CLEO task.
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...> - Create a new external task link.
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void> - Update the lastSyncAt and optionally the title/metadata for an existing link.
+(providerId: string, cwd?: string | undefined) => Promise<number> - Remove all links for a provider (used during provider deregistration).
 (externalTasks: ExternalTask[], options: ReconcileOptions, accessor?: DataAccessor | undefined) => Promise<ReconcileResult> - Reconcile external task state with CLEO's authoritative task store.
 any - Supported artifact types.
 any - Artifact configuration from release config.
@@ -2314,7 +2312,7 @@ any
 (opts: { session?: string | undefined; cwd?: string | undefined; }) => Promise<Record<string, unknown>> - Get context status.
 (opts: { session?: string | undefined; cwd?: string | undefined; }) => Promise<Record<string, unknown> & { exitCode?: number | undefined; }> - Check context threshold (returns exit code info).
 (cwd?: string | undefined) => Promise<Record<string, unknown>> - List all context state files.
-(opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...> - Inject tasks into TodoWrite format.
+(opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...> - Inject tasks for external consumption.
 { readonly name: "@cleocode/cleo"; readonly version: "2026.3.36"; readonly description: "CLEO V2 - TypeScript task management CLI for AI coding agents"; readonly repository: { readonly owner: "kryptobaseddev"; readonly name: "cleo"; readonly fullName: "kryptobaseddev/cleo"; readonly url: "https://github.com/kryptoba... - BUILD CONFIGURATION - AUTO-GENERATED FILE  This file is generated by dev/generate-build-config.js DO NOT EDIT MANUALLY - Changes will be overwritten on next build  Source of truth: package.json Generated at: 2026-03-18T09:06:32.935Z   T5245 auto-generated
 any
 any
@@ -2893,14 +2891,6 @@ any - A dependency warning.
 (tasks: Task[]) => string[] | null - Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
 (taskId: string, tasks: Task[]) => string[] - Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
 (taskId: string, tasks: Task[]) => string[] - From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
-any
-any
-any
-any
-any
-any
-(todowriteState: TodoWriteState, injectedIds: string[]) => ChangeSet - Analyze TodoWrite state and detect changes against injected task IDs.
-(options: TodoWriteMergeOptions) => Promise<TodoWriteMergeResult> - Merge TodoWrite state back to CLEO tasks.
 any - Result of getting current task.
 any - Result of starting work on a task.
 any - Task work history entry.
@@ -3097,10 +3087,6 @@ any
 any - Fields consumed by logging, audit, and correlation subsystems.
 (cwd?: string | undefined) => Promise<ProjectInfo> - Read project-info.json and return a typed ProjectInfo.  Falls back gracefully when projectId is missing (pre-T5333 installs) by returning an empty string, allowing callers to detect and handle.
 (cwd?: string | undefined) => ProjectInfo | null - Synchronous variant for use in hot paths where async is not feasible. Returns null if the file is missing or unparseable.
-any - Result for sync status operation.
-any - Result for sync clear operation.
-(projectRoot: string) => Promise<{ success: boolean; data?: SyncStatusResult | undefined; error?: { code: string; message: string; } | undefined; }> - Get current sync status.  T5326
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<{ success: boolean; data?: SyncClearResult | undefined; error?: { code: string; message: string; } | undefined; }> - Clear sync state.  T5326
 any - RFC 2119 requirement levels
 any - Violation severity
 any - Protocol rule definition

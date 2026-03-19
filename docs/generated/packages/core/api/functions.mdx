@@ -6227,34 +6227,64 @@ Update a task's fields.  T4461
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult>
 ```
 
-## readSyncState()
+## getLinksByProvider()
 
-Read sync session state for a provider. Returns null if no state file exists.
+Find all links for a given provider.
 
 **Signature**
 
 ```typescript
-(providerId: string, cwd?: string | undefined) => Promise<SyncSessionState | null>
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
 ```
 
-## writeSyncState()
+## getLinkByExternalId()
 
-Write sync session state for a provider.
+Find a link by provider + external ID.
 
 **Signature**
 
 ```typescript
-(providerId: string, state: SyncSessionState, cwd?: string | undefined) => Promise<void>
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
 ```
 
-## clearSyncState()
+## getLinksByTaskId()
 
-Clear (delete) sync session state for a provider.
+Find all links for a given CLEO task.
 
 **Signature**
 
 ```typescript
-(providerId: string, cwd?: string | undefined) => Promise<void>
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+## createLink()
+
+Create a new external task link.
+
+**Signature**
+
+```typescript
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
+```
+
+## touchLink()
+
+Update the lastSyncAt and optionally the title/metadata for an existing link.
+
+**Signature**
+
+```typescript
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
+```
+
+## removeLinksByProvider()
+
+Remove all links for a provider (used during provider deregistration).
+
+**Signature**
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<number>
 ```
 
 ## reconcile(externalTasks, options, accessor)
@@ -8211,7 +8241,7 @@ List all context state files.
 
 ## injectTasks()
 
-Inject tasks into TodoWrite format.
+Inject tasks for external consumption.
 
 **Signature**
 
@@ -12600,30 +12630,6 @@ From the transitive blockers, return only "leaf" blockers — those whose own de
 (taskId: string, tasks: Task[]) => string[]
 ```
 
-## analyzeChanges()
-
-> **Deprecated**: Use reconcile() from the reconciliation engine instead.
-
-Analyze TodoWrite state and detect changes against injected task IDs.
-
-**Signature**
-
-```typescript
-(todowriteState: TodoWriteState, injectedIds: string[]) => ChangeSet
-```
-
-## mergeTodoWriteState()
-
-> **Deprecated**: Use the provider-agnostic reconciliation engine instead:   import  reconcile  from '../reconciliation/index.js';   import  ClaudeCodeTaskSyncProvider  from 'cleocode/adapters';  This function is preserved for backward compatibility.
-
-Merge TodoWrite state back to CLEO tasks.
-
-**Signature**
-
-```typescript
-(options: TodoWriteMergeOptions) => Promise<TodoWriteMergeResult>
-```
-
 ## currentTask()
 
 Show current task work state.  T4462  T4750
@@ -13906,26 +13912,6 @@ Synchronous variant for use in hot paths where async is not feasible. Returns nu
 
 ```typescript
 (cwd?: string | undefined) => ProjectInfo | null
-```
-
-## getSyncStatus()
-
-Get current sync status.  T5326
-
-**Signature**
-
-```typescript
-(projectRoot: string) => Promise<{ success: boolean; data?: SyncStatusResult | undefined; error?: { code: string; message: string; } | undefined; }>
-```
-
-## clearSyncState()
-
-Clear sync state.  T5326
-
-**Signature**
-
-```typescript
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<{ success: boolean; data?: SyncClearResult | undefined; error?: { code: string; message: string; } | undefined; }>
 ```
 
 ## ProtocolEnforcer

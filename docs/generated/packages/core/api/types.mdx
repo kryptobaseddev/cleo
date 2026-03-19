@@ -273,6 +273,18 @@ any
 any
 ```
 
+## ExternalTaskLinkRow
+
+```typescript
+any
+```
+
+## NewExternalTaskLinkRow
+
+```typescript
+any
+```
+
 ## BrainDecisionRow
 
 ```typescript
@@ -3556,10 +3568,10 @@ Result of deleting a task.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `reconcile` | `(params: { externalTasks: ExternalTask[]; providerId: string; dryRun?: boolean \| undefined; conflictPolicy?: ConflictPolicy \| undefined; defaultPhase?: string \| undefined; defaultLabels?: string[] \| undefined; }) => Promise<...>` | No | reconcile |
-| `readState` | `(providerId: string) => Promise<SyncSessionState \| null>` | Yes | readState |
-| `writeState` | `(providerId: string, state: SyncSessionState) => Promise<void>` | Yes | writeState |
-| `clearState` | `(providerId: string) => Promise<void>` | Yes | clearState |
+| `reconcile` | `(params: { externalTasks: ExternalTask[]; providerId: string; dryRun?: boolean \| undefined; conflictPolicy?: ConflictPolicy \| undefined; defaultPhase?: string \| undefined; defaultLabels?: string[] \| undefined; }) => Promise<...>` | No | Reconcile external tasks with CLEO as SSoT. |
+| `getLinks` | `(providerId: string) => Promise<ExternalTaskLink[]>` | Yes | Get all external task links for a provider. |
+| `getTaskLinks` | `(taskId: string) => Promise<ExternalTaskLink[]>` | Yes | Get all external task links for a CLEO task. |
+| `removeProviderLinks` | `(providerId: string) => Promise<number>` | Yes | Remove all external task links for a provider. |
 
 ## CleoInitOptions
 
@@ -5887,67 +5899,6 @@ A dependency warning.
 | `taskId` | `string` | Yes | taskId |
 | `message` | `string` | Yes | message |
 
-## TodoWriteItem
-
-> **Deprecated**: Use ExternalTask from cleocode/contracts instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `content` | `string` | Yes | content |
-| `status` | `"completed" \| "pending" \| "in_progress"` | Yes | status |
-| `activeForm` | `string \| undefined` | No | activeForm |
-
-## TodoWriteState
-
-> **Deprecated**: Use AdapterTaskSyncProvider.getExternalTasks() instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `todos` | `TodoWriteItem[]` | Yes | todos |
-
-## SyncSessionState
-
-> **Deprecated**: Use SyncSessionState from cleocode/contracts instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `injected_tasks` | `string[]` | Yes | injected_tasks |
-| `injectedPhase` | `string \| undefined` | No | injectedPhase |
-| `task_metadata` | `Record<string, { phase?: string \| undefined; }> \| undefined` | No | task_metadata |
-
-## ChangeSet
-
-> **Deprecated**: Use ReconcileAction from cleocode/contracts instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `completed` | `string[]` | Yes | completed |
-| `progressed` | `string[]` | Yes | progressed |
-| `newTasks` | `string[]` | Yes | newTasks |
-| `removed` | `string[]` | Yes | removed |
-
-## TodoWriteMergeOptions
-
-> **Deprecated**: Use ReconcileOptions from cleocode/contracts instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `file` | `string` | Yes | Path to the TodoWrite JSON state file. |
-| `dryRun` | `boolean \| undefined` | No | Show changes without modifying tasks. |
-| `defaultPhase` | `string \| undefined` | No | Default phase for newly created tasks. |
-| `cwd` | `string \| undefined` | No | Working directory (project root). |
-| `accessor` | `DataAccessor \| undefined` | No | Optional DataAccessor override. |
-
-## TodoWriteMergeResult
-
-> **Deprecated**: Use ReconcileResult from cleocode/contracts instead.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `dryRun` | `boolean` | Yes | dryRun |
-| `changes` | `{ completed: number; progressed: number; new: number; removed: number; applied: number; }` | Yes | changes |
-| `sessionCleared` | `boolean` | Yes | sessionCleared |
-
 ## TaskCurrentResult
 
 Result of getting current task.
@@ -6492,32 +6443,6 @@ Fields consumed by logging, audit, and correlation subsystems.
 | `projectId` | `string` | Yes | Stable UUID that survives directory moves (added by T5333). |
 | `projectRoot` | `string` | Yes | Absolute path to the project root directory. |
 | `projectName` | `string` | Yes | Human-readable project name (last segment of projectRoot). |
-
-## SyncStatusResult
-
-Result for sync status operation.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `active` | `boolean` | Yes | active |
-| `sessionId` | `string \| undefined` | No | sessionId |
-| `injectedAt` | `string \| undefined` | No | injectedAt |
-| `injectedPhase` | `string \| undefined` | No | injectedPhase |
-| `taskCount` | `number \| undefined` | No | taskCount |
-| `taskIds` | `string[] \| undefined` | No | taskIds |
-| `phases` | `{ phase: string; count: number; }[] \| undefined` | No | phases |
-| `stateFile` | `string` | Yes | stateFile |
-
-## SyncClearResult
-
-Result for sync clear operation.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `cleared` | `{ stateFile: string; } \| undefined` | No | cleared |
-| `dryRun` | `boolean \| undefined` | No | dryRun |
-| `wouldDelete` | `{ stateFile: string; syncDirectory: string; } \| undefined` | No | wouldDelete |
-| `noChange` | `boolean \| undefined` | No | noChange |
 
 ## RequirementLevel
 

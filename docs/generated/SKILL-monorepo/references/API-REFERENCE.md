@@ -1492,6 +1492,30 @@ Show tasks associated with a label.  T5672
 (projectRoot: string, label: string) => Promise<EngineResult<Record<string, unknown>>>
 ```
 
+### `taskSyncReconcile`
+
+Reconcile external tasks with CLEO as SSoT.
+
+```typescript
+(projectRoot: string, params: { providerId: string; externalTasks: ExternalTask[]; dryRun?: boolean | undefined; conflictPolicy?: string | undefined; defaultPhase?: string | undefined; defaultLabels?: string[] | undefined; }) => Promise<...>
+```
+
+### `taskSyncLinks`
+
+List external task links by provider or task ID.
+
+```typescript
+(projectRoot: string, params?: { providerId?: string | undefined; taskId?: string | undefined; } | undefined) => Promise<EngineResult<{ links: ExternalTaskLink[]; count: number; }>>
+```
+
+### `taskSyncLinksRemove`
+
+Remove all external task links for a provider.
+
+```typescript
+(projectRoot: string, providerId: string) => Promise<EngineResult<{ providerId: string; removed: number; }>>
+```
+
 ### `systemDash`
 
 Project dashboard: task counts by status, active session info, current focus, recent completions.
@@ -2521,30 +2545,6 @@ Inject CLEO directives into all installed provider instruction files.
 
 ```typescript
 (projectRoot: string, scope?: "global" | "project" | undefined, references?: string[] | undefined, content?: string | undefined) => Promise<EngineResult<{ actions: { file: string; action: string; }[]; count: number; }>>
-```
-
-### `toolsTodowriteStatus`
-
-Get TodoWrite sync status.
-
-```typescript
-(projectRoot: string) => Promise<EngineResult<unknown>>
-```
-
-### `toolsTodowriteSync`
-
-Trigger TodoWrite sync.
-
-```typescript
-(projectRoot: string, params?: { direction?: string | undefined; } | undefined) => EngineResult<unknown>
-```
-
-### `toolsTodowriteClear`
-
-Clear TodoWrite sync state.
-
-```typescript
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<EngineResult<unknown>>
 ```
 
 ### `toolsAdapterList`
@@ -5693,14 +5693,6 @@ Register the env command group.  T4581
 (program: ShimCommand) => void
 ```
 
-### `registerExtractCommand`
-
-Register the extract command.  T4551
-
-```typescript
-(program: ShimCommand) => void
-```
-
 ### `registerFindCommand`
 
 Register the find command.  T4460  T4668
@@ -6058,14 +6050,6 @@ Register the sticky command group.  T5281
 ### `registerStopCommand`
 
 Register the stop command.  T4756  T4666
-
-```typescript
-(program: ShimCommand) => void
-```
-
-### `registerSyncCommand`
-
-Register the sync command.  T4551, T5326
 
 ```typescript
 (program: ShimCommand) => void
@@ -8666,28 +8650,52 @@ Update a task's fields.  T4461
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult>
 ```
 
-### `readSyncState`
+### `getLinksByProvider`
 
-Read sync session state for a provider. Returns null if no state file exists.
+Find all links for a given provider.
 
 ```typescript
-(providerId: string, cwd?: string | undefined) => Promise<SyncSessionState | null>
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
 ```
 
-### `writeSyncState`
+### `getLinkByExternalId`
 
-Write sync session state for a provider.
+Find a link by provider + external ID.
 
 ```typescript
-(providerId: string, state: SyncSessionState, cwd?: string | undefined) => Promise<void>
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
 ```
 
-### `clearSyncState`
+### `getLinksByTaskId`
 
-Clear (delete) sync session state for a provider.
+Find all links for a given CLEO task.
 
 ```typescript
-(providerId: string, cwd?: string | undefined) => Promise<void>
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+### `createLink`
+
+Create a new external task link.
+
+```typescript
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
+```
+
+### `touchLink`
+
+Update the lastSyncAt and optionally the title/metadata for an existing link.
+
+```typescript
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
+```
+
+### `removeLinksByProvider`
+
+Remove all links for a provider (used during provider deregistration).
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<number>
 ```
 
 ### `reconcile`
@@ -10166,7 +10174,7 @@ List all context state files.
 
 ### `injectTasks`
 
-Inject tasks into TodoWrite format.
+Inject tasks for external consumption.
 
 ```typescript
 (opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...>
@@ -13319,22 +13327,6 @@ From the transitive blockers, return only "leaf" blockers — those whose own de
 (taskId: string, tasks: Task[]) => string[]
 ```
 
-### `analyzeChanges`
-
-Analyze TodoWrite state and detect changes against injected task IDs.
-
-```typescript
-(todowriteState: TodoWriteState, injectedIds: string[]) => ChangeSet
-```
-
-### `mergeTodoWriteState`
-
-Merge TodoWrite state back to CLEO tasks.
-
-```typescript
-(options: TodoWriteMergeOptions) => Promise<TodoWriteMergeResult>
-```
-
 ### `currentTask`
 
 Show current task work state.  T4462  T4750
@@ -14357,22 +14349,6 @@ Synchronous variant for use in hot paths where async is not feasible. Returns nu
 
 ```typescript
 (cwd?: string | undefined) => ProjectInfo | null
-```
-
-### `getSyncStatus`
-
-Get current sync status.  T5326
-
-```typescript
-(projectRoot: string) => Promise<{ success: boolean; data?: SyncStatusResult | undefined; error?: { code: string; message: string; } | undefined; }>
-```
-
-### `clearSyncState`
-
-Clear sync state.  T5326
-
-```typescript
-(projectRoot: string, dryRun?: boolean | undefined) => Promise<{ success: boolean; data?: SyncClearResult | undefined; error?: { code: string; message: string; } | undefined; }>
 ```
 
 ### `getHookCapableProviders`
@@ -18784,6 +18760,18 @@ any
 any
 ```
 
+### `ExternalTaskLinkRow`
+
+```typescript
+any
+```
+
+### `NewExternalTaskLinkRow`
+
+```typescript
+any
+```
+
 ### `BrainDecisionRow`
 
 ```typescript
@@ -20610,16 +20598,35 @@ any
 **Members:**
 
 - `externalId` — Provider-assigned identifier for this task (opaque to core).
-- `cleoTaskId` — Mapped CLEO task ID, or null if the task is new / unmatched.
 - `title` — Human-readable title.
 - `status` — Normalized status.
 - `description` — Optional description text.
+- `priority` — Optional priority mapping (provider decides how to map).
+- `type` — Optional task type mapping.
 - `labels` — Optional labels/tags from the provider.
+- `url` — Optional URL to the external task (for linking).
+- `parentExternalId` — Optional parent external ID (for hierarchy).
 - `providerMeta` — Arbitrary provider-specific metadata (opaque to core).
 
-### `SyncSessionState`
+### `ExternalLinkType`
 
-Persistent state for a sync session between CLEO and a provider. Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+How an external task link was established.
+
+```typescript
+any
+```
+
+### `SyncDirection`
+
+Direction of the sync that established the link.
+
+```typescript
+any
+```
+
+### `ExternalTaskLink`
+
+A link between a CLEO task and an external provider task. Stored in the external_task_links table in tasks.db.
 
 ```typescript
 any
@@ -20627,10 +20634,17 @@ any
 
 **Members:**
 
-- `injectedTaskIds` — CLEO task IDs that were injected into the provider's task list.
-- `injectedPhase` — Optional phase context when tasks were injected.
-- `taskMetadata` — Per-task metadata at injection time.
-- `lastSyncAt` — ISO timestamp of the last successful reconciliation.
+- `id` — Link ID (UUID).
+- `taskId` — CLEO task ID.
+- `providerId` — Provider identifier (e.g. 'linear', 'jira', 'github').
+- `externalId` — Provider-assigned external task ID.
+- `externalUrl` — URL to the external task.
+- `externalTitle` — Title at time of last sync.
+- `linkType` — How this link was established.
+- `syncDirection` — Sync direction.
+- `metadata` — Provider-specific metadata (JSON).
+- `linkedAt` — When the link was first established.
+- `lastSyncAt` — When the external task was last synchronized.
 
 ### `ConflictPolicy`
 
@@ -20650,7 +20664,7 @@ any
 
 **Members:**
 
-- `providerId` — Provider ID (e.g. 'claude-code', 'cursor').
+- `providerId` — Provider ID (e.g. 'linear', 'jira', 'github').
 - `cwd` — Working directory (project root).
 - `dryRun` — If true, compute actions without applying them.
 - `conflictPolicy` — Conflict resolution policy. Defaults to 'cleo-wins'.
@@ -20677,9 +20691,10 @@ any
 
 - `type` — What kind of change.
 - `cleoTaskId` — The CLEO task ID affected (null for creates before they happen).
-- `externalId` — The external task that triggered this action.
+- `externalId` — The external task ID that triggered this action.
 - `summary` — Human-readable description of the action.
 - `applied` — Whether this action was actually applied.
+- `linkId` — The link ID if a link was created or updated.
 - `error` — Error message if the action failed during apply.
 
 ### `ReconcileResult`
@@ -20696,11 +20711,11 @@ any
 - `providerId` — Provider that was reconciled.
 - `actions` — Individual actions taken (or planned).
 - `summary` — Summary counts.
-- `sessionCleared` — Whether sync session state was cleared after apply.
+- `linksAffected` — Links created or updated during this reconciliation.
 
-### `AdapterTaskSyncProvider`
+### `ExternalTaskProvider`
 
-Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives here — core never sees native formats.
+Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO.
 
 ```typescript
 any
@@ -20709,8 +20724,25 @@ any
 **Members:**
 
 - `getExternalTasks` — Read the provider's current task state and return normalized ExternalTasks.
-- `pushTaskState` — Optionally push CLEO task state back to the provider. Not all providers support bidirectional sync.
-- `cleanup` — Clean up provider-specific sync artifacts (e.g. state files).
+- `pushTaskState` — Optionally push CLEO task state back to the provider (outbound sync). Not all providers support bidirectional sync.
+
+```typescript
+class LinearAdapter implements ExternalTaskProvider {
+  async getExternalTasks(projectDir: string): Promise<ExternalTask[]> {
+    const issues = await linearClient.issues({ projectId: '...' });
+    return issues.map(issue => ({
+      externalId: issue.id,
+      title: issue.title,
+      status: mapLinearStatus(issue.state),
+      description: issue.description,
+      priority: mapLinearPriority(issue.priority),
+      labels: issue.labels.map(l => l.name),
+      url: issue.url,
+      providerMeta: { linearId: issue.identifier },
+    }));
+  }
+}
+```
 
 ### `AdapterTransportProvider`
 
@@ -26009,105 +26041,6 @@ any
 - `epicId`
 - `variables`
 
-### `TodoWriteItemStatus`
-
-TodoWrite item status as exported by Claude.
-
-```typescript
-any
-```
-
-### `TodoWriteItem`
-
-TodoWrite item as exported by Claude.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `content`
-- `status`
-- `activeForm`
-
-### `TodoWriteState`
-
-TodoWrite state file format.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `todos`
-
-### `TodoWriteSyncSessionState`
-
-Sync session state for TodoWrite integration.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `injected_tasks`
-- `injectedPhase`
-- `task_metadata`
-
-### `TodoWriteChangeSet`
-
-Detected changes from TodoWrite state analysis.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `completed`
-- `progressed`
-- `newTasks`
-- `removed`
-
-### `TodoWriteChangeAction`
-
-Action type for a TodoWrite merge change.
-
-```typescript
-any
-```
-
-### `TodoWriteChange`
-
-A single change applied during TodoWrite merge.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `taskId`
-- `action`
-- `details`
-
-### `TodoWriteMergeResult`
-
-Result of a TodoWrite merge operation.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `dryRun`
-- `changes`
-- `sessionCleared`
-
 ### `PruneResult`
 
 ```typescript
@@ -29087,10 +29020,10 @@ any
 
 **Members:**
 
-- `reconcile`
-- `readState`
-- `writeState`
-- `clearState`
+- `reconcile` — Reconcile external tasks with CLEO as SSoT.
+- `getLinks` — Get all external task links for a provider.
+- `getTaskLinks` — Get all external task links for a CLEO task.
+- `removeProviderLinks` — Remove all external task links for a provider.
 
 ### `CleoInitOptions`
 
@@ -32090,79 +32023,6 @@ any
 - `taskId`
 - `message`
 
-### `TodoWriteItem`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `content`
-- `status`
-- `activeForm`
-
-### `TodoWriteState`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `todos`
-
-### `SyncSessionState`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `injected_tasks`
-- `injectedPhase`
-- `task_metadata`
-
-### `ChangeSet`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `completed`
-- `progressed`
-- `newTasks`
-- `removed`
-
-### `TodoWriteMergeOptions`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `file` — Path to the TodoWrite JSON state file.
-- `dryRun` — Show changes without modifying tasks.
-- `defaultPhase` — Default phase for newly created tasks.
-- `cwd` — Working directory (project root).
-- `accessor` — Optional DataAccessor override.
-
-### `TodoWriteMergeResult`
-
-```typescript
-any
-```
-
-**Members:**
-
-- `dryRun`
-- `changes`
-- `sessionCleared`
-
 ### `TaskCurrentResult`
 
 Result of getting current task.
@@ -32899,40 +32759,6 @@ any
 - `projectId` — Stable UUID that survives directory moves (added by T5333).
 - `projectRoot` — Absolute path to the project root directory.
 - `projectName` — Human-readable project name (last segment of projectRoot).
-
-### `SyncStatusResult`
-
-Result for sync status operation.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `active`
-- `sessionId`
-- `injectedAt`
-- `injectedPhase`
-- `taskCount`
-- `taskIds`
-- `phases`
-- `stateFile`
-
-### `SyncClearResult`
-
-Result for sync clear operation.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `cleared`
-- `dryRun`
-- `wouldDelete`
-- `noChange`
 
 ### `RequirementLevel`
 
@@ -35681,7 +35507,6 @@ typeof ClaudeCodeTaskSyncProvider
 
 - `customFilePath`
 - `getExternalTasks`
-- `cleanup`
 
 ### `ClaudeCodeTransportProvider`
 
@@ -36056,8 +35881,6 @@ typeof ToolsHandler
 - `mutateSkill`
 - `queryProvider`
 - `mutateProvider`
-- `queryTodowrite`
-- `mutateTodowrite`
 - `queryAdapter`
 - `mutateAdapter`
 - `handleError`
@@ -37095,6 +36918,14 @@ ADR cross-reference relationships
 SQLiteTableWithColumns<{ name: "adr_relations"; schema: undefined; columns: { fromAdrId: SQLiteColumn<{ name: string; tableName: "adr_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; toAdrId: SQLiteColumn<...>; relation...
 ```
 
+### `externalTaskLinks`
+
+Tracks links between CLEO tasks and external system tasks (Linear, Jira, GitHub, etc.). Used by the reconciliation engine to match external tasks to existing CLEO tasks, detect updates, and maintain bidirectional traceability.  Each row represents one link: one CLEO task ↔ one external task from one provider. A CLEO task MAY have links from multiple providers (e.g., both Linear and GitHub). An external task SHOULD have at most one link per provider.
+
+```typescript
+SQLiteTableWithColumns<{ name: "external_task_links"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQL...
+```
+
 ### `statusRegistryTable`
 
 ```typescript
@@ -38046,7 +37877,7 @@ readonly ["schemas", "templates"]
 Git hooks managed by CLEO.
 
 ```typescript
-readonly ["commit-msg", "pre-commit"]
+readonly ["commit-msg", "pre-commit", "pre-push"]
 ```
 
 ### `SUPPORTED_PLATFORMS`

@@ -42,13 +42,15 @@ API reference for the `contracts` package.
 | [`SpawnResult`](/packages/contracts/api/types#spawnresult) | interface |  |
 | [`ExternalTaskStatus`](/packages/contracts/api/types#externaltaskstatus) | type | Normalized status for tasks coming from an external provider. |
 | [`ExternalTask`](/packages/contracts/api/types#externaltask) | interface | A task as reported by an external provider, normalized to a common shape. Pro... |
-| [`SyncSessionState`](/packages/contracts/api/types#syncsessionstate) | interface | Persistent state for a sync session between CLEO and a provider. Stored per-p... |
+| [`ExternalLinkType`](/packages/contracts/api/types#externallinktype) | type | How an external task link was established. |
+| [`SyncDirection`](/packages/contracts/api/types#syncdirection) | type | Direction of the sync that established the link. |
+| [`ExternalTaskLink`](/packages/contracts/api/types#externaltasklink) | interface | A link between a CLEO task and an external provider task. Stored in the exter... |
 | [`ConflictPolicy`](/packages/contracts/api/types#conflictpolicy) | type | Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins... |
 | [`ReconcileOptions`](/packages/contracts/api/types#reconcileoptions) | interface | Options for the reconciliation engine. |
 | [`ReconcileActionType`](/packages/contracts/api/types#reconcileactiontype) | type | The type of action the reconciliation engine will take. |
 | [`ReconcileAction`](/packages/contracts/api/types#reconcileaction) | interface | A single reconciliation action (planned or applied). |
 | [`ReconcileResult`](/packages/contracts/api/types#reconcileresult) | interface | Result of a full reconciliation run. |
-| [`AdapterTaskSyncProvider`](/packages/contracts/api/types#adaptertasksyncprovider) | interface | Interface that provider adapters implement to expose their external task syst... |
+| [`ExternalTaskProvider`](/packages/contracts/api/types#externaltaskprovider) | interface | Interface that provider adapters implement to expose their external task syst... |
 | [`AdapterTransportProvider`](/packages/contracts/api/types#adaptertransportprovider) | interface | Transport provider interface for CLEO provider adapters. Allows providers to ... |
 | [`CLEOProviderAdapter`](/packages/contracts/api/types#cleoprovideradapter) | interface |  |
 | [`AdapterHealthStatus`](/packages/contracts/api/types#adapterhealthstatus) | interface |  |
@@ -472,14 +474,6 @@ API reference for the `contracts` package.
 | [`TesseraVariable`](/packages/contracts/api/types#tesseravariable) | interface | A variable declaration within a Tessera template. |
 | [`TesseraTemplate`](/packages/contracts/api/types#tesseratemplate) | interface | A parameterized WarpChain template with variable bindings. |
 | [`TesseraInstantiationInput`](/packages/contracts/api/types#tesserainstantiationinput) | interface | Input for instantiating a Tessera template into a concrete chain. |
-| [`TodoWriteItemStatus`](/packages/contracts/api/types#todowriteitemstatus) | type | TodoWrite item status as exported by Claude. |
-| [`TodoWriteItem`](/packages/contracts/api/types#todowriteitem) | interface | TodoWrite item as exported by Claude. |
-| [`TodoWriteState`](/packages/contracts/api/types#todowritestate) | interface | TodoWrite state file format. |
-| [`TodoWriteSyncSessionState`](/packages/contracts/api/types#todowritesyncsessionstate) | interface | Sync session state for TodoWrite integration. |
-| [`TodoWriteChangeSet`](/packages/contracts/api/types#todowritechangeset) | interface | Detected changes from TodoWrite state analysis. |
-| [`TodoWriteChangeAction`](/packages/contracts/api/types#todowritechangeaction) | type | Action type for a TodoWrite merge change. |
-| [`TodoWriteChange`](/packages/contracts/api/types#todowritechange) | interface | A single change applied during TodoWrite merge. |
-| [`TodoWriteMergeResult`](/packages/contracts/api/types#todowritemergeresult) | interface | Result of a TodoWrite merge operation. |
 
 ## Other Exports
 

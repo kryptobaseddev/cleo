@@ -506,9 +506,12 @@ API reference for the `core` package.
 | [`resolveTaskDetails()`](/packages/core/api/functions#resolvetaskdetails) | function | Resolve an array of task IDs to their full Task objects. Tasks that cannot be... |
 | [`completeTask()`](/packages/core/api/functions#completetask) | function | Complete a task by ID. Handles dependency checking and optional auto-completi... |
 | [`updateTask()`](/packages/core/api/functions#updatetask) | function | Update a task's fields.  T4461 |
-| [`readSyncState()`](/packages/core/api/functions#readsyncstate) | function | Read sync session state for a provider. Returns null if no state file exists. |
-| [`writeSyncState()`](/packages/core/api/functions#writesyncstate) | function | Write sync session state for a provider. |
-| [`clearSyncState()`](/packages/core/api/functions#clearsyncstate) | function | Clear (delete) sync session state for a provider. |
+| [`getLinksByProvider()`](/packages/core/api/functions#getlinksbyprovider) | function | Find all links for a given provider. |
+| [`getLinkByExternalId()`](/packages/core/api/functions#getlinkbyexternalid) | function | Find a link by provider + external ID. |
+| [`getLinksByTaskId()`](/packages/core/api/functions#getlinksbytaskid) | function | Find all links for a given CLEO task. |
+| [`createLink()`](/packages/core/api/functions#createlink) | function | Create a new external task link. |
+| [`touchLink()`](/packages/core/api/functions#touchlink) | function | Update the lastSyncAt and optionally the title/metadata for an existing link. |
+| [`removeLinksByProvider()`](/packages/core/api/functions#removelinksbyprovider) | function | Remove all links for a provider (used during provider deregistration). |
 | [`reconcile()`](/packages/core/api/functions#reconcile) | function | Reconcile external task state with CLEO's authoritative task store. |
 | [`getArtifactHandler()`](/packages/core/api/functions#getartifacthandler) | function | Get handler for an artifact type.  T4552 |
 | [`hasArtifactHandler()`](/packages/core/api/functions#hasartifacthandler) | function | Check if a handler is registered for an artifact type.  T4552 |
@@ -679,7 +682,7 @@ API reference for the `core` package.
 | [`getContextStatus()`](/packages/core/api/functions#getcontextstatus) | function | Get context status. |
 | [`checkContextThreshold()`](/packages/core/api/functions#checkcontextthreshold) | function | Check context threshold (returns exit code info). |
 | [`listContextSessions()`](/packages/core/api/functions#listcontextsessions) | function | List all context state files. |
-| [`injectTasks()`](/packages/core/api/functions#injecttasks) | function | Inject tasks into TodoWrite format. |
+| [`injectTasks()`](/packages/core/api/functions#injecttasks) | function | Inject tasks for external consumption. |
 | [`collectDiagnostics()`](/packages/core/api/functions#collectdiagnostics) | function | Collect system diagnostics for bug reports. |
 | [`formatDiagnosticsTable()`](/packages/core/api/functions#formatdiagnosticstable) | function | Format diagnostics as markdown table. |
 | [`parseIssueTemplates()`](/packages/core/api/functions#parseissuetemplates) | function | Parse all issue templates from available sources. Priority:   1. Packaged tem... |
@@ -1055,8 +1058,6 @@ API reference for the `core` package.
 | [`topologicalSort()`](/packages/core/api/functions#topologicalsort) | function | Topological sort of tasks by dependencies. Returns sorted task IDs or null if... |
 | [`getTransitiveBlockers()`](/packages/core/api/functions#gettransitiveblockers) | function | Walk upstream recursively through a task's dependency chain. Returns all non-... |
 | [`getLeafBlockers()`](/packages/core/api/functions#getleafblockers) | function | From the transitive blockers, return only "leaf" blockers — those whose own d... |
-| [`analyzeChanges()`](/packages/core/api/functions#analyzechanges) | function | Analyze TodoWrite state and detect changes against injected task IDs. |
-| [`mergeTodoWriteState()`](/packages/core/api/functions#mergetodowritestate) | function | Merge TodoWrite state back to CLEO tasks. |
 | [`currentTask()`](/packages/core/api/functions#currenttask) | function | Show current task work state.  T4462  T4750 |
 | [`startTask()`](/packages/core/api/functions#starttask) | function | Start working on a specific task.  T4462  T4750 |
 | [`stopTask()`](/packages/core/api/functions#stoptask) | function | Stop working on the current task.  T4462  T4750 |
@@ -1185,8 +1186,6 @@ API reference for the `core` package.
 | [`allSiblingsVerified()`](/packages/core/api/functions#allsiblingsverified) | function | Check if all siblings of a task are verified.  T4526 |
 | [`getProjectInfo()`](/packages/core/api/functions#getprojectinfo) | function | Read project-info.json and return a typed ProjectInfo.  Falls back gracefully... |
 | [`getProjectInfoSync()`](/packages/core/api/functions#getprojectinfosync) | function | Synchronous variant for use in hot paths where async is not feasible. Returns... |
-| [`getSyncStatus()`](/packages/core/api/functions#getsyncstatus) | function | Get current sync status.  T5326 |
-| [`clearSyncState()`](/packages/core/api/functions#clearsyncstate) | function | Clear sync state.  T5326 |
 | [`ProtocolEnforcer`](/packages/core/api/functions#protocolenforcer) | class | Main protocol enforcement class |
 | [`getHookCapableProviders()`](/packages/core/api/functions#gethookcapableproviders) | function | Get all providers that support a specific hook event |
 | [`getSharedHookEvents()`](/packages/core/api/functions#getsharedhookevents) | function | Get hook events supported by all specified providers |
@@ -1596,6 +1595,8 @@ API reference for the `core` package.
 | [`NewPipelineManifestRow`](/packages/core/api/types#newpipelinemanifestrow) | type |  |
 | [`ReleaseManifestRow`](/packages/core/api/types#releasemanifestrow) | type |  |
 | [`NewReleaseManifestRow`](/packages/core/api/types#newreleasemanifestrow) | type |  |
+| [`ExternalTaskLinkRow`](/packages/core/api/types#externaltasklinkrow) | type |  |
+| [`NewExternalTaskLinkRow`](/packages/core/api/types#newexternaltasklinkrow) | type |  |
 | [`BrainDecisionRow`](/packages/core/api/types#braindecisionrow) | type |  |
 | [`NewBrainDecisionRow`](/packages/core/api/types#newbraindecisionrow) | type |  |
 | [`BrainPatternRow`](/packages/core/api/types#brainpatternrow) | type |  |
@@ -2121,12 +2122,6 @@ API reference for the `core` package.
 | [`DependencyCheckResult`](/packages/core/api/types#dependencycheckresult) | interface | Result of a dependency validation check. |
 | [`DependencyError`](/packages/core/api/types#dependencyerror) | interface | A dependency error. |
 | [`DependencyWarning`](/packages/core/api/types#dependencywarning) | interface | A dependency warning. |
-| [`TodoWriteItem`](/packages/core/api/types#todowriteitem) | interface |  |
-| [`TodoWriteState`](/packages/core/api/types#todowritestate) | interface |  |
-| [`SyncSessionState`](/packages/core/api/types#syncsessionstate) | interface |  |
-| [`ChangeSet`](/packages/core/api/types#changeset) | interface |  |
-| [`TodoWriteMergeOptions`](/packages/core/api/types#todowritemergeoptions) | interface |  |
-| [`TodoWriteMergeResult`](/packages/core/api/types#todowritemergeresult) | interface |  |
 | [`TaskCurrentResult`](/packages/core/api/types#taskcurrentresult) | interface | Result of getting current task. |
 | [`TaskStartResult`](/packages/core/api/types#taskstartresult) | interface | Result of starting work on a task. |
 | [`TaskWorkHistoryEntry`](/packages/core/api/types#taskworkhistoryentry) | interface | Task work history entry. |
@@ -2182,8 +2177,6 @@ API reference for the `core` package.
 | [`CircularValidationResult`](/packages/core/api/types#circularvalidationresult) | interface |  |
 | [`TaskForVerification`](/packages/core/api/types#taskforverification) | interface |  |
 | [`ProjectInfo`](/packages/core/api/types#projectinfo) | interface | Fields consumed by logging, audit, and correlation subsystems. |
-| [`SyncStatusResult`](/packages/core/api/types#syncstatusresult) | interface | Result for sync status operation. |
-| [`SyncClearResult`](/packages/core/api/types#syncclearresult) | interface | Result for sync clear operation. |
 | [`RequirementLevel`](/packages/core/api/types#requirementlevel) | type | RFC 2119 requirement levels |
 | [`ViolationSeverity`](/packages/core/api/types#violationseverity) | type | Violation severity |
 | [`ProtocolRule`](/packages/core/api/types#protocolrule) | interface | Protocol rule definition |
@@ -2421,6 +2414,7 @@ API reference for the `core` package.
 | [`architectureDecisions`](/packages/core/api/functions#architecturedecisions) | variable | Architecture Decision Records (ADRs) stored in the database. Corresponds to t... |
 | [`adrTaskLinks`](/packages/core/api/functions#adrtasklinks) | variable | ADR-to-Task links (soft FK — tasks can be purged) |
 | [`adrRelations`](/packages/core/api/functions#adrrelations) | variable | ADR cross-reference relationships |
+| [`externalTaskLinks`](/packages/core/api/functions#externaltasklinks) | variable | Tracks links between CLEO tasks and external system tasks (Linear, Jira, GitH... |
 | [`statusRegistryTable`](/packages/core/api/functions#statusregistrytable) | variable |  |
 | [`BRAIN_DECISION_TYPES`](/packages/core/api/functions#braindecisiontypes) | variable | Decision types from ADR-009. |
 | [`BRAIN_CONFIDENCE_LEVELS`](/packages/core/api/functions#brainconfidencelevels) | variable | Confidence levels for decisions. |

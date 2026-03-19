@@ -133,6 +133,8 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`NewPipelineManifestRow`** — The `NewPipelineManifestRow` type.
 - **`ReleaseManifestRow`** — The `ReleaseManifestRow` type.
 - **`NewReleaseManifestRow`** — The `NewReleaseManifestRow` type.
+- **`ExternalTaskLinkRow`** — The `ExternalTaskLinkRow` type.
+- **`NewExternalTaskLinkRow`** — The `NewExternalTaskLinkRow` type.
 - **`BrainDecisionRow`** — The `BrainDecisionRow` type.
 - **`NewBrainDecisionRow`** — The `NewBrainDecisionRow` type.
 - **`BrainPatternRow`** — The `BrainPatternRow` type.
@@ -658,12 +660,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`DependencyCheckResult`** — Result of a dependency validation check.
 - **`DependencyError`** — A dependency error.
 - **`DependencyWarning`** — A dependency warning.
-- **`TodoWriteItem`** — The `TodoWriteItem` interface.
-- **`TodoWriteState`** — The `TodoWriteState` interface.
-- **`SyncSessionState`** — The `SyncSessionState` interface.
-- **`ChangeSet`** — The `ChangeSet` interface.
-- **`TodoWriteMergeOptions`** — The `TodoWriteMergeOptions` interface.
-- **`TodoWriteMergeResult`** — The `TodoWriteMergeResult` interface.
 - **`TaskCurrentResult`** — Result of getting current task.
 - **`TaskStartResult`** — Result of starting work on a task.
 - **`TaskWorkHistoryEntry`** — Task work history entry.
@@ -719,8 +715,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`CircularValidationResult`** — The `CircularValidationResult` interface.
 - **`TaskForVerification`** — The `TaskForVerification` interface.
 - **`ProjectInfo`** — Fields consumed by logging, audit, and correlation subsystems.
-- **`SyncStatusResult`** — Result for sync status operation.
-- **`SyncClearResult`** — Result for sync clear operation.
 - **`RequirementLevel`** — RFC 2119 requirement levels
 - **`ViolationSeverity`** — Violation severity
 - **`ProtocolRule`** — Protocol rule definition
@@ -934,13 +928,15 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SpawnResult`** — The `SpawnResult` interface.
 - **`ExternalTaskStatus`** — Normalized status for tasks coming from an external provider.
 - **`ExternalTask`** — A task as reported by an external provider, normalized to a common shape. Provider-specific adapters translate their native format into this.
-- **`SyncSessionState`** — Persistent state for a sync session between CLEO and a provider. Stored per-provider under `.cleo/sync/<providerId>-session.json`.
+- **`ExternalLinkType`** — How an external task link was established.
+- **`SyncDirection`** — Direction of the sync that established the link.
+- **`ExternalTaskLink`** — A link between a CLEO task and an external provider task. Stored in the external_task_links table in tasks.db.
 - **`ConflictPolicy`** — Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins`: CLEO state takes precedence (default). - `provider-wins`: Provider state takes precedence. - `latest-wins`: Most recently modified value wins. - `report-only`: Report conflicts without applying changes.
 - **`ReconcileOptions`** — Options for the reconciliation engine.
 - **`ReconcileActionType`** — The type of action the reconciliation engine will take.
 - **`ReconcileAction`** — A single reconciliation action (planned or applied).
 - **`ReconcileResult`** — Result of a full reconciliation run.
-- **`AdapterTaskSyncProvider`** — Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives here — core never sees native formats.
+- **`ExternalTaskProvider`** — Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO.
 - **`AdapterTransportProvider`** — Transport provider interface for CLEO provider adapters. Allows providers to supply custom inter-agent transport mechanisms.  T5240
 - **`CLEOProviderAdapter`** — The `CLEOProviderAdapter` interface.
 - **`AdapterHealthStatus`** — The `AdapterHealthStatus` interface.
@@ -1364,13 +1360,5 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`TesseraVariable`** — A variable declaration within a Tessera template.
 - **`TesseraTemplate`** — A parameterized WarpChain template with variable bindings.
 - **`TesseraInstantiationInput`** — Input for instantiating a Tessera template into a concrete chain.
-- **`TodoWriteItemStatus`** — TodoWrite item status as exported by Claude.
-- **`TodoWriteItem`** — TodoWrite item as exported by Claude.
-- **`TodoWriteState`** — TodoWrite state file format.
-- **`TodoWriteSyncSessionState`** — Sync session state for TodoWrite integration.
-- **`TodoWriteChangeSet`** — Detected changes from TodoWrite state analysis.
-- **`TodoWriteChangeAction`** — Action type for a TodoWrite merge change.
-- **`TodoWriteChange`** — A single change applied during TodoWrite merge.
-- **`TodoWriteMergeResult`** — Result of a TodoWrite merge operation.
 
 <!-- FORGE:AUTO-END key-abstractions -->

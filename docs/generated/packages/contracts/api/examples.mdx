@@ -4,6 +4,30 @@ description: "Usage examples for the contracts package"
 ---
 All usage examples from the package, aggregated for quick reference.
 
+## `ExternalTaskProvider`
+
+_Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO._
+
+[View in API reference](/packages/contracts/api/functions#externaltaskprovider)
+
+```typescript
+class LinearAdapter implements ExternalTaskProvider {
+  async getExternalTasks(projectDir: string): Promise<ExternalTask[]> {
+    const issues = await linearClient.issues({ projectId: '...' });
+    return issues.map(issue => ({
+      externalId: issue.id,
+      title: issue.title,
+      status: mapLinearStatus(issue.state),
+      description: issue.description,
+      priority: mapLinearPriority(issue.priority),
+      labels: issue.labels.map(l => l.name),
+      url: issue.url,
+      providerMeta: { linearId: issue.identifier },
+    }));
+  }
+}
+```
+
 ## `normalizeError()`
 
 _Normalize any thrown value into a standardized error object.  Handles: - Error instances (preserves stack trace info) - Strings (wraps in Error) - Objects with message property - null/undefined (provides fallback)_
