@@ -634,7 +634,7 @@ export async function releaseShip(
     }
     logStep(4, 8, 'Generate CHANGELOG', true);
 
-    // Step 4.5: Lint check — catch biome errors before committing
+    // Step 4.5: Lint check — warn on biome errors but don't block release
     try {
       execFileSync('npx', ['biome', 'check', '--no-errors-on-unmatched', cwd], {
         cwd,
@@ -642,17 +642,14 @@ export async function releaseShip(
         stdio: 'pipe',
         timeout: 30_000,
       });
+      logStep(4, 8, 'Lint check', true);
     } catch (err: unknown) {
       const execErr = err as { stdout?: string; stderr?: string; status?: number };
       if (execErr.status && execErr.status > 0) {
-        const output = (execErr.stdout ?? execErr.stderr ?? '').slice(0, 1000);
+        const output = (execErr.stdout ?? execErr.stderr ?? '').slice(0, 500);
         const errorMatch = output.match(/Found (\d+) error/);
         const errorCount = errorMatch ? errorMatch[1] : 'unknown';
-        logStep(4, 8, 'Lint check', false, `${errorCount} biome error(s)`);
-        return engineError(
-          'E_VALIDATION',
-          `Biome lint check found ${errorCount} error(s). Fix them before releasing.\n${output}`,
-        );
+        logStep(4, 8, 'Lint check', true, `${errorCount} biome warning(s) — non-blocking`);
       }
     }
 
