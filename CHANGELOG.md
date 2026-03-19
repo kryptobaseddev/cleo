@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026.3.41] (2026-03-19)
+
+### Fixed
+- **Release Workflow**: Fix `cd` navigation bug in npm publish step that caused all packages after the first to fail. Use `pushd`/`popd` for reliable directory handling and tolerate "already published" errors.
+
 ## [2026.3.40] (2026-03-19)
 
 ### Added

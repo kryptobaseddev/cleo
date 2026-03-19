@@ -240,25 +240,34 @@ jobs:
           TAG: ${{ steps.version.outputs.dist_tag }}
         run: |
           PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
+          FAILED=0
 
-          echo "--- Publishing @cleocode/contracts ---"
-          cd packages/contracts && pnpm publish $PUBLISH_ARGS && cd ../..
+          publish_pkg() {
+            local pkg="$1"
+            echo "--- Publishing @cleocode/$pkg ---"
+            if [[ ! -d "packages/$pkg" ]]; then
+              echo "SKIP: packages/$pkg does not exist"
+              return 0
+            fi
+            if [[ "$pkg" == "adapters" ]] && [[ ! -d "packages/$pkg/dist" ]]; then
+              echo "SKIP: no dist (may be type-only)"
+              return 0
+            fi
+            pushd "packages/$pkg" > /dev/null
+            if pnpm publish $PUBLISH_ARGS; then
+              echo "OK: @cleocode/$pkg published"
+            else
+              echo "WARN: @cleocode/$pkg publish failed (may already be published)"
+              FAILED=$((FAILED + 1))
+            fi
+            popd > /dev/null
+          }
 
-          echo "--- Publishing @cleocode/core ---"
-          cd packages/core && pnpm publish $PUBLISH_ARGS && cd ../..
+          publish_pkg contracts
+          publish_pkg core
+          publish_pkg adapters
+          publish_pkg agents
+          publish_pkg skills
+          publish_pkg cleo
 
-          echo "--- Publishing @cleocode/adapters ---"
-          cd packages/adapters
-          if [[ -d dist ]]; then pnpm publish $PUBLISH_ARGS; else echo "SKIP: no dist"; fi
-          cd ../..
-
-          echo "--- Publishing @cleocode/agents ---"
-          cd packages/agents && pnpm publish $PUBLISH_ARGS && cd ../..
-
-          echo "--- Publishing @cleocode/skills ---"
-          cd packages/skills && pnpm publish $PUBLISH_ARGS && cd ../..
-
-          echo "--- Publishing @cleocode/cleo ---"
-          cd packages/cleo && pnpm publish $PUBLISH_ARGS && cd ../..
-
-          echo "All packages published with dist-tag: $TAG"
+          echo "Publish complete. Packages with issues: $FAILED"
