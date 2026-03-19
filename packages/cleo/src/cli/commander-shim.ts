@@ -56,9 +56,9 @@ export interface CommanderCompatOption {
 }
 
 /**
- * Type for the action handler function
+ * Type for the action handler function - flexible to support various signatures
  */
-export type ActionHandler = (title: string, opts: Record<string, unknown>) => Promise<void> | void;
+export type ActionHandler = (...args: unknown[]) => Promise<void> | void;
 
 /**
  * Minimal Commander-compatible Command class.
