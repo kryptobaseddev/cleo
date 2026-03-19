@@ -3,5 +3,10 @@
   "version": "2026.3.39",
   "description": "CLEO agent protocols and templates",
   "type": "module",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/agents"
+  }
 }

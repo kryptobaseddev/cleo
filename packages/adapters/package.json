@@ -28,5 +28,10 @@
   ],
   "devDependencies": {
     "@types/node": "^22.19.15"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/adapters"
   }
 }

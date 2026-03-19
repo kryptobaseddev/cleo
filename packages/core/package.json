@@ -57,5 +57,10 @@
   "devDependencies": {
     "@types/proper-lockfile": "^4.1.4",
     "@types/write-file-atomic": "^4.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/core"
   }
 }
