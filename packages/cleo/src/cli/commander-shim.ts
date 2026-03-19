@@ -159,7 +159,7 @@ export class ShimCommand {
     return this;
   }
 
-  action(fn: (...args: unknown[]) => Promise<void> | void): this {
+  action<T extends (...args: any[]) => Promise<void> | void>(fn: T): this {
     this._action = fn as ActionHandler;
     return this;
   }
