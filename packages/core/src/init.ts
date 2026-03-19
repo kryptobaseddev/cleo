@@ -200,17 +200,17 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       return;
     }
 
-    // Find ct-skills package: bundled first, then node_modules fallback
+    // Find skills package: bundled first, then node_modules fallback
     const packageRoot = getPackageRoot();
     let ctSkillsRoot: string | null = null;
     try {
-      // Check bundled package first (packages/ct-skills/)
-      const bundledPath = join(packageRoot, 'packages', 'ct-skills');
+      // Check bundled package first (packages/skills/)
+      const bundledPath = join(packageRoot, 'packages', 'skills');
       if (existsSync(join(bundledPath, 'skills.json'))) {
         ctSkillsRoot = bundledPath;
       } else {
         // Fallback to node_modules
-        const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'ct-skills');
+        const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'skills');
         if (existsSync(join(ctSkillsPath, 'skills.json'))) {
           ctSkillsRoot = ctSkillsPath;
         }
@@ -220,7 +220,7 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
     }
 
     if (!ctSkillsRoot) {
-      warnings.push('ct-skills package not found, skipping core skill installation');
+      warnings.push('skills package not found, skipping core skill installation');
       return;
     }
 

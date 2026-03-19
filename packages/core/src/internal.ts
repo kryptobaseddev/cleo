@@ -1,12 +1,12 @@
 /**
- * @cleocode/core/internal — Internal API for @cleocode/cleoctl.
+ * @cleocode/core/internal — Internal API for @cleocode/cleo.
  *
  * This entry point is a SUPERSET of the public API. It re-exports everything
  * from `@cleocode/core` plus additional symbols needed by the dispatch layer,
- * CLI commands, MCP gateways, and engine adapters inside @cleocode/cleoctl.
+ * CLI commands, MCP gateways, and engine adapters inside @cleocode/cleo.
  *
  * External consumers should import from `@cleocode/core` (the public API).
- * Only @cleocode/cleoctl should import from `@cleocode/core/internal`.
+ * Only @cleocode/cleo should import from `@cleocode/core/internal`.
  *
  * @package @cleocode/core
  * @internal
@@ -19,7 +19,7 @@
 export * from './index.js';
 
 // ---------------------------------------------------------------------------
-// Extended flat exports (required by @cleocode/cleoctl)
+// Extended flat exports (required by @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
 // Admin
@@ -58,6 +58,14 @@ export { estimateContext } from './orchestration/context.js';
 export type { HookEvent } from './hooks/provider-hooks.js';
 export type { ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
+
+// Bootstrap (global setup)
+export {
+  bootstrapGlobalCleo,
+  installMcpToProviders,
+  installSkillsGlobally,
+} from './bootstrap.js';
+export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
 
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
@@ -212,7 +220,7 @@ export { bumpVersionFromConfig, getVersionBumpConfig } from './release/version-b
 
 // Remote
 export { listRemotes, pull, push, removeRemote } from './remote/index.js';
-// Alias for cleoctl compatibility (admin sync status)
+// Alias for cleo compatibility (admin sync status)
 export { getSyncStatus as getAdminSyncStatus } from './admin/sync.js';
 // Remote git sync status (ahead/behind/branch)
 export { getSyncStatus as getRemoteSyncStatus } from './remote/index.js';
@@ -489,7 +497,7 @@ export { createVerificationGate } from './validation/operation-verification-gate
 export type { VerificationResult } from './validation/operation-verification-gates.js';
 
 // ---------------------------------------------------------------------------
-// Additional flat exports (TS2724 resolution for @cleocode/cleoctl)
+// Additional flat exports (TS2724 resolution for @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
 // Remote (additional)
@@ -541,7 +549,7 @@ export {
 export { TASK_PRIORITIES } from './store/tasks-schema.js';
 
 // ---------------------------------------------------------------------------
-// Additional flat exports (required by @cleocode/cleoctl)
+// Additional flat exports (required by @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
 // Build config
@@ -617,14 +625,14 @@ export { ProtocolType } from './compliance/protocol-enforcement.js';
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
 
 // ---------------------------------------------------------------------------
-// Test helpers (used by cleoctl test files)
+// Test helpers (used by cleo test files)
 // ---------------------------------------------------------------------------
 
 export { closeAllDatabases, closeDb, resetDbState } from './store/sqlite.js';
 export { createSqliteDataAccessor } from './store/sqlite-data-accessor.js';
 
-// Validation — doctor checks (used by cleoctl init tests)
+// Validation — doctor checks (used by cleo init tests)
 export { checkRootGitignore } from './validation/doctor/checks.js';
 
-// Store — project detection (used by cleoctl init tests)
+// Store — project detection (used by cleo init tests)
 export { detectProjectType } from './store/project-detect.js';

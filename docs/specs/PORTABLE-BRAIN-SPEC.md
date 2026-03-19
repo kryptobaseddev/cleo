@@ -156,13 +156,13 @@ CLEO MUST treat research manifests and agent outputs as first-class memory artif
 
 ### 9.1 CLI
 
-The TypeScript CLI (`packages/cleoctl/src/cli/`) is the primary runtime interface (per ADR-004). It is 100% compliant with the shared-core architecture pattern, delegating all business logic to `packages/core/src/` modules (validated 2026-02-16, T4565). There are ~86 command files in `packages/cleoctl/src/cli/commands/`. The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
+The TypeScript CLI (`packages/cleo/src/cli/`) is the primary runtime interface (per ADR-004). It is 100% compliant with the shared-core architecture pattern, delegating all business logic to `packages/core/src/` modules (validated 2026-02-16, T4565). There are ~86 command files in `packages/cleo/src/cli/commands/`. The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
 
 ### 9.2 MCP
 
-MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`query`, `mutate`) with 256 canonical operations (145 query + 111 mutate) across 10 domains. The MCP engine (`packages/cleoctl/src/dispatch/engines/`) delegates to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
+MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`query`, `mutate`) with 256 canonical operations (145 query + 111 mutate) across 10 domains. The MCP engine (`packages/cleo/src/dispatch/engines/`) delegates to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
 
-**Architecture status (updated 2026-03-06)**: The MCP engine now imports directly from `packages/core/src/` modules. See `packages/cleoctl/src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
+**Architecture status (updated 2026-03-06)**: The MCP engine now imports directly from `packages/core/src/` modules. See `packages/cleo/src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
 
 MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
 

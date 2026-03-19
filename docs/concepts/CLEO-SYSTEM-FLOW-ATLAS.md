@@ -107,11 +107,11 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 
 ## 3. Package Boundary
 
-`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleoctl` product assembles it together with the CLI and MCP protocol layers:
+`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the CLI and MCP protocol layers:
 
 ```
 +-----------------------------------------------------------+
-|                   @cleocode/cleoctl                        |
+|                   @cleocode/cleo                        |
 |  (assembled CLI + MCP product, published on npm)          |
 |                                                           |
 |  +--------+   +--------+                                  |
@@ -122,7 +122,7 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 |      |            |                                        |
 |      v            v                                        |
 |  +---+--------------+----+                                 |
-|  | packages/cleoctl/     |  <-- thin routing layer        |
+|  | packages/cleo/     |  <-- thin routing layer        |
 |  |   src/dispatch/       |                                 |
 |  +----------+------------+                                 |
 |             |                                              |
@@ -150,7 +150,7 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 
 ### Consumer Patterns for @cleocode/core
 
-Consumers who install `@cleocode/core` directly (without `@cleocode/cleoctl`) can use it three ways:
+Consumers who install `@cleocode/core` directly (without `@cleocode/cleo`) can use it three ways:
 
 ```typescript
 // Facade pattern
@@ -202,13 +202,13 @@ User Input
             |
             v
 +-----------+-----------+
-|    Domain Handler     |    <-- packages/cleoctl/src/dispatch/domains/{domain}.ts
+|    Domain Handler     |    <-- packages/cleo/src/dispatch/domains/{domain}.ts
 |  (query or mutate)    |    <-- Routes to specific engine function
 +-----------+-----------+
             |
             v
 +-----------+-----------+
-|    Engine Layer       |    <-- packages/cleoctl/src/dispatch/engines/{engine}.ts
+|    Engine Layer       |    <-- packages/cleo/src/dispatch/engines/{engine}.ts
 |  (params -> core)     |    <-- Translates params, calls core functions
 +-----------+-----------+
             |
@@ -400,8 +400,8 @@ Flow:
     -> Registry: resolve("query", "memory", "find") -> OperationDef (tier 1)
     -> Validate: requiredParams ["query"] -> present
     -> Middleware: rate limit check, LAFS field selection
-    -> Domain Handler: packages/cleoctl/src/dispatch/domains/memory.ts :: query("find", params)
-    -> Engine: packages/cleoctl/src/dispatch/engines/engine-compat.ts :: searchBrainCompact()
+    -> Domain Handler: packages/cleo/src/dispatch/domains/memory.ts :: query("find", params)
+    -> Engine: packages/cleo/src/dispatch/engines/engine-compat.ts :: searchBrainCompact()
     -> Core: packages/core/src/memory/brain-search.ts :: searchBrainCompact("atomic")
     -> Store: brain.db FTS5 query across observations, decisions, patterns, learnings
     -> Response: { success: true, data: { results: [...], count: N } }
@@ -422,8 +422,8 @@ Flow:
     -> Registry: resolve("mutate", "pipeline", "manifest.append") -> OperationDef (tier 1)
     -> Validate: requiredParams ["entry"] -> present
     -> Middleware: rate limit, session binding
-    -> Domain Handler: packages/cleoctl/src/dispatch/domains/pipeline.ts :: mutate("manifest.append", params)
-    -> Engine: packages/cleoctl/src/dispatch/engines/pipeline-manifest-compat.ts :: appendManifestEntry()
+    -> Domain Handler: packages/cleo/src/dispatch/domains/pipeline.ts :: mutate("manifest.append", params)
+    -> Engine: packages/cleo/src/dispatch/engines/pipeline-manifest-compat.ts :: appendManifestEntry()
     -> Core: packages/core/src/research/manifest.ts :: append to MANIFEST.jsonl
     -> Store: atomic write to .cleo/MANIFEST.jsonl
     -> Response: { success: true, data: { entryId: "M-abc123" } }
@@ -444,7 +444,7 @@ Flow:
     -> Registry: resolve("mutate", "session", "context.inject") -> OperationDef (tier 1)
     -> Validate: requiredParams ["protocolType"] -> present
     -> Middleware: rate limit, session binding
-    -> Domain Handler: packages/cleoctl/src/dispatch/domains/session.ts :: mutate("context.inject", params)
+    -> Domain Handler: packages/cleo/src/dispatch/domains/session.ts :: mutate("context.inject", params)
     -> Engine: loads protocol content from CAAMP catalog
     -> Response: { success: true, data: { protocol: "research", content: "..." } }
 ```
@@ -584,7 +584,7 @@ Every `DispatchResponse` includes `_meta` with:
 
 These rules MUST always hold true in a correct CLEO installation:
 
-1. **Registry is SSoT**: `packages/cleoctl/src/dispatch/registry.ts` defines all valid operations. No operation exists outside this array.
+1. **Registry is SSoT**: `packages/cleo/src/dispatch/registry.ts` defines all valid operations. No operation exists outside this array.
 2. **Atomic writes**: All store mutations use the temp -> validate -> backup -> rename pattern. No direct file overwrites.
 3. **Old names fail**: Removed operation names return `E_INVALID_OPERATION`. There is no silent fallback.
 4. **CQRS separation**: Query operations MUST NOT modify state. Mutate operations MAY modify state.
@@ -630,5 +630,5 @@ These rules MUST always hold true in a correct CLEO installation:
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md` -- BRAIN capability specification
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
-- `packages/cleoctl/src/dispatch/registry.ts` -- Executable SSoT for operations
-- `packages/cleoctl/src/dispatch/types.ts` -- Canonical type definitions
+- `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT for operations
+- `packages/cleo/src/dispatch/types.ts` -- Canonical type definitions

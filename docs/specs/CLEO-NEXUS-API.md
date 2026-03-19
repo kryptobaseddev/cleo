@@ -62,7 +62,7 @@ NEXUS API is fully compliant with the **Agent-to-Agent (A2A)** protocol standard
                           ▼
                ┌──────────────────────┐
                │   NEXUS HANDLER      │
-               │  packages/cleoctl/   │
+               │  packages/cleo/   │
                │   domains/nexus.ts   │
                └──────────┬───────────┘
                           │
@@ -1352,7 +1352,7 @@ MVI Levels:
 The NEXUS API contract is machine-readable via the OperationRegistry:
 
 ```typescript
-// packages/cleoctl/src/dispatch/registry.ts
+// packages/cleo/src/dispatch/registry.ts
 const nexusOperations = OperationRegistry.filter(
   op => op.domain === 'nexus'
 );

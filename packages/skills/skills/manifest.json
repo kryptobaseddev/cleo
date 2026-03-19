@@ -1,0 +1,469 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
+  "_meta": {
+    "schemaVersion": "2.3.0",
+    "lastUpdated": "2026-03-02",
+    "totalSkills": 15,
+    "generatedFrom": "manual restructure — provider-neutral skills consolidation",
+    "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection."
+  },
+  "dispatch_matrix": {
+    "_comment": "Maps task types/keywords to skill NAMES. Provider adapter decides HOW to execute.",
+    "by_task_type": {
+      "research": "ct-research-agent",
+      "planning": "ct-epic-architect",
+      "implementation": "ct-task-executor",
+      "testing": "ct-dev-workflow",
+      "documentation": "ct-documentor",
+      "specification": "ct-spec-writer",
+      "validation": "ct-validator",
+      "release": "ct-dev-workflow",
+      "consensus": "ct-validator",
+      "contribution": "ct-contribution"
+    },
+    "by_keyword": {
+      "research|investigate|explore|discover": "ct-research-agent",
+      "epic|plan|decompose|architect": "ct-epic-architect",
+      "implement|build|execute|create": "ct-task-executor",
+      "test|coverage|integration|vitest": "ct-dev-workflow",
+      "doc|document|readme|guide": "ct-documentor",
+      "spec|rfc|protocol|contract": "ct-spec-writer",
+      "validate|verify|audit|compliance|consensus|vote": "ct-validator",
+      "release|version|publish|deploy|ship|changelog": "ct-dev-workflow"
+    },
+    "by_protocol": {
+      "research": "ct-research-agent",
+      "consensus": "ct-validator",
+      "specification": "ct-spec-writer",
+      "decomposition": "ct-epic-architect",
+      "implementation": "ct-task-executor",
+      "contribution": "ct-contribution",
+      "release": "ct-dev-workflow",
+      "agent-protocol": "ct-orchestrator",
+      "validation": "ct-validator",
+      "testing": "ct-dev-workflow"
+    }
+  },
+  "skills": [
+    {
+      "name": "ct-cleo",
+      "version": "2.0.0",
+      "description": "CLEO task management protocol — core guidance for session, task, and workflow operations.",
+      "path": "skills/ct-cleo",
+      "tags": ["cleo", "protocol", "mcp", "session", "task-management"],
+      "status": "active",
+      "tier": 0,
+      "token_budget": 6000,
+      "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/loom-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],
+      "capabilities": {
+        "inputs": ["TASK_ID", "SESSION_ID"],
+        "outputs": ["session-state", "task-state"],
+        "dependencies": [],
+        "dispatch_triggers": ["cleo", "session", "task", "start"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["cleo", "session", "task", "protocol"],
+          "secondary": ["start", "end", "status", "discovery"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-orchestrator",
+      "version": "4.0.0",
+      "description": "Pipeline-aware orchestration for multi-agent workflows. Manages RCASD-IVTR+C pipeline progression, provider-neutral subagent delegation, and manifest-mediated handoffs.",
+      "path": "skills/ct-orchestrator",
+      "tags": ["workflow", "multi-agent", "coordination", "pipeline"],
+      "status": "active",
+      "tier": 0,
+      "token_budget": 8000,
+      "references": ["skills/ct-orchestrator/references/autonomous-operation.md", "skills/ct-orchestrator/references/lifecycle-gates.md", "skills/ct-orchestrator/references/orchestrator-compliance.md", "skills/ct-orchestrator/references/orchestrator-handoffs.md", "skills/ct-orchestrator/references/orchestrator-patterns.md", "skills/ct-orchestrator/references/orchestrator-recovery.md", "skills/ct-orchestrator/references/orchestrator-spawning.md", "skills/ct-orchestrator/references/orchestrator-tokens.md", "skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md"],
+      "capabilities": {
+        "inputs": ["TASK_ID", "SESSION_ID", "EPIC_ID"],
+        "outputs": ["workflow-coordination", "subagent-spawns"],
+        "dependencies": [],
+        "dispatch_triggers": ["orchestrate", "orchestrator mode", "delegate to subagents", "coordinate agents", "spawn subagents", "multi-agent workflow"],
+        "compatible_subagent_types": ["orchestrator"],
+        "chains_to": ["ct-epic-architect", "ct-research-agent", "ct-task-executor", "ct-spec-writer", "ct-validator", "ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["orchestrate", "coordinate", "delegate", "multi-agent"],
+          "secondary": ["spawn", "pipeline", "HITL", "workflow"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 150000,
+        "requires_session": true,
+        "requires_epic": true
+      }
+    },
+    {
+      "name": "ct-task-executor",
+      "version": "2.0.0",
+      "description": "General implementation task execution for completing assigned CLEO tasks.",
+      "path": "skills/ct-task-executor",
+      "tags": ["execution", "implementation", "task-management"],
+      "status": "active",
+      "tier": 0,
+      "token_budget": 8000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA"],
+        "outputs": ["deliverables", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["execute task", "implement", "complete this task", "build component"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["implement", "build", "execute", "create"],
+          "secondary": ["complete", "finish", "work on", "carry out"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": true,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-epic-architect",
+      "version": "3.0.0",
+      "description": "Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks.",
+      "path": "skills/ct-epic-architect",
+      "tags": ["planning", "architecture", "task-management"],
+      "status": "active",
+      "tier": 1,
+      "token_budget": 8000,
+      "references": ["skills/ct-epic-architect/references/bug-epic-example.md", "skills/ct-epic-architect/references/commands.md", "skills/ct-epic-architect/references/feature-epic-example.md"],
+      "capabilities": {
+        "inputs": ["TASK_ID", "FEATURE_NAME", "EPIC_ID", "SESSION_ID"],
+        "outputs": ["epic", "tasks", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["create epic", "plan epic", "decompose into tasks", "task breakdown"],
+        "compatible_subagent_types": ["general-purpose", "planning"],
+        "chains_to": ["ct-task-executor", "ct-research-agent", "ct-spec-writer"],
+        "dispatch_keywords": {
+          "primary": ["epic", "plan", "decompose", "architect"],
+          "secondary": ["breakdown", "wave", "sprint", "dependency"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 100000,
+        "requires_session": true,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-research-agent",
+      "version": "2.0.0",
+      "description": "Multi-source research and investigation combining web search, documentation lookup, and codebase analysis.",
+      "path": "skills/ct-research-agent",
+      "tags": ["research", "investigation", "discovery"],
+      "status": "active",
+      "tier": 1,
+      "token_budget": 8000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "TOPIC", "RESEARCH_QUESTIONS"],
+        "outputs": ["research-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["research", "investigate", "gather information", "explore options"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-spec-writer", "ct-epic-architect"],
+        "dispatch_keywords": {
+          "primary": ["research", "investigate", "explore", "discover"],
+          "secondary": ["gather", "survey", "analyze", "fact-finding"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-spec-writer",
+      "version": "2.0.0",
+      "description": "Technical specification writing using RFC 2119 language for clear, unambiguous requirements.",
+      "path": "skills/ct-spec-writer",
+      "tags": ["specification", "documentation", "rfc"],
+      "status": "active",
+      "tier": 1,
+      "token_budget": 8000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic"],
+        "outputs": ["specification-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["write a spec", "create specification", "define protocol"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-task-executor", "ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["spec", "rfc", "protocol", "contract"],
+          "secondary": ["specification", "requirements", "interface", "architecture"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-validator",
+      "version": "2.0.0",
+      "description": "Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards.",
+      "path": "skills/ct-validator",
+      "tags": ["validation", "compliance", "audit"],
+      "status": "active",
+      "tier": 1,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "VALIDATION_TARGET", "VALIDATION_CRITERIA"],
+        "outputs": ["validation-report", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["validate", "verify", "check compliance", "audit"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["validate", "verify", "audit", "compliance"],
+          "secondary": ["check", "conformance", "standards", "requirements"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-dev-workflow",
+      "version": "3.0.0",
+      "description": "Development workflow orchestration for task-driven development with atomic commits and release processes.",
+      "path": "skills/ct-dev-workflow",
+      "tags": ["workflow", "git", "commits", "release", "testing"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "CHANGE_TYPE", "SCOPE"],
+        "outputs": ["commit", "tag", "push"],
+        "dependencies": [],
+        "dispatch_triggers": ["commit", "release", "run the workflow", "test"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["commit", "release", "push", "test"],
+          "secondary": ["atomic", "conventional", "ship", "vitest"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-documentor",
+      "version": "3.0.0",
+      "description": "Documentation coordination — chains lookup, writing, and review skills.",
+      "path": "skills/ct-documentor",
+      "tags": ["documentation", "orchestration", "workflow"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 8000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "documentation_topic"],
+        "outputs": ["documentation-file", "manifest-entry", "review-report"],
+        "dependencies": ["ct-docs-lookup", "ct-docs-write", "ct-docs-review"],
+        "dispatch_triggers": ["write documentation", "create docs", "review docs"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-docs-lookup", "ct-docs-write", "ct-docs-review"],
+        "dispatch_keywords": {
+          "primary": ["doc", "document", "readme", "guide"],
+          "secondary": ["documentation", "docs", "markdown", "mdx"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-docs-lookup",
+      "version": "1.0.0",
+      "description": "Context7 library documentation lookup for framework and library references.",
+      "path": "skills/ct-docs-lookup",
+      "tags": ["documentation", "libraries", "context7"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["library_name", "query", "version"],
+        "outputs": ["documentation-content", "code-examples"],
+        "dependencies": [],
+        "dispatch_triggers": ["how do I configure", "write code using", "show me examples"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["library", "framework", "api", "reference"],
+          "secondary": ["configure", "methods", "examples", "docs"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-docs-write",
+      "version": "1.0.0",
+      "description": "Documentation writing with CLEO style guide compliance.",
+      "path": "skills/ct-docs-write",
+      "tags": ["documentation", "writing", "style-guide"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["file_path", "content_topic", "audience"],
+        "outputs": ["documentation-file", "markdown-content"],
+        "dependencies": [],
+        "dispatch_triggers": ["write docs", "create documentation", "edit the README"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["write", "create", "edit", "style"],
+          "secondary": ["clarity", "readable", "user-facing", "content"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-docs-review",
+      "version": "1.0.0",
+      "description": "Documentation style guide review and compliance checking.",
+      "path": "skills/ct-docs-review",
+      "tags": ["documentation", "review", "style-guide"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["file_path", "pr_url", "diff_content"],
+        "outputs": ["review-comments", "style-violations"],
+        "dependencies": [],
+        "dispatch_triggers": ["review documentation", "check docs style"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["review", "check", "style", "compliance"],
+          "secondary": ["violations", "improvements", "pr review"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-contribution",
+      "version": "1.0.0",
+      "description": "Multi-agent consensus contributions with conflict detection and decision tracking.",
+      "path": "skills/ct-contribution",
+      "tags": ["contribution", "consensus", "workflow"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["TASK_ID", "contribution_type", "context"],
+        "outputs": ["contribution-record", "consensus-report"],
+        "dependencies": [],
+        "dispatch_triggers": ["contribution", "submit contribution", "consensus workflow"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["contribution", "consensus", "submit", "decision"],
+          "secondary": ["conflict", "weighted", "tracking", "resolution"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-grade",
+      "version": "1.0.0",
+      "description": "Session grading for agent behavioral analysis and protocol compliance scoring.",
+      "path": "skills/ct-grade",
+      "tags": ["grading", "quality", "analysis"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "references": [],
+      "capabilities": {
+        "inputs": ["SESSION_ID", "grading_criteria"],
+        "outputs": ["grade-report", "diagnostic-flags"],
+        "dependencies": [],
+        "dispatch_triggers": ["grade session", "evaluate session", "session quality"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["grade", "evaluate", "score", "quality"],
+          "secondary": ["session", "behavioral", "rubric", "analysis"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-skill-creator",
+      "version": "1.0.0",
+      "description": "Guide for creating effective skills with proper structure and progressive disclosure.",
+      "path": "skills/ct-skill-creator",
+      "tags": ["skills", "creation", "meta"],
+      "status": "active",
+      "tier": 3,
+      "token_budget": 8000,
+      "references": ["skills/ct-skill-creator/references/output-patterns.md", "skills/ct-skill-creator/references/workflows.md"],
+      "capabilities": {
+        "inputs": ["skill_name", "skill_purpose"],
+        "outputs": ["skill-directory", "SKILL.md"],
+        "dependencies": [],
+        "dispatch_triggers": ["create a new skill", "update an existing skill"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["skill", "create", "build", "extend"],
+          "secondary": ["capabilities", "workflow", "integration"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    }
+  ]
+}

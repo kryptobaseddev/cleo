@@ -83,7 +83,9 @@ importers:
         specifier: ^22.19.15
         version: 22.19.15
 
-  packages/cleoctl:
+  packages/agents: {}
+
+  packages/cleo:
     dependencies:
       '@cleocode/caamp':
         specifier: ^1.7.0
@@ -175,6 +177,8 @@ importers:
       '@types/write-file-atomic':
         specifier: ^4.0.3
         version: 4.0.3
+
+  packages/skills: {}
 
 packages:
 

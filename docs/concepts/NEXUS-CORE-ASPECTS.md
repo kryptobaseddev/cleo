@@ -242,6 +242,6 @@ The workshop vocabulary maps to concrete module paths inside `@cleocode/core`. T
 
 ### Standalone Access
 
-`@cleocode/core` is published as a standalone npm package (Epic T5701). Consumers can reach any of the modules above directly without installing the full `@cleocode/cleoctl` product.
+`@cleocode/core` is published as a standalone npm package (Epic T5701). Consumers can reach any of the modules above directly without installing the full `@cleocode/cleo` product.
 
 See `docs/specs/CORE-PACKAGE-SPEC.md` for the public API contract and consumer patterns.

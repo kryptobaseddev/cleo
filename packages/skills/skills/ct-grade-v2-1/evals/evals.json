@@ -1,0 +1,74 @@
+[
+  {
+    "id": "eval-001",
+    "description": "Grade a session — verify grading pipeline returns a valid GradeResult",
+    "prompt": "Start a graded session, run query session list and admin dash, end session, then grade it",
+    "expectations": [
+      "Grade operation returns success: true",
+      "totalScore is a number 0-100",
+      "dimensions has 5 entries each with score and max",
+      "flags is an array"
+    ]
+  },
+  {
+    "id": "eval-002",
+    "description": "Session discipline — session.list before task ops scores S1=20",
+    "prompt": "Run scenario S1 and verify session discipline dimension is 20/20",
+    "expectations": [
+      "S1 Session Discipline score = 20",
+      "session.list was called before any task operation",
+      "session.end was called",
+      "No protocol flags"
+    ]
+  },
+  {
+    "id": "eval-003",
+    "description": "Task efficiency — tasks.find used (not tasks.list) scores S2>=15",
+    "prompt": "Run tasks.find query and verify efficiency score is 15 or higher",
+    "expectations": [
+      "S2 Task Efficiency score >= 15",
+      "tasks.find was used instead of tasks.list",
+      "No TASK_LIST_USED flag"
+    ]
+  },
+  {
+    "id": "eval-004",
+    "description": "Task hygiene — task add with description scores S3=20",
+    "prompt": "Add a task with both title and description, verify hygiene score is 20",
+    "expectations": [
+      "S3 Task Hygiene score = 20",
+      "Task was created with non-empty description",
+      "No MISSING_DESCRIPTION flag"
+    ]
+  },
+  {
+    "id": "eval-005",
+    "description": "Protocol adherence — following CLEO workflow scores S4>=15",
+    "prompt": "Follow the complete CLEO session workflow and verify protocol adherence",
+    "expectations": [
+      "S4 Protocol Adherence score >= 15",
+      "Session started before task work",
+      "Session ended after task work"
+    ]
+  },
+  {
+    "id": "eval-006",
+    "description": "MCP gateway — MCP-sourced ops score S5>=15",
+    "prompt": "Use MCP interface for all operations and verify gateway score is 15 or higher",
+    "expectations": [
+      "S5 MCP Gateway score >= 15",
+      "Operations sourced from MCP (not CLI)",
+      "audit_log shows gateway=query or gateway=mutate with source=mcp"
+    ]
+  },
+  {
+    "id": "eval-007",
+    "description": "Memory recall — observe then find retrieves the observation",
+    "prompt": "Run scenario S6: observe a fact then find it via memory.find",
+    "expectations": [
+      "memory.observe succeeds and returns an ID",
+      "memory.find with matching query returns the observation",
+      "Grade total score >= 60"
+    ]
+  }
+]

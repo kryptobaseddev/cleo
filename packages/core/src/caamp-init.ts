@@ -5,7 +5,7 @@ import { registerSkillLibraryFromPath } from '@cleocode/caamp';
 export function bootstrapCaamp(): void {
   const thisFile = fileURLToPath(import.meta.url);
   const packageRoot = join(dirname(thisFile), '..', '..');
-  const ctSkillsRoot = join(packageRoot, 'packages', 'ct-skills');
+  const ctSkillsRoot = join(packageRoot, 'packages', 'skills');
 
   try {
     registerSkillLibraryFromPath(ctSkillsRoot);

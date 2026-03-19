@@ -79,9 +79,9 @@ function runNexusMigrations(
 ): void {
   const migrationsFolder = resolveNexusMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  // If existing DB with pending migrations, create safety backup (cleo compat)
   if (tableExists(nativeDb, 'project_registry') && _nexusDbPath) {
-    const backupPath = _nexusDbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    const backupPath = _nexusDbPath.replace(/\.db$/, '-pre-cleo.db.bak');
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_nexusDbPath, backupPath);

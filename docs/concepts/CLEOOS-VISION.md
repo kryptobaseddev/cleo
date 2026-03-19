@@ -220,7 +220,7 @@ The kernel is shipped and operational:
 - `@cleocode/core` v2.0.0 -- standalone business logic kernel with 41 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor)
-- `@cleocode/cleoctl` -- full CLI + MCP product (209 operations, 86 commands)
+- `@cleocode/cleo` -- full CLI + MCP product (209 operations, 86 commands)
 - BRAIN with brain.db, FTS5 search, 3-layer retrieval, and observation system
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, and stage management
 - NEXUS with project registry, cross-project queries, and dependency graph

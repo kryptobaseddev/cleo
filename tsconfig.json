@@ -20,7 +20,7 @@
   "references": [
     { "path": "./packages/contracts" },
     { "path": "./packages/core" },
-    { "path": "./packages/cleoctl" }
+    { "path": "./packages/cleo" }
   ],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,59 @@
+# CLEO Sandbox Testing Environment
+# Based on Fedora to match host system
+FROM fedora:latest
+
+# Install base dependencies (Node.js 24+ required)
+RUN dnf update -y && \
+    dnf install -y \
+        bash \
+        bash-completion \
+        bc \
+        curl \
+        diffutils \
+        findutils \
+        git \
+        hostname \
+        jq \
+        ncurses \
+        openssh-server \
+        procps-ng \
+        sudo \
+        util-linux \
+        vim \
+        which \
+        bats \
+        sqlite \
+    && curl -fsSL https://rpm.nodesource.com/setup_24.x | bash - \
+    && dnf install -y nodejs \
+    && npm install -g npm@latest \
+    && dnf clean all \
+    && node --version | grep -qE '^v2[4-9]\.' && echo "Node 24+ verified" || (echo "ERROR: Node 24+ required" && exit 1)
+
+# Configure SSH
+RUN ssh-keygen -A && \
+    mkdir -p /run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Create test user
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser:testpass" | chpasswd && \
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup home directory structure
+USER testuser
+WORKDIR /home/testuser
+RUN mkdir -p /home/testuser/{projects,.ssh}
+
+# Copy SSH key for passwordless access (will be mounted)
+RUN mkdir -p /home/testuser/.ssh && \
+    chmod 700 /home/testuser/.ssh
+
+# Back to root for startup
+USER root
+
+# Expose SSH port
+EXPOSE 2222
+
+# Start SSH daemon
+CMD ["/usr/sbin/sshd", "-D", "-e", "-p", "2222"]

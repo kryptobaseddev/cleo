@@ -332,7 +332,7 @@ SKILL COMPOSITION:
 
 ### 5.2 Dashboard Implementation
 
-Location: `packages/cleoctl/src/cli/commands/compliance.ts` (subcommand: `value`)
+Location: `packages/cleo/src/cli/commands/compliance.ts` (subcommand: `value`)
 
 ---
 

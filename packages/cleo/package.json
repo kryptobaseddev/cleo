@@ -1,0 +1,50 @@
+{
+  "name": "@cleocode/cleo",
+  "version": "2.0.0",
+  "description": "CLEO CLI + MCP server — the assembled product consuming @cleocode/core",
+  "type": "module",
+  "main": "./dist/cli/index.js",
+  "exports": {
+    ".": "./dist/cli/index.js",
+    "./mcp": "./dist/mcp/index.js"
+  },
+  "bin": {
+    "cleo": "dist/cli/index.js",
+    "ct": "dist/cli/index.js",
+    "cleoctl": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node bin/postinstall.js"
+  },
+  "dependencies": {
+    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
+    "@cleocode/lafs-protocol": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "citty": "^0.2.1",
+    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
+    "js-tiktoken": "^1.0.21",
+    "pino": "^10.3.1",
+    "pino-roll": "^4.0.0",
+    "proper-lockfile": "^4.1.2",
+    "write-file-atomic": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "migrations",
+    "templates",
+    "completions",
+    "bin"
+  ]
+}

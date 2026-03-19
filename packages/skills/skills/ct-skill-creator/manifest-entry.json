@@ -1,0 +1,17 @@
+{
+  "name": "ct-skill-creator",
+  "version": "1.0.0",
+  "description": "Guide for creating effective CLEO skills with the full v2 standard.",
+  "path": "packages/ct-skills/skills/ct-skill-creator",
+  "status": "active",
+  "tier": 3,
+  "core": false,
+  "category": "meta",
+  "protocol": null,
+  "dependencies": [],
+  "sharedResources": [],
+  "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli"],
+  "token_budget": 12000,
+  "capabilities": ["skill-creation", "eval-loop", "description-optimization", "quality-eval"],
+  "constraints": ["requires-claude-api-for-eval-loop"]
+}

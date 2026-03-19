@@ -83,9 +83,9 @@ function runBrainMigrations(
 ): void {
   const migrationsFolder = resolveBrainMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  // If existing DB with pending migrations, create safety backup (cleo compat)
   if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
-    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleo.db.bak');
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_dbPath, backupPath);

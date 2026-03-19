@@ -223,14 +223,14 @@ The following are documented design targets, not yet implemented:
 - `packages/core/src/hooks/types.ts` - Hook type definitions
 - `packages/core/src/caamp/capability-check.ts` - Capability checking
 - `packages/core/src/skills/precedence-integration.ts` - Skills precedence
-- `packages/cleoctl/src/dispatch/engines/orchestrate-engine.ts` - Spawn execution
-- `packages/cleoctl/src/dispatch/engines/hooks-engine.ts` - Hook engine
-- `packages/cleoctl/src/dispatch/domains/tools.ts` - Tool operations
-- `packages/cleoctl/src/dispatch/registry.ts` - Operation registry
+- `packages/cleo/src/dispatch/engines/orchestrate-engine.ts` - Spawn execution
+- `packages/cleo/src/dispatch/engines/hooks-engine.ts` - Hook engine
+- `packages/cleo/src/dispatch/domains/tools.ts` - Tool operations
+- `packages/cleo/src/dispatch/registry.ts` - Operation registry
 
 ### Test Files
 
-- `packages/cleoctl/src/mcp/__mocks__/@cleocode/caamp.ts` - CAAMP mocks
+- `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts` - CAAMP mocks
 
 ---
 
@@ -248,7 +248,7 @@ All implemented functions are verified in production code:
 
 - CAAMP Library: `/mnt/projects/caamp`
 - CLEO Integration: `packages/core/src/caamp/`
-- MCP Operations: `packages/cleoctl/src/dispatch/registry.ts`
+- MCP Operations: `packages/cleo/src/dispatch/registry.ts`
 
 ---
 

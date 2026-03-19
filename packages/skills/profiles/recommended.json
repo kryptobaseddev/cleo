@@ -1,0 +1,7 @@
+{
+  "name": "recommended",
+  "description": "Full LOOM (RCASD-IVTR+C pipeline) skills for epic-driven development",
+  "extends": "core",
+  "skills": ["ct-epic-architect", "ct-research-agent", "ct-spec-writer", "ct-validator", "loom"],
+  "includeProtocols": ["research", "consensus", "specification", "decomposition", "validation", "adr"]
+}

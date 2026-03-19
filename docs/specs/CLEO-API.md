@@ -86,7 +86,7 @@ All operations organized by **domain**:
 | `admin`       | See registry     | See registry     | Live total     | System management, configuration                                                                    |
 | `nexus`       | See registry     | See registry     | Live total     | Cross-project coordination                                                                          |
 | `sticky`      | See registry     | See registry     | Live total     | Ephemeral capture, quick notes                                                                      |
-| **Total**     | **See registry** | **See registry** | **Live total** | Canonical counts live in `packages/cleoctl/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` |
+| **Total**     | **See registry** | **See registry** | **Live total** | Canonical counts live in `packages/cleo/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` |
 
 ### 3.2 Gateway Pattern
 
@@ -120,7 +120,7 @@ All responses follow **LAFS** (LLM-Agent-First Specification):
 
 ### 4.1 Total Operations
 
-The live operation inventory spans **10 canonical domains**. For current totals, use `packages/cleoctl/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` as the source of truth.
+The live operation inventory spans **10 canonical domains**. For current totals, use `packages/cleo/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` as the source of truth.
 
 - Query operations are read-only and idempotent
 - Mutate operations are state-changing and validated
@@ -159,7 +159,7 @@ CLEO's operation surface provides comprehensive control while maintaining strict
 
 ### 4.2 Operation Registry
 
-Single source of truth: `packages/cleoctl/src/dispatch/registry.ts`
+Single source of truth: `packages/cleo/src/dispatch/registry.ts`
 
 ```typescript
 export const OPERATIONS: OperationDef[] = [
@@ -310,7 +310,7 @@ cleo session start
 
 ### 8.1 Canonical Registry Surface
 
-As of v2.1, the canonical registry surface for grade and token analytics is in transition and SHOULD be read from `packages/cleoctl/src/dispatch/registry.ts` rather than inferred from legacy handler names.
+As of v2.1, the canonical registry surface for grade and token analytics is in transition and SHOULD be read from `packages/cleo/src/dispatch/registry.ts` rather than inferred from legacy handler names.
 
 **Current registry direction includes:**
 

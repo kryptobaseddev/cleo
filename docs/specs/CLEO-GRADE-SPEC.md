@@ -33,7 +33,7 @@ CLEO_SESSION_GRADE_ID=<id>      (env var set)
 CLEO_SESSION_ID=<id>            (env var set)
     |
     v
-audit middleware (packages/cleoctl/src/dispatch/middleware/audit.ts)
+audit middleware (packages/cleo/src/dispatch/middleware/audit.ts)
     - Logs ALL operations (query + mutate) when grade mode active
     - Normal mode: only mutate operations are audited
     - Writes to SQLite audit_log table (awaited in grade mode)
@@ -55,9 +55,9 @@ admin.grade <sessionId>
 |------|------|
 | `packages/core/src/sessions/session-grade.ts` | Rubric implementation (scoring logic) |
 | `packages/core/src/sessions/index.ts` | Session operations (startSession with grade option) |
-| `packages/cleoctl/src/dispatch/domains/admin.ts` | MCP domain handler (admin.grade routing) |
-| `packages/cleoctl/src/dispatch/middleware/audit.ts` | Audit middleware (query logging in grade mode) |
-| `packages/cleoctl/src/cli/commands/grade.ts` | CLI command (`cleo grade`) |
+| `packages/cleo/src/dispatch/domains/admin.ts` | MCP domain handler (admin.grade routing) |
+| `packages/cleo/src/dispatch/middleware/audit.ts` | Audit middleware (query logging in grade mode) |
+| `packages/cleo/src/cli/commands/grade.ts` | CLI command (`cleo grade`) |
 | `schemas/grade.schema.json` | JSON Schema for GradeResult |
 
 ### Storage
@@ -149,7 +149,7 @@ Measures whether the agent uses CLEO's progressive disclosure system (help, skil
 
 ## Grade Letter Mapping
 
-The CLI command (`packages/cleoctl/src/cli/commands/grade.ts`) maps total percentage to letter grades:
+The CLI command (`packages/cleo/src/cli/commands/grade.ts`) maps total percentage to letter grades:
 
 | Grade | Threshold |
 |-------|-----------|

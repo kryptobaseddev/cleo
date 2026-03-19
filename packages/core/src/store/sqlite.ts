@@ -415,9 +415,9 @@ function runMigrations(
 ): void {
   const migrationsFolder = resolveMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleoctl compat)
+  // If existing DB with pending migrations, create safety backup (cleo compat)
   if (tableExists(nativeDb, 'tasks') && _dbPath) {
-    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleoctl.db.bak');
+    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleo.db.bak');
     if (!existsSync(backupPath)) {
       try {
         copyFileSync(_dbPath, backupPath);

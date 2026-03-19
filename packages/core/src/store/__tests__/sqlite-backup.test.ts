@@ -23,8 +23,8 @@ describe('sqlite-backup', () => {
   });
 
   it('is non-fatal when getNativeDb() returns null', async () => {
-    vi.doMock('../../store/sqlite.js', () => ({ getNativeDb: () => null }));
-    vi.doMock('../../core/paths.js', () => ({ getCleoDir: () => tmpdir() }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null }));
+    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tmpdir() }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     await expect(vacuumIntoBackup({ force: true })).resolves.not.toThrow();
@@ -32,9 +32,9 @@ describe('sqlite-backup', () => {
 
   it('calls PRAGMA wal_checkpoint(TRUNCATE) before VACUUM INTO', async () => {
     const execMock = vi.fn();
-    vi.doMock('../../store/sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
     const tempDir = join(tmpdir(), `cleo-test-wal-${Date.now()}`);
-    vi.doMock('../../core/paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     await vacuumIntoBackup({ force: true });
@@ -48,11 +48,11 @@ describe('sqlite-backup', () => {
 
   it('enforces maximum 10 snapshots via rotation', async () => {
     const execMock = vi.fn();
-    vi.doMock('../../store/sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
     const tempDir = join(tmpdir(), `cleo-test-rot-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
-    vi.doMock('../../core/paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
 
     // Seed 11 fake snapshot files with valid YYYYMMDD-HHMMSS format
     for (let i = 0; i < 11; i++) {
@@ -69,9 +69,9 @@ describe('sqlite-backup', () => {
 
   it('debounce skips second call within debounce window', async () => {
     const execMock = vi.fn();
-    vi.doMock('../../store/sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
     const tempDir = join(tmpdir(), `cleo-test-debounce-${Date.now()}`);
-    vi.doMock('../../core/paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     // First call with force sets _lastBackupEpoch

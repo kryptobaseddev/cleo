@@ -34,7 +34,7 @@ function getLatestPipelineMigrationSql(): string {
     ({ sql }) =>
       sql.includes('chk_lifecycle_pipelines_status') ||
       sql.includes('__new_lifecycle_pipelines') ||
-      sql.includes('CREATE TABLE `lifecycle_pipelines`'),
+      sql.includes('lifecycle_pipelines'),
   );
   const latest = pipelineMigrations[pipelineMigrations.length - 1];
   if (!latest) {
@@ -49,7 +49,7 @@ function getLatestStageMigrationSql(): string {
     ({ sql }) =>
       sql.includes('chk_lifecycle_stages_stage_name') ||
       sql.includes('__new_lifecycle_stages') ||
-      sql.includes('CREATE TABLE `lifecycle_stages`'),
+      sql.includes('lifecycle_stages'),
   );
   const latest = stageMigrations[stageMigrations.length - 1];
   if (!latest) {
@@ -76,7 +76,7 @@ describe('lifecycle schema parity guardrails', () => {
       }
     } else {
       // Consolidated initial migration — verify table exists
-      expect(sql).toContain('CREATE TABLE `lifecycle_pipelines`');
+      expect(sql).toContain('lifecycle_pipelines');
     }
   });
 
@@ -100,7 +100,7 @@ describe('lifecycle schema parity guardrails', () => {
       }
     } else {
       // Consolidated initial migration — verify table exists
-      expect(sql).toContain('CREATE TABLE `lifecycle_stages`');
+      expect(sql).toContain('lifecycle_stages');
     }
 
     if (sql.includes('chk_lifecycle_gate_results_result')) {

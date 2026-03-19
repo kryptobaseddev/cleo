@@ -16,9 +16,9 @@ This specification defines the public contract for `@cleocode/core`, the standal
 
 ### Design Goals
 
-- **Standalone**: Importable without the `@cleocode/cleoctl` product package
-- **Adapter-neutral**: No imports from `packages/cleoctl/` (CLI, MCP, or dispatch)
-- **Two-tier barrel**: Public API (`index.ts`) for external consumers, internal API (`internal.ts`) for `@cleocode/cleoctl`
+- **Standalone**: Importable without the `@cleocode/cleo` product package
+- **Adapter-neutral**: No imports from `packages/cleo/` (CLI, MCP, or dispatch)
+- **Two-tier barrel**: Public API (`index.ts`) for external consumers, internal API (`internal.ts`) for `@cleocode/cleo`
 - **Bundled storage**: The default SQLite store ships inside `packages/core/src/store/`
 - **Dependency-injected storage**: Core modules accept a `DataAccessor` parameter for custom backends
 - **ESM-first**: Full ES module package (`"type": "module"`, `.js` import paths)
@@ -91,10 +91,10 @@ The package exposes three export conditions:
 | Subpath | Purpose | Audience |
 |---------|---------|----------|
 | `"."` | Public API -- stable contract for external consumers | Anyone installing `@cleocode/core` |
-| `"./internal"` | Internal API -- superset of public, additional symbols for `@cleocode/cleoctl` | Only `@cleocode/cleoctl` |
+| `"./internal"` | Internal API -- superset of public, additional symbols for `@cleocode/cleo` | Only `@cleocode/cleo` |
 | `"./*"` | Deep imports -- escape hatch for advanced consumers (no stability guarantees) | Power users, adapters |
 
-External consumers MUST import from `@cleocode/core` (the `"."` entry). The `"./internal"` entry is explicitly for the `@cleocode/cleoctl` product package and carries no stability guarantees beyond what the public API provides.
+External consumers MUST import from `@cleocode/core` (the `"."` entry). The `"./internal"` entry is explicitly for the `@cleocode/cleo` product package and carries no stability guarantees beyond what the public API provides.
 
 ---
 
@@ -119,7 +119,7 @@ The internal barrel is a strict superset of the public API:
 // Re-export the entire public API
 export * from './index.js';
 
-// Extended flat exports required by @cleocode/cleoctl
+// Extended flat exports required by @cleocode/cleo
 export { computeHelp } from './admin/help.js';
 export { exportTasks } from './admin/export.js';
 // ... ~600 additional symbols
@@ -546,7 +546,7 @@ The following are internal implementation details, not part of the public contra
 
 ### 9.3 Dependency Notes
 
-- `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleoctl`. Pre-release semver ranges (`^`) do not work correctly -- always pin to the exact version.
+- `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`. Pre-release semver ranges (`^`) do not work correctly -- always pin to the exact version.
 - SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/node-sqlite`. This is zero-dependency -- no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
 - `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
 - `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `packages/core/src/output.ts`.
@@ -561,9 +561,9 @@ The following are internal implementation details, not part of the public contra
 
 | Prohibited path | Reason |
 |----------------|--------|
-| `packages/cleoctl/src/cli/` | CLI adapter code (Commander.js, argument parsing) |
-| `packages/cleoctl/src/mcp/` | MCP adapter code (MCP SDK tool definitions) |
-| `packages/cleoctl/src/dispatch/` | Routing layer -- core should not know about dispatch |
+| `packages/cleo/src/cli/` | CLI adapter code (Commander.js, argument parsing) |
+| `packages/cleo/src/mcp/` | MCP adapter code (MCP SDK tool definitions) |
+| `packages/cleo/src/dispatch/` | Routing layer -- core should not know about dispatch |
 
 ### 10.1 Allowed Store Imports
 
@@ -689,9 +689,9 @@ pushWarning(warning: Warning): void
 2. Add the deprecation to the changelog and release notes
 3. Remove after one minor version cycle (minimum)
 
-### 15.4 Relationship to @cleocode/cleoctl
+### 15.4 Relationship to @cleocode/cleo
 
-`@cleocode/cleoctl` (`@latest`) depends on `@cleocode/core` and will always pin to a compatible version. Consumers upgrading `@cleocode/core` independently MUST ensure they use a version that `@cleocode/cleoctl` also supports, or accept that the versions may diverge.
+`@cleocode/cleo` (`@latest`) depends on `@cleocode/core` and will always pin to a compatible version. Consumers upgrading `@cleocode/core` independently MUST ensure they use a version that `@cleocode/cleo` also supports, or accept that the versions may diverge.
 
 ---
 

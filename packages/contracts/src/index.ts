@@ -3,7 +3,7 @@
  *
  * This is the LEAF package in the dependency graph — ZERO runtime dependencies.
  * All domain types (Task, Session, DataAccessor, etc.) are defined here.
- * Implementation packages (@cleocode/core, @cleocode/cleoctl) import from here.
+ * Implementation packages (@cleocode/core, @cleocode/cleo) import from here.
  */
 
 // === Status Registry (MUST be first — everything depends on this) ===

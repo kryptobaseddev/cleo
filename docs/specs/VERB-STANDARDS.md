@@ -6,7 +6,7 @@
 
 All operation names MUST use canonical verbs from this document. Violations are bugs.
 For the full operation list, see `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §6.
-For the executable source of truth, see `packages/cleoctl/src/dispatch/registry.ts`.
+For the executable source of truth, see `packages/cleo/src/dispatch/registry.ts`.
 
 ---
 
@@ -194,5 +194,5 @@ These are live operations in the registry that use non-canonical verbs for legac
 ## References
 
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — all 208 operations with canonical names (SSoT)
-- `packages/cleoctl/src/dispatch/registry.ts` — executable registry (registry wins on conflicts)
+- `packages/cleo/src/dispatch/registry.ts` — executable registry (registry wins on conflicts)
 - RFC 2119 — MUST/SHOULD/MAY definitions

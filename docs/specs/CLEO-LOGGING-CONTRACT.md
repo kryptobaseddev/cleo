@@ -76,7 +76,7 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 
 **Retention**: CLEO-controlled via `pruneAuditLog()` in `packages/core/src/audit-prune.ts`. Default retention: 90 days (`auditRetentionDays`). When `archiveBeforePrune` is true (default), prunable rows are exported to `.cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz` before deletion.
 
-**Owner**: `packages/cleoctl/src/dispatch/middleware/audit.ts` (write path via `createAudit()` middleware) and `packages/core/src/audit-prune.ts` (retention enforcement).
+**Owner**: `packages/cleo/src/dispatch/middleware/audit.ts` (write path via `createAudit()` middleware) and `packages/core/src/audit-prune.ts` (retention enforcement).
 
 ### 2.3 Store Boundary Rules
 
@@ -129,7 +129,7 @@ Every log entry (both stores) MUST include the following correlation fields wher
 
 ### 5.1 MCP Startup Sequence
 
-The MCP server startup in `packages/cleoctl/src/mcp/index.ts` logs the following sequence:
+The MCP server startup in `packages/cleo/src/mcp/index.ts` logs the following sequence:
 
 1. **Node.js version check** (pre-init): If below minimum, logs `fatal` via the pre-init fallback logger and exits with code 1.
 2. **Global bootstrap** (`ensureGlobalBootstrap()`): Warnings logged at `warn` level if bootstrap fails (non-blocking).
@@ -149,7 +149,7 @@ The MCP server startup in `packages/cleoctl/src/mcp/index.ts` logs the following
 
 ### 5.2 CLI Startup Sequence
 
-The CLI entry point in `packages/cleoctl/src/cli/index.ts` uses a `preAction` hook for logger initialization:
+The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook for logger initialization:
 
 1. **Node.js version check** (synchronous, pre-Commander): If below minimum, writes directly to `process.stderr` and exits with code 1. This runs before any logger is available.
 2. **preAction hook -- Logger init** (first command invocation only):
@@ -216,10 +216,10 @@ Required events that MUST always be logged:
 
 ## 8. CLI Parity Rules
 
-- CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleoctl/src/cli/logger-bootstrap.ts`.
+- CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
 - CLI `preAction` hook MUST fire `pruneAuditLog()` as fire-and-forget after logger initialization. Failures are silently caught to avoid blocking command execution.
 - All CLI commands that route through the dispatch layer pass through the same `createAudit()` middleware as MCP, producing identical `audit_log` entries with `source: 'cli'`.
-- The `initCliLogger()` function in `packages/cleoctl/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring CLI log entries have the same correlation context as MCP entries.
+- The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring CLI log entries have the same correlation context as MCP entries.
 
 ---
 
@@ -266,7 +266,7 @@ Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: 
 
 ### 10.1 What Is Audited
 
-The `createAudit()` middleware in `packages/cleoctl/src/dispatch/middleware/audit.ts` audits:
+The `createAudit()` middleware in `packages/cleo/src/dispatch/middleware/audit.ts` audits:
 
 - **All mutate operations**: Every `gateway === 'mutate'` request is audited.
 - **Query operations during grade sessions only**: When `CLEO_SESSION_GRADE === 'true'`, query operations are also audited for behavioral analysis.
@@ -298,10 +298,10 @@ The dispatch entry is authoritative. The `appendLog()` entry provides state diff
 - `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
 - `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
 - `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)
-- `packages/cleoctl/src/dispatch/middleware/audit.ts` -- dual-write audit middleware (createAudit, writeToSqlite, queryAudit)
-- `packages/cleoctl/src/cli/logger-bootstrap.ts` -- CLI logger initialization (initCliLogger)
-- `packages/cleoctl/src/mcp/index.ts` -- MCP server startup sequence
-- `packages/cleoctl/src/cli/index.ts` -- CLI entry point with preAction hooks
+- `packages/cleo/src/dispatch/middleware/audit.ts` -- dual-write audit middleware (createAudit, writeToSqlite, queryAudit)
+- `packages/cleo/src/cli/logger-bootstrap.ts` -- CLI logger initialization (initCliLogger)
+- `packages/cleo/src/mcp/index.ts` -- MCP server startup sequence
+- `packages/cleo/src/cli/index.ts` -- CLI entry point with preAction hooks
 - `packages/core/src/config.ts` -- configuration defaults including LoggingConfig
 - `src/types/config.ts` -- LoggingConfig type definition
 - `packages/core/src/store/schema.ts` -- audit_log Drizzle schema definition

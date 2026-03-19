@@ -531,7 +531,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 ## Shared-Core Architecture
 
-CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleoctl` product:
+CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
 - **MCP (Primary)**: 2 tools (`query`, `mutate`), 209 operations across 10 domains -- the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js -- the human interface
@@ -541,7 +541,7 @@ CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers ar
 ### Package Boundary
 
 ```
-@cleocode/cleoctl (assembled CLI + MCP product)
+@cleocode/cleo (assembled CLI + MCP product)
   |-- @cleocode/core (standalone business logic kernel)
         |-- @cleocode/contracts (types + interfaces, zero runtime deps)
         |-- Domains: tasks, sessions, memory, orchestration,
@@ -555,7 +555,7 @@ Consumer patterns:
   Custom store:   await Cleo.init('./project', { store: myAccessor })
 ```
 
-The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all four systems through the same business logic that powers `@cleocode/cleoctl`.
+The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all four systems through the same business logic that powers `@cleocode/cleo`.
 
 All interfaces MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
 

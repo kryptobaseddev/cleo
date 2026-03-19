@@ -12,7 +12,7 @@
     "build:types": "tsc -b",
     "build:contracts": "pnpm -r --filter @cleocode/contracts run build",
     "build:core": "pnpm -r --filter @cleocode/core run build",
-    "build:cleoctl": "pnpm -r --filter @cleocode/cleoctl run build",
+    "build:cleo": "pnpm -r --filter @cleocode/cleo run build",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",

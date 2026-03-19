@@ -158,7 +158,7 @@ cleo sticky archive SN-042
 
 ## 6. CLI Commands
 
-**File:** `packages/cleoctl/src/cli/commands/sticky.ts`
+**File:** `packages/cleo/src/cli/commands/sticky.ts`
 
 **Primary Commands:**
 ```bash
@@ -258,18 +258,18 @@ cleo skill install library:ct-stickynote
 - `packages/core/src/store/brain-schema.ts` - Add brain_sticky_notes table
 - `packages/core/src/sticky/` - Core module (8 files)
   - types.ts, id.ts, create.ts, list.ts, show.ts, convert.ts, archive.ts, index.ts
-- `packages/cleoctl/src/dispatch/engines/sticky-engine.ts` - Engine layer
-- `packages/cleoctl/src/dispatch/domains/sticky.ts` - Domain handler
-- `packages/cleoctl/src/cli/commands/sticky.ts` - CLI implementation
+- `packages/cleo/src/dispatch/engines/sticky-engine.ts` - Engine layer
+- `packages/cleo/src/dispatch/domains/sticky.ts` - Domain handler
+- `packages/cleo/src/cli/commands/sticky.ts` - CLI implementation
 - `packages/ct-skills/skills/ct-stickynote/` - Skill package
 - `docs/features/STICKY-NOTES.md` - User guide
 - `docs/specs/STICKY-NOTES-SPEC.md` - This spec
 
 **Modified Files:**
-- `packages/cleoctl/src/dispatch/domains/index.ts` - Register sticky handler
-- `packages/cleoctl/src/dispatch/registry.ts` - Add 5 sticky operations
-- `packages/cleoctl/src/dispatch/types.ts` - 'sticky' in CANONICAL_DOMAINS
-- `packages/cleoctl/src/cli/index.ts` - Register sticky command
+- `packages/cleo/src/dispatch/domains/index.ts` - Register sticky handler
+- `packages/cleo/src/dispatch/registry.ts` - Add 5 sticky operations
+- `packages/cleo/src/dispatch/types.ts` - 'sticky' in CANONICAL_DOMAINS
+- `packages/cleo/src/cli/index.ts` - Register sticky command
 - `docs/specs/VERB-STANDARDS.md` - Add sticky verbs
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` - Update domain list
 

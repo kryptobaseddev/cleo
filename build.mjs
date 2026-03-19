@@ -5,8 +5,8 @@
  *
  * Produces three bundles:
  *   1. packages/core/dist/index.js       — core standalone (npm publish)
- *   2. packages/cleoctl/dist/cli/index.js — CLI entry point (npm publish)
- *      packages/cleoctl/dist/mcp/index.js — MCP entry point (npm publish)
+ *   2. packages/cleo/dist/cli/index.js — CLI entry point (npm publish)
+ *      packages/cleo/dist/mcp/index.js — MCP entry point (npm publish)
  *   3. packages/adapters/dist/index.js    — adapters bundle
  */
 
@@ -92,27 +92,27 @@ const coreBuildOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// 2. @cleocode/cleoctl — CLI + MCP bundle
+// 2. @cleocode/cleo — CLI + MCP bundle
 //    Bundles @cleocode/contracts and @cleocode/adapters inline.
 //    @cleocode/core resolves to packages/core/src/index.ts (source).
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
-const cleoctlBuildOptions = {
+const cleoBuildOptions = {
   entryPoints: [
-    { in: 'packages/cleoctl/src/cli/index.ts', out: 'cli/index' },
-    { in: 'packages/cleoctl/src/mcp/index.ts', out: 'mcp/index' },
+    { in: 'packages/cleo/src/cli/index.ts', out: 'cli/index' },
+    { in: 'packages/cleo/src/mcp/index.ts', out: 'mcp/index' },
   ],
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  outdir: 'packages/cleoctl/dist',
+  outdir: 'packages/cleo/dist',
   sourcemap: true,
   banner: {
     js: '#!/usr/bin/env -S node --disable-warning=ExperimentalWarning',
   },
   plugins: [
-    workspacePlugin('bundle-cleoctl-deps', {
+    workspacePlugin('bundle-cleo-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
       '@cleocode/core': resolve(__dirname, 'packages/core/src/index.ts'),
       '@cleocode/core/internal': resolve(__dirname, 'packages/core/src/internal.ts'),
@@ -153,19 +153,19 @@ async function build() {
   await esbuild.build(adaptersBuildOptions);
   console.log('  -> packages/adapters/dist/index.js');
 
-  console.log('Building @cleocode/cleoctl...');
-  await esbuild.build(cleoctlBuildOptions);
+  console.log('Building @cleocode/cleo...');
+  await esbuild.build(cleoBuildOptions);
   // Make CLI entry executable (shebang only works with +x)
-  await chmod('packages/cleoctl/dist/cli/index.js', 0o755);
-  await chmod('packages/cleoctl/dist/mcp/index.js', 0o755);
-  console.log('  -> packages/cleoctl/dist/cli/index.js');
-  console.log('  -> packages/cleoctl/dist/mcp/index.js');
+  await chmod('packages/cleo/dist/cli/index.js', 0o755);
+  await chmod('packages/cleo/dist/mcp/index.js', 0o755);
+  console.log('  -> packages/cleo/dist/cli/index.js');
+  console.log('  -> packages/cleo/dist/mcp/index.js');
 
   console.log('\nBuild complete.');
 }
 
 if (isWatch) {
-  const ctx = await esbuild.context(cleoctlBuildOptions);
+  const ctx = await esbuild.context(cleoBuildOptions);
   await ctx.watch();
   console.log('Watching for changes...');
 } else {

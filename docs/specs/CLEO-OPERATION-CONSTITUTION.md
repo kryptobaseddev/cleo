@@ -10,7 +10,7 @@
 
 ## 1. Authority
 
-`packages/cleoctl/src/dispatch/registry.ts` is the executable single source of truth (SSoT) for all CLEO operations. This document is derived from the registry and MUST stay synchronized with it. When conflicts exist between this document and the registry, the registry wins.
+`packages/cleo/src/dispatch/registry.ts` is the executable single source of truth (SSoT) for all CLEO operations. This document is derived from the registry and MUST stay synchronized with it. When conflicts exist between this document and the registry, the registry wins.
 
 All operations are defined as `OperationDef` entries in the `OPERATIONS` array. No operation exists unless it appears in that array. No legacy alias is honored unless it appears there.
 
@@ -41,11 +41,11 @@ mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 CLEO separates two distinct concerns:
 
 - **`@cleocode/core`** (`packages/core/src/`) — business logic with a direct, typed function API. No string addressing. Usable standalone without any MCP or CLI layer.
-- **`packages/cleoctl/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleoctl`. Translates MCP/CLI requests into typed core function calls. NOT part of `@cleocode/core`.
+- **`packages/cleo/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates MCP/CLI requests into typed core function calls. NOT part of `@cleocode/core`.
 
 ```
 MCP request: { domain: "tasks", operation: "add", params: {...} }
-  → packages/cleoctl/src/dispatch/engines/task-engine.ts  (routing)
+  → packages/cleo/src/dispatch/engines/task-engine.ts  (routing)
     → @cleocode/core tasks.add()         (business logic)
       → SQLite store                     (persistence)
 ```
@@ -63,13 +63,13 @@ dispatch('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
 
 ### Package Boundary
 
-`packages/cleoctl/src/dispatch/` remains inside `@cleocode/cleoctl` because it is the adapter layer for string-based protocols (MCP, CLI). It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
+`packages/cleo/src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer for string-based protocols (MCP, CLI). It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
 
 ```
-@cleocode/cleoctl (CLI + MCP product)
-  ├── packages/cleoctl/src/cli/       → Commander.js commands → dispatch → core API
-  ├── packages/cleoctl/src/mcp/      → MCP protocol → dispatch → core API
-  ├── packages/cleoctl/src/dispatch/ → string-addressed routing → core API  [stays in @cleocode/cleoctl]
+@cleocode/cleo (CLI + MCP product)
+  ├── packages/cleo/src/cli/       → Commander.js commands → dispatch → core API
+  ├── packages/cleo/src/mcp/      → MCP protocol → dispatch → core API
+  ├── packages/cleo/src/dispatch/ → string-addressed routing → core API  [stays in @cleocode/cleo]
   └── @cleocode/core → typed function API  [standalone kernel]
 ```
 
@@ -92,7 +92,7 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `nexus` | Cross-project coordination, registry, dependency graph | nexus.db |
 | `sticky` | Ephemeral project-wide capture, quick notes before formal task creation | brain.db |
 
-The canonical domain list is defined in `packages/cleoctl/src/dispatch/types.ts` as:
+The canonical domain list is defined in `packages/cleo/src/dispatch/types.ts` as:
 
 ```typescript
 export const CANONICAL_DOMAINS = [
@@ -615,7 +615,7 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | sticky | 2 | 4 | 6 |
 | **Total** | **119** | **90** | **209** |
 
-> These counts match `packages/cleoctl/src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
+> These counts match `packages/cleo/src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
 
 ---
 
@@ -704,7 +704,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
 3. CLI MAY provide aliases for convenience (e.g., `cleo done` for `tasks.complete`).
 4. MCP operations are the canonical names; CLI aliases are cosmetic.
-5. Both interfaces route through the shared dispatch layer (`packages/cleoctl/src/dispatch/`) to `packages/core/src/`.
+5. Both interfaces route through the shared dispatch layer (`packages/cleo/src/dispatch/`) to `packages/core/src/`.
 
 ---
 
@@ -819,8 +819,8 @@ Operations failing questions 1, 4, or 5 without compensating answers to 2 or 3 M
 
 ### Adding Operations
 
-1. Add `OperationDef` entry to `OPERATIONS` array in `packages/cleoctl/src/dispatch/registry.ts`.
-2. Implement handler in the appropriate domain handler (`packages/cleoctl/src/dispatch/domains/`).
+1. Add `OperationDef` entry to `OPERATIONS` array in `packages/cleo/src/dispatch/registry.ts`.
+2. Implement handler in the appropriate domain handler (`packages/cleo/src/dispatch/domains/`).
 3. Wire core logic in `packages/core/src/`.
 4. Update this document (Section 7 tables).
 5. Add tests for the new operation.
@@ -960,8 +960,8 @@ Quick reference for agents and code calling removed operations.
 
 ## References
 
-- `packages/cleoctl/src/dispatch/registry.ts` -- Executable SSoT
-- `packages/cleoctl/src/dispatch/types.ts` -- Type definitions
+- `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT
+- `packages/cleo/src/dispatch/types.ts` -- Type definitions
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` -- Progressive disclosure patterns

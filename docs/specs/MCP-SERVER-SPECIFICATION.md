@@ -17,8 +17,8 @@ This specification is canonical for MCP contract behavior.
 
 Implementation operation counts and live operation matrices MUST be sourced from:
 
-- `packages/cleoctl/src/mcp/gateways/query.ts`
-- `packages/cleoctl/src/mcp/gateways/mutate.ts`
+- `packages/cleo/src/mcp/gateways/query.ts`
+- `packages/cleo/src/mcp/gateways/mutate.ts`
 
 As of 2026-03-06, implementation counts are:
 
@@ -1048,8 +1048,8 @@ Implementation includes documented parity extensions beyond the original core ma
 
 Extensions are maintained in gateway registries and MUST be treated as live source of truth:
 
-- `packages/cleoctl/src/mcp/gateways/query.ts`
-- `packages/cleoctl/src/mcp/gateways/mutate.ts`
+- `packages/cleo/src/mcp/gateways/query.ts`
+- `packages/cleo/src/mcp/gateways/mutate.ts`
 
 These include, among others, relationship operations and extended system/observability operations.
 
