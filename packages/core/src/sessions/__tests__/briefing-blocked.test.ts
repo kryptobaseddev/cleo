@@ -26,15 +26,14 @@ function setupMockAccessor(
 ) {
   const meta: Record<string, unknown> = {
     focus_state: focus,
-    file_meta: { schemaVersion: '2.10.0', activeSession: null },
+    file_meta: { schemaVersion: '2.10.0' },
   };
   const mockAccessor = {
-    loadSessions: vi.fn().mockResolvedValue({
-      version: '1.0.0',
-      sessions: [],
-      _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-    }),
+    loadSessions: vi.fn().mockResolvedValue([]),
     saveSessions: vi.fn().mockResolvedValue(undefined),
+    getActiveSession: vi.fn().mockResolvedValue(null),
+    upsertSingleSession: vi.fn().mockResolvedValue(undefined),
+    removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
     getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(meta[key] ?? null)),
     setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {

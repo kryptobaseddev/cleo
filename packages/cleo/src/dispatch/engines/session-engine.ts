@@ -314,9 +314,8 @@ export async function sessionStart(
     }
 
     // Auto-end any active session before starting a new one
-    const fileMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta');
-    const activeSessionId = fileMeta?.activeSession as string | undefined;
-    if (activeSessionId) {
+    const existingActive = await accessor.getActiveSession();
+    if (existingActive) {
       await sessionEnd(projectRoot);
       // Reload after auto-end
       accessor = await getAccessor(projectRoot);
@@ -400,25 +399,24 @@ export async function sessionStart(
 
     await accessor.setMetaValue('focus_state', existingFocus);
 
-    // Update file meta
+    // Update file meta (activeSession no longer stored — session.status is source of truth)
     const currentMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
     currentMeta.lastSessionId = sessionId;
-    currentMeta.activeSession = sessionId;
     currentMeta.generation = ((currentMeta.generation as number) || 0) + 1;
     await accessor.setMetaValue('file_meta', currentMeta);
 
     // Write to sessions store so resume/suspend can find the session.
     {
-      const sessions = await accessor.loadSessions();
-
       // T4959: Set chain fields on new session
       if (previousSessionId) {
         newSession.previousSessionId = previousSessionId;
 
         // Update predecessor's nextSessionId
+        const sessions = await accessor.loadSessions();
         const pred = sessions.find((s: Session) => s.id === previousSessionId);
         if (pred) {
           pred.nextSessionId = sessionId;
+          await accessor.upsertSingleSession(pred);
         }
       }
 
@@ -426,9 +424,7 @@ export async function sessionStart(
         newSession.agentIdentifier = agentIdentifier;
       }
 
-      sessions.push(newSession);
-
-      await accessor.saveSessions(sessions);
+      await accessor.upsertSingleSession(newSession);
     }
 
     // Enable grade mode: set env vars so audit middleware logs queries too
@@ -463,7 +459,7 @@ export async function sessionStart(
           // Always mark consumed regardless of debrief vs handoff
           pred.handoffConsumedAt = new Date().toISOString();
           pred.handoffConsumedBy = sessionId;
-          await accessor.saveSessions(sessions2);
+          await accessor.upsertSingleSession(pred);
         }
       } catch {
         // Best-effort
@@ -495,9 +491,9 @@ export async function sessionEnd(
 ): Promise<EngineResult<{ sessionId: string; ended: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const fileMetaEnd = await accessor.getMetaValue<Record<string, unknown>>('file_meta');
+    const activeSession = await accessor.getActiveSession();
 
-    const sessionId = fileMetaEnd?.activeSession as string | undefined;
+    const sessionId = activeSession?.id;
     if (!sessionId) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
         fix: 'Start a session first with: session start --scope <scope> --name <name>',
@@ -520,23 +516,18 @@ export async function sessionEnd(
       await accessor.setMetaValue('focus_state', focusEnd);
     }
 
-    // Clear active session in file meta
+    // Bump file_meta generation (activeSession no longer stored here)
+    const fileMetaEnd = await accessor.getMetaValue<Record<string, unknown>>('file_meta');
     if (fileMetaEnd) {
-      fileMetaEnd.activeSession = null;
       fileMetaEnd.generation = ((fileMetaEnd.generation as number) || 0) + 1;
       await accessor.setMetaValue('file_meta', fileMetaEnd);
     }
 
-    // Update session record in SQLite
+    // Update session record — status is the source of truth
     if (sessionId !== 'default') {
-      const sessions = await accessor.loadSessions();
-      const session = sessions.find((s: Session) => s.id === sessionId);
-      if (session) {
-        session.status = 'ended';
-        session.endedAt = now;
-
-        await accessor.saveSessions(sessions);
-      }
+      activeSession.status = 'ended';
+      activeSession.endedAt = now;
+      await accessor.upsertSingleSession(activeSession);
     }
 
     return { success: true, data: { sessionId, ended: true } };
@@ -583,9 +574,8 @@ export async function sessionResume(
     session.endedAt = undefined;
     session.resumeCount = (session.resumeCount || 0) + 1;
 
-    // Update file meta to reflect active session
+    // Bump file_meta generation (activeSession no longer stored — status is source of truth)
     const resumeMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? {};
-    resumeMeta.activeSession = sessionId;
     resumeMeta.generation = ((resumeMeta.generation as number) || 0) + 1;
     await accessor.setMetaValue('file_meta', resumeMeta);
 
@@ -598,7 +588,7 @@ export async function sessionResume(
       }
     }
 
-    await accessor.saveSessions(sessions);
+    await accessor.upsertSingleSession(session);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
     let memoryContext:
@@ -639,7 +629,7 @@ export async function sessionGc(
   try {
     const accessor = await getAccessor(projectRoot);
 
-    let sessions = await accessor.loadSessions();
+    const sessions = await accessor.loadSessions();
 
     const now = Date.now();
     const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
@@ -655,23 +645,19 @@ export async function sessionGc(
           session.status = 'ended';
           session.endedAt = new Date().toISOString();
           orphaned.push(session.id);
+          await accessor.upsertSingleSession(session);
         }
       }
     }
 
     // Remove very old ended sessions
-    sessions = sessions.filter((s: Session) => {
-      if (s.status === 'active') return true;
+    for (const s of sessions) {
+      if (s.status === 'active') continue;
       const endedAt = s.endedAt ? new Date(s.endedAt).getTime() : new Date(s.startedAt).getTime();
       if (now - endedAt > thirtyDaysMs) {
         removed.push(s.id);
-        return false;
+        await accessor.removeSingleSession(s.id);
       }
-      return true;
-    });
-
-    if (orphaned.length > 0 || removed.length > 0) {
-      await accessor.saveSessions(sessions);
     }
 
     return { success: true, data: { orphaned, removed } };
@@ -1027,7 +1013,7 @@ export async function sessionComputeDebrief(
     // Persist debriefJson via session update
     if (session) {
       session.debriefJson = JSON.stringify(debrief);
-      await accessor.saveSessions(sessions);
+      await accessor.upsertSingleSession(session);
     }
 
     return { success: true, data: debrief };

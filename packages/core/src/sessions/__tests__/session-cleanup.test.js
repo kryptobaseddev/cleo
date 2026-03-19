@@ -43,6 +43,8 @@ function setupMockAccessor(sessions) {
     const mockAccessor = {
         loadSessions: vi.fn().mockResolvedValue(sessions),
         saveSessions: vi.fn().mockResolvedValue(undefined),
+        upsertSingleSession: vi.fn().mockResolvedValue(undefined),
+        removeSingleSession: vi.fn().mockResolvedValue(undefined),
         getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
         setMetaValue: vi.fn().mockImplementation((key, value) => {
             metaStore[key] = value;
@@ -77,9 +79,10 @@ describe('cleanupSessions', () => {
             const result = await cleanupSessions('/fake/project');
             expect(result.autoEnded).toContain('session-stale');
             expect(result.cleaned).toBe(true);
-            // Verify the session was mutated to 'ended'
-            const savedSessions = store.saveSessions.mock.calls[0][0];
-            const ended = savedSessions.find((s) => s.id === 'session-stale');
+            // Verify upsertSingleSession was called with the ended session
+            expect(store.upsertSingleSession).toHaveBeenCalled();
+            const ended = store.upsertSingleSession.mock.calls[0][0];
+            expect(ended.id).toBe('session-stale');
             expect(ended.status).toBe('ended');
             expect(ended.endedAt).toBeDefined();
             expect(ended.notes).toEqual(expect.arrayContaining([expect.stringContaining('Auto-ended')]));
@@ -111,10 +114,12 @@ describe('cleanupSessions', () => {
                 makeSession({ id: 'stale-2', startedAt: daysAgo(15) }),
                 makeSession({ id: 'recent', startedAt: daysAgo(2) }),
             ];
-            setupMockAccessor(sessions);
+            const store = setupMockAccessor(sessions);
             const result = await cleanupSessions('/fake/project');
             expect(result.autoEnded).toEqual(['stale-1', 'stale-2']);
             expect(result.autoEnded).not.toContain('recent');
+            // Each stale session gets its own upsertSingleSession call
+            expect(store.upsertSingleSession).toHaveBeenCalledTimes(2);
         });
         it('preserves session data when auto-ending (only changes status, endedAt, notes)', async () => {
             const originalSession = makeSession({
@@ -128,8 +133,8 @@ describe('cleanupSessions', () => {
             });
             const store = setupMockAccessor([originalSession]);
             await cleanupSessions('/fake/project');
-            const savedSessions = store.saveSessions.mock.calls[0][0];
-            const ended = savedSessions.find((s) => s.id === 'session-preserve');
+            expect(store.upsertSingleSession).toHaveBeenCalled();
+            const ended = store.upsertSingleSession.mock.calls[0][0];
             // Data preserved
             expect(ended.name).toBe('Important Work');
             expect(ended.scope).toEqual({ type: 'epic', epicId: 'T500' });
@@ -184,31 +189,10 @@ describe('cleanupSessions', () => {
                 status: 'archived',
                 startedAt: daysAgo(20),
             });
-            setupMockAccessor([archivedSession]);
+            const store = setupMockAccessor([archivedSession]);
             const result = await cleanupSessions('/fake/project');
             expect(result.removed).toContain('session-archived');
-        });
-        it('cleans stale activeSession reference in task file', async () => {
-            const endedSession = makeSession({
-                id: 'session-ended',
-                status: 'ended',
-                startedAt: daysAgo(2),
-            });
-            const store = setupMockAccessor([endedSession]);
-            // Override getMetaValue to return stale activeSession reference
-            store.getMetaValue.mockImplementation((key) => {
-                if (key === 'file_meta') {
-                    return Promise.resolve({
-                        schemaVersion: '2.10.0',
-                        activeSession: 'session-ended', // Points to a non-active session
-                        generation: 5,
-                    });
-                }
-                return Promise.resolve(null);
-            });
-            const result = await cleanupSessions('/fake/project');
-            expect(result.cleaned).toBe(true);
-            expect(store.setMetaValue).toHaveBeenCalled();
+            expect(store.removeSingleSession).toHaveBeenCalledWith('session-archived');
         });
     });
 });

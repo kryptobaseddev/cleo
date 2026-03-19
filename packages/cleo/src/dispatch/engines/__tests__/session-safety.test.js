@@ -15,13 +15,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks — mirror the pattern from session-handoff-fix.test.ts
 // ---------------------------------------------------------------------------
 const mockLoadSessions = vi.fn();
-const mockSaveSessions = vi.fn();
+const mockUpsertSingleSession = vi.fn();
+const mockRemoveSingleSession = vi.fn();
+const mockGetActiveSession = vi.fn();
 const mockGetMetaValue = vi.fn().mockResolvedValue(null);
 const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockImplementation(() => Promise.resolve({
         loadSessions: mockLoadSessions,
-        saveSessions: mockSaveSessions,
+        upsertSingleSession: mockUpsertSingleSession,
+        removeSingleSession: mockRemoveSingleSession,
+        getActiveSession: mockGetActiveSession,
         getMetaValue: mockGetMetaValue,
         setMetaValue: mockSetMetaValue,
     })),

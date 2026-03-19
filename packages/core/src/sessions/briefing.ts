@@ -19,7 +19,7 @@
 
 import { getAccessor } from '../store/data-accessor.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import type { TaskWorkState } from '@cleocode/contracts';
+import type { FileMeta, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
@@ -139,11 +139,13 @@ export async function computeBriefing(
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
+  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
 
   // Build a TaskFileExt-compatible shape from targeted queries
   const current = {
     tasks,
     focus: focus ?? undefined,
+    _meta: fileMeta ?? undefined,
   } as unknown as TaskFileExt;
 
   // Build task map for quick lookups

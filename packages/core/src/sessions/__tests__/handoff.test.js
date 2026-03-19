@@ -101,6 +101,9 @@ function setupMockAccessor(sessions, tasks = makeMockTasks()) {
     const mockAccessor = {
         loadSessions: vi.fn().mockResolvedValue(sessions),
         saveSessions: vi.fn().mockResolvedValue(undefined),
+        getActiveSession: vi.fn().mockResolvedValue(null),
+        upsertSingleSession: vi.fn().mockResolvedValue(undefined),
+        removeSingleSession: vi.fn().mockResolvedValue(undefined),
         queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
         getMetaValue: vi.fn().mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
         setMetaValue: vi.fn().mockImplementation((key, value) => {

@@ -19,7 +19,9 @@ import type { Session } from '@cleocode/contracts';
 // ---------------------------------------------------------------------------
 
 const mockLoadSessions = vi.fn<() => Promise<Session[]>>();
-const mockSaveSessions = vi.fn<(sessions: Session[]) => Promise<void>>();
+const mockUpsertSingleSession = vi.fn<(session: Session) => Promise<void>>();
+const mockRemoveSingleSession = vi.fn<(id: string) => Promise<void>>();
+const mockGetActiveSession = vi.fn<() => Promise<Session | null>>();
 const mockGetMetaValue = vi.fn().mockResolvedValue(null);
 const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 
@@ -27,7 +29,9 @@ vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockImplementation(() =>
     Promise.resolve({
       loadSessions: mockLoadSessions,
-      saveSessions: mockSaveSessions,
+      upsertSingleSession: mockUpsertSingleSession,
+      removeSingleSession: mockRemoveSingleSession,
+      getActiveSession: mockGetActiveSession,
       getMetaValue: mockGetMetaValue,
       setMetaValue: mockSetMetaValue,
     }),

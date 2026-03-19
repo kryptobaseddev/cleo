@@ -13,14 +13,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks
 // ---------------------------------------------------------------------------
 const mockLoadSessions = vi.fn();
-const mockSaveSessions = vi.fn();
+const mockUpsertSingleSession = vi.fn();
+const mockRemoveSingleSession = vi.fn();
+const mockGetActiveSession = vi.fn();
 const mockGetMetaValue = vi.fn();
 const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 const mockLoadSingleTask = vi.fn();
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
     getAccessor: vi.fn().mockImplementation(() => Promise.resolve({
         loadSessions: mockLoadSessions,
-        saveSessions: mockSaveSessions,
+        upsertSingleSession: mockUpsertSingleSession,
+        removeSingleSession: mockRemoveSingleSession,
+        getActiveSession: mockGetActiveSession,
         getMetaValue: mockGetMetaValue,
         setMetaValue: mockSetMetaValue,
         loadSingleTask: mockLoadSingleTask,
@@ -70,9 +74,22 @@ import { sessionStart } from '../session-engine.js';
 // ---------------------------------------------------------------------------
 /** Set up meta value mocks for a given activeSession value. */
 function setupMetaMocks(activeSession = null) {
+    if (activeSession) {
+        mockGetActiveSession.mockResolvedValue({
+            id: activeSession,
+            status: 'active',
+            name: 'mock-session',
+            scope: { type: 'global' },
+            startedAt: new Date().toISOString(),
+            resumeCount: 0,
+        });
+    }
+    else {
+        mockGetActiveSession.mockResolvedValue(null);
+    }
     mockGetMetaValue.mockImplementation((key) => {
         if (key === 'file_meta')
-            return Promise.resolve({ activeSession, checksum: 'abc', generation: 1 });
+            return Promise.resolve({ checksum: 'abc', generation: 1 });
         if (key === 'focus_state')
             return Promise.resolve(null);
         return Promise.resolve(null);
@@ -86,7 +103,9 @@ describe('Session Engine Scope (T5240)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockLoadSessions.mockResolvedValue([]);
-        mockSaveSessions.mockResolvedValue(undefined);
+        mockUpsertSingleSession.mockResolvedValue(undefined);
+        mockRemoveSingleSession.mockResolvedValue(undefined);
+        mockGetActiveSession.mockResolvedValue(null);
         mockSetMetaValue.mockResolvedValue(undefined);
         mockLoadSingleTask.mockResolvedValue(null);
     });
@@ -97,8 +116,8 @@ describe('Session Engine Scope (T5240)', () => {
         // Should fail without auto-ending the active session
         expect(result.success).toBe(false);
         expect(result.error.message).toContain('Invalid scope format');
-        // saveSessions should NOT have been called (no auto-end happened)
-        expect(mockSaveSessions).not.toHaveBeenCalled();
+        // upsertSingleSession should NOT have been called (no auto-end happened)
+        expect(mockUpsertSingleSession).not.toHaveBeenCalled();
     });
     it('starts session with global scope', async () => {
         setupMetaMocks(null);

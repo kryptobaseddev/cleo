@@ -91,7 +91,7 @@ function createMockStore() {
       nextAction: null,
       primarySession: null,
     },
-    _meta: { schemaVersion: '1.0.0', activeSession: null },
+    _meta: { schemaVersion: '1.0.0' },
   };
 
   const metaStore: Record<string, unknown> = {
@@ -105,6 +105,18 @@ function createMockStore() {
     accessor: {
       loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessions)),
       saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
+      getActiveSession: vi.fn().mockImplementation(() => {
+        const active = sessions.filter((s: Session) => s.status === 'active')
+          .sort((a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        return Promise.resolve(active[0] ?? null);
+      }),
+      upsertSingleSession: vi.fn().mockImplementation((session: Session) => {
+        const idx = sessions.findIndex((s: Session) => s.id === session.id);
+        if (idx >= 0) sessions[idx] = session;
+        else sessions.push(session);
+        return Promise.resolve();
+      }),
+      removeSingleSession: vi.fn().mockImplementation(() => Promise.resolve()),
       queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks: taskData.tasks, total: taskData.tasks.length })),
       getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
       setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
@@ -253,7 +265,6 @@ describe('Session handoff full round-trip', () => {
       startedAt: new Date().toISOString(),
     };
     store.sessions.push(session);
-    store.taskData._meta!.activeSession = 'ses_brief';
     store.taskData.focus!.currentTask = 'T101';
 
     const briefing = await computeBriefing('/test', { scope: 'epic:T100' });
