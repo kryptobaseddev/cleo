@@ -1,7 +1,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: './packages/core/src/store/tasks-schema.ts',
-  out: './migrations/drizzle-tasks',
+  schema: './packages/core/src/store/brain-schema.ts',
+  out: './drizzle/migrations/drizzle-brain',
   dialect: 'sqlite',
 });

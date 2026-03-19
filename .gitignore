@@ -7,3 +7,13 @@ coverage/
 .cleo/tasks.db*
 .cleo/brain.db*
 .cleo/logs/
+
+# Root-level tsc artifacts from config files (drizzle, vitest)
+/vitest.config.js
+/vitest.config.d.ts
+/vitest.config.d.ts.map
+/vitest.config.js.map
+/drizzle/*.config.js
+/drizzle/*.config.d.ts
+/drizzle/*.config.d.ts.map
+/drizzle/*.config.js.map

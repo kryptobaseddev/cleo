@@ -18,7 +18,14 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "clean": "rm -rf packages/*/dist"
+    "clean": "rm -rf packages/*/dist",
+    "db:generate": "drizzle-kit generate --config drizzle/tasks.config.ts",
+    "db:generate:brain": "drizzle-kit generate --config drizzle/brain.config.ts",
+    "db:generate:nexus": "drizzle-kit generate --config drizzle/nexus.config.ts",
+    "db:generate:custom": "drizzle-kit generate --custom --config drizzle/tasks.config.ts",
+    "db:studio": "drizzle-kit studio --config drizzle/tasks.config.ts",
+    "db:studio:brain": "drizzle-kit studio --config drizzle/brain.config.ts",
+    "db:studio:nexus": "drizzle-kit studio --config drizzle/nexus.config.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

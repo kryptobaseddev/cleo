@@ -47,7 +47,10 @@ function makeSessionData(overrides = {}) {
 }
 function setupAccessor(tasks) {
     getAccessor.mockResolvedValue({
-        loadTaskFile: vi.fn().mockResolvedValue({ tasks }),
+        queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+        loadTasks: vi.fn().mockImplementation((ids) => {
+            return Promise.resolve(tasks.filter((t) => ids.includes(t.id)));
+        }),
         close: vi.fn().mockResolvedValue(undefined),
     });
 }

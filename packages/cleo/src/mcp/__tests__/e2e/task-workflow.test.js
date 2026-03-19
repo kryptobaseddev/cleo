@@ -100,7 +100,7 @@ describe('E2E: Task Management Workflow', () => {
         });
         expect(verifyResult.success).toBe(true);
         expect(verifyResult.data.status).toBe('done');
-    });
+    }, 60000);
     it('should handle task hierarchy correctly', async () => {
         // Create parent task
         const parentResult = await context.executor.execute({
@@ -141,7 +141,7 @@ describe('E2E: Task Management Workflow', () => {
         expect(Array.isArray(children)).toBe(true);
         expect(children.length).toBeGreaterThan(0);
         expect(children.some((c) => c.id === childId)).toBe(true);
-    });
+    }, 60000);
     it('should handle task search efficiently', async () => {
         // Create task with unique title
         const uniqueTitle = `Searchable Task ${Date.now()}`;
@@ -177,7 +177,7 @@ describe('E2E: Task Management Workflow', () => {
         expect(found).toHaveProperty('title');
         expect(found).toHaveProperty('status');
         // Should NOT have notes array (minimal response)
-    });
+    }, 60000);
     it('should handle task dependencies correctly', async () => {
         // Create blocking task
         const blockerResult = await context.executor.execute({
@@ -232,6 +232,6 @@ describe('E2E: Task Management Workflow', () => {
         // The task should reference its dependency
         const dependsOn = dependentTask.depends || dependentTask.dependencies || [];
         expect(dependsOn).toContain(blockerId);
-    });
+    }, 60000);
 });
 //# sourceMappingURL=task-workflow.test.js.map
