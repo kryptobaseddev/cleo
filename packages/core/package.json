@@ -8,14 +8,17 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./internal": {
       "import": "./dist/internal.js",
+      "require": "./dist/internal.js",
       "types": "./dist/internal.d.ts"
     },
     "./*": {
       "import": "./dist/*.js",
+      "require": "./dist/*.js",
       "types": "./dist/*.d.ts"
     }
   },
