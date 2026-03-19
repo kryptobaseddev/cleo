@@ -1,8 +1,12 @@
 # CLEO - Contextual Language Engine & Orchestrator
 
 [![npm version](https://img.shields.io/npm/v/@cleocode/cleo.svg)](https://www.npmjs.com/package/@cleocode/cleo)
+[![CI](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml/badge.svg)](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](https://nodejs.org/)
+[![GitHub stars](https://img.shields.io/github/stars/kryptobaseddev/cleo?style=social)](https://github.com/kryptobaseddev/cleo/stargazers)
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
 
 CLEO is a comprehensive task management and agent orchestration system designed for AI-powered software development workflows. It provides structured task tracking, session management, memory systems, and multi-provider AI integration through a unified interface.
 
