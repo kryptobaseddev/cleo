@@ -71,7 +71,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
     "@cleocode/lafs-protocol": "^1.7.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
+    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
@@ -524,7 +524,7 @@ The following are internal implementation details, not part of the public contra
 | `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
 | `ajv` | `^8.18.0` | JSON Schema validation |
 | `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
-| `drizzle-orm` | `1.0.0-beta.18-7eb39f0` | ORM for lifecycle, brain, and nexus SQLite tables (beta, pinned) |
+| `drizzle-orm` | `1.0.0-beta.19-d95b7a4` | ORM for lifecycle, brain, and nexus SQLite tables (beta, pinned) |
 | `env-paths` | `^4.0.0` | Platform-appropriate config/data paths |
 | `js-tiktoken` | `^1.0.21` | Token counting for context window management |
 | `pino` | `^10.3.1` | Structured logger |

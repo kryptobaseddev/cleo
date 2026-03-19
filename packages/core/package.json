@@ -29,7 +29,7 @@
     "@cleocode/lafs-protocol": "^1.7.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.18-7eb39f0",
+    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
