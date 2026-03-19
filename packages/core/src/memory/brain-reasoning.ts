@@ -54,8 +54,8 @@ export async function reasonWhy(
   taskAccessor?: DataAccessor,
 ): Promise<CausalTrace> {
   const acc = taskAccessor ?? (await getAccessor(projectRoot));
-  const data = await acc.loadTaskFile();
-  const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
+  const { tasks: reasonTasks } = await acc.queryTasks({});
+  const taskMap = new Map(reasonTasks.map((t) => [t.id, t]));
 
   const completedStatuses = new Set(['done', 'cancelled']);
 

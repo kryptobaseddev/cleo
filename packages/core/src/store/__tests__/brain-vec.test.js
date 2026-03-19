@@ -7,13 +7,25 @@
  * @epic T5149
  * @task T5157
  */
+import { createRequire } from 'node:module';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+/** Check if sqlite-vec native extension is available in this environment. */
+function isSqliteVecAvailable() {
+    try {
+        const _require = createRequire(import.meta.url);
+        _require('sqlite-vec');
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 let tempDir;
 let cleoDir;
-describe('brain.db sqlite-vec integration', () => {
+describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () => {
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'cleo-brain-vec-'));
         cleoDir = join(tempDir, '.cleo');

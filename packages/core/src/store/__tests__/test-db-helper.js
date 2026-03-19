@@ -68,22 +68,31 @@ export function makeTaskFile(tasks) {
  * Seed tasks into the test database via the accessor.
  *
  * Uses a two-pass approach to avoid foreign key violations:
- * 1. First pass: upsert all tasks without dependencies
- * 2. Second pass: save full task file with dependencies (all FK targets now exist)
+ * 1. First pass: upsert all tasks without dependencies so FK targets exist
+ * 2. Second pass: upsert tasks again with dependencies (all FK targets now exist)
+ * 3. Initialize metadata for the test environment
  */
 export async function seedTasks(accessor, tasks) {
+    // Initialize metadata even for empty task sets
+    await accessor.setMetaValue('schema_version', '2.10.0');
     if (tasks.length === 0) {
-        // Still save an empty task file to initialize metadata
-        await accessor.saveTaskFile(makeTaskFile([]));
         return;
     }
-    // Pass 1: Insert all tasks without dependencies so FK targets exist
-    const tasksWithoutDeps = tasks.map((t) => ({ ...t, depends: undefined }));
-    await accessor.saveTaskFile(makeTaskFile(tasksWithoutDeps));
-    // Pass 2: Save again with full dependencies (all referenced tasks now exist)
+    // Build full Task objects from partials
+    const tf = makeTaskFile(tasks);
+    const fullTasks = tf.tasks;
+    // Pass 1: Upsert all tasks without dependencies so FK targets exist
+    for (const task of fullTasks) {
+        await accessor.upsertSingleTask({ ...task, depends: undefined });
+    }
+    // Pass 2: Upsert tasks again with dependencies (all FK targets now exist)
     const hasDeps = tasks.some((t) => t.depends && t.depends.length > 0);
     if (hasDeps) {
-        await accessor.saveTaskFile(makeTaskFile(tasks));
+        for (const task of fullTasks) {
+            if (task.depends && task.depends.length > 0) {
+                await accessor.upsertSingleTask(task);
+            }
+        }
     }
 }
 //# sourceMappingURL=test-db-helper.js.map

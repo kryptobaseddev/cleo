@@ -180,8 +180,8 @@ export async function reconcile(
   const acc = accessor ?? (await getAccessor(cwd));
 
   // Load current CLEO task state
-  const data = await acc.loadTaskFile();
-  const taskMap = buildTaskMap(data.tasks);
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const taskMap = buildTaskMap(allTasks);
 
   // Load sync session state for this provider
   const syncState: SyncSessionState | null = await readSyncState(providerId, cwd);

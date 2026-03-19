@@ -586,9 +586,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   if (dbExists) {
     try {
       const accessor = await getAccessor(projectRoot);
-      const data = await accessor.loadTaskFile();
-      const taskCount = data.tasks?.length ?? 0;
-      const schemaVersion = data._meta?.schemaVersion ?? 'unknown';
+      const taskCount = await accessor.countTasks();
+      const schemaVersion = await accessor.getMetaValue<string>('schemaVersion') ?? 'unknown';
       checks.push({
         check: 'tasks_db_data',
         status: 'ok',

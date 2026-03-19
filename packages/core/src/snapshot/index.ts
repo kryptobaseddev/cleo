@@ -110,9 +110,11 @@ function computeChecksum(tasks: SnapshotTask[]): string {
  */
 export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
   const accessor = await getAccessor(cwd);
-  const taskFile = await accessor.loadTaskFile();
+  const { tasks } = await accessor.queryTasks({});
+  const projectMeta = await accessor.getMetaValue<{ name?: string; currentPhase?: string | null }>('project');
+  const version = await accessor.getMetaValue<string>('version');
 
-  const snapshotTasks = taskFile.tasks.map(toSnapshotTask);
+  const snapshotTasks = tasks.map(toSnapshotTask);
   const checksum = computeChecksum(snapshotTasks);
 
   return {
@@ -122,16 +124,16 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
       version: SNAPSHOT_FORMAT_VERSION,
       createdAt: new Date().toISOString(),
       source: {
-        project: taskFile.project?.name ?? 'unknown',
-        cleoVersion: taskFile.version ?? '0.0.0',
+        project: projectMeta?.name ?? 'unknown',
+        cleoVersion: version ?? '0.0.0',
       },
       checksum,
       taskCount: snapshotTasks.length,
     },
     project: {
-      name: taskFile.project?.name ?? 'unknown',
-      ...(taskFile.project?.currentPhase != null && {
-        currentPhase: taskFile.project.currentPhase,
+      name: projectMeta?.name ?? 'unknown',
+      ...(projectMeta?.currentPhase != null && {
+        currentPhase: projectMeta.currentPhase,
       }),
     },
     tasks: snapshotTasks,
@@ -185,7 +187,7 @@ export function getDefaultSnapshotPath(cwd?: string): string {
  */
 export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<ImportResult> {
   const accessor = await getAccessor(cwd);
-  const taskFile = await accessor.loadTaskFile();
+  const { tasks: localTasks } = await accessor.queryTasks({});
 
   const result: ImportResult = {
     added: 0,
@@ -194,14 +196,14 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
     conflicts: [],
   };
 
-  const localTaskMap = new Map(taskFile.tasks.map((t) => [t.id, t]));
+  const localTaskMap = new Map(localTasks.map((t) => [t.id, t]));
 
   for (const snapshotTask of snapshot.tasks) {
     const localTask = localTaskMap.get(snapshotTask.id);
 
     if (!localTask) {
       // New task -- add it
-      taskFile.tasks.push({
+      const newTask: Task = {
         id: snapshotTask.id,
         title: snapshotTask.title,
         status: snapshotTask.status as Task['status'],
@@ -216,7 +218,8 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
         createdAt: snapshotTask.createdAt,
         updatedAt: snapshotTask.updatedAt,
         completedAt: snapshotTask.completedAt,
-      });
+      };
+      await accessor.upsertSingleTask(newTask);
       result.added++;
       continue;
     }
@@ -226,15 +229,19 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
     const snapshotUpdated = snapshotTask.updatedAt ?? snapshotTask.createdAt;
 
     if (snapshotUpdated > localUpdated) {
-      // Snapshot is newer -- update local
-      localTask.title = snapshotTask.title;
-      localTask.status = snapshotTask.status as Task['status'];
-      localTask.priority = snapshotTask.priority as Task['priority'];
-      if (snapshotTask.description != null) localTask.description = snapshotTask.description;
-      if (snapshotTask.labels != null) localTask.labels = snapshotTask.labels;
-      if (snapshotTask.depends != null) localTask.depends = snapshotTask.depends;
-      localTask.updatedAt = snapshotTask.updatedAt;
-      if (snapshotTask.completedAt != null) localTask.completedAt = snapshotTask.completedAt;
+      // Snapshot is newer -- update local via upsert (preserves fields not in snapshot)
+      const updatedTask: Task = {
+        ...localTask,
+        title: snapshotTask.title,
+        status: snapshotTask.status as Task['status'],
+        priority: snapshotTask.priority as Task['priority'],
+        ...(snapshotTask.description != null && { description: snapshotTask.description }),
+        ...(snapshotTask.labels != null && { labels: snapshotTask.labels }),
+        ...(snapshotTask.depends != null && { depends: snapshotTask.depends }),
+        updatedAt: snapshotTask.updatedAt,
+        ...(snapshotTask.completedAt != null && { completedAt: snapshotTask.completedAt }),
+      };
+      await accessor.upsertSingleTask(updatedTask);
       result.updated++;
     } else if (snapshotUpdated === localUpdated) {
       result.skipped++;
@@ -248,10 +255,6 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
       }
     }
   }
-
-  // Save updated task file
-  taskFile.lastUpdated = new Date().toISOString();
-  await accessor.saveTaskFile(taskFile);
 
   return result;
 }

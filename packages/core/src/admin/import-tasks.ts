@@ -17,7 +17,6 @@ import {
   remapTaskReferences,
   resolveDuplicateTitle,
 } from '../store/import-remap.js';
-import { computeChecksum } from '../store/json.js';
 import type { Task, TaskStatus } from '@cleocode/contracts';
 
 type OnConflict = 'duplicate' | 'rename' | 'skip' | 'fail';
@@ -105,7 +104,7 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
   }
 
   const accessor = await getAccessor(params.cwd);
-  const taskData = await accessor.loadTaskFile();
+  const { tasks: existingTasks } = await accessor.queryTasks({});
 
   const onConflict: OnConflict = params.onConflict ?? 'fail';
   const onMissingDep: OnMissingDep = params.onMissingDep ?? 'strip';
@@ -117,17 +116,17 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
   const addProvenance = params.provenance !== false;
 
   if (parentId) {
-    const parentExists = taskData.tasks.some((t) => t.id === parentId);
+    const parentExists = existingTasks.some((t) => t.id === parentId);
     if (!parentExists) {
       throw new Error(`Parent task not found: ${parentId}`);
     }
   }
 
   const sourceIds = exportPkg.tasks.map((t) => t.id);
-  const remapTable = generateRemapTable(sourceIds, taskData.tasks);
+  const remapTable = generateRemapTable(sourceIds, existingTasks);
 
   if (!force && onConflict === 'fail') {
-    const duplicates = detectDuplicateTitles(exportPkg.tasks, taskData.tasks);
+    const duplicates = detectDuplicateTitles(exportPkg.tasks, existingTasks);
     if (duplicates.length > 0) {
       throw new Error(
         `${duplicates.length} duplicate title(s) detected. Use onConflict to resolve.`,
@@ -137,8 +136,8 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
 
   const sortedTasks = topologicalSort(exportPkg.tasks);
 
-  const existingIds = new Set(taskData.tasks.map((t) => t.id));
-  const existingTitles = new Set(taskData.tasks.map((t) => t.title.toLowerCase()));
+  const existingIds = new Set(existingTasks.map((t) => t.id));
+  const existingTitles = new Set(existingTasks.map((t) => t.title.toLowerCase()));
   const transformed: Task[] = [];
   const skipped: string[] = [];
   const idRemapJson: Record<string, string> = {};
@@ -208,10 +207,9 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
     };
   }
 
-  taskData.tasks.push(...transformed);
-  taskData._meta.checksum = computeChecksum(taskData.tasks);
-  taskData.lastUpdated = new Date().toISOString();
-  await accessor.saveTaskFile(taskData);
+  for (const task of transformed) {
+    await accessor.upsertSingleTask(task);
+  }
 
   return {
     imported: transformed.length,

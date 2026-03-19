@@ -227,7 +227,7 @@ export async function nexusInit(): Promise<void> {
 async function isCleoProject(projectPath: string): Promise<boolean> {
   try {
     const accessor = await getAccessor(projectPath);
-    await accessor.loadTaskFile();
+    await accessor.countTasks();
     return true;
   } catch {
     return false;
@@ -240,8 +240,7 @@ async function readProjectMeta(
 ): Promise<{ taskCount: number; labels: string[] }> {
   try {
     const accessor = await getAccessor(projectPath);
-    const taskFile = await accessor.loadTaskFile();
-    const tasks = taskFile.tasks ?? [];
+    const { tasks } = await accessor.queryTasks({});
     const allLabels = tasks.flatMap((t) => t.labels ?? []);
     const uniqueLabels = [...new Set(allLabels)].sort();
     return { taskCount: tasks.length, labels: uniqueLabels };

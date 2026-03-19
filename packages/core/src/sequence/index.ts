@@ -180,9 +180,9 @@ async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Arra
   }
 
   try {
-    const taskData = await activeAccessor.loadTaskFile();
+    const { tasks: activeTasks } = await activeAccessor.queryTasks({});
     const archiveData = await activeAccessor.loadArchive();
-    return [...(taskData?.tasks ?? []), ...(archiveData?.archivedTasks ?? [])];
+    return [...(activeTasks ?? []), ...(archiveData?.archivedTasks ?? [])];
   } finally {
     if (localAccessor) {
       await localAccessor.close();

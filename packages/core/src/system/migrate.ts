@@ -27,8 +27,13 @@ export async function getMigrationStatus(
   if (existsSync(taskPath)) {
     try {
       const accessor = await getAccessor(projectRoot);
-      const taskFile = await accessor.loadTaskFile();
-      currentVersion = taskFile._meta?.schemaVersion ?? taskFile.version ?? 'unknown';
+      const schemaVersion = await accessor.getMetaValue<string>('schemaVersion');
+      if (schemaVersion) {
+        currentVersion = schemaVersion;
+      } else {
+        const version = await accessor.getMetaValue<string>('version');
+        currentVersion = version ?? 'unknown';
+      }
     } catch {
       throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
     }

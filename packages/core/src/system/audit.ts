@@ -38,14 +38,14 @@ export async function auditData(
     if (existsSync(tasksDbPath)) {
       try {
         const accessor = await getAccessor(projectRoot);
-        const taskFile = await accessor.loadTaskFile();
+        const queryResult = await accessor.queryTasks({});
         const tasks: Array<{
           id: string;
           status: string;
           title: string;
           parentId?: string | null;
           depends?: string[];
-        }> = taskFile.tasks ?? [];
+        }> = queryResult.tasks ?? [];
 
         const idSet = new Set<string>();
         for (const t of tasks) {

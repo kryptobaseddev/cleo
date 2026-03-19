@@ -111,9 +111,7 @@ export interface ExportTasksResult {
  */
 export async function exportTasksPackage(params: ExportTasksParams): Promise<ExportTasksResult> {
   const accessor = await getAccessor(params.cwd);
-  const taskData = await accessor.loadTaskFile();
-
-  const allTasks = taskData.tasks;
+  const { tasks: allTasks } = await accessor.queryTasks({});
   const subtreeMode = params.subtree ?? false;
   const includeDeps = params.includeDeps ?? false;
   const filterStrs = params.filter;
@@ -176,6 +174,8 @@ export async function exportTasksPackage(params: ExportTasksParams): Promise<Exp
     };
   }
 
+  const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
+  const taskData = { tasks: allTasks, project: projectMeta } as import('@cleocode/contracts').TaskFile;
   const pkg = buildExportPackage(selectedTasks, taskData, {
     mode: exportMode,
     rootTaskIds: parsedIds.length > 0 ? parsedIds : selectedTasks.map((t) => t.id),

@@ -18,12 +18,12 @@ export interface LabelsResult {
 /** Get all labels with counts and task IDs per label. */
 export async function getLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelsResult> {
   const dataAccessor = accessor ?? (await getAccessor(cwd));
-  const data = await dataAccessor.loadTaskFile();
-  if (!data) {
+  const result = await dataAccessor.queryTasks({});
+  if (!result) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No task data found');
   }
 
-  const tasks = data.tasks ?? [];
+  const tasks = result.tasks ?? [];
   const labelMap: Record<string, string[]> = {};
   let taggedCount = 0;
 

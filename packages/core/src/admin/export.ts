@@ -70,9 +70,10 @@ export interface ExportResult {
  */
 export async function exportTasks(params: ExportParams): Promise<ExportResult> {
   const accessor = await getAccessor(params.cwd);
-  const data = await accessor.loadTaskFile();
+  const queryResult = await accessor.queryTasks({});
+  const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
 
-  let tasks = data.tasks;
+  let tasks = queryResult.tasks;
 
   if (params.status) {
     const statuses = params.status.split(',').map((s) => s.trim());
@@ -93,7 +94,7 @@ export async function exportTasks(params: ExportParams): Promise<ExportResult> {
       content = JSON.stringify(
         {
           exportedAt: new Date().toISOString(),
-          projectName: data.project?.name ?? 'Unknown',
+          projectName: projectMeta?.name ?? 'Unknown',
           taskCount: tasks.length,
           tasks,
         },
@@ -115,7 +116,7 @@ export async function exportTasks(params: ExportParams): Promise<ExportResult> {
       break;
     }
     case 'markdown': {
-      const lines = [`# ${data.project?.name ?? 'Tasks'}\n`];
+      const lines = [`# ${projectMeta?.name ?? 'Tasks'}\n`];
       const byStatus = new Map<string, Task[]>();
       for (const t of tasks) {
         const list = byStatus.get(t.status) ?? [];

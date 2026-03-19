@@ -105,10 +105,8 @@ export async function addResearch(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ResearchEntry> {
-  const data = await accessor!.loadTaskFile();
-
   // Validate task exists
-  const task = data.tasks.find((t) => t.id === options.taskId);
+  const task = await accessor!.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`);
   }
@@ -209,9 +207,8 @@ export async function linkResearch(
   }
 
   // Validate task exists
-  const taskData = await accessor!.loadTaskFile();
-  const task = taskData.tasks.find((t) => t.id === taskId);
-  if (!task) {
+  const linkedTask = await accessor!.loadSingleTask(taskId);
+  if (!linkedTask) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 

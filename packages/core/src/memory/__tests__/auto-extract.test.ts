@@ -65,7 +65,10 @@ function makeSessionData(overrides: Partial<SessionBridgeData> = {}): SessionBri
 
 function setupAccessor(tasks: Task[]): void {
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
-    loadTaskFile: vi.fn().mockResolvedValue({ tasks }),
+    queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+    loadTasks: vi.fn().mockImplementation((ids: string[]) => {
+      return Promise.resolve(tasks.filter((t) => ids.includes(t.id)));
+    }),
     close: vi.fn().mockResolvedValue(undefined),
   });
 }

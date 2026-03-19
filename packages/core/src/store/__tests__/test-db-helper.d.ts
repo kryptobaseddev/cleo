@@ -42,8 +42,9 @@ export declare function makeTaskFile(tasks: Array<Partial<Task> & {
  * Seed tasks into the test database via the accessor.
  *
  * Uses a two-pass approach to avoid foreign key violations:
- * 1. First pass: upsert all tasks without dependencies
- * 2. Second pass: save full task file with dependencies (all FK targets now exist)
+ * 1. First pass: upsert all tasks without dependencies so FK targets exist
+ * 2. Second pass: upsert tasks again with dependencies (all FK targets now exist)
+ * 3. Initialize metadata for the test environment
  */
 export declare function seedTasks(accessor: DataAccessor, tasks: Array<Partial<Task> & {
     id: string;

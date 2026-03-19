@@ -47,8 +47,7 @@ describe('Task Relations Persistence (T5168)', () => {
             // Add relation
             await accessor.addRelation('T001', 'T002', 'blocks', 'T001 blocks T002');
             // Verify relation exists before closing
-            const taskFileBefore = await accessor.loadTaskFile();
-            const taskBefore = taskFileBefore.tasks.find((t) => t.id === 'T001');
+            const taskBefore = await accessor.loadSingleTask('T001');
             expect(taskBefore?.relates).toHaveLength(1);
             expect(taskBefore?.relates?.[0]).toEqual({
                 taskId: 'T002',
@@ -59,8 +58,7 @@ describe('Task Relations Persistence (T5168)', () => {
             await accessor.close();
             accessor = await createSqliteDataAccessor(testDir);
             // Reload and verify
-            const taskFileAfter = await accessor.loadTaskFile();
-            const taskAfter = taskFileAfter.tasks.find((t) => t.id === 'T001');
+            const taskAfter = await accessor.loadSingleTask('T001');
             expect(taskAfter?.relates).toHaveLength(1);
             expect(taskAfter?.relates?.[0]).toEqual({
                 taskId: 'T002',
@@ -103,8 +101,7 @@ describe('Task Relations Persistence (T5168)', () => {
             await accessor.close();
             accessor = await createSqliteDataAccessor(testDir);
             // Verify
-            const taskFile = await accessor.loadTaskFile();
-            const task = taskFile.tasks.find((t) => t.id === 'T001');
+            const task = await accessor.loadSingleTask('T001');
             expect(task?.relates).toHaveLength(2);
             expect(task?.relates).toContainEqual({
                 taskId: 'T002',
@@ -192,8 +189,7 @@ describe('Task Relations Persistence (T5168)', () => {
                 await accessor.upsertSingleTask(target);
                 await accessor.addRelation('T001', target.id, validTypes[i]);
             }
-            const taskFile = await accessor.loadTaskFile();
-            const task = taskFile.tasks.find((t) => t.id === 'T001');
+            const task = await accessor.loadSingleTask('T001');
             expect(task?.relates).toHaveLength(validTypes.length);
         });
         it('should throw on invalid relation type', async () => {
@@ -262,8 +258,7 @@ describe('Task Relations Persistence (T5168)', () => {
             // Add same relation twice
             await accessor.addRelation('T001', 'T002', 'blocks');
             await accessor.addRelation('T001', 'T002', 'blocks');
-            const taskFile = await accessor.loadTaskFile();
-            const task = taskFile.tasks.find((t) => t.id === 'T001');
+            const task = await accessor.loadSingleTask('T001');
             // Should only have one relation (onConflictDoNothing)
             expect(task?.relates).toHaveLength(1);
         });
@@ -292,8 +287,7 @@ describe('Task Relations Persistence (T5168)', () => {
             // Close and reopen
             await accessor.close();
             accessor = await createSqliteDataAccessor(testDir);
-            const taskFile = await accessor.loadTaskFile();
-            const task = taskFile.tasks.find((t) => t.id === 'T001');
+            const task = await accessor.loadSingleTask('T001');
             expect(task?.relates?.[0].reason).toBe('This is the reason');
         });
         it('should handle relations without reason', async () => {
@@ -316,8 +310,7 @@ describe('Task Relations Persistence (T5168)', () => {
             await accessor.upsertSingleTask(task1);
             await accessor.upsertSingleTask(task2);
             await accessor.addRelation('T001', 'T002', 'blocks');
-            const taskFile = await accessor.loadTaskFile();
-            const task = taskFile.tasks.find((t) => t.id === 'T001');
+            const task = await accessor.loadSingleTask('T001');
             expect(task?.relates?.[0].reason).toBeUndefined();
         });
     });

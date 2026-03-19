@@ -130,10 +130,10 @@ async function checkpoint(context: string, cwd?: string, options?: SafetyOptions
 }
 
 /**
- * Verify TaskFile was written correctly.
- * Reads back and validates basic structure.
+ * Verify tasks were written correctly.
+ * Uses targeted queries instead of full-file reload where possible.
  */
-async function verifyTaskFile(
+async function verifyTaskData(
   data: TaskFile,
   accessor: DataAccessor,
   options?: SafetyOptions,
@@ -142,36 +142,61 @@ async function verifyTaskFile(
 
   stats.verifications++;
 
-  const readBack = await accessor.loadTaskFile();
+  // Use countTasks for count validation if available, fall back to loadTaskFile
+  if (typeof accessor.countTasks === 'function') {
+    const expectedCount = data.tasks?.length ?? 0;
+    const actualCount = await accessor.countTasks();
 
-  // Basic structural validation
-  if (!readBack.tasks) {
-    throw new DataSafetyError(
-      'TaskFile verification failed: tasks array missing after write',
-      'VERIFICATION_FAILED',
-      { expected: data.tasks?.length, actual: readBack.tasks },
-    );
-  }
-
-  // Task count validation
-  if (readBack.tasks.length !== data.tasks?.length) {
-    throw new DataSafetyError(
-      `TaskFile verification failed: task count mismatch. Expected ${data.tasks?.length}, got ${readBack.tasks.length}`,
-      'VERIFICATION_FAILED',
-      { expected: data.tasks?.length, actual: readBack.tasks.length },
-    );
-  }
-
-  // Verify specific tasks if we know what we wrote
-  if (data.tasks && data.tasks.length > 0) {
-    const lastTask = data.tasks[data.tasks.length - 1];
-    const found = readBack.tasks.find((t) => t.id === lastTask!.id);
-    if (!found && options.strict) {
+    if (actualCount !== expectedCount) {
       throw new DataSafetyError(
-        `TaskFile verification failed: last written task ${lastTask!.id} not found`,
+        `Task data verification failed: task count mismatch. Expected ${expectedCount}, got ${actualCount}`,
         'VERIFICATION_FAILED',
-        { taskId: lastTask!.id },
+        { expected: expectedCount, actual: actualCount },
       );
+    }
+
+    // Verify specific tasks via loadSingleTask
+    if (data.tasks && data.tasks.length > 0 && typeof accessor.loadSingleTask === 'function') {
+      const lastTask = data.tasks[data.tasks.length - 1];
+      const found = await accessor.loadSingleTask(lastTask!.id);
+      if (!found && options.strict) {
+        throw new DataSafetyError(
+          `Task data verification failed: last written task ${lastTask!.id} not found`,
+          'VERIFICATION_FAILED',
+          { taskId: lastTask!.id },
+        );
+      }
+    }
+  } else {
+    // Fallback for accessors without targeted query methods
+    const readBack = await accessor.loadTaskFile();
+
+    if (!readBack.tasks) {
+      throw new DataSafetyError(
+        'TaskFile verification failed: tasks array missing after write',
+        'VERIFICATION_FAILED',
+        { expected: data.tasks?.length, actual: readBack.tasks },
+      );
+    }
+
+    if (readBack.tasks.length !== data.tasks?.length) {
+      throw new DataSafetyError(
+        `TaskFile verification failed: task count mismatch. Expected ${data.tasks?.length}, got ${readBack.tasks.length}`,
+        'VERIFICATION_FAILED',
+        { expected: data.tasks?.length, actual: readBack.tasks.length },
+      );
+    }
+
+    if (data.tasks && data.tasks.length > 0) {
+      const lastTask = data.tasks[data.tasks.length - 1];
+      const found = readBack.tasks.find((t) => t.id === lastTask!.id);
+      if (!found && options.strict) {
+        throw new DataSafetyError(
+          `TaskFile verification failed: last written task ${lastTask!.id} not found`,
+          'VERIFICATION_FAILED',
+          { taskId: lastTask!.id },
+        );
+      }
     }
   }
 }
@@ -254,7 +279,7 @@ export async function safeSaveTaskFile(
   stats.writes++;
 
   // 3. Verify write
-  await verifyTaskFile(data, accessor, opts);
+  await verifyTaskData(data, accessor, opts);
 
   // 4. Checkpoint
   const taskCount = data.tasks?.length ?? 0;
@@ -395,14 +420,21 @@ export async function runDataIntegrityCheck(
     errors.push(`Sequence check failed: ${String(err)}`);
   }
 
-  // 2. Verify data files can be loaded
+  // 2. Verify task data can be queried
   try {
-    const tasks = await accessor.loadTaskFile();
-    if (!tasks.tasks) {
-      errors.push('TaskFile missing tasks array');
+    if (typeof accessor.countTasks === 'function') {
+      const count = await accessor.countTasks();
+      if (count < 0) {
+        errors.push('Task count returned negative value');
+      }
+    } else {
+      const tasks = await accessor.loadTaskFile();
+      if (!tasks.tasks) {
+        errors.push('TaskFile missing tasks array');
+      }
     }
   } catch (err) {
-    errors.push(`TaskFile load failed: ${String(err)}`);
+    errors.push(`Task data query failed: ${String(err)}`);
   }
 
   try {

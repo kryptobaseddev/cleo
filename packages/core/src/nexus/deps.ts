@@ -102,8 +102,8 @@ const CROSS_REF_RE = /^([a-z0-9_-]+):(.+)$/;
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
   try {
     const accessor = await getAccessor(projectPath);
-    const taskFile = await accessor.loadTaskFile();
-    return taskFile.tasks ?? [];
+    const { tasks } = await accessor.queryTasks({});
+    return tasks;
   } catch {
     return [];
   }
@@ -116,8 +116,8 @@ async function computeGlobalChecksum(registry: NexusRegistryFile): Promise<strin
   for (const project of Object.values(registry.projects)) {
     try {
       const accessor = await getAccessor(project.path);
-      const taskFile = await accessor.loadTaskFile();
-      hash.update(JSON.stringify(taskFile.tasks ?? []));
+      const { tasks } = await accessor.queryTasks({});
+      hash.update(JSON.stringify(tasks));
     } catch {
       // Skip unreadable projects
     }

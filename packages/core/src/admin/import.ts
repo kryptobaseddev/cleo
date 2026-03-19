@@ -9,7 +9,6 @@
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import { getAccessor } from '../store/data-accessor.js';
-import { computeChecksum } from '../store/json.js';
 import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
@@ -77,9 +76,9 @@ export async function importTasks(params: ImportParams): Promise<ImportResult> {
   }
 
   const accessor = await getAccessor(params.cwd);
-  const data = await accessor.loadTaskFile();
+  const { tasks: existingTasks } = await accessor.queryTasks({});
 
-  const existingIds = new Set(data.tasks.map((t) => t.id));
+  const existingIds = new Set(existingTasks.map((t) => t.id));
   const duplicateStrategy: DuplicateStrategy = params.onDuplicate ?? 'skip';
   const parentId = params.parent;
   const phase = params.phase;
@@ -100,8 +99,7 @@ export async function importTasks(params: ImportParams): Promise<ImportResult> {
           continue;
         }
         case 'overwrite': {
-          const idx = data.tasks.findIndex((t) => t.id === importTask.id);
-          if (idx !== -1) data.tasks[idx] = importTask;
+          // Will be upserted below
           break;
         }
         case 'rename': {
@@ -135,32 +133,30 @@ export async function importTasks(params: ImportParams): Promise<ImportResult> {
       importTask.parentId = idMapping.get(importTask.parentId)!;
     }
 
-    if (duplicateStrategy !== 'overwrite' || !isDuplicate) {
-      data.tasks.push(importTask);
-      existingIds.add(importTask.id);
-    }
-
+    existingIds.add(importTask.id);
     imported.push(importTask);
   }
+
+  const totalTasks = existingTasks.length + imported.filter((t) => !existingTasks.some((e) => e.id === t.id)).length;
 
   if (params.dryRun) {
     return {
       imported: imported.length,
       skipped: skipped.length,
       renamed,
-      totalTasks: data.tasks.length,
+      totalTasks,
       dryRun: true,
     };
   }
 
-  data._meta.checksum = computeChecksum(data.tasks);
-  data.lastUpdated = new Date().toISOString();
-  await accessor.saveTaskFile(data);
+  for (const task of imported) {
+    await accessor.upsertSingleTask(task);
+  }
 
   return {
     imported: imported.length,
     skipped: skipped.length,
     renamed,
-    totalTasks: data.tasks.length,
+    totalTasks,
   };
 }

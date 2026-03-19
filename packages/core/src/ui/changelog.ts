@@ -61,18 +61,11 @@ export async function discoverReleaseTasks(
   // Collect tasks from both active and archive sources
   const dataSources: Array<{ tasks: Task[] }> = [];
 
-  if (accessor) {
-    const taskData = await accessor.loadTaskFile();
-    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks });
-    const archiveData = await accessor.loadArchive();
-    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks });
-  } else {
-    const dataAccessor = await getAccessor(cwd);
-    const taskData = await dataAccessor.loadTaskFile();
-    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks });
-    const archiveData = await dataAccessor.loadArchive();
-    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks });
-  }
+  const dataAccessor = accessor ?? (await getAccessor(cwd));
+  const { tasks: activeTasks } = await dataAccessor.queryTasks({});
+  if (activeTasks?.length) dataSources.push({ tasks: activeTasks });
+  const archiveData = await dataAccessor.loadArchive();
+  if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks });
 
   for (const data of dataSources) {
     for (const task of data.tasks) {

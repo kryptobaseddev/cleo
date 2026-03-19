@@ -46,11 +46,14 @@ export async function generateInjection(
   let sessionScope: string | null = null;
 
   const acc = accessor ?? (await getAccessor(projectRoot));
-  const taskFile = await acc.loadTaskFile();
+  const focusMeta = await acc.getMetaValue<{ currentTask?: string }>('focus');
+  const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
 
-  if (taskFile) {
-    focusTask = taskFile.focus?.currentTask ?? null;
-    activeSessionName = taskFile._meta?.activeSession ?? null;
+  if (focusMeta) {
+    focusTask = focusMeta.currentTask ?? null;
+  }
+  if (activeSessionMeta) {
+    activeSessionName = activeSessionMeta;
   }
 
   // Try sessions.json for richer session data

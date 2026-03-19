@@ -122,8 +122,9 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
   if (projectName === '.') {
     try {
       const accessor = await getAccessor(process.cwd());
-      await accessor.loadTaskFile();
-      return process.cwd();
+      const count = await accessor.countTasks();
+      if (count >= 0) return process.cwd();
+      throw new Error('No task data');
     } catch {
       throw new CleoError(
         ExitCode.NEXUS_PROJECT_NOT_FOUND,
@@ -152,8 +153,8 @@ async function readProjectTasks(projectPath: string): Promise<Task[]> {
   const tasksDbPath = join(projectPath, '.cleo', 'tasks.db');
   try {
     const accessor = await getAccessor(projectPath);
-    const taskFile = await accessor.loadTaskFile();
-    return taskFile.tasks ?? [];
+    const { tasks } = await accessor.queryTasks({});
+    return tasks;
   } catch {
     throw new CleoError(ExitCode.NOT_FOUND, `Project task data not found: ${tasksDbPath}`);
   }

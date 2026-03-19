@@ -82,7 +82,7 @@ export interface ValidateReportResult {
  */
 export async function coreValidateReport(projectRoot: string): Promise<ValidateReportResult> {
   const accessor = await getAccessor(projectRoot);
-  const data = await accessor.loadTaskFile();
+  const { tasks: allTasks } = await accessor.queryTasks({});
 
   const details: ValidateCheckDetail[] = [];
   let errors = 0;
@@ -105,7 +105,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
 
   // 2. Check duplicate task IDs
   const idCounts = new Map<string, number>();
-  for (const t of data.tasks) {
+  for (const t of allTasks) {
     idCounts.set(t.id, (idCounts.get(t.id) ?? 0) + 1);
   }
   const duplicateIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
@@ -122,7 +122,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   const archive = await accessor.loadArchive();
   if (archive && archive.archivedTasks.length > 0) {
     const archiveIds = new Set(archive.archivedTasks.map((t) => t.id));
-    const todoIds = new Set(data.tasks.map((t) => t.id));
+    const todoIds = new Set(allTasks.map((t) => t.id));
     const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
     if (crossDups.length > 0) {
       addError(
@@ -135,7 +135,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 3. Active task limit
-  const activeTasks = data.tasks.filter((t) => t.status === 'active');
+  const activeTasks = allTasks.filter((t) => t.status === 'active');
   if (activeTasks.length > 1) {
     addError('active_task', `Too many active tasks: ${activeTasks.length}. Maximum allowed: 1`);
   } else if (activeTasks.length === 1) {
@@ -145,9 +145,9 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 4. Dependencies exist
-  const taskIds = new Set(data.tasks.map((t) => t.id));
+  const taskIds = new Set(allTasks.map((t) => t.id));
   const missingDeps: string[] = [];
-  for (const t of data.tasks) {
+  for (const t of allTasks) {
     if (t.depends) {
       for (const depId of t.depends) {
         if (!taskIds.has(depId)) missingDeps.push(depId);
@@ -164,7 +164,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 5. Circular dependencies
-  const depResult = validateDependencies(data.tasks);
+  const depResult = validateDependencies(allTasks);
   const circularErrors = depResult.errors.filter((e) => e.code === 'E_CIRCULAR_DEP');
   if (circularErrors.length > 0) {
     for (const err of circularErrors) {
@@ -175,7 +175,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 6. Blocked tasks have blockedBy
-  const blockedNoReason = data.tasks.filter((t) => t.status === 'blocked' && !t.blockedBy);
+  const blockedNoReason = allTasks.filter((t) => t.status === 'blocked' && !t.blockedBy);
   if (blockedNoReason.length > 0) {
     addError(
       'blocked_reasons',
@@ -186,7 +186,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 7. Done tasks have completedAt
-  const doneNoDate = data.tasks.filter((t) => t.status === 'done' && !t.completedAt);
+  const doneNoDate = allTasks.filter((t) => t.status === 'done' && !t.completedAt);
   if (doneNoDate.length > 0) {
     addError('completed_at', `${doneNoDate.length} done task(s) missing completedAt`);
   } else {
@@ -194,7 +194,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 8. Schema version
-  const schemaVersion = data._meta?.schemaVersion;
+  const schemaVersion = await accessor.getSchemaVersion();
   if (!schemaVersion) {
     addError('schema_version', 'Missing ._meta.schemaVersion field. Run: cleo upgrade');
   } else {
@@ -202,7 +202,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 9. Required fields
-  const missingFieldTasks = data.tasks.filter(
+  const missingFieldTasks = allTasks.filter(
     (t) => !t.id || !t.title || !t.status || !t.priority || !t.createdAt,
   );
   if (missingFieldTasks.length > 0) {
@@ -220,7 +220,8 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 10. Focus matches active task
-  const focusTask = data.focus?.currentTask;
+  const focusState = await accessor.getMetaValue<{ currentTask?: string }>('focus_state');
+  const focusTask = focusState?.currentTask;
   const activeTaskId = activeTasks[0]?.id ?? null;
   if (focusTask && focusTask !== activeTaskId) {
     addError(
@@ -232,9 +233,10 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 11. Checksum
-  const storedChecksum = data._meta?.checksum;
+  const fileMeta = await accessor.getMetaValue<{ checksum?: string }>('file_meta');
+  const storedChecksum = fileMeta?.checksum;
   if (storedChecksum) {
-    const computed = computeChecksum(data.tasks);
+    const computed = computeChecksum(allTasks);
     if (storedChecksum !== computed) {
       addError('checksum', `Checksum mismatch: stored=${storedChecksum}, computed=${computed}`);
     } else {
@@ -245,7 +247,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   }
 
   // 12. Missing size fields
-  const missingSizeTasks = data.tasks.filter((t) => !t.size);
+  const missingSizeTasks = allTasks.filter((t) => !t.size);
   if (missingSizeTasks.length > 0) {
     addWarn('missing_sizes', `${missingSizeTasks.length} task(s) missing size field`);
   } else {
@@ -255,7 +257,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
   // 13. Stale tasks (pending > 30 days)
   const staleDays = 30;
   const staleThreshold = Date.now() - staleDays * 86400 * 1000;
-  const staleTasks = data.tasks.filter(
+  const staleTasks = allTasks.filter(
     (t) =>
       t.status === 'pending' && t.createdAt && new Date(t.createdAt).getTime() < staleThreshold,
   );
@@ -457,16 +459,12 @@ export async function coreValidateTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
+  const { tasks: activeTasks } = await accessor.queryTasks({});
   const archiveData = await accessor.loadArchive();
 
-  if (!taskData) {
-    throw new Error('Task data not found (SQLite store unavailable)');
-  }
+  const allValidationTasks: Task[] = [...activeTasks, ...(archiveData?.archivedTasks || [])];
 
-  const allTasks: Task[] = [...(taskData.tasks || []), ...(archiveData?.archivedTasks || [])];
-
-  const task = allTasks.find((t) => t.id === taskId);
+  const task = allValidationTasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
   }
@@ -476,16 +474,16 @@ export async function coreValidateTask(
   violations.push(...validateTitleDescription(task.title, task.description));
   violations.push(...validateTimestamps(task));
 
-  const allIds = new Set(allTasks.map((t) => t.id));
+  const allIds = new Set(allValidationTasks.map((t) => t.id));
   violations.push(...validateIdUniqueness(task.id, allIds));
 
-  const allDescriptions = allTasks.filter((t) => t.id !== task.id).map((t) => t.description ?? '');
+  const allDescriptions = allValidationTasks.filter((t) => t.id !== task.id).map((t) => t.description ?? '');
   violations.push(...validateNoDuplicateDescription(task.description ?? '', allDescriptions));
 
   if (task.parentId) {
-    const parent = allTasks.find((t) => t.id === task.parentId);
+    const parent = allValidationTasks.find((t) => t.id === task.parentId);
     if (parent) {
-      violations.push(...validateHierarchy(task.parentId, allTasks));
+      violations.push(...validateHierarchy(task.parentId, allValidationTasks));
     }
   }
 
@@ -521,13 +519,8 @@ export async function coreValidateProtocol(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
+  const task = await accessor.loadSingleTask(taskId);
 
-  if (!taskData) {
-    throw new Error('Task data not found (SQLite store unavailable)');
-  }
-
-  const task = taskData.tasks?.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
   }
@@ -905,13 +898,11 @@ export async function coreCoherenceCheck(
   projectRoot: string,
 ): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
+  const { tasks } = await accessor.queryTasks({});
 
-  if (!taskData || !taskData.tasks) {
+  if (!tasks || tasks.length === 0) {
     throw new Error('No task data found (SQLite store unavailable)');
   }
-
-  const tasks = taskData.tasks;
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const issues: CoherenceIssue[] = [];
 
@@ -1147,14 +1138,9 @@ export async function coreBatchValidate(projectRoot: string): Promise<{
   }>;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-
-  if (!taskData) {
-    throw new Error('Task data not found (SQLite store unavailable)');
-  }
-
+  const { tasks: batchTasks } = await accessor.queryTasks({});
   const archiveData = await accessor.loadArchive();
-  const allTasks: Task[] = [...(taskData.tasks || []), ...(archiveData?.archivedTasks || [])];
+  const allTasks: Task[] = [...batchTasks, ...(archiveData?.archivedTasks || [])];
 
   const results: Array<{
     taskId: string;

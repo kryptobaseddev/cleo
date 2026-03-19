@@ -84,14 +84,13 @@ export async function uncancelTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  let taskFile;
+  let task;
   try {
-    taskFile = await accessor.loadTaskFile();
+    task = await accessor.loadSingleTask(params.taskId);
   } catch {
     throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
   }
 
-  const task = taskFile.tasks.find((t) => t.id === params.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${params.taskId}`);
   }
@@ -106,24 +105,23 @@ export async function uncancelTask(
   let cascadeCount = 0;
 
   if (!dryRun) {
-    task.status = 'pending';
+    const notes = task.notes ? [...task.notes] : [];
     if (params.notes) {
-      if (!task.notes) task.notes = [];
-      task.notes.push(`[${new Date().toISOString()}] ${params.notes}`);
+      notes.push(`[${new Date().toISOString()}] ${params.notes}`);
     }
+    await accessor.updateTaskFields(params.taskId, { status: 'pending', notesJson: JSON.stringify(notes) });
     if (params.cascade) {
-      for (const t of taskFile.tasks) {
-        if (t.parentId === params.taskId && t.status === 'cancelled') {
-          t.status = 'pending';
+      const children = await accessor.getChildren(params.taskId);
+      for (const child of children) {
+        if (child.status === 'cancelled') {
+          await accessor.updateTaskFields(child.id, { status: 'pending' });
           cascadeCount++;
         }
       }
     }
-    await accessor.saveTaskFile(taskFile);
   } else if (params.cascade) {
-    cascadeCount = taskFile.tasks.filter(
-      (t) => t.parentId === params.taskId && t.status === 'cancelled',
-    ).length;
+    const children = await accessor.getChildren(params.taskId);
+    cascadeCount = children.filter((t) => t.status === 'cancelled').length;
   }
 
   return {

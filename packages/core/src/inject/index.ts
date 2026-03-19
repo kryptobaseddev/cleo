@@ -13,9 +13,7 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-import { ExitCode } from '@cleocode/contracts';
 import type { Task, TaskFile } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 
 // CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 
@@ -88,15 +86,20 @@ export async function injectTasks(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const acc = accessor ?? (await getAccessor(opts.cwd));
-  const data = await acc.loadTaskFile();
-  if (!data) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project');
-  }
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
+  const focusMeta = await acc.getMetaValue<{ currentTask?: string }>('focus');
+
+  const data: TaskFile = {
+    tasks: allTasks,
+    project: projectMeta as TaskFile['project'],
+    focus: focusMeta as TaskFile['focus'],
+  } as TaskFile;
 
   const selectedTasks = selectTasksForInjection(data, opts);
   const formatted = formatForTodoWrite(selectedTasks);
 
-  const phase = opts.phase ?? data.project?.currentPhase ?? null;
+  const phase = opts.phase ?? projectMeta?.currentPhase ?? null;
 
   return {
     tasks: formatted,

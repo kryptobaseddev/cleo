@@ -55,13 +55,13 @@ export async function checkEpicCompleteness(
   accessor?: DataAccessor,
 ): Promise<EpicCompletenessResult> {
   const acc = accessor ?? (await getAccessor(cwd));
-  const data = await acc.loadTaskFile();
-  if (!data?.tasks) {
+  const { tasks: allTasks } = await acc.queryTasks({});
+  if (!allTasks?.length) {
     return { hasIncomplete: false, epics: [], orphanTasks: [] };
   }
 
   const tasksById = new Map<string, Task>();
-  for (const task of data.tasks) {
+  for (const task of allTasks) {
     tasksById.set(task.id, task);
   }
 
@@ -93,11 +93,11 @@ export async function checkEpicCompleteness(
     if (!epic) continue;
 
     // Find all children of this epic
-    const allChildren = data.tasks.filter((t) => t.parentId === epicId && t.id !== epicId);
+    const allChildren = allTasks.filter((t) => t.parentId === epicId && t.id !== epicId);
     const includedSet = new Set(includedTasks);
     // Build set of parent task IDs (tasks with children) — these are filtered out
     // by prepareRelease and should not be flagged as missing.
-    const parentIds = new Set(data.tasks.filter((t) => t.parentId).map((t) => t.parentId!));
+    const parentIds = new Set(allTasks.filter((t) => t.parentId).map((t) => t.parentId!));
     // Only flag done leaf tasks not included in the release — pending/active/blocked
     // tasks are future work, and parent tasks are structural (excluded by prepareRelease).
     const missingChildren = allChildren

@@ -202,8 +202,8 @@ export async function discoverRelated(
     }>;
     try {
       const accessor = await getAccessor(project.path);
-      const data = await accessor.loadTaskFile();
-      tasks = data.tasks ?? [];
+      const { tasks: projectTasks } = await accessor.queryTasks({});
+      tasks = projectTasks;
     } catch {
       continue;
     }
@@ -333,8 +333,8 @@ export async function searchAcrossProjects(
     }>;
     try {
       const accessor = await getAccessor(project.path);
-      const data = await accessor.loadTaskFile();
-      tasks = data.tasks ?? [];
+      const { tasks: projectTasks } = await accessor.queryTasks({});
+      tasks = projectTasks;
     } catch {
       continue;
     }

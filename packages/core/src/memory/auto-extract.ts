@@ -8,7 +8,7 @@
  * @epic T5149
  */
 
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import type { SessionBridgeData } from '../sessions/session-memory-bridge.js';
 import { storeDecision } from './decisions.js';
 import { storeLearning } from './learnings.js';
@@ -49,14 +49,15 @@ export async function extractTaskCompletionMemory(
     // Pattern detection: look for recurring labels across recent done tasks
     const { getAccessor } = await import('../store/data-accessor.js');
     const accessor = await getAccessor(projectRoot);
-    let taskFile: TaskFile;
+    let doneTasks: Task[];
     try {
-      taskFile = await accessor.loadTaskFile();
+      const { tasks } = await accessor.queryTasks({ status: 'done' });
+      doneTasks = tasks;
     } finally {
       await accessor.close();
     }
 
-    const recentDone = taskFile.tasks.filter((t) => t.status === 'done').slice(-50);
+    const recentDone = doneTasks.slice(-50);
 
     const labelCounts = new Map<string, string[]>();
     for (const t of recentDone) {
@@ -153,9 +154,7 @@ export async function resolveTaskDetails(projectRoot: string, taskIds: string[])
   const { getAccessor } = await import('../store/data-accessor.js');
   const accessor = await getAccessor(projectRoot);
   try {
-    const taskFile = await accessor.loadTaskFile();
-    const idSet = new Set(taskIds);
-    return taskFile.tasks.filter((t) => idSet.has(t.id));
+    return await accessor.loadTasks(taskIds);
   } finally {
     await accessor.close();
   }

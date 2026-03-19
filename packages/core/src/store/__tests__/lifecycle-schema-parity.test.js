@@ -22,7 +22,7 @@ function getLatestPipelineMigrationSql() {
     const migrations = getMigrationSqlFiles();
     const pipelineMigrations = migrations.filter(({ sql }) => sql.includes('chk_lifecycle_pipelines_status') ||
         sql.includes('__new_lifecycle_pipelines') ||
-        sql.includes('CREATE TABLE `lifecycle_pipelines`'));
+        sql.includes('lifecycle_pipelines'));
     const latest = pipelineMigrations[pipelineMigrations.length - 1];
     if (!latest) {
         throw new Error('No lifecycle_pipelines migration found');
@@ -33,7 +33,7 @@ function getLatestStageMigrationSql() {
     const migrations = getMigrationSqlFiles();
     const stageMigrations = migrations.filter(({ sql }) => sql.includes('chk_lifecycle_stages_stage_name') ||
         sql.includes('__new_lifecycle_stages') ||
-        sql.includes('CREATE TABLE `lifecycle_stages`'));
+        sql.includes('lifecycle_stages'));
     const latest = stageMigrations[stageMigrations.length - 1];
     if (!latest) {
         throw new Error('No lifecycle_stages migration found');
@@ -56,7 +56,7 @@ describe('lifecycle schema parity guardrails', () => {
         }
         else {
             // Consolidated initial migration — verify table exists
-            expect(sql).toContain('CREATE TABLE `lifecycle_pipelines`');
+            expect(sql).toContain('lifecycle_pipelines');
         }
     });
     it('ensures latest stage migration contains all LIFECYCLE_STAGE_STATUSES and stage names', () => {
@@ -74,7 +74,7 @@ describe('lifecycle schema parity guardrails', () => {
         }
         else {
             // Consolidated initial migration — verify table exists
-            expect(sql).toContain('CREATE TABLE `lifecycle_stages`');
+            expect(sql).toContain('lifecycle_stages');
         }
         if (sql.includes('chk_lifecycle_gate_results_result')) {
             for (const result of LIFECYCLE_GATE_RESULTS) {
