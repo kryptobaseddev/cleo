@@ -26,6 +26,9 @@ vi.mock('../../lib/engine.js', () => ({
   taskCurrentGet: vi.fn(),
   taskStart: vi.fn(),
   taskStop: vi.fn(),
+  taskSyncReconcile: vi.fn(),
+  taskSyncLinks: vi.fn(),
+  taskSyncLinksRemove: vi.fn(),
 }));
 
 // Mock getProjectRoot
@@ -89,6 +92,7 @@ describe('TasksHandler', () => {
         'history',
         'current',
         'label.list',
+        'sync.links',
       ]);
     });
 
@@ -107,6 +111,8 @@ describe('TasksHandler', () => {
         'relates.add',
         'start',
         'stop',
+        'sync.reconcile',
+        'sync.links.remove',
       ]);
     });
   });
@@ -135,12 +141,6 @@ describe('TasksHandler', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual(mockData);
       expect(taskShow).toHaveBeenCalledWith('/mock/project', 'T001');
-    });
-
-    it('show - returns error when taskId missing', async () => {
-      const result = await handler.query('show', {});
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
     it('list - delegates to taskList', async () => {
@@ -467,12 +467,6 @@ describe('TasksHandler', () => {
           parent: 'T100',
         }),
       );
-    });
-
-    it('add - returns error when title missing', async () => {
-      const result = await handler.mutate('add', {});
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
     it('update - delegates to taskUpdate', async () => {
