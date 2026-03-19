@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026.3.43] (2026-03-19)
+
+### Fixed
+- **Build**: Generate `.d.ts` type declarations in `build.mjs` via `tsc --emitDeclarationOnly` after esbuild bundling. esbuild produces single-file `.js` bundles but doesn't emit TypeScript declarations, so consumers of `@cleocode/core` and `@cleocode/adapters` were getting packages with no type information.
+
 ## [2026.3.42] (2026-03-19)
 
 ### Fixed

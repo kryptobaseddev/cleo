@@ -11,7 +11,7 @@
  */
 
 import * as esbuild from 'esbuild';
-import { chmod } from 'node:fs/promises';
+import { chmod, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -157,10 +157,27 @@ async function build() {
   console.log('Building @cleocode/core...');
   await esbuild.build(coreBuildOptions);
   console.log('  -> packages/core/dist/index.js');
+  // esbuild doesn't emit .d.ts — run tsc for declarations only
+  // Remove stale tsBuildInfo to force fresh declaration emit (composite: true)
+  await rm(resolve(__dirname, 'packages/core/tsconfig.tsbuildinfo'), { force: true });
+  console.log('  Generating type declarations...');
+  execFileSync('pnpm', ['--filter', '@cleocode/core', 'exec', 'tsc', '--emitDeclarationOnly'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/core/dist/*.d.ts');
 
   console.log('Building @cleocode/adapters...');
   await esbuild.build(adaptersBuildOptions);
   console.log('  -> packages/adapters/dist/index.js');
+  // esbuild doesn't emit .d.ts — run tsc for declarations only
+  await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
+  console.log('  Generating type declarations...');
+  execFileSync('pnpm', ['--filter', '@cleocode/adapters', 'exec', 'tsc', '--emitDeclarationOnly'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/adapters/dist/*.d.ts');
 
   console.log('Building @cleocode/cleo...');
   await esbuild.build(cleoBuildOptions);
