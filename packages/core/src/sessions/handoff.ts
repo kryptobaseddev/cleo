@@ -20,7 +20,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { getDecisionLog } from './decisions.js';
-import type { TaskFileExt } from './types.js';
+import type { TaskFileExt, TaskFileTaskEntry } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,11 +81,11 @@ export async function computeHandoff(
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
   const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-  const current = {
-    tasks,
-    focus: focus ?? undefined,
-    _meta: fileMeta ?? undefined,
-  } as unknown as TaskFileExt;
+  const current: TaskFileExt = {
+    tasks: tasks.map((t): TaskFileTaskEntry => ({ ...t })),
+    focus: focus as TaskFileExt['focus'],
+    _meta: fileMeta as TaskFileExt['_meta'],
+  };
 
   // Get decisions recorded during this session
   const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });

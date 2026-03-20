@@ -43,10 +43,14 @@ import {
   taskWorkHistory,
   tokenUsage,
   // Enum constants (non-status) from tasks-schema
+  EXTERNAL_LINK_TYPES,
   LIFECYCLE_EVIDENCE_TYPES,
   LIFECYCLE_GATE_RESULTS,
   LIFECYCLE_STAGE_NAMES,
+  LIFECYCLE_TRANSITION_TYPES,
+  SYNC_DIRECTIONS,
   TASK_PRIORITIES,
+  TASK_RELATION_TYPES,
   TASK_SIZES,
   TASK_TYPES,
   TOKEN_USAGE_CONFIDENCE,
@@ -140,25 +144,17 @@ export const tokenUsageTransportSchema = z.enum(TOKEN_USAGE_TRANSPORTS);
 
 // --- Task relation enums ---
 /** Zod enum schema for task relation types. */
-export const taskRelationTypeSchema = z.enum([
-  'related',
-  'blocks',
-  'duplicates',
-  'absorbs',
-  'fixes',
-  'extends',
-  'supersedes',
-]);
+export const taskRelationTypeSchema = z.enum(TASK_RELATION_TYPES);
 
 // --- External task link enums ---
 /** Zod enum schema for external task link types. */
-export const externalLinkTypeSchema = z.enum(['created', 'matched', 'manual']);
+export const externalLinkTypeSchema = z.enum(EXTERNAL_LINK_TYPES);
 /** Zod enum schema for sync directions. */
-export const syncDirectionSchema = z.enum(['inbound', 'outbound', 'bidirectional']);
+export const syncDirectionSchema = z.enum(SYNC_DIRECTIONS);
 
 // --- Lifecycle transition enums ---
 /** Zod enum schema for lifecycle transition types. */
-export const lifecycleTransitionTypeSchema = z.enum(['automatic', 'manual', 'forced']);
+export const lifecycleTransitionTypeSchema = z.enum(LIFECYCLE_TRANSITION_TYPES);
 
 // --- Brain enums ---
 /** Zod enum schema for brain observation types. */

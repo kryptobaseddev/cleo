@@ -17,13 +17,13 @@
  * @epic T4914
  */
 
-import type { FileMeta, TaskWorkState } from '@cleocode/contracts';
+import type { FileMeta, Task, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import type { TaskFileExt } from './types.js';
+import type { TaskFileExt, TaskFileTaskEntry } from './types.js';
 
 /**
  * Task summary for briefing output.
@@ -142,11 +142,11 @@ export async function computeBriefing(
   const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
 
   // Build a TaskFileExt-compatible shape from targeted queries
-  const current = {
-    tasks,
-    focus: focus ?? undefined,
-    _meta: fileMeta ?? undefined,
-  } as unknown as TaskFileExt;
+  const current: TaskFileExt = {
+    tasks: tasks.map((t): TaskFileTaskEntry => ({ ...t })),
+    focus: focus as TaskFileExt['focus'],
+    _meta: fileMeta as TaskFileExt['_meta'],
+  };
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -157,7 +157,7 @@ export async function computeBriefing(
   // Compute in-scope task IDs (undefined = all tasks in scope)
   const scopeTaskIds = getScopeTaskIdSet(
     scopeFilter,
-    tasks as unknown as Array<{ id: string; parentId?: string; [key: string]: unknown }>,
+    tasks,
   );
 
   // 1. Last session handoff
@@ -259,7 +259,7 @@ async function parseScope(
  */
 function getScopeTaskIdSet(
   scopeFilter: { type: 'global' | 'epic'; epicId?: string } | undefined,
-  tasks: Array<{ id: string; parentId?: string; [key: string]: unknown }>,
+  tasks: Task[],
 ): Set<string> | undefined {
   if (!scopeFilter || scopeFilter.type === 'global') {
     return undefined; // All tasks in scope

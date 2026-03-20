@@ -566,7 +566,7 @@ function buildMatchReason(
   pattern: BrainPatternRow,
   taskLabels: Set<string>,
   taskTitle: string,
-  _taskDesc: string,
+  taskDesc: string,
 ): string {
   const reasons: string[] = [];
   const patternText = pattern.pattern.toLowerCase();
@@ -585,6 +585,15 @@ function buildMatchReason(
   );
   if (matchingWords.length > 0) {
     reasons.push(`title keywords [${matchingWords.join(', ')}] match`);
+  }
+
+  // Check description keywords against pattern
+  const descWords = taskDesc.toLowerCase().split(/\s+/).filter((w) => w.length > 4);
+  const descMatches = descWords.filter(
+    (w) => patternText.includes(w) || contextText.includes(w),
+  );
+  if (descMatches.length > 0) {
+    reasons.push(`description keywords [${descMatches.slice(0, 3).join(', ')}] match`);
   }
 
   if (reasons.length === 0) {

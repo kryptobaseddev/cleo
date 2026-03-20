@@ -475,7 +475,7 @@ function assessAcceptanceCriteria(task: Task): SignalResult {
 }
 
 async function assessHistoricalPatterns(
-  _task: Task,
+  task: Task,
   stage: string,
   brainAccessor: BrainDataAccessor,
 ): Promise<SignalResult> {
@@ -484,11 +484,20 @@ async function assessHistoricalPatterns(
   let fail = 0;
   let total = 0;
 
-  // Look for success patterns related to this stage
+  const taskLabels = new Set((task.labels ?? []).map((l) => l.toLowerCase()));
+  const taskTitle = task.title.toLowerCase();
+
+  // Look for success patterns related to this stage or matching task attributes
   const successPatterns = await brainAccessor.findPatterns({ type: 'success', limit: 30 });
 
   for (const p of successPatterns) {
-    if (p.context.toLowerCase().includes(stage.toLowerCase())) {
+    const ctx = p.context.toLowerCase();
+    const pat = p.pattern.toLowerCase();
+    const stageMatch = ctx.includes(stage.toLowerCase());
+    const labelMatch = [...taskLabels].some((l) => pat.includes(l) || ctx.includes(l));
+    const titleMatch = taskTitle.split(/\s+/).filter((w) => w.length > 3).some((w) => pat.includes(w));
+
+    if (stageMatch || labelMatch || titleMatch) {
       total++;
       if (p.successRate !== null && p.successRate >= 0.7) {
         pass += p.successRate;
@@ -498,11 +507,17 @@ async function assessHistoricalPatterns(
     }
   }
 
-  // Look for failure patterns related to this stage
+  // Look for failure patterns related to this stage or matching task attributes
   const failurePatterns = await brainAccessor.findPatterns({ type: 'failure', limit: 30 });
 
   for (const p of failurePatterns) {
-    if (p.context.toLowerCase().includes(stage.toLowerCase())) {
+    const ctx = p.context.toLowerCase();
+    const pat = p.pattern.toLowerCase();
+    const stageMatch = ctx.includes(stage.toLowerCase());
+    const labelMatch = [...taskLabels].some((l) => pat.includes(l) || ctx.includes(l));
+    const titleMatch = taskTitle.split(/\s+/).filter((w) => w.length > 3).some((w) => pat.includes(w));
+
+    if (stageMatch || labelMatch || titleMatch) {
       total++;
       fail += p.successRate !== null ? 1 - p.successRate : 0.5;
       if (p.mitigation) {

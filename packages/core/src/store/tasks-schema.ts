@@ -113,6 +113,26 @@ export const TOKEN_USAGE_CONFIDENCE = ['real', 'high', 'estimated', 'coarse'] as
 /** Transport types for token telemetry. */
 export const TOKEN_USAGE_TRANSPORTS = ['cli', 'mcp', 'api', 'agent', 'unknown'] as const;
 
+/** Task relation types matching DB CHECK constraint on task_relations.relation_type. */
+export const TASK_RELATION_TYPES = [
+  'related',
+  'blocks',
+  'duplicates',
+  'absorbs',
+  'fixes',
+  'extends',
+  'supersedes',
+] as const;
+
+/** Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type. */
+export const LIFECYCLE_TRANSITION_TYPES = ['automatic', 'manual', 'forced'] as const;
+
+/** External task link types matching DB constraint on external_task_links.link_type. */
+export const EXTERNAL_LINK_TYPES = ['created', 'matched', 'manual'] as const;
+
+/** Sync direction types matching DB constraint on external_task_links.sync_direction. */
+export const SYNC_DIRECTIONS = ['inbound', 'outbound', 'bidirectional'] as const;
+
 // === TASKS TABLE ===
 
 export const tasks = sqliteTable(
@@ -212,7 +232,7 @@ export const taskRelations = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: 'cascade' }),
     relationType: text('relation_type', {
-      enum: ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'],
+      enum: TASK_RELATION_TYPES,
     })
       .notNull()
       .default('related'),
@@ -411,7 +431,7 @@ export const lifecycleTransitions = sqliteTable(
     fromStageId: text('from_stage_id').notNull(),
     toStageId: text('to_stage_id').notNull(),
     transitionType: text('transition_type', {
-      enum: ['automatic', 'manual', 'forced'],
+      enum: LIFECYCLE_TRANSITION_TYPES,
     })
       .notNull()
       .default('automatic'),
@@ -708,11 +728,11 @@ export const externalTaskLinks = sqliteTable(
     externalTitle: text('external_title'),
     /** How this link was established. */
     linkType: text('link_type', {
-      enum: ['created', 'matched', 'manual'],
+      enum: EXTERNAL_LINK_TYPES,
     }).notNull(),
     /** Direction of the sync that created this link. */
     syncDirection: text('sync_direction', {
-      enum: ['inbound', 'outbound', 'bidirectional'],
+      enum: SYNC_DIRECTIONS,
     })
       .notNull()
       .default('inbound'),

@@ -92,13 +92,14 @@ function collectTransitiveDependents(
  * the given task is not completed.
  */
 function countBlockedWork(
-  _taskId: string,
+  taskId: string,
   transitiveDependents: Set<string>,
   taskMap: Map<string, Task>,
 ): number {
   let count = 0;
 
   for (const depId of transitiveDependents) {
+    if (depId === taskId) continue; // Exclude the source task itself
     const task = taskMap.get(depId);
     if (!task) continue;
     // A task is considered blocked-work if it has a dependency on the
@@ -475,7 +476,7 @@ function predictBlockEffects(
  */
 function predictCompleteEffects(
   taskId: string,
-  _transitiveDeps: Set<string>,
+  transitiveDeps: Set<string>,
   dependentsMap: Map<string, Set<string>>,
   taskMap: Map<string, Task>,
 ): AffectedTask[] {
@@ -512,6 +513,20 @@ function predictCompleteEffects(
     }
   }
 
+  // Note transitive downstream tasks that benefit indirectly
+  for (const depId of transitiveDeps) {
+    if (directDeps.has(depId)) continue; // Already handled above
+    const task = taskMap.get(depId);
+    if (!task || task.status === 'done' || task.status === 'cancelled') continue;
+
+    affected.push({
+      id: depId,
+      title: task.title,
+      currentStatus: task.status,
+      reason: 'Upstream dependency completed; may unblock cascading work.',
+    });
+  }
+
   return affected;
 }
 
@@ -520,7 +535,7 @@ function predictCompleteEffects(
  * Downstream tasks may need reordering in execution waves.
  */
 function predictReprioritizeEffects(
-  _taskId: string,
+  taskId: string,
   transitiveDeps: Set<string>,
   taskMap: Map<string, Task>,
 ): AffectedTask[] {
@@ -530,11 +545,14 @@ function predictReprioritizeEffects(
     const task = taskMap.get(depId);
     if (!task || task.status === 'done' || task.status === 'cancelled') continue;
 
+    const isDirect = (task.depends ?? []).includes(taskId);
     affected.push({
       id: depId,
       title: task.title,
       currentStatus: task.status,
-      reason: 'Upstream dependency reprioritized; execution order may change.',
+      reason: isDirect
+        ? `Direct dependency ${taskId} reprioritized; execution order may change.`
+        : `Upstream dependency ${taskId} reprioritized; cascading reorder possible.`,
     });
   }
 
