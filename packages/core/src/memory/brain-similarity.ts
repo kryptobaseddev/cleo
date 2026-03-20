@@ -10,6 +10,7 @@
  */
 
 import { getBrainAccessor } from '../store/brain-accessor.js';
+import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type { BrainKnnRow } from './brain-row-types.js';
 
@@ -83,14 +84,14 @@ export async function searchSimilar(
   // Run KNN query against vec0 table
   let knnRows: BrainKnnRow[];
   try {
-    knnRows = nativeDb
-      .prepare(
-        'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
-      )
-      .all(
-        new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
-        maxResults,
-      ) as unknown as BrainKnnRow[];
+    const stmt = nativeDb.prepare(
+      'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
+    );
+    knnRows = typedAll<BrainKnnRow>(
+      stmt,
+      new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
+      maxResults,
+    );
   } catch {
     // vec0 query failed — table may not exist or extension not loaded
     return [];

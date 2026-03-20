@@ -16,6 +16,7 @@ import type {
   BrainObservationRow,
   BrainPatternRow,
 } from '../store/brain-schema.js';
+import { typedAll } from '../store/typed-query.js';
 import type { BrainSearchHit } from './brain-row-types.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
@@ -332,7 +333,7 @@ function searchWithFts5(
 
   if (tables.includes('decisions')) {
     try {
-      const rows = nativeDb
+      const rows = typedAll<BrainDecisionRow>(nativeDb
         .prepare(`
         SELECT d.*
         FROM brain_decisions_fts fts
@@ -340,8 +341,7 @@ function searchWithFts5(
         WHERE brain_decisions_fts MATCH ?
         ORDER BY bm25(brain_decisions_fts)
         LIMIT ?
-      `)
-        .all(safeQuery, limit) as unknown as BrainDecisionRow[];
+      `), safeQuery, limit);
       result.decisions = rows;
     } catch {
       // FTS query failed, fall back to LIKE for this table
@@ -351,7 +351,7 @@ function searchWithFts5(
 
   if (tables.includes('patterns')) {
     try {
-      const rows = nativeDb
+      const rows = typedAll<BrainPatternRow>(nativeDb
         .prepare(`
         SELECT p.*
         FROM brain_patterns_fts fts
@@ -359,8 +359,7 @@ function searchWithFts5(
         WHERE brain_patterns_fts MATCH ?
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
-      `)
-        .all(safeQuery, limit) as unknown as BrainPatternRow[];
+      `), safeQuery, limit);
       result.patterns = rows;
     } catch {
       result.patterns = likeSearchPatterns(nativeDb, query, limit);
@@ -369,7 +368,7 @@ function searchWithFts5(
 
   if (tables.includes('learnings')) {
     try {
-      const rows = nativeDb
+      const rows = typedAll<BrainLearningRow>(nativeDb
         .prepare(`
         SELECT l.*
         FROM brain_learnings_fts fts
@@ -377,8 +376,7 @@ function searchWithFts5(
         WHERE brain_learnings_fts MATCH ?
         ORDER BY bm25(brain_learnings_fts)
         LIMIT ?
-      `)
-        .all(safeQuery, limit) as unknown as BrainLearningRow[];
+      `), safeQuery, limit);
       result.learnings = rows;
     } catch {
       result.learnings = likeSearchLearnings(nativeDb, query, limit);
@@ -387,7 +385,7 @@ function searchWithFts5(
 
   if (tables.includes('observations')) {
     try {
-      const rows = nativeDb
+      const rows = typedAll<BrainObservationRow>(nativeDb
         .prepare(`
         SELECT o.*
         FROM brain_observations_fts fts
@@ -395,8 +393,7 @@ function searchWithFts5(
         WHERE brain_observations_fts MATCH ?
         ORDER BY bm25(brain_observations_fts)
         LIMIT ?
-      `)
-        .all(safeQuery, limit) as unknown as BrainObservationRow[];
+      `), safeQuery, limit);
       result.observations = rows;
     } catch {
       result.observations = likeSearchObservations(nativeDb, query, limit);
@@ -447,14 +444,13 @@ function likeSearchDecisions(
   limit: number,
 ): BrainDecisionRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb
+  return typedAll<BrainDecisionRow>(nativeDb
     .prepare(`
     SELECT * FROM brain_decisions
     WHERE decision LIKE ? OR rationale LIKE ?
     ORDER BY created_at DESC
     LIMIT ?
-  `)
-    .all(likePattern, likePattern, limit) as unknown as BrainDecisionRow[];
+  `), likePattern, likePattern, limit);
 }
 
 function likeSearchPatterns(
@@ -463,14 +459,13 @@ function likeSearchPatterns(
   limit: number,
 ): BrainPatternRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb
+  return typedAll<BrainPatternRow>(nativeDb
     .prepare(`
     SELECT * FROM brain_patterns
     WHERE pattern LIKE ? OR context LIKE ?
     ORDER BY frequency DESC
     LIMIT ?
-  `)
-    .all(likePattern, likePattern, limit) as unknown as BrainPatternRow[];
+  `), likePattern, likePattern, limit);
 }
 
 function likeSearchLearnings(
@@ -479,14 +474,13 @@ function likeSearchLearnings(
   limit: number,
 ): BrainLearningRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb
+  return typedAll<BrainLearningRow>(nativeDb
     .prepare(`
     SELECT * FROM brain_learnings
     WHERE insight LIKE ? OR source LIKE ?
     ORDER BY confidence DESC
     LIMIT ?
-  `)
-    .all(likePattern, likePattern, limit) as unknown as BrainLearningRow[];
+  `), likePattern, likePattern, limit);
 }
 
 function likeSearchObservations(
@@ -495,14 +489,13 @@ function likeSearchObservations(
   limit: number,
 ): BrainObservationRow[] {
   const likePattern = `%${query}%`;
-  return nativeDb
+  return typedAll<BrainObservationRow>(nativeDb
     .prepare(`
     SELECT * FROM brain_observations
     WHERE title LIKE ? OR narrative LIKE ?
     ORDER BY created_at DESC
     LIMIT ?
-  `)
-    .all(likePattern, likePattern, limit) as unknown as BrainObservationRow[];
+  `), likePattern, likePattern, limit);
 }
 
 /**

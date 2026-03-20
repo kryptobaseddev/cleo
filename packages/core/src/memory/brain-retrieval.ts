@@ -23,8 +23,14 @@ import type {
   BRAIN_OBSERVATION_TYPES,
 } from '../store/brain-schema.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
-import type { BrainAnchor, BrainFtsRow, BrainNarrativeRow } from './brain-row-types.js';
+import type {
+  BrainAnchor,
+  BrainFtsRow,
+  BrainNarrativeRow,
+  BrainTimelineNeighborRow,
+} from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
+import { typedAll } from '../store/typed-query.js';
 
 // ============================================================================
 // Types
@@ -305,8 +311,8 @@ export async function timelineBrain(
 
   // UNION ALL across all 4 tables to get chronological neighbors.
   // Excludes the anchor itself.
-  const beforeRows = nativeDb
-    .prepare(`
+  const beforeRows = typedAll<BrainTimelineNeighborRow>(
+    nativeDb.prepare(`
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at < ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at < ? AND id != ?
@@ -316,8 +322,7 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at < ? AND id != ?
     ORDER BY date DESC
     LIMIT ?
-  `)
-    .all(
+  `),
       anchorDate,
       anchorId,
       anchorDate,
@@ -327,10 +332,10 @@ export async function timelineBrain(
       anchorDate,
       anchorId,
       depthBefore,
-    ) as unknown as TimelineNeighbor[];
+    );
 
-  const afterRows = nativeDb
-    .prepare(`
+  const afterRows = typedAll<BrainTimelineNeighborRow>(
+    nativeDb.prepare(`
     SELECT id, 'decision' AS type, created_at AS date FROM brain_decisions WHERE created_at > ? AND id != ?
     UNION ALL
     SELECT id, 'pattern' AS type, extracted_at AS date FROM brain_patterns WHERE extracted_at > ? AND id != ?
@@ -340,8 +345,7 @@ export async function timelineBrain(
     SELECT id, 'observation' AS type, created_at AS date FROM brain_observations WHERE created_at > ? AND id != ?
     ORDER BY date ASC
     LIMIT ?
-  `)
-    .all(
+  `),
       anchorDate,
       anchorId,
       anchorDate,
@@ -351,7 +355,7 @@ export async function timelineBrain(
       anchorDate,
       anchorId,
       depthAfter,
-    ) as unknown as TimelineNeighbor[];
+    );
 
   return {
     anchor: { id: anchorId, type: anchorType, data: anchorData },
@@ -530,11 +534,13 @@ export async function observeBrain(
   const nativeDb = getBrainNativeDb();
   if (nativeDb) {
     const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
-    const existing = nativeDb
-      .prepare(
+    const existing = typedAll<BrainFtsRow>(
+      nativeDb.prepare(
         'SELECT id, type, created_at FROM brain_observations WHERE content_hash = ? AND created_at > ?',
-      )
-      .all(contentHash, cutoff) as unknown as BrainFtsRow[];
+      ),
+      contentHash,
+      cutoff,
+    );
 
     if (existing.length > 0) {
       return {
@@ -639,15 +645,15 @@ export async function populateEmbeddings(
   let skipped = 0;
 
   // Find observations without embeddings
-  const rows = nativeDb
-    .prepare(`
+  const rows = typedAll<BrainNarrativeRow>(
+    nativeDb.prepare(`
     SELECT o.id, o.narrative, o.title
     FROM brain_observations o
     LEFT JOIN brain_embeddings e ON o.id = e.id
     WHERE e.id IS NULL AND o.narrative IS NOT NULL
     ORDER BY o.created_at DESC
-  `)
-    .all() as unknown as BrainNarrativeRow[];
+  `),
+  );
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);

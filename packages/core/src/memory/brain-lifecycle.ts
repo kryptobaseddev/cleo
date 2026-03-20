@@ -13,6 +13,8 @@
 
 import { createHash } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
+import { typedAll } from '../store/typed-query.js';
+import type { BrainConsolidationObservationRow } from './brain-row-types.js';
 
 /** Result from applying temporal decay. */
 export interface DecayResult {
@@ -248,22 +250,14 @@ export async function consolidateMemories(
     .slice(0, 19);
 
   // Fetch old observations that are not already archived
-  const oldObservations = nativeDb
-    .prepare(`
+  const stmt = nativeDb.prepare(`
     SELECT id, type, title, narrative, project, created_at
     FROM brain_observations
     WHERE created_at < ?
       AND narrative NOT LIKE '[ARCHIVED]%'
     ORDER BY created_at DESC
-  `)
-    .all(cutoffDate) as Array<{
-    id: string;
-    type: string;
-    title: string;
-    narrative: string | null;
-    project: string | null;
-    created_at: string;
-  }>;
+  `);
+  const oldObservations = typedAll<BrainConsolidationObservationRow>(stmt, cutoffDate);
 
   if (oldObservations.length < minClusterSize) {
     return { grouped: 0, merged: 0, archived: 0 };
