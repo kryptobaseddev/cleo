@@ -45,7 +45,7 @@ beforeEach(async () => {
 
   // Create source project with a task hierarchy
   await createTestProjectDb(sourceDir, [
-    { id: 'T001', title: 'Epic: Auth', type: 'epic', status: 'in-progress' },
+    { id: 'T001', title: 'Epic: Auth', type: 'epic', status: 'active' },
     {
       id: 'T002',
       title: 'Login form',
