@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.3.44] (2026-03-20)
+
+### Added
+- **Agent Dimension** (100%): Agent registry, health monitoring (30s crash detection), self-healing with exponential backoff, capacity tracking and load balancing. New `agent_instances` and `agent_error_log` tables.
+- **Intelligence Dimension** (100%): Quality prediction (4-factor risk scoring), pattern extraction from brain.db, impact analysis with BFS/DFS graph traversal and blast radius calculation.
+- **Validation Contracts**: 36 canonical Zod enum schemas backed by `as const` constants. 13 table schemas with business logic refinements. 14 hook payload Zod schemas with `validatePayload()` dispatcher.
+- **Nexus E2E Tests**: 89 integration tests covering registry, audit, health, permissions, cross-project refs, orphan detection, and discovery. Fixed `extractKeywords()` case handling bug.
+- **Schema Integrity**: 3 hard foreign keys (warp_chain_instances CASCADE, sessions prev/next SET NULL), 16 indexes, 1 UNIQUE constraint on external_task_links.
+- **Database ERDs**: Mermaid diagrams for all 3 databases (tasks.db, brain.db, nexus.db).
+- **Type Contracts Documentation**: Full public API surface (43 namespaces) documented.
+
+### Changed
+- **BREAKING**: `TaskFile` interface removed from `@cleocode/contracts`. Use `Task[]` from `DataAccessor.queryTasks()` directly.
+- **BREAKING**: `TaskFileExt`, `TaskFileTaskEntry`, `TaskFileMetaExt`, `toTaskFileExt()` removed from sessions module.
+- **BREAKING**: `buildPrompt()`, `spawn()`, `spawnBatch()`, `canParallelize()`, `orchestratorSpawnSkill()`, `injectProtocol()`, `buildTaskContext()`, `validateOrchestratorCompliance()`, `validateContributionTask()` are now async. Add `await` at call sites.
+- **BREAKING**: `buildExportPackage()`, `exportSingle()`, `exportSubtree()` signatures changed — pass `projectName` in options instead of `TaskFile`.
+- Public barrel now exports 43 namespaces (added `agents`, `intelligence`).
+- CORE-PACKAGE-SPEC updated to v3.0.0 with section 15.5 documenting all breaking changes.
+- Facade API (`Cleo.init()`) is unchanged — no impact on facade consumers.
+
+### Fixed
+- **ADR-006 Compliance**: All task/session/focus JSON file reads replaced with DataAccessor → SQLite queries across 7 files (12 functions).
+- **Focus Meta Key**: Unified from split `'focus'`/`'focus_state'` to `'focus_state'` everywhere.
+- **Pipeline Stage Source**: `computePipelineStage` now queries `lifecycle_pipelines` table directly instead of `file_meta` KV store.
+- **Inline Enum Drift**: 4 hardcoded Zod enum arrays extracted to `as const` constants (TASK_RELATION_TYPES, LIFECYCLE_TRANSITION_TYPES, EXTERNAL_LINK_TYPES, SYNC_DIRECTIONS).
+- **Type Safety**: `as unknown as` casts reduced from 9 to 4 (remaining are node:sqlite and drizzle-orm library boundaries).
+- **Agent Suppressions**: 5 underscore-prefixed params introduced by agents wired into real implementations.
+
+### Removed
+- `tasks/reparent.ts` — dead code; `task-ops.ts` has the DataAccessor-based implementation.
+- `getSessionsPath()` — zero callers remaining (sessions are in SQLite).
+- All `sessions.json`, `tasks.json`, `focus.json` file reads from non-migration code.
+
 ## [2026.3.43] (2026-03-19)
 
 ### Fixed

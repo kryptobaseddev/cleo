@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.3.43",
+  "version": "2026.3.44",
   "description": "CLEO CLI + MCP server — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
