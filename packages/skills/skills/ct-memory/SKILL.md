@@ -18,35 +18,45 @@ Ensures LLM agents never start conversations with amnesia. Provides structured m
 
 ## Tier 0: Session Start (ALWAYS run on first interaction)
 
+Use CLI (`cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallback when CLI is unavailable.
+
 1. The memory bridge (.cleo/memory-bridge.md) is already loaded via CLEO-INJECTION.md @-reference
 2. If the bridge content feels stale (>2 hours old), refresh:
-   - `query memory brain.search {query: "session task decision", limit: 10}`
+   - CLI (Primary): `cleo memory search "session task decision" --limit 10`
+   - MCP (Fallback): `query memory find {query: "session task decision", limit: 10}`
 3. Check for anti-patterns to avoid:
-   - `query memory brain.search {query: "mistake error avoid warning", limit: 5}`
+   - CLI (Primary): `cleo memory search "mistake error avoid warning" --limit 5`
+   - MCP (Fallback): `query memory find {query: "mistake error avoid warning", limit: 5}`
 4. If results are relevant, fetch details:
-   - `query memory brain.fetch {ids: ["O-xxx", "O-yyy"]}`
+   - CLI (Primary): `cleo memory fetch O-xxx O-yyy`
+   - MCP (Fallback): `query memory fetch {ids: ["O-xxx", "O-yyy"]}`
 
 ## Tier 1: During Work (run when topic-relevant)
 
 ### Before Making Decisions
 
-- `query memory brain.search {query: "decision ADR architecture", limit: 5}`
+- CLI (Primary): `cleo memory search "decision ADR architecture" --limit 5`
+- MCP (Fallback): `query memory find {query: "decision ADR architecture", limit: 5}`
 - Check if a similar decision was already made
 
 ### Before Repeating Work
 
-- `query memory brain.search {query: "{current-topic}", limit: 10}`
+- CLI (Primary): `cleo memory search "{current-topic}" --limit 10`
+- MCP (Fallback): `query memory find {query: "{current-topic}", limit: 10}`
 - Avoid re-doing work that's already been completed
 
 ### After Completing Significant Work
 
-- `mutate memory brain.observe {text: "Completed X using approach Y. Key learning: Z", title: "Work completion"}`
+- CLI (Primary): `cleo memory observe "Completed X using approach Y. Key learning: Z" --title "Work completion"`
+- MCP (Fallback): `mutate memory observe {text: "Completed X using approach Y. Key learning: Z", title: "Work completion"}`
 
 ### Anti-Hallucination Protocol
 
 Before stating facts about the codebase or project:
 
-1. Search brain: `query memory brain.search {query: "{claim-topic}", limit: 5}`
+1. Search brain:
+   - CLI (Primary): `cleo memory search "{claim-topic}" --limit 5`
+   - MCP (Fallback): `query memory find {query: "{claim-topic}", limit: 5}`
 2. If results exist, verify your claim matches stored knowledge
 3. If no results, state your uncertainty clearly
 
@@ -54,17 +64,19 @@ Before stating facts about the codebase or project:
 
 ### Full Timeline
 
-- `query memory brain.timeline {anchor: "O-xxx", depthBefore: 5, depthAfter: 5}`
+- CLI (Primary): `cleo memory timeline O-xxx --before 5 --after 5`
+- MCP (Fallback): `query memory timeline {anchor: "O-xxx", depthBefore: 5, depthAfter: 5}`
 - Understand chronological context around a specific observation
 
 ### Cross-Project Knowledge (via NEXUS)
 
-- `query nexus search {query: "pattern", scope: "global"}`
+- CLI (Primary): `cleo nexus search "pattern" --scope global`
+- MCP (Fallback): `query nexus search {query: "pattern", scope: "global"}`
 - Search across all CLEO-managed projects
 
-## MCP Resources (Alternative to search)
+## MCP Resources (Fallback — for providers that support MCP resources)
 
-For providers that support MCP resources:
+When CLI is unavailable and the provider supports MCP resources:
 
 - `ReadResource("cleo://memory/recent")` -- last 15 observations
 - `ReadResource("cleo://memory/learnings")` -- active learnings with confidence
@@ -73,12 +85,12 @@ For providers that support MCP resources:
 
 ## Token Budget Guidelines
 
-| Operation | ~Tokens | When |
-|-----------|---------|------|
-| memory-bridge.md (auto-loaded) | 200-400 | Always (free) |
-| brain.search | 50/hit | Discovery |
-| brain.fetch | 500/entry | Details |
-| brain.timeline | 200-500 | Context |
-| MCP resources | 200-500 | On-demand |
+| Operation | ~Tokens | Interface | When |
+|-----------|---------|-----------|------|
+| memory-bridge.md (auto-loaded) | 200-400 | — | Always (free) |
+| `cleo memory search` | 50/hit | CLI (Primary) | Discovery |
+| `cleo memory fetch` | 500/entry | CLI (Primary) | Details |
+| `cleo memory timeline` | 200-500 | CLI (Primary) | Context |
+| MCP resources | 200-500 | MCP (Fallback) | On-demand |
 
 Stay within LAFS MVI budget: start minimal, escalate only when needed.

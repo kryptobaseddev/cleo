@@ -43,24 +43,19 @@ import { routeByParam } from './_routing.js';
 // ---------------------------------------------------------------------------
 
 export class OrchestrateHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // DomainHandler interface
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'status': {
           const epicId = params?.epicId as string | undefined;
-          const result = await orchestrateStatus(epicId, this.projectRoot);
+          const result = await orchestrateStatus(epicId, projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
@@ -76,7 +71,7 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await orchestrateNext(epicId, this.projectRoot);
+          const result = await orchestrateNext(epicId, projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
@@ -92,20 +87,20 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await orchestrateReady(epicId, this.projectRoot);
+          const result = await orchestrateReady(epicId, projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
         case 'analyze': {
           const epicId = params?.epicId as string;
           const mode = params?.mode as string | undefined;
-          const result = await orchestrateAnalyze(epicId, this.projectRoot, mode);
+          const result = await orchestrateAnalyze(epicId, projectRoot, mode);
           return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
         }
 
         case 'context': {
           const epicId = params?.epicId as string | undefined;
-          const result = await orchestrateContext(epicId, this.projectRoot);
+          const result = await orchestrateContext(epicId, projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
@@ -121,18 +116,18 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await orchestrateWaves(epicId, this.projectRoot);
+          const result = await orchestrateWaves(epicId, projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
         case 'bootstrap': {
           const speed = params?.speed as 'fast' | 'full' | 'complete' | undefined;
-          const result = await orchestrateBootstrap(this.projectRoot, { speed });
+          const result = await orchestrateBootstrap(projectRoot, { speed });
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
         case 'unblock.opportunities': {
-          const result = await orchestrateUnblockOpportunities(this.projectRoot);
+          const result = await orchestrateUnblockOpportunities(projectRoot);
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
@@ -192,6 +187,7 @@ export class OrchestrateHandler implements DomainHandler {
   }
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -208,7 +204,7 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await orchestrateStartup(epicId, this.projectRoot);
+          const result = await orchestrateStartup(epicId, projectRoot);
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
@@ -226,7 +222,7 @@ export class OrchestrateHandler implements DomainHandler {
           }
           const protocolType = params?.protocolType as string | undefined;
           const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot, tier);
+          const result = await orchestrateSpawn(taskId, protocolType, projectRoot, tier);
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
@@ -264,7 +260,7 @@ export class OrchestrateHandler implements DomainHandler {
               tier,
               idempotencyKey: params?.idempotencyKey as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
@@ -288,7 +284,7 @@ export class OrchestrateHandler implements DomainHandler {
             taskId,
             adapterId,
             protocolType,
-            this.projectRoot,
+            projectRoot,
             tier,
           );
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
@@ -306,7 +302,7 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await orchestrateValidate(taskId, this.projectRoot);
+          const result = await orchestrateValidate(taskId, projectRoot);
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
@@ -335,7 +331,7 @@ export class OrchestrateHandler implements DomainHandler {
                   startTime,
                 );
               }
-              const result = await orchestrateParallelStart(epicId, wave, this.projectRoot);
+              const result = await orchestrateParallelStart(epicId, wave, projectRoot);
               return wrapResult(result, 'mutate', 'orchestrate', 'parallel', startTime);
             },
             end: async () => {
@@ -361,7 +357,7 @@ export class OrchestrateHandler implements DomainHandler {
                   startTime,
                 );
               }
-              const result = await orchestrateParallelEnd(epicId, wave, this.projectRoot);
+              const result = await orchestrateParallelEnd(epicId, wave, projectRoot);
               return wrapResult(result, 'mutate', 'orchestrate', 'parallel', startTime);
             },
           });
@@ -405,7 +401,7 @@ export class OrchestrateHandler implements DomainHandler {
           const instance = await instantiateTessera(
             template,
             { templateId, epicId, variables: { epicId, ...variables } },
-            this.projectRoot,
+            projectRoot,
           );
           return {
             _meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),

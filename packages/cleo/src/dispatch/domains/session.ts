@@ -41,29 +41,24 @@ import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_ba
 // ---------------------------------------------------------------------------
 
 export class SessionHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'status': {
-          const result = await sessionStatus(this.projectRoot);
+          const result = await sessionStatus(projectRoot);
           return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'list': {
           const result = await sessionList(
-            this.projectRoot,
+            projectRoot,
             params as {
               active?: boolean;
               status?: string;
@@ -89,16 +84,16 @@ export class SessionHandler implements DomainHandler {
           }
           const include = params?.include as string | undefined;
           if (include === 'debrief') {
-            const result = await sessionDebriefShow(this.projectRoot, sessionId);
+            const result = await sessionDebriefShow(projectRoot, sessionId);
             return wrapResult(result, 'query', 'session', operation, startTime);
           }
-          const result = await sessionShow(this.projectRoot, sessionId);
+          const result = await sessionShow(projectRoot, sessionId);
           return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'decision.log': {
           const result = await sessionDecisionLog(
-            this.projectRoot,
+            projectRoot,
             params as { sessionId?: string; taskId?: string },
           );
           return wrapResult(result, 'query', 'session', operation, startTime);
@@ -106,7 +101,7 @@ export class SessionHandler implements DomainHandler {
 
         case 'context.drift': {
           const result = await sessionContextDrift(
-            this.projectRoot,
+            projectRoot,
             params as { sessionId?: string },
           );
           return wrapResult(result, 'query', 'session', operation, startTime);
@@ -122,12 +117,12 @@ export class SessionHandler implements DomainHandler {
               scopeFilter = { type: 'epic', epicId: scope.replace('epic:', '') };
             }
           }
-          const result = await sessionHandoff(this.projectRoot, scopeFilter);
+          const result = await sessionHandoff(projectRoot, scopeFilter);
           return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
         case 'briefing.show': {
-          const result = await sessionBriefing(this.projectRoot, {
+          const result = await sessionBriefing(projectRoot, {
             maxNextTasks: params?.maxNextTasks as number | undefined,
             maxBugs: params?.maxBugs as number | undefined,
             maxBlocked: params?.maxBlocked as number | undefined,
@@ -139,7 +134,7 @@ export class SessionHandler implements DomainHandler {
 
         case 'find': {
           const result = await sessionFind(
-            this.projectRoot,
+            projectRoot,
             params as {
               status?: string;
               scope?: string;
@@ -167,6 +162,7 @@ export class SessionHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -183,7 +179,7 @@ export class SessionHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await sessionStart(this.projectRoot, {
+          const result = await sessionStart(projectRoot, {
             scope,
             name: params?.name as string | undefined,
             autoStart: params?.autoStart as boolean | undefined,
@@ -227,7 +223,7 @@ export class SessionHandler implements DomainHandler {
 
         case 'end': {
           // End the session first
-          const endResult = await sessionEnd(this.projectRoot, params?.note as string | undefined);
+          const endResult = await sessionEnd(projectRoot, params?.note as string | undefined);
 
           // If session ended successfully, compute and persist debrief + handoff data
           if (endResult.success && endResult.data) {
@@ -239,14 +235,14 @@ export class SessionHandler implements DomainHandler {
                 data?: import('@cleocode/core/internal').DebriefData;
               } | null = null;
               try {
-                debriefResult = await sessionComputeDebrief(this.projectRoot, sessionId, {
+                debriefResult = await sessionComputeDebrief(projectRoot, sessionId, {
                   note: params?.note as string | undefined,
                   nextAction: params?.nextAction as string | undefined,
                 });
               } catch {
                 // Debrief failure — fall back to handoff only
                 try {
-                  await sessionComputeHandoff(this.projectRoot, sessionId, {
+                  await sessionComputeHandoff(projectRoot, sessionId, {
                     note: params?.note as string | undefined,
                     nextAction: params?.nextAction as string | undefined,
                   });
@@ -259,7 +255,7 @@ export class SessionHandler implements DomainHandler {
               if (debriefResult?.success && debriefResult.data) {
                 try {
                   const { persistSessionMemory } = await import('@cleocode/core/internal');
-                  await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
+                  await persistSessionMemory(projectRoot, sessionId, debriefResult.data);
                 } catch {
                   // Memory persistence failure should not fail session end
                 }
@@ -285,7 +281,7 @@ export class SessionHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await sessionResume(this.projectRoot, sessionId);
+          const result = await sessionResume(projectRoot, sessionId);
           return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
@@ -302,7 +298,7 @@ export class SessionHandler implements DomainHandler {
             );
           }
           const result = await sessionSuspend(
-            this.projectRoot,
+            projectRoot,
             sessionId,
             params?.reason as string | undefined,
           );
@@ -311,14 +307,14 @@ export class SessionHandler implements DomainHandler {
 
         case 'gc': {
           const result = await sessionGc(
-            this.projectRoot,
+            projectRoot,
             params?.maxAgeDays as number | undefined,
           );
           return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 
         case 'record.decision': {
-          const result = await sessionRecordDecision(this.projectRoot, {
+          const result = await sessionRecordDecision(projectRoot, {
             sessionId: params?.sessionId as string,
             taskId: params?.taskId as string,
             decision: params?.decision as string,
@@ -329,7 +325,7 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'record.assumption': {
-          const result = await sessionRecordAssumption(this.projectRoot, {
+          const result = await sessionRecordAssumption(projectRoot, {
             sessionId: params?.sessionId as string | undefined,
             taskId: params?.taskId as string | undefined,
             assumption: params?.assumption as string,

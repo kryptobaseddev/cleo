@@ -386,7 +386,7 @@ function validateSessionParams(
               code: 'E_VALIDATION_FAILED',
               exitCode: 6,
               message: 'Missing required parameter: scope',
-              fix: 'Provide scope parameter (e.g., "epic:T1234")',
+              fix: 'Provide scope as "global" or "epic:TXXX"',
             },
           },
         };

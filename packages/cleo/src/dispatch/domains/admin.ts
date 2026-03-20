@@ -80,47 +80,42 @@ import { routeByParam } from './_routing.js';
 // ---------------------------------------------------------------------------
 
 export class AdminHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'version': {
-          const result = await getVersion(this.projectRoot);
+          const result = await getVersion(projectRoot);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'health': {
           const mode = params?.mode as string | undefined;
           if (mode === 'diagnose') {
-            const result = await systemDoctor(this.projectRoot);
+            const result = await systemDoctor(projectRoot);
             return wrapResult(result, 'query', 'admin', operation, startTime);
           }
           const result = systemHealth(
-            this.projectRoot,
+            projectRoot,
             params as { detailed?: boolean } | undefined,
           );
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'config.show': {
-          const result = await configGet(this.projectRoot, params?.key as string | undefined);
+          const result = await configGet(projectRoot, params?.key as string | undefined);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'stats': {
           const result = await systemStats(
-            this.projectRoot,
+            projectRoot,
             params as { period?: number } | undefined,
           );
           return wrapResult(result, 'query', 'admin', operation, startTime);
@@ -128,7 +123,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'context': {
           const result = systemContext(
-            this.projectRoot,
+            projectRoot,
             params as { session?: string } | undefined,
           );
           return wrapResult(result, 'query', 'admin', operation, startTime);
@@ -136,7 +131,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'runtime': {
           const result = await systemRuntime(
-            this.projectRoot,
+            projectRoot,
             params as { detailed?: boolean } | undefined,
           );
           return wrapResult(result, 'query', 'admin', operation, startTime);
@@ -234,13 +229,13 @@ export class AdminHandler implements DomainHandler {
         case 'dash': {
           const blockedTasksLimit =
             typeof params?.blockedTasksLimit === 'number' ? params.blockedTasksLimit : undefined;
-          const result = await systemDash(this.projectRoot, { blockedTasksLimit });
+          const result = await systemDash(projectRoot, { blockedTasksLimit });
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'log': {
           const result = await systemLog(
-            this.projectRoot,
+            projectRoot,
             params as
               | {
                   operation?: string;
@@ -267,7 +262,7 @@ export class AdminHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await systemSequence(this.projectRoot, {
+          const result = await systemSequence(projectRoot, {
             action: action as 'show' | 'check' | undefined,
           });
           return wrapResult(result, 'query', 'admin', operation, startTime);
@@ -288,7 +283,7 @@ export class AdminHandler implements DomainHandler {
         case 'adr.find': {
           const query = params?.query as string | undefined;
           if (query) {
-            const result = await findAdrs(this.projectRoot, query, {
+            const result = await findAdrs(projectRoot, query, {
               topics: params?.topics as string | undefined,
               keywords: params?.keywords as string | undefined,
               status: params?.status as string | undefined,
@@ -301,7 +296,7 @@ export class AdminHandler implements DomainHandler {
           }
           // No query — list all ADRs
           const { limit, offset } = getListParams(params);
-          const result = await listAdrs(this.projectRoot, {
+          const result = await listAdrs(projectRoot, {
             status: params?.status as string | undefined,
             since: params?.since as string | undefined,
             limit,
@@ -327,7 +322,7 @@ export class AdminHandler implements DomainHandler {
               startTime,
             );
           }
-          const adr = await showAdr(this.projectRoot, adrId);
+          const adr = await showAdr(projectRoot, adrId);
           if (!adr) {
             return errorResult(
               'query',
@@ -383,7 +378,7 @@ export class AdminHandler implements DomainHandler {
                     since: params?.since as string | undefined,
                     until: params?.until as string | undefined,
                   },
-                  this.projectRoot,
+                  projectRoot,
                 );
                 return {
                   _meta: dispatchMeta('query', 'admin', operation, startTime),
@@ -426,7 +421,7 @@ export class AdminHandler implements DomainHandler {
                     limit,
                     offset,
                   },
-                  this.projectRoot,
+                  projectRoot,
                 );
                 return {
                   _meta: dispatchMeta('query', 'admin', operation, startTime),
@@ -451,7 +446,7 @@ export class AdminHandler implements DomainHandler {
                     startTime,
                   );
                 }
-                const result = await showTokenUsage(tokenId, this.projectRoot);
+                const result = await showTokenUsage(tokenId, projectRoot);
                 if (!result) {
                   return errorResult(
                     'query',
@@ -477,9 +472,9 @@ export class AdminHandler implements DomainHandler {
         case 'export': {
           const scope = params?.scope as string | undefined;
           if (scope === 'snapshot') {
-            const snapshot = await exportSnapshot(this.projectRoot);
+            const snapshot = await exportSnapshot(projectRoot);
             const outputPath =
-              (params?.output as string) ?? getDefaultSnapshotPath(this.projectRoot);
+              (params?.output as string) ?? getDefaultSnapshotPath(projectRoot);
             await writeSnapshot(snapshot, outputPath);
             return {
               _meta: dispatchMeta('query', 'admin', operation, startTime),
@@ -500,7 +495,7 @@ export class AdminHandler implements DomainHandler {
               filter: params?.filter as string[] | undefined,
               includeDeps: params?.includeDeps as boolean | undefined,
               dryRun: params?.dryRun as boolean | undefined,
-              cwd: this.projectRoot,
+              cwd: projectRoot,
             });
             return {
               _meta: dispatchMeta('query', 'admin', operation, startTime),
@@ -515,7 +510,7 @@ export class AdminHandler implements DomainHandler {
             status: params?.status as string | undefined,
             parent: params?.parent as string | undefined,
             phase: params?.phase as string | undefined,
-            cwd: this.projectRoot,
+            cwd: projectRoot,
           });
           return {
             _meta: dispatchMeta('query', 'admin', operation, startTime),
@@ -526,7 +521,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'map': {
           const { mapCodebase } = await import('../engines/codebase-map-engine.js');
-          const result = await mapCodebase(this.projectRoot, {
+          const result = await mapCodebase(projectRoot, {
             focus: params?.focus as string | undefined,
             storeToBrain: false,
           });
@@ -550,13 +545,14 @@ export class AdminHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'init': {
           const result = await initProject(
-            this.projectRoot,
+            projectRoot,
             params as { projectName?: string; force?: boolean } | undefined,
           );
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
@@ -566,11 +562,11 @@ export class AdminHandler implements DomainHandler {
         case 'health': {
           const mode = params?.mode as string | undefined;
           if (mode === 'diagnose') {
-            const result = await systemDoctor(this.projectRoot);
+            const result = await systemDoctor(projectRoot);
             return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
           // Default: repair mode
-          const result = await systemFix(this.projectRoot);
+          const result = await systemFix(projectRoot);
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -586,7 +582,7 @@ export class AdminHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await configSet(this.projectRoot, key, params?.value);
+          const result = await configSet(projectRoot, key, params?.value);
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -605,7 +601,7 @@ export class AdminHandler implements DomainHandler {
                 startTime,
               );
             }
-            const result = systemRestore(this.projectRoot, {
+            const result = systemRestore(projectRoot, {
               backupId,
               force: params?.force as boolean | undefined,
             });
@@ -623,14 +619,14 @@ export class AdminHandler implements DomainHandler {
                 startTime,
               );
             }
-            const result = await backupRestore(this.projectRoot, file, {
+            const result = await backupRestore(projectRoot, file, {
               dryRun: params?.dryRun as boolean | undefined,
             });
             return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
           // Default: create backup
           const result = systemBackup(
-            this.projectRoot,
+            projectRoot,
             params as { type?: string; note?: string } | undefined,
           );
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
@@ -638,7 +634,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'migrate': {
           const result = await systemMigrate(
-            this.projectRoot,
+            projectRoot,
             params as { target?: string; dryRun?: boolean } | undefined,
           );
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
@@ -656,7 +652,7 @@ export class AdminHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await systemCleanup(this.projectRoot, {
+          const result = await systemCleanup(projectRoot, {
             target,
             olderThan: params?.olderThan as string | undefined,
             dryRun: params?.dryRun as boolean | undefined,
@@ -710,7 +706,7 @@ export class AdminHandler implements DomainHandler {
 
         case 'safestop': {
           const result = systemSafestop(
-            this.projectRoot,
+            projectRoot,
             params as
               | {
                   reason?: string;
@@ -725,7 +721,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'inject.generate': {
-          const result = await systemInjectGenerate(this.projectRoot);
+          const result = await systemInjectGenerate(projectRoot);
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -733,7 +729,7 @@ export class AdminHandler implements DomainHandler {
         case 'adr.sync': {
           const validate = params?.validate as boolean | undefined;
           if (validate) {
-            const result = await validateAllAdrs(this.projectRoot);
+            const result = await validateAllAdrs(projectRoot);
             return {
               _meta: dispatchMeta('mutate', 'admin', operation, startTime),
               success: result.valid,
@@ -748,7 +744,7 @@ export class AdminHandler implements DomainHandler {
                   }),
             };
           }
-          const result = await syncAdrsToDb(this.projectRoot);
+          const result = await syncAdrsToDb(projectRoot);
           return {
             _meta: dispatchMeta('mutate', 'admin', operation, startTime),
             success: true,
@@ -784,7 +780,7 @@ export class AdminHandler implements DomainHandler {
                 },
               };
             }
-            const result = await importSnapshot(snapshot, this.projectRoot);
+            const result = await importSnapshot(snapshot, projectRoot);
             return {
               _meta: dispatchMeta('mutate', 'admin', operation, startTime),
               success: true,
@@ -825,7 +821,7 @@ export class AdminHandler implements DomainHandler {
                 | undefined,
               onMissingDep: params?.onMissingDep as 'strip' | 'placeholder' | 'fail' | undefined,
               force: params?.force as boolean | undefined,
-              cwd: this.projectRoot,
+              cwd: projectRoot,
             });
             return {
               _meta: dispatchMeta('mutate', 'admin', operation, startTime),
@@ -852,7 +848,7 @@ export class AdminHandler implements DomainHandler {
             onDuplicate: params?.onDuplicate as 'skip' | 'overwrite' | 'rename' | undefined,
             addLabel: params?.addLabel as string | undefined,
             dryRun: params?.dryRun as boolean | undefined,
-            cwd: this.projectRoot,
+            cwd: projectRoot,
           });
           return {
             _meta: dispatchMeta('mutate', 'admin', operation, startTime),
@@ -865,8 +861,8 @@ export class AdminHandler implements DomainHandler {
           const { ensureProjectContext, ensureContributorMcp } = await import(
             '@cleocode/core/internal'
           );
-          const contextResult = await ensureProjectContext(this.projectRoot, { force: true });
-          const mcpResult = await ensureContributorMcp(this.projectRoot);
+          const contextResult = await ensureProjectContext(projectRoot, { force: true });
+          const mcpResult = await ensureContributorMcp(projectRoot);
           return wrapResult(
             {
               success: true,
@@ -905,7 +901,7 @@ export class AdminHandler implements DomainHandler {
                   requestPayload: params?.requestPayload,
                   responsePayload: params?.responsePayload,
                   metadata: params?.metadata as Record<string, unknown> | undefined,
-                  cwd: this.projectRoot,
+                  cwd: projectRoot,
                 });
                 return {
                   _meta: dispatchMeta('mutate', 'admin', operation, startTime),
@@ -925,7 +921,7 @@ export class AdminHandler implements DomainHandler {
                     startTime,
                   );
                 }
-                const result = await deleteTokenUsage(tokenId, this.projectRoot);
+                const result = await deleteTokenUsage(tokenId, projectRoot);
                 return {
                   _meta: dispatchMeta('mutate', 'admin', operation, startTime),
                   success: true,
@@ -964,7 +960,7 @@ export class AdminHandler implements DomainHandler {
                     since: params?.since as string | undefined,
                     until: params?.until as string | undefined,
                   },
-                  this.projectRoot,
+                  projectRoot,
                 );
                 return {
                   _meta: dispatchMeta('mutate', 'admin', operation, startTime),
@@ -996,14 +992,14 @@ export class AdminHandler implements DomainHandler {
               taskId: params?.taskId as string | undefined,
               variant: params?.variant as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         case 'map': {
           const { mapCodebase } = await import('../engines/codebase-map-engine.js');
-          const result = await mapCodebase(this.projectRoot, {
+          const result = await mapCodebase(projectRoot, {
             focus: params?.focus as string | undefined,
             storeToBrain: true,
           });

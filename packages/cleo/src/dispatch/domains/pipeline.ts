@@ -71,10 +71,8 @@ import { dispatchMeta } from './_meta.js';
 // ---------------------------------------------------------------------------
 
 export class PipelineHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
+  private get projectRoot(): string {
+    return getProjectRoot();
   }
 
   // -----------------------------------------------------------------------

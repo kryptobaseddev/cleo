@@ -63,10 +63,8 @@ import { routeByParam } from './_routing.js';
 // ---------------------------------------------------------------------------
 
 export class ToolsHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
+  private get projectRoot(): string {
+    return getProjectRoot();
   }
 
   // -----------------------------------------------------------------------

@@ -3,44 +3,16 @@ import {
   getOperationsByChannel,
   getPreferredChannel,
   getRoutingForDomain,
-  ROUTING_TABLE,
 } from '../routing-table.js';
 
 describe('routing-table', () => {
-  describe('ROUTING_TABLE structure', () => {
-    it('has entries for all 10 canonical domains', () => {
-      const domains = new Set(ROUTING_TABLE.map((e) => e.domain));
-      expect(domains.has('memory')).toBe(true);
-      expect(domains.has('tasks')).toBe(true);
-      expect(domains.has('session')).toBe(true);
-      expect(domains.has('admin')).toBe(true);
-      expect(domains.has('tools')).toBe(true);
-      expect(domains.has('check')).toBe(true);
-      expect(domains.has('pipeline')).toBe(true);
-      expect(domains.has('orchestrate')).toBe(true);
-      expect(domains.has('nexus')).toBe(true);
-      expect(domains.has('sticky')).toBe(true);
+  describe('getPreferredChannel (via capability matrix)', () => {
+    it('returns mcp for memory.find', () => {
+      expect(getPreferredChannel('memory', 'find')).toBe('mcp');
     });
 
-    it('every entry has required fields', () => {
-      for (const entry of ROUTING_TABLE) {
-        expect(entry.domain).toBeTruthy();
-        expect(entry.operation).toBeTruthy();
-        expect(['mcp', 'cli', 'either']).toContain(entry.preferredChannel);
-        expect(entry.reason).toBeTruthy();
-      }
-    });
-
-    it('has no duplicate domain+operation pairs', () => {
-      const keys = ROUTING_TABLE.map((e) => `${e.domain}.${e.operation}`);
-      const unique = new Set(keys);
-      expect(unique.size).toBe(keys.length);
-    });
-  });
-
-  describe('getPreferredChannel', () => {
-    it('returns mcp for memory.brain.search', () => {
-      expect(getPreferredChannel('memory', 'brain.search')).toBe('mcp');
+    it('returns mcp for memory.fetch', () => {
+      expect(getPreferredChannel('memory', 'fetch')).toBe('mcp');
     });
 
     it('returns cli for pipeline.release.ship', () => {
@@ -54,13 +26,46 @@ describe('routing-table', () => {
     it('returns either for unknown operations', () => {
       expect(getPreferredChannel('nonexistent', 'op')).toBe('either');
     });
+
+    it('returns mcp for tasks.show', () => {
+      expect(getPreferredChannel('tasks', 'show')).toBe('mcp');
+    });
+
+    it('returns mcp for session.status', () => {
+      expect(getPreferredChannel('session', 'status')).toBe('mcp');
+    });
+
+    it('returns mcp for admin.dash', () => {
+      expect(getPreferredChannel('admin', 'dash')).toBe('mcp');
+    });
   });
 
   describe('getRoutingForDomain', () => {
+    it('returns entries covering all 10 canonical domains', () => {
+      const domains = [
+        'memory', 'tasks', 'session', 'admin', 'tools',
+        'check', 'pipeline', 'orchestrate', 'nexus', 'sticky',
+      ];
+      for (const domain of domains) {
+        const entries = getRoutingForDomain(domain);
+        expect(entries.length).toBeGreaterThan(0);
+        expect(entries.every((e) => e.domain === domain)).toBe(true);
+      }
+    });
+
     it('returns all memory domain entries', () => {
       const entries = getRoutingForDomain('memory');
       expect(entries.length).toBeGreaterThan(0);
       expect(entries.every((e) => e.domain === 'memory')).toBe(true);
+    });
+
+    it('every entry has required fields with valid channel', () => {
+      const entries = getRoutingForDomain('tasks');
+      for (const entry of entries) {
+        expect(entry.domain).toBeTruthy();
+        expect(entry.operation).toBeTruthy();
+        expect(['mcp', 'cli', 'either']).toContain(entry.preferredChannel);
+      }
     });
 
     it('returns empty array for unknown domain', () => {
@@ -85,6 +90,13 @@ describe('routing-table', () => {
       const mcpCount = getOperationsByChannel('mcp').length;
       const cliCount = getOperationsByChannel('cli').length;
       expect(mcpCount).toBeGreaterThan(cliCount);
+    });
+
+    it('has no duplicate domain+operation pairs within a channel', () => {
+      const mcpOps = getOperationsByChannel('mcp');
+      const keys = mcpOps.map((e) => `${e.domain}.${e.operation}`);
+      const unique = new Set(keys);
+      expect(unique.size).toBe(keys.length);
     });
   });
 });

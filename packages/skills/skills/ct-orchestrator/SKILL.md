@@ -89,7 +89,13 @@ This separation means the orchestrator protocol works identically regardless of 
 
 **CRITICAL**: Start EVERY orchestrator conversation with this protocol. Never assume state.
 
-### Quick Start — MCP (Recommended)
+### Quick Start — CLI (Recommended)
+
+```bash
+cleo orchestrator start --epic T1575
+```
+
+### Quick Start — MCP (Alternative)
 
 ```
 mutate({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
@@ -97,22 +103,16 @@ mutate({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }}
 
 **Returns**: Session state, context budget, next task, pipeline stage, and recommended action in one call.
 
-### Quick Start — CLI (Fallback)
-
-```bash
-cleo orchestrator start --epic T1575
-```
-
 ### Manual Startup
 
 ```
 # 1. Check for existing work
 query({ domain: "session", operation: "list" })
-query({ domain: "research", operation: "pending" })
+query({ domain: "pipeline", operation: "manifest.list", params: { filter: "pending" } })
 query({ domain: "session", operation: "status" })
 
 # 2. Get epic overview and pipeline state
-query({ domain: "system", operation: "dash" })
+query({ domain: "admin", operation: "dash" })
 query({ domain: "pipeline", operation: "stage.status", params: { epicId: "T1575" }})
 
 # 3. Resume or start
@@ -134,14 +134,14 @@ mutate({ domain: "session", operation: "start",
 
 ### Session Commands Quick Reference
 
-| MCP (Primary) | CLI (Fallback) | Purpose |
+| CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `query({ domain: "session", operation: "list" })` | `cleo session list` | Show all sessions |
-| `mutate({ domain: "session", operation: "resume", params: { sessionId } })` | `cleo session resume <id>` | Continue existing |
-| `mutate({ domain: "session", operation: "start", params: { scope, name, autoStart } })` | `cleo session start --scope epic:T1575 --auto-start` | Begin new |
-| `mutate({ domain: "session", operation: "end", params: { note } })` | `cleo session end` | Close session |
-| `query({ domain: "session", operation: "status" })` | `cleo current` | Current task |
-| `mutate({ domain: "tasks", operation: "start", params: { taskId } })` | `cleo start T1586` | Start working on task |
+| `cleo session list` | `query({ domain: "session", operation: "list" })` | Show all sessions |
+| `cleo session resume <id>` | `mutate({ domain: "session", operation: "resume", params: { sessionId } })` | Continue existing |
+| `cleo session start --scope epic:T1575 --auto-start` | `mutate({ domain: "session", operation: "start", params: { scope, name, autoStart } })` | Begin new |
+| `cleo session end` | `mutate({ domain: "session", operation: "end", params: { note } })` | Close session |
+| `cleo current` | `query({ domain: "session", operation: "status" })` | Current task |
+| `cleo start T1586` | `mutate({ domain: "tasks", operation: "start", params: { taskId } })` | Start working on task |
 
 ## Skill Dispatch (Universal Subagent Architecture)
 
@@ -173,7 +173,13 @@ Gate check: epic tasks must complete prior RCASD-IVTR+C stages before later stag
 
 **All spawns follow this pattern:**
 
-### MCP (Primary)
+### CLI (Primary)
+
+```bash
+cleo orchestrator spawn T1586 --json
+```
+
+### MCP (Fallback)
 
 ```
 # 1. Check pipeline stage is appropriate for this task type
@@ -185,12 +191,6 @@ mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1586" }}
 # 3. Delegate via the provider's native mechanism
 #    orchestrate.spawn returns a fully-resolved prompt
 #    The provider adapter decides HOW to execute it
-```
-
-### CLI (Fallback)
-
-```bash
-cleo orchestrator spawn T1586 --json
 ```
 
 The spawn prompt combines the **Base Protocol** (`agents/cleo-subagent/AGENT.md`) with a **Conditional Protocol** (`src/protocols/*.md`). All `{{TOKEN}}` placeholders are resolved before injection.
@@ -205,7 +205,7 @@ The spawn prompt combines the **Base Protocol** (`agents/cleo-subagent/AGENT.md`
 
 ```
 mutate({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
-query({ domain: "research", operation: "pending" })
+query({ domain: "pipeline", operation: "manifest.list", params: { filter: "pending" } })
 query({ domain: "pipeline", operation: "stage.status", params: { epicId: "T1575" }})
 ```
 
@@ -232,7 +232,7 @@ Spawn subagent via `orchestrate.spawn`. The provider's adapter handles execution
 ### Phase 4: Verification & Pipeline Advancement
 
 ```
-query({ domain: "system", operation: "context" })
+query({ domain: "admin", operation: "context" })
 mutate({ domain: "pipeline", operation: "stage.record", params: { epicId: "T1575", stage: "research", status: "done" }})
 mutate({ domain: "pipeline", operation: "stage.gate.pass", params: { epicId: "T1575", stage: "research" }})
 ```
@@ -243,41 +243,41 @@ Verify all subagent outputs in manifest. Update CLEO task status. Record pipelin
 
 ### Discovery & Status
 
-| MCP (Primary) | CLI (Fallback) | Purpose |
+| CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `query({ domain: "tasks", operation: "find", params: { query } })` | `cleo find "query"` | Fuzzy search |
-| `query({ domain: "tasks", operation: "show", params: { taskId } })` | `cleo show T1234` | Full task details |
-| `query({ domain: "system", operation: "dash" })` | `cleo dash --compact` | Project overview |
-| `query({ domain: "orchestrate", operation: "ready", params: { epicId } })` | `cleo orchestrator ready --epic T1575` | Parallel-safe tasks |
-| `query({ domain: "orchestrate", operation: "next", params: { epicId } })` | `cleo orchestrator next --epic T1575` | Suggest next task |
+| `cleo find "query"` | `query({ domain: "tasks", operation: "find", params: { query } })` | Fuzzy search |
+| `cleo show T1234` | `query({ domain: "tasks", operation: "show", params: { taskId } })` | Full task details |
+| `cleo dash --compact` | `query({ domain: "admin", operation: "dash" })` | Project overview |
+| `cleo orchestrator ready --epic T1575` | `query({ domain: "orchestrate", operation: "ready", params: { epicId } })` | Parallel-safe tasks |
+| `cleo orchestrator next --epic T1575` | `query({ domain: "orchestrate", operation: "next", params: { epicId } })` | Suggest next task |
 
 ### Task Coordination
 
-| MCP (Primary) | CLI (Fallback) | Purpose |
+| CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `mutate({ domain: "tasks", operation: "add", params: { title, parent } })` | `cleo add "Task" --parent T1575` | Create child task |
-| `mutate({ domain: "tasks", operation: "start", params: { taskId } })` | `cleo start T1586` | Start working on task |
-| `mutate({ domain: "tasks", operation: "complete", params: { taskId } })` | `cleo complete T1586` | Mark task done |
+| `cleo add "Task" --parent T1575` | `mutate({ domain: "tasks", operation: "add", params: { title, parent } })` | Create child task |
+| `cleo start T1586` | `mutate({ domain: "tasks", operation: "start", params: { taskId } })` | Start working on task |
+| `cleo complete T1586` | `mutate({ domain: "tasks", operation: "complete", params: { taskId } })` | Mark task done |
 
 ### Manifest & Research
 
-| MCP (Primary) | CLI (Fallback) | Purpose |
+| CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `query({ domain: "research", operation: "list" })` | `cleo research list` | List entries |
-| `query({ domain: "research", operation: "show", params: { entryId } })` | `cleo research show <id>` | Entry summary (~500 tokens) |
-| `query({ domain: "research", operation: "pending" })` | `cleo research pending` | Followup items |
-| `mutate({ domain: "research", operation: "link", params: { taskId, entryId } })` | `cleo research link T1586 <id>` | Link research to task |
+| `cleo manifest list` | `query({ domain: "pipeline", operation: "manifest.list" })` | List entries |
+| `cleo manifest show <id>` | `query({ domain: "pipeline", operation: "manifest.show", params: { entryId } })` | Entry summary (~500 tokens) |
+| `cleo manifest list --filter pending` | `query({ domain: "pipeline", operation: "manifest.list", params: { filter: "pending" } })` | Followup items |
+| `cleo memory link T1586 <id>` | `mutate({ domain: "memory", operation: "link", params: { taskId, entryId } })` | Link research to task |
 
 ### Pipeline Operations
 
-| MCP (Primary) | CLI (Fallback) | Purpose |
+| CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `query({ domain: "pipeline", operation: "stage.status", params: { epicId } })` | `cleo pipeline status --epic T1575` | Current pipeline stage |
-| `mutate({ domain: "pipeline", operation: "stage.record", params: { epicId, stage, status } })` | `cleo pipeline record T1575 research done` | Record stage progress |
-| `query({ domain: "pipeline", operation: "stage.validate", params: { epicId, stage } })` | `cleo pipeline validate T1575 implementation` | Check gate before spawn |
-| `mutate({ domain: "pipeline", operation: "stage.gate.pass", params: { epicId, stage } })` | `cleo pipeline gate-pass T1575 research` | Advance pipeline stage |
+| `cleo pipeline status --epic T1575` | `query({ domain: "pipeline", operation: "stage.status", params: { epicId } })` | Current pipeline stage |
+| `cleo pipeline record T1575 research done` | `mutate({ domain: "pipeline", operation: "stage.record", params: { epicId, stage, status } })` | Record stage progress |
+| `cleo pipeline validate T1575 implementation` | `query({ domain: "pipeline", operation: "stage.validate", params: { epicId, stage } })` | Check gate before spawn |
+| `cleo pipeline gate-pass T1575 research` | `mutate({ domain: "pipeline", operation: "stage.gate.pass", params: { epicId, stage } })` | Advance pipeline stage |
 
-**Context Budget Rule**: Stay under 10K tokens. Use `cleo research list` over reading full files.
+**Context Budget Rule**: Stay under 10K tokens. Use `cleo manifest list` over reading full files.
 
 ## Handoff Chain Protocol
 
@@ -292,8 +292,8 @@ Content flows between subagents via **manifest-mediated handoffs**, not through 
 | Pattern | When to Use | Key Operations |
 |---------|-------------|----------------|
 | Starting Fresh Epic | New feature work | `tasks.add`, `session.start`, `pipeline.stage.record`, `orchestrate.spawn` |
-| Resuming Interrupted Work | New conversation | `orchestrate.start`, `pipeline.stage.status`, `research.pending` |
-| Handling Manifest Followups | Subagent left TODOs | `research.pending`, `tasks.add` |
+| Resuming Interrupted Work | New conversation | `orchestrate.start`, `pipeline.stage.status`, `pipeline.manifest.list` |
+| Handling Manifest Followups | Subagent left TODOs | `pipeline.manifest.list`, `tasks.add` |
 | Parallel Execution | Independent tasks in same wave | `orchestrate.analyze`, `orchestrate.ready` |
 | Pipeline-Aware Orchestration | Multi-stage epics | `pipeline.stage.status`, `pipeline.stage.validate`, `pipeline.stage.gate.pass` |
 | Quality Gates | Verification required | `check.schema`, `pipeline.stage.validate` |

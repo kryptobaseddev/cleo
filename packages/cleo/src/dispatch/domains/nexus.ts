@@ -51,17 +51,12 @@ import { dispatchMeta } from './_meta.js';
 // ---------------------------------------------------------------------------
 
 export class NexusHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -221,7 +216,7 @@ export class NexusHandler implements DomainHandler {
         }
 
         case 'share.status': {
-          const result = await nexusShareStatus(this.projectRoot);
+          const result = await nexusShareStatus(projectRoot);
           return wrapResult(result, 'query', 'nexus', 'share.status', startTime);
         }
 
@@ -266,6 +261,7 @@ export class NexusHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -362,7 +358,7 @@ export class NexusHandler implements DomainHandler {
 
         case 'share.snapshot.export': {
           const outputPath = params?.outputPath as string | undefined;
-          const result = await nexusShareSnapshotExport(this.projectRoot, outputPath);
+          const result = await nexusShareSnapshotExport(projectRoot, outputPath);
           return wrapResult(result, 'mutate', 'nexus', 'share.snapshot.export', startTime);
         }
 
@@ -378,7 +374,7 @@ export class NexusHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await nexusShareSnapshotImport(this.projectRoot, inputPath);
+          const result = await nexusShareSnapshotImport(projectRoot, inputPath);
           return wrapResult(result, 'mutate', 'nexus', 'share.snapshot.import', startTime);
         }
 

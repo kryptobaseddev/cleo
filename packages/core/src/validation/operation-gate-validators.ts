@@ -326,7 +326,7 @@ export async function validateLayer2Semantic(context: OperationContext): Promise
   // Session scope validation
   if (context.domain === 'session' && context.operation === 'start') {
     const scope = context.params?.scope as string | undefined;
-    if (scope && !scope.match(/^(epic|task|global):/)) {
+    if (scope && scope !== 'global' && !scope.match(/^(epic|task):/)) {
       violations.push({
         layer: GateLayer.SEMANTIC,
         severity: ErrorSeverity.ERROR,
@@ -334,7 +334,7 @@ export async function validateLayer2Semantic(context: OperationContext): Promise
         message: `Invalid session scope format: ${scope}`,
         field: 'scope',
         constraint: 'Must be epic:<id>, task:<id>, or global',
-        fix: 'Use format: epic:T1234, task:T5678, or global',
+        fix: 'Provide scope as "global" or "epic:TXXX"',
       });
     }
   }

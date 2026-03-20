@@ -48,17 +48,12 @@ import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_ba
 // ---------------------------------------------------------------------------
 
 export class MemoryHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -83,7 +78,7 @@ export class MemoryHandler implements DomainHandler {
               dateStart: params?.dateStart as string | undefined,
               dateEnd: params?.dateEnd as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -106,7 +101,7 @@ export class MemoryHandler implements DomainHandler {
               depthBefore: params?.depthBefore as number | undefined,
               depthAfter: params?.depthAfter as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -123,7 +118,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await memoryFetch({ ids }, this.projectRoot);
+          const result = await memoryFetch({ ids }, projectRoot);
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -134,7 +129,7 @@ export class MemoryHandler implements DomainHandler {
               taskId: params?.taskId as string | undefined,
               limit: params?.limit as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -148,7 +143,7 @@ export class MemoryHandler implements DomainHandler {
               minFrequency: params?.minFrequency as number | undefined,
               limit: params?.limit as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -162,7 +157,7 @@ export class MemoryHandler implements DomainHandler {
               applicableType: params?.applicableType as string | undefined,
               limit: params?.limit as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -179,7 +174,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await memoryGraphShow({ nodeId }, this.projectRoot);
+          const result = await memoryGraphShow({ nodeId }, projectRoot);
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -197,7 +192,7 @@ export class MemoryHandler implements DomainHandler {
           }
           const result = await memoryGraphNeighbors(
             { nodeId, edgeType: params?.edgeType as string | undefined },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -214,7 +209,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await memoryReasonWhy({ taskId }, this.projectRoot);
+          const result = await memoryReasonWhy({ taskId }, projectRoot);
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -232,7 +227,7 @@ export class MemoryHandler implements DomainHandler {
           }
           const result = await memoryReasonSimilar(
             { entryId, limit: params?.limit as number | undefined },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -257,7 +252,7 @@ export class MemoryHandler implements DomainHandler {
               graphWeight: params?.graphWeight as number | undefined,
               limit: params?.limit as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
@@ -280,6 +275,7 @@ export class MemoryHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -305,7 +301,7 @@ export class MemoryHandler implements DomainHandler {
               sourceSessionId: params?.sourceSessionId as string | undefined,
               sourceType: params?.sourceType as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
@@ -331,7 +327,7 @@ export class MemoryHandler implements DomainHandler {
               taskId: params?.taskId as string | undefined,
               sessionId: params?.sessionId as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
@@ -361,7 +357,7 @@ export class MemoryHandler implements DomainHandler {
               examples: params?.examples as string[] | undefined,
               successRate: params?.successRate as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
@@ -388,7 +384,7 @@ export class MemoryHandler implements DomainHandler {
               application: params?.application as string | undefined,
               applicableTypes: params?.applicableTypes as string[] | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
@@ -406,7 +402,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await memoryLink({ taskId, entryId }, this.projectRoot);
+          const result = await memoryLink({ taskId, entryId }, projectRoot);
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
@@ -422,7 +418,7 @@ export class MemoryHandler implements DomainHandler {
               edgeType: params?.edgeType as string | undefined,
               weight: params?.weight as number | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
@@ -435,7 +431,7 @@ export class MemoryHandler implements DomainHandler {
               toId: params?.toId as string | undefined,
               edgeType: params?.edgeType as string | undefined,
             },
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }

@@ -9,9 +9,9 @@ CLEO is the task management protocol for AI coding agents. It provides structure
 
 **Operation set**: 164 operations (97 query + 67 mutate) across 10 canonical domains.
 
-## MCP-First Workflow
+## CLI-First Workflow
 
-MCP is the **primary** entry point. Use `query` for reads and `mutate` for writes.
+CLI (`cleo` / `ct`) is the **primary** entry point. MCP (`query` / `mutate`) is the fallback when CLI is unavailable.
 
 ### Tier-0 Read Operations (`query`) — Always Available
 
@@ -303,9 +303,9 @@ I need system or configuration info
 
 ---
 
-## CLI Fallback
+## CLI Reference (Primary)
 
-When MCP tools are unavailable, use `ct` (alias for `cleo`).
+Use `ct` (alias for `cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallback when CLI is unavailable.
 
 ```bash
 ct find "query"            # Search (99% less context than list)
@@ -414,7 +414,7 @@ ct complete <id>
 ct session end
 ```
 
-### MCP Session Operations
+### MCP Session Operations (Fallback)
 
 ```javascript
 query({ domain: "session", operation: "status" })

@@ -60,28 +60,23 @@ import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_ba
 // ---------------------------------------------------------------------------
 
 export class TasksHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'show': {
-          const result = await taskShow(this.projectRoot, params!.taskId as string);
+          const result = await taskShow(projectRoot, params!.taskId as string);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'list': {
-          const result = await taskList(this.projectRoot, {
+          const result = await taskList(projectRoot, {
             parent: params?.parent as string | undefined,
             status: params?.status as string | undefined,
             priority: params?.priority as string | undefined,
@@ -98,7 +93,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'find': {
           const result = await taskFind(
-            this.projectRoot,
+            projectRoot,
             params?.query as string,
             params?.limit as number | undefined,
             {
@@ -114,13 +109,13 @@ export class TasksHandler implements DomainHandler {
 
         case 'tree': {
           const taskId = params?.taskId as string | undefined;
-          const result = await taskTree(this.projectRoot, taskId);
+          const result = await taskTree(projectRoot, taskId);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'blockers': {
           const result = await taskBlockers(
-            this.projectRoot,
+            projectRoot,
             params as { analyze?: boolean; limit?: number },
           );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
@@ -130,11 +125,11 @@ export class TasksHandler implements DomainHandler {
           // Action-based routing for overview/cycles (T5157)
           const action = params?.action as string | undefined;
           if (action === 'overview') {
-            const result = await taskDepsOverview(this.projectRoot);
+            const result = await taskDepsOverview(projectRoot);
             return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           if (action === 'cycles') {
-            const result = await taskDepsCycles(this.projectRoot);
+            const result = await taskDepsCycles(projectRoot);
             return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
           // Default: single-task dependency query requires taskId
@@ -151,27 +146,27 @@ export class TasksHandler implements DomainHandler {
           }
           const direction = params?.direction as 'upstream' | 'downstream' | 'both' | undefined;
           const tree = params?.tree as boolean | undefined;
-          const result = await taskDepends(this.projectRoot, taskId, direction, tree);
+          const result = await taskDepends(projectRoot, taskId, direction, tree);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'analyze': {
           const taskId = params?.taskId as string | undefined;
           const tierLimit = params?.tierLimit as number | undefined;
-          const result = await taskAnalyze(this.projectRoot, taskId, { tierLimit });
+          const result = await taskAnalyze(projectRoot, taskId, { tierLimit });
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'next': {
           const result = await taskNext(
-            this.projectRoot,
+            projectRoot,
             params as { count?: number; explain?: boolean },
           );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'plan': {
-          const result = await taskPlan(this.projectRoot);
+          const result = await taskPlan(projectRoot);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -179,46 +174,46 @@ export class TasksHandler implements DomainHandler {
           const taskId = params!.taskId as string;
           // Consolidated: mode param routes to relates.find logic (T5615/T5671)
           if (params?.mode) {
-            const result = await taskRelatesFind(this.projectRoot, taskId, {
+            const result = await taskRelatesFind(projectRoot, taskId, {
               mode: params.mode as 'suggest' | 'discover',
               threshold: params?.threshold ? Number(params.threshold) : undefined,
             });
             return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
-          const result = await taskRelates(this.projectRoot, taskId);
+          const result = await taskRelates(projectRoot, taskId);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'complexity.estimate': {
-          const result = await taskComplexityEstimate(this.projectRoot, {
+          const result = await taskComplexityEstimate(projectRoot, {
             taskId: params!.taskId as string,
           });
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'current': {
-          const result = await taskCurrentGet(this.projectRoot);
+          const result = await taskCurrentGet(projectRoot);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'history': {
           const taskId = params?.taskId as string;
           if (taskId) {
-            const result = await taskHistory(this.projectRoot, taskId, params?.limit as number);
+            const result = await taskHistory(projectRoot, taskId, params?.limit as number);
             return wrapResult(result, 'query', 'tasks', operation, startTime);
           }
-          const result = await taskWorkHistory(this.projectRoot);
+          const result = await taskWorkHistory(projectRoot);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'label.list': {
-          const result = await taskLabelList(this.projectRoot);
+          const result = await taskLabelList(projectRoot);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'sync.links': {
           const result = await taskSyncLinks(
-            this.projectRoot,
+            projectRoot,
             params as { providerId?: string; taskId?: string } | undefined,
           );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
@@ -241,12 +236,13 @@ export class TasksHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'add': {
-          const result = await taskCreate(this.projectRoot, {
+          const result = await taskCreate(projectRoot, {
             title: params!.title as string,
             description: (params?.description as string) ?? (params!.title as string),
             parent: (params?.parent ?? params?.parentId) as string | undefined,
@@ -259,7 +255,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'update': {
-          const result = await taskUpdate(this.projectRoot, params!.taskId as string, {
+          const result = await taskUpdate(projectRoot, params!.taskId as string, {
             title: params?.title as string | undefined,
             description: params?.description as string | undefined,
             status: params?.status as string | undefined,
@@ -281,7 +277,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'complete': {
           const result = await taskComplete(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             params?.notes as string | undefined,
           );
@@ -290,7 +286,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'delete': {
           const result = await taskDelete(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             params?.force as boolean | undefined,
           );
@@ -299,7 +295,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'archive': {
           const result = await taskArchive(
-            this.projectRoot,
+            projectRoot,
             params?.taskId as string | undefined,
             params?.before as string | undefined,
           );
@@ -311,20 +307,20 @@ export class TasksHandler implements DomainHandler {
           // Consolidated: from param routes to reopen/unarchive logic (T5615/T5671)
           const from = params?.from as string | undefined;
           if (from === 'done') {
-            const result = await taskReopen(this.projectRoot, taskId, {
+            const result = await taskReopen(projectRoot, taskId, {
               status: params?.status as string | undefined,
               reason: params?.reason as string | undefined,
             });
             return wrapResult(result, 'mutate', 'tasks', operation, startTime);
           }
           if (from === 'archived') {
-            const result = await taskUnarchive(this.projectRoot, taskId, {
+            const result = await taskUnarchive(projectRoot, taskId, {
               status: params?.status as string | undefined,
               preserveStatus: params?.preserveStatus as boolean | undefined,
             });
             return wrapResult(result, 'mutate', 'tasks', operation, startTime);
           }
-          const result = await taskRestore(this.projectRoot, taskId, {
+          const result = await taskRestore(projectRoot, taskId, {
             cascade: params?.cascade as boolean | undefined,
             notes: params?.notes as string | undefined,
           });
@@ -333,7 +329,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'cancel': {
           const result = await taskCancel(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             params?.reason as string | undefined,
           );
@@ -342,7 +338,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'reparent': {
           const result = await taskReparent(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             (params?.newParentId as string | null) ?? null,
           );
@@ -351,7 +347,7 @@ export class TasksHandler implements DomainHandler {
 
         case 'reorder': {
           const result = await taskReorder(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             params!.position as number,
           );
@@ -372,7 +368,7 @@ export class TasksHandler implements DomainHandler {
             );
           }
           const result = await taskRelatesAdd(
-            this.projectRoot,
+            projectRoot,
             params!.taskId as string,
             relatedId,
             params!.type as string,
@@ -382,17 +378,17 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'start': {
-          const result = await taskStart(this.projectRoot, params!.taskId as string);
+          const result = await taskStart(projectRoot, params!.taskId as string);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'stop': {
-          const result = await taskStop(this.projectRoot);
+          const result = await taskStop(projectRoot);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'sync.reconcile': {
-          const result = await taskSyncReconcile(this.projectRoot, {
+          const result = await taskSyncReconcile(projectRoot, {
             providerId: params!.providerId as string,
             externalTasks: params!.externalTasks as import('@cleocode/contracts').ExternalTask[],
             dryRun: params?.dryRun as boolean | undefined,
@@ -404,7 +400,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'sync.links.remove': {
-          const result = await taskSyncLinksRemove(this.projectRoot, params!.providerId as string);
+          const result = await taskSyncLinksRemove(projectRoot, params!.providerId as string);
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 

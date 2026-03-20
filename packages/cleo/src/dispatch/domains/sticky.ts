@@ -30,17 +30,12 @@ import { dispatchMeta } from './_meta.js';
 // ---------------------------------------------------------------------------
 
 export class StickyHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -51,7 +46,7 @@ export class StickyHandler implements DomainHandler {
             color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
             priority: params?.priority as 'low' | 'medium' | 'high' | undefined,
           };
-          const result = await stickyList(this.projectRoot, filters);
+          const result = await stickyList(projectRoot, filters);
           if (!result.success) {
             return wrapResult(result, 'query', 'sticky', operation, startTime);
           }
@@ -61,7 +56,7 @@ export class StickyHandler implements DomainHandler {
             filters.status !== undefined ||
             filters.color !== undefined ||
             filters.priority !== undefined;
-          const totalResult = hasFilter ? await stickyList(this.projectRoot, {}) : result;
+          const totalResult = hasFilter ? await stickyList(projectRoot, {}) : result;
           if (!totalResult.success) {
             return wrapResult(totalResult, 'query', 'sticky', operation, startTime);
           }
@@ -94,7 +89,7 @@ export class StickyHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await stickyShow(this.projectRoot, stickyId);
+          const result = await stickyShow(projectRoot, stickyId);
           return wrapResult(result, 'query', 'sticky', operation, startTime);
         }
 
@@ -116,6 +111,7 @@ export class StickyHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -132,7 +128,7 @@ export class StickyHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await stickyAdd(this.projectRoot, {
+          const result = await stickyAdd(projectRoot, {
             content,
             tags: params?.tags as string[] | undefined,
             color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
@@ -172,7 +168,7 @@ export class StickyHandler implements DomainHandler {
 
           if (targetType === 'task') {
             const result = await stickyConvertToTask(
-              this.projectRoot,
+              projectRoot,
               stickyId,
               params?.title as string | undefined,
             );
@@ -189,18 +185,18 @@ export class StickyHandler implements DomainHandler {
                 startTime,
               );
             }
-            const result = await stickyConvertToTaskNote(this.projectRoot, stickyId, taskId);
+            const result = await stickyConvertToTaskNote(projectRoot, stickyId, taskId);
             return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           } else if (targetType === 'session_note') {
             const result = await stickyConvertToSessionNote(
-              this.projectRoot,
+              projectRoot,
               stickyId,
               params?.sessionId as string | undefined,
             );
             return wrapResult(result, 'mutate', 'sticky', operation, startTime);
           } else {
             const result = await stickyConvertToMemory(
-              this.projectRoot,
+              projectRoot,
               stickyId,
               params?.memoryType as string | undefined,
             );
@@ -220,7 +216,7 @@ export class StickyHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await stickyArchive(this.projectRoot, stickyId);
+          const result = await stickyArchive(projectRoot, stickyId);
           return wrapResult(result, 'mutate', 'sticky', operation, startTime);
         }
 
@@ -236,7 +232,7 @@ export class StickyHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await stickyPurge(this.projectRoot, stickyId);
+          const result = await stickyPurge(projectRoot, stickyId);
           return wrapResult(result, 'mutate', 'sticky', operation, startTime);
         }
 

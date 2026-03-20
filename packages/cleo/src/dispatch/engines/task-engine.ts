@@ -272,8 +272,15 @@ export async function taskList(
       data: { tasks, total: result.total, filtered: result.filtered },
       page: result.page,
     };
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 4) return engineError('E_NOT_FOUND', (err as Error).message || 'Task not found');
+    if (code === 2)
+      return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
+    return engineError(
+      'E_NOT_INITIALIZED',
+      (err as Error).message || 'Task database not initialized',
+    );
   }
 }
 
@@ -319,8 +326,15 @@ export async function taskFind(
     }));
 
     return { success: true, data: { results, total: results.length } };
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 4) return engineError('E_NOT_FOUND', (err as Error).message || 'Task not found');
+    if (code === 2)
+      return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
+    return engineError(
+      'E_NOT_INITIALIZED',
+      (err as Error).message || 'Task database not initialized',
+    );
   }
 }
 

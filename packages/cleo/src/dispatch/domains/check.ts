@@ -44,17 +44,12 @@ import { dispatchMeta } from './_meta.js';
 // ---------------------------------------------------------------------------
 
 export class CheckHandler implements DomainHandler {
-  private projectRoot: string;
-
-  constructor() {
-    this.projectRoot = getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // Query
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -71,7 +66,7 @@ export class CheckHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = validateSchemaOp(type, params?.data, this.projectRoot);
+          const result = validateSchemaOp(type, params?.data, projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -87,12 +82,12 @@ export class CheckHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = await validateTaskOp(taskId, this.projectRoot);
+          const result = await validateTaskOp(taskId, projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'manifest': {
-          const result = validateManifestOp(this.projectRoot);
+          const result = validateManifestOp(projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -111,7 +106,7 @@ export class CheckHandler implements DomainHandler {
           const result = validateOutput(
             filePath,
             params?.taskId as string | undefined,
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
@@ -121,11 +116,11 @@ export class CheckHandler implements DomainHandler {
           const limit = params?.limit as number | undefined;
 
           if (detail) {
-            const result = validateComplianceViolations(limit, this.projectRoot);
+            const result = validateComplianceViolations(limit, projectRoot);
             return wrapResult(result, 'query', 'check', operation, startTime);
           }
 
-          const result = validateComplianceSummary(this.projectRoot);
+          const result = validateComplianceSummary(projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -133,17 +128,17 @@ export class CheckHandler implements DomainHandler {
           const format = params?.format as string | undefined; // 'status' (default) or 'coverage'
 
           if (format === 'coverage') {
-            const result = validateTestCoverage(this.projectRoot);
+            const result = validateTestCoverage(projectRoot);
             return wrapResult(result, 'query', 'check', operation, startTime);
           }
 
           // Default to status
-          const result = validateTestStatus(this.projectRoot);
+          const result = validateTestStatus(projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'coherence': {
-          const result = await validateCoherenceCheck(this.projectRoot);
+          const result = await validateCoherenceCheck(projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -167,12 +162,12 @@ export class CheckHandler implements DomainHandler {
                   ...protocolParams,
                   votingMatrixFile: params?.votingMatrixFile as string | undefined,
                 },
-                this.projectRoot,
+                projectRoot,
               );
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'contribution': {
-              const result = await validateProtocolContribution(protocolParams, this.projectRoot);
+              const result = await validateProtocolContribution(protocolParams, projectRoot);
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'decomposition': {
@@ -181,12 +176,12 @@ export class CheckHandler implements DomainHandler {
                   ...protocolParams,
                   epicId: params?.epicId as string | undefined,
                 },
-                this.projectRoot,
+                projectRoot,
               );
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'implementation': {
-              const result = await validateProtocolImplementation(protocolParams, this.projectRoot);
+              const result = await validateProtocolImplementation(protocolParams, projectRoot);
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
             case 'specification': {
@@ -195,7 +190,7 @@ export class CheckHandler implements DomainHandler {
                   ...protocolParams,
                   specFile: params?.specFile as string | undefined,
                 },
-                this.projectRoot,
+                projectRoot,
               );
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
@@ -212,7 +207,7 @@ export class CheckHandler implements DomainHandler {
                   startTime,
                 );
               }
-              const result = await validateProtocol(taskId, protocolType, this.projectRoot);
+              const result = await validateProtocol(taskId, protocolType, projectRoot);
               return wrapResult(result, 'query', 'check', operation, startTime);
             }
           }
@@ -231,12 +226,12 @@ export class CheckHandler implements DomainHandler {
             );
           }
           // Read-only access
-          const result = await validateGateVerify({ taskId }, this.projectRoot);
+          const result = await validateGateVerify({ taskId }, projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
         case 'archive.stats': {
-          const result = await systemArchiveStats(this.projectRoot);
+          const result = await systemArchiveStats(projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -277,7 +272,7 @@ export class CheckHandler implements DomainHandler {
               startTime,
             );
           }
-          const gradeResult = await gradeSession(sessionId, this.projectRoot);
+          const gradeResult = await gradeSession(sessionId, projectRoot);
           return wrapResult(
             { success: true, data: gradeResult },
             'query',
@@ -291,7 +286,7 @@ export class CheckHandler implements DomainHandler {
           const { readGrades } = await import('@cleocode/core/internal');
           const limit = typeof params?.limit === 'number' ? params.limit : undefined;
           const offset = typeof params?.offset === 'number' ? params.offset : undefined;
-          const allGrades = await readGrades(undefined, this.projectRoot);
+          const allGrades = await readGrades(undefined, projectRoot);
           const sessionId = params?.sessionId as string | undefined;
           const filteredGrades = sessionId
             ? allGrades.filter((g) => g.sessionId === sessionId)
@@ -327,6 +322,7 @@ export class CheckHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -351,7 +347,7 @@ export class CheckHandler implements DomainHandler {
             params?.violations as
               | Array<{ code: string; message: string; severity: 'error' | 'warning' }>
               | undefined,
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(engineResult, 'mutate', 'check', operation, startTime);
         }
@@ -359,7 +355,7 @@ export class CheckHandler implements DomainHandler {
         case 'test.run': {
           const result = validateTestRun(
             params as { scope?: string; pattern?: string; parallel?: boolean } | undefined,
-            this.projectRoot,
+            projectRoot,
           );
           return wrapResult(result, 'mutate', 'check', operation, startTime);
         }
@@ -368,7 +364,7 @@ export class CheckHandler implements DomainHandler {
           const { syncComplianceMetrics } = await import('@cleocode/core/internal');
           const result = await syncComplianceMetrics({
             force: params?.force as boolean | undefined,
-            cwd: this.projectRoot,
+            cwd: projectRoot,
           });
           return {
             _meta: dispatchMeta('mutate', 'check', operation, startTime),
@@ -397,7 +393,7 @@ export class CheckHandler implements DomainHandler {
             all: params?.all as boolean | undefined,
             reset: params?.reset as boolean | undefined,
           };
-          const result = await validateGateVerify(gateParams, this.projectRoot);
+          const result = await validateGateVerify(gateParams, projectRoot);
           return wrapResult(result, 'mutate', 'check', operation, startTime);
         }
 

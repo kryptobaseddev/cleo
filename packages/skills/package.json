@@ -11,6 +11,9 @@
     "*.js",
     "*.d.ts"
   ],
+  "scripts": {
+    "validate:ops": "tsx scripts/validate-operations.ts"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
