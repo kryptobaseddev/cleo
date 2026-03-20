@@ -10,8 +10,7 @@
   },
   "bin": {
     "cleo": "dist/cli/index.js",
-    "ct": "dist/cli/index.js",
-    "cleoctl": "dist/cli/index.js"
+    "ct": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc",

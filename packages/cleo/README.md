@@ -420,7 +420,6 @@ Multiple binary names are provided:
 
 - `cleo` - Primary command
 - `ct` - Short alias
-- `cleoctl` - Alternative alias
 
 ## Development
 
