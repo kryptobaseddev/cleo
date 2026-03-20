@@ -106,7 +106,7 @@ The public barrel re-exports all symbols intended for external consumers:
 
 1. **All `@cleocode/contracts` types** via `export * from '@cleocode/contracts'`
 2. **43 namespace re-exports** (one per domain/submodule, including `agents` and `intelligence`)
-3. **34 canonical Zod enum schemas** (flat re-exports for Pattern 3 imports)
+3. **36 canonical Zod enum schemas** (flat re-exports for Pattern 3 imports)
 4. **Store factory functions** (`createDataAccessor`, `getAccessor`)
 5. **Top-level utility exports** (errors, config, logger, paths, platform, output, pagination, init, scaffold, audit, validation, project info, constants)
 6. **Flat function re-exports** for direct imports (Pattern 3 -- tree-shakeable)
@@ -699,6 +699,25 @@ pushWarning(warning: Warning): void
 ### 15.4 Relationship to @cleocode/cleo
 
 `@cleocode/cleo` (`@latest`) depends on `@cleocode/core` and will always pin to a compatible version. Consumers upgrading `@cleocode/core` independently MUST ensure they use a version that `@cleocode/cleo` also supports, or accept that the versions may diverge.
+
+### 15.5 Breaking Changes in Core Hardening (v2026.3.x)
+
+The following breaking changes were introduced during the T029 Core Hardening initiative:
+
+| Change | Migration |
+|--------|-----------|
+| `TaskFile` removed from `@cleocode/contracts` | Use `Task[]` from `DataAccessor.queryTasks()` directly |
+| `TaskFileExt`, `TaskFileTaskEntry`, `TaskFileMetaExt`, `toTaskFileExt()` removed from sessions | Use `Task[]` and `TaskWorkState` from contracts directly |
+| `tasks/reparent.ts` deleted | Use `tasks/task-ops.ts` reparent functions (already DataAccessor-based) |
+| `buildPrompt()`, `spawn()`, `spawnBatch()`, `canParallelize()` now async | Add `await` at call sites |
+| `orchestratorSpawnSkill()`, `injectProtocol()`, `buildTaskContext()` now async | Add `await` at call sites |
+| `validateOrchestratorCompliance()` now async | Add `await` at call sites |
+| `validateContributionTask()` (manifests) now async | Add `await` at call sites |
+| `buildExportPackage()` signature changed | Pass `projectName` in options instead of `TaskFile` second arg |
+| `exportSingle()`, `exportSubtree()` signatures changed | Pass `allTasks: Task[]` and `projectName` instead of `TaskFile` |
+| `selectTasksForInjection()` (inject) signature changed | Pass `focusedTaskId` and `currentPhase` in options |
+
+Consumers using the **Cleo facade** (`Cleo.init()`) are **NOT affected** -- the facade API is unchanged. These breaking changes only affect consumers that import internal functions directly from `@cleocode/core/internal` or submodule paths.
 
 ---
 
