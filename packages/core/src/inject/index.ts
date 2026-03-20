@@ -13,7 +13,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task, TaskFile, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -88,7 +88,7 @@ export async function injectTasks(
   const acc = accessor ?? (await getAccessor(opts.cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
-  const focusMeta = await acc.getMetaValue<{ currentTask?: string }>('focus');
+  const focusMeta = await acc.getMetaValue<TaskWorkState>('focus_state');
 
   const data: TaskFile = {
     tasks: allTasks,

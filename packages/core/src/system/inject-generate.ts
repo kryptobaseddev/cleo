@@ -5,7 +5,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getSessionsPath } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -13,14 +12,6 @@ export interface InjectGenerateResult {
   injection: string;
   sizeBytes: number;
   version: string;
-}
-
-interface SessionLike {
-  id: string;
-  status: string;
-  name?: string;
-  scope?: { type: string; rootTaskId?: string };
-  taskWork?: { taskId?: string | null };
 }
 
 /** Generate Minimum Viable Injection (MVI) markdown. */
@@ -46,7 +37,7 @@ export async function generateInjection(
   let sessionScope: string | null = null;
 
   const acc = accessor ?? (await getAccessor(projectRoot));
-  const focusMeta = await acc.getMetaValue<{ currentTask?: string }>('focus');
+  const focusMeta = await acc.getMetaValue<{ currentTask?: string | null }>('focus_state');
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
 
   if (focusMeta) {
@@ -56,22 +47,17 @@ export async function generateInjection(
     activeSessionName = activeSessionMeta;
   }
 
-  // Try sessions.json for richer session data
+  // Load active session from SQLite (ADR-006/ADR-020)
   try {
-    const sessionsPath = getSessionsPath(projectRoot);
-    if (existsSync(sessionsPath)) {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as {
-        sessions: SessionLike[];
-      };
-      const active = sessionsData.sessions?.find((s) => s.status === 'active');
-      if (active) {
-        activeSessionName = active.name || active.id;
-        focusTask = active.taskWork?.taskId ?? focusTask;
-        sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
-      }
+    const sessions = await acc.loadSessions();
+    const active = sessions.find((s) => s.status === 'active');
+    if (active) {
+      activeSessionName = active.name || active.id;
+      focusTask = active.taskWork?.taskId ?? focusTask;
+      sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
     }
   } catch {
-    // fallback to task data
+    // fallback to meta-only data
   }
 
   // Storage engine is always sqlite (ADR-006)

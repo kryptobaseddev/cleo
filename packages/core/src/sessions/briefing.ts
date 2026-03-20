@@ -139,7 +139,6 @@ export async function computeBriefing(
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state') as TaskWorkStateExt | undefined;
-  const fileMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? undefined;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -184,7 +183,7 @@ export async function computeBriefing(
   });
 
   // 7. Pipeline stage (optional - may not be available)
-  const pipelineStage = computePipelineStage(fileMeta);
+  const pipelineStage = await computePipelineStage(focus);
 
   // 8. Brain memory context (optional, best-effort)
   let memoryContext: SessionMemoryContext | undefined;
@@ -586,26 +585,22 @@ function calculateEpicCompletion(epicId: string, taskMap: Map<string, unknown>):
 /**
  * Compute pipeline stage info from task file metadata.
  */
-function computePipelineStage(fileMeta: Record<string, unknown> | undefined): PipelineStageInfo | undefined {
-  if (!fileMeta) return undefined;
+async function computePipelineStage(
+  focus: TaskWorkStateExt | undefined,
+): Promise<PipelineStageInfo | undefined> {
+  const taskId = focus?.currentTask;
+  if (!taskId) return undefined;
 
-  const stage = fileMeta.pipelineStage as string | undefined;
-  const stageStatus = fileMeta.pipelineStageStatus as string | undefined;
+  try {
+    const { getPipeline } = await import('../lifecycle/pipeline.js');
+    const pipeline = await getPipeline(taskId);
+    if (!pipeline) return undefined;
 
-  if (stage) {
     return {
-      currentStage: stage,
-      stageStatus: stageStatus || 'active',
+      currentStage: pipeline.currentStage,
+      stageStatus: pipeline.isActive ? 'active' : (pipeline.status ?? 'completed'),
     };
+  } catch {
+    return undefined;
   }
-
-  const lifecycleState = fileMeta.lifecycleState as string | undefined;
-  if (lifecycleState) {
-    return {
-      currentStage: lifecycleState,
-      stageStatus: 'active',
-    };
-  }
-
-  return undefined;
 }
