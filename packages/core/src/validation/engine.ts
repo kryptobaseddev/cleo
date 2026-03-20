@@ -559,7 +559,8 @@ export interface Task {
   [key: string]: unknown;
 }
 
-export interface TaskFile {
+/** Task data shape for validation functions. */
+export interface TaskData {
   tasks: Task[];
   project?: {
     currentPhase?: string;
@@ -572,19 +573,18 @@ export interface TaskFile {
       }
     >;
   };
-  [key: string]: unknown;
 }
 
-export interface ArchiveFile {
+/** Archive data shape for validation functions. */
+export interface ArchiveData {
   archived_tasks: Task[];
-  [key: string]: unknown;
 }
 
 /**
  * Check ID uniqueness within and across files.
  * @task T4523
  */
-export function checkIdUniqueness(taskFile: TaskFile, archiveFile?: ArchiveFile): ValidationResult {
+export function checkIdUniqueness(taskFile: TaskData, archiveFile?: ArchiveData): ValidationResult {
   const errors: ValidationError[] = [];
 
   const taskIds = taskFile.tasks.map((t) => t.id).filter((id): id is string => !!id);
@@ -822,7 +822,7 @@ export function validateNoCircularDeps(
  * Validate only one phase is active.
  * @task T4523
  */
-export function validateSingleActivePhase(taskFile: TaskFile): ValidationResult {
+export function validateSingleActivePhase(taskFile: TaskData): ValidationResult {
   const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
@@ -849,7 +849,7 @@ export function validateSingleActivePhase(taskFile: TaskFile): ValidationResult 
  * Validate currentPhase matches an active phase.
  * @task T4523
  */
-export function validateCurrentPhaseConsistency(taskFile: TaskFile): ValidationResult {
+export function validateCurrentPhaseConsistency(taskFile: TaskData): ValidationResult {
   const currentPhase = taskFile.project?.currentPhase;
   if (!currentPhase) return { valid: true, errors: [], warnings: [] };
 
@@ -892,7 +892,7 @@ export function validateCurrentPhaseConsistency(taskFile: TaskFile): ValidationR
  * Validate phase timestamp ordering.
  * @task T4523
  */
-export function validatePhaseTimestamps(taskFile: TaskFile): ValidationResult {
+export function validatePhaseTimestamps(taskFile: TaskData): ValidationResult {
   const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
@@ -917,7 +917,7 @@ export function validatePhaseTimestamps(taskFile: TaskFile): ValidationResult {
  * Validate phase status requirements (e.g., active phases must have startedAt).
  * @task T4523
  */
-export function validatePhaseStatusRequirements(taskFile: TaskFile): ValidationResult {
+export function validatePhaseStatusRequirements(taskFile: TaskData): ValidationResult {
   const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
@@ -962,8 +962,8 @@ export interface ComprehensiveValidationResult {
  * @task T4523
  */
 export function validateAll(
-  taskFile: TaskFile,
-  archiveFile?: ArchiveFile,
+  taskFile: TaskData,
+  archiveFile?: ArchiveData,
 ): ComprehensiveValidationResult {
   let schemaErrors = 0;
   let semanticErrors = 0;

@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 
 /** Export format version. */
 const EXPORT_FORMAT_VERSION = '1.0.0';
@@ -137,17 +137,17 @@ export function buildRelationshipGraph(tasks: Task[]): RelationshipGraph {
  */
 export function buildExportPackage(
   tasks: Task[],
-  taskData: TaskFile,
   options: {
     mode: string;
     rootTaskIds: string[];
     includeChildren: boolean;
     cleoVersion?: string;
     filters?: unknown;
+    projectName?: string;
   },
 ): ExportPackage {
   const now = new Date().toISOString();
-  const projectName = taskData.project?.name ?? 'unknown';
+  const projectName = options.projectName ?? 'unknown';
   const maxId = tasks.reduce((max, t) => {
     const num = parseInt(t.id.replace('T', ''), 10);
     return num > max ? num : max;
@@ -188,41 +188,43 @@ export function buildExportPackage(
 /**
  * Export a single task.
  */
-export function exportSingle(taskId: string, taskData: TaskFile): ExportPackage | null {
-  const task = taskData.tasks.find((t) => t.id === taskId);
+export function exportSingle(taskId: string, allTasks: Task[], projectName?: string): ExportPackage | null {
+  const task = allTasks.find((t) => t.id === taskId);
   if (!task) return null;
 
-  return buildExportPackage([task], taskData, {
+  return buildExportPackage([task], {
     mode: 'single',
     rootTaskIds: [taskId],
     includeChildren: false,
+    projectName,
   });
 }
 
 /**
  * Export a subtree (task + all descendants).
  */
-export function exportSubtree(rootId: string, taskData: TaskFile): ExportPackage | null {
-  const root = taskData.tasks.find((t) => t.id === rootId);
+export function exportSubtree(rootId: string, allTasks: Task[], projectName?: string): ExportPackage | null {
+  const root = allTasks.find((t) => t.id === rootId);
   if (!root) return null;
 
-  // Collect all descendants
+  // Collect all descendants via BFS
   const collected = new Map<string, Task>();
   const queue = [rootId];
 
   while (queue.length > 0) {
     const id = queue.shift()!;
-    const task = taskData.tasks.find((t) => t.id === id);
+    const task = allTasks.find((t) => t.id === id);
     if (!task || collected.has(id)) continue;
     collected.set(id, task);
-    const children = taskData.tasks.filter((t) => t.parentId === id);
+    const children = allTasks.filter((t) => t.parentId === id);
     queue.push(...children.map((c) => c.id));
   }
 
   const tasks = [...collected.values()];
-  return buildExportPackage(tasks, taskData, {
+  return buildExportPackage(tasks, {
     mode: 'subtree',
     rootTaskIds: [rootId],
     includeChildren: true,
+    projectName,
   });
 }

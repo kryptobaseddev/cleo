@@ -474,8 +474,5 @@ export { SessionView } from './session-view.js';
 export type {
   AssumptionRecord,
   DecisionRecord,
-  TaskFileExt,
-  TaskFileMetaExt,
-  TaskFileTaskEntry,
   TaskWorkStateExt,
 } from './types.js';

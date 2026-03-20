@@ -178,7 +178,7 @@ export {
 // Doctor health checks
 export * from './doctor/index.js';
 export {
-  type ArchiveFile,
+  type ArchiveData,
   type ComprehensiveValidationResult,
   checkIdUniqueness,
   checkTimestampSanity,
@@ -188,7 +188,7 @@ export {
   normalizeLabels,
   sanitizeFilePath,
   type Task,
-  type TaskFile,
+  type TaskData,
   type TaskStatus,
   VALID_OPERATIONS,
   type ValidationError,

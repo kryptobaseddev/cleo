@@ -335,8 +335,6 @@ export {
 export { generateSessionId } from './sessions/session-id.js';
 export type {
   DecisionRecord,
-  TaskFileMetaExt,
-  TaskFileTaskEntry,
 } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';

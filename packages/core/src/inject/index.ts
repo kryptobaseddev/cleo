@@ -13,7 +13,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskFile, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -23,23 +23,25 @@ import { getAccessor } from '../store/data-accessor.js';
  * @task T4539
  */
 function selectTasksForInjection(
-  data: TaskFile,
+  allTasks: Task[],
   opts: {
     maxTasks?: number;
     focusedOnly?: boolean;
     phase?: string;
+    focusedTaskId?: string | null;
+    currentPhase?: string | null;
   },
 ): Task[] {
   const maxTasks = opts.maxTasks ?? 8;
-  let tasks = data.tasks.filter((t) => t.status !== 'done');
+  let tasks = allTasks.filter((t) => t.status !== 'done');
 
   // Filter by focused task
-  if (opts.focusedOnly && data.focus?.currentTask) {
-    tasks = tasks.filter((t) => t.id === data.focus!.currentTask);
+  if (opts.focusedOnly && opts.focusedTaskId) {
+    tasks = tasks.filter((t) => t.id === opts.focusedTaskId);
   }
 
   // Filter by phase
-  const phase = opts.phase ?? data.project?.currentPhase ?? undefined;
+  const phase = opts.phase ?? opts.currentPhase ?? undefined;
   if (phase) {
     const phaseTasks = tasks.filter((t) => t.phase === phase);
     if (phaseTasks.length > 0) tasks = phaseTasks;
@@ -90,13 +92,11 @@ export async function injectTasks(
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
   const focusMeta = await acc.getMetaValue<TaskWorkState>('focus_state');
 
-  const data: TaskFile = {
-    tasks: allTasks,
-    project: projectMeta as TaskFile['project'],
-    focus: focusMeta as TaskFile['focus'],
-  } as TaskFile;
-
-  const selectedTasks = selectTasksForInjection(data, opts);
+  const selectedTasks = selectTasksForInjection(allTasks, {
+    ...opts,
+    focusedTaskId: focusMeta?.currentTask ?? null,
+    currentPhase: projectMeta?.currentPhase ?? null,
+  });
   const formatted = formatForInjection(selectedTasks);
 
   const phase = opts.phase ?? projectMeta?.currentPhase ?? null;

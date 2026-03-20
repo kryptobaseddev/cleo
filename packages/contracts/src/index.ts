@@ -222,7 +222,6 @@ export type {
   SessionNote,
   Task,
   TaskCreate,
-  TaskFile,
   TaskOrigin,
   TaskPriority,
   TaskProvenance,

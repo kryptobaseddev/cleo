@@ -375,14 +375,3 @@ export interface TaskWorkState {
   primarySession?: string | null;
 }
 
-/** Root task data structure. */
-export interface TaskFile {
-  version: string;
-  project: ProjectMeta;
-  lastUpdated: string;
-  _meta: FileMeta;
-  taskWork?: TaskWorkState;
-  focus?: TaskWorkState;
-  tasks: Task[];
-  labels?: Record<string, string[]>;
-}

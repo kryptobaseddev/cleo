@@ -175,15 +175,12 @@ export async function exportTasksPackage(params: ExportTasksParams): Promise<Exp
   }
 
   const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
-  const taskData = {
-    tasks: allTasks,
-    project: projectMeta,
-  } as import('@cleocode/contracts').TaskFile;
-  const pkg = buildExportPackage(selectedTasks, taskData, {
+  const pkg = buildExportPackage(selectedTasks, {
     mode: exportMode,
     rootTaskIds: parsedIds.length > 0 ? parsedIds : selectedTasks.map((t) => t.id),
     includeChildren: subtreeMode,
     filters: filters.length > 0 ? filters : undefined,
+    projectName: projectMeta?.name,
   });
 
   const content = JSON.stringify(pkg, null, 2);
