@@ -15,11 +15,7 @@
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import {
-  analyzeChangeImpact,
-  analyzeTaskImpact,
-  calculateBlastRadius,
-} from '../impact.js';
+import { analyzeChangeImpact, analyzeTaskImpact, calculateBlastRadius } from '../impact.js';
 
 // ============================================================================
 // Test Helpers
@@ -153,10 +149,7 @@ describe('analyzeTaskImpact', () => {
   });
 
   it('handles orphan task with no dependents', async () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' })];
     const acc = mockAccessor(tasks);
     const result = await analyzeTaskImpact('T001', acc);
 
@@ -249,10 +242,7 @@ describe('analyzeChangeImpact', () => {
     });
 
     it('includes direct dependency reason', async () => {
-      const tasks = [
-        makeTask({ id: 'T001' }),
-        makeTask({ id: 'T002', depends: ['T001'] }),
-      ];
+      const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', depends: ['T001'] })];
       const acc = mockAccessor(tasks);
       const result = await analyzeChangeImpact('T001', 'block', acc);
 
@@ -318,10 +308,7 @@ describe('analyzeChangeImpact', () => {
   });
 
   it('generates recommendation text', async () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', depends: ['T001'] }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', depends: ['T001'] })];
     const acc = mockAccessor(tasks);
     const result = await analyzeChangeImpact('T001', 'block', acc);
 
@@ -440,11 +427,7 @@ describe('calculateBlastRadius', () => {
   });
 
   it('handles orphan task with no dependents', async () => {
-    const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002' }),
-      makeTask({ id: 'T003' }),
-    ];
+    const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002' }), makeTask({ id: 'T003' })];
     const acc = mockAccessor(tasks);
     const result = await calculateBlastRadius('T001', acc);
 

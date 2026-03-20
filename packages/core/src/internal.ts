@@ -333,9 +333,7 @@ export {
   switchSession,
 } from './sessions/index.js';
 export { generateSessionId } from './sessions/session-id.js';
-export type {
-  DecisionRecord,
-} from './sessions/types.js';
+export type { DecisionRecord } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';
 export { filterEntries } from './skills/manifests/research.js';

@@ -74,11 +74,7 @@ export function calculateDelay(attempt: number, policy: RetryPolicy): number {
  * Determine whether an error should be retried based on its classification
  * and the retry policy.
  */
-export function shouldRetry(
-  error: unknown,
-  attempt: number,
-  policy: RetryPolicy,
-): boolean {
+export function shouldRetry(error: unknown, attempt: number, policy: RetryPolicy): boolean {
   if (attempt >= policy.maxRetries) return false;
 
   const classification = classifyError(error);

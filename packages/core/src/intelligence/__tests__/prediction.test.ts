@@ -65,9 +65,9 @@ function makeLearning(overrides: Partial<BrainLearningRow> = {}): BrainLearningR
 
 function mockTaskAccessor(tasks: Task[]): DataAccessor {
   return {
-    loadSingleTask: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(tasks.find((t) => t.id === id) ?? null),
-    ),
+    loadSingleTask: vi
+      .fn()
+      .mockImplementation((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
     countChildren: vi.fn().mockResolvedValue(0),
     close: vi.fn().mockResolvedValue(undefined),
@@ -221,7 +221,12 @@ describe('predictValidationOutcome', () => {
     const taskAccessor = mockTaskAccessor([]);
     const brainAccessor = mockBrainAccessor();
 
-    const result = await predictValidationOutcome('T999', 'specification', taskAccessor, brainAccessor);
+    const result = await predictValidationOutcome(
+      'T999',
+      'specification',
+      taskAccessor,
+      brainAccessor,
+    );
 
     expect(result.taskId).toBe('T999');
     expect(result.passLikelihood).toBe(0);
@@ -234,7 +239,12 @@ describe('predictValidationOutcome', () => {
     const taskAccessor = mockTaskAccessor([task]);
     const brainAccessor = mockBrainAccessor();
 
-    const result = await predictValidationOutcome('T001', 'verification', taskAccessor, brainAccessor);
+    const result = await predictValidationOutcome(
+      'T001',
+      'verification',
+      taskAccessor,
+      brainAccessor,
+    );
 
     expect(result.passLikelihood).toBeGreaterThan(0.5);
     expect(result.blockers).toHaveLength(0);
@@ -250,7 +260,12 @@ describe('predictValidationOutcome', () => {
     const taskAccessor = mockTaskAccessor([task]);
     const brainAccessor = mockBrainAccessor();
 
-    const result = await predictValidationOutcome('T001', 'implementation', taskAccessor, brainAccessor);
+    const result = await predictValidationOutcome(
+      'T001',
+      'implementation',
+      taskAccessor,
+      brainAccessor,
+    );
 
     expect(result.blockers.length).toBeGreaterThan(0);
     expect(result.blockers[0]).toContain('blocked');
@@ -272,8 +287,18 @@ describe('predictValidationOutcome', () => {
     const taskAccessor = mockTaskAccessor([taskWith, taskWithout]);
     const brainAccessor = mockBrainAccessor();
 
-    const resultWith = await predictValidationOutcome('T001', 'implementation', taskAccessor, brainAccessor);
-    const resultWithout = await predictValidationOutcome('T002', 'implementation', taskAccessor, brainAccessor);
+    const resultWith = await predictValidationOutcome(
+      'T001',
+      'implementation',
+      taskAccessor,
+      brainAccessor,
+    );
+    const resultWithout = await predictValidationOutcome(
+      'T002',
+      'implementation',
+      taskAccessor,
+      brainAccessor,
+    );
 
     expect(resultWith.passLikelihood).toBeGreaterThanOrEqual(resultWithout.passLikelihood);
   });
@@ -292,7 +317,12 @@ describe('predictValidationOutcome', () => {
     ];
     const brainAccessor = mockBrainAccessor(patterns);
 
-    const result = await predictValidationOutcome('T001', 'implementation', taskAccessor, brainAccessor);
+    const result = await predictValidationOutcome(
+      'T001',
+      'implementation',
+      taskAccessor,
+      brainAccessor,
+    );
 
     // Should have a reasonable pass likelihood given the success pattern
     expect(result.passLikelihood).toBeGreaterThan(0);

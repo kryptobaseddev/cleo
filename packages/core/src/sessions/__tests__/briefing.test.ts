@@ -354,7 +354,9 @@ describe('computeBriefing scope filtering', () => {
     const mockAccessor = {
       loadSessions: vi.fn().mockResolvedValue([]),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
-      getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
+      getMetaValue: vi
+        .fn()
+        .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
       setMetaValue: vi.fn().mockResolvedValue(undefined),
       loadArchive: vi.fn().mockResolvedValue(null),
       saveArchive: vi.fn().mockResolvedValue(undefined),

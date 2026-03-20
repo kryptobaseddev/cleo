@@ -5,10 +5,7 @@
  * @epic T4654
  */
 
-import type {
-  SessionNote,
-  TaskWorkState,
-} from '@cleocode/contracts';
+import type { SessionNote, TaskWorkState } from '@cleocode/contracts';
 
 /**
  * Session object (engine-compatible).
@@ -113,4 +110,3 @@ export interface AssumptionRecord {
   validatedAt: string | null;
   timestamp: string;
 }
-

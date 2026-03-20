@@ -35,9 +35,7 @@ describe('Capacity Tracking', () => {
       /* module may not be loaded */
     }
     await Promise.race([
-      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(
-        () => {},
-      ),
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
     ]);
   });

@@ -74,9 +74,9 @@ function makeObservation(overrides: Partial<BrainObservationRow> = {}): BrainObs
 
 function mockTaskAccessor(tasks: Task[]): DataAccessor {
   return {
-    loadSingleTask: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(tasks.find((t) => t.id === id) ?? null),
-    ),
+    loadSingleTask: vi
+      .fn()
+      .mockImplementation((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
     countChildren: vi.fn().mockResolvedValue(0),
     close: vi.fn().mockResolvedValue(undefined),
@@ -101,9 +101,11 @@ function mockBrainAccessor(
     findObservations: vi.fn().mockResolvedValue(observations),
     findLearnings: vi.fn().mockResolvedValue([]),
     addPattern: vi.fn().mockImplementation((row: BrainPatternRow) => Promise.resolve(row)),
-    getPattern: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(patterns.find((p) => p.id === id) ?? null),
-    ),
+    getPattern: vi
+      .fn()
+      .mockImplementation((id: string) =>
+        Promise.resolve(patterns.find((p) => p.id === id) ?? null),
+      ),
     updatePattern: vi.fn().mockResolvedValue(undefined),
   } as unknown as BrainDataAccessor;
 }
@@ -212,7 +214,12 @@ describe('extractPatternsFromHistory', () => {
 
   it('respects limit option', async () => {
     const tasks = Array.from({ length: 20 }, (_, i) =>
-      makeTask({ id: `T${String(i).padStart(3, '0')}`, title: `Task ${i}`, status: 'done', labels: [`label-${i % 3}`] }),
+      makeTask({
+        id: `T${String(i).padStart(3, '0')}`,
+        title: `Task ${i}`,
+        status: 'done',
+        labels: [`label-${i % 3}`],
+      }),
     );
     const taskAccessor = mockTaskAccessor(tasks);
     const brainAccessor = mockBrainAccessor();

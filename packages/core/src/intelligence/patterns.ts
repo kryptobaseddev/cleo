@@ -67,9 +67,7 @@ export async function extractPatternsFromHistory(
   patterns.push(...observationPatterns);
 
   // Filter by type if specified
-  let filtered = options?.type
-    ? patterns.filter((p) => p.type === options.type)
-    : patterns;
+  let filtered = options?.type ? patterns.filter((p) => p.type === options.type) : patterns;
 
   // Filter by minimum confidence
   filtered = filtered.filter((p) => p.confidence >= minConfidence);
@@ -453,12 +451,14 @@ async function extractObservationPatterns(
           frequency: count,
           successRate: type === 'feature' || type === 'refactor' ? 0.8 : null,
           impact: count >= 10 ? 'high' : count >= 5 ? 'medium' : 'low',
-          antiPattern: type === 'bugfix' && count >= 5
-            ? 'High number of bugfix observations may indicate quality issues'
-            : null,
-          mitigation: type === 'bugfix' && count >= 5
-            ? 'Consider adding more automated tests and code review'
-            : null,
+          antiPattern:
+            type === 'bugfix' && count >= 5
+              ? 'High number of bugfix observations may indicate quality issues'
+              : null,
+          mitigation:
+            type === 'bugfix' && count >= 5
+              ? 'Consider adding more automated tests and code review'
+              : null,
           examples: observations
             .filter((o) => o.type === type)
             .slice(0, 5)
@@ -588,10 +588,11 @@ function buildMatchReason(
   }
 
   // Check description keywords against pattern
-  const descWords = taskDesc.toLowerCase().split(/\s+/).filter((w) => w.length > 4);
-  const descMatches = descWords.filter(
-    (w) => patternText.includes(w) || contextText.includes(w),
-  );
+  const descWords = taskDesc
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 4);
+  const descMatches = descWords.filter((w) => patternText.includes(w) || contextText.includes(w));
   if (descMatches.length > 0) {
     reasons.push(`description keywords [${descMatches.slice(0, 3).join(', ')}] match`);
   }
@@ -603,9 +604,7 @@ function buildMatchReason(
   return reasons.join('; ');
 }
 
-function observationTypeToPatternType(
-  obsType: string,
-): DetectedPattern['type'] {
+function observationTypeToPatternType(obsType: string): DetectedPattern['type'] {
   switch (obsType) {
     case 'bugfix':
       return 'failure';

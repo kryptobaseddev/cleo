@@ -48,9 +48,7 @@ export const agentInstances = sqliteTable(
   {
     id: text('id').primaryKey(),
     agentType: text('agent_type', { enum: AGENT_TYPES }).notNull(),
-    status: text('status', { enum: AGENT_INSTANCE_STATUSES })
-      .notNull()
-      .default('starting'),
+    status: text('status', { enum: AGENT_INSTANCE_STATUSES }).notNull().default('starting'),
     sessionId: text('session_id'),
     taskId: text('task_id'),
     startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),

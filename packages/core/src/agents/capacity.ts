@@ -34,19 +34,12 @@ export async function updateCapacity(
   }
 
   const db = await getDb(cwd);
-  const existing = await db
-    .select()
-    .from(agentInstances)
-    .where(eq(agentInstances.id, id))
-    .get();
+  const existing = await db.select().from(agentInstances).where(eq(agentInstances.id, id)).get();
 
   if (!existing) return null;
 
   const capacityStr = capacity.toFixed(4);
-  await db
-    .update(agentInstances)
-    .set({ capacity: capacityStr })
-    .where(eq(agentInstances.id, id));
+  await db.update(agentInstances).set({ capacity: capacityStr }).where(eq(agentInstances.id, id));
 
   return { ...existing, capacity: capacityStr };
 }
@@ -81,10 +74,7 @@ export async function findLeastLoadedAgent(
     ? { status: ['active', 'idle'] as ('active' | 'idle')[], agentType }
     : { status: ['active', 'idle'] as ('active' | 'idle')[] };
 
-  const agents = await listAgentInstances(
-    filters,
-    cwd,
-  );
+  const agents = await listAgentInstances(filters, cwd);
 
   if (agents.length === 0) return null;
 
@@ -109,10 +99,7 @@ export async function findLeastLoadedAgent(
  * @param cwd - Working directory
  * @returns true if total available capacity is below the threshold
  */
-export async function isOverloaded(
-  threshold: number = 0.1,
-  cwd?: string,
-): Promise<boolean> {
+export async function isOverloaded(threshold: number = 0.1, cwd?: string): Promise<boolean> {
   const capacity = await getAvailableCapacity(cwd);
   return capacity < threshold;
 }

@@ -163,18 +163,9 @@ export async function getRealTokenUsage(opts: {
     });
   }
 
-  const totalTokens = filtered.reduce(
-    (sum, e) => sum + ((e.estimated_tokens as number) ?? 0),
-    0,
-  );
-  const inputTokens = filtered.reduce(
-    (sum, e) => sum + ((e.input_tokens as number) ?? 0),
-    0,
-  );
-  const outputTokens = filtered.reduce(
-    (sum, e) => sum + ((e.output_tokens as number) ?? 0),
-    0,
-  );
+  const totalTokens = filtered.reduce((sum, e) => sum + ((e.estimated_tokens as number) ?? 0), 0);
+  const inputTokens = filtered.reduce((sum, e) => sum + ((e.input_tokens as number) ?? 0), 0);
+  const outputTokens = filtered.reduce((sum, e) => sum + ((e.output_tokens as number) ?? 0), 0);
 
   return {
     otelEnabled,

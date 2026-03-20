@@ -138,7 +138,9 @@ export async function computeBriefing(
 ): Promise<SessionBriefing> {
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
-  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state') as TaskWorkStateExt | undefined;
+  const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) as
+    | TaskWorkStateExt
+    | undefined;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -147,10 +149,7 @@ export async function computeBriefing(
   const scopeFilter = await parseScope(options.scope, accessor);
 
   // Compute in-scope task IDs (undefined = all tasks in scope)
-  const scopeTaskIds = getScopeTaskIdSet(
-    scopeFilter,
-    tasks,
-  );
+  const scopeTaskIds = getScopeTaskIdSet(scopeFilter, tasks);
 
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);

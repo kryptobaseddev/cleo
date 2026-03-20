@@ -323,16 +323,16 @@ export async function timelineBrain(
     ORDER BY date DESC
     LIMIT ?
   `),
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      depthBefore,
-    );
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    depthBefore,
+  );
 
   const afterRows = typedAll<BrainTimelineNeighborRow>(
     nativeDb.prepare(`
@@ -346,16 +346,16 @@ export async function timelineBrain(
     ORDER BY date ASC
     LIMIT ?
   `),
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      anchorDate,
-      anchorId,
-      depthAfter,
-    );
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    anchorDate,
+    anchorId,
+    depthAfter,
+  );
 
   return {
     anchor: { id: anchorId, type: anchorType, data: anchorData },

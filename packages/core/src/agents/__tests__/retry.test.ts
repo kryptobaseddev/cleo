@@ -237,20 +237,14 @@ describe('recoverCrashedAgents', () => {
       /* module may not be loaded */
     }
     await Promise.race([
-      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(
-        () => {},
-      ),
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
     ]);
   });
 
   it('recovers crashed agents with retriable errors', async () => {
     const agent = await registerAgent({ agentType: 'executor' }, tempDir);
-    await updateAgentStatus(
-      agent.id,
-      { status: 'crashed', error: 'ECONNREFUSED' },
-      tempDir,
-    );
+    await updateAgentStatus(agent.id, { status: 'crashed', error: 'ECONNREFUSED' }, tempDir);
 
     const results = await recoverCrashedAgents(30_000, tempDir);
 
@@ -261,11 +255,7 @@ describe('recoverCrashedAgents', () => {
 
   it('abandons agents with permanent errors', async () => {
     const agent = await registerAgent({ agentType: 'executor' }, tempDir);
-    await updateAgentStatus(
-      agent.id,
-      { status: 'crashed', error: 'Permission denied' },
-      tempDir,
-    );
+    await updateAgentStatus(agent.id, { status: 'crashed', error: 'Permission denied' }, tempDir);
 
     const results = await recoverCrashedAgents(30_000, tempDir);
 
@@ -279,11 +269,7 @@ describe('recoverCrashedAgents', () => {
 
     // Simulate 5+ errors
     for (let i = 0; i < 5; i++) {
-      await updateAgentStatus(
-        agent.id,
-        { status: 'error', error: `Error ${i}` },
-        tempDir,
-      );
+      await updateAgentStatus(agent.id, { status: 'error', error: `Error ${i}` }, tempDir);
     }
     await updateAgentStatus(agent.id, { status: 'crashed' }, tempDir);
 

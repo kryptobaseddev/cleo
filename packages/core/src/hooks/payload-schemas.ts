@@ -101,9 +101,7 @@ export const OnWorkAvailablePayloadSchema = HookPayloadSchema.extend({
   taskIds: z.array(z.string()),
   epicId: z.string().optional(),
   chainId: z.string().optional(),
-  reason: z
-    .enum(['dependency-cleared', 'new-task', 'retry', 'manual', 'patrol'])
-    .optional(),
+  reason: z.enum(['dependency-cleared', 'new-task', 'retry', 'manual', 'patrol']).optional(),
 });
 
 /** Zod schema for {@link OnAgentSpawnPayload}. */
@@ -195,9 +193,7 @@ export function validatePayload(event: HookEvent, payload: unknown): PayloadVali
     return { valid: true, errors: [] };
   }
 
-  const errors = result.error.issues.map(
-    (issue) => `${issue.path.join('.')}: ${issue.message}`,
-  );
+  const errors = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
 
   return { valid: false, errors };
 }

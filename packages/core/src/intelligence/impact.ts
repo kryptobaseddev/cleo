@@ -169,10 +169,7 @@ function classifySeverity(projectPercentage: number): BlastRadiusSeverity {
  * Compute the maximum cascade depth via DFS from the source task
  * through its transitive dependents.
  */
-function computeCascadeDepth(
-  taskId: string,
-  dependentsMap: Map<string, Set<string>>,
-): number {
+function computeCascadeDepth(taskId: string, dependentsMap: Map<string, Set<string>>): number {
   const visited = new Set<string>();
 
   function dfs(id: string): number {
@@ -243,12 +240,7 @@ export async function analyzeTaskImpact(
   const affectedPipelines = findAffectedPipelines(taskId, transitiveDeps, tasks);
   const blockedWorkCount = countBlockedWork(taskId, transitiveDeps, taskMap);
   const onCriticalPath = isTaskOnCriticalPath(taskId, tasks);
-  const blastRadius = calculateBlastRadiusFromData(
-    taskId,
-    directDeps,
-    transitiveDeps,
-    tasks,
-  );
+  const blastRadius = calculateBlastRadiusFromData(taskId, directDeps, transitiveDeps, tasks);
 
   return {
     taskId,
@@ -301,24 +293,16 @@ export async function analyzeChangeImpact(
 
   switch (changeType) {
     case 'cancel':
-      affectedTasks.push(
-        ...predictCancelEffects(taskId, transitiveDeps, dependentsMap, taskMap),
-      );
+      affectedTasks.push(...predictCancelEffects(taskId, transitiveDeps, dependentsMap, taskMap));
       break;
     case 'block':
-      affectedTasks.push(
-        ...predictBlockEffects(taskId, transitiveDeps, dependentsMap, taskMap),
-      );
+      affectedTasks.push(...predictBlockEffects(taskId, transitiveDeps, dependentsMap, taskMap));
       break;
     case 'complete':
-      affectedTasks.push(
-        ...predictCompleteEffects(taskId, transitiveDeps, dependentsMap, taskMap),
-      );
+      affectedTasks.push(...predictCompleteEffects(taskId, transitiveDeps, dependentsMap, taskMap));
       break;
     case 'reprioritize':
-      affectedTasks.push(
-        ...predictReprioritizeEffects(taskId, transitiveDeps, taskMap),
-      );
+      affectedTasks.push(...predictReprioritizeEffects(taskId, transitiveDeps, taskMap));
       break;
   }
 
@@ -399,7 +383,11 @@ function predictCancelEffects(
     if (!task || task.status === 'done' || task.status === 'cancelled') continue;
 
     const otherUnmetDeps = (task.depends ?? []).filter(
-      (d) => d !== taskId && taskMap.has(d) && taskMap.get(d)!.status !== 'done' && taskMap.get(d)!.status !== 'cancelled',
+      (d) =>
+        d !== taskId &&
+        taskMap.has(d) &&
+        taskMap.get(d)!.status !== 'done' &&
+        taskMap.get(d)!.status !== 'cancelled',
     );
 
     if (otherUnmetDeps.length === 0) {
@@ -595,9 +583,7 @@ function calculateBlastRadiusFromData(
   }
 
   const projectPercentage =
-    totalTasks > 0
-      ? Math.round((transitiveDeps.size / totalTasks) * 100 * 100) / 100
-      : 0;
+    totalTasks > 0 ? Math.round((transitiveDeps.size / totalTasks) * 100 * 100) / 100 : 0;
 
   return {
     directCount: directDeps.size,
@@ -625,12 +611,7 @@ function generateRecommendation(
     return `No downstream tasks affected. Safe to ${changeType} ${taskId}.`;
   }
 
-  const severity =
-    affectedCount > 10
-      ? 'High'
-      : affectedCount > 3
-        ? 'Moderate'
-        : 'Low';
+  const severity = affectedCount > 10 ? 'High' : affectedCount > 3 ? 'Moderate' : 'Low';
 
   switch (changeType) {
     case 'cancel':

@@ -267,14 +267,12 @@ export const sessions = sqliteTable(
     startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
     endedAt: text('ended_at'),
     // Session chain columns (T4959)
-    previousSessionId: text('previous_session_id').references(
-      (): AnySQLiteColumn => sessions.id,
-      { onDelete: 'set null' },
-    ),
-    nextSessionId: text('next_session_id').references(
-      (): AnySQLiteColumn => sessions.id,
-      { onDelete: 'set null' },
-    ),
+    previousSessionId: text('previous_session_id').references((): AnySQLiteColumn => sessions.id, {
+      onDelete: 'set null',
+    }),
+    nextSessionId: text('next_session_id').references((): AnySQLiteColumn => sessions.id, {
+      onDelete: 'set null',
+    }),
     agentIdentifier: text('agent_identifier'),
     handoffConsumedAt: text('handoff_consumed_at'),
     handoffConsumedBy: text('handoff_consumed_by'),

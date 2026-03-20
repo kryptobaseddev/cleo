@@ -188,7 +188,11 @@ export function buildExportPackage(
 /**
  * Export a single task.
  */
-export function exportSingle(taskId: string, allTasks: Task[], projectName?: string): ExportPackage | null {
+export function exportSingle(
+  taskId: string,
+  allTasks: Task[],
+  projectName?: string,
+): ExportPackage | null {
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) return null;
 
@@ -203,7 +207,11 @@ export function exportSingle(taskId: string, allTasks: Task[], projectName?: str
 /**
  * Export a subtree (task + all descendants).
  */
-export function exportSubtree(rootId: string, allTasks: Task[], projectName?: string): ExportPackage | null {
+export function exportSubtree(
+  rootId: string,
+  allTasks: Task[],
+  projectName?: string,
+): ExportPackage | null {
   const root = allTasks.find((t) => t.id === rootId);
   if (!root) return null;
 

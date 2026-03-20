@@ -43,9 +43,7 @@ describe('Agent Registry', () => {
       /* module may not be loaded */
     }
     await Promise.race([
-      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(
-        () => {},
-      ),
+      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
     ]);
   });
@@ -192,10 +190,7 @@ describe('Agent Registry', () => {
       await updateAgentStatus(a1.id, { status: 'active' }, tempDir);
       await updateAgentStatus(a2.id, { status: 'idle' }, tempDir);
 
-      const activeOrIdle = await listAgentInstances(
-        { status: ['active', 'idle'] },
-        tempDir,
-      );
+      const activeOrIdle = await listAgentInstances({ status: ['active', 'idle'] }, tempDir);
       expect(activeOrIdle.length).toBe(2);
     });
   });
@@ -253,11 +248,7 @@ describe('Agent Registry', () => {
 
     it('increments error count on error status', async () => {
       const agent = await registerAgent({ agentType: 'executor' }, tempDir);
-      await updateAgentStatus(
-        agent.id,
-        { status: 'error', error: 'Connection timeout' },
-        tempDir,
-      );
+      await updateAgentStatus(agent.id, { status: 'error', error: 'Connection timeout' }, tempDir);
 
       const updated = await getAgentInstance(agent.id, tempDir);
       expect(updated!.errorCount).toBe(1);
@@ -452,16 +443,8 @@ describe('Agent Registry', () => {
 
     it('returns all errors for an agent', async () => {
       const agent = await registerAgent({ agentType: 'executor' }, tempDir);
-      await updateAgentStatus(
-        agent.id,
-        { status: 'error', error: 'timeout' },
-        tempDir,
-      );
-      await updateAgentStatus(
-        agent.id,
-        { status: 'error', error: 'ECONNREFUSED' },
-        tempDir,
-      );
+      await updateAgentStatus(agent.id, { status: 'error', error: 'timeout' }, tempDir);
+      await updateAgentStatus(agent.id, { status: 'error', error: 'ECONNREFUSED' }, tempDir);
 
       const errors = await getAgentErrorHistory(agent.id, tempDir);
       expect(errors.length).toBe(2);

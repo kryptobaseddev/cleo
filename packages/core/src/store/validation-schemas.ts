@@ -397,8 +397,7 @@ export const selectPipelineManifestSchema = createSelectSchema(
 /** Release manifest refinements — semver format for version. */
 const releaseManifestRefinements = {
   id: (s: z.ZodString) => s.min(1),
-  version: (s: z.ZodString) =>
-    s.regex(/^\d{4}\.\d+\.\d+$|^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/),
+  version: (s: z.ZodString) => s.regex(/^\d{4}\.\d+\.\d+$|^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/),
 };
 
 export const insertReleaseManifestSchema = createInsertSchema(

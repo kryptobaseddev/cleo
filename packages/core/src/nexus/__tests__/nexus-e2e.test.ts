@@ -64,11 +64,7 @@ import {
   nexusDeps,
   resolveCrossDeps,
 } from '../deps.js';
-import {
-  discoverRelated,
-  searchAcrossProjects,
-  extractKeywords,
-} from '../discover.js';
+import { discoverRelated, searchAcrossProjects, extractKeywords } from '../discover.js';
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -191,10 +187,7 @@ describe('audit log', () => {
     await nexusSync('sync-audit-proj');
 
     const db = await getNexusDb();
-    const entries = await db
-      .select()
-      .from(nexusAuditLog)
-      .where(eq(nexusAuditLog.action, 'sync'));
+    const entries = await db.select().from(nexusAuditLog).where(eq(nexusAuditLog.action, 'sync'));
 
     expect(entries.length).toBeGreaterThanOrEqual(1);
     expect(entries[0].success).toBe(1);
@@ -243,10 +236,9 @@ describe('audit log', () => {
 
   it('reconcile creates audit entries', async () => {
     const projDir = join(testDir, 'recon-audit-proj');
-    await createTestProjectWithId(
-      projDir,
-      [{ id: 'T001', title: 'Task', status: 'pending', description: 'desc' }],
-    );
+    await createTestProjectWithId(projDir, [
+      { id: 'T001', title: 'Task', status: 'pending', description: 'desc' },
+    ]);
 
     await nexusReconcile(projDir);
 
@@ -373,7 +365,9 @@ describe('health status', () => {
 
     const registry = await readRegistry();
     expect(registry).not.toBeNull();
-    const project = Object.values(registry!.projects).find((p) => p.name === 'health-registry-proj');
+    const project = Object.values(registry!.projects).find(
+      (p) => p.name === 'health-registry-proj',
+    );
     expect(project).toBeDefined();
     expect(project!.healthStatus).toBe('degraded');
   });
@@ -651,11 +645,29 @@ describe('cross-project task resolution', () => {
     projBDir = join(testDir, 'xproj-b');
     await createTestProjectDb(projADir, [
       { id: 'T001', title: 'Auth API', status: 'active', description: 'Auth', labels: ['auth'] },
-      { id: 'T002', title: 'Users API', status: 'pending', description: 'Users', depends: ['T001'] },
+      {
+        id: 'T002',
+        title: 'Users API',
+        status: 'pending',
+        description: 'Users',
+        depends: ['T001'],
+      },
     ]);
     await createTestProjectDb(projBDir, [
-      { id: 'T100', title: 'Login UI', status: 'blocked', description: 'Login page', labels: ['auth'] },
-      { id: 'T101', title: 'Dashboard', status: 'pending', description: 'Dashboard', depends: ['T100'] },
+      {
+        id: 'T100',
+        title: 'Login UI',
+        status: 'blocked',
+        description: 'Login page',
+        labels: ['auth'],
+      },
+      {
+        id: 'T101',
+        title: 'Dashboard',
+        status: 'pending',
+        description: 'Dashboard',
+        depends: ['T100'],
+      },
     ]);
     process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
     await nexusRegister(projADir, 'backend', 'read');
@@ -710,7 +722,13 @@ describe('dependency graph', () => {
     const dirB = join(testDir, 'graph-b');
     await createTestProjectDb(dirA, [
       { id: 'T001', title: 'API Base', status: 'done', description: 'API' },
-      { id: 'T002', title: 'API Routes', status: 'active', description: 'Routes', depends: ['T001'] },
+      {
+        id: 'T002',
+        title: 'API Routes',
+        status: 'active',
+        description: 'Routes',
+        depends: ['T001'],
+      },
     ]);
     await createTestProjectDb(dirB, [
       { id: 'T010', title: 'UI Shell', status: 'active', description: 'Shell' },
@@ -822,7 +840,13 @@ describe('blocking analysis extended', () => {
       { id: 'T001', title: 'Root', status: 'active', description: 'Root' },
       { id: 'T002', title: 'Left', status: 'pending', description: 'Left', depends: ['T001'] },
       { id: 'T003', title: 'Right', status: 'pending', description: 'Right', depends: ['T001'] },
-      { id: 'T004', title: 'Join', status: 'pending', description: 'Join', depends: ['T002', 'T003'] },
+      {
+        id: 'T004',
+        title: 'Join',
+        status: 'pending',
+        description: 'Join',
+        depends: ['T002', 'T003'],
+      },
     ]);
     process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
     await nexusRegister(dirA, 'diamond', 'read');
@@ -875,7 +899,13 @@ describe('critical path extended', () => {
     const dirA = join(testDir, 'crit-blocker');
     await createTestProjectDb(dirA, [
       { id: 'T001', title: 'Done task', status: 'done', description: 'Done' },
-      { id: 'T002', title: 'Pending task', status: 'pending', description: 'Pending', depends: ['T001'] },
+      {
+        id: 'T002',
+        title: 'Pending task',
+        status: 'pending',
+        description: 'Pending',
+        depends: ['T001'],
+      },
     ]);
     process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
     await nexusRegister(dirA, 'blocker-proj', 'read');
@@ -930,12 +960,36 @@ describe('discovery - searchAcrossProjects', () => {
     projADir = join(testDir, 'search-a');
     projBDir = join(testDir, 'search-b');
     await createTestProjectDb(projADir, [
-      { id: 'T001', title: 'Auth API', status: 'active', description: 'Authentication API', labels: ['auth'] },
-      { id: 'T002', title: 'User API', status: 'pending', description: 'User management', labels: ['user'] },
+      {
+        id: 'T001',
+        title: 'Auth API',
+        status: 'active',
+        description: 'Authentication API',
+        labels: ['auth'],
+      },
+      {
+        id: 'T002',
+        title: 'User API',
+        status: 'pending',
+        description: 'User management',
+        labels: ['user'],
+      },
     ]);
     await createTestProjectDb(projBDir, [
-      { id: 'T100', title: 'Auth UI', status: 'blocked', description: 'Auth login page', labels: ['auth'] },
-      { id: 'T101', title: 'Dashboard', status: 'pending', description: 'Main dashboard', labels: ['ui'] },
+      {
+        id: 'T100',
+        title: 'Auth UI',
+        status: 'blocked',
+        description: 'Auth login page',
+        labels: ['auth'],
+      },
+      {
+        id: 'T101',
+        title: 'Dashboard',
+        status: 'pending',
+        description: 'Main dashboard',
+        labels: ['ui'],
+      },
     ]);
     process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
     await nexusRegister(projADir, 'search-backend', 'read');
@@ -1019,12 +1073,36 @@ describe('discovery - discoverRelated', () => {
     projADir = join(testDir, 'disc-a');
     projBDir = join(testDir, 'disc-b');
     await createTestProjectDb(projADir, [
-      { id: 'T001', title: 'Auth module implementation', status: 'active', description: 'Build the authentication module', labels: ['auth', 'security'] },
-      { id: 'T002', title: 'Database setup', status: 'done', description: 'Set up database', labels: ['db'] },
+      {
+        id: 'T001',
+        title: 'Auth module implementation',
+        status: 'active',
+        description: 'Build the authentication module',
+        labels: ['auth', 'security'],
+      },
+      {
+        id: 'T002',
+        title: 'Database setup',
+        status: 'done',
+        description: 'Set up database',
+        labels: ['db'],
+      },
     ]);
     await createTestProjectDb(projBDir, [
-      { id: 'T100', title: 'Auth UI component', status: 'blocked', description: 'UI for authentication flow', labels: ['auth', 'ui'] },
-      { id: 'T101', title: 'Dashboard analytics', status: 'pending', description: 'Analytics dashboard', labels: ['ui'] },
+      {
+        id: 'T100',
+        title: 'Auth UI component',
+        status: 'blocked',
+        description: 'UI for authentication flow',
+        labels: ['auth', 'ui'],
+      },
+      {
+        id: 'T101',
+        title: 'Dashboard analytics',
+        status: 'pending',
+        description: 'Analytics dashboard',
+        labels: ['ui'],
+      },
     ]);
     process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
     await nexusRegister(projADir, 'disc-backend', 'read');
@@ -1213,8 +1291,20 @@ describe('edge cases', () => {
   it('project labels are sorted and deduplicated', async () => {
     const projDir = join(testDir, 'labels-proj');
     await createTestProjectDb(projDir, [
-      { id: 'T001', title: 'Task 1', status: 'pending', description: 'a', labels: ['z-label', 'a-label'] },
-      { id: 'T002', title: 'Task 2', status: 'pending', description: 'b', labels: ['a-label', 'm-label'] },
+      {
+        id: 'T001',
+        title: 'Task 1',
+        status: 'pending',
+        description: 'a',
+        labels: ['z-label', 'a-label'],
+      },
+      {
+        id: 'T002',
+        title: 'Task 2',
+        status: 'pending',
+        description: 'b',
+        labels: ['a-label', 'm-label'],
+      },
     ]);
     await nexusRegister(projDir, 'labels-proj', 'read');
 

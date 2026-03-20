@@ -7,7 +7,7 @@
  *
  * @task T5244
  */
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../data-accessor.js';
 /** Result of creating a test database environment. */
 export interface TestDbEnv {
@@ -32,16 +32,16 @@ export interface TestDbEnv {
  */
 export declare function createTestDb(): Promise<TestDbEnv>;
 /**
- * Build a TaskFile structure from a list of task partials.
+ * Build full Task objects from a list of task partials.
  * Useful for seeding test data via accessor.upsertSingleTask().
  */
-export declare function makeTaskFile(
+export declare function makeTasks(
   tasks: Array<
     Partial<Task> & {
       id: string;
     }
   >,
-): TaskFile;
+): Task[];
 /**
  * Seed tasks into the test database via the accessor.
  *

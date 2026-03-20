@@ -14,12 +14,7 @@
 import type { Task } from '@cleocode/contracts';
 import type { BrainDataAccessor } from '../store/brain-accessor.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import type {
-  LearningContext,
-  RiskAssessment,
-  RiskFactor,
-  ValidationPrediction,
-} from './types.js';
+import type { LearningContext, RiskAssessment, RiskFactor, ValidationPrediction } from './types.js';
 
 // ============================================================================
 // Constants
@@ -29,8 +24,8 @@ import type {
 const RISK_WEIGHTS = {
   complexity: 0.25,
   historicalFailure: 0.25,
-  blockingRisk: 0.30,
-  dependencyDepth: 0.20,
+  blockingRisk: 0.3,
+  dependencyDepth: 0.2,
 } as const;
 
 /** Thresholds for risk level recommendations. */
@@ -211,10 +206,7 @@ export async function predictValidationOutcome(
 // Internal: Risk Factor Computation
 // ============================================================================
 
-async function computeComplexityFactor(
-  task: Task,
-  accessor: DataAccessor,
-): Promise<RiskFactor> {
+async function computeComplexityFactor(task: Task, accessor: DataAccessor): Promise<RiskFactor> {
   const depCount = task.depends?.length ?? 0;
   let childCount = 0;
 
@@ -278,15 +270,14 @@ async function computeHistoricalFailureFactor(
     const contextText = p.context.toLowerCase();
 
     // Check for textual overlap between pattern and task
-    const hasLabelMatch = taskLabels.size > 0 && [...taskLabels].some((l) =>
-      patternText.includes(l) || contextText.includes(l),
-    );
+    const hasLabelMatch =
+      taskLabels.size > 0 &&
+      [...taskLabels].some((l) => patternText.includes(l) || contextText.includes(l));
     const hasTitleMatch =
       patternText.includes(taskTitle) || taskTitle.includes(patternText.slice(0, 20));
-    const hasDescMatch = taskDesc.length > 10 && (
-      patternText.includes(taskDesc.slice(0, 30)) ||
-      taskDesc.includes(patternText.slice(0, 30))
-    );
+    const hasDescMatch =
+      taskDesc.length > 10 &&
+      (patternText.includes(taskDesc.slice(0, 30)) || taskDesc.includes(patternText.slice(0, 30)));
 
     if (hasLabelMatch || hasTitleMatch || hasDescMatch) {
       matchCount++;
@@ -315,10 +306,7 @@ async function computeHistoricalFailureFactor(
   };
 }
 
-async function computeBlockingFactor(
-  task: Task,
-  accessor: DataAccessor,
-): Promise<RiskFactor> {
+async function computeBlockingFactor(task: Task, accessor: DataAccessor): Promise<RiskFactor> {
   // Count how many other tasks depend on this task (i.e., this task blocks them)
   let blockedCount = 0;
 
@@ -441,7 +429,9 @@ function assessTaskStatus(task: Task, stage: string): SignalResult {
       pass += 0.3;
     } else {
       fail += 0.5;
-      suggestions.push(`Task is still in "${task.status}" status — work should begin before ${stage} gate`);
+      suggestions.push(
+        `Task is still in "${task.status}" status — work should begin before ${stage} gate`,
+      );
     }
   }
 
@@ -495,7 +485,10 @@ async function assessHistoricalPatterns(
     const pat = p.pattern.toLowerCase();
     const stageMatch = ctx.includes(stage.toLowerCase());
     const labelMatch = [...taskLabels].some((l) => pat.includes(l) || ctx.includes(l));
-    const titleMatch = taskTitle.split(/\s+/).filter((w) => w.length > 3).some((w) => pat.includes(w));
+    const titleMatch = taskTitle
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .some((w) => pat.includes(w));
 
     if (stageMatch || labelMatch || titleMatch) {
       total++;
@@ -515,7 +508,10 @@ async function assessHistoricalPatterns(
     const pat = p.pattern.toLowerCase();
     const stageMatch = ctx.includes(stage.toLowerCase());
     const labelMatch = [...taskLabels].some((l) => pat.includes(l) || ctx.includes(l));
-    const titleMatch = taskTitle.split(/\s+/).filter((w) => w.length > 3).some((w) => pat.includes(w));
+    const titleMatch = taskTitle
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .some((w) => pat.includes(w));
 
     if (stageMatch || labelMatch || titleMatch) {
       total++;

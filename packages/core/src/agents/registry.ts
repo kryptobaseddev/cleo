@@ -127,10 +127,7 @@ export async function heartbeat(id: string, cwd?: string): Promise<AgentInstance
     return existing.status;
   }
 
-  await db
-    .update(agentInstances)
-    .set({ lastHeartbeat: now })
-    .where(eq(agentInstances.id, id));
+  await db.update(agentInstances).set({ lastHeartbeat: now }).where(eq(agentInstances.id, id));
 
   return existing.status;
 }
@@ -265,10 +262,7 @@ export async function listAgentInstances(
 /**
  * Get a single agent instance by ID.
  */
-export async function getAgentInstance(
-  id: string,
-  cwd?: string,
-): Promise<AgentInstanceRow | null> {
+export async function getAgentInstance(id: string, cwd?: string): Promise<AgentInstanceRow | null> {
   const db = await getDb(cwd);
   const row = await db.select().from(agentInstances).where(eq(agentInstances.id, id)).get();
   return row ?? null;
@@ -343,11 +337,7 @@ export async function getAgentErrorHistory(
   cwd?: string,
 ): Promise<AgentErrorLogRow[]> {
   const db = await getDb(cwd);
-  return db
-    .select()
-    .from(agentErrorLog)
-    .where(eq(agentErrorLog.agentId, agentId))
-    .all();
+  return db.select().from(agentErrorLog).where(eq(agentErrorLog.agentId, agentId)).all();
 }
 
 // ============================================================================

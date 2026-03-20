@@ -147,9 +147,7 @@ function computeNextSuggested(session: Session, tasks: Task[]): string[] {
 function findOpenBlockers(tasks: Task[], session: Session): string[] {
   const scopeTaskIds = getScopeTaskIds(session, tasks);
 
-  return tasks
-    .filter((t) => scopeTaskIds.has(t.id) && t.status === 'blocked')
-    .map((t) => t.id);
+  return tasks.filter((t) => scopeTaskIds.has(t.id) && t.status === 'blocked').map((t) => t.id);
 }
 
 /**

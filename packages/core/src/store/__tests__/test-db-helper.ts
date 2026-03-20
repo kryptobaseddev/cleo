@@ -11,7 +11,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Task, TaskFile } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
@@ -59,11 +59,11 @@ export async function createTestDb(): Promise<TestDbEnv> {
 }
 
 /**
- * Build a TaskFile structure from a list of task partials.
+ * Build full Task objects from a list of task partials.
  * Useful for seeding test data via accessor.upsertSingleTask().
  */
-export function makeTaskFile(tasks: Array<Partial<Task> & { id: string }>): TaskFile {
-  const fullTasks: Task[] = tasks.map(
+export function makeTasks(tasks: Array<Partial<Task> & { id: string }>): Task[] {
+  return tasks.map(
     (t) =>
       ({
         title: t.title ?? `Task ${t.id}`,
@@ -74,18 +74,6 @@ export function makeTaskFile(tasks: Array<Partial<Task> & { id: string }>): Task
         ...t,
       }) as Task,
   );
-
-  return {
-    version: '2.10.0',
-    project: { name: 'test', phases: {} },
-    lastUpdated: new Date().toISOString(),
-    _meta: {
-      schemaVersion: '2.10.0',
-      checksum: '0000000000000000',
-      configVersion: '1.0.0',
-    },
-    tasks: fullTasks,
-  };
 }
 
 /**
@@ -108,8 +96,7 @@ export async function seedTasks(
   }
 
   // Build full Task objects from partials
-  const tf = makeTaskFile(tasks);
-  const fullTasks = tf.tasks;
+  const fullTasks = makeTasks(tasks);
 
   // Pass 1: Upsert all tasks without dependencies so FK targets exist
   for (const task of fullTasks) {
