@@ -357,8 +357,10 @@ describe('Agent Registry', () => {
       const agent = await registerAgent({ agentType: 'executor' }, tempDir);
       await updateAgentStatus(agent.id, { status: 'active' }, tempDir);
 
-      // Use a very short threshold so the agent appears stale
-      const stale = await checkAgentHealth(0, tempDir);
+      // Wait briefly so heartbeat is definitively in the past, then use
+      // a threshold that guarantees staleness detection on slow CI runners
+      await new Promise((r) => setTimeout(r, 50));
+      const stale = await checkAgentHealth(10, tempDir);
       expect(stale.length).toBeGreaterThanOrEqual(1);
       expect(stale.some((a) => a.id === agent.id)).toBe(true);
     });
