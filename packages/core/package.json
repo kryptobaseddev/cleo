@@ -27,9 +27,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/adapters": "workspace:*",
+    "@cleocode/agents": "workspace:*",
+    "@cleocode/caamp": "^1.8.0",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs-protocol": "^1.7.0",
+    "@cleocode/skills": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.19-d95b7a4",

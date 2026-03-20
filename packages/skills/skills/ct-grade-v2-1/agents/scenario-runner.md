@@ -72,7 +72,7 @@ Record every operation you executed as a JSONL file. Each line:
 
 Write to `<OUTPUT_DIR>/<SCENARIO>/arm-<INTERFACE>/`:
 
-**grade.json** — The GradeResult from admin.grade:
+**grade.json** — The GradeResult from check.grade:
 ```json
 {
   "sessionId": "...",
@@ -97,7 +97,7 @@ Write to `<OUTPUT_DIR>/<SCENARIO>/arm-<INTERFACE>/`:
   "executor_start": "<ISO>",
   "executor_end": "<ISO>",
   "executor_duration_seconds": 0,
-  "token_usage_id": "<id from admin.token.record response>",
+  "token_usage_id": "<id from admin.token response>",
   "total_tokens": null,
   "duration_ms": null
 }
@@ -110,7 +110,8 @@ Note: `total_tokens` and `duration_ms` are filled by the orchestrator from the t
 After receiving the grade result, record the exchange to persist token measurements:
 
 ```
-mutate admin token.record {
+mutate admin token {
+  "action": "record",
   "sessionId": "<session-id>",
   "transport": "mcp",
   "domain": "admin",
@@ -145,15 +146,15 @@ Save the returned `id` as `token_usage_id` in timing.json.
 | Scenario | Key Operations | S1 | S2 | S3 | S4 | S5 |
 |---|---|---|---|---|---|---|
 | s1 | session.list, tasks.find, tasks.show, session.end | ✓ | ✓ | — | — | partial |
-| s2 | session.list, tasks.exists, tasks.add×2, session.end | ✓ | — | ✓ | — | — |
+| s2 | session.list, tasks.find, tasks.add×2, session.end | ✓ | — | ✓ | — | — |
 | s3 | session.list, tasks.show (E_NOT_FOUND), tasks.find (recover), tasks.add, session.end | ✓ | — | ✓ | ✓ | — |
 | s4 | session.list, admin.help, tasks.find, tasks.show, tasks.update, tasks.complete, session.end | ✓ | ✓ | ✓ | ✓ | ✓ |
 | s5 | session.list, admin.help, tasks.find (parent filter), tasks.show, session.context.drift, session.decision.log, session.record.decision, tasks.update, tasks.complete, session.end | ✓ | ✓ | ✓ | ✓ | ✓ |
 | s6 | memory.observe, memory.find, memory.timeline, memory.fetch, session.end | ✓ | ✓ | — | — | ✓ |
-| s7 | memory.decision.store, memory.decision.find, memory.find, memory.stats, session.end | ✓ | — | — | — | ✓ |
+| s7 | memory.decision.store, memory.decision.find, memory.find, memory.fetch, session.end | ✓ | — | — | — | ✓ |
 | s8 | memory.pattern.store, memory.learning.store, memory.pattern.find, memory.learning.find, session.end | — | ✓ | — | — | ✓ |
 | s9 | nexus.status, nexus.list, nexus.show, admin.dash, session.end | ✓ | — | — | — | ✓ |
-| s10 | session.list, admin.help, tasks.find, memory.find, nexus.status, pipeline.stage.status, check.health, tools.skill.list, memory.observe, session.end | ✓ | ✓ | — | — | ✓ |
+| s10 | session.list, admin.help, tasks.find, memory.find, nexus.status, pipeline.stage.status, admin.health, tools.skill.list, memory.observe, session.end | ✓ | ✓ | — | — | ✓ |
 
 ## Anti-patterns to Avoid
 

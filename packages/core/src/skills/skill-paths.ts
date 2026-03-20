@@ -15,7 +15,7 @@
 
 import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
-import { getAgentsHome } from '../paths.js';
+import { getCanonicalSkillsDir } from '@cleocode/caamp';
 
 /** Source type classification for a skill directory. */
 export type SkillSourceType = 'embedded' | 'caamp' | 'project-link' | 'global-link';
@@ -31,10 +31,11 @@ export interface SkillSearchPath {
 
 /**
  * Get the CAAMP canonical skill location.
+ * Delegates to caamp's getCanonicalSkillsDir() which is XDG-aware.
  * @task T4552
  */
 function getCaampCanonical(): string {
-  return join(getAgentsHome(), 'skills');
+  return getCanonicalSkillsDir();
 }
 
 /**

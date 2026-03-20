@@ -107,8 +107,8 @@ Save to the path specified in your prompt (default: `ecosystem-check.json` in th
       "rule_id": 2,
       "rule_name": "MCP Operation Syntax",
       "status": "ERROR",
-      "finding": "Skill references 'tools.skill.validate' which is not a valid CLEO operation. The correct operation is 'tools.skill.verify'.",
-      "evidence": "Line: 'Run `query tools.skill.validate <skill-name>`'"
+      "finding": "Skill references 'tools.skill.verify' which is not a valid CLEO operation. The correct operation is 'tools.skill.verify'.",
+      "evidence": "Line: 'Run `query tools.skill.verify <skill-name>`'"
     }
   ],
   "summary": {
@@ -120,7 +120,7 @@ Save to the path specified in your prompt (default: `ecosystem-check.json` in th
   "primary_domain": "tools",
   "lifecycle_stages_served": ["Validation"],
   "recommendations": [
-    "Replace 'tools.skill.validate' with 'tools.skill.verify' throughout the body",
+    "Replace 'tools.skill.verify' with 'tools.skill.verify' throughout the body",
     "Add explicit mention of which lifecycle stage this skill supports"
   ]
 }

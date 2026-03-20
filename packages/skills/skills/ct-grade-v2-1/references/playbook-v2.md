@@ -221,7 +221,7 @@ Skip step 2 (`admin.help`). Earns MCP gateway +10 but not help/skill +10.
 | `admin.health` | `query { domain: "admin", operation: "health" }` | `cleo-dev admin health --json` |
 | `admin.help` | `query { domain: "admin", operation: "help" }` | `cleo-dev admin help --json` |
 | `admin.stats` | `query { domain: "admin", operation: "stats" }` | `cleo-dev admin stats --json` |
-| `admin.doctor` | `query { domain: "admin", operation: "doctor" }` | `cleo-dev admin doctor --json` |
+| `admin.health` | `query { domain: "admin", operation: "health" }` | `cleo-dev admin health --json` |
 
 ---
 

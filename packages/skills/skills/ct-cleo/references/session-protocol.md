@@ -122,8 +122,8 @@ Skills are **context injections, NOT agents**. The orchestrator selects and inje
 ### Discovery
 
 ```
-query({ domain: "skills", operation: "list" })
-query({ domain: "skills", operation: "show", params: { name: "ct-orchestrator" }})
+query({ domain: "tools", operation: "skill.list" })
+query({ domain: "tools", operation: "skill.show", params: { name: "ct-orchestrator" }})
 ```
 
 ### Key Skills

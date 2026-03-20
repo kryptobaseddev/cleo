@@ -67,7 +67,7 @@ Record every operation you executed as a JSONL file. Each line:
 
 Write to `<OUTPUT_DIR>/<SCENARIO>/arm-<INTERFACE>/`:
 
-**grade.json** — The GradeResult from the canonical `check.grade` read (or legacy `admin.grade` alias):
+**grade.json** — The GradeResult from the canonical `check.grade` read:
 ```json
 {
   "sessionId": "...",
@@ -103,7 +103,7 @@ Note: `total_tokens` and `duration_ms` are filled by the orchestrator from the t
 | Scenario | Key Operations | S1 | S2 | S3 | S4 | S5 |
 |---|---|---|---|---|---|---|
 | s1 | session.list, tasks.find, tasks.show, session.end | ✓ | ✓ | — | — | partial |
-| s2 | session.list, tasks.exists, tasks.add×2, session.end | ✓ | — | ✓ | — | — |
+| s2 | session.list, tasks.find, tasks.add×2, session.end | ✓ | — | ✓ | — | — |
 | s3 | session.list, tasks.show (E_NOT_FOUND), tasks.find (recover), tasks.add, session.end | ✓ | — | ✓ | ✓ | — |
 | s4 | session.list, admin.help, tasks.find, tasks.show, tasks.update, tasks.complete, session.end | ✓ | ✓ | ✓ | ✓ | ✓ |
 | s5 | session.list, admin.help, tasks.find (parent filter), tasks.show, session.context.drift, session.decision.log, session.record.decision, tasks.update, tasks.complete, session.end | ✓ | ✓ | ✓ | ✓ | ✓ |

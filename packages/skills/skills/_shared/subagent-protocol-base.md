@@ -1,8 +1,8 @@
 # Subagent Protocol Base Reference
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 1.0.1
-**Updated**: 2026-02-07
+**Version**: 1.1.0
+**Updated**: 2026-03-20
 
 This reference defines the RFC 2119 protocol for subagent output and handoff.
 All subagents operating under an orchestrator MUST follow this protocol.
@@ -17,8 +17,13 @@ All subagents operating under an orchestrator MUST follow this protocol.
 |----|------|------------|
 | OUT-001 | MUST write findings to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md` | Required |
 | OUT-002 | MUST append ONE line to `{{MANIFEST_PATH}}` | Required |
-| OUT-003 | MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary." | Required |
-| OUT-004 | MUST NOT return research content in response | Required |
+| OUT-003 | MUST return ONLY: "[Type] complete. See MANIFEST.jsonl for summary." | Required |
+| OUT-004 | MUST NOT return output content in response | Required |
+
+Valid return messages:
+- `"[Type] complete. See MANIFEST.jsonl for summary."`
+- `"[Type] partial. See MANIFEST.jsonl for details."`
+- `"[Type] blocked. See MANIFEST.jsonl for blocker details."`
 
 ### Rationale
 
@@ -75,13 +80,10 @@ Use `cleo research add` to create manifest entries instead of manual JSONL appen
 **Quick Reference**:
 ```bash
 cleo research add \
-  --title "{{TITLE}}" \
-  --file "{{DATE}}_{{TOPIC_SLUG}}.md" \
-  --topics "topic1,topic2,topic3" \
-  --findings "Finding 1,Finding 2,Finding 3" \
-  --status complete \
   --task {{TASK_ID}} \
-  --agent-type research
+  --topic "{{TOPIC_SLUG}}" \
+  --findings "Finding 1,Finding 2,Finding 3" \
+  --sources "Source 1,Source 2"
 ```
 
 See the reference above for:
@@ -108,7 +110,7 @@ Reference: @skills/_shared/task-system-integration.md
 4. Write output: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
 5. Create manifest entry: cleo research add [flags]
 6. Complete:     {{TASK_COMPLETE_CMD}} {{TASK_ID}}
-7. Return:       "Research complete. See MANIFEST.jsonl for summary."
+7. Return:       "[Type] complete. See MANIFEST.jsonl for summary."
 ```
 
 ---
@@ -118,12 +120,12 @@ Reference: @skills/_shared/task-system-integration.md
 ### Link Research to Task
 
 ```bash
-{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}
+{{TASK_LINK_CMD}} {{RESEARCH_ID}} {{TASK_ID}}
 ```
 
 **Purpose**: Associate research output with originating task for bidirectional discovery.
 
-**CLEO Default**: `cleo research link {{TASK_ID}} {{RESEARCH_ID}}`
+**CLEO Default**: `cleo research link {{RESEARCH_ID}} {{TASK_ID}}`
 
 **When to Link**:
 - SHOULD link after writing research output to manifest
@@ -199,7 +201,7 @@ If work cannot complete fully:
 2. Set manifest `"status": "partial"`
 3. Add blocking reason to `needs_followup`
 4. Complete task (partial work is still progress)
-5. Return: "Research partial. See MANIFEST.jsonl for details."
+5. Return: "[Type] partial. See MANIFEST.jsonl for details."
 
 ### Blocked Status
 
@@ -209,7 +211,7 @@ If work cannot proceed:
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task (leave for orchestrator decision)
-5. Return: "Research blocked. See MANIFEST.jsonl for blocker details."
+5. Return: "[Type] blocked. See MANIFEST.jsonl for blocker details."
 
 ---
 
@@ -220,4 +222,5 @@ If work cannot proceed:
 | Returning full content | Bloats orchestrator context | Return only summary message |
 | Manual JSONL append | No validation, race conditions | Use `cleo research add` |
 | Missing manifest entry | Orchestrator can't find findings | Always create manifest entry |
+| Skipping task start | Protocol violation | Always `cleo start` before work |
 | Incomplete checklist | Protocol violation | Verify all items before return |

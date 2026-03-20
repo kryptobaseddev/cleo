@@ -40,12 +40,12 @@ Skills and templates SHOULD reference this file instead of hardcoding CLEO comma
 ### Link Research
 
 ```bash
-{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}
+{{TASK_LINK_CMD}} {{RESEARCH_ID}} {{TASK_ID}}
 ```
 
 **Purpose**: Associate research output with task.
 
-**CLEO Default**: `cleo research link {{TASK_ID}} {{RESEARCH_ID}}`
+**CLEO Default**: `cleo research link {{RESEARCH_ID}} {{TASK_ID}}`
 
 ---
 
@@ -122,8 +122,8 @@ When the task system is CLEO, these additional commands are available:
 | `cleo session start` | Begin work session |
 | `cleo session end` | End work session |
 | `cleo analyze` | Task triage with scoring |
-| `cleo deps {{TASK_ID}}` | Check task dependencies |
-| `cleo tree --parent {{EPIC_ID}}` | Visualize hierarchy |
+| `cleo deps show {{TASK_ID}}` | Check task dependencies |
+| `cleo tree {{EPIC_ID}}` | Visualize hierarchy rooted at epic |
 
 ### Session Lifecycle
 
@@ -200,7 +200,7 @@ Include task lifecycle section in templates:
 1. MUST read task details: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
 2. MUST start task: `{{TASK_START_CMD}} {{TASK_ID}}`
 3. MUST complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
-4. SHOULD link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`
+4. SHOULD link research: `{{TASK_LINK_CMD}} {{RESEARCH_ID}} {{TASK_ID}}`
 ```
 
 ---

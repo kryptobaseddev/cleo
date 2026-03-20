@@ -1036,7 +1036,7 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
       !globalSchemaCheck.ok;
 
     if (globalNeedsRepair) {
-      // Auto-repair: ensureGlobalScaffold is idempotent and safe
+      // Auto-repair home and templates via ensureGlobalScaffold (idempotent, safe)
       const scaffoldResult = await ensureGlobalScaffold();
 
       checks.push({
@@ -1049,12 +1049,23 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
         repaired: scaffoldResult.home.action !== 'skipped',
       });
 
-      checks.push({
-        check: 'global_schemas',
-        status: 'pass',
-        message: `Schemas: ${scaffoldResult.schemas.installed} installed, ${scaffoldResult.schemas.updated} updated of ${scaffoldResult.schemas.total}`,
-        repaired: scaffoldResult.schemas.installed > 0 || scaffoldResult.schemas.updated > 0,
-      });
+      // Schemas are read at runtime from the package path; only copy if stale
+      if (!globalSchemaCheck.ok) {
+        const { ensureGlobalSchemas } = await import('../schema-management.js');
+        const schemaResult = ensureGlobalSchemas();
+        checks.push({
+          check: 'global_schemas',
+          status: 'pass',
+          message: `Schemas: ${schemaResult.installed} installed, ${schemaResult.updated} updated of ${schemaResult.total}`,
+          repaired: schemaResult.installed > 0 || schemaResult.updated > 0,
+        });
+      } else {
+        checks.push({
+          check: 'global_schemas',
+          status: 'pass',
+          message: `All ${globalSchemaCheck.installed} schemas current`,
+        });
+      }
 
       checks.push({
         check: 'global_templates',

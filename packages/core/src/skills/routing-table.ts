@@ -18,13 +18,14 @@ export type { PreferredChannel } from '../routing/capability-matrix.js';
 /**
  * Routing entry describing the preferred channel for an operation.
  *
- * @deprecated Use OperationCapability from capability-matrix directly.
- * This type is kept for backward compatibility with routing-table consumers.
+ * Derived from OperationCapability in the capability matrix.
+ * Use this type when consuming domain-level routing results from
+ * getRoutingForDomain() or getOperationsByChannel().
  */
 export interface RoutingEntry {
   /** Domain name (e.g. 'tasks', 'memory', 'session') */
   domain: string;
-  /** Operation name (e.g. 'brain.search', 'show') */
+  /** Operation name (e.g. 'show', 'find') */
   operation: string;
   /** Preferred channel for token efficiency */
   preferredChannel: 'mcp' | 'cli' | 'either';

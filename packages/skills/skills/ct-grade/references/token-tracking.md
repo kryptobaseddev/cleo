@@ -64,7 +64,7 @@ The coarse estimation layer uses the following lookup table (`OP_TOKEN_AVERAGES`
 | tasks.find | ~750 | Depends on result count |
 | tasks.list | ~3,000 | Heavy — prefer tasks.find |
 | tasks.show | ~600 | Single task with full details |
-| tasks.exists | ~300 | Boolean + minimal data |
+| tasks.find | ~300 | Use with exact:true for existence check |
 | tasks.tree | ~800 | Hierarchy view |
 | tasks.plan | ~900 | Next task recommendations |
 | session.status | ~350 | Quick status check |

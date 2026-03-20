@@ -1,5 +1,8 @@
 # Testing Framework Configuration
 
+> **Reference status**: Not directly `@`-referenced by any ct-* skill SKILL.md. Used by ct-validator
+> and other skills that need testing configuration guidance. Available for skill authors to link.
+
 CLEO supports 16 testing frameworks. Configure your project's testing setup in `.cleo/config.json`:
 
 ## Framework Examples

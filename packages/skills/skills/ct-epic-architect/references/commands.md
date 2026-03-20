@@ -166,7 +166,7 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 | `{{TASK_SESSION_END_CMD}}` | `cleo session end` |
 | `{{TASK_SESSION_SUSPEND_CMD}}` | `cleo session suspend` |
 | `{{TASK_SESSION_RESUME_CMD}}` | `cleo session resume` |
-| `{{TASK_SESSION_CLOSE_CMD}}` | `cleo session close` |
+| `{{TASK_SESSION_CLOSE_CMD}}` | `cleo session end` |
 | `{{TASK_SESSION_LIST_CMD}}` | `cleo session list` |
 
 ### Start/Stop/Current Tokens

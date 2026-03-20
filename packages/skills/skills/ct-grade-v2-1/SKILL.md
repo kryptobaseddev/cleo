@@ -171,7 +171,7 @@ If running without task notifications (no total_tokens available):
   token-summary.json         # aggregated token stats across all runs
   <scenario-or-domain>/
     arm-A/
-      grade.json             # GradeResult (from admin.grade)
+      grade.json             # GradeResult (from check.grade)
       timing.json            # token + duration data
       operations.jsonl       # operations executed (one per line)
     arm-B/

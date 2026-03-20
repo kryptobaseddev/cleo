@@ -94,8 +94,8 @@ importers:
   packages/cleo:
     dependencies:
       '@cleocode/caamp':
-        specifier: ^1.7.0
-        version: 1.7.0
+        specifier: ^1.8.0
+        version: 1.8.0
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -111,38 +111,29 @@ importers:
       citty:
         specifier: ^0.2.1
         version: 0.2.1
-      drizzle-orm:
-        specifier: 1.0.0-beta.19-d95b7a4
-        version: 1.0.0-beta.19-d95b7a4(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76)
-      js-tiktoken:
-        specifier: ^1.0.21
-        version: 1.0.21
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
-      pino-roll:
-        specifier: ^4.0.0
-        version: 4.0.0
-      proper-lockfile:
-        specifier: ^4.1.2
-        version: 4.1.2
-      write-file-atomic:
-        specifier: ^6.0.0
-        version: 6.0.0
 
   packages/contracts: {}
 
   packages/core:
     dependencies:
+      '@cleocode/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@cleocode/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@cleocode/caamp':
-        specifier: ^1.7.0
-        version: 1.7.0
+        specifier: ^1.8.0
+        version: 1.8.0
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
       '@cleocode/lafs-protocol':
         specifier: ^1.7.0
         version: 1.7.0
+      '@cleocode/skills':
+        specifier: workspace:*
+        version: link:../skills
       ajv:
         specifier: ^8.18.0
         version: 8.18.0
@@ -331,13 +322,13 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@cleocode/caamp@1.7.0':
-    resolution: {integrity: sha512-qoPKYjDEunNlL5DfWShIkjtfRS3L5Hsm/LM504SmOfWgRf4h8Rg4CVO/Oyv7+dyRDUPDT+riZ9U1riOH//J0KA==}
+  '@cleocode/caamp@1.7.1':
+    resolution: {integrity: sha512-N2cy1zJ/PZ6lRMjXrLWjS+ZAnqO/GEPzcEP28NR0UXp0zx2R++v8lcQxzS2ck95uLbgOcQ/ZIug2IRg9utB2Vw==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@cleocode/caamp@1.7.1':
-    resolution: {integrity: sha512-N2cy1zJ/PZ6lRMjXrLWjS+ZAnqO/GEPzcEP28NR0UXp0zx2R++v8lcQxzS2ck95uLbgOcQ/ZIug2IRg9utB2Vw==}
+  '@cleocode/caamp@1.8.0':
+    resolution: {integrity: sha512-OH/qt2P6h5hlSgB2ckxYM288gb0a06yQF8uxZTFayd2vCW/Ho0U1pYxbo8jX79DkywhCm/5pU2Fasob0iktooA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -2199,7 +2190,7 @@ snapshots:
   '@biomejs/cli-win32-x64@2.4.8':
     optional: true
 
-  '@cleocode/caamp@1.7.0':
+  '@cleocode/caamp@1.7.1':
     dependencies:
       '@cleocode/lafs-protocol': 1.7.0
       '@iarna/toml': 2.2.5
@@ -2215,9 +2206,9 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
-  '@cleocode/caamp@1.7.1':
+  '@cleocode/caamp@1.8.0':
     dependencies:
-      '@cleocode/lafs-protocol': 1.7.0
+      '@cleocode/lafs-protocol': 1.8.0
       '@iarna/toml': 2.2.5
       commander: 14.0.3
       env-paths: 4.0.0

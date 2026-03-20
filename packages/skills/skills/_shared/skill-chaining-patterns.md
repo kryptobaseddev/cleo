@@ -1,5 +1,9 @@
 # Skill Chaining Patterns
 
+> **Reference status**: Not directly `@`-referenced by any ct-* skill SKILL.md. Referenced
+> in ct-epic-architect's `references/skill-aware-execution.md` as a prose pointer. Available
+> for skill authors and orchestrators that need multi-level delegation patterns.
+
 This reference defines patterns for multi-level skill invocation and context propagation across agent boundaries.
 
 ---
@@ -35,8 +39,12 @@ The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill
 
 ### Implementation
 
-```
-# 1. Generate fully-resolved spawn prompt via MCP
+```bash
+# CLI (Primary)
+cleo orchestrator spawn T1234 --json
+
+# MCP (Fallback)
+# 1. Generate fully-resolved spawn prompt
 mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }})
 
 # 2. Provider adapter executes the prompt using its native mechanism
@@ -50,7 +58,7 @@ mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }}
 
 - **Input**: Task ID, skill template, previous manifest key_findings
 - **Output**: Manifest entry with key_findings for next agent
-- **Response**: "Research complete. See MANIFEST.jsonl for summary."
+- **Response**: "[Type] complete. See MANIFEST.jsonl for summary."
 
 ---
 
@@ -169,8 +177,8 @@ Parent reads only key_findings, not full research files.
 ### Rule 2: Minimal Response (MUST)
 
 ```
-Subagent MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
-Subagent MUST NOT return research content in response.
+Subagent MUST return ONLY: "[Type] complete/partial/blocked. See MANIFEST.jsonl for summary/details/blocker details."
+Subagent MUST NOT return output content in response.
 ```
 
 ### Rule 3: File-Based Details (MUST)
@@ -209,7 +217,7 @@ TOPIC_SLUG    # URL-safe topic name
 Before spawning subagent:
 - [ ] Identify appropriate skill for task type
 - [ ] Prepare token context (TASK_ID, DATE, TOPIC_SLUG)
-- [ ] Use `orchestrate.spawn` to generate fully-resolved prompt
+- [ ] CLI: `cleo orchestrator spawn <taskId> --json` or MCP: `orchestrate.spawn`
 - [ ] Verify token resolution is complete (`tokenResolution.fullyResolved`)
 
 Before chaining to another skill:

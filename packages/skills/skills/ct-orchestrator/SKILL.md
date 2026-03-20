@@ -272,10 +272,10 @@ Verify all subagent outputs in manifest. Update CLEO task status. Record pipelin
 
 | CLI (Primary) | MCP (Fallback) | Purpose |
 |----------------|----------------|---------|
-| `cleo pipeline status --epic T1575` | `query({ domain: "pipeline", operation: "stage.status", params: { epicId } })` | Current pipeline stage |
-| `cleo pipeline record T1575 research done` | `mutate({ domain: "pipeline", operation: "stage.record", params: { epicId, stage, status } })` | Record stage progress |
-| `cleo pipeline validate T1575 implementation` | `query({ domain: "pipeline", operation: "stage.validate", params: { epicId, stage } })` | Check gate before spawn |
-| `cleo pipeline gate-pass T1575 research` | `mutate({ domain: "pipeline", operation: "stage.gate.pass", params: { epicId, stage } })` | Advance pipeline stage |
+| `cleo pipeline stage.status --epic T1575` | `query({ domain: "pipeline", operation: "stage.status", params: { epicId } })` | Current pipeline stage |
+| `cleo pipeline stage.record T1575 research done` | `mutate({ domain: "pipeline", operation: "stage.record", params: { epicId, stage, status } })` | Record stage progress |
+| `cleo pipeline stage.validate T1575 implementation` | `query({ domain: "pipeline", operation: "stage.validate", params: { epicId, stage } })` | Check gate before spawn |
+| `cleo pipeline stage.gate.pass T1575 research` | `mutate({ domain: "pipeline", operation: "stage.gate.pass", params: { epicId, stage } })` | Advance pipeline stage |
 
 **Context Budget Rule**: Stay under 10K tokens. Use `cleo manifest list` over reading full files.
 

@@ -49,13 +49,13 @@ Measures whether tasks are created with proper descriptions and subtask parent v
 | Points | Condition | Evidence string |
 |--------|-----------|-----------------|
 | -5 each | `tasks.add` succeeded without a description | flag per violation |
-| -3 | Subtasks created (with `parent` param) but no preceding `tasks.exists` | `Subtasks created without tasks.exists parent check` |
+| -3 | Subtasks created (with `parent` param) but no preceding `tasks.find {exact:true}` | `Subtasks created without parent existence check` |
 | (none) | All adds have descriptions | `All N tasks.add calls had descriptions` |
-| (none) | Subtasks preceded by `tasks.exists` | `Parent existence verified before subtask creation` |
+| (none) | Subtasks preceded by `tasks.find {exact:true}` | `Parent existence verified before subtask creation` |
 
 **Flags:**
 - `tasks.add without description (taskId: <id>)`
-- `Subtasks created without tasks.exists parent check`
+- `Subtasks created without parent existence check`
 
 **Scoring:** Starts at 20, deducts penalties. Floor: 0.
 
@@ -67,12 +67,12 @@ Measures whether the agent recovers from `E_NOT_FOUND` (exit code 4) and avoids 
 
 | Points | Condition | Evidence string |
 |--------|-----------|-----------------|
-| -5 each | `E_NOT_FOUND` not followed by `tasks.find` or `tasks.exists` within next 4 entries | flag per violation |
+| -5 each | `E_NOT_FOUND` not followed by `tasks.find` within next 4 entries | flag per violation |
 | -5 | Duplicate task creates (same title, case-insensitive) in session | `N potentially duplicate task create(s) detected` |
 | (none) | Error followed by recovery | `E_NOT_FOUND followed by recovery lookup` |
 | (none) | No violations | `No error protocol violations` |
 
-**Recovery window:** Checks `entries[errIdx+1 : errIdx+5]` for `tasks.find` or `tasks.exists`.
+**Recovery window:** Checks `entries[errIdx+1 : errIdx+5]` for `tasks.find`.
 
 **Duplicate detection:** Compares lowercased trimmed titles of all successful `tasks.add` calls.
 

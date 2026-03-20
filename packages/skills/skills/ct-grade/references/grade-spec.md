@@ -135,7 +135,7 @@ duplicates = titles.length - new Set(titles).size
 
 | Deduction | Condition |
 |-----------|-----------|
-| -5 per error | E_NOT_FOUND not followed by `tasks.find` or `tasks.exists` within 4 entries |
+| -5 per error | E_NOT_FOUND not followed by `tasks.find` within 4 entries |
 | -5 | Any duplicate task creates detected (title collision within session) |
 
 **Floor**: `Math.max(0, score)`
@@ -231,6 +231,6 @@ This is why A/B tests between MCP and CLI interfaces will reliably show S5 diffe
 ## API Surface Update
 
 - Canonical reads now live under `check.grade` and `check.grade.list`.
-- `admin.grade` and `admin.grade.list` remain compatibility handlers during the registry transition.
+- Use `check.grade` and `check.grade.list` as the canonical surface; legacy handlers may still appear in existing automation.
 - Token telemetry should be read through `admin.token` with `action=summary|list|show` rather than inferring split legacy operations.
 - Web clients should use `POST /api/query` and `POST /api/mutate`; default HTTP responses carry LAFS metadata in `X-Cleo-*` headers.

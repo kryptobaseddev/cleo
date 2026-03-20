@@ -60,8 +60,3 @@ export {
 //   mcp-config.ts   -> CAAMP detectAllProviders()/installMcpServer()
 //   injection-registry.ts -> CAAMP getInstructionFiles()
 
-// Injection legacy utilities (kept for validation output support)
-export {
-  getValidationKey,
-  INJECTION_VALIDATION_KEYS,
-} from './injection-legacy.js';

@@ -78,7 +78,7 @@ async function removeStaleAgentInjection(projectRoot: string): Promise<boolean> 
  *
  * Target architecture:
  *   CLAUDE.md/GEMINI.md -> @AGENTS.md (via injectAll)
- *   AGENTS.md -> @~/.cleo/templates/CLEO-INJECTION.md + @.cleo/project-context.json
+ *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md
  *
  * @task T4682
  */
@@ -125,8 +125,9 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
   }
 
   // Step 2: Inject CLEO protocol content into AGENTS.md itself
+  // Project AGENTS.md references the global hub, which loads CLEO-INJECTION.md
   const agentsMdPath = join(projectRoot, 'AGENTS.md');
-  const agentsMdLines = ['@~/.cleo/templates/CLEO-INJECTION.md'];
+  const agentsMdLines = ['@~/.agents/AGENTS.md'];
 
   const projectContextPath = join(projectRoot, '.cleo', 'project-context.json');
   if (existsSync(projectContextPath)) {
@@ -146,7 +147,10 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     agentsMdLines.push(contributorBlock);
   }
 
-  const agentsAction = await inject(agentsMdPath, agentsMdLines.join('\n'));
+  const agentsMdContent = agentsMdLines.join('\n');
+
+  // Direct call — CAAMP 1.8.0 handles idempotency
+  const agentsAction = await inject(agentsMdPath, agentsMdContent);
   actions.push(`AGENTS.md CLEO content (${agentsAction})`);
 
   // Step 3: Install CLEO-INJECTION.md to global templates dir
@@ -161,12 +165,14 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     }
   }
 
-  // Step 4: Create global ~/.agents/AGENTS.md hub if it doesn't exist
+  // Step 4: Create global ~/.agents/AGENTS.md hub (idempotent)
   try {
     const globalAgentsDir = getAgentsHome();
     const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
+    const globalHubContent = '@~/.cleo/templates/CLEO-INJECTION.md';
     await mkdir(globalAgentsDir, { recursive: true });
-    await inject(globalAgentsMd, '@~/.cleo/templates/CLEO-INJECTION.md');
+    // Direct call — CAAMP 1.8.0 handles idempotency
+    await inject(globalAgentsMd, globalHubContent);
   } catch {
     // Best-effort — don't fail if global hub creation fails
   }

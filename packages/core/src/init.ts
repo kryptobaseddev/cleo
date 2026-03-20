@@ -34,6 +34,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
+import { platform } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from './errors.js';
@@ -83,6 +84,15 @@ export interface InitResult {
   updateDocsOnly?: boolean;
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Symlink type for directory symlinks.
+ * On Windows, use 'junction' (no admin privileges required).
+ * On Unix, use 'dir'.
+ */
+const DIR_SYMLINK_TYPE: 'junction' | 'dir' = platform() === 'win32' ? 'junction' : 'dir';
+
 // ── Init-specific operations ─────────────────────────────────────────
 
 /**
@@ -90,10 +100,30 @@ export interface InitResult {
  * @task T4685
  */
 export async function initAgentDefinition(created: string[], warnings: string[]): Promise<void> {
-  const packageRoot = getPackageRoot();
-  const agentSourceDir = join(packageRoot, 'agents', 'cleo-subagent');
+  // Resolve agents package via require.resolve, then workspace/bundled fallback
+  let agentSourceDir: string | null = null;
+  try {
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const agentsPkgMain = req.resolve('@cleocode/agents/package.json');
+    const agentsPkgRoot = dirname(agentsPkgMain);
+    const candidate = join(agentsPkgRoot, 'cleo-subagent');
+    if (existsSync(candidate)) {
+      agentSourceDir = candidate;
+    }
+  } catch {
+    // Not resolvable via require.resolve — fall through to bundled path
+  }
 
-  if (!existsSync(agentSourceDir)) {
+  if (!agentSourceDir) {
+    const packageRoot = getPackageRoot();
+    const bundled = join(packageRoot, 'agents', 'cleo-subagent');
+    if (existsSync(bundled)) {
+      agentSourceDir = bundled;
+    }
+  }
+
+  if (!agentSourceDir) {
     warnings.push('agents/cleo-subagent/ not found in package, skipping agent definition install');
     return;
   }
@@ -114,7 +144,7 @@ export async function initAgentDefinition(created: string[], warnings: string[])
     }
 
     // Create symlink from ~/.agents/agents/cleo-subagent -> package agents/cleo-subagent/
-    await symlink(agentSourceDir, globalAgentsDir, 'dir');
+    await symlink(agentSourceDir, globalAgentsDir, DIR_SYMLINK_TYPE);
     created.push('agent: cleo-subagent (symlinked)');
   } catch (_err) {
     // If symlink fails (e.g., permissions), try copying
@@ -201,23 +231,38 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       return;
     }
 
-    // Find skills package: bundled first, then node_modules fallback
+    // Find skills package via require.resolve, then workspace path, then node_modules fallback
     const packageRoot = getPackageRoot();
     let ctSkillsRoot: string | null = null;
     try {
-      // Check bundled package first (packages/skills/)
-      const bundledPath = join(packageRoot, 'packages', 'skills');
-      if (existsSync(join(bundledPath, 'skills.json'))) {
-        ctSkillsRoot = bundledPath;
-      } else {
-        // Fallback to node_modules
-        const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'skills');
-        if (existsSync(join(ctSkillsPath, 'skills.json'))) {
-          ctSkillsRoot = ctSkillsPath;
-        }
+      // Primary: resolve via Node module resolution (@cleocode/skills)
+      const { createRequire } = await import('node:module');
+      const req = createRequire(import.meta.url);
+      const skillsPkgMain = req.resolve('@cleocode/skills/package.json');
+      const skillsPkgRoot = dirname(skillsPkgMain);
+      if (existsSync(join(skillsPkgRoot, 'skills.json'))) {
+        ctSkillsRoot = skillsPkgRoot;
       }
     } catch {
-      // not found
+      // Not resolvable via require.resolve — try workspace and node_modules fallbacks
+    }
+
+    if (!ctSkillsRoot) {
+      try {
+        // Workspace monorepo fallback (packages/skills/)
+        const bundledPath = join(packageRoot, 'packages', 'skills');
+        if (existsSync(join(bundledPath, 'skills.json'))) {
+          ctSkillsRoot = bundledPath;
+        } else {
+          // node_modules fallback
+          const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'skills');
+          if (existsSync(join(ctSkillsPath, 'skills.json'))) {
+            ctSkillsRoot = ctSkillsPath;
+          }
+        }
+      } catch {
+        // not found
+      }
     }
 
     if (!ctSkillsRoot) {
@@ -651,8 +696,8 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // T4685: Agent definition (cleo-subagent)
   await initAgentDefinition(created, warnings);
 
-  // T4707 + T4689: Core skills installation
-  await initCoreSkills(created, warnings);
+  // Note: Core skills installation is global-only (bootstrapGlobalCleo / installSkillsGlobally).
+  // Skills are NOT installed during project-level init — they are installed once globally.
 
   // T4684: NEXUS registration (reconcile-based handshake, T5368)
   await initNexusRegistration(projRoot, created, warnings);

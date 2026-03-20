@@ -141,7 +141,9 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
         }
       }
 
-      const action = await inject(globalAgentsMd, '@~/.cleo/templates/CLEO-INJECTION.md');
+      // Direct call — CAAMP 1.8.0 handles idempotency
+      const expectedContent = '@~/.cleo/templates/CLEO-INJECTION.md';
+      const action = await inject(globalAgentsMd, expectedContent);
       ctx.created.push(`~/.agents/AGENTS.md (${action})`);
     } else {
       ctx.created.push('~/.agents/AGENTS.md (would create/update CAAMP block)');

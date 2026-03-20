@@ -1037,8 +1037,16 @@ export function checkMemoryBridge(projectRoot: string): CheckResult {
  * Required subdirectories under the global ~/.cleo/ home.
  * These are infrastructure directories managed by CLEO itself,
  * not project-specific data.
+ *
+ * Truly global:
+ *   - logs      — global log output
+ *   - templates — CLEO-INJECTION.md symlink target
+ *
+ * Note: nexus.db lives directly in ~/.cleo/, not a subdir.
+ * Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed.
+ * Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
  */
-export const REQUIRED_GLOBAL_SUBDIRS = ['schemas', 'templates'] as const;
+export const REQUIRED_GLOBAL_SUBDIRS = ['logs', 'templates'] as const;
 
 /**
  * Ensure the global ~/.cleo/ home directory and its required
@@ -1111,9 +1119,13 @@ export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
 }
 
 /**
- * Perform a complete global scaffold operation: ensure home, schemas,
- * and templates are all present and current. This is the single entry
- * point for global infrastructure scaffolding.
+ * Perform a complete global scaffold operation: ensure home and templates
+ * are all present and current. This is the single entry point for global
+ * infrastructure scaffolding.
+ *
+ * Schemas are NOT copied here — they are read at runtime from the npm
+ * package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas()
+ * explicitly from init or upgrade if a copy is needed for a specific workflow.
  *
  * Used by:
  *   - MCP startup (via startupHealthCheck in health.ts)
@@ -1122,17 +1134,12 @@ export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
  */
 export async function ensureGlobalScaffold(): Promise<{
   home: ScaffoldResult;
-  schemas: { installed: number; updated: number; total: number };
   templates: ScaffoldResult;
 }> {
-  // Lazy import to avoid circular dependency
-  const { ensureGlobalSchemas } = await import('./schema-management.js');
-
   const home = await ensureGlobalHome();
-  const schemas = ensureGlobalSchemas();
   const templates = await ensureGlobalTemplates();
 
-  return { home, schemas, templates };
+  return { home, templates };
 }
 
 // ── Global check* functions (read-only diagnostics) ──────────────────

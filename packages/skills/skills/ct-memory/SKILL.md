@@ -22,10 +22,10 @@ Use CLI (`cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallb
 
 1. The memory bridge (.cleo/memory-bridge.md) is already loaded via CLEO-INJECTION.md @-reference
 2. If the bridge content feels stale (>2 hours old), refresh:
-   - CLI (Primary): `cleo memory search "session task decision" --limit 10`
+   - CLI (Primary): `cleo memory find "session task decision" --limit 10`
    - MCP (Fallback): `query memory find {query: "session task decision", limit: 10}`
 3. Check for anti-patterns to avoid:
-   - CLI (Primary): `cleo memory search "mistake error avoid warning" --limit 5`
+   - CLI (Primary): `cleo memory find "mistake error avoid warning" --limit 5`
    - MCP (Fallback): `query memory find {query: "mistake error avoid warning", limit: 5}`
 4. If results are relevant, fetch details:
    - CLI (Primary): `cleo memory fetch O-xxx O-yyy`
@@ -35,13 +35,13 @@ Use CLI (`cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallb
 
 ### Before Making Decisions
 
-- CLI (Primary): `cleo memory search "decision ADR architecture" --limit 5`
+- CLI (Primary): `cleo memory find "decision ADR architecture" --limit 5`
 - MCP (Fallback): `query memory find {query: "decision ADR architecture", limit: 5}`
 - Check if a similar decision was already made
 
 ### Before Repeating Work
 
-- CLI (Primary): `cleo memory search "{current-topic}" --limit 10`
+- CLI (Primary): `cleo memory find "{current-topic}" --limit 10`
 - MCP (Fallback): `query memory find {query: "{current-topic}", limit: 10}`
 - Avoid re-doing work that's already been completed
 
@@ -55,7 +55,7 @@ Use CLI (`cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallb
 Before stating facts about the codebase or project:
 
 1. Search brain:
-   - CLI (Primary): `cleo memory search "{claim-topic}" --limit 5`
+   - CLI (Primary): `cleo memory find "{claim-topic}" --limit 5`
    - MCP (Fallback): `query memory find {query: "{claim-topic}", limit: 5}`
 2. If results exist, verify your claim matches stored knowledge
 3. If no results, state your uncertainty clearly
@@ -88,7 +88,7 @@ When CLI is unavailable and the provider supports MCP resources:
 | Operation | ~Tokens | Interface | When |
 |-----------|---------|-----------|------|
 | memory-bridge.md (auto-loaded) | 200-400 | — | Always (free) |
-| `cleo memory search` | 50/hit | CLI (Primary) | Discovery |
+| `cleo memory find` | 50/hit | CLI (Primary) | Discovery |
 | `cleo memory fetch` | 500/entry | CLI (Primary) | Details |
 | `cleo memory timeline` | 200-500 | CLI (Primary) | Context |
 | MCP resources | 200-500 | MCP (Fallback) | On-demand |

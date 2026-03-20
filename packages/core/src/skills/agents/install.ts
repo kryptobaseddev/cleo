@@ -9,9 +9,17 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
+import { platform } from 'node:os';
 import { basename, join } from 'node:path';
 import { getClaudeAgentsDir } from '../../paths.js';
 import { getAgentsDir } from './config.js';
+
+/**
+ * Symlink type for directory symlinks.
+ * On Windows, use 'junction' (no admin privileges required).
+ * On Unix, use 'dir'.
+ */
+const DIR_SYMLINK_TYPE: 'junction' | 'dir' = platform() === 'win32' ? 'junction' : 'dir';
 
 // ============================================================================
 // Agent Installation
@@ -65,7 +73,7 @@ export function installAgent(agentDir: string): {
   }
 
   try {
-    symlinkSync(agentDir, targetPath, 'dir');
+    symlinkSync(agentDir, targetPath, DIR_SYMLINK_TYPE);
     return { installed: true, path: targetPath };
   } catch (err) {
     return { installed: false, path: targetPath, error: `Symlink failed: ${err}` };

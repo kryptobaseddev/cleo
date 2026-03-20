@@ -60,7 +60,7 @@ Tests whether the agent checks existing sessions and tasks before starting work.
 Tests whether task creation follows protocol: descriptions provided, parent existence verified before subtask creation, no duplicate tasks.
 
 ### 3. Error Recovery
-Tests whether the agent handles errors correctly: follows up `E_NOT_FOUND` with recovery lookups (`tasks.find` or `tasks.exists`), avoids duplicate creates after failures.
+Tests whether the agent handles errors correctly: follows up `E_NOT_FOUND` with recovery lookups (`tasks.find`), avoids duplicate creates after failures.
 
 ### 4. Full Lifecycle
 Tests session discipline end-to-end: session listed before task ops, session properly ended, MCP-first usage patterns.
@@ -91,8 +91,8 @@ query({ domain: "check", operation: "grade",
 # List past grades
 query({ domain: "check", operation: "grade.list" })
 
-# Compatibility aliases still work at runtime
-query({ domain: "admin", operation: "grade",
+# Use canonical surface (check domain)
+query({ domain: "check", operation: "grade",
   params: { sessionId: "abc-123" }})
 ```
 
@@ -125,7 +125,7 @@ Starts at 20 and deducts for violations:
 | Deduction | Violation |
 |-----------|-----------|
 | -5 each | `tasks.add` without a description |
-| -3 | Subtasks created without `tasks.exists` parent check |
+| -3 | Subtasks created without `tasks.find {exact:true}` parent check |
 
 **What it measures**: Does the agent create well-formed tasks with descriptions and verify parents before creating subtasks?
 
@@ -179,8 +179,8 @@ Flags are actionable diagnostic messages. Each flag identifies a specific behavi
 - `session.end never called` -- Always end sessions when done
 - `tasks.list used Nx` -- Prefer `tasks.find` for discovery
 - `tasks.add without description` -- Always provide task descriptions
-- `Subtasks created without tasks.exists parent check` -- Verify parent exists first
-- `E_NOT_FOUND not followed by recovery lookup` -- Follow errors with `tasks.find` or `tasks.exists`
+- `Subtasks created without parent existence check` -- Verify parent exists first
+- `E_NOT_FOUND not followed by recovery lookup` -- Follow errors with `tasks.find`
 - `No admin.help or skill lookup calls` -- Load `ct-cleo` for protocol guidance
 - `No MCP query calls` -- Prefer `query` over CLI
 
@@ -217,14 +217,14 @@ Grade results are stored in `.cleo/metrics/GRADES.jsonl` as append-only JSONL. E
 |---------|--------|-----------|-------------|
 | `query` | `check` | `grade` | Canonical grade read (`params: { sessionId }`) |
 | `query` | `check` | `grade.list` | Canonical grade history read |
-| `query` | `admin` | `grade` | Compatibility alias for runtime handlers |
-| `query` | `admin` | `grade.list` | Compatibility alias for runtime handlers |
+| `query` | `check` | `grade` | Canonical grade read (preferred) |
+| `query` | `check` | `grade.list` | Canonical grade history read (preferred) |
 | `query` | `admin` | `token` | Canonical token telemetry read (`action=summary|list|show`) |
 
 
 ## API Update Notes
 
 - Prefer the canonical registry surface from `docs/specs/CLEO-API.md`: `check.grade`, `check.grade.list`, and `admin.token` with an `action` param.
-- `admin.grade*` and split `admin.token.*` paths remain compatibility handlers and may still appear in existing automation.
+- Use `check.grade` and `check.grade.list` as the canonical surface; legacy handlers may still appear in existing automation.
 - Browser clients should target `POST /api/query` and `POST /api/mutate`; LAFS metadata is carried in `X-Cleo-*` headers by default.
 - Treat persisted token transport values `api` and `http` as equivalent during the compatibility window described in `docs/specs/CLEO-WEB-API.md`.

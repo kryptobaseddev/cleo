@@ -132,7 +132,7 @@ tasks.find, tasks.show, session.status, admin.dash, admin.health
 tasks.find, tasks.show, tasks.list, tasks.tree, tasks.plan,
 session.status, session.list, session.briefing.show,
 admin.dash, admin.health, admin.help, admin.stats,
-tools.skill.list, tools.provider.list, admin.doctor
+tools.skill.list, tools.provider.list, admin.health
 ```
 
 **Full tier-0 sweep (all tier-0 query ops across all domains):**
@@ -149,8 +149,8 @@ Ordered by typical output size (most expensive first):
 3. `memory.find` — FTS5 results
 4. `tasks.plan` — composite view
 5. `admin.dash` — multi-domain overview
-6. `admin.doctor` — comprehensive health
+6. `admin.health` — comprehensive health
 7. `tasks.tree` — hierarchy visualization
-8. `session.history` — session log
+8. `session.show` — session log
 9. `tasks.find` (10 results) — standard discovery
 10. `admin.stats` — aggregate counts
