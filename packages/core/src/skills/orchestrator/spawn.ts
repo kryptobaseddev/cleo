@@ -12,11 +12,11 @@
  * @task T4519
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../../errors.js';
-import { getAgentOutputsDir, getTaskPath } from '../../paths.js';
+import { getAgentOutputsDir } from '../../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { findSkill, mapSkillName } from '../discovery.js';
 import { injectProtocol } from '../injection/subagent.js';
 import type { TokenValues } from '../injection/token.js';
@@ -30,22 +30,14 @@ import type { SpawnPromptResult } from '../types.js';
  * Build a fully-resolved prompt for spawning a subagent.
  * @task T4519
  */
-export function buildPrompt(
+export async function buildPrompt(
   taskId: string,
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
   tier?: 0 | 1 | 2,
-): SpawnPromptResult {
-  const taskPath = getTaskPath(cwd);
-
-  if (!existsSync(taskPath)) {
-    throw new CleoError(ExitCode.NOT_FOUND, 'Todo file not found. Run: cleo init');
-  }
-
-  // Load task
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find((t) => t.id === taskId);
+): Promise<SpawnPromptResult> {
+  const acc = await getAccessor(cwd);
+  const task = await acc.loadSingleTask(taskId);
 
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
@@ -121,7 +113,7 @@ export function buildPrompt(
   }
 
   // Inject tokens and protocol into template
-  const promptContent = injectProtocol(skill.content, taskId, tokenValues, cwd, tier);
+  const promptContent = await injectProtocol(skill.content, taskId, tokenValues, cwd, tier);
 
   return {
     taskId,
@@ -138,13 +130,13 @@ export function buildPrompt(
  * Generate full spawn command with metadata.
  * @task T4519
  */
-export function spawn(
+export async function spawn(
   taskId: string,
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
   tier?: 0 | 1 | 2,
-): SpawnPromptResult & { spawnTimestamp: string } {
-  const result = buildPrompt(taskId, templateName, cwd, tier);
+): Promise<SpawnPromptResult & { spawnTimestamp: string }> {
+  const result = await buildPrompt(taskId, templateName, cwd, tier);
 
   return {
     ...result,
@@ -156,25 +148,20 @@ export function spawn(
  * Check if tasks can be spawned in parallel (no inter-dependencies).
  * @task T4519
  */
-export function canParallelize(
+export async function canParallelize(
   taskIds: string[],
   cwd?: string,
-): {
+): Promise<{
   canParallelize: boolean;
   conflicts: Array<Pick<Task, 'id'> & { dependsOn: string[] }>;
   safeToSpawn: string[];
-} {
+}> {
   if (taskIds.length === 0) {
     return { canParallelize: true, conflicts: [], safeToSpawn: [] };
   }
 
-  const taskPath = getTaskPath(cwd);
-  if (!existsSync(taskPath)) {
-    return { canParallelize: true, conflicts: [], safeToSpawn: taskIds };
-  }
-
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
+  const acc = await getAccessor(cwd);
+  const tasks = await acc.loadTasks(taskIds);
   const taskIdSet = new Set(taskIds);
 
   const conflicts: Array<Pick<Task, 'id'> & { dependsOn: string[] }> = [];
@@ -229,17 +216,17 @@ export interface BatchSpawnResult {
  * @task T4712
  * @epic T4663
  */
-export function spawnBatch(
+export async function spawnBatch(
   taskIds: string[],
   templateName?: string,
   cwd?: string,
   tier?: 0 | 1 | 2,
-): BatchSpawnResult {
+): Promise<BatchSpawnResult> {
   const spawns: BatchSpawnEntry[] = [];
 
   for (const taskId of taskIds) {
     try {
-      const result = spawn(taskId, templateName, cwd, tier);
+      const result = await spawn(taskId, templateName, cwd, tier);
       spawns.push({ taskId, success: true, result });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

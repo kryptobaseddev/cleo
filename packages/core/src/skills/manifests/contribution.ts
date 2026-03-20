@@ -12,8 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import type { Task } from '@cleocode/contracts';
-import { getTaskPath } from '../../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { ManifestEntry } from '../types.js';
 
 // ============================================================================
@@ -65,20 +64,13 @@ export function generateContributionId(taskId: string): string {
  * Validate that a task is suitable for contribution protocol.
  * @task T4520
  */
-export function validateContributionTask(
+export async function validateContributionTask(
   taskId: string,
   cwd?: string,
-): { valid: boolean; issues: string[] } {
+): Promise<{ valid: boolean; issues: string[] }> {
   const issues: string[] = [];
-  const taskPath = getTaskPath(cwd);
-
-  if (!existsSync(taskPath)) {
-    return { valid: false, issues: ['Todo file not found'] };
-  }
-
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find((t) => t.id === taskId);
+  const acc = await getAccessor(cwd);
+  const task = await acc.loadSingleTask(taskId);
 
   if (!task) {
     return { valid: false, issues: [`Task ${taskId} not found`] };

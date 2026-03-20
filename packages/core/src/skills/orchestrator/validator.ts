@@ -11,13 +11,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
 import { MANIFEST_STATUSES } from '@cleocode/contracts';
 import {
   getAgentOutputsAbsolute,
   getManifestPath as getManifestPathFromPaths,
-  getTaskPath,
 } from '../../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { ComplianceResult, ManifestEntry, ManifestValidationResult } from '../types.js';
 
 // ============================================================================
@@ -310,14 +309,14 @@ export function verifyCompliance(
  * Validate orchestrator compliance (post-hoc behavioral checks).
  * @task T4519
  */
-export function validateOrchestratorCompliance(
+export async function validateOrchestratorCompliance(
   epicId?: string,
   cwd?: string,
-): {
+): Promise<{
   compliant: boolean;
   violations: string[];
   warnings: string[];
-} {
+}> {
   const violations: string[] = [];
   const warnings: string[] = [];
 
@@ -333,36 +332,32 @@ export function validateOrchestratorCompliance(
     }
   }
 
-  // Check dependency order (ORC-004) for completed tasks
+  // Check dependency order (ORC-004) for completed tasks via DataAccessor
   if (epicId) {
-    const taskPath = getTaskPath(cwd);
-    if (existsSync(taskPath)) {
-      try {
-        const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-        const tasks: Task[] = (data.tasks ?? []).filter(
-          (t: Task) => t.parentId === epicId && t.status === 'done',
-        );
+    try {
+      const acc = await getAccessor(cwd);
+      const children = await acc.getChildren(epicId);
+      const tasks = children.filter((t) => t.status === 'done');
 
-        // Sort by updatedAt and check for dependency violations
-        const sorted = tasks.sort(
-          (a, b) => new Date(a.updatedAt ?? '').getTime() - new Date(b.updatedAt ?? '').getTime(),
-        );
-        const completionOrder = sorted.map((t) => t.id);
+      // Sort by updatedAt and check for dependency violations
+      const sorted = tasks.sort(
+        (a, b) => new Date(a.updatedAt ?? '').getTime() - new Date(b.updatedAt ?? '').getTime(),
+      );
+      const completionOrder = sorted.map((t) => t.id);
 
-        for (let i = 0; i < sorted.length; i++) {
-          const deps = sorted[i].depends ?? [];
-          for (const dep of deps) {
-            const depIdx = completionOrder.indexOf(dep);
-            if (depIdx >= 0 && depIdx >= i) {
-              violations.push(
-                `ORC-004_DEPENDENCY_ORDER: Task ${sorted[i].id} completed before dependency ${dep}`,
-              );
-            }
+      for (let i = 0; i < sorted.length; i++) {
+        const deps = sorted[i].depends ?? [];
+        for (const dep of deps) {
+          const depIdx = completionOrder.indexOf(dep);
+          if (depIdx >= 0 && depIdx >= i) {
+            violations.push(
+              `ORC-004_DEPENDENCY_ORDER: Task ${sorted[i].id} completed before dependency ${dep}`,
+            );
           }
         }
-      } catch {
-        // Skip on parse error
       }
+    } catch {
+      // Skip on DB error
     }
   }
 

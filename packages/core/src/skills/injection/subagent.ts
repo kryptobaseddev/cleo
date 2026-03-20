@@ -19,10 +19,9 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../../errors.js';
-import { getProjectRoot, getTaskPath } from '../../paths.js';
+import { getProjectRoot } from '../../paths.js';
 import { findSkill } from '../discovery.js';
 import { injectTokens, type TokenValues } from './token.js';
 
@@ -55,15 +54,10 @@ export function loadProtocolBase(cwd?: string): string | null {
  * Build task context block for injection into a subagent prompt.
  * @task T4521
  */
-export function buildTaskContext(taskId: string, cwd?: string): string {
-  const taskPath = getTaskPath(cwd);
-  if (!existsSync(taskPath)) {
-    return `## Task Context\n\n**Task**: ${taskId}\n**Status**: unknown\n`;
-  }
-
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
-  const task = tasks.find((t) => t.id === taskId);
+export async function buildTaskContext(taskId: string, cwd?: string): Promise<string> {
+  const { getAccessor } = await import('../../store/data-accessor.js');
+  const acc = await getAccessor(cwd);
+  const task = await acc.loadSingleTask(taskId);
 
   if (!task) {
     return `## Task Context\n\n**Task**: ${taskId}\n**Status**: not found\n`;
@@ -165,15 +159,15 @@ export function filterProtocolByTier(content: string, tier: 0 | 1 | 2): string {
  * Composes: skill content + protocol base + task context.
  * @task T4521
  */
-export function injectProtocol(
+export async function injectProtocol(
   skillContent: string,
   taskId: string,
   tokenValues: TokenValues,
   cwd?: string,
   tier?: 0 | 1 | 2,
-): string {
+): Promise<string> {
   const protocolBase = loadProtocolBase(cwd);
-  const taskContext = buildTaskContext(taskId, cwd);
+  const taskContext = await buildTaskContext(taskId, cwd);
 
   // Inject tokens into skill content
   const resolvedSkill = injectTokens(skillContent, tokenValues);
@@ -202,13 +196,13 @@ export function injectProtocol(
  * High-level function that loads the skill, injects protocol, and returns the prompt.
  * @task T4521
  */
-export function orchestratorSpawnSkill(
+export async function orchestratorSpawnSkill(
   taskId: string,
   skillName: string,
   tokenValues: TokenValues,
   cwd?: string,
   tier?: 0 | 1 | 2,
-): string {
+): Promise<string> {
   // Find the skill
   const skill = findSkill(skillName, cwd);
   if (!skill || !skill.content) {
