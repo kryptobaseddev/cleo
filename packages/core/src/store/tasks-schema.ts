@@ -127,7 +127,7 @@ export const TASK_RELATION_TYPES = [
 export const LIFECYCLE_TRANSITION_TYPES = ['automatic', 'manual', 'forced'] as const;
 
 /** External task link types matching DB constraint on external_task_links.link_type. */
-export const EXTERNAL_LINK_TYPES = ['created', 'matched', 'manual'] as const;
+export const EXTERNAL_LINK_TYPES = ['created', 'matched', 'manual', 'transferred'] as const;
 
 /** Sync direction types matching DB constraint on external_task_links.sync_direction. */
 export const SYNC_DIRECTIONS = ['inbound', 'outbound', 'bidirectional'] as const;

@@ -19,6 +19,7 @@ import {
   buildGlobalGraph,
   criticalPath,
   nexusDiscoverRelated as discoverRelated,
+  executeTransfer,
   exportSnapshot,
   getDefaultSnapshotPath,
   getSharingStatus,
@@ -35,11 +36,14 @@ import {
   nexusUnregister,
   orphanDetection,
   paginate,
+  previewTransfer,
   nexusReadRegistry as readRegistry,
   readSnapshot,
   resolveTask,
   searchAcrossProjects,
   setPermission,
+  type TransferParams,
+  type TransferResult,
   validateSyntax,
   writeSnapshot,
 } from '@cleocode/core/internal';
@@ -465,6 +469,38 @@ export async function nexusShareSnapshotImport(
   try {
     const snapshot = await readSnapshot(inputPath);
     const result = await importSnapshot(snapshot, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transfer operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Preview a cross-project task transfer (dry run).
+ */
+export async function nexusTransferPreview(
+  params: TransferParams,
+): Promise<EngineResult<TransferResult>> {
+  try {
+    const result = await previewTransfer(params);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Execute a cross-project task transfer.
+ */
+export async function nexusTransferExecute(
+  params: TransferParams,
+): Promise<EngineResult<TransferResult>> {
+  try {
+    const result = await executeTransfer(params);
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

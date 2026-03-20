@@ -2609,6 +2609,96 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // nexus.transfer — Cross-project task transfer (T046)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'transfer.preview',
+    description: 'nexus.transfer.preview (query) — preview a cross-project task transfer',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskIds', 'sourceProject', 'targetProject'],
+    params: [
+      { name: 'taskIds', type: 'array', required: true, description: 'Task IDs to transfer' },
+      {
+        name: 'sourceProject',
+        type: 'string',
+        required: true,
+        description: 'Source project name or hash',
+      },
+      {
+        name: 'targetProject',
+        type: 'string',
+        required: true,
+        description: 'Target project name or hash',
+      },
+      {
+        name: 'mode',
+        type: 'string',
+        required: false,
+        description: "Transfer mode: 'copy' (default) or 'move'",
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: "Transfer scope: 'subtree' (default) or 'single'",
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'transfer',
+    description: 'nexus.transfer (mutate) — transfer tasks between NEXUS projects',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['taskIds', 'sourceProject', 'targetProject'],
+    params: [
+      { name: 'taskIds', type: 'array', required: true, description: 'Task IDs to transfer' },
+      {
+        name: 'sourceProject',
+        type: 'string',
+        required: true,
+        description: 'Source project name or hash',
+      },
+      {
+        name: 'targetProject',
+        type: 'string',
+        required: true,
+        description: 'Target project name or hash',
+      },
+      {
+        name: 'mode',
+        type: 'string',
+        required: false,
+        description: "Transfer mode: 'copy' (default) or 'move'",
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: "Transfer scope: 'subtree' (default) or 'single'",
+      },
+      {
+        name: 'onConflict',
+        type: 'string',
+        required: false,
+        description: "Conflict strategy: 'rename' (default), 'skip', 'duplicate', 'fail'",
+      },
+      {
+        name: 'transferBrain',
+        type: 'boolean',
+        required: false,
+        description: 'Whether to transfer brain observations (default: false)',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 

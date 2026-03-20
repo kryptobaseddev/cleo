@@ -98,3 +98,17 @@ export {
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
+// Transfer - cross-project task transfer
+export { executeTransfer, previewTransfer } from './transfer.js';
+export type {
+  ImportFromPackageOptions,
+  ImportFromPackageResult,
+  TransferManifest,
+  TransferManifestEntry,
+  TransferMode,
+  TransferOnConflict,
+  TransferOnMissingDep,
+  TransferParams,
+  TransferResult,
+  TransferScope,
+} from './transfer-types.js';

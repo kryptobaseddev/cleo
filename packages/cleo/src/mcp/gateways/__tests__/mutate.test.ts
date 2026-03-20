@@ -57,8 +57,8 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(17);
     expect(MUTATE_OPERATIONS.admin.length).toBe(16);
     expect(MUTATE_OPERATIONS.tools.length).toBe(6);
-    expect(MUTATE_OPERATIONS.nexus.length).toBe(8); // Includes share.* operations
-    expect(getMutateOperationCount('nexus')).toBe(8);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(9); // Includes share.* + transfer operations
+    expect(getMutateOperationCount('nexus')).toBe(9);
   });
 });
 
@@ -469,7 +469,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('admin')).toBe(16);
     expect(getMutateOperationCount('tools')).toBe(6);
     expect(getMutateOperationCount('sticky')).toBe(4);
-    expect(getMutateOperationCount('nexus')).toBe(8);
+    expect(getMutateOperationCount('nexus')).toBe(9);
   });
 
   it('should return 0 for unknown domain', () => {

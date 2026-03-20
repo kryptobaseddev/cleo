@@ -27,7 +27,7 @@ export { exportTasksPackage } from './admin/export-tasks.js';
 // Admin
 export { computeHelp } from './admin/help.js';
 export { importTasks } from './admin/import.js';
-export { importTasksPackage } from './admin/import-tasks.js';
+export { importFromPackage, importTasksPackage } from './admin/import-tasks.js';
 // ADRs
 export { findAdrs } from './adrs/find.js';
 export { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from './adrs/index.js';
@@ -668,6 +668,12 @@ export {
 } from './nexus/discover.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
+// Nexus — transfer
+export { executeTransfer, previewTransfer } from './nexus/transfer.js';
+export type {
+  TransferParams,
+  TransferResult,
+} from './nexus/transfer-types.js';
 export type { DependencyAnalysis } from './orchestration/analyze.js';
 export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
 export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';

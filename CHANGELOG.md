@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.3.45] (2026-03-20)
+
+### Added
+- **Nexus Task Transfer** (T046): Cross-project task transfer with `nexus.transfer` (mutate) and `nexus.transfer.preview` (query) operations. Supports copy/move modes, subtree/single scope, bidirectional `external_task_links` with `'transferred'` link type, brain observation transfer, provenance tracking, and conflict resolution strategies.
+- `importFromPackage()` — extracted from `importTasksPackage()` for in-memory ExportPackage import without file I/O.
+- 19 new transfer test cases covering copy/move modes, ID remapping, hierarchy/dependency preservation, link creation, conflict resolution, and error handling.
+- `transfer` verb added to VERB-STANDARDS.md deferred verbs table.
+
+### Fixed
+- **Migration path resolution**: `resolveMigrationsFolder()`, `resolveBrainMigrationsFolder()`, and `resolveNexusMigrationsFolder()` now correctly detect bundled (`dist/`) vs source (`src/store/`) context when resolving migration paths. Previously, esbuild-bundled builds would resolve to wrong directory (2 levels up from `dist/` instead of 1).
+
 ## [2026.3.44] (2026-03-20)
 
 ### Added

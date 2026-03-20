@@ -357,13 +357,19 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
 
 /**
  * Resolve the path to the drizzle migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled).
+ * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
+ *
+ * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks
+ * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
  */
 export function resolveMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  // Both src/store/ and dist/store/ are 2 levels deep from package root
-  return join(__dirname, '..', '..', 'migrations', 'drizzle-tasks');
+  // When esbuild bundles into dist/index.js, __dirname is dist/ (1 level deep).
+  // When running from source via tsx, __dirname is src/store/ (2 levels deep).
+  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
+  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
+  return join(pkgRoot, 'migrations', 'drizzle-tasks');
 }
 
 /**

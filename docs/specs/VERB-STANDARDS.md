@@ -165,6 +165,7 @@ All commits referencing a new operation must use the canonical verb in the task 
 | `kill` | Agent termination | Pending — may use `stop` |
 | `learn` | BRAIN accumulation | Overlaps with `store` — pending clarification |
 | `score` | Quality grading | In registry as `admin.grade`; verb section deferred |
+| `transfer` | Cross-project task transfer | In registry as `nexus.transfer` (mutate) + `nexus.transfer.preview` (query); T046 |
 
 ### Removed from Enforced Matrix
 | Verb | Reason | Date |

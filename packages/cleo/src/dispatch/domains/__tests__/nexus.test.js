@@ -416,6 +416,7 @@ describe('NexusHandler', () => {
                 'orphans.list',
                 'discover',
                 'search',
+                'transfer.preview',
             ]);
             expect(ops.mutate).toEqual([
                 'share.snapshot.export',
@@ -426,6 +427,7 @@ describe('NexusHandler', () => {
                 'sync',
                 'permission.set',
                 'reconcile',
+                'transfer',
             ]);
         });
     });

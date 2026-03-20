@@ -3,13 +3,14 @@
  *
  * Extracted from CLI import-tasks command for dispatch layer access.
  *
- * @task T5323, T5328
+ * @task T5323, T5328, T046
  * @epic T4545
  */
 
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import type { Task, TaskStatus } from '@cleocode/contracts';
+import type { ImportFromPackageOptions, ImportFromPackageResult } from '../nexus/transfer-types.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ExportPackage } from '../store/export.js';
 import {
@@ -74,25 +75,13 @@ export interface ImportTasksResult {
 }
 
 /**
- * Import tasks from a cross-project export package with ID remapping.
+ * Import tasks from an in-memory ExportPackage with ID remapping.
+ * Core logic extracted from importTasksPackage for reuse by transfer engine.
  */
-export async function importTasksPackage(params: ImportTasksParams): Promise<ImportTasksResult> {
-  const { file } = params;
-
-  try {
-    await access(file, fsConstants.R_OK);
-  } catch {
-    throw new Error(`Export file not found: ${file}`);
-  }
-
-  const content = await readFile(file, 'utf-8');
-  let exportPkg: ExportPackage;
-  try {
-    exportPkg = JSON.parse(content) as ExportPackage;
-  } catch {
-    throw new Error(`Invalid JSON in: ${file}`);
-  }
-
+export async function importFromPackage(
+  exportPkg: ExportPackage,
+  options: ImportFromPackageOptions = {},
+): Promise<ImportFromPackageResult> {
   if (exportPkg._meta?.format !== 'cleo-export') {
     throw new Error(
       `Invalid export format (expected 'cleo-export', got '${exportPkg._meta?.format}')`,
@@ -103,17 +92,17 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
     throw new Error('Export package contains no tasks');
   }
 
-  const accessor = await getAccessor(params.cwd);
+  const accessor = await getAccessor(options.cwd);
   const { tasks: existingTasks } = await accessor.queryTasks({});
 
-  const onConflict: OnConflict = params.onConflict ?? 'fail';
-  const onMissingDep: OnMissingDep = params.onMissingDep ?? 'strip';
-  const force = params.force ?? false;
-  const parentId = params.parent;
-  const phaseOverride = params.phase;
-  const addLabel = params.addLabel;
-  const resetStatus = params.resetStatus;
-  const addProvenance = params.provenance !== false;
+  const onConflict: OnConflict = options.onConflict ?? 'fail';
+  const onMissingDep: OnMissingDep = options.onMissingDep === 'fail' ? 'fail' : 'strip';
+  const force = options.force ?? false;
+  const parentId = options.parent;
+  const phaseOverride = options.phase;
+  const addLabel = options.addLabel;
+  const resetStatus = options.resetStatus;
+  const addProvenance = options.provenance !== false;
 
   if (parentId) {
     const parentExists = existingTasks.some((t) => t.id === parentId);
@@ -195,7 +184,7 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
     existingIds.add(remapped.id);
   }
 
-  if (params.dryRun) {
+  if (options.dryRun) {
     return {
       imported: transformed.length,
       skipped: skipped.length,
@@ -216,4 +205,39 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
     skipped: skipped.length,
     idRemap: idRemapJson,
   };
+}
+
+/**
+ * Import tasks from a cross-project export package file with ID remapping.
+ * Thin wrapper around importFromPackage that handles file I/O.
+ */
+export async function importTasksPackage(params: ImportTasksParams): Promise<ImportTasksResult> {
+  const { file } = params;
+
+  try {
+    await access(file, fsConstants.R_OK);
+  } catch {
+    throw new Error(`Export file not found: ${file}`);
+  }
+
+  const content = await readFile(file, 'utf-8');
+  let exportPkg: ExportPackage;
+  try {
+    exportPkg = JSON.parse(content) as ExportPackage;
+  } catch {
+    throw new Error(`Invalid JSON in: ${file}`);
+  }
+
+  return importFromPackage(exportPkg, {
+    cwd: params.cwd,
+    dryRun: params.dryRun,
+    parent: params.parent,
+    phase: params.phase,
+    addLabel: params.addLabel,
+    provenance: params.provenance,
+    resetStatus: params.resetStatus,
+    onConflict: params.onConflict,
+    onMissingDep: params.onMissingDep === 'placeholder' ? 'strip' : params.onMissingDep,
+    force: params.force,
+  });
 }

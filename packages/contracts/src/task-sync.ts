@@ -46,7 +46,7 @@ export interface ExternalTask {
 // ---------------------------------------------------------------------------
 
 /** How an external task link was established. */
-export type ExternalLinkType = 'created' | 'matched' | 'manual';
+export type ExternalLinkType = 'created' | 'matched' | 'manual' | 'transferred';
 
 /** Direction of the sync that established the link. */
 export type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';

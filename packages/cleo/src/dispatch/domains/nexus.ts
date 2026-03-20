@@ -32,6 +32,8 @@ import {
   nexusShowProject,
   nexusStatus,
   nexusSyncProject,
+  nexusTransferExecute,
+  nexusTransferPreview,
   nexusUnregisterProject,
 } from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -223,6 +225,30 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', 'share.status', startTime);
         }
 
+        case 'transfer.preview': {
+          const taskIds = params?.taskIds as string[];
+          const sourceProject = params?.sourceProject as string;
+          const targetProject = params?.targetProject as string;
+          if (!taskIds?.length || !sourceProject || !targetProject) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'taskIds, sourceProject, and targetProject are required',
+              startTime,
+            );
+          }
+          const result = await nexusTransferPreview({
+            taskIds,
+            sourceProject,
+            targetProject,
+            mode: (params?.mode as 'copy' | 'move') ?? 'copy',
+            scope: (params?.scope as 'single' | 'subtree') ?? 'subtree',
+          });
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -356,6 +382,33 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'nexus', 'share.snapshot.import', startTime);
         }
 
+        case 'transfer': {
+          const taskIds = params?.taskIds as string[];
+          const sourceProject = params?.sourceProject as string;
+          const targetProject = params?.targetProject as string;
+          if (!taskIds?.length || !sourceProject || !targetProject) {
+            return errorResult(
+              'mutate',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'taskIds, sourceProject, and targetProject are required',
+              startTime,
+            );
+          }
+          const result = await nexusTransferExecute({
+            taskIds,
+            sourceProject,
+            targetProject,
+            mode: (params?.mode as 'copy' | 'move') ?? 'copy',
+            scope: (params?.scope as 'single' | 'subtree') ?? 'subtree',
+            onConflict:
+              (params?.onConflict as 'rename' | 'skip' | 'duplicate' | 'fail') ?? 'rename',
+            transferBrain: (params?.transferBrain as boolean) ?? false,
+          });
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'nexus', operation, startTime);
       }
@@ -387,6 +440,7 @@ export class NexusHandler implements DomainHandler {
         'orphans.list',
         'discover',
         'search',
+        'transfer.preview',
       ],
       mutate: [
         'share.snapshot.export',
@@ -397,6 +451,7 @@ export class NexusHandler implements DomainHandler {
         'sync',
         'permission.set',
         'reconcile',
+        'transfer',
       ],
     };
   }

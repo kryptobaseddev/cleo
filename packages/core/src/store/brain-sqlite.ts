@@ -50,13 +50,17 @@ export function getBrainDbPath(cwd?: string): string {
 
 /**
  * Resolve the path to the drizzle-brain migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled).
+ * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
+ *
+ * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain
+ * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
  */
 export function resolveBrainMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  // Both src/store/ and dist/store/ are 2 levels deep from package root
-  return join(__dirname, '..', '..', 'migrations', 'drizzle-brain');
+  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
+  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
+  return join(pkgRoot, 'migrations', 'drizzle-brain');
 }
 
 /**

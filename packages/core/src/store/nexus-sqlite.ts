@@ -46,13 +46,17 @@ export function getNexusDbPath(): string {
 
 /**
  * Resolve the path to the drizzle-nexus migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled).
+ * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
+ *
+ * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus
+ * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
  */
 export function resolveNexusMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  // Both src/store/ and dist/store/ are 2 levels deep from package root
-  return join(__dirname, '..', '..', 'migrations', 'drizzle-nexus');
+  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
+  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
+  return join(pkgRoot, 'migrations', 'drizzle-nexus');
 }
 
 /**
