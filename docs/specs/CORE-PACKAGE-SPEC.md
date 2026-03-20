@@ -377,7 +377,7 @@ The public barrel re-exports all types from `@cleocode/contracts` via `export * 
 
 | Category | Types |
 |----------|-------|
-| Task types | `Task`, `TaskCreate`, `CompletedTask`, `CancelledTask`, `TaskPriority`, `TaskType`, `TaskSize`, `TaskStatus`, `TaskRelation`, `TaskVerification`, `TaskProvenance`, `TaskFile`, `ProjectMeta`, `Phase`, `Release` |
+| Task types | `Task`, `TaskCreate`, `CompletedTask`, `CancelledTask`, `TaskPriority`, `TaskType`, `TaskSize`, `TaskStatus`, `TaskRelation`, `TaskVerification`, `TaskProvenance`, `ProjectMeta`, `Phase`, `Release` |
 | Session types | `Session`, `SessionScope`, `SessionStats`, `SessionView`, `SessionStartResult` |
 | Brain/memory types | `BrainEntryRef`, `BrainEntrySummary`, `ContradictionDetail`, `SupersededEntry` |
 | Archive types | `ArchivedTask`, `ArchiveMetadata`, `ArchiveFile`, `ArchiveFields`, `ArchiveSummaryReport`, `ArchiveCycleTimesReport`, `ArchiveTrendsReport` |

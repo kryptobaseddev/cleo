@@ -7,7 +7,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
-import { getSessionsPath } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -26,29 +25,24 @@ export async function buildBrainState(
     },
   };
 
-  // --- Session (from sessions.json) ---
+  // --- Session (from SQLite, ADR-006/ADR-020) ---
+  const acc = accessor ?? (await getAccessor(projectRoot));
   try {
-    const sessionsPath = getSessionsPath(projectRoot);
-    if (existsSync(sessionsPath)) {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
-      const activeSession = (sessionsData.sessions ?? []).find(
-        (s: { status: string }) => s.status === 'active',
-      );
-      if (activeSession) {
-        brain.session = {
-          id: activeSession.id,
-          name: activeSession.name || activeSession.id,
-          status: activeSession.status,
-          startedAt: activeSession.startedAt,
-        };
-      }
+    const sessions = await acc.loadSessions();
+    const activeSession = sessions.find((s) => s.status === 'active');
+    if (activeSession) {
+      brain.session = {
+        id: activeSession.id,
+        name: activeSession.name || activeSession.id,
+        status: activeSession.status,
+        startedAt: activeSession.startedAt,
+      };
     }
   } catch {
     // skip
   }
 
   // --- Tasks & Progress ---
-  const acc = accessor ?? (await getAccessor(projectRoot));
   const { tasks } = await acc.queryTasks({});
 
   brain.progress = {

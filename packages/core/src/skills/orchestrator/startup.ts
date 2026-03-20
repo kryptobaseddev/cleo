@@ -11,8 +11,9 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
-import { getCleoDirAbsolute, getSessionsPath, getTaskPath } from '../../paths.js';
+import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
+import { getCleoDirAbsolute, getTaskPath } from '../../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type {
   DependencyAnalysis,
   DependencyWave,
@@ -135,41 +136,34 @@ export interface SessionInitResult {
  * @task T4519
  */
 export async function sessionInit(epicId?: string, cwd?: string): Promise<SessionInitResult> {
-  const sessionsPath = getSessionsPath(cwd);
-  const cleoDirAbs = getCleoDirAbsolute(cwd);
-  const focusPath = join(cleoDirAbs, 'focus.json');
+  const acc = await getAccessor(cwd);
 
-  // Check active sessions
+  // Check active sessions from SQLite (ADR-006/ADR-020)
   let activeSessions = 0;
   let activeSessionId: string | null = null;
   let activeScope: string | null = null;
 
-  if (existsSync(sessionsPath)) {
-    try {
-      const data = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
-      let active = (data.sessions ?? []).filter(
-        (s: { status: string }) => s.status === 'active',
+  try {
+    const sessions = await acc.loadSessions();
+    let active = sessions.filter((s) => s.status === 'active');
+
+    // If epicId provided, prefer sessions scoped to that epic
+    if (epicId && active.length > 0) {
+      const epicScoped = active.filter(
+        (s) => s.scope?.rootTaskId === epicId || s.scope?.epicId === epicId,
       );
-
-      // If epicId provided, prefer sessions scoped to that epic
-      if (epicId && active.length > 0) {
-        const epicScoped = active.filter(
-          (s: { scope?: { rootId?: string; epicId?: string } }) =>
-            s.scope?.rootId === epicId || s.scope?.epicId === epicId,
-        );
-        if (epicScoped.length > 0) {
-          active = epicScoped;
-        }
+      if (epicScoped.length > 0) {
+        active = epicScoped;
       }
-
-      activeSessions = active.length;
-      if (activeSessions > 0) {
-        activeSessionId = active[0].id ?? null;
-        activeScope = active[0].scope?.rootId ?? active[0].scope?.epicId ?? null;
-      }
-    } catch {
-      // Invalid sessions file
     }
+
+    activeSessions = active.length;
+    if (activeSessions > 0) {
+      activeSessionId = active[0].id ?? null;
+      activeScope = active[0].scope?.rootTaskId ?? active[0].scope?.epicId ?? null;
+    }
+  } catch {
+    // DB unavailable
   }
 
   // If epicId provided and no active session found, set activeScope to the epic
@@ -177,35 +171,26 @@ export async function sessionInit(epicId?: string, cwd?: string): Promise<Sessio
     activeScope = epicId;
   }
 
-  // Check focus
+  // Check focus state from SQLite meta KV
   let hasFocus = false;
   let focusedTask: string | null = null;
 
-  if (existsSync(focusPath)) {
-    try {
-      const focus = JSON.parse(readFileSync(focusPath, 'utf-8'));
-      focusedTask = focus.focusedTaskId ?? null;
-      hasFocus = !!focusedTask;
-    } catch {
-      // Invalid focus file
-    }
+  try {
+    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+    focusedTask = focus?.currentTask ?? null;
+    hasFocus = !!focusedTask;
+  } catch {
+    // Focus unavailable
   }
 
-  // Determine pending work: check if the epic has ready tasks
+  // Determine pending work: check if the epic has ready tasks via DataAccessor
   let hasPending = false;
   if (epicId) {
-    const taskPath = getTaskPath(cwd);
-    if (existsSync(taskPath)) {
-      try {
-        const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-        const tasks = (data.tasks ?? []) as Array<{
-          parentId?: string;
-          status: string;
-        }>;
-        hasPending = tasks.some((t) => t.parentId === epicId && t.status === 'pending');
-      } catch {
-        // Invalid tasks file
-      }
+    try {
+      const children = await acc.getChildren(epicId);
+      hasPending = children.some((t) => t.status === 'pending');
+    } catch {
+      // Tasks unavailable
     }
   }
 

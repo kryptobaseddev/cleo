@@ -1,9 +1,9 @@
 /**
- * DataAccessor: File-level storage abstraction for core modules.
+ * DataAccessor: Storage abstraction for core modules.
  *
- * Core modules operate on whole-file data structures (ArchiveFile, SessionsFile).
- * The DataAccessor abstracts WHERE that data is stored (SQLite via Drizzle ORM)
- * while preserving the read-modify-write pattern that core business logic relies on.
+ * The DataAccessor abstracts WHERE data is stored (SQLite via Drizzle ORM)
+ * and provides typed query/mutation methods for tasks, sessions, archives,
+ * and metadata.
  *
  * This is the DRY/SOLID injection point: core modules accept a DataAccessor parameter
  * instead of calling readJson/saveJson directly.
