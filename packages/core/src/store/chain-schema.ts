@@ -46,7 +46,7 @@ export const warpChainInstances = sqliteTable(
     id: text('id').primaryKey(),
     chainId: text('chain_id')
       .notNull()
-      .references(() => warpChains.id),
+      .references(() => warpChains.id, { onDelete: 'cascade' }),
     epicId: text('epic_id').notNull(),
     variables: text('variables'), // JSON
     stageToTask: text('stage_to_task'), // JSON

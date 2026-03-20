@@ -414,9 +414,26 @@ export function checkCleoGitignore(projectRoot?: string): CheckResult {
 
 /**
  * Detect the storage engine from project config.
- * Per ADR-006, always returns 'sqlite'.
+ *
+ * Per ADR-006, SQLite is the only supported storage engine. This function
+ * checks the project's .cleo/config.json for an explicit storageEngine
+ * override (for forward compatibility) but defaults to 'sqlite'.
+ *
+ * The projectRoot parameter is used to locate the project-level config.
  */
-function detectStorageEngine(_projectRoot: string): string {
+function detectStorageEngine(projectRoot: string): string {
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+  if (existsSync(configPath)) {
+    try {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      if (typeof config.storageEngine === 'string' && config.storageEngine) {
+        return config.storageEngine;
+      }
+    } catch {
+      // Invalid config; fall through to default
+    }
+  }
+  // ADR-006: SQLite is the canonical and only supported storage engine
   return 'sqlite';
 }
 
@@ -968,6 +985,11 @@ export function checkNodeVersion(): CheckResult {
 /**
  * Check that global schemas at ~/.cleo/schemas/ are installed and not stale.
  * Delegates to checkGlobalSchemas() from schema-management.ts.
+ *
+ * The projectRoot parameter exists for API consistency with other check
+ * functions in runAllGlobalChecks(), but global schemas live at ~/.cleo/schemas/
+ * (not per-project). The parameter is intentionally unused because schema
+ * health is a system-wide concern, not project-scoped.
  */
 export function checkGlobalSchemaHealth(_projectRoot?: string): CheckResult {
   try {

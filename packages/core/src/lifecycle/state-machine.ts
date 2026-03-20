@@ -713,7 +713,7 @@ export function canSkipStage(stage: Stage): boolean {
  *
  * @task T4800
  */
-export function skipStage(stage: Stage, _reason: string, context: StateMachineContext): StageState {
+export function skipStage(stage: Stage, reason: string, context: StateMachineContext): StageState {
   if (!canSkipStage(stage)) {
     throw new CleoError(ExitCode.LIFECYCLE_TRANSITION_INVALID, `Stage ${stage} cannot be skipped`, {
       fix: `Complete the ${stage} stage or use force flag`,
@@ -729,5 +729,9 @@ export function skipStage(stage: Stage, _reason: string, context: StateMachineCo
     );
   }
 
-  return setStageStatus(stage, 'skipped', context);
+  const updatedState = setStageStatus(stage, 'skipped', context);
+  // Store the skip reason in the stage notes for in-memory context;
+  // the DB-level skip_reason column is set by recordStageProgress in lifecycle/index.ts
+  updatedState.notes = reason;
+  return updatedState;
 }

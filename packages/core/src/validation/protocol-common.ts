@@ -89,14 +89,47 @@ const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter((s) => s !== 'archived');
 const VALID_DETAILS = ['summary', 'details', 'blocker details'];
 
 /**
+ * Map from protocol type identifiers to the expected message type prefix.
+ * When a protocolType is provided, the return message must use the matching type.
+ */
+const PROTOCOL_TYPE_MAP: Record<string, string> = {
+  research: 'Research',
+  implementation: 'Implementation',
+  validation: 'Validation',
+  testing: 'Testing',
+  specification: 'Specification',
+  consensus: 'Consensus',
+  decomposition: 'Decomposition',
+  contribution: 'Contribution',
+  release: 'Release',
+};
+
+/**
  * Check if return message follows protocol format.
  * Expected: "<Type> <status>. See MANIFEST.jsonl for <detail>."
+ *
+ * When protocolType is provided, the message type must match the protocol
+ * (e.g., a 'research' protocol must produce a "Research ..." message).
+ *
  * @task T4527
  */
-export function checkReturnMessageFormat(message: string, _protocolType?: string): boolean {
-  const typePattern = VALID_TYPES.join('|');
+export function checkReturnMessageFormat(message: string, protocolType?: string): boolean {
   const statusPattern = VALID_STATUSES_MSG.join('|');
   const detailPattern = VALID_DETAILS.join('|');
+
+  // If protocolType is given, constrain the type to the matching prefix
+  let typePattern: string;
+  if (protocolType) {
+    const expectedType = PROTOCOL_TYPE_MAP[protocolType.toLowerCase()];
+    if (!expectedType) {
+      // Unknown protocol type — fall back to allowing any valid type
+      typePattern = VALID_TYPES.join('|');
+    } else {
+      typePattern = expectedType;
+    }
+  } else {
+    typePattern = VALID_TYPES.join('|');
+  }
 
   const regex = new RegExp(
     `^(${typePattern}) (${statusPattern})\\. See MANIFEST\\.jsonl for (${detailPattern})\\.$`,
@@ -217,11 +250,15 @@ export function checkProvenanceTags(filePath: string, taskId?: string): boolean 
 
 /**
  * Validate common manifest requirements across all protocols.
+ *
+ * When protocolType is provided, additionally validates that the manifest
+ * entry's agent_type matches the expected protocol type.
+ *
  * @task T4527
  */
 export function validateCommonManifestRequirements(
   entry: Record<string, unknown>,
-  _protocolType?: string,
+  protocolType?: string,
 ): ProtocolValidationResult {
   const violations: ProtocolViolation[] = [];
   let score = 100;
@@ -287,6 +324,20 @@ export function validateCommonManifestRequirements(
       fix: 'Add linked_tasks array with epic and task IDs',
     });
     score -= 5;
+  }
+
+  // Protocol-specific: verify agent_type matches the protocol when specified
+  if (protocolType && checkManifestFieldPresent(entry, 'agent_type')) {
+    const expectedType = PROTOCOL_TYPE_MAP[protocolType.toLowerCase()];
+    if (expectedType && !checkAgentType(entry, expectedType.toLowerCase())) {
+      violations.push({
+        requirement: 'COMMON-007',
+        severity: 'warning',
+        message: `agent_type '${String(entry['agent_type'])}' does not match protocol '${protocolType}'`,
+        fix: `Set agent_type to '${expectedType.toLowerCase()}'`,
+      });
+      score -= 5;
+    }
   }
 
   return {

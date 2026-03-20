@@ -130,7 +130,6 @@ function computeNextSuggested(session: Session, current: TaskFileExt): string[] 
     (t) =>
       scopeTaskIds.has(t.id) &&
       t.status !== 'done' &&
-      t.status !== 'completed' &&
       t.status !== 'archived' &&
       t.status !== 'cancelled',
   );
@@ -191,7 +190,6 @@ function findOpenBugs(current: TaskFileExt, session: Session): string[] {
       (t.type === 'bug' ||
         (Array.isArray(t.labels) && t.labels.some((l: string) => l === 'bug'))) &&
       t.status !== 'done' &&
-      t.status !== 'completed' &&
       t.status !== 'archived' &&
       t.status !== 'cancelled',
   );

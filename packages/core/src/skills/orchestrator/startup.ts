@@ -134,7 +134,7 @@ export interface SessionInitResult {
  * Determines the recommended action based on current state.
  * @task T4519
  */
-export async function sessionInit(_epicId?: string, cwd?: string): Promise<SessionInitResult> {
+export async function sessionInit(epicId?: string, cwd?: string): Promise<SessionInitResult> {
   const sessionsPath = getSessionsPath(cwd);
   const cleoDirAbs = getCleoDirAbsolute(cwd);
   const focusPath = join(cleoDirAbs, 'focus.json');
@@ -147,7 +147,21 @@ export async function sessionInit(_epicId?: string, cwd?: string): Promise<Sessi
   if (existsSync(sessionsPath)) {
     try {
       const data = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
-      const active = (data.sessions ?? []).filter((s: { status: string }) => s.status === 'active');
+      let active = (data.sessions ?? []).filter(
+        (s: { status: string }) => s.status === 'active',
+      );
+
+      // If epicId provided, prefer sessions scoped to that epic
+      if (epicId && active.length > 0) {
+        const epicScoped = active.filter(
+          (s: { scope?: { rootId?: string; epicId?: string } }) =>
+            s.scope?.rootId === epicId || s.scope?.epicId === epicId,
+        );
+        if (epicScoped.length > 0) {
+          active = epicScoped;
+        }
+      }
+
       activeSessions = active.length;
       if (activeSessions > 0) {
         activeSessionId = active[0].id ?? null;
@@ -156,6 +170,11 @@ export async function sessionInit(_epicId?: string, cwd?: string): Promise<Sessi
     } catch {
       // Invalid sessions file
     }
+  }
+
+  // If epicId provided and no active session found, set activeScope to the epic
+  if (epicId && !activeScope) {
+    activeScope = epicId;
   }
 
   // Check focus
@@ -172,8 +191,23 @@ export async function sessionInit(_epicId?: string, cwd?: string): Promise<Sessi
     }
   }
 
-  // Determine pending work (simplified - check manifest for needs_followup)
-  const hasPending = false; // Will be populated by manifest checks
+  // Determine pending work: check if the epic has ready tasks
+  let hasPending = false;
+  if (epicId) {
+    const taskPath = getTaskPath(cwd);
+    if (existsSync(taskPath)) {
+      try {
+        const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
+        const tasks = (data.tasks ?? []) as Array<{
+          parentId?: string;
+          status: string;
+        }>;
+        hasPending = tasks.some((t) => t.parentId === epicId && t.status === 'pending');
+      } catch {
+        // Invalid tasks file
+      }
+    }
+  }
 
   // Decision matrix
   let recommendedAction: SessionInitResult['recommendedAction'];
@@ -187,7 +221,9 @@ export async function sessionInit(_epicId?: string, cwd?: string): Promise<Sessi
     actionReason = 'Active session without focus - query manifest and spawn next agent';
   } else if (hasPending) {
     recommendedAction = 'create_and_spawn';
-    actionReason = 'No session but manifest has followups - create session and spawn';
+    actionReason = epicId
+      ? `No session but epic ${epicId} has pending tasks - create session and spawn`
+      : 'No session but manifest has followups - create session and spawn';
   } else {
     recommendedAction = 'request_direction';
     actionReason = 'No session, no pending work - await user direction';

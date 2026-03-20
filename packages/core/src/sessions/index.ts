@@ -471,4 +471,11 @@ export { getSessionStats } from './session-stats.js';
 export { suspendSession } from './session-suspend.js';
 export { switchSession } from './session-switch.js';
 export { SessionView } from './session-view.js';
-export type { AssumptionRecord, DecisionRecord, TaskFileExt, TaskWorkStateExt } from './types.js';
+export type {
+  AssumptionRecord,
+  DecisionRecord,
+  TaskFileExt,
+  TaskFileMetaExt,
+  TaskFileTaskEntry,
+  TaskWorkStateExt,
+} from './types.js';

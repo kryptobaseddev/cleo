@@ -53,10 +53,46 @@ export type {
 export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
 // Hooks
 export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
+export type { PayloadValidationResult } from './hooks/payload-schemas.js';
+export { validatePayload } from './hooks/payload-schemas.js';
 export { isProviderHookEvent } from './hooks/types.js';
 
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
+
+// Intelligence — quality prediction and pattern extraction
+export type {
+  AffectedTask,
+  BlastRadius,
+  BlastRadiusSeverity,
+  ChangeImpact,
+  ChangeType,
+  DetectedPattern,
+  ImpactAssessment,
+  LearningContext,
+  PatternExtractionOptions,
+  PatternMatch,
+  PatternStatsUpdate,
+  RiskAssessment,
+  RiskFactor,
+  ValidationPrediction,
+} from './intelligence/types.js';
+export {
+  calculateTaskRisk,
+  gatherLearningContext,
+  predictValidationOutcome,
+} from './intelligence/prediction.js';
+export {
+  analyzeChangeImpact,
+  analyzeTaskImpact,
+  calculateBlastRadius,
+} from './intelligence/impact.js';
+export {
+  extractPatternsFromHistory,
+  matchPatterns,
+  storeDetectedPattern,
+  updatePatternStats,
+} from './intelligence/patterns.js';
 
 // Issue
 export { collectDiagnostics } from './issue/diagnostics.js';
@@ -297,7 +333,11 @@ export {
   switchSession,
 } from './sessions/index.js';
 export { generateSessionId } from './sessions/session-id.js';
-export type { DecisionRecord } from './sessions/types.js';
+export type {
+  DecisionRecord,
+  TaskFileMetaExt,
+  TaskFileTaskEntry,
+} from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';
 export { filterEntries } from './skills/manifests/research.js';
@@ -576,6 +616,18 @@ export { BUILD_CONFIG } from './config/build-config.js';
 export { initCoreSkills } from './init.js';
 // Memory (additional)
 export { writeMemoryBridge } from './memory/memory-bridge.js';
+// Memory — brain row types
+export type {
+  BrainAnchor,
+  BrainConsolidationObservationRow,
+  BrainDecisionNode,
+  BrainFtsRow,
+  BrainIdCheckRow,
+  BrainKnnRow,
+  BrainNarrativeRow,
+  BrainSearchHit,
+  BrainTimelineNeighborRow,
+} from './memory/brain-row-types.js';
 export type { SessionMemoryContext } from './memory/session-memory.js';
 export { getSessionMemoryContext, persistSessionMemory } from './memory/session-memory.js';
 // Nexus — discoverRelated (exported as nexusDiscoverRelated to avoid name clash with tasks discoverRelated)
@@ -623,6 +675,42 @@ export { suggestRelated } from './tasks/relates.js';
 
 // Verification gates — enums/classes
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
+
+// Agents — runtime registry, health, retry, capacity
+export {
+  checkAgentHealth,
+  classifyError,
+  deregisterAgent,
+  findLeastLoadedAgent,
+  generateAgentId,
+  getAgentErrorHistory,
+  getAgentInstance,
+  getAvailableCapacity,
+  getCapacitySummary,
+  getHealthReport,
+  heartbeat,
+  incrementTasksCompleted,
+  isOverloaded,
+  listAgentInstances,
+  markCrashed,
+  recoverCrashedAgents,
+  registerAgent as registerAgentInstance,
+  updateAgentStatus,
+  updateCapacity,
+  withRetry,
+  createRetryPolicy,
+  DEFAULT_RETRY_POLICY,
+} from './agents/index.js';
+export type {
+  AgentHealthReport,
+  AgentRecoveryResult,
+  CapacitySummary,
+  ListAgentFilters,
+  RegisterAgentOptions,
+  RetryPolicy,
+  RetryResult,
+  UpdateStatusOptions,
+} from './agents/index.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers (used by cleo test files)

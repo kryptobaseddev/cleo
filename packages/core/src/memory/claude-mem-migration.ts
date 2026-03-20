@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getClaudeMemDbPath } from '../paths.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../store/brain-schema.js';
+import type { BrainIdCheckRow } from './brain-row-types.js';
 import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
@@ -204,7 +205,7 @@ export async function migrateClaudeMem(
           // Check if already imported (idempotent)
           const existing = nativeDb
             .prepare('SELECT id FROM brain_observations WHERE id = ?')
-            .get(obsId) as Record<string, unknown> | undefined;
+            .get(obsId) as BrainIdCheckRow | undefined;
 
           if (existing) {
             result.observationsSkipped++;
@@ -254,7 +255,7 @@ export async function migrateClaudeMem(
             const decId = `CMD-${row.id}`;
             const existingDec = nativeDb
               .prepare('SELECT id FROM brain_decisions WHERE id = ?')
-              .get(decId) as Record<string, unknown> | undefined;
+              .get(decId) as BrainIdCheckRow | undefined;
 
             if (!existingDec) {
               nativeDb
@@ -324,7 +325,7 @@ export async function migrateClaudeMem(
           // Check if already imported
           const existing = nativeDb
             .prepare('SELECT id FROM brain_learnings WHERE id = ?')
-            .get(learnId) as Record<string, unknown> | undefined;
+            .get(learnId) as BrainIdCheckRow | undefined;
 
           if (existing) {
             // Don't count as skipped — these are separate from observations

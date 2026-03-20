@@ -16,6 +16,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  unique,
 } from 'drizzle-orm/sqlite-core';
 import {
   ADR_STATUSES,
@@ -35,6 +36,23 @@ export type {
 } from './chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
 export { warpChainInstances, warpChains } from './chain-schema.js';
+
+export type {
+  AgentErrorLogRow,
+  AgentErrorType,
+  AgentInstanceRow,
+  AgentInstanceStatus,
+  AgentType,
+  NewAgentErrorLogRow,
+  NewAgentInstanceRow,
+} from '../agents/agent-schema.js';
+// Re-export agent schema tables so drizzle-kit picks them up for migrations.
+export {
+  agentErrorLog,
+  AGENT_INSTANCE_STATUSES,
+  agentInstances,
+  AGENT_TYPES,
+} from '../agents/agent-schema.js';
 
 // Re-export status constants and types so existing imports from schema.ts still work.
 export {
@@ -160,6 +178,7 @@ export const tasks = sqliteTable(
     index('idx_tasks_phase').on(table.phase),
     index('idx_tasks_type').on(table.type),
     index('idx_tasks_priority').on(table.priority),
+    index('idx_tasks_session_id').on(table.sessionId),
   ],
 );
 
@@ -199,7 +218,10 @@ export const taskRelations = sqliteTable(
       .default('related'),
     reason: text('reason'),
   },
-  (table) => [primaryKey({ columns: [table.taskId, table.relatedTo] })],
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.relatedTo] }),
+    index('idx_task_relations_related_to').on(table.relatedTo),
+  ],
 );
 
 // === SESSIONS ===
@@ -225,8 +247,14 @@ export const sessions = sqliteTable(
     startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
     endedAt: text('ended_at'),
     // Session chain columns (T4959)
-    previousSessionId: text('previous_session_id'),
-    nextSessionId: text('next_session_id'),
+    previousSessionId: text('previous_session_id').references(
+      (): AnySQLiteColumn => sessions.id,
+      { onDelete: 'set null' },
+    ),
+    nextSessionId: text('next_session_id').references(
+      (): AnySQLiteColumn => sessions.id,
+      { onDelete: 'set null' },
+    ),
     agentIdentifier: text('agent_identifier'),
     handoffConsumedAt: text('handoff_consumed_at'),
     handoffConsumedBy: text('handoff_consumed_by'),
@@ -242,6 +270,7 @@ export const sessions = sqliteTable(
     index('idx_sessions_status').on(table.status),
     index('idx_sessions_previous').on(table.previousSessionId),
     index('idx_sessions_agent_identifier').on(table.agentIdentifier),
+    index('idx_sessions_started_at').on(table.startedAt),
   ],
 );
 
@@ -325,6 +354,7 @@ export const lifecycleStages = sqliteTable(
     index('idx_lifecycle_stages_pipeline_id').on(table.pipelineId),
     index('idx_lifecycle_stages_stage_name').on(table.stageName),
     index('idx_lifecycle_stages_status').on(table.status),
+    index('idx_lifecycle_stages_validated_by').on(table.validatedBy),
   ],
 );
 
@@ -524,6 +554,7 @@ export const auditLog = sqliteTable(
     index('idx_audit_log_domain').on(table.domain),
     index('idx_audit_log_request_id').on(table.requestId),
     index('idx_audit_log_project_hash').on(table.projectHash),
+    index('idx_audit_log_actor').on(table.actor),
   ],
 );
 
@@ -567,6 +598,7 @@ export const tokenUsage = sqliteTable(
     index('idx_token_usage_transport').on(table.transport),
     index('idx_token_usage_domain_operation').on(table.domain, table.operation),
     index('idx_token_usage_method').on(table.method),
+    index('idx_token_usage_gateway').on(table.gateway),
   ],
 );
 
@@ -603,7 +635,10 @@ export const architectureDecisions = sqliteTable(
     keywords: text('keywords'),
     topics: text('topics'),
   },
-  (table) => [index('idx_arch_decisions_status').on(table.status)],
+  (table) => [
+    index('idx_arch_decisions_status').on(table.status),
+    index('idx_arch_decisions_amends_id').on(table.amendsId),
+  ],
 );
 
 // === ADR JUNCTION TABLES (ADR-017 §5.3) ===
@@ -692,6 +727,11 @@ export const externalTaskLinks = sqliteTable(
     index('idx_ext_links_task_id').on(table.taskId),
     index('idx_ext_links_provider_external').on(table.providerId, table.externalId),
     index('idx_ext_links_provider_id').on(table.providerId),
+    unique('uq_ext_links_task_provider_external').on(
+      table.taskId,
+      table.providerId,
+      table.externalId,
+    ),
   ],
 );
 

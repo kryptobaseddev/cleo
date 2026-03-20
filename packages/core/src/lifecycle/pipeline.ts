@@ -695,14 +695,14 @@ export async function listPipelines(options: PipelineQueryOptions = {}): Promise
  * Only valid when the pipeline is in the 'release' stage.
  *
  * @param taskId - The task ID
- * @param _reason - Optional completion reason (unused, for API compatibility)
+ * @param reason - Optional completion reason, stored in the final stage's notes
  * @throws {CleoError} If pipeline not found or not in releasable state
  * @returns Promise resolving when complete
  *
  * @task T4800
  * @task T4912 - Implemented SQLite wiring
  */
-export async function completePipeline(taskId: string, _reason?: string): Promise<void> {
+export async function completePipeline(taskId: string, reason?: string): Promise<void> {
   const db = await getDb();
   const now = new Date();
 
@@ -719,14 +719,21 @@ export async function completePipeline(taskId: string, _reason?: string): Promis
 
   const pipeline = pipelineResult[0];
 
-  // Mark current stage (release) as completed
+  // Mark current stage (release) as completed, storing completion reason in notes
   if (pipeline.currentStageId) {
+    const stageUpdate: Record<string, unknown> = {
+      status: 'completed',
+      completedAt: now.toISOString(),
+    };
+
+    if (reason) {
+      stageUpdate.notesJson = JSON.stringify([`Completion reason: ${reason}`]);
+      stageUpdate.metadataJson = JSON.stringify({ completionReason: reason });
+    }
+
     await db
       .update(schema.lifecycleStages)
-      .set({
-        status: 'completed',
-        completedAt: now.toISOString(),
-      })
+      .set(stageUpdate)
       .where(
         and(
           eq(schema.lifecycleStages.pipelineId, pipeline.id),

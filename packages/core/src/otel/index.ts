@@ -125,14 +125,67 @@ export async function getOtelSpawns(opts: {
 }
 
 /** Get real token usage from Claude Code API. */
-export async function getRealTokenUsage(_opts: {
+export async function getRealTokenUsage(opts: {
   session?: string;
   since?: string;
 }): Promise<Record<string, unknown>> {
-  // Real token usage requires OTel integration - return placeholder
+  const otelEnabled = process.env.CLAUDE_CODE_ENABLE_TELEMETRY === '1';
+
+  // Read JSONL token data and filter by opts
+  const entries = readJsonlFile(getTokenFilePath());
+
+  if (entries.length === 0) {
+    return {
+      message: otelEnabled
+        ? 'OTel enabled but no token data recorded yet'
+        : 'Real token usage requires OpenTelemetry configuration',
+      otelEnabled,
+      totalEvents: 0,
+    };
+  }
+
+  let filtered = entries;
+
+  // Filter by session if provided
+  if (opts.session) {
+    filtered = filtered.filter((e) => {
+      const ctx = (e.context ?? {}) as Record<string, unknown>;
+      return ctx.session_id === opts.session || e.session_id === opts.session;
+    });
+  }
+
+  // Filter by since timestamp if provided
+  if (opts.since) {
+    const sinceDate = new Date(opts.since).getTime();
+    filtered = filtered.filter((e) => {
+      const ts = (e.timestamp ?? e.recorded_at) as string | undefined;
+      return ts ? new Date(ts).getTime() >= sinceDate : true;
+    });
+  }
+
+  const totalTokens = filtered.reduce(
+    (sum, e) => sum + ((e.estimated_tokens as number) ?? 0),
+    0,
+  );
+  const inputTokens = filtered.reduce(
+    (sum, e) => sum + ((e.input_tokens as number) ?? 0),
+    0,
+  );
+  const outputTokens = filtered.reduce(
+    (sum, e) => sum + ((e.output_tokens as number) ?? 0),
+    0,
+  );
+
   return {
-    message: 'Real token usage requires OpenTelemetry configuration',
-    otelEnabled: process.env.CLAUDE_CODE_ENABLE_TELEMETRY === '1',
+    otelEnabled,
+    totalEvents: filtered.length,
+    totalTokens,
+    inputTokens,
+    outputTokens,
+    filters: {
+      session: opts.session ?? null,
+      since: opts.since ?? null,
+    },
   };
 }
 

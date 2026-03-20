@@ -227,12 +227,73 @@ export function cacheTemplates(templates: IssueTemplate[], cwd?: string): void {
 }
 
 /**
- * Validate that required labels exist (informational).
+ * Validate that labels referenced in issue templates are consistent.
+ *
+ * Collects all labels used across templates and checks that each label
+ * appears in at least one template definition. Reports any labels that
+ * are referenced by only one template but not defined as a known label
+ * across the template set. This catches typos and orphaned labels
+ * without requiring GitHub API access.
  */
-export function validateLabelsExist(_templates: IssueTemplate[]): {
+export function validateLabelsExist(templates: IssueTemplate[]): {
   valid: boolean;
   missingLabels: string[];
 } {
-  // Can't actually verify GitHub labels without API, just return the set
-  return { valid: true, missingLabels: [] };
+  if (templates.length === 0) {
+    return { valid: true, missingLabels: [] };
+  }
+
+  // Build a frequency map of all labels across templates
+  const labelFrequency = new Map<string, number>();
+  for (const template of templates) {
+    for (const label of template.labels) {
+      labelFrequency.set(label, (labelFrequency.get(label) ?? 0) + 1);
+    }
+  }
+
+  // Cross-reference: each template's labels should be known across the template set.
+  // A label used by only one template AND not matching any known subcommand is suspicious.
+  const knownSubcommands = new Set(templates.map((t) => t.subcommand));
+  const knownNames = new Set(templates.map((t) => t.name.toLowerCase()));
+  const missingLabels: string[] = [];
+
+  for (const template of templates) {
+    for (const label of template.labels) {
+      // Check if the label is completely unknown: used once, and not matching
+      // any template subcommand or name (which would make it a valid unique label)
+      const freq = labelFrequency.get(label) ?? 0;
+      if (
+        freq === 1 &&
+        !knownSubcommands.has(label) &&
+        !knownNames.has(label.toLowerCase()) &&
+        !WELL_KNOWN_LABELS.has(label)
+      ) {
+        missingLabels.push(label);
+      }
+    }
+  }
+
+  return {
+    valid: missingLabels.length === 0,
+    missingLabels,
+  };
 }
+
+/** Labels that are well-known in GitHub/issue trackers and always valid. */
+const WELL_KNOWN_LABELS = new Set([
+  'bug',
+  'enhancement',
+  'feature',
+  'help',
+  'question',
+  'documentation',
+  'good first issue',
+  'duplicate',
+  'invalid',
+  'wontfix',
+  'priority',
+  'critical',
+  'high',
+  'medium',
+  'low',
+]);

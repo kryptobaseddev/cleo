@@ -104,6 +104,7 @@ const STOP_WORDS = new Set([
  */
 export function extractKeywords(text: string): string[] {
   return text
+    .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w));

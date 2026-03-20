@@ -25,52 +25,72 @@ export interface SkillContent {
   path: string;
 }
 
-/** List available skills. */
-export function listSkills(_projectRoot: string): { skills: SkillEntry[]; total: number } {
-  const skillsDir = getCanonicalSkillsDir();
+/** List available skills from canonical and project-local directories. */
+export function listSkills(projectRoot: string): { skills: SkillEntry[]; total: number } {
+  const seen = new Set<string>();
+  const allSkills: SkillEntry[] = [];
 
-  if (!existsSync(skillsDir)) {
-    return { skills: [], total: 0 };
+  // Scan a skills directory and collect entries
+  function scanSkillsDir(dir: string): void {
+    if (!existsSync(dir)) return;
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const d of entries) {
+        if (!d.isDirectory() || d.name.startsWith('_') || seen.has(d.name)) continue;
+        seen.add(d.name);
+
+        const skillPath = join(dir, d.name, 'SKILL.md');
+        let description = '';
+
+        if (existsSync(skillPath)) {
+          try {
+            const content = readFileSync(skillPath, 'utf-8');
+            const descMatch = content.match(/description:\s*[|>]?\s*\n?\s*(.+)/);
+            if (descMatch) {
+              description = descMatch[1]!.trim();
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        allSkills.push({
+          name: d.name,
+          path: join(dir, d.name),
+          hasSkillFile: existsSync(skillPath),
+          description,
+        });
+      }
+    } catch {
+      // ignore unreadable directories
+    }
   }
 
-  const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith('_'))
-    .map((d) => {
-      const skillPath = join(skillsDir, d.name, 'SKILL.md');
-      let description = '';
+  // 1. Scan project-local skills (higher priority, listed first)
+  scanSkillsDir(join(projectRoot, '.cleo', 'skills'));
 
-      if (existsSync(skillPath)) {
-        try {
-          const content = readFileSync(skillPath, 'utf-8');
-          const descMatch = content.match(/description:\s*[|>]?\s*\n?\s*(.+)/);
-          if (descMatch) {
-            description = descMatch[1]!.trim();
-          }
-        } catch {
-          // ignore
-        }
-      }
+  // 2. Scan canonical (global) skills
+  scanSkillsDir(getCanonicalSkillsDir());
 
-      return {
-        name: d.name,
-        path: join(skillsDir, d.name),
-        hasSkillFile: existsSync(skillPath),
-        description,
-      };
-    });
-
-  return { skills: skillDirs, total: skillDirs.length };
+  return { skills: allSkills, total: allSkills.length };
 }
 
-/** Read skill content for injection into agent context. */
-export function getSkillContent(skillName: string, _projectRoot: string): SkillContent {
+/** Read skill content for injection into agent context. Checks project-local skills first. */
+export function getSkillContent(skillName: string, projectRoot: string): SkillContent {
   if (!skillName) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'skill name is required');
   }
 
-  const skillDir = join(getCanonicalSkillsDir(), skillName);
+  // Check project-local skills first, then canonical
+  const projectSkillDir = join(projectRoot, '.cleo', 'skills', skillName);
+  const canonicalSkillDir = join(getCanonicalSkillsDir(), skillName);
+  const skillDir = existsSync(projectSkillDir) ? projectSkillDir : canonicalSkillDir;
+
   if (!existsSync(skillDir)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Skill '${skillName}' not found at ${skillDir}`);
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Skill '${skillName}' not found at ${canonicalSkillDir} or ${projectSkillDir}`,
+    );
   }
 
   const skillFilePath = join(skillDir, 'SKILL.md');

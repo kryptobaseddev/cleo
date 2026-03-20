@@ -28,6 +28,7 @@ export * from '@cleocode/contracts';
 // Submodule namespace re-exports
 // ---------------------------------------------------------------------------
 
+export * as agents from './agents/index.js';
 export * as adapters from './adapters/index.js';
 export * as admin from './admin/index.js';
 export * as adrs from './adrs/index.js';
@@ -37,6 +38,7 @@ export * as compliance from './compliance/index.js';
 export * as context from './context/index.js';
 export * as coreHooks from './hooks/index.js';
 export * as inject from './inject/index.js';
+export * as intelligence from './intelligence/index.js';
 export * as issue from './issue/index.js';
 export * as lifecycle from './lifecycle/index.js';
 export * as coreMcp from './mcp/index.js';
@@ -70,6 +72,73 @@ export * as tasks from './tasks/index.js';
 export * as templates from './templates/index.js';
 export * as ui from './ui/index.js';
 export * as validation from './validation/index.js';
+
+// ---------------------------------------------------------------------------
+// Canonical Zod enum schemas (flat re-exports for Pattern 3 imports)
+// ---------------------------------------------------------------------------
+
+export {
+  // Task enums
+  taskStatusSchema,
+  taskPrioritySchema,
+  taskTypeSchema,
+  taskSizeSchema,
+  // Session enums
+  sessionStatusSchema,
+  // Lifecycle enums
+  lifecyclePipelineStatusSchema,
+  lifecycleStageStatusSchema,
+  lifecycleStageNameSchema,
+  lifecycleGateResultSchema,
+  lifecycleEvidenceTypeSchema,
+  lifecycleTransitionTypeSchema,
+  // Governance enums
+  adrStatusSchema,
+  gateStatusSchema,
+  manifestStatusSchema,
+  // Token usage enums
+  tokenUsageMethodSchema,
+  tokenUsageConfidenceSchema,
+  tokenUsageTransportSchema,
+  // Relation / link enums
+  taskRelationTypeSchema,
+  externalLinkTypeSchema,
+  syncDirectionSchema,
+  // Brain enums
+  brainObservationTypeSchema,
+  brainObservationSourceTypeSchema,
+  brainDecisionTypeSchema,
+  brainConfidenceLevelSchema,
+  brainOutcomeTypeSchema,
+  brainPatternTypeSchema,
+  brainImpactLevelSchema,
+  brainLinkTypeSchema,
+  brainMemoryTypeSchema,
+  brainStickyStatusSchema,
+  brainStickyColorSchema,
+  brainStickyPrioritySchema,
+  brainNodeTypeSchema,
+  brainEdgeTypeSchema,
+  // Insert/select schemas
+  insertTaskSchema,
+  selectTaskSchema,
+  insertSessionSchema,
+  selectSessionSchema,
+  insertExternalTaskLinkSchema,
+  selectExternalTaskLinkSchema,
+  insertReleaseManifestSchema,
+  selectReleaseManifestSchema,
+  insertPipelineManifestSchema,
+  selectPipelineManifestSchema,
+  // Agent enums
+  agentInstanceStatusSchema,
+  agentTypeSchema,
+  // Agent insert/select schemas
+  insertAgentInstanceSchema,
+  selectAgentInstanceSchema,
+  insertAgentErrorLogSchema,
+  selectAgentErrorLogSchema,
+} from './store/validation-schemas.js';
 
 // ---------------------------------------------------------------------------
 // Store layer (bundled inside core)

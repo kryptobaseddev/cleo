@@ -105,11 +105,12 @@ External consumers MUST import from `@cleocode/core` (the `"."` entry). The `"./
 The public barrel re-exports all symbols intended for external consumers:
 
 1. **All `@cleocode/contracts` types** via `export * from '@cleocode/contracts'`
-2. **41 namespace re-exports** (one per domain/submodule)
-3. **Store factory functions** (`createDataAccessor`, `getAccessor`)
-4. **Top-level utility exports** (errors, config, logger, paths, platform, output, pagination, init, scaffold, audit, validation, project info, constants)
-5. **Flat function re-exports** for direct imports (Pattern 3 -- tree-shakeable)
-6. **Cleo facade class** and domain API interfaces
+2. **43 namespace re-exports** (one per domain/submodule, including `agents` and `intelligence`)
+3. **34 canonical Zod enum schemas** (flat re-exports for Pattern 3 imports)
+4. **Store factory functions** (`createDataAccessor`, `getAccessor`)
+5. **Top-level utility exports** (errors, config, logger, paths, platform, output, pagination, init, scaffold, audit, validation, project info, constants)
+6. **Flat function re-exports** for direct imports (Pattern 3 -- tree-shakeable)
+7. **Cleo facade class** and domain API interfaces
 
 ### 3.2 Internal Barrel (`internal.ts`, ~622 lines)
 
@@ -127,7 +128,7 @@ export { exportTasks } from './admin/export.js';
 
 The internal barrel provides:
 
-- Fine-grained function exports from every domain (admin, ADRs, compliance, lifecycle, memory, metrics, nexus, orchestration, OTel, phases, pipeline, release, remote, routing, security, sessions, skills, snapshot, sticky, stats, system, tasks, task-work, templates, validation)
+- Fine-grained function exports from every domain (admin, ADRs, agents, compliance, intelligence, lifecycle, memory, metrics, nexus, orchestration, OTel, phases, pipeline, release, remote, routing, security, sessions, skills, snapshot, sticky, stats, system, tasks, task-work, templates, validation)
 - Store internals (`getDb`, `getBrainDb`, schema tables, validation schemas)
 - Test helpers (`closeAllDatabases`, `closeDb`, `resetDbState`, `createSqliteDataAccessor`)
 - Type exports for domain-specific result shapes
@@ -136,7 +137,7 @@ The internal barrel provides:
 
 ## 4. Module Structure
 
-The public barrel (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 41 namespaces, their role, and whether they require a `DataAccessor` at runtime.
+The public barrel (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 43 namespaces, their role, and whether they require a `DataAccessor` at runtime.
 
 ### 4.1 Domain Namespace Modules
 
@@ -145,6 +146,7 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `adapters` | `packages/core/src/adapters/` | Provider adapter discovery, detection, lifecycle | No |
 | `admin` | `packages/core/src/admin/` | Dashboard, health check, configuration map | Yes |
 | `adrs` | `packages/core/src/adrs/` | Architecture Decision Record management | No |
+| `agents` | `packages/core/src/agents/` | Agent registry, health monitoring, self-healing, capacity tracking | Yes (SQLite agent tables) |
 | `caamp` | `packages/core/src/caamp/` | CAAMP wrapper -- provider capability API, spawn, skill routing | No |
 | `codebaseMap` | `packages/core/src/codebase-map/` | Codebase structure analysis and module graph | No |
 | `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
@@ -152,6 +154,7 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `coreHooks` | `packages/core/src/hooks/` | Lifecycle hook dispatch registry | No |
 | `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
 | `inject` | `packages/core/src/inject/` | AGENTS.md / CLAUDE.md content injection | No |
+| `intelligence` | `packages/core/src/intelligence/` | Quality prediction, pattern extraction, impact analysis | Yes (uses brain.db + DataAccessor) |
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
 | `lifecycle` | `packages/core/src/lifecycle/` | RCASD-IVTR+C gate enforcement, stage transitions | Yes (SQLite lifecycle tables) |
 | `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval | No (uses brain.db directly) |
@@ -490,6 +493,8 @@ interface TransactionAccessor {
 
 Consumers that want to use `@cleocode/core` with a non-SQLite store (e.g., in-memory, Postgres, remote API) MUST implement `DataAccessor` from `@cleocode/contracts` and inject it at every call site or via `Cleo.init('./project', { store: myAccessor })`. The `engine` discriminant is currently always `'sqlite'` in the reference implementation, but a custom implementation SHOULD set it to a unique identifier.
 
+Note: The bundled SQLite store includes the agent schema tables (`agent_instances`, `agent_error_log`) in the same `tasks.db` database. These tables are defined in `packages/core/src/agents/agent-schema.ts` and re-exported from `tasks-schema.ts` for Drizzle migration discovery. The `agents` module accesses these tables directly via the Drizzle ORM connection rather than through the `DataAccessor` interface.
+
 ---
 
 ## 8. Export Contract
@@ -787,6 +792,30 @@ await tasks.addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
 import { addTask, startSession, observeBrain } from '@cleocode/core';
 
 await addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
+```
+
+### Zod enum schema imports (consumer validation)
+
+```typescript
+import {
+  taskStatusSchema,
+  taskPrioritySchema,
+  agentTypeSchema,
+  brainObservationTypeSchema,
+  insertTaskSchema,
+  selectSessionSchema,
+} from '@cleocode/core';
+
+// Validate a status value at runtime
+const status = taskStatusSchema.parse('pending'); // OK
+taskStatusSchema.parse('invalid'); // throws ZodError
+
+// Validate an insert payload
+const result = insertTaskSchema.safeParse({
+  id: 'T100',
+  title: 'Build API',
+  status: 'pending',
+});
 ```
 
 ### External task sync (reconciliation)

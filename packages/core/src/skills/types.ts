@@ -1,13 +1,46 @@
 /**
  * Type definitions for the skills system.
- * Re-exports overlapping CAAMP types for downstream consumers.
+ *
+ * ## Dual Type System: CAAMP vs CLEO Skills
+ *
+ * The skill type system has two layers reflecting the CAAMP/CLEO split:
+ *
+ * ### CAAMP types (re-exported as `CaampSkillMetadata`, `CtSkillEntry`, etc.)
+ * - Defined in `@cleocode/caamp` -- the cross-agent skill standard.
+ * - **`CaampSkillMetadata`**: Minimal metadata parsed from SKILL.md YAML header
+ *   by CAAMP's `parseSkillFile()`. Contains: name, description, version, license,
+ *   compatibility, metadata, allowedTools.
+ * - **`CtSkillEntry`**: A discovered skill with location + metadata. Used by CAAMP's
+ *   discovery and install pipeline.
+ * - Use CAAMP types when interacting with CAAMP APIs (skill discovery, install,
+ *   provider lock files, skill precedence resolution).
+ *
+ * ### CLEO types (`Skill`, `SkillFrontmatter`, `SkillSummary`, `SkillManifest`)
+ * - Defined here -- CLEO's extended skill domain model.
+ * - **`SkillFrontmatter`**: Superset of CaampSkillMetadata. Adds CLEO-specific
+ *   fields: tags, triggers, dispatchPriority, model, invocable, command, protocol.
+ *   Parsed by CLEO's own SKILL.md reader with richer YAML support.
+ * - **`Skill`**: Full in-memory skill object with filesystem paths and parsed content.
+ * - **`SkillSummary`**: Lightweight projection for listings (cached in SkillManifest).
+ * - Use CLEO types for skill dispatch, orchestration, CLI display, and manifest caching.
+ *
+ * ### Relationship
+ * - `SkillFrontmatter` is a functional superset of `CaampSkillMetadata`:
+ *   every field in CaampSkillMetadata exists in SkillFrontmatter (name, description,
+ *   version, allowedTools). SkillFrontmatter adds CLEO-specific extension fields.
+ * - A `Skill` (CLEO) wraps a `SkillFrontmatter` with filesystem context, whereas
+ *   a `CtSkillEntry` (CAAMP) wraps a `CaampSkillMetadata` with install metadata.
+ * - When converting between layers, map `CaampSkillMetadata` -> `SkillFrontmatter`
+ *   (all CAAMP fields carry over; CLEO-specific fields default to undefined).
+ *
  * @epic T4454
  * @task T4516
  */
 
 import type { TaskRef, TaskRefPriority } from '@cleocode/contracts';
 
-// Re-export CAAMP types where they overlap with CLEO's domain
+// Re-export CAAMP types where they overlap with CLEO's domain.
+// See module JSDoc above for guidance on which type to use where.
 export type {
   CtDispatchMatrix,
   CtManifest,
@@ -25,23 +58,52 @@ export type {
 // Skill Types
 // ============================================================================
 
-/** Skill frontmatter parsed from SKILL.md YAML header. */
+/**
+ * Skill frontmatter parsed from SKILL.md YAML header.
+ *
+ * This is CLEO's extended skill metadata -- a functional superset of CAAMP's
+ * `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description,
+ * version, allowedTools) are present here. CLEO adds: tags, triggers,
+ * dispatchPriority, model, invocable, command, protocol.
+ *
+ * Use this type when working with CLEO's skill loading, dispatch, and
+ * orchestration systems. Use `CaampSkillMetadata` when interfacing directly
+ * with CAAMP's discovery/install APIs.
+ */
 export interface SkillFrontmatter {
+  /** Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name. */
   name: string;
+  /** Human-readable description. Maps to CaampSkillMetadata.description. */
   description: string;
+  /** Semantic version string. Maps to CaampSkillMetadata.version. */
   version?: string;
+  /** Skill author (CLEO extension). */
   author?: string;
+  /** Classification tags for search/filter (CLEO extension). */
   tags?: string[];
+  /** Trigger patterns for auto-dispatch (CLEO extension). */
   triggers?: string[];
+  /** Priority for dispatch selection (CLEO extension). */
   dispatchPriority?: number;
+  /** Preferred LLM model (CLEO extension). */
   model?: string;
+  /** Allowed tool names. Maps to CaampSkillMetadata.allowedTools. */
   allowedTools?: string[];
+  /** Whether the skill can be invoked directly (CLEO extension). */
   invocable?: boolean;
+  /** CLI command for direct invocation (CLEO extension). */
   command?: string;
+  /** RCASD-IVTR+C protocol type (CLEO extension). */
   protocol?: SkillProtocolType;
 }
 
-/** Skill definition loaded from disk. */
+/**
+ * Skill definition loaded from disk.
+ *
+ * CLEO-specific type that wraps a {@link SkillFrontmatter} with filesystem
+ * context. For CAAMP's equivalent, see `CtSkillEntry` which wraps
+ * `CaampSkillMetadata` with install/discovery metadata instead.
+ */
 export interface Skill {
   name: string;
   dirName: string;
@@ -51,7 +113,12 @@ export interface Skill {
   content?: string;
 }
 
-/** Lightweight skill summary for manifest/listing. */
+/**
+ * Lightweight skill summary for manifest/listing.
+ *
+ * Projected from {@link Skill} for efficient caching in {@link SkillManifest}.
+ * Contains only the fields needed for CLI display and dispatch selection.
+ */
 export interface SkillSummary {
   name: string;
   dirName: string;

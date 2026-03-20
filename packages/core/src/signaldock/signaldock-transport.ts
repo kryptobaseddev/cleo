@@ -104,8 +104,11 @@ export class SignalDockTransport implements AgentTransport {
     };
   }
 
-  async poll(agentId: string, _since?: string): Promise<Message[]> {
-    const messages = await this.request<Message[]>('GET', '/messages/poll/new', undefined, agentId);
+  async poll(agentId: string, since?: string): Promise<Message[]> {
+    const path = since
+      ? `/messages/poll/new?since=${encodeURIComponent(since)}`
+      : '/messages/poll/new';
+    const messages = await this.request<Message[]>('GET', path, undefined, agentId);
     return messages;
   }
 
