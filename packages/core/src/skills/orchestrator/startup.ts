@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
-import { getCleoDirAbsolute, getTaskPath } from '../../paths.js';
+import { getCleoDirAbsolute } from '../../paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type {
   DependencyAnalysis,
@@ -296,9 +296,10 @@ export async function analyzeDependencies(
   epicId: string,
   cwd?: string,
 ): Promise<DependencyAnalysis> {
-  const taskPath = getTaskPath(cwd);
+  const acc = await getAccessor(cwd);
+  const epicTasks = await acc.getChildren(epicId);
 
-  if (!existsSync(taskPath)) {
+  if (epicTasks.length === 0) {
     return {
       epicId,
       totalTasks: 0,
@@ -311,10 +312,9 @@ export async function analyzeDependencies(
     };
   }
 
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
-  const epicTasks = tasks.filter((t) => t.parentId === epicId);
-  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  // Need full task set to resolve cross-epic dependency status
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const doneIds = new Set(allTasks.filter((t) => t.status === 'done').map((t) => t.id));
   const epicIds = new Set(epicTasks.map((t) => t.id));
 
   // Compute waves iteratively
@@ -410,12 +410,10 @@ export async function getNextTask(
     return { task: null, readyCount: 0 };
   }
 
-  // Load full task details for the first ready task
-  const taskPath = getTaskPath(cwd);
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
+  // Load full task details from SQLite
+  const acc = await getAccessor(cwd);
   const nextId = analysis.readyToSpawn[0].id;
-  const task = tasks.find((t) => t.id === nextId) ?? null;
+  const task = await acc.loadSingleTask(nextId);
 
   return { task, readyCount: analysis.readyToSpawn.length };
 }
@@ -428,16 +426,13 @@ export async function getReadyTasks(epicId: string, cwd?: string): Promise<TaskR
   const analysis = await analyzeDependencies(epicId, cwd);
   const readyIds = new Set(analysis.readyToSpawn.map((t) => t.id));
 
-  // Filter out tasks that depend on other ready tasks
-  const taskPath = getTaskPath(cwd);
-  if (!existsSync(taskPath)) return [];
-
-  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-  const tasks: Task[] = data.tasks ?? [];
+  // Load full task details from SQLite to check inter-ready dependencies
+  const acc = await getAccessor(cwd);
+  const readyTasksFull = await acc.loadTasks([...readyIds]);
 
   return analysis.readyToSpawn
     .filter((ready) => {
-      const task = tasks.find((t) => t.id === ready.id);
+      const task = readyTasksFull.find((t) => t.id === ready.id);
       if (!task) return false;
       const deps = task.depends ?? [];
       // Only include if no deps are also in the ready set
@@ -459,31 +454,29 @@ export async function generateHitlSummary(
   stopReason: string = 'context-limit',
   cwd?: string,
 ): Promise<HitlSummary> {
-  const taskPath = getTaskPath(cwd);
-  const cleoDirAbs = getCleoDirAbsolute(cwd);
+  const acc = await getAccessor(cwd);
 
-  // Session info
+  // Session info from SQLite (ADR-006/ADR-020)
   let sessionId: string | null = null;
-  const currentSessionFile = join(cleoDirAbs, '.current-session');
-  if (existsSync(currentSessionFile)) {
-    sessionId = readFileSync(currentSessionFile, 'utf-8').trim() || null;
+  try {
+    const activeSession = await acc.getActiveSession();
+    sessionId = activeSession?.id ?? null;
+  } catch {
+    // DB unavailable
   }
 
-  // Focus info
+  // Focus info from SQLite meta KV
   let focusedTask: string | null = null;
   let progressNote: string | null = null;
-  const focusPath = join(cleoDirAbs, 'focus.json');
-  if (existsSync(focusPath)) {
-    try {
-      const focus = JSON.parse(readFileSync(focusPath, 'utf-8'));
-      focusedTask = focus.focusedTaskId ?? null;
-      progressNote = focus.sessionNote ?? null;
-    } catch {
-      // ignore
-    }
+  try {
+    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+    focusedTask = focus?.currentTask ?? null;
+    progressNote = focus?.sessionNote ?? null;
+  } catch {
+    // Focus unavailable
   }
 
-  // Task statistics
+  // Task statistics from SQLite via DataAccessor
   let completed = 0,
     pending = 0,
     active = 0,
@@ -492,9 +485,8 @@ export async function generateHitlSummary(
   let remainingTasks: Array<TaskRef & { priority?: string }> = [];
   let readyToSpawn: TaskRefPriority[] = [];
 
-  if (existsSync(taskPath) && epicId) {
-    const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
-    const tasks: Task[] = (data.tasks ?? []).filter((t: Task) => t.parentId === epicId);
+  if (epicId) {
+    const tasks = await acc.getChildren(epicId);
 
     completed = tasks.filter((t) => t.status === 'done').length;
     pending = tasks.filter((t) => t.status === 'pending').length;
