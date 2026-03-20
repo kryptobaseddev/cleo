@@ -182,6 +182,7 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `tasks` | `packages/core/src/tasks/` | Task CRUD, hierarchy, dependency validation, search | Yes |
 | `templates` | `packages/core/src/templates/` | Template file management and rendering | No |
 | `ui` | `packages/core/src/ui/` | Output rendering helpers (tables, trees) | No |
+| `reconciliation` | `packages/core/src/reconciliation/` | Provider-agnostic task sync, external task link store | Yes (SQLite external_task_links) |
 | `validation` | `packages/core/src/validation/` | Anti-hallucination validators, schema checks | No |
 
 ### 4.2 Store Layer Exports
@@ -297,6 +298,7 @@ For tree-shakeable direct imports:
 | `HookRegistry` | `hooks/registry.ts` | Hook registry class |
 | `hooks` | `hooks/registry.ts` | Default hook registry instance |
 | `AdapterManager` | `adapters/index.ts` | Adapter discovery and lifecycle manager |
+| `reconcile` | `reconciliation/index.ts` | Reconcile external tasks with CLEO as SSoT |
 | `Cleo` | `cleo.ts` | Facade class for project-bound API |
 
 ---
@@ -333,8 +335,11 @@ The facade exposes 10 domain getter properties:
 | `cleo.admin` | `AdminAPI` | `export`, `import` |
 | `cleo.sticky` | `StickyAPI` | `add`, `show`, `list`, `archive`, `purge`, `convert` |
 | `cleo.nexus` | `NexusAPI` | `init`, `register`, `unregister`, `list`, `show`, `sync`, `discover`, `search`, `setPermission`, `sharingStatus` |
+| `cleo.sync` | `SyncAPI` | `reconcile`, `getLinks`, `getTaskLinks`, `removeProviderLinks` |
 
 The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The 10th domain in the canonical Circle of Ten (`check`) maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
+
+The `sync` property provides the provider-agnostic task reconciliation API. Consumers implement `ExternalTaskProvider` to normalize their issue tracker's data, then call `cleo.sync.reconcile()` to sync with CLEO as SSoT. External task links are tracked in the `external_task_links` table for bidirectional traceability.
 
 ---
 
@@ -382,7 +387,7 @@ The public barrel re-exports all types from `@cleocode/contracts` via `export * 
 | Adapter types | `CLEOProviderAdapter`, `AdapterManifest`, `DetectionPattern`, `AdapterCapabilities` |
 | WarpChain types | `WarpChain`, `WarpChainInstance`, `WarpStage`, `ChainShape`, `GateContract` |
 | Tessera types | `TesseraTemplate`, `TesseraVariable`, `TesseraInstantiationInput` |
-| Task Sync types | `ExternalTask`, `ExternalTaskLink`, `ExternalTaskProvider`, `ReconcileResult` |
+| Task Sync types | `ExternalTask`, `ExternalTaskLink`, `ExternalTaskProvider`, `ExternalTaskStatus`, `ExternalLinkType`, `SyncDirection`, `ConflictPolicy`, `ReconcileOptions`, `ReconcileAction`, `ReconcileActionType`, `ReconcileResult` |
 | Spawn types | `CLEOSpawnContext`, `CLEOSpawnResult`, `CLEOSpawnAdapter` |
 | Operations types | `ops` namespace (wire-format types for dispatch/LAFS, namespaced to avoid collision with domain types) |
 
@@ -708,7 +713,18 @@ pushWarning(warning: Warning): void
 | `composite` | true |
 | `isolatedModules` | true |
 
-### 16.2 Project References
+### 16.2 Build Pipeline
+
+The monorepo root `build.mjs` uses a two-stage build for `@cleocode/core`:
+
+1. **esbuild** bundles all source into a single `dist/index.js` (with `@cleocode/contracts` inlined, npm dependencies externalized)
+2. **tsc --emitDeclarationOnly** generates `.d.ts` and `.d.ts.map` files alongside the bundle
+
+This produces a single-file JS bundle for fast runtime loading while preserving full TypeScript declarations for consumer type-checking. The `tsBuildInfo` is cleared before declaration emit to prevent stale composite caching.
+
+Individual packages can also be built standalone with `pnpm --filter @cleocode/core run build` (runs `tsc` directly, producing multi-file output). The esbuild pipeline is only used by the root `pnpm run build` and CI Release workflow.
+
+### 16.3 Project References
 
 `packages/core/tsconfig.json` declares a project reference to `packages/contracts`:
 
@@ -728,11 +744,11 @@ The `files` field restricts what ships to npm:
 
 ```json
 {
-  "files": ["dist", "src"]
+  "files": ["dist", "migrations", "src"]
 }
 ```
 
-Both compiled output (`dist/`) and source (`src/`) are published. Source inclusion enables source-map navigation and IDE go-to-definition for consumers.
+Both compiled output (`dist/`), database migrations (`migrations/`), and source (`src/`) are published. Source inclusion enables source-map navigation and IDE go-to-definition for consumers. A `.npmignore` file in each package overrides the root `.gitignore` (which excludes `dist/`) to ensure `dist/` is included in npm tarballs.
 
 ---
 
@@ -771,6 +787,43 @@ await tasks.addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
 import { addTask, startSession, observeBrain } from '@cleocode/core';
 
 await addTask({ title: 'foo', description: 'bar' }, '/path/to/project');
+```
+
+### External task sync (reconciliation)
+
+```typescript
+import { Cleo } from '@cleocode/core';
+import type { ExternalTask, ExternalTaskProvider } from '@cleocode/core';
+
+// Implement provider adapter for your issue tracker
+class LinearAdapter implements ExternalTaskProvider {
+  async getExternalTasks(): Promise<ExternalTask[]> {
+    const issues = await linearClient.issues();
+    return issues.map(issue => ({
+      externalId: issue.id,
+      title: issue.title,
+      status: mapStatus(issue.state),
+      priority: mapPriority(issue.priority),
+      url: issue.url,
+      labels: issue.labels.map(l => l.name),
+    }));
+  }
+}
+
+const cleo = await Cleo.init('./my-project');
+const adapter = new LinearAdapter();
+
+// Reconcile — creates new CLEO tasks, updates existing, completes done ones
+const result = await cleo.sync.reconcile({
+  externalTasks: await adapter.getExternalTasks(),
+  providerId: 'linear',
+});
+
+console.log(`Created: ${result.summary.created}, Updated: ${result.summary.updated}`);
+
+// Query links between CLEO tasks and external tasks
+const links = await cleo.sync.getLinks('linear');
+const taskLinks = await cleo.sync.getTaskLinks('T123');
 ```
 
 ### Custom store backend
