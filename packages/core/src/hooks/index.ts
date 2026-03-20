@@ -9,6 +9,7 @@
  */
 
 export * from './handlers/index.js';
+export type { PayloadValidationResult } from './payload-schemas.js';
 export {
   HookPayloadSchema,
   OnAgentCompletePayloadSchema,
@@ -26,6 +27,5 @@ export {
   OnWorkAvailablePayloadSchema,
   validatePayload,
 } from './payload-schemas.js';
-export type { PayloadValidationResult } from './payload-schemas.js';
 export { HookRegistry, hooks } from './registry.js';
 export type * from './types.js';

@@ -28,10 +28,10 @@ export * from '@cleocode/contracts';
 // Submodule namespace re-exports
 // ---------------------------------------------------------------------------
 
-export * as agents from './agents/index.js';
 export * as adapters from './adapters/index.js';
 export * as admin from './admin/index.js';
 export * as adrs from './adrs/index.js';
+export * as agents from './agents/index.js';
 export * as caamp from './caamp/index.js';
 export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';
@@ -78,66 +78,66 @@ export * as validation from './validation/index.js';
 // ---------------------------------------------------------------------------
 
 export {
-  // Task enums
-  taskStatusSchema,
-  taskPrioritySchema,
-  taskTypeSchema,
-  taskSizeSchema,
-  // Session enums
-  sessionStatusSchema,
-  // Lifecycle enums
-  lifecyclePipelineStatusSchema,
-  lifecycleStageStatusSchema,
-  lifecycleStageNameSchema,
-  lifecycleGateResultSchema,
-  lifecycleEvidenceTypeSchema,
-  lifecycleTransitionTypeSchema,
   // Governance enums
   adrStatusSchema,
-  gateStatusSchema,
-  manifestStatusSchema,
-  // Token usage enums
-  tokenUsageMethodSchema,
-  tokenUsageConfidenceSchema,
-  tokenUsageTransportSchema,
-  // Relation / link enums
-  taskRelationTypeSchema,
-  externalLinkTypeSchema,
-  syncDirectionSchema,
-  // Brain enums
-  brainObservationTypeSchema,
-  brainObservationSourceTypeSchema,
-  brainDecisionTypeSchema,
-  brainConfidenceLevelSchema,
-  brainOutcomeTypeSchema,
-  brainPatternTypeSchema,
-  brainImpactLevelSchema,
-  brainLinkTypeSchema,
-  brainMemoryTypeSchema,
-  brainStickyStatusSchema,
-  brainStickyColorSchema,
-  brainStickyPrioritySchema,
-  brainNodeTypeSchema,
-  brainEdgeTypeSchema,
-  // Insert/select schemas
-  insertTaskSchema,
-  selectTaskSchema,
-  insertSessionSchema,
-  selectSessionSchema,
-  insertExternalTaskLinkSchema,
-  selectExternalTaskLinkSchema,
-  insertReleaseManifestSchema,
-  selectReleaseManifestSchema,
-  insertPipelineManifestSchema,
-  selectPipelineManifestSchema,
   // Agent enums
   agentInstanceStatusSchema,
   agentTypeSchema,
+  brainConfidenceLevelSchema,
+  brainDecisionTypeSchema,
+  brainEdgeTypeSchema,
+  brainImpactLevelSchema,
+  brainLinkTypeSchema,
+  brainMemoryTypeSchema,
+  brainNodeTypeSchema,
+  brainObservationSourceTypeSchema,
+  // Brain enums
+  brainObservationTypeSchema,
+  brainOutcomeTypeSchema,
+  brainPatternTypeSchema,
+  brainStickyColorSchema,
+  brainStickyPrioritySchema,
+  brainStickyStatusSchema,
+  externalLinkTypeSchema,
+  gateStatusSchema,
+  insertAgentErrorLogSchema,
   // Agent insert/select schemas
   insertAgentInstanceSchema,
-  selectAgentInstanceSchema,
-  insertAgentErrorLogSchema,
+  insertExternalTaskLinkSchema,
+  insertPipelineManifestSchema,
+  insertReleaseManifestSchema,
+  insertSessionSchema,
+  // Insert/select schemas
+  insertTaskSchema,
+  lifecycleEvidenceTypeSchema,
+  lifecycleGateResultSchema,
+  // Lifecycle enums
+  lifecyclePipelineStatusSchema,
+  lifecycleStageNameSchema,
+  lifecycleStageStatusSchema,
+  lifecycleTransitionTypeSchema,
+  manifestStatusSchema,
   selectAgentErrorLogSchema,
+  selectAgentInstanceSchema,
+  selectExternalTaskLinkSchema,
+  selectPipelineManifestSchema,
+  selectReleaseManifestSchema,
+  selectSessionSchema,
+  selectTaskSchema,
+  // Session enums
+  sessionStatusSchema,
+  syncDirectionSchema,
+  taskPrioritySchema,
+  // Relation / link enums
+  taskRelationTypeSchema,
+  taskSizeSchema,
+  // Task enums
+  taskStatusSchema,
+  taskTypeSchema,
+  tokenUsageConfidenceSchema,
+  // Token usage enums
+  tokenUsageMethodSchema,
+  tokenUsageTransportSchema,
 } from './store/validation-schemas.js';
 
 // ---------------------------------------------------------------------------

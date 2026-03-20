@@ -22,6 +22,7 @@ import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from '../store/brain-schema.js';
+import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type {
   BrainAnchor,
@@ -30,7 +31,6 @@ import type {
   BrainTimelineNeighborRow,
 } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
-import { typedAll } from '../store/typed-query.js';
 
 // ============================================================================
 // Types

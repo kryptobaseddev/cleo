@@ -23,57 +23,6 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory(
   z as unknown as Parameters<typeof createSchemaFactory>[0],
 );
 
-import {
-  architectureDecisions,
-  auditLog,
-  externalTaskLinks,
-  lifecycleEvidence,
-  lifecycleGateResults,
-  lifecyclePipelines,
-  lifecycleStages,
-  lifecycleTransitions,
-  manifestEntries,
-  pipelineManifest,
-  releaseManifests,
-  schemaMeta,
-  sessions,
-  taskDependencies,
-  taskRelations,
-  tasks,
-  taskWorkHistory,
-  tokenUsage,
-  // Enum constants (non-status) from tasks-schema
-  EXTERNAL_LINK_TYPES,
-  LIFECYCLE_EVIDENCE_TYPES,
-  LIFECYCLE_GATE_RESULTS,
-  LIFECYCLE_STAGE_NAMES,
-  LIFECYCLE_TRANSITION_TYPES,
-  SYNC_DIRECTIONS,
-  TASK_PRIORITIES,
-  TASK_RELATION_TYPES,
-  TASK_SIZES,
-  TASK_TYPES,
-  TOKEN_USAGE_CONFIDENCE,
-  TOKEN_USAGE_METHODS,
-  TOKEN_USAGE_TRANSPORTS,
-  // Agent enum constants
-  AGENT_INSTANCE_STATUSES,
-  AGENT_TYPES,
-  agentInstances,
-  agentErrorLog,
-} from './tasks-schema.js';
-
-// Status constants from the canonical registry
-import {
-  ADR_STATUSES,
-  GATE_STATUSES,
-  LIFECYCLE_PIPELINE_STATUSES,
-  LIFECYCLE_STAGE_STATUSES,
-  MANIFEST_STATUSES,
-  SESSION_STATUSES,
-  TASK_STATUSES,
-} from './status-registry.js';
-
 // Brain enum constants
 import {
   BRAIN_CONFIDENCE_LEVELS,
@@ -91,6 +40,56 @@ import {
   BRAIN_STICKY_PRIORITIES,
   BRAIN_STICKY_STATUSES,
 } from './brain-schema.js';
+
+// Status constants from the canonical registry
+import {
+  ADR_STATUSES,
+  GATE_STATUSES,
+  LIFECYCLE_PIPELINE_STATUSES,
+  LIFECYCLE_STAGE_STATUSES,
+  MANIFEST_STATUSES,
+  SESSION_STATUSES,
+  TASK_STATUSES,
+} from './status-registry.js';
+import {
+  // Agent enum constants
+  AGENT_INSTANCE_STATUSES,
+  AGENT_TYPES,
+  agentErrorLog,
+  agentInstances,
+  architectureDecisions,
+  auditLog,
+  // Enum constants (non-status) from tasks-schema
+  EXTERNAL_LINK_TYPES,
+  externalTaskLinks,
+  LIFECYCLE_EVIDENCE_TYPES,
+  LIFECYCLE_GATE_RESULTS,
+  LIFECYCLE_STAGE_NAMES,
+  LIFECYCLE_TRANSITION_TYPES,
+  lifecycleEvidence,
+  lifecycleGateResults,
+  lifecyclePipelines,
+  lifecycleStages,
+  lifecycleTransitions,
+  manifestEntries,
+  pipelineManifest,
+  releaseManifests,
+  SYNC_DIRECTIONS,
+  schemaMeta,
+  sessions,
+  TASK_PRIORITIES,
+  TASK_RELATION_TYPES,
+  TASK_SIZES,
+  TASK_TYPES,
+  TOKEN_USAGE_CONFIDENCE,
+  TOKEN_USAGE_METHODS,
+  TOKEN_USAGE_TRANSPORTS,
+  taskDependencies,
+  taskRelations,
+  tasks,
+  taskWorkHistory,
+  tokenUsage,
+} from './tasks-schema.js';
 
 // =========================================================================
 // CANONICAL ZOD ENUM SCHEMAS

@@ -9,6 +9,25 @@
  * @epic T5149
  */
 
+// Impact analysis
+export {
+  analyzeChangeImpact,
+  analyzeTaskImpact,
+  calculateBlastRadius,
+} from './impact.js';
+// Patterns
+export {
+  extractPatternsFromHistory,
+  matchPatterns,
+  storeDetectedPattern,
+  updatePatternStats,
+} from './patterns.js';
+// Prediction
+export {
+  calculateTaskRisk,
+  gatherLearningContext,
+  predictValidationOutcome,
+} from './prediction.js';
 // Types
 export type {
   AffectedTask,
@@ -26,25 +45,3 @@ export type {
   RiskFactor,
   ValidationPrediction,
 } from './types.js';
-
-// Prediction
-export {
-  calculateTaskRisk,
-  gatherLearningContext,
-  predictValidationOutcome,
-} from './prediction.js';
-
-// Impact analysis
-export {
-  analyzeChangeImpact,
-  analyzeTaskImpact,
-  calculateBlastRadius,
-} from './impact.js';
-
-// Patterns
-export {
-  extractPatternsFromHistory,
-  matchPatterns,
-  storeDetectedPattern,
-  updatePatternStats,
-} from './patterns.js';

@@ -59,7 +59,7 @@ export function createRetryPolicy(overrides?: Partial<RetryPolicy>): RetryPolicy
  * Jitter adds 0-25% randomness to prevent thundering herd.
  */
 export function calculateDelay(attempt: number, policy: RetryPolicy): number {
-  const exponentialDelay = policy.baseDelayMs * Math.pow(policy.backoffMultiplier, attempt);
+  const exponentialDelay = policy.baseDelayMs * policy.backoffMultiplier ** attempt;
   const clampedDelay = Math.min(exponentialDelay, policy.maxDelayMs);
 
   if (!policy.jitter) return clampedDelay;

@@ -29,15 +29,6 @@ import {
 } from './status-registry.js';
 
 export type {
-  NewWarpChainInstanceRow,
-  NewWarpChainRow,
-  WarpChainInstanceRow,
-  WarpChainRow,
-} from './chain-schema.js';
-// Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
-export { warpChainInstances, warpChains } from './chain-schema.js';
-
-export type {
   AgentErrorLogRow,
   AgentErrorType,
   AgentInstanceRow,
@@ -48,11 +39,19 @@ export type {
 } from '../agents/agent-schema.js';
 // Re-export agent schema tables so drizzle-kit picks them up for migrations.
 export {
-  agentErrorLog,
   AGENT_INSTANCE_STATUSES,
-  agentInstances,
   AGENT_TYPES,
+  agentErrorLog,
+  agentInstances,
 } from '../agents/agent-schema.js';
+export type {
+  NewWarpChainInstanceRow,
+  NewWarpChainRow,
+  WarpChainInstanceRow,
+  WarpChainRow,
+} from './chain-schema.js';
+// Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
+export { warpChainInstances, warpChains } from './chain-schema.js';
 
 // Re-export status constants and types so existing imports from schema.ts still work.
 export {

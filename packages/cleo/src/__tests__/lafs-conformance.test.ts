@@ -28,7 +28,7 @@ import { formatError, formatSuccess, pushWarning } from '../../../core/src/outpu
 import { createPage, paginate } from '../../../core/src/pagination.js';
 import {
   createTestDb,
-  makeTaskFile,
+  makeTasks,
   type TestDbEnv,
 } from '../../../core/src/store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../core/src/store/data-accessor.js';
@@ -358,7 +358,7 @@ describe('LAFS Integration with Core Modules', () => {
     env = await createTestDb();
     accessor = env.accessor;
 
-    const taskFile = makeTaskFile([
+    const tasks = makeTasks([
       {
         id: 'T001',
         title: 'Test task',
@@ -368,7 +368,7 @@ describe('LAFS Integration with Core Modules', () => {
         createdAt: '2026-01-01T00:00:00Z',
       },
     ]);
-    for (const task of taskFile.tasks) {
+    for (const task of tasks) {
       await accessor.upsertSingleTask(task);
     }
     await accessor.setMetaValue('project_meta', {

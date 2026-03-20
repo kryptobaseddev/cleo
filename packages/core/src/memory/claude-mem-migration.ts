@@ -14,8 +14,8 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getClaudeMemDbPath } from '../paths.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../store/brain-schema.js';
-import type { BrainIdCheckRow } from './brain-row-types.js';
 import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import type { BrainIdCheckRow } from './brain-row-types.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
 /** Type-safe wrapper for StatementSync.all(). */

@@ -9,25 +9,48 @@
  * @task WAVE-1D
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from '../../store/nexus-schema.js';
+import { getNexusDb, NEXUS_SCHEMA_VERSION, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
-import { projectRegistry, nexusAuditLog, nexusSchemaMeta } from '../../store/nexus-schema.js';
-import { getNexusDb, resetNexusDbState, NEXUS_SCHEMA_VERSION } from '../../store/nexus-sqlite.js';
+import {
+  blockingAnalysis,
+  buildGlobalGraph,
+  criticalPath,
+  invalidateGraphCache,
+  nexusDeps,
+  orphanDetection,
+  resolveCrossDeps,
+} from '../deps.js';
+import { discoverRelated, extractKeywords, searchAcrossProjects } from '../discover.js';
 import { generateProjectHash } from '../hash.js';
+import {
+  canExecute,
+  canRead,
+  canWrite,
+  checkPermission,
+  checkPermissionDetail,
+  getPermission,
+  permissionLevel,
+  requirePermission,
+  setPermission,
+} from '../permissions.js';
+import { getProjectFromQuery, parseQuery, resolveTask, validateSyntax } from '../query.js';
 import {
   nexusGetProject,
   nexusInit,
   nexusList,
   nexusProjectExists,
+  nexusReconcile,
   nexusRegister,
   nexusSetPermission,
   nexusSync,
@@ -35,36 +58,7 @@ import {
   nexusUnregister,
   readRegistry,
   readRegistryRequired,
-  nexusReconcile,
 } from '../registry.js';
-import {
-  checkPermission,
-  checkPermissionDetail,
-  getPermission,
-  permissionLevel,
-  requirePermission,
-  setPermission,
-  canRead,
-  canWrite,
-  canExecute,
-} from '../permissions.js';
-import {
-  parseQuery,
-  validateSyntax,
-  getCurrentProject,
-  resolveTask,
-  getProjectFromQuery,
-} from '../query.js';
-import {
-  buildGlobalGraph,
-  invalidateGraphCache,
-  orphanDetection,
-  blockingAnalysis,
-  criticalPath,
-  nexusDeps,
-  resolveCrossDeps,
-} from '../deps.js';
-import { discoverRelated, searchAcrossProjects, extractKeywords } from '../discover.js';
 
 // ── Test helpers ─────────────────────────────────────────────────────
 

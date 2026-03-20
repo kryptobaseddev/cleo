@@ -15,13 +15,13 @@ import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { getDb } from '../store/sqlite.js';
 import {
-  agentErrorLog,
-  agentInstances,
   type AgentErrorLogRow,
   type AgentErrorType,
   type AgentInstanceRow,
   type AgentInstanceStatus,
   type AgentType,
+  agentErrorLog,
+  agentInstances,
 } from './agent-schema.js';
 
 // ============================================================================

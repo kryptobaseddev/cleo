@@ -12,8 +12,7 @@
  * @module intelligence
  */
 
-import type { Task } from '@cleocode/contracts';
-import type { DataAccessor } from '@cleocode/contracts';
+import type { DataAccessor, Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { analyzeChangeImpact, analyzeTaskImpact, calculateBlastRadius } from '../impact.js';
 

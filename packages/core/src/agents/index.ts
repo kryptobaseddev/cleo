@@ -13,21 +13,30 @@
 
 // Schema & types
 export {
-  agentErrorLog,
   AGENT_INSTANCE_STATUSES,
-  agentInstances,
   AGENT_TYPES,
   type AgentErrorLogRow,
   type AgentErrorType,
   type AgentInstanceRow,
   type AgentInstanceStatus,
   type AgentType,
+  agentErrorLog,
+  agentInstances,
   type NewAgentErrorLogRow,
   type NewAgentInstanceRow,
 } from './agent-schema.js';
-
+// Capacity tracking
+export {
+  type CapacitySummary,
+  findLeastLoadedAgent,
+  getAvailableCapacity,
+  getCapacitySummary,
+  isOverloaded,
+  updateCapacity,
+} from './capacity.js';
 // Registry (CRUD, heartbeat, health, errors)
 export {
+  type AgentHealthReport,
   checkAgentHealth,
   classifyError,
   deregisterAgent,
@@ -37,35 +46,23 @@ export {
   getHealthReport,
   heartbeat,
   incrementTasksCompleted,
+  type ListAgentFilters,
   listAgentInstances,
   markCrashed,
-  registerAgent,
-  updateAgentStatus,
-  type AgentHealthReport,
-  type ListAgentFilters,
   type RegisterAgentOptions,
+  registerAgent,
   type UpdateStatusOptions,
+  updateAgentStatus,
 } from './registry.js';
-
 // Retry & self-healing
 export {
+  type AgentRecoveryResult,
   calculateDelay,
   createRetryPolicy,
   DEFAULT_RETRY_POLICY,
+  type RetryPolicy,
+  type RetryResult,
   recoverCrashedAgents,
   shouldRetry,
   withRetry,
-  type AgentRecoveryResult,
-  type RetryPolicy,
-  type RetryResult,
 } from './retry.js';
-
-// Capacity tracking
-export {
-  findLeastLoadedAgent,
-  getAvailableCapacity,
-  getCapacitySummary,
-  isOverloaded,
-  updateCapacity,
-  type CapacitySummary,
-} from './capacity.js';
