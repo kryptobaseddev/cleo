@@ -40,11 +40,11 @@ export async function createTestDb() {
     };
 }
 /**
- * Build a TaskFile structure from a list of task partials.
+ * Build full Task objects from a list of task partials.
  * Useful for seeding test data via accessor.upsertSingleTask().
  */
-export function makeTaskFile(tasks) {
-    const fullTasks = tasks.map((t) => ({
+export function makeTasks(tasks) {
+    return tasks.map((t) => ({
         title: t.title ?? `Task ${t.id}`,
         description: t.description ?? undefined,
         status: t.status ?? 'pending',
@@ -52,17 +52,6 @@ export function makeTaskFile(tasks) {
         createdAt: t.createdAt ?? new Date().toISOString(),
         ...t,
     }));
-    return {
-        version: '2.10.0',
-        project: { name: 'test', phases: {} },
-        lastUpdated: new Date().toISOString(),
-        _meta: {
-            schemaVersion: '2.10.0',
-            checksum: '0000000000000000',
-            configVersion: '1.0.0',
-        },
-        tasks: fullTasks,
-    };
 }
 /**
  * Seed tasks into the test database via the accessor.
@@ -79,8 +68,8 @@ export async function seedTasks(accessor, tasks) {
         return;
     }
     // Build full Task objects from partials
-    const tf = makeTaskFile(tasks);
-    const fullTasks = tf.tasks;
+    const fullTasks = makeTasks(tasks);
+    
     // Pass 1: Upsert all tasks without dependencies so FK targets exist
     for (const task of fullTasks) {
         await accessor.upsertSingleTask({ ...task, depends: undefined });
