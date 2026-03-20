@@ -17,13 +17,13 @@
  * @epic T4914
  */
 
-import type { FileMeta, Task, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import type { TaskFileExt, TaskFileTaskEntry } from './types.js';
+import type { TaskWorkStateExt } from './types.js';
 
 /**
  * Task summary for briefing output.
@@ -138,15 +138,8 @@ export async function computeBriefing(
 ): Promise<SessionBriefing> {
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
-  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-
-  // Build a TaskFileExt-compatible shape from targeted queries
-  const current: TaskFileExt = {
-    tasks: tasks.map((t): TaskFileTaskEntry => ({ ...t })),
-    focus: focus as TaskFileExt['focus'],
-    _meta: fileMeta as TaskFileExt['_meta'],
-  };
+  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state') as TaskWorkStateExt | undefined;
+  const fileMeta = await accessor.getMetaValue<Record<string, unknown>>('file_meta') ?? undefined;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -164,10 +157,10 @@ export async function computeBriefing(
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
   // 2. Current active task
-  const currentTaskInfo = computeCurrentTask(current, taskMap);
+  const currentTaskInfo = computeCurrentTask(focus, taskMap);
 
   // 3. Next tasks (leverage-scored)
-  const nextTasks = computeNextTasks(tasks, taskMap, current, {
+  const nextTasks = computeNextTasks(tasks, taskMap, focus, {
     maxTasks: options.maxNextTasks ?? 5,
     scopeTaskIds,
   });
@@ -191,7 +184,7 @@ export async function computeBriefing(
   });
 
   // 7. Pipeline stage (optional - may not be available)
-  const pipelineStage = computePipelineStage(current);
+  const pipelineStage = computePipelineStage(fileMeta);
 
   // 8. Brain memory context (optional, best-effort)
   let memoryContext: SessionMemoryContext | undefined;
@@ -325,10 +318,10 @@ async function computeLastSession(
  * Compute current active task from task file.
  */
 function computeCurrentTask(
-  current: TaskFileExt,
+  focus: TaskWorkStateExt | undefined,
   taskMap: Map<string, unknown>,
 ): CurrentTaskInfo | null {
-  const focusTaskId = current.focus?.currentTask;
+  const focusTaskId = focus?.currentTask;
   if (!focusTaskId) return null;
 
   const task = taskMap.get(focusTaskId) as
@@ -376,7 +369,7 @@ function calculateLeverage(taskId: string, taskMap: Map<string, unknown>): numbe
 function computeNextTasks(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
-  current: TaskFileExt,
+  focus: TaskWorkStateExt | undefined,
   options: { maxTasks: number; scopeTaskIds?: Set<string> },
 ): BriefingTask[] {
   const pendingTasks = tasks.filter((t) => {
@@ -387,7 +380,7 @@ function computeNextTasks(
   });
 
   const scored: BriefingTask[] = [];
-  const currentPhase = current.focus?.currentPhase;
+  const currentPhase = focus?.currentPhase;
 
   for (const task of pendingTasks) {
     const t = task as {
@@ -593,12 +586,11 @@ function calculateEpicCompletion(epicId: string, taskMap: Map<string, unknown>):
 /**
  * Compute pipeline stage info from task file metadata.
  */
-function computePipelineStage(current: TaskFileExt): PipelineStageInfo | undefined {
-  // Try to get from _meta or focus
-  const stage = (current._meta as Record<string, unknown>)?.pipelineStage as string | undefined;
-  const stageStatus = (current._meta as Record<string, unknown>)?.pipelineStageStatus as
-    | string
-    | undefined;
+function computePipelineStage(fileMeta: Record<string, unknown> | undefined): PipelineStageInfo | undefined {
+  if (!fileMeta) return undefined;
+
+  const stage = fileMeta.pipelineStage as string | undefined;
+  const stageStatus = fileMeta.pipelineStageStatus as string | undefined;
 
   if (stage) {
     return {
@@ -607,8 +599,7 @@ function computePipelineStage(current: TaskFileExt): PipelineStageInfo | undefin
     };
   }
 
-  // Try from lifecycle state if available
-  const lifecycleState = current._meta?.lifecycleState as string | undefined;
+  const lifecycleState = fileMeta.lifecycleState as string | undefined;
   if (lifecycleState) {
     return {
       currentStage: lifecycleState,

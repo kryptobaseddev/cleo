@@ -15,12 +15,11 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { FileMeta, Session, TaskWorkState } from '@cleocode/contracts';
+import type { Session, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { getDecisionLog } from './decisions.js';
-import type { TaskFileExt, TaskFileTaskEntry } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -77,15 +76,8 @@ export async function computeHandoff(
     throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${options.sessionId}' not found`);
   }
 
-  // Load task data for scope analysis
+  // Load tasks directly from SQLite via DataAccessor
   const { tasks } = await accessor.queryTasks({});
-  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-  const fileMeta = await accessor.getMetaValue<FileMeta>('file_meta');
-  const current: TaskFileExt = {
-    tasks: tasks.map((t): TaskFileTaskEntry => ({ ...t })),
-    focus: focus as TaskFileExt['focus'],
-    _meta: fileMeta as TaskFileExt['_meta'],
-  };
 
   // Get decisions recorded during this session
   const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });
@@ -97,9 +89,9 @@ export async function computeHandoff(
     tasksCompleted: session.tasksCompleted ?? [],
     tasksCreated: session.tasksCreated ?? [],
     decisionsRecorded: decisions.length,
-    nextSuggested: computeNextSuggested(session, current),
-    openBlockers: findOpenBlockers(current, session),
-    openBugs: findOpenBugs(current, session),
+    nextSuggested: computeNextSuggested(session, tasks),
+    openBlockers: findOpenBlockers(tasks, session),
+    openBugs: findOpenBugs(tasks, session),
   };
 
   // Apply human overrides
@@ -117,16 +109,12 @@ export async function computeHandoff(
  * Compute top-3 next suggested tasks.
  * Prioritizes uncompleted tasks within the session scope.
  */
-function computeNextSuggested(session: Session, current: TaskFileExt): string[] {
-  const suggestions: string[] = [];
-
-  if (!current.tasks) return suggestions;
-
+function computeNextSuggested(session: Session, tasks: Task[]): string[] {
   // Filter to tasks in scope
-  const scopeTaskIds = getScopeTaskIds(session, current);
+  const scopeTaskIds = getScopeTaskIds(session, tasks);
 
   // Get uncompleted tasks in scope
-  const pendingTasks = current.tasks.filter(
+  const pendingTasks = tasks.filter(
     (t) =>
       scopeTaskIds.has(t.id) &&
       t.status !== 'done' &&
@@ -144,11 +132,9 @@ function computeNextSuggested(session: Session, current: TaskFileExt): string[] 
 
   pendingTasks.sort((a, b) => {
     const priorityDiff =
-      (priorityOrder[a.priority as string] ?? 99) - (priorityOrder[b.priority as string] ?? 99);
+      (priorityOrder[a.priority ?? 'medium'] ?? 99) - (priorityOrder[b.priority ?? 'medium'] ?? 99);
     if (priorityDiff !== 0) return priorityDiff;
-    const aCreated = typeof a.createdAt === 'string' ? a.createdAt : '1970-01-01T00:00:00Z';
-    const bCreated = typeof b.createdAt === 'string' ? b.createdAt : '1970-01-01T00:00:00Z';
-    return new Date(aCreated).getTime() - new Date(bCreated).getTime();
+    return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
   });
 
   // Take top 3
@@ -158,86 +144,70 @@ function computeNextSuggested(session: Session, current: TaskFileExt): string[] 
 /**
  * Find tasks with blockers in the session scope.
  */
-function findOpenBlockers(current: TaskFileExt, session: Session): string[] {
-  const blockers: string[] = [];
+function findOpenBlockers(tasks: Task[], session: Session): string[] {
+  const scopeTaskIds = getScopeTaskIds(session, tasks);
 
-  if (!current.tasks) return blockers;
-
-  const scopeTaskIds = getScopeTaskIds(session, current);
-
-  // Find blocked tasks in scope
-  const blockedTasks = current.tasks.filter(
-    (t) => scopeTaskIds.has(t.id) && t.status === 'blocked',
-  );
-
-  return blockedTasks.map((t) => t.id);
+  return tasks
+    .filter((t) => scopeTaskIds.has(t.id) && t.status === 'blocked')
+    .map((t) => t.id);
 }
 
 /**
  * Find open bugs in the session scope.
  */
-function findOpenBugs(current: TaskFileExt, session: Session): string[] {
-  const bugs: string[] = [];
+function findOpenBugs(tasks: Task[], session: Session): string[] {
+  const scopeTaskIds = getScopeTaskIds(session, tasks);
 
-  if (!current.tasks) return bugs;
-
-  const scopeTaskIds = getScopeTaskIds(session, current);
-
-  // Find bug-type tasks that aren't closed
-  const bugTasks = current.tasks.filter(
-    (t) =>
-      scopeTaskIds.has(t.id) &&
-      (t.type === 'bug' ||
-        (Array.isArray(t.labels) && t.labels.some((l: string) => l === 'bug'))) &&
-      t.status !== 'done' &&
-      t.status !== 'archived' &&
-      t.status !== 'cancelled',
-  );
-
-  return bugTasks.map((t) => t.id);
+  return tasks
+    .filter(
+      (t) =>
+        scopeTaskIds.has(t.id) &&
+        (t.labels ?? []).includes('bug') &&
+        t.status !== 'done' &&
+        t.status !== 'archived' &&
+        t.status !== 'cancelled',
+    )
+    .map((t) => t.id);
 }
 
 /**
  * Get set of task IDs within the session scope.
  */
-function getScopeTaskIds(session: Session, current: TaskFileExt): Set<string> {
+function getScopeTaskIds(session: Session, tasks: Task[]): Set<string> {
   const taskIds = new Set<string>();
 
-  if (!current.tasks) return taskIds;
-
   if (session.scope.type === 'global') {
-    // Global scope: all tasks
-    for (const t of current.tasks) {
+    for (const t of tasks) {
       taskIds.add(t.id);
     }
-  } else {
-    // Epic/task scope: root task and descendants
-    // Prefer rootTaskId (engine-layer), fall back to epicId (core-layer)
-    const rootId = session.scope.rootTaskId ?? session.scope.epicId;
-    if (!rootId) {
-      // No root ID, fall back to global
-      for (const t of current.tasks) {
-        taskIds.add(t.id);
-      }
-      return taskIds;
+    return taskIds;
+  }
+
+  // Epic/task scope: root task and descendants
+  const rootId = session.scope.rootTaskId ?? session.scope.epicId;
+  if (!rootId) {
+    // No root ID, fall back to global
+    for (const t of tasks) {
+      taskIds.add(t.id);
     }
+    return taskIds;
+  }
 
-    const addDescendants = (taskId: string) => {
-      taskIds.add(taskId);
-      current.tasks?.forEach((t) => {
-        if (t.parentId === taskId) {
-          addDescendants(t.id);
-        }
-      });
-    };
-
-    addDescendants(rootId);
-
-    // Include explicitTaskIds if present in scope
-    if (session.scope.explicitTaskIds) {
-      for (const id of session.scope.explicitTaskIds) {
-        taskIds.add(id);
+  const addDescendants = (taskId: string) => {
+    taskIds.add(taskId);
+    for (const t of tasks) {
+      if (t.parentId === taskId) {
+        addDescendants(t.id);
       }
+    }
+  };
+
+  addDescendants(rootId);
+
+  // Include explicitTaskIds if present in scope
+  if (session.scope.explicitTaskIds) {
+    for (const id of session.scope.explicitTaskIds) {
+      taskIds.add(id);
     }
   }
 
