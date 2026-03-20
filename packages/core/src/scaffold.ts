@@ -523,7 +523,7 @@ export async function ensureProjectContext(
   try {
     const schemaPath = join(
       dirname(fileURLToPath(import.meta.url)),
-      '../../schemas/project-context.schema.json',
+      '../schemas/project-context.schema.json',
     );
     if (existsSync(schemaPath)) {
       const AjvModule = await import('ajv');

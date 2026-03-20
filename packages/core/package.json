@@ -31,7 +31,7 @@
     "@cleocode/agents": "workspace:*",
     "@cleocode/caamp": "^1.8.0",
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/lafs-protocol": "^1.7.0",
+    "@cleocode/lafs-protocol": "^1.8.0",
     "@cleocode/skills": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
@@ -55,6 +55,8 @@
   "files": [
     "dist",
     "migrations",
+    "schemas",
+    "templates",
     "src"
   ],
   "devDependencies": {
