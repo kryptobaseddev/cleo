@@ -15,8 +15,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 const thisFile = fileURLToPath(import.meta.url);
-const monorepoRoot = resolve(dirname(thisFile), '..', '..', '..', '..');
-const injectionPath = join(monorepoRoot, 'templates', 'CLEO-INJECTION.md');
+// Template moved to packages/core/templates/ (was at monorepo root templates/)
+// thisFile is at packages/core/src/__tests__/, go up two levels to reach packages/core/
+const corePackageRoot = resolve(dirname(thisFile), '..', '..');
+const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 const templateExists = existsSync(injectionPath);
 describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
     const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';

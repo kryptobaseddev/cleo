@@ -25,6 +25,21 @@ vi.mock('../../discovery.js', () => ({
     findSkill: vi.fn(),
     mapSkillName: vi.fn(() => ({ canonical: 'task-executor', mapped: true })),
 }));
+vi.mock('../../../store/data-accessor.js', () => ({
+    getAccessor: vi.fn().mockResolvedValue({
+        loadSingleTask: vi.fn().mockResolvedValue({
+            id: 'T100',
+            title: 'Test task',
+            status: 'active',
+            description: 'A test',
+            priority: 'medium',
+            labels: [],
+            depends: [],
+        }),
+        loadTasks: vi.fn().mockResolvedValue([]),
+        queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
+    }),
+}));
 import { existsSync, readFileSync } from 'node:fs';
 import { findSkill } from '../../discovery.js';
 import { injectProtocol, orchestratorSpawnSkill } from '../../injection/subagent.js';
@@ -59,7 +74,7 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
             content: '# Test Skill\nDo the thing.',
         });
     });
-    it('passes tier 0 through — output excludes standard and orchestrator', () => {
+    it('passes tier 0 through — output excludes standard and orchestrator', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
@@ -68,13 +83,13 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
                 return MOCK_TASKS_JSON;
             return '';
         });
-        const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 0);
+        const result = await orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 0);
         expect(result).toContain('Minimal Section');
         expect(result).not.toContain('Standard Section');
         expect(result).not.toContain('Orchestrator Section');
         expect(result).toContain('Test Skill');
     });
-    it('passes tier 1 through — output includes minimal + standard', () => {
+    it('passes tier 1 through — output includes minimal + standard', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
@@ -83,12 +98,12 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
                 return MOCK_TASKS_JSON;
             return '';
         });
-        const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 1);
+        const result = await orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 1);
         expect(result).toContain('Minimal Section');
         expect(result).toContain('Standard Section');
         expect(result).not.toContain('Orchestrator Section');
     });
-    it('passes tier 2 through — output includes all tiers', () => {
+    it('passes tier 2 through — output includes all tiers', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
@@ -97,12 +112,12 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
                 return MOCK_TASKS_JSON;
             return '';
         });
-        const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 2);
+        const result = await orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project', 2);
         expect(result).toContain('Minimal Section');
         expect(result).toContain('Standard Section');
         expect(result).toContain('Orchestrator Section');
     });
-    it('omitting tier includes full protocol (backward compat)', () => {
+    it('omitting tier includes full protocol (backward compat)', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
@@ -112,17 +127,15 @@ describe('orchestratorSpawnSkill tier passthrough', () => {
             return '';
         });
         // No tier parameter — should pass through unfiltered
-        const result = orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project');
+        const result = await orchestratorSpawnSkill('T100', 'test-skill', { TASK_ID: 'T100' }, '/mock/project');
         // All tier content present because no filtering was applied
         expect(result).toContain('TIER:minimal');
         expect(result).toContain('TIER:standard');
         expect(result).toContain('TIER:orchestrator');
     });
-    it('throws when skill not found', () => {
+    it('throws when skill not found', async () => {
         vi.mocked(findSkill).mockReturnValue(null);
-        expect(() => {
-            orchestratorSpawnSkill('T100', 'nonexistent', { TASK_ID: 'T100' }, '/mock/project', 0);
-        }).toThrow(/Skill not found/);
+        await expect(orchestratorSpawnSkill('T100', 'nonexistent', { TASK_ID: 'T100' }, '/mock/project', 0)).rejects.toThrow(/Skill not found/);
     });
 });
 describe('injectProtocol tier parameter', () => {
@@ -130,29 +143,25 @@ describe('injectProtocol tier parameter', () => {
         vi.clearAllMocks();
         vi.mocked(existsSync).mockReturnValue(true);
     });
-    it('tier undefined leaves protocol unfiltered', () => {
+    it('tier undefined leaves protocol unfiltered', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
                 return TIERED_PROTOCOL;
-            if (p.includes('tasks.json'))
-                return MOCK_TASKS_JSON;
             return '';
         });
-        const result = injectProtocol('# Skill', 'T100', {}, '/mock/project', undefined);
+        const result = await injectProtocol('# Skill', 'T100', {}, '/mock/project', undefined);
         expect(result).toContain('TIER:minimal');
         expect(result).toContain('TIER:orchestrator');
     });
-    it('tier 0 filters to minimal only', () => {
+    it('tier 0 filters to minimal only', async () => {
         vi.mocked(readFileSync).mockImplementation((path) => {
             const p = String(path);
             if (p.includes('subagent-protocol-base'))
                 return TIERED_PROTOCOL;
-            if (p.includes('tasks.json'))
-                return MOCK_TASKS_JSON;
             return '';
         });
-        const result = injectProtocol('# Skill', 'T100', {}, '/mock/project', 0);
+        const result = await injectProtocol('# Skill', 'T100', {}, '/mock/project', 0);
         expect(result).toContain('Minimal Section');
         expect(result).not.toContain('Standard Section');
         expect(result).not.toContain('Orchestrator Section');
@@ -179,38 +188,38 @@ describe('buildPrompt tier passthrough', () => {
             content: '# Task Executor\nExecute {{TASK_ID}}.',
         });
     });
-    it('buildPrompt with tier 0 filters protocol to minimal only', () => {
-        const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    it('buildPrompt with tier 0 filters protocol to minimal only', async () => {
+        const result = await buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
         expect(result.prompt).toContain('Minimal Section');
         expect(result.prompt).not.toContain('Standard Section');
         expect(result.prompt).not.toContain('Orchestrator Section');
         expect(result.prompt).toContain('SUBAGENT PROTOCOL');
     });
-    it('buildPrompt with tier 1 includes minimal + standard', () => {
-        const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 1);
+    it('buildPrompt with tier 1 includes minimal + standard', async () => {
+        const result = await buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 1);
         expect(result.prompt).toContain('Minimal Section');
         expect(result.prompt).toContain('Standard Section');
         expect(result.prompt).not.toContain('Orchestrator Section');
     });
-    it('buildPrompt without tier includes full protocol', () => {
-        const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project');
+    it('buildPrompt without tier includes full protocol', async () => {
+        const result = await buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project');
         // No tier = unfiltered, so tier markers present
         expect(result.prompt).toContain('TIER:minimal');
         expect(result.prompt).toContain('TIER:orchestrator');
     });
-    it('buildPrompt injects task context', () => {
-        const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    it('buildPrompt injects task context', async () => {
+        const result = await buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
         expect(result.prompt).toContain('Task Context');
         expect(result.prompt).toContain('T100');
     });
-    it('spawn passes tier through', () => {
-        const result = spawn('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    it('spawn passes tier through', async () => {
+        const result = await spawn('T100', 'TASK-EXECUTOR', '/mock/project', 0);
         expect(result.prompt).toContain('Minimal Section');
         expect(result.prompt).not.toContain('Orchestrator Section');
         expect(result.spawnTimestamp).toBeDefined();
     });
-    it('spawnBatch passes tier through', () => {
-        const result = spawnBatch(['T100'], 'TASK-EXECUTOR', '/mock/project', 0);
+    it('spawnBatch passes tier through', async () => {
+        const result = await spawnBatch(['T100'], 'TASK-EXECUTOR', '/mock/project', 0);
         expect(result.succeeded).toBe(1);
         expect(result.spawns[0].result.prompt).toContain('Minimal Section');
         expect(result.spawns[0].result.prompt).not.toContain('Orchestrator Section');

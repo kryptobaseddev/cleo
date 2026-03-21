@@ -21,7 +21,7 @@ import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode, } from '.
 import { CleoError } from '../../../core/src/errors.js';
 import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
 import { createPage, paginate } from '../../../core/src/pagination.js';
-import { createTestDb, makeTaskFile, } from '../../../core/src/store/__tests__/test-db-helper.js';
+import { createTestDb, makeTasks, } from '../../../core/src/store/__tests__/test-db-helper.js';
 import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
 import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
 import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
@@ -309,7 +309,7 @@ describe('LAFS Integration with Core Modules', () => {
     beforeEach(async () => {
         env = await createTestDb();
         accessor = env.accessor;
-        const taskFile = makeTaskFile([
+        const tasks = makeTasks([
             {
                 id: 'T001',
                 title: 'Test task',
@@ -319,7 +319,7 @@ describe('LAFS Integration with Core Modules', () => {
                 createdAt: '2026-01-01T00:00:00Z',
             },
         ]);
-        for (const task of taskFile.tasks) {
+        for (const task of tasks) {
             await accessor.upsertSingleTask(task);
         }
         await accessor.setMetaValue('project_meta', {

@@ -3,9 +3,10 @@
  *
  * Verifies the new AGENTS.md hub injection architecture:
  * 1. Provider files (CLAUDE.md, GEMINI.md) reference @AGENTS.md
- * 2. AGENTS.md references @~/.cleo/templates/CLEO-INJECTION.md
- * 3. No references to @.cleo/templates/AGENT-INJECTION.md anywhere
- * 4. No CLEO:START markers anywhere (CAAMP uses CAAMP:START/END)
+ * 2. Project AGENTS.md references @~/.agents/AGENTS.md (global hub)
+ * 3. Global ~/.agents/AGENTS.md references @~/.cleo/templates/CLEO-INJECTION.md
+ * 4. No references to @.cleo/templates/AGENT-INJECTION.md anywhere
+ * 5. No CLEO:START markers anywhere (CAAMP uses CAAMP:START/END)
  *
  * Since CAAMP functions depend on actual provider installations,
  * they are mocked via vi.mock to isolate the init logic.
@@ -145,12 +146,12 @@ describe('E2E: injection chain validation (T4694)', () => {
         const geminiContent = await readFile(geminiPath, 'utf-8');
         expect(geminiContent).toContain('@AGENTS.md');
     });
-    it('AGENTS.md references @~/.cleo/templates/CLEO-INJECTION.md', async () => {
+    it('AGENTS.md references @~/.agents/AGENTS.md (global hub)', async () => {
         await initProject({ name: 'chain-test' });
         const agentsPath = join(testDir, 'AGENTS.md');
         expect(existsSync(agentsPath)).toBe(true);
         const agentsContent = await readFile(agentsPath, 'utf-8');
-        expect(agentsContent).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+        expect(agentsContent).toContain('@~/.agents/AGENTS.md');
     });
     it('no references to @.cleo/templates/AGENT-INJECTION.md in generated files', async () => {
         await initProject({ name: 'chain-test' });
@@ -192,15 +193,15 @@ describe('E2E: injection chain validation (T4694)', () => {
         expect(createdStr).toContain('injection');
         expect(createdStr).toContain('AGENTS.md');
     });
-    it('injection chain: provider -> AGENTS.md -> CLEO-INJECTION.md', async () => {
+    it('injection chain: provider -> AGENTS.md -> ~/.agents/AGENTS.md -> CLEO-INJECTION.md', async () => {
         await initProject({ name: 'chain-test' });
         // Verify the full chain:
         // CLAUDE.md -> @AGENTS.md (via injectAll)
         const claudeContent = await readFile(join(testDir, 'CLAUDE.md'), 'utf-8');
         expect(claudeContent).toContain('@AGENTS.md');
-        // AGENTS.md -> @~/.cleo/templates/CLEO-INJECTION.md (via inject)
+        // AGENTS.md -> @~/.agents/AGENTS.md (project hub references global hub)
         const agentsContent = await readFile(join(testDir, 'AGENTS.md'), 'utf-8');
-        expect(agentsContent).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+        expect(agentsContent).toContain('@~/.agents/AGENTS.md');
         // Neither should reference the old AGENT-INJECTION.md pattern
         expect(claudeContent).not.toContain('AGENT-INJECTION.md');
         expect(agentsContent).not.toContain('AGENT-INJECTION.md');
@@ -211,11 +212,11 @@ describe('E2E: injection chain validation (T4694)', () => {
         const getInstalledProviders = caamp.getInstalledProviders;
         getInstalledProviders.mockReturnValueOnce([]);
         await initProject({ name: 'no-provider-test' });
-        // AGENTS.md should still exist and reference CLEO-INJECTION.md
+        // AGENTS.md should still exist and reference the global hub
         const agentsPath = join(testDir, 'AGENTS.md');
         expect(existsSync(agentsPath)).toBe(true);
         const agentsContent = await readFile(agentsPath, 'utf-8');
-        expect(agentsContent).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+        expect(agentsContent).toContain('@~/.agents/AGENTS.md');
     });
     it('updateDocs refreshes injection without full reinit', async () => {
         // First init

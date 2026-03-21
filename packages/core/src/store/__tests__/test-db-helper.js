@@ -69,7 +69,6 @@ export async function seedTasks(accessor, tasks) {
     }
     // Build full Task objects from partials
     const fullTasks = makeTasks(tasks);
-    
     // Pass 1: Upsert all tasks without dependencies so FK targets exist
     for (const task of fullTasks) {
         await accessor.upsertSingleTask({ ...task, depends: undefined });

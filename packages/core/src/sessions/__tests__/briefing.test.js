@@ -17,6 +17,11 @@ vi.mock('../../store/data-accessor.js', () => ({
 vi.mock('../handoff.js', () => ({
     getLastHandoff: vi.fn().mockResolvedValue(null),
 }));
+// Mock lifecycle pipeline — computePipelineStage dynamically imports this
+let mockPipeline = null;
+vi.mock('../../lifecycle/pipeline.js', () => ({
+    getPipeline: vi.fn().mockImplementation(() => Promise.resolve(mockPipeline)),
+}));
 import { getAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 // ---------------------------------------------------------------------------
@@ -287,13 +292,34 @@ describe('computeBriefing scope filtering', () => {
         expect(briefing.currentTask.id).toBe('T101');
         expect(briefing.currentTask.title).toBe('Child 1');
     });
-    it('pipelineStage is included when metadata has lifecycle state', async () => {
-        setupMockAccessor(makeMockTasks(), { lifecycleState: 'implementation' });
+    it('pipelineStage is included when active lifecycle pipeline exists', async () => {
+        // Mock the lifecycle pipeline BEFORE calling computeBriefing
+        mockPipeline = { currentStage: 'implementation', status: 'active', isActive: true };
+        // Set up focus state pointing to a task that has a pipeline
+        const focus = { currentTask: 'T100', currentPhase: null };
+        const metaStore = { focus_state: focus };
+        const tasks = makeMockTasks();
+        const mockAccessor = {
+            loadSessions: vi.fn().mockResolvedValue([]),
+            queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+            getMetaValue: vi
+                .fn()
+                .mockImplementation((key) => Promise.resolve(metaStore[key] ?? null)),
+            setMetaValue: vi.fn().mockResolvedValue(undefined),
+            loadArchive: vi.fn().mockResolvedValue(null),
+            saveArchive: vi.fn().mockResolvedValue(undefined),
+            appendLog: vi.fn().mockResolvedValue(undefined),
+            close: vi.fn().mockResolvedValue(undefined),
+            engine: 'sqlite',
+        };
+        getAccessor.mockResolvedValue(mockAccessor);
         const briefing = await computeBriefing('/fake/project', {
             scope: 'global',
         });
         expect(briefing.pipelineStage).toBeDefined();
         expect(briefing.pipelineStage.currentStage).toBe('implementation');
+        // Reset
+        mockPipeline = null;
     });
     it('blocked tasks include those with unresolved dependencies', async () => {
         setupMockAccessor();

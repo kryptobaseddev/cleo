@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.3.47] (2026-03-20)
+
+### Fixed
+- **CLI version** reports runtime package.json version instead of build-time constant
+- **stripCLEOBlocks** handles versioned legacy markers (`<!-- CLEO:START v0.53.4 -->`)
+- **Global scaffold cleanup** removes stale project-level dirs from `~/.cleo/` on bootstrap (adrs, rcasd, agent-outputs, backups, sandbox, tasks.db, schemas, bin)
+- **cleo-subagent symlink** installed via `bootstrapGlobalCleo` using `require.resolve` for npm package path
+- **Bootstrap regex** fixed in both inline copies in bootstrap.ts
+
 ## [2026.3.46] (2026-03-20)
 
 ### Fixed
