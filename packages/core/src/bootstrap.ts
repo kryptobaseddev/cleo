@@ -53,6 +53,14 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
     isDryRun: options?.dryRun ?? false,
   };
 
+  // Step 0: Ensure global home structure and clean stale artifacts
+  try {
+    const { ensureGlobalHome } = await import('./scaffold.js');
+    await ensureGlobalHome();
+  } catch {
+    // Best-effort — don't fail bootstrap if cleanup fails
+  }
+
   // Step 1: Ensure global templates
   await ensureGlobalTemplatesBootstrap(ctx, options?.packageRoot);
 
@@ -135,19 +143,20 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
     if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
 
-      // Strip any legacy CLEO blocks first (handles bare and versioned markers)
+      // Consolidate: strip ALL legacy CLEO blocks AND duplicate CAAMP blocks,
+      // then inject a single clean block. CAAMP 1.8.0 idempotency doesn't
+      // consolidate pre-existing duplicates — it only prevents new ones.
       if (existsSync(globalAgentsMd)) {
         const content = await readFile(globalAgentsMd, 'utf8');
-        const stripped = content.replace(
-          /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g,
-          '',
-        );
-        if (stripped !== content) {
-          await writeFile(globalAgentsMd, stripped, 'utf8');
-        }
+        const stripped = content
+          .replace(/\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g, '')
+          .replace(/\n?<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->\n?/g, '')
+          .trim();
+        // Write clean file (empty or user content only)
+        await writeFile(globalAgentsMd, stripped ? `${stripped}\n` : '', 'utf8');
       }
 
-      // Direct call — CAAMP 1.8.0 handles idempotency
+      // Single inject call on a clean file — no duplicates possible
       const expectedContent = '@~/.cleo/templates/CLEO-INJECTION.md';
       const action = await inject(globalAgentsMd, expectedContent);
       ctx.created.push(`~/.agents/AGENTS.md (${action})`);

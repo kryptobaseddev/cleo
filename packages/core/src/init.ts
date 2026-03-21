@@ -130,12 +130,19 @@ export async function initAgentDefinition(created: string[], warnings: string[])
   await mkdir(dirname(globalAgentsDir), { recursive: true });
 
   try {
-    // Check if symlink already exists
+    // Check if symlink already exists and points to correct target
     try {
       const stat = await lstat(globalAgentsDir);
-      if (stat.isSymbolicLink() || stat.isDirectory()) {
-        // Already installed
-        return;
+      if (stat.isSymbolicLink()) {
+        const { readlink } = await import('node:fs/promises');
+        const currentTarget = await readlink(globalAgentsDir);
+        if (currentTarget === agentSourceDir) {
+          return; // Symlink intact and pointing to correct location
+        }
+        // Stale symlink — remove and recreate
+        await unlink(globalAgentsDir);
+      } else if (stat.isDirectory()) {
+        return; // Copied dir, leave as-is
       }
     } catch {
       // Doesn't exist, proceed to create

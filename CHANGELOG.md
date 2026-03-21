@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.3.49] (2026-03-20)
+
+### Fixed
+- **CAAMP block duplication**: Strip ALL existing CAAMP blocks before inject() — workaround for CAAMP not consolidating pre-existing duplicates (CAAMP issue #48)
+- **Global scaffold cleanup**: Bootstrap now calls `ensureGlobalHome()` which removes stale project-level dirs from `~/.cleo/`
+- **Stale cleo-subagent symlink**: Now detects symlinks pointing to wrong target and recreates them pointing to the npm package path
+
 ## [2026.3.48] (2026-03-20)
 
 ### Added
