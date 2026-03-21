@@ -8,7 +8,7 @@
  * @task T5333
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getCleoDirAbsolute } from './paths.js';
@@ -91,4 +91,19 @@ export function getProjectInfoSync(cwd?: string): ProjectInfo | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Update the project name in project-info.json.
+ * Used by `cleo upgrade --name` and programmatic consumers.
+ */
+export function updateProjectName(cwd: string, name: string): void {
+  const cleoDir = getCleoDirAbsolute(cwd);
+  const infoPath = join(cleoDir, 'project-info.json');
+  if (!existsSync(infoPath)) return;
+
+  const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, string>;
+  data.projectName = name;
+  data.lastUpdated = new Date().toISOString();
+  writeFileSync(infoPath, `${JSON.stringify(data, null, 2)}\n`);
 }

@@ -85,10 +85,21 @@ export interface UpgradeResult {
  * @param options.dryRun  Preview changes without applying
  * @param options.includeGlobal  Also check global ~/.cleo
  * @param options.autoMigrate  Auto-migrate storage if needed (default: true)
+ * @param options.forceDetect  Force re-detection of project type (ignore staleness)
+ * @param options.mapCodebase  Run full codebase analysis and store to brain.db
+ * @param options.projectName  Update project name in project-info and nexus
  * @param options.cwd  Project directory override
  */
 export async function runUpgrade(
-  options: { dryRun?: boolean; includeGlobal?: boolean; autoMigrate?: boolean; cwd?: string } = {},
+  options: {
+    dryRun?: boolean;
+    includeGlobal?: boolean;
+    autoMigrate?: boolean;
+    forceDetect?: boolean;
+    mapCodebase?: boolean;
+    projectName?: string;
+    cwd?: string;
+  } = {},
 ): Promise<UpgradeResult> {
   const isDryRun = options.dryRun ?? false;
   const autoMigrate = options.autoMigrate ?? true;
@@ -635,7 +646,9 @@ export async function runUpgrade(
         }
       }
     } else {
-      const contextResult = await ensureProjectContext(projectRootForContext, { staleDays: 30 });
+      const contextResult = await ensureProjectContext(projectRootForContext, {
+        staleDays: options.forceDetect ? 0 : 30,
+      });
       actions.push({
         action: 'project_context_detection',
         status: contextResult.action === 'skipped' ? 'skipped' : 'applied',
@@ -884,6 +897,40 @@ export async function runUpgrade(
       }
     } catch {
       /* best-effort */
+    }
+
+    // Run codebase mapping if requested (delegates to core mapCodebase)
+    if (options.mapCodebase) {
+      try {
+        const { mapCodebase } = await import('./codebase-map/index.js');
+        const mapResult = await mapCodebase(projectRootForMaint, { storeToBrain: true });
+        actions.push({
+          action: 'codebase_map',
+          status: 'applied',
+          details: `Analyzed: ${mapResult.stack?.languages?.length ?? 0} languages, ${mapResult.concerns?.todos?.length ?? 0} TODOs found`,
+        });
+      } catch (err) {
+        actions.push({
+          action: 'codebase_map',
+          status: 'error',
+          details: `Codebase mapping failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+
+    // Update project name if requested (delegates to core updateProjectName)
+    if (options.projectName) {
+      try {
+        const { updateProjectName } = await import('./project-info.js');
+        await updateProjectName(projectRootForMaint, options.projectName);
+        actions.push({
+          action: 'project_name_update',
+          status: 'applied',
+          details: `Project name set to "${options.projectName}"`,
+        });
+      } catch {
+        /* best-effort */
+      }
     }
 
     // GitHub issue/PR templates — install missing ones, warn if absent

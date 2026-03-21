@@ -20,11 +20,16 @@ import { cliOutput } from '../renderers/index.js';
 export function registerUpgradeCommand(program: Command): void {
   program
     .command('upgrade')
-    .description('Unified project maintenance (storage migration, schema repair, structural fixes)')
+    .description(
+      'Unified project maintenance (storage migration, schema repair, structural fixes, doc refresh)',
+    )
     .option('--status', 'Show what needs updating without making changes')
     .option('--dry-run', 'Preview changes without applying')
     .option('--include-global', 'Also check global ~/.cleo data')
     .option('--no-auto-migrate', 'Skip automatic JSON→SQLite migration')
+    .option('--detect', 'Force re-detection of project type (ignores staleness)')
+    .option('--map-codebase', 'Run full codebase analysis and store findings to brain.db')
+    .option('--name <name>', 'Update project name in project-info and nexus registry')
     .action(async (_opts: Record<string, unknown>, command: Command) => {
       const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
       const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
@@ -34,6 +39,9 @@ export function registerUpgradeCommand(program: Command): void {
         const isDryRun = !!opts['dryRun'] || !!opts['status'];
         const includeGlobal = !!opts['includeGlobal'];
         const autoMigrate = opts['autoMigrate'] !== false;
+        const forceDetect = !!opts['detect'];
+        const mapCodebase = !!opts['mapCodebase'];
+        const projectName = opts['name'] as string | undefined;
 
         progress.start();
         progress.step(0, 'Analyzing current state');
@@ -51,6 +59,9 @@ export function registerUpgradeCommand(program: Command): void {
           dryRun: isDryRun,
           includeGlobal,
           autoMigrate,
+          forceDetect,
+          mapCodebase,
+          projectName,
         });
 
         progress.step(4, 'Verifying results');
