@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.3.50] (2026-03-21)
+
+### Fixed
+- **Postinstall detection**: Replaced broken `process.argv[1]` check with `npm_config_global`, `lib/node_modules` path check, and pnpm workspace marker detection.
+- **Postinstall import path**: Changed from broken `../dist/core/bootstrap.js` to `@cleocode/core/internal` which resolves correctly in published package.
+- **esbuild bundle dynamic import**: Changed `ensureGlobalHome()` from dynamic import to static import so esbuild includes it in the single-file bundle.
+- **Global scaffold cleanup**: Now actually runs during bootstrap — removes stale project-level dirs from `~/.cleo/`.
+
 ## [2026.3.49] (2026-03-20)
 
 ### Fixed

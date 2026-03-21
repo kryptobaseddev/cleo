@@ -2,57 +2,61 @@
 /**
  * NPM Postinstall Hook - Bootstrap Global CLEO System
  *
- * This script runs automatically after `npm install -g @cleocode/cleo`.
- * It delegates to the shared bootstrap module in @cleocode/core so that
- * both postinstall and `cleo install-global` use the same logic.
+ * Runs automatically after `npm install -g @cleocode/cleo`.
+ * Delegates to @cleocode/core's bootstrapGlobalCleo().
  *
- * Bootstraps:
- *   - ~/.cleo/ directory structure
- *   - Global templates (CLEO-INJECTION.md)
- *   - CAAMP provider configs
- *   - MCP server to detected providers
- *   - Core skills globally
- *   - Provider adapters
+ * Detection: runs bootstrap when installed in a global node_modules path.
+ * Skips for workspace/dev installs (no global prefix in path).
  *
  * @task T5267
  */
 
-import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Determine if we're running from npm global install
-function isNpmGlobalInstall() {
-  const execPath = process.argv[1] || '';
-  // Check if running from node_modules/@cleocode/cleo/
-  return (
-    execPath.includes('node_modules/@cleocode/cleo/') ||
-    execPath.includes('node_modules\\@cleocode\\cleo\\')
-  );
+/**
+ * Detect if this is a global npm install (not a workspace/dev install).
+ * Checks multiple signals since npm staging paths vary by version.
+ */
+function isGlobalInstall() {
+  const pkgRoot = resolve(__dirname, '..');
+
+  // Signal 1: npm_config_global env var (set by npm during global installs)
+  if (process.env.npm_config_global === 'true') return true;
+
+  // Signal 2: path contains a global node_modules (npm, pnpm, yarn)
+  if (/[/\\]lib[/\\]node_modules[/\\]/.test(pkgRoot)) return true;
+
+  // Signal 3: npm_config_prefix matches the package path
+  const prefix = process.env.npm_config_prefix;
+  if (prefix && pkgRoot.startsWith(prefix)) return true;
+
+  // Signal 4: not inside a pnpm workspace (no workspace root marker)
+  const workspaceMarker = join(pkgRoot, '..', '..', 'pnpm-workspace.yaml');
+  if (existsSync(workspaceMarker)) return false;
+
+  return false;
 }
 
-// Get package root (bin/ is one level below package root)
 function getPackageRoot() {
   return resolve(__dirname, '..');
 }
 
 async function runPostinstall() {
-  // Only run for npm global installs, not local dev or other contexts
-  if (!isNpmGlobalInstall()) {
-    console.log('CLEO: Skipping global bootstrap (not npm global install)');
+  if (!isGlobalInstall()) {
+    console.log('CLEO: Skipping global bootstrap (not global install)');
     return;
   }
 
   console.log('CLEO: Bootstrapping global system...');
 
   try {
-    // Import the shared bootstrap from the built core dist.
-    // At postinstall time, dist/ should already be present in the published package.
-    const { bootstrapGlobalCleo } = await import(
-      '../dist/core/bootstrap.js'
-    );
+    // Import bootstrap from @cleocode/core (installed as dependency)
+    const { bootstrapGlobalCleo } = await import('@cleocode/core/internal');
 
     const result = await bootstrapGlobalCleo({
       packageRoot: getPackageRoot(),
@@ -68,16 +72,14 @@ async function runPostinstall() {
     console.log('CLEO: Global bootstrap complete!');
     console.log('CLEO: Run "cleo init" in any project to set up local CLEO.');
   } catch (err) {
-    // Bootstrap is best-effort — CAAMP/MCP may not be configured yet
-    console.log('CLEO: CAAMP/MCP setup deferred (will complete on first use)');
+    console.log('CLEO: Bootstrap deferred (will complete on first "cleo install-global")');
     if (process.env.CLEO_DEBUG) {
       console.error('CLEO: Bootstrap detail:', err);
     }
   }
 }
 
-// Run bootstrap — never fail npm install
 runPostinstall().catch((err) => {
   console.error('CLEO: Bootstrap error (non-fatal):', err.message);
-  process.exit(0); // Never fail npm install
+  process.exit(0);
 });

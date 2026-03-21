@@ -16,7 +16,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getAgentsHome, getCleoTemplatesDir } from './paths.js';
-import { getPackageRoot } from './scaffold.js';
+import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -55,7 +55,6 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
 
   // Step 0: Ensure global home structure and clean stale artifacts
   try {
-    const { ensureGlobalHome } = await import('./scaffold.js');
     await ensureGlobalHome();
   } catch {
     // Best-effort — don't fail bootstrap if cleanup fails
