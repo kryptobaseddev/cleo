@@ -68,7 +68,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
   "dependencies": {
     "@cleocode/adapters": "workspace:*",
     "@cleocode/agents": "workspace:*",
-    "@cleocode/caamp": "^1.8.0",
+    "@cleocode/caamp": "^1.8.1",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs-protocol": "^1.8.0",
     "@cleocode/skills": "workspace:*",
@@ -230,7 +230,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `parseConfigValue` | `config.ts` | Parse a config value from string input |
 | `getCleoDir` | `paths.ts` | Relative `.cleo` path for a project |
 | `getCleoDirAbsolute` | `paths.ts` | Absolute `.cleo` path for a project |
-| `getCleoHome` | `paths.ts` | Global `~/.cleo` path |
+| `getCleoHome` | `paths.ts` | Global CLEO data path (OS-aware via env-paths) |
 | `getConfigPath` | `paths.ts` | Absolute path to project config.json |
 | `getGlobalConfigPath` | `paths.ts` | Absolute path to global config.json |
 | `getProjectRoot` | `paths.ts` | Resolve absolute project root |
@@ -272,6 +272,11 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `ProjectInfo` (type) | `project-info.ts` | Project info shape |
 | `CORE_PROTECTED_FILES` | `constants.ts` | List of protected `.cleo/` files |
 | `EngineResult` (type) | `engine-result.ts` | Engine result shape for dispatch layer |
+| `bootstrapGlobalCleo` | `bootstrap.ts` | Global bootstrap for postinstall and install-global |
+| `BootstrapContext` (type) | `bootstrap.ts` | Bootstrap result tracking arrays |
+| `BootstrapOptions` (type) | `bootstrap.ts` | Bootstrap configuration options |
+| `getCleoTemplatesTildePath` | `paths.ts` | OS-aware tilde-prefixed templates path for `@` references |
+| `updateProjectName` | `project-info.ts` | Update project name in project-info.json |
 
 ### 4.4 Flat Function Re-exports (Pattern 3)
 
@@ -534,7 +539,7 @@ The following are internal implementation details, not part of the public contra
 |---------|---------|---------|
 | `@cleocode/adapters` | `workspace:*` | Provider adapter runtime |
 | `@cleocode/agents` | `workspace:*` | Agent protocol templates |
-| `@cleocode/caamp` | `^1.8.0` | Provider capability API, spawn coordination |
+| `@cleocode/caamp` | `^1.8.1` | Provider capability API, spawn coordination, idempotent injection |
 | `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
 | `@cleocode/lafs-protocol` | `^1.8.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
 | `@cleocode/skills` | `workspace:*` | Skill definitions |

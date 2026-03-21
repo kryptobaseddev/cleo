@@ -218,19 +218,29 @@ npm run generate:api -- --format markdown
 
 ### 5.2 Storage Location
 
+Global paths use `env-paths` for OS-appropriate locations:
+
 ```
-~/.cleo/
-├── nexus.db              # Global registry
-├── templates/            # Global templates
-├── schemas/              # Global schemas
+{CLEO_HOME}/                          # OS-aware via env-paths
+├── nexus.db                          # Global cross-project registry
+├── config.json                       # Global config
+├── templates/CLEO-INJECTION.md       # Injection template
+├── logs/                             # Global logs
+
+Linux:   ~/.local/share/cleo/
+macOS:   ~/Library/Application Support/cleo/
+Windows: %LOCALAPPDATA%\cleo\Data\
 
 {project-root}/.cleo/
 ├── tasks.db              # Per-project tasks
 ├── brain.db              # Per-project memory
 ├── config.json           # Per-project config
+├── project-info.json     # Project identity (hash, UUID)
+├── project-context.json  # Detected project type
+├── memory-bridge.md      # Auto-generated memory context
 ```
 
-Per-project databases live **inside the project directory** (under `{project-root}/.cleo/`), not under `~/.cleo/projects/`. Only `nexus.db` and shared global assets live under `~/.cleo/`.
+Per-project databases live **inside the project directory** (under `{project-root}/.cleo/`). Global assets use `getCleoHome()` which resolves via `env-paths` per OS.
 
 ### 5.3 Grade Analytics and Token Telemetry
 
@@ -307,6 +317,9 @@ When implemented, the HTTP adapter SHOULD serve grade analytics and token teleme
 cleo tasks show T001
 cleo nexus list
 cleo session start
+cleo detect               # Re-detect project type
+cleo upgrade --detect     # Force re-detect during upgrade
+cleo upgrade --name "foo" # Update project name
 ```
 
 ---
@@ -393,5 +406,5 @@ CLEO-API.md (Master)
 
 ---
 
-**Version**: 3.0.0
-**Last Updated**: 2026-03-18
+**Version**: 3.1.0
+**Last Updated**: 2026-03-21
