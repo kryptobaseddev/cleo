@@ -1076,6 +1076,8 @@ export const STALE_GLOBAL_ENTRIES = [
   'VERSION',
   'schemas',
   'bin',
+  '.install-state',
+  'templates/templates',
 ] as const;
 
 /**
@@ -1096,6 +1098,17 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
 
   for (const subdir of REQUIRED_GLOBAL_SUBDIRS) {
     await mkdir(join(cleoHome, subdir), { recursive: true });
+  }
+
+  // Create global config.json from template if it doesn't exist
+  const globalConfigPath = join(cleoHome, 'config.json');
+  if (!existsSync(globalConfigPath)) {
+    const templatePath = join(getPackageRoot(), 'templates', 'global-config.template.json');
+    if (existsSync(templatePath)) {
+      const template = readFileSync(templatePath, 'utf-8');
+      const resolved = template.replace('{{SCHEMA_VERSION_GLOBAL_CONFIG}}', '1.0.0');
+      await writeFile(globalConfigPath, resolved);
+    }
   }
 
   // Remove stale project-level entries from both the current global home

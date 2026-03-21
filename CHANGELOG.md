@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.3.53] (2026-03-21)
+
+### Fixed
+- **Global config.json**: Created from `global-config.template.json` during `ensureGlobalHome()` if missing.
+- **Stale `templates/templates` symlink**: Added to STALE_GLOBAL_ENTRIES — was pointing to dev source in old installs.
+- **Stale `.install-state/`**: Added to cleanup list.
+
 ## [2026.3.52] (2026-03-21)
 
 ### Fixed
