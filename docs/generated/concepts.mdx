@@ -95,6 +95,13 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`PlatformPaths`** — OS-appropriate paths for CLEO's global directories.
 - **`SystemInfo`** — Immutable system information snapshot, captured once per process.
 - **`VacuumOptions`** — The `VacuumOptions` interface.
+- **`AgentInstanceRow`** — The `AgentInstanceRow` type.
+- **`NewAgentInstanceRow`** — The `NewAgentInstanceRow` type.
+- **`AgentErrorLogRow`** — The `AgentErrorLogRow` type.
+- **`NewAgentErrorLogRow`** — The `NewAgentErrorLogRow` type.
+- **`AgentInstanceStatus`** — The `AgentInstanceStatus` type.
+- **`AgentType`** — The `AgentType` type.
+- **`AgentErrorType`** — The `AgentErrorType` type.
 - **`WarpChainRow`** — The `WarpChainRow` type.
 - **`NewWarpChainRow`** — The `NewWarpChainRow` type.
 - **`WarpChainInstanceRow`** — The `WarpChainInstanceRow` type.
@@ -231,6 +238,10 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`TaskTreeNode`** — Build a tree structure from flat task list.
 - **`HierarchyPolicy`** — The `HierarchyPolicy` interface.
 - **`HierarchyValidationResult`** — The `HierarchyValidationResult` interface.
+- **`ValidationResult`** — The `ValidationResult` interface.
+- **`AddTaskEnforcementOptions`** — The `AddTaskEnforcementOptions` interface.
+- **`UpdateTaskEnforcementOptions`** — The `UpdateTaskEnforcementOptions` interface.
+- **`AcceptanceEnforcement`** — The `AcceptanceEnforcement` interface.
 - **`AddTaskOptions`** — Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
 - **`AddTaskResult`** — Result of adding a task.
 - **`ListPhasesResult`** — Options for listing phases.
@@ -253,12 +264,15 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`FileNamingConvention`** — The `FileNamingConvention` type.
 - **`ImportStyle`** — The `ImportStyle` type.
 - **`ProjectContext`** — Schema-compliant project context for LLM agent consumption.
-- **`BrainFtsRow`** — Row returned by FTS content_hash duplicate check.
-- **`BrainNarrativeRow`** — Row returned by narrative backfill query (missing embeddings).
-- **`BrainSearchHit`** — Flattened FTS hit used in hybrid search scoring.
-- **`BrainKnnRow`** — Row returned by KNN vector similarity query.
-- **`BrainDecisionNode`** — Decision node attached to a blocker in causal traces.
-- **`BrainAnchor`** — Anchor entry in a timeline result.
+- **`BrainFtsRow`** — Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
+- **`BrainNarrativeRow`** — Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
+- **`BrainSearchHit`** — Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
+- **`BrainKnnRow`** — Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
+- **`BrainDecisionNode`** — Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
+- **`BrainAnchor`** — Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
+- **`BrainTimelineNeighborRow`** — Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+- **`BrainConsolidationObservationRow`** — Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
+- **`BrainIdCheckRow`** — Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
 - **`EmbeddingProvider`** — Contract for embedding providers (local models, API services, etc.).
 - **`SimilarityResult`** — The `SimilarityResult` interface.
 - **`BrainSearchResult`** — Search result with BM25 rank.
@@ -276,8 +290,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`EnsureGitHooksOptions`** — The `EnsureGitHooksOptions` interface.
 - **`ManagedHook`** — The `ManagedHook` type.
 - **`SessionRecord`** — Session object (engine-compatible).
-- **`TaskWorkStateExt`** — Task work state from the task store.
-- **`TaskFileExt`** — Task file structure (subset for session operations).
+- **`TaskWorkStateExt`** — Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 - **`DecisionRecord`** — Decision record stored in decisions.jsonl.
 - **`AssumptionRecord`** — Assumption record stored in assumptions.jsonl.
 - **`RecordDecisionParams`** — The `RecordDecisionParams` interface.
@@ -405,6 +418,12 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SessionMemoryResult`** — Result of persisting session memory to brain.db.
 - **`MemoryItem`** — A memory item to be persisted to brain.db.
 - **`SessionMemoryContext`** — Memory context returned for session start/resume enrichment.
+- **`Pipeline`** — Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+- **`PipelineStageRecord`** — Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+- **`PipelineTransition`** — Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+- **`InitializePipelineOptions`** — Options for initializing a pipeline.   T4800
+- **`AdvanceStageOptions`** — Options for advancing pipeline stage.   T4800
+- **`PipelineQueryOptions`** — Pipeline query options.   T4800
 - **`BriefingTask`** — Task summary for briefing output.
 - **`BriefingBug`** — Bug summary for briefing output.
 - **`BriefingBlockedTask`** — Blocked task summary for briefing output.
@@ -462,6 +481,16 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`GroupedOperations`** — Domain-grouped operation format (compact).
 - **`VerboseOperation`** — Verbose operation entry with cost hints.
 - **`HelpResult`** — Result of the help computation.
+- **`TransferMode`** — Transfer mode: copy keeps source tasks, move archives them.
+- **`TransferScope`** — Transfer scope: single task or full subtree.
+- **`TransferOnConflict`** — Conflict resolution when target has tasks with duplicate titles.
+- **`TransferOnMissingDep`** — How to handle missing dependencies in the target project.
+- **`TransferParams`** — Parameters for a cross-project transfer operation.
+- **`TransferManifestEntry`** — A single task entry in the transfer manifest.
+- **`TransferManifest`** — Manifest describing what was (or would be) transferred.
+- **`TransferResult`** — Result of a transfer operation.
+- **`ImportFromPackageOptions`** — Options passed to importFromPackage (extracted from importTasksPackage).
+- **`ImportFromPackageResult`** — Result from importFromPackage.
 - **`RemapTable`** — Forward and reverse remap tables.
 - **`ImportTasksParams`** — The `ImportTasksParams` interface.
 - **`ImportTasksResult`** — The `ImportTasksResult` interface.
@@ -469,7 +498,34 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidationResult`** — The `ValidationResult` interface.
 - **`AdrValidationError`** — ValidationError — canonical name per ADR-017 spec
 - **`AdrValidationResult`** — ValidationResult — canonical name per ADR-017 spec
+- **`RegisterAgentOptions`** — Options for registering a new agent instance.
+- **`UpdateStatusOptions`** — Options for updating agent status.
+- **`ListAgentFilters`** — Filters for listing agent instances.
+- **`AgentHealthReport`** — Agent health report summary.
+- **`CapacitySummary`** — Capacity summary for reporting.
+- **`RetryPolicy`** — Configuration for retry behavior.
+- **`RetryResult`** — Result of a retried operation.
+- **`AgentRecoveryResult`** — Result of a recovery attempt for a single agent.
 - **`ComplianceJsonlEntry`** — The `ComplianceJsonlEntry` type.
+- **`PayloadValidationResult`** — Result of payload validation.
+- **`DependencyCheckResult`** — Result of a dependency validation check.
+- **`DependencyError`** — A dependency error.
+- **`DependencyWarning`** — A dependency warning.
+- **`DependencyWave`** — A wave of parallelizable tasks.
+- **`RiskFactor`** — A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+- **`RiskAssessment`** — Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+- **`ValidationPrediction`** — Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+- **`DetectedPattern`** — A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
+- **`PatternMatch`** — Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+- **`PatternExtractionOptions`** — Options for pattern extraction from historical data.
+- **`PatternStatsUpdate`** — Result of updating pattern statistics after an outcome.
+- **`LearningContext`** — Summary of applicable learnings for a task, used in prediction.
+- **`ImpactAssessment`** — Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+- **`ChangeType`** — The type of change being analyzed.
+- **`ChangeImpact`** — Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+- **`AffectedTask`** — A single task affected by a change, with its predicted new state.
+- **`BlastRadiusSeverity`** — Severity classification for blast radius.
+- **`BlastRadius`** — Quantified scope of a task's impact across the project.
 - **`BuildConfig`** — The `BuildConfig` type.
 - **`RepositoryConfig`** — The `RepositoryConfig` type.
 - **`IssueTemplate`** — Parsed issue template.
@@ -565,9 +621,9 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`AgentTransport`** — Provider-neutral interface for inter-agent communication.  Implementations: - SignalDockTransport: HTTP client for SignalDock REST API (provider-neutral) - ClaudeCodeTransport: Wrapper around Claude Code SDK SendMessage (provider-specific)
 - **`SignalDockTransportConfig`** — Configuration for SignalDockTransport.
 - **`TransportFactoryConfig`** — Configuration for transport selection.
-- **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.
-- **`Skill`** — Skill definition loaded from disk.
-- **`SkillSummary`** — Lightweight skill summary for manifest/listing.
+- **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
+- **`Skill`** — Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
+- **`SkillSummary`** — Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
 - **`SkillManifest`** — Skill manifest (cached aggregate of all discovered skills).
 - **`SkillProtocolType`** — RCASD-IVTR+C protocol types.
 - **`AgentConfig`** — Agent configuration from AGENT.md or agent definition.
@@ -657,9 +713,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`RuntimeDiagnostics`** — The `RuntimeDiagnostics` interface.
 - **`SafestopResult`** — The `SafestopResult` interface.
 - **`UncancelResult`** — The `UncancelResult` interface.
-- **`DependencyCheckResult`** — Result of a dependency validation check.
-- **`DependencyError`** — A dependency error.
-- **`DependencyWarning`** — A dependency warning.
 - **`TaskCurrentResult`** — Result of getting current task.
 - **`TaskStartResult`** — Result of starting work on a task.
 - **`TaskWorkHistoryEntry`** — Task work history entry.
@@ -671,6 +724,48 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ChangelogSection`** — Grouped changelog sections.
 - **`CommandMeta`** — Parsed command metadata.
 - **`ParsedFlags`** — Parsed flag state.
+- **`InsertTask`** — The `InsertTask` type.
+- **`SelectTask`** — The `SelectTask` type.
+- **`InsertTaskDependency`** — The `InsertTaskDependency` type.
+- **`SelectTaskDependency`** — The `SelectTaskDependency` type.
+- **`InsertTaskRelation`** — The `InsertTaskRelation` type.
+- **`SelectTaskRelation`** — The `SelectTaskRelation` type.
+- **`InsertSession`** — The `InsertSession` type.
+- **`SelectSession`** — The `SelectSession` type.
+- **`InsertWorkHistory`** — The `InsertWorkHistory` type.
+- **`SelectWorkHistory`** — The `SelectWorkHistory` type.
+- **`InsertLifecyclePipeline`** — The `InsertLifecyclePipeline` type.
+- **`SelectLifecyclePipeline`** — The `SelectLifecyclePipeline` type.
+- **`InsertLifecycleStage`** — The `InsertLifecycleStage` type.
+- **`SelectLifecycleStage`** — The `SelectLifecycleStage` type.
+- **`InsertLifecycleGateResult`** — The `InsertLifecycleGateResult` type.
+- **`SelectLifecycleGateResult`** — The `SelectLifecycleGateResult` type.
+- **`InsertLifecycleEvidence`** — The `InsertLifecycleEvidence` type.
+- **`SelectLifecycleEvidence`** — The `SelectLifecycleEvidence` type.
+- **`InsertLifecycleTransition`** — The `InsertLifecycleTransition` type.
+- **`SelectLifecycleTransition`** — The `SelectLifecycleTransition` type.
+- **`InsertSchemaMeta`** — The `InsertSchemaMeta` type.
+- **`SelectSchemaMeta`** — The `SelectSchemaMeta` type.
+- **`InsertAuditLog`** — The `InsertAuditLog` type.
+- **`SelectAuditLog`** — The `SelectAuditLog` type.
+- **`AuditLogInsert`** — Canonical type alias for audit log insert (T4848).
+- **`AuditLogSelect`** — Canonical type alias for audit log select (T4848).
+- **`InsertTokenUsage`** — The `InsertTokenUsage` type.
+- **`SelectTokenUsage`** — The `SelectTokenUsage` type.
+- **`InsertArchitectureDecision`** — The `InsertArchitectureDecision` type.
+- **`SelectArchitectureDecision`** — The `SelectArchitectureDecision` type.
+- **`InsertManifestEntry`** — The `InsertManifestEntry` type.
+- **`SelectManifestEntry`** — The `SelectManifestEntry` type.
+- **`InsertPipelineManifest`** — The `InsertPipelineManifest` type.
+- **`SelectPipelineManifest`** — The `SelectPipelineManifest` type.
+- **`InsertReleaseManifest`** — The `InsertReleaseManifest` type.
+- **`SelectReleaseManifest`** — The `SelectReleaseManifest` type.
+- **`InsertExternalTaskLink`** — The `InsertExternalTaskLink` type.
+- **`SelectExternalTaskLink`** — The `SelectExternalTaskLink` type.
+- **`InsertAgentInstance`** — The `InsertAgentInstance` type.
+- **`SelectAgentInstance`** — The `SelectAgentInstance` type.
+- **`InsertAgentErrorLog`** — The `InsertAgentErrorLog` type.
+- **`SelectAgentErrorLog`** — The `SelectAgentErrorLog` type.
 - **`ManifestIntegrity`** — The `ManifestIntegrity` type.
 - **`Severity`** — The `Severity` type.
 - **`ComplianceMetrics`** — The `ComplianceMetrics` interface.
@@ -693,8 +788,8 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidationError`** — The `ValidationError` interface.
 - **`ValidationResult`** — The `ValidationResult` interface.
 - **`Task`** — The `Task` interface.
-- **`TaskFile`** — The `TaskFile` interface.
-- **`ArchiveFile`** — The `ArchiveFile` interface.
+- **`TaskData`** — Task data shape for validation functions.
+- **`ArchiveData`** — Archive data shape for validation functions.
 - **`ComprehensiveValidationResult`** — The `ComprehensiveValidationResult` interface.
 - **`ManifestDoc`** — The `ManifestDoc` interface.
 - **`GapEntry`** — The `GapEntry` interface.
@@ -756,39 +851,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidationIssue`** — The `ValidationIssue` interface.
 - **`SpawnValidationResult`** — The `SpawnValidationResult` interface.
 - **`ContextInjectionData`** — Data returned by context injection.
-- **`InsertTask`** — The `InsertTask` type.
-- **`SelectTask`** — The `SelectTask` type.
-- **`InsertTaskDependency`** — The `InsertTaskDependency` type.
-- **`SelectTaskDependency`** — The `SelectTaskDependency` type.
-- **`InsertTaskRelation`** — The `InsertTaskRelation` type.
-- **`SelectTaskRelation`** — The `SelectTaskRelation` type.
-- **`InsertSession`** — The `InsertSession` type.
-- **`SelectSession`** — The `SelectSession` type.
-- **`InsertWorkHistory`** — The `InsertWorkHistory` type.
-- **`SelectWorkHistory`** — The `SelectWorkHistory` type.
-- **`InsertLifecyclePipeline`** — The `InsertLifecyclePipeline` type.
-- **`SelectLifecyclePipeline`** — The `SelectLifecyclePipeline` type.
-- **`InsertLifecycleStage`** — The `InsertLifecycleStage` type.
-- **`SelectLifecycleStage`** — The `SelectLifecycleStage` type.
-- **`InsertLifecycleGateResult`** — The `InsertLifecycleGateResult` type.
-- **`SelectLifecycleGateResult`** — The `SelectLifecycleGateResult` type.
-- **`InsertLifecycleEvidence`** — The `InsertLifecycleEvidence` type.
-- **`SelectLifecycleEvidence`** — The `SelectLifecycleEvidence` type.
-- **`InsertLifecycleTransition`** — The `InsertLifecycleTransition` type.
-- **`SelectLifecycleTransition`** — The `SelectLifecycleTransition` type.
-- **`InsertSchemaMeta`** — The `InsertSchemaMeta` type.
-- **`SelectSchemaMeta`** — The `SelectSchemaMeta` type.
-- **`InsertAuditLog`** — The `InsertAuditLog` type.
-- **`SelectAuditLog`** — The `SelectAuditLog` type.
-- **`AuditLogInsert`** — Canonical type alias for audit log insert (T4848).
-- **`AuditLogSelect`** — Canonical type alias for audit log select (T4848).
-- **`InsertTokenUsage`** — The `InsertTokenUsage` type.
-- **`SelectTokenUsage`** — The `SelectTokenUsage` type.
-- **`InsertArchitectureDecision`** — The `InsertArchitectureDecision` type.
-- **`SelectArchitectureDecision`** — The `SelectArchitectureDecision` type.
-- **`InsertManifestEntry`** — The `InsertManifestEntry` type.
-- **`SelectManifestEntry`** — The `SelectManifestEntry` type.
-- **`DependencyWave`** — A wave of parallelizable tasks.
 - **`CancelResult`** — Result of a cancel operation.
 - **`FlatTreeNode`** — Tree node representation for task hierarchy.
 - **`ComplexityFactor`** — Complexity factor.
@@ -828,9 +890,9 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidateAndFixResult`** — Result from validate + fix operation.
 - **`CriticalPathNode`** — The `CriticalPathNode` interface.
 - **`CriticalPathResult`** — The `CriticalPathResult` interface.
-- **`SkillsPrecedenceConfig`** — The `SkillsPrecedenceConfig` interface.
-- **`ResolvedSkillPath`** — The `ResolvedSkillPath` interface.
-- **`SkillInstallationContext`** — The `SkillInstallationContext` interface.
+- **`SkillsPrecedenceConfig`** — Configuration for skill precedence resolution across providers.
+- **`ResolvedSkillPath`** — A resolved skill path with full provenance metadata.
+- **`SkillInstallationContext`** — Context for a skill installation operation.
 - **`InProgressEpic`** — In-progress epic entry.
 - **`ReadyTask`** — Ready task entry with leverage analysis.
 - **`BlockedTask`** — Blocked task entry.
@@ -846,12 +908,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`PipelineState`** — Pipeline state.
 - **`PipelineOperation`** — Active pipeline operation.
 - **`ChangeEntry`** — Change entry.
-- **`Pipeline`** — Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-- **`PipelineStageRecord`** — Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-- **`PipelineTransition`** — Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-- **`InitializePipelineOptions`** — Options for initializing a pipeline.   T4800
-- **`AdvanceStageOptions`** — Options for advancing pipeline stage.   T4800
-- **`PipelineQueryOptions`** — Pipeline query options.   T4800
 - **`ResumablePipeline`** — Resumable pipeline information returned to callers.   T4805  T4798
 - **`PipelineContext`** — Pipeline context for session resume.   T4805
 - **`StageContext`** — Stage context within a pipeline.   T4805
@@ -879,7 +935,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ActiveSessionInfo`** — Session info for enforcement checks.
 - **`EnforcementResult`** — Enforcement result.
 - **`StatuslineStatus`** — Statusline integration status.
-- **`RoutingEntry`** — Routing entry describing the preferred channel for an operation.
+- **`RoutingEntry`** — Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
 - **`ProviderContext`** — Provider capability context for dynamic skill generation.
 - **`IndexMap`** — Cache index mapping labels/phases to task IDs.
 - **`ImportPackageMeta`** — Import package metadata extracted from the export file.
@@ -910,8 +966,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`DiscoveryMatch`** — A single discovery match.
 - **`PhaseProgress`** — Phase progress information.
 - **`PhaseTransitionValidation`** — Validate a phase transition.
-- **`ReparentOptions`** — Options for reparenting a task.
-- **`ReparentResult`** — Result of a reparent operation.
 - **`StalenessThresholds`** — Staleness thresholds in days.
 - **`StalenessLevel`** — Staleness classification.
 - **`StalenessInfo`** — Staleness assessment for a single task.
@@ -972,7 +1026,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`FileMeta`** — File metadata (_meta block).
 - **`SessionNote`** — Session note in taskWork block.
 - **`TaskWorkState`** — Task work state.
-- **`TaskFile`** — Root task data structure.
 - **`ArchiveMetadata`** — Archive metadata attached to archived task records.
 - **`ArchivedTask`** — A task with archive metadata.
 - **`ArchiveReportType`** — Report type for archive statistics.

@@ -345,6 +345,8 @@ typeof MemoryHandler
 (projectRoot: string) => Promise<EngineResult<SharingStatus>> - Get sharing status for a project.
 (projectRoot: string, outputPath?: string | undefined) => Promise<EngineResult<{ path: string; taskCount: number; checksum: string; }>> - Export a snapshot of the project's tasks.
 (projectRoot: string, inputPath: string) => Promise<EngineResult<ImportResult>> - Import a snapshot into the project.
+(params: TransferParams) => Promise<EngineResult<TransferResult>> - Preview a cross-project task transfer (dry run).
+(params: TransferParams) => Promise<EngineResult<TransferResult>> - Execute a cross-project task transfer.
 typeof NexusHandler
 typeof OrchestrateHandler
 typeof PipelineHandler
@@ -483,12 +485,24 @@ any - Immutable system information snapshot, captured once per process.
 () => string - Get the OS cache directory for CLEO. Linux: ~/.cache/cleo | macOS: ~/Library/Caches/cleo | Windows: %LOCALAPPDATA%cleoCache
 () => string - Get the OS temp directory for CLEO ephemeral files.
 () => string - Get the OS config directory for CLEO. Linux: ~/.config/cleo | macOS: ~/Library/Preferences/cleo | Windows: %APPDATA%cleoConfig
+() => string - Get the CLEO templates directory as a tilde-prefixed path for use in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform: replaces the user's home directory with `~` so the reference works when loaded by LLM providers that resolve `~` at runtime.  Linux:   ~/.local/share/cleo/templates macOS:   ~/Library/Application Support/cleo/templates Windows: ~/AppData/Local/cleo/Data/templates (approximate)
 () => string - Get the global agents hub directory. Respects AGENTS_HOME env var, defaults to ~/.agents.
 () => string - Get the Claude Code agents directory (~/.claude/agents by default).
 () => string - Get the claude-mem SQLite database path.
 any
 (opts?: VacuumOptions) => Promise<void> - Create a VACUUM INTO snapshot of the SQLite database.  Debounced by default (30s). Pass `force: true` to bypass debounce. WAL checkpoint is run before the snapshot for consistency. Oldest snapshots are rotated out when MAX_SNAPSHOTS is reached.  Non-fatal: all errors are swallowed.
 (cwd?: string | undefined) => { name: string; path: string; mtimeMs: number; }[] - List existing SQLite backup snapshots, newest first.
+readonly ["starting", "active", "idle", "error", "crashed", "stopped"] - Agent instance status values matching DB CHECK constraint.
+readonly ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"] - Agent type values for classification.
+SQLiteTableWithColumns<{ name: "agent_instances"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteC...
+SQLiteTableWithColumns<{ name: "agent_error_log"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteCo...
+any
+any
+any
+any
+any
+any
+any
 readonly ["pending", "active", "completed", "failed", "cancelled"] - Chain instance status values.
 SQLiteTableWithColumns<{ name: "warp_chains"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "warp_chains"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; ... 5 more ...; generated: undefined; }, {}>; ... 6 more ...; updatedAt: ... - Stored WarpChain definitions (serialized as JSON).
 SQLiteTableWithColumns<{ name: "warp_chain_instances"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "warp_chain_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 8 more ...; updatedAt: SQ... - Runtime chain instances bound to epics.
@@ -505,6 +519,10 @@ readonly ["file", "url", "manifest"] - Evidence type values matching DB CHECK co
 readonly ["otel", "provider_api", "tokenizer", "heuristic"] - Token measurement methods for central token telemetry.
 readonly ["real", "high", "estimated", "coarse"] - Confidence levels for token measurements.
 readonly ["cli", "mcp", "api", "agent", "unknown"] - Transport types for token telemetry.
+readonly ["related", "blocks", "duplicates", "absorbs", "fixes", "extends", "supersedes"] - Task relation types matching DB CHECK constraint on task_relations.relation_type.
+readonly ["automatic", "manual", "forced"] - Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type.
+readonly ["created", "matched", "manual", "transferred"] - External task link types matching DB constraint on external_task_links.link_type.
+readonly ["inbound", "outbound", "bidirectional"] - Sync direction types matching DB constraint on external_task_links.sync_direction.
 SQLiteTableWithColumns<{ name: "tasks"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "tasks"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; ... 5 more ...; generated: undefined; }, {}>; ... 29 more ...; sessionId: SQLiteColum...
 SQLiteTableWithColumns<{ name: "task_dependencies"; schema: undefined; columns: { taskId: SQLiteColumn<{ name: string; tableName: "task_dependencies"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; dependsOn: SQLiteColumn<...>; }...
 SQLiteTableWithColumns<{ name: "task_relations"; schema: undefined; columns: { taskId: SQLiteColumn<{ name: string; tableName: "task_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; relatedTo: SQLiteColumn<...>; relatio...
@@ -603,7 +621,7 @@ any
 any
 "1.0.0" - Schema version for newly created brain databases. Single source of truth.
 (cwd?: string | undefined) => string - Get the path to the brain.db SQLite database file.
-() => string - Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+() => string - Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
 () => boolean - Check whether the sqlite-vec extension is loaded for the current brain.db.
 (cwd?: string | undefined) => Promise<NodeSQLiteDatabase<typeof import("/mnt/projects/cleocode/packages/core/src/store/brain-schema", { with: { "resolution-mode": "import" } }), EmptyRelations>> - Initialize the brain.db SQLite database (lazy, singleton). Creates the database file and tables if they don't exist. Returns the drizzle ORM instance (async via sqlite-proxy).  Uses a promise guard so concurrent callers wait for the same initialization to complete (migrations are async).
 () => void - Close the brain.db database connection and release resources.
@@ -620,7 +638,7 @@ any
 any
 "1.0.0" - Schema version for newly created nexus databases. Single source of truth.
 () => string - Get the path to the nexus.db SQLite database file. nexus.db lives in the global ~/.cleo/ directory.
-() => string - Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+() => string - Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
 () => Promise<NodeSQLiteDatabase<typeof import("/mnt/projects/cleocode/packages/core/src/store/nexus-schema", { with: { "resolution-mode": "import" } }), EmptyRelations>> - Initialize the nexus.db SQLite database (lazy, singleton). Creates the database file and tables if they don't exist. Returns the drizzle ORM instance (async via sqlite-proxy).  Uses a promise guard so concurrent callers wait for the same initialization to complete (migrations are async).
 () => void - Close the nexus.db database connection and release resources.
 () => void - Reset nexus.db singleton state without saving. Used during tests or when database file is recreated. Safe to call multiple times.
@@ -629,7 +647,7 @@ any
 "2.0.0" - Schema version for newly created databases. Single source of truth.
 (cwd?: string | undefined) => string - Get the path to the SQLite database file.
 (cwd?: string | undefined) => Promise<NodeSQLiteDatabase<typeof import("/mnt/projects/cleocode/packages/core/src/store/tasks-schema", { with: { "resolution-mode": "import" } }), EmptyRelations>> - Initialize the SQLite database (lazy, singleton). Creates the database file and tables if they don't exist. Returns the drizzle ORM instance (node-sqlite driver).  Uses a promise guard so concurrent callers wait for the same initialization to complete (migrations are async).
-() => string - Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+() => string - Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
 (err: unknown) => boolean - Check if an error is a SQLite BUSY error (database locked by another process). node:sqlite throws native Error with message containing the SQLite error code.  T5185
 () => void - Close the database connection and release resources.
 () => void - Reset database singleton state without saving. Used during migrations when database file is deleted and recreated. Safe to call multiple times.
@@ -640,10 +658,10 @@ any
 () => Promise<void> - Close ALL database singletons (tasks.db, brain.db, nexus.db).  Must be called before deleting temp directories on Windows, where SQLite holds exclusive file handles on .db, .db-wal, and .db-shm files. Safe to call even if some databases were never opened.   T5508
 <T>(str: string | null | undefined) => T | undefined - Parse a JSON string, returning undefined on null/undefined input or parse error.
 <T = string>(str: string | null | undefined) => T[] | undefined - Parse a JSON string expected to contain an array. Returns undefined for null/undefined input, empty arrays, or parse errors.
-(row: { sessionId: string | null; id: string; description: string | null; createdAt: string; updatedAt: string | null; status: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"; ... 24 more ...; modifiedBy: string | null; }) => Task - Convert a database TaskRow to a domain Task object.
-(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; } - Convert a domain Task to a database row for insert/upsert.
-(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; } - Convert a domain Task to a row suitable for archived tasks.
-(row: { gradeMode: number | null; id: string; name: string; status: "active" | "ended" | "orphaned" | "suspended"; agent: string | null; notesJson: string | null; scopeJson: string; currentTask: string | null; ... 14 more ...; resumeCount: number | null; }) => Session - Convert a SessionRow to a domain Session.
+(row: { sessionId: string | null; id: string; status: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"; description: string | null; createdAt: string; updatedAt: string | null; ... 24 more ...; modifiedBy: string | null; }) => Task - Convert a database TaskRow to a domain Task object.
+(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; } - Convert a domain Task to a database row for insert/upsert.
+(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; description?: string | ... 1 more ... | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; } - Convert a domain Task to a row suitable for archived tasks.
+(row: { gradeMode: number | null; id: string; status: "active" | "ended" | "orphaned" | "suspended"; startedAt: string; name: string; agent: string | null; notesJson: string | null; scopeJson: string; ... 14 more ...; resumeCount: number | null; }) => Session - Convert a SessionRow to a domain Session.
 any - A single entry in the unified error catalog.
 ReadonlyMap<number, ErrorDefinition> - The unified error catalog. Keyed by numeric ExitCode value.
 (code: number) => ErrorDefinition | undefined - Look up an error definition by exit code.
@@ -652,7 +670,7 @@ ReadonlyMap<number, ErrorDefinition> - The unified error catalog. Keyed by numer
 any - RFC 9457 Problem Details object. Structured error representation for API/MCP responses.   T5240
 typeof CleoError - Structured error class for CLEO operations. Carries an exit code, human-readable message, and optional fix suggestions. Produces LAFS-conformant error shapes via toLAFSError() and RFC 9457 Problem Details via toProblemDetails().
 any - Archive-specific fields for task upsert.
-(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => ... - Upsert a single task row into the tasks table. Handles both active task upsert and archived task upsert via optional archiveFields.  Defensively nulls out parentId if it references a non-existent task, preventing orphaned FK violations from blocking bulk operations (T5034).
+(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => Promise<...> - Upsert a single task row into the tasks table. Handles both active task upsert and archived task upsert via optional archiveFields.  Defensively nulls out parentId if it references a non-existent task, preventing orphaned FK violations from blocking bulk operations (T5034).
 (db: DrizzleDb, session: Session) => Promise<void> - Upsert a single session row into the sessions table.
 (db: DrizzleDb, taskId: string, depends: string[], validIds?: Set<string> | undefined) => Promise<void> - Update dependencies for a task: delete existing, then re-insert. Optionally filters by a set of valid IDs.
 (db: DrizzleDb, tasks: { taskId: string; deps: string[]; }[], validIds?: Set<string> | undefined) => Promise<void> - Batch-update dependencies for multiple tasks in two bulk SQL operations. Replaces per-task updateDependencies() loops with: 1. Single DELETE for all task IDs 2. Single INSERT for all dependency rows  Callers are responsible for wrapping this in a transaction if needed.
@@ -762,7 +780,7 @@ typeof SafetyError - Safety violation error.
 (taskId: string, cwd?: string | undefined) => Promise<Task | null> - Get a task by ID, including its dependencies.
 (taskId: string, updates: Partial<Task>, cwd?: string | undefined) => Promise<Task | null> - Update an existing task.
 (taskId: string, cwd?: string | undefined) => Promise<boolean> - Delete a task by ID.
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...> - List tasks with optional filters.
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...> - List tasks with optional filters.
 (query: string, limit?: number, cwd?: string | undefined) => Promise<Task[]> - Find tasks by fuzzy text search.
 (taskId: string, reason?: string | undefined, cwd?: string | undefined) => Promise<boolean> - Archive a task (sets status to 'archived' with metadata).
 (taskId: string, dependsOn: string, cwd?: string | undefined) => Promise<void> - Add a dependency between tasks.
@@ -910,7 +928,7 @@ any - Entry in the CLEO-to-LAFS error registry.   T4671  T4663
 (lafsCode: string) => boolean - Check if a LAFS code is registered in the CLEO error registry.   T4671  T4663
 any - Result of creating a test database environment.
 () => Promise<TestDbEnv> - Create a temporary directory with an initialized tasks.db.  Usage:
-(tasks: (Partial<Task> & { id: string; })[]) => TaskFile - Build a TaskFile structure from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
+(tasks: (Partial<Task> & { id: string; })[]) => Task[] - Build full Task objects from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
 (accessor: DataAccessor, tasks: (Partial<Task> & { id: string; })[]) => Promise<void> - Seed tasks into the test database via the accessor.  Uses a two-pass approach to avoid foreign key violations: 1. First pass: upsert all tasks without dependencies so FK targets exist 2. Second pass: upsert tasks again with dependencies (all FK targets now exist) 3. Initialize metadata for the test environment
 (taskId: string, tasks: Task[]) => Task[] - Get direct children of a task.
 (taskId: string, tasks: Task[]) => string[] - Get direct child IDs.
@@ -945,10 +963,15 @@ any
 (cwd?: string | undefined) => Promise<Record<string, unknown> | null> - Get the full raw project config (no cascade). Returns null if no config file exists.  T4789
 (value: unknown) => unknown - Parse a string value into its appropriate JS type. Handles booleans, null, integers, floats, and JSON.  T4789
 (key: string, value: unknown, cwd?: string | undefined, opts?: { global?: boolean | undefined; } | undefined) => Promise<{ key: string; value: unknown; scope: "global" | "project"; }> - Set a config value in the project or global config file (dot-notation supported). Creates intermediate objects as needed. Parses string values into appropriate types (boolean, number, null, JSON).  T4789  T4795
+any
+any
+any
+any
+(cwd?: string | undefined) => Promise<AcceptanceEnforcement>
 any - Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
 any - Result of adding a task.
 (title: string) => void - Validate a task title.  T4460
-(status: string) => asserts status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" - Validate task status.  T4460
+(status: string) => asserts status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" - Validate task status.  T4460
 readonly TaskPriority[] - Valid string priority values.
 (priority: string | number) => TaskPriority - Normalize priority to canonical string format. Accepts both string names ("critical","high","medium","low") and numeric (1-9). Returns the canonical string format per todo.schema.json.  T4572
 (priority: string) => asserts priority is TaskPriority - Validate task priority.  T4460  T4572
@@ -1008,6 +1031,7 @@ typeof ShimCommand - Minimal Commander-compatible Command class. Captures comman
 (program: ShimCommand) => void
 (program: ShimCommand) => void
 (program: ShimCommand) => void
+(program: ShimCommand) => void
 (program: ShimCommand) => void - Register the docs command.  T4551
 any
 typeof ProgressTracker - Simple progress tracker for CLI operations.
@@ -1029,7 +1053,6 @@ typeof Spinner - Simple spinner for indeterminate progress.
 (program: ShimCommand) => void
 () => string - Load the gitignore template from the package's templates/ directory. Falls back to embedded content if file not found.  Kept as export for backward compatibility (used by upgrade.ts).  T4700
 (program: ShimCommand) => void - Register the init command.  T4681  T4663
-(program: ShimCommand) => void
 (program: ShimCommand) => void
 (program: ShimCommand) => void - Register the issue command with all subcommands.  T4555
 (program: ShimCommand) => void - Register the labels command group.  T4538
@@ -1257,7 +1280,7 @@ any
 any
 any
 any
-ReadonlySet<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived">
+ReadonlySet<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived">
 ReadonlySet<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted">
 ReadonlySet<"completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped">
 any
@@ -1265,8 +1288,8 @@ Record<EntityType, readonly string[]>
 (entityType: EntityType, value: string) => boolean
 Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", string> - Pipeline status → Unicode progress icon. Used wherever lifecycle pipeline status is rendered to a terminal.
 Record<"completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped", string> - Stage status → Unicode progress icon. Used wherever pipeline stage status is rendered to a terminal.
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string> - Task status → Unicode symbol (rich terminal / Unicode-enabled). Falls back to TASK_STATUS_SYMBOLS_ASCII when Unicode is unavailable.
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string> - Task status → ASCII fallback symbol (non-Unicode terminals, CI output).
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string> - Task status → Unicode symbol (rich terminal / Unicode-enabled). Falls back to TASK_STATUS_SYMBOLS_ASCII when Unicode is unavailable.
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string> - Task status → ASCII fallback symbol (non-Unicode terminals, CI output).
 any - Task priority levels.
 any - Task type in hierarchy.
 any - Task size (scope, NOT time).
@@ -1291,7 +1314,6 @@ any - Project metadata.
 any - File metadata (_meta block).
 any - Session note in taskWork block.
 any - Task work state.
-any - Root task data structure.
 any - Archive metadata attached to archived task records.
 any - A task with archive metadata.
 any - Report type for archive statistics.
@@ -1726,12 +1748,17 @@ any - Schema-compliant project context for LLM agent consumption.
 (projectDir: string) => ProjectContext - Detect project type from directory contents. Returns a schema-compliant ProjectContext object.
 typeof BrainDataAccessor
 (cwd?: string | undefined) => Promise<BrainDataAccessor> - Factory: get a BrainDataAccessor backed by the brain.db singleton.
-any - Row returned by FTS content_hash duplicate check.
-any - Row returned by narrative backfill query (missing embeddings).
-any - Flattened FTS hit used in hybrid search scoring.
-any - Row returned by KNN vector similarity query.
-any - Decision node attached to a blocker in causal traces.
-any - Anchor entry in a timeline result.
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T[] - Type-safe wrapper for `StatementSync.all` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T | undefined - Type-safe wrapper for `StatementSync.get` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+any - Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
+any - Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
+any - Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
+any - Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
+any - Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
+any - Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
+any - Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+any - Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
+any - Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
 any - Contract for embedding providers (local models, API services, etc.).
 384 - Matches the brain_embeddings vec0 table: FLOAT[384].
 (provider: EmbeddingProvider) => void - Register an embedding provider for the brain system. Validates that the provider's dimensions match the vec0 table.
@@ -1753,7 +1780,7 @@ any - Options for hybridSearch weighting and limits.
 any
 any
 () => string | null - Get the CLEO-INJECTION.md template content from the package templates/ directory. Returns null if the template file is not found.
-(projectRoot: string) => Promise<ScaffoldResult> - Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.cleo/templates/CLEO-INJECTION.md + .cleo/project-context.json   T4682
+(projectRoot: string) => Promise<ScaffoldResult> - Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.agents/AGENTS.md + .cleo/project-context.json + .cleo/memory-bridge.md   T4682
 (projectRoot: string) => string | null - Build a smart, contextual contributor block for AGENTS.md injection. Returns null if this is not a contributor project.  The block is INFORMATIONAL, not prescriptive. It tells agents:   - This is the CLEO source repo (contributor project)   - cleo-dev is available (or not, with reason)   - Prefer cleo-dev for unreleased features, but fall back to cleo if     the dev build is broken or unavailable  This avoids the trap where a hardcoded "ALWAYS use cleo-dev" instruction sends agents into a loop when the dev build has compile errors.
 (projectRoot: string) => InjectionCheckResult - Verify injection health: AGENTS.md exists, has CAAMP markers, markers are balanced, and  references resolve.  Combines logic from doctor/checks.ts checkAgentsMdHub, checkCaampMarkerIntegrity, and checkAtReferenceTargetExists.
 any - Result of an ensure* scaffolding operation.
@@ -1762,7 +1789,7 @@ any - Result of a check* diagnostic (compatible with doctor/checks.ts CheckResul
 readonly ["backups/operational", "backups/safety", "agent-outputs", "logs", "rcasd", "adrs"] - Required subdirectories under .cleo/.
 "# .cleo/.gitignore — Deny-by-default for CLEO project data\n# Ignore everything, then explicitly allow only tracked files.\n\n# Step 1: Ignore everything\n*\n\n# Allow list\n!.gitignore\n!config.json\n!project-context.json\n!project-info.json\n!setup-otel.sh\n!DATA-SAFETY-IMPLEMENTATION-SUMMARY.md\n!adrs/\n!adrs/**... - Embedded fallback for .cleo/.gitignore content (deny-by-default).
 (path: string) => Promise<boolean> - Check if a file exists and is readable.
-(filePath: string) => Promise<void> - Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.
+(filePath: string) => Promise<void> - Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.  Handles both bare markers (!-- CLEO:START --) and versioned markers (!-- CLEO:START v0.53.4 --, !-- CLEO:START v1.2.3 --).
 (projectRoot: string) => Promise<{ removed: boolean; }> - Remove .cleo/ or .cleo entries from the project root .gitignore.
 () => string - Resolve the package root directory (where schemas/ and templates/ live). scaffold.ts lives in packages/core/src/, so 1 level up reaches the package root.
 () => string - Load the gitignore template from the package's templates/ directory. Falls back to embedded content if file not found.
@@ -1786,10 +1813,11 @@ readonly ["backups/operational", "backups/safety", "agent-outputs", "logs", "rca
 (projectRoot: string) => Promise<ScaffoldResult> - Create brain.db if missing. Idempotent: skips if brain.db already exists.
 (projectRoot: string) => CheckResult - Verify .cleo/brain.db exists and is non-empty.
 (projectRoot: string) => CheckResult - Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) — it is auto-generated.
-readonly ["schemas", "templates"] - Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.
-() => Promise<ScaffoldResult> - Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
+readonly ["logs", "templates"] - Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.  Truly global:   - logs      — global log output   - templates — CLEO-INJECTION.md symlink target  Note: nexus.db lives directly in ~/.cleo/, not a subdir. Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed. Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
+readonly ["adrs", "rcasd", "agent-outputs", "backups", "sandbox", "tasks.db", "tasks.db-shm", "tasks.db-wal", "brain-worker.pid", "VERSION", "schemas", "bin", ".install-state", "templates/templates"] - Stale entries that must NOT exist at the global ~/.cleo/ level. These were project-level artefacts accidentally placed in the global home by old versions of CLEO. They are safe to remove because:   - adrs/, rcasd/, agent-outputs/, backups/ — project-level, live in .cleo/   - sandbox/                                — unused   - tasks.db / tasks.db-shm / tasks.db-wal  — project-level database files   - brain-worker.pid                         — stale PID file   - VERSION                                  — redundant (read from package.json)   - schemas/                                 — now read from npm binary at runtime   - bin/                                     — stale dev symlink directory
+() => Promise<ScaffoldResult> - Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  Also removes known stale project-level entries that old CLEO versions incorrectly placed at the global level (see STALE_GLOBAL_ENTRIES).  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
 () => Promise<ScaffoldResult> - Ensure the global CLEO injection template is installed. Delegates to injection.ts for the template content, but owns the filesystem write to maintain SSoT for scaffolding.  Idempotent: skips if the template already exists with correct content.
-() => Promise<{ home: ScaffoldResult; schemas: { installed: number; updated: number; total: number; }; templates: ScaffoldResult; }> - Perform a complete global scaffold operation: ensure home, schemas, and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }> - Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
 () => CheckResult - Check that the global ~/.cleo/ home and its required subdirectories exist. Read-only: no side effects.
 () => CheckResult - Check that the global injection template is present and current. Read-only: no side effects.
 (projectRoot: string) => CheckResult - Check that the project log directory exists. Read-only: no side effects.
@@ -1805,11 +1833,9 @@ any
 (projectRoot: string, opts?: EnsureGitHooksOptions | undefined) => Promise<ScaffoldResult> - Install or update managed git hooks from templates/git-hooks/ into .git/hooks/.  Handles: - No .git directory (skips gracefully) - No source templates directory (skips gracefully) - Hooks already installed (skips unless force) - Sets executable permissions on installed hooks
 (projectRoot: string) => Promise<HookCheckResult[]> - Verify managed hooks are installed and current.  Compares installed hooks in .git/hooks/ against source templates in the package's templates/git-hooks/ directory. Returns per-hook status including whether the hook is installed and whether its content matches the source.
 any - Session object (engine-compatible).
-any - Task work state from the task store.
-any - Task file structure (subset for session operations).
+any - Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 any - Decision record stored in decisions.jsonl.
 any - Assumption record stored in assumptions.jsonl.
-<T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string; }>(taskFile: T) => TaskFileExt - Convert a TaskFile (from contracts) to the looser TaskFileExt shape. Accepts any object with at least the basic TaskFileExt structure. The runtime object is the same reference — this only changes the TS type.
 any
 any
 (projectRoot: string, params: RecordDecisionParams) => Promise<DecisionRecord> - Record a decision to the audit trail. Appends a JSON line to `.cleo/audit/decisions.jsonl`. Throws if required params are missing.
@@ -2017,6 +2043,12 @@ any - Orchestrator analysis result.
 (epicId: string, _cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<{ epicId: string; epicTitle: string; totalTasks: number; completed: number; inProgress: number; blocked: number; pending: number; completionPercent: number; }> - Get orchestrator context summary.  T4466
 (task: Task) => string - Auto-dispatch: determine the protocol for a task based on metadata.  T4466
 (prompt: string, context: Record<string, string>) => { resolved: string; unresolved: string[]; } - Resolve tokens in a prompt string.  T4466
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given provider.
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null> - Find a link by provider + external ID.
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given CLEO task.
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...> - Create a new external task link.
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void> - Update the lastSyncAt and optionally the title/metadata for an existing link.
+(providerId: string, cwd?: string | undefined) => Promise<number> - Remove all links for a provider (used during provider deregistration).
 any - Session data needed to create a memory bridge observation.
 (projectRoot: string, sessionData: SessionBridgeData) => Promise<void> - Bridge session end data to brain.db as an observation.  Builds a summary text from the session metadata and saves it as a 'change' observation with source_type 'agent'.
 any - Parameters for storing a new decision.
@@ -2036,12 +2068,6 @@ any - Result of completing a task.
 any - Options for updating a task.
 any - Result of updating a task.
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult> - Update a task's fields.  T4461
-(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given provider.
-(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null> - Find a link by provider + external ID.
-(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]> - Find all links for a given CLEO task.
-(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...> - Create a new external task link.
-(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void> - Update the lastSyncAt and optionally the title/metadata for an existing link.
-(providerId: string, cwd?: string | undefined) => Promise<number> - Remove all links for a provider (used during provider deregistration).
 (externalTasks: ExternalTask[], options: ReconcileOptions, accessor?: DataAccessor | undefined) => Promise<ReconcileResult> - Reconcile external task state with CLEO's authoritative task store.
 any - Supported artifact types.
 any - Artifact configuration from release config.
@@ -2141,8 +2167,8 @@ any
 any - A link to be created in bulk.
 (projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string, taskId: string, linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts") => Promise<...> - Link a memory entry to a task.   T5156
 (projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string, taskId: string, linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts") => Promise<...> - Remove a link between a memory entry and a task.   T5156
-(projectRoot: string, taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]> - Get all memory entries linked to a specific task.   T5156
-(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]> - Get all tasks linked to a specific memory entry.   T5156
+(projectRoot: string, taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]> - Get all memory entries linked to a specific task.   T5156
+(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]> - Get all tasks linked to a specific memory entry.   T5156
 (projectRoot: string, links: BulkLinkEntry[]) => Promise<{ created: number; skipped: number; }> - Batch create multiple links at once.   T5156
 (projectRoot: string, taskId: string) => Promise<{ id: string; createdAt: string; updatedAt: string | null; type: "architecture" | "technical" | "process" | "strategic" | "tactical"; confidence: "high" | ... 1 more ... | "low"; ... 6 more ...; contextPhase: string | null; }[]> - Get all decisions linked to a task. Convenience method that fetches full decision rows.   T5156
 (projectRoot: string, taskId: string) => Promise<{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; pattern: string; context: string; ... 6 more ...; extractedAt: string; }[]> - Get all patterns linked to a task. Convenience method that fetches full pattern rows.   T5156
@@ -2154,6 +2180,22 @@ any - Memory context returned for session start/resume enrichment.
 (projectRoot: string, sessionId: string, debrief: DebriefData | null | undefined) => Promise<SessionMemoryResult> - Main entry point -- called from session.end handler. Extracts memory-worthy content from debrief data and persists to brain.db.  ALL errors are caught and accumulated in result.errors -- never throws.
 (projectRoot: string, scope?: { type: string; epicId?: string | undefined; rootTaskId?: string | undefined; } | undefined, options?: { limit?: number | undefined; includeDecisions?: boolean | undefined; includePatterns?: boolean | undefined; } | undefined) => Promise<...> - Retrieve session memory for a given scope. Used by briefing/handoff to enrich response with brain context.
 (depends: string[] | undefined, taskLookup: ReadonlyMap<string, unknown>) => boolean - Check if all dependencies of a task are satisfied.
+any - Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+any - Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+any - Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+any - Options for initializing a pipeline.   T4800
+any - Options for advancing pipeline stage.   T4800
+any - Pipeline query options.   T4800
+(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline> - Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
+(taskId: string) => Promise<Pipeline | null> - Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
+(taskId: string, options: AdvanceStageOptions) => Promise<void> - Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
+(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"> - Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
+(options?: PipelineQueryOptions) => Promise<Pipeline[]> - List pipelines with optional filtering.
+(taskId: string, reason?: string | undefined) => Promise<void> - Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
+(taskId: string, reason: string) => Promise<void> - Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
+(taskId: string) => Promise<boolean> - Check if a pipeline exists for a task.
+() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }> - Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
+(taskId: string) => Promise<PipelineStageRecord[]> - Get all stages for a pipeline.
 any - Task summary for briefing output.
 any - Bug summary for briefing output.
 any - Blocked task summary for briefing output.
@@ -2245,9 +2287,9 @@ any - Complete export package.
 (pkg: ExportPackage) => boolean - Verify export package checksum.
 (tasks: Task[]) => Record<string, IdMapEntry> - Build ID map from tasks.
 (tasks: Task[]) => RelationshipGraph - Build relationship graph from tasks.
-(tasks: Task[], taskData: TaskFile, options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; }) => ExportPackage - Build a complete export package.
-(taskId: string, taskData: TaskFile) => ExportPackage | null - Export a single task.
-(rootId: string, taskData: TaskFile) => ExportPackage | null - Export a subtree (task + all descendants).
+(tasks: Task[], options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; projectName?: string | undefined; }) => ExportPackage - Build a complete export package.
+(taskId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null - Export a single task.
+(rootId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null - Export a subtree (task + all descendants).
 any
 any
 (params: ExportTasksParams) => Promise<ExportTasksResult> - Export tasks to a portable cross-project package.
@@ -2260,6 +2302,16 @@ any - Result of the help computation.
 (ops: HelpOperationDef[]) => GroupedOperations - Group operations by domain into a compact format.
 (ops: HelpOperationDef[]) => VerboseOperation[] - Build verbose operation entries with cost hints.
 (allOperations: HelpOperationDef[], tier: number, verbose: boolean) => HelpResult - Compute the help result for the admin.help operation.  Accepts the full OPERATIONS registry and filters/formats based on tier and verbosity. This is pure business logic with no dispatch or engine dependencies.
+any - Transfer mode: copy keeps source tasks, move archives them.
+any - Transfer scope: single task or full subtree.
+any - Conflict resolution when target has tasks with duplicate titles.
+any - How to handle missing dependencies in the target project.
+any - Parameters for a cross-project transfer operation.
+any - A single task entry in the transfer manifest.
+any - Manifest describing what was (or would be) transferred.
+any - Result of a transfer operation.
+any - Options passed to importFromPackage (extracted from importTasksPackage).
+any - Result from importFromPackage.
 any - Forward and reverse remap tables.
 (tasks: Task[]) => number - Get the next available task ID number from existing tasks.
 (sourceTaskIds: string[], existingTasks: Task[]) => RemapTable - Generate a remap table for importing tasks. Maps source task IDs to new sequential IDs starting from nextAvailable.
@@ -2270,7 +2322,8 @@ any - Forward and reverse remap tables.
 (title: string, existingTitles: Set<string>) => string - Resolve duplicate title by appending suffix.
 any
 any
-(params: ImportTasksParams) => Promise<ImportTasksResult> - Import tasks from a cross-project export package with ID remapping.
+(exportPkg: ExportPackage, options?: ImportFromPackageOptions) => Promise<ImportFromPackageResult> - Import tasks from an in-memory ExportPackage with ID remapping. Core logic extracted from importTasksPackage for reuse by transfer engine.
+(params: ImportTasksParams) => Promise<ImportTasksResult> - Import tasks from a cross-project export package file with ID remapping. Thin wrapper around importFromPackage that handles file I/O.
 (projectRoot: string, query: string, opts?: { topics?: string | undefined; keywords?: string | undefined; status?: string | undefined; } | undefined) => Promise<AdrFindResult>
 (projectRoot: string, opts?: { status?: string | undefined; since?: string | undefined; limit?: number | undefined; offset?: number | undefined; } | undefined) => Promise<AdrListResult> - List ADRs from .cleo/adrs/ directory with optional status filter
 (projectRoot: string, adrId: string) => Promise<AdrRecord | null> - Retrieve a single ADR by ID (e.g., 'ADR-007')
@@ -2279,6 +2332,38 @@ any
 any - ValidationError — canonical name per ADR-017 spec
 any - ValidationResult — canonical name per ADR-017 spec
 (projectRoot: string) => Promise<ValidationResult> - Validate all ADRs in .cleo/adrs/ against the schema
+() => string - Generate a unique agent instance ID. Format: `agt_{YYYYMMDDHHmmss}_{6hex}`
+any - Options for registering a new agent instance.
+(opts: RegisterAgentOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }> - Register a new agent instance in the database. Sets initial status to 'starting' and records the first heartbeat.
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null> - Deregister (stop) an agent instance. Sets status to 'stopped' and records the stop timestamp.
+(id: string, cwd?: string | undefined) => Promise<"error" | "starting" | "active" | "idle" | "crashed" | "stopped" | null> - Record a heartbeat for an agent instance. Updates `last_heartbeat` and returns the current status so the agent can detect if it has been externally marked for shutdown.
+any - Options for updating agent status.
+(id: string, opts: UpdateStatusOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null> - Update agent status with optional error tracking. When status is 'error' or 'crashed', increments the error count and logs the error to the agent_error_log table.
+(id: string, cwd?: string | undefined) => Promise<void> - Increment the completed task count for an agent.
+any - Filters for listing agent instances.
+(filters?: ListAgentFilters | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]> - List agent instances with optional filters.
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null> - Get a single agent instance by ID.
+(error: unknown) => AgentErrorType - Classify an error as retriable, permanent, or unknown.  Retriable errors are transient conditions (network, rate limits, locks) where a retry may succeed. Permanent errors are structural (auth, not found, constraint violations) where retrying is pointless.
+(agentId: string, cwd?: string | undefined) => Promise<{ id: number; agentId: string; errorType: "retriable" | "permanent" | "unknown"; message: string; stack: string | null; occurredAt: string; resolved: boolean; }[]> - Get the error history for a specific agent.
+(thresholdMs?: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]> - Check agent health by finding instances whose last heartbeat exceeds the threshold. Default threshold: 30000ms (30 seconds) as specified by the BRAIN spec.  Returns agents that appear to have crashed (stale heartbeat).
+(id: string, reason?: string | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null> - Mark an agent instance as crashed. Increments error count and sets status to 'crashed'.
+any - Agent health report summary.
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentHealthReport> - Generate a health report summarizing all agent instances. Includes counts by status and identifies stale agents.
+(id: string, capacity: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null> - Update the capacity value for an agent instance.
+(cwd?: string | undefined) => Promise<number> - Get the total available capacity across all active agents.  Only considers agents in 'active' or 'idle' status. Returns the sum of all capacity values.
+(agentType?: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor" | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; ... 11 more ...; parentAgentId: string | null; } | null> - Find the agent with the most available capacity.
+(threshold?: number, cwd?: string | undefined) => Promise<boolean> - Check if the system is overloaded (total capacity below threshold).
+any - Capacity summary for reporting.
+(threshold?: number, cwd?: string | undefined) => Promise<CapacitySummary> - Get a capacity summary across the entire agent pool.
+any - Configuration for retry behavior.
+Readonly<RetryPolicy> - Default retry policy matching the BRAIN specification.
+(overrides?: Partial<RetryPolicy> | undefined) => RetryPolicy - Create a retry policy by merging overrides with the default policy.
+(attempt: number, policy: RetryPolicy) => number - Calculate the delay for a given retry attempt using exponential backoff.  Formula: min(baseDelay * multiplier^attempt, maxDelay) + jitter Jitter adds 0-25% randomness to prevent thundering herd.
+(error: unknown, attempt: number, policy: RetryPolicy) => boolean - Determine whether an error should be retried based on its classification and the retry policy.
+any - Result of a retried operation.
+<T>(fn: () => Promise<T>, policy?: Partial<RetryPolicy> | undefined) => Promise<RetryResult<T>> - Wrap an async function with retry logic using configurable exponential backoff.  The function will be retried according to the policy when retriable errors occur. Permanent errors cause immediate failure. Unknown errors respect the `retryOnUnknown` policy setting.
+any - Result of a recovery attempt for a single agent.
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentRecoveryResult[]> - Attempt to recover crashed agents.  Finds all agents with status 'crashed' and determines if they can be restarted based on their error history. Agents whose last error was classified as 'permanent' are abandoned. Agents with retriable errors are reset to 'starting' for the orchestration layer to re-assign.
 () => EngineResult<Provider[]> - List all registered providers.  T4332
 (idOrAlias: string) => EngineResult<Provider> - Get a single provider by ID or alias.  T4332
 () => EngineResult<DetectionResult[]> - Detect all providers installed on the system.  T4332
@@ -2312,7 +2397,68 @@ any
 (opts: { session?: string | undefined; cwd?: string | undefined; }) => Promise<Record<string, unknown>> - Get context status.
 (opts: { session?: string | undefined; cwd?: string | undefined; }) => Promise<Record<string, unknown> & { exitCode?: number | undefined; }> - Check context threshold (returns exit code info).
 (cwd?: string | undefined) => Promise<Record<string, unknown>> - List all context state files.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; }, $strip> - Zod schema for `HookPayload`.
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; name: ZodString; scope: ZodString; agent: ZodOptional<...>; }, $strip> - Zod schema for `OnSessionStartPayload`.
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; duration: ZodNumber; tasksCompleted: ZodArray<...>; }, $strip> - Zod schema for `OnSessionEndPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; previousTask: ZodOptional<...>; }, $strip> - Zod schema for `OnToolStartPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; status: ZodEnum<...>; }, $strip> - Zod schema for `OnToolCompletePayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; filePath: ZodString; changeType: ZodEnum<...>; sizeBytes: ZodOptional<...>; }, $strip> - Zod schema for `OnFileChangePayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; stack: ZodOptional<...>; }, $strip> - Zod schema for `OnErrorPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; source: ZodOptional<...>; }, $strip> - Zod schema for `OnPromptSubmitPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; errorCode: ZodOptional<...>; }, $strip> - Zod schema for `OnResponseCompletePayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; reason: ZodOptional<...>; }, $strip> - Zod schema for `OnWorkAvailablePayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; agentId: ZodString; role: ZodString; adapterId: ZodOptional<...>; taskId: ZodOptional<...>; }, $strip> - Zod schema for `OnAgentSpawnPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; ... 4 more ...; summary: ZodOptional<...>; }, $strip> - Zod schema for `OnAgentCompletePayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; taskIds: ZodOptional<...>; }, $strip> - Zod schema for `OnCascadeStartPayload`.
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; watcherId: ZodString; patrolType: ZodEnum<...>; scope: ZodOptional<...>; }, $strip> - Zod schema for `OnPatrolPayload`.
+any - Result of payload validation.
+(event: HookEvent, payload: unknown) => PayloadValidationResult - Validate a hook payload against its event-specific Zod schema.  Falls back to the base `HookPayloadSchema` for events without a dedicated schema. Returns a result object rather than throwing, so callers can decide how to handle validation failures.
 (opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...> - Inject tasks for external consumption.
+any - Result of a dependency validation check.
+any - A dependency error.
+any - A dependency warning.
+(taskId: string, tasks: Task[]) => string[] - Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
+(fromId: string, toId: string, tasks: Task[]) => boolean - Check if adding a dependency would create a cycle.
+(tasks: Task[]) => Task[] - Get tasks that are blocked (have unmet dependencies).
+(tasks: Task[]) => Task[] - Get tasks that are ready (all dependencies met).
+(taskId: string, tasks: Task[]) => Task[] - Get tasks that depend on a given task.
+(taskId: string, tasks: Task[]) => string[] - Get dependent IDs.
+(taskId: string, tasks: Task[]) => string[] - Get unresolved dependencies for a task (deps that are not done/cancelled).
+(tasks: Task[]) => DependencyError[] - Validate dependencies for missing references.
+(tasks: Task[]) => DependencyCheckResult - Full dependency graph validation.
+(tasks: Task[]) => string[] | null - Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
+(taskId: string, tasks: Task[]) => string[] - Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
+(taskId: string, tasks: Task[]) => string[] - From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
+any - A wave of parallelizable tasks.
+(tasks: Task[]) => DependencyWave[] - Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
+(tasks: Task[]) => Task | null - Get the next task to work on (highest priority ready task).
+(tasks: Task[]) => string[] - Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
+(tasks: Task[]) => string[] - Get task ordering by dependency + priority.
+(tasks: Task[]) => string[] - Get parallelizable tasks (tasks with no unmet dependencies).
+any - A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+any - Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+any - Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+any - A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
+any - Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+any - Options for pattern extraction from historical data.
+any - Result of updating pattern statistics after an outcome.
+any - Summary of applicable learnings for a task, used in prediction.
+any - Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+any - The type of change being analyzed.
+any - Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+any - A single task affected by a change, with its predicted new state.
+any - Severity classification for blast radius.
+any - Quantified scope of a task's impact across the project.
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ImpactAssessment> - Analyze the full downstream impact of a task.  Computes direct and transitive dependents, affected lifecycle pipelines, blocked work counts, critical path membership, and blast radius.
+(taskId: string, changeType: ChangeType, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ChangeImpact> - Analyze the downstream effects of a specific change to a task.  Predicts what happens when a task is cancelled, blocked, completed, or reprioritized, including cascading status changes.
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<BlastRadius> - Calculate the blast radius for a task.  Quantifies how many tasks, epics, and what percentage of the project would be impacted by changes to this task.
+(taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor, options?: PatternExtractionOptions | undefined) => Promise<...> - Analyze brain_observations and task history to find recurring patterns.  Detects: - Workflow patterns: common task sequences that succeed/fail - Blocker patterns: what commonly blocks tasks - Success patterns: what correlates with successful task completion - Time patterns: recurring label/type distributions by task status
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<PatternMatch[]> - Find which known patterns from brain_patterns apply to a given task.  Compares task attributes (labels, title, description, type, size, status) against stored patterns and returns matches with relevance scores.
+(detected: DetectedPattern, brainAccessor: BrainDataAccessor) => Promise<{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; ... 8 more ...; extractedAt: string; }> - Save a detected pattern to the brain_patterns table.  Uses the existing brain_patterns schema: type, pattern, context, frequency, success_rate, impact, anti_pattern, mitigation, examples_json.
+(patternId: string, outcome: boolean, brainAccessor: BrainDataAccessor) => Promise<PatternStatsUpdate | null> - Update the frequency and success_rate of an existing pattern after an outcome.  Increments frequency by 1 and recalculates success_rate using the running average formula: newRate = (oldRate * oldFreq + (success ? 1 : 0)) / newFreq.
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<RiskAssessment> - Calculate the risk score for a task based on multiple contributing factors.  Factors considered: - Task complexity (size, dependency count, hierarchy depth) - Historical patterns (similar tasks' failure rates from brain_patterns) - Blocking risk (does this task block others?) - Dependency depth (how deep in the dependency chain)
+(taskId: string, stage: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<ValidationPrediction> - Predict the likelihood of a task passing a lifecycle validation gate.  Combines: - Historical gate results for similar tasks (from brain_patterns) - Current task completion state - Applicable learnings from brain_learnings
+(task: Task, brainAccessor: BrainDataAccessor) => Promise<LearningContext> - Gather applicable learnings for a task from brain_learnings.
 { readonly name: "@cleocode/cleo"; readonly version: "2026.3.36"; readonly description: "CLEO V2 - TypeScript task management CLI for AI coding agents"; readonly repository: { readonly owner: "kryptobaseddev"; readonly name: "cleo"; readonly fullName: "kryptobaseddev/cleo"; readonly url: "https://github.com/kryptoba... - BUILD CONFIGURATION - AUTO-GENERATED FILE  This file is generated by dev/generate-build-config.js DO NOT EDIT MANUALLY - Changes will be overwritten on next build  Source of truth: package.json Generated at: 2026-03-18T09:06:32.935Z   T5245 auto-generated
 any
 any
@@ -2323,7 +2469,7 @@ any - Parsed issue template.
 (cwd?: string | undefined) => IssueTemplate[] - Get template configuration - tries live parse, cache, then fallback.
 (subcommand: string, cwd?: string | undefined) => IssueTemplate | null - Get the template for a specific subcommand (bug, feature, etc.).
 (templates: IssueTemplate[], cwd?: string | undefined) => void - Cache parsed templates to .cleo/issue-templates.json.
-(_templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; } - Validate that required labels exist (informational).
+(templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; } - Validate that labels referenced in issue templates are consistent.  Collects all labels used across templates and checks that each label appears in at least one template definition. Reports any labels that are referenced by only one template but not defined as a known label across the template set. This catches typos and orphaned labels without requiring GitHub API access.
 (subcommand: string, rawBody: string, severity?: string | undefined, area?: string | undefined) => string - Build structured issue body with template sections.
 () => void - Check that gh CLI is installed and authenticated.
 any
@@ -2495,6 +2641,8 @@ any - Orphan detection result.
 () => Promise<CriticalPathResult> - Calculate the critical path across project boundaries. Returns the longest dependency chain in the global graph.
 (taskQuery: string) => Promise<BlockingAnalysisResult> - Analyze the blocking impact of a task across all projects. Uses BFS to find all direct and transitive dependents.
 () => Promise<OrphanEntry[]> - Detect orphaned cross-project dependencies. Finds tasks with dependency references to projects or tasks that don't exist.
+(params: TransferParams) => Promise<TransferResult> - Preview a transfer without writing any data. Validates projects, permissions, and builds the manifest.
+(params: TransferParams) => Promise<TransferResult> - Execute a cross-project task transfer.  Pipeline:   1. Validate source/target projects via nexusGetProject()   2. Check permissions: read on source, write on target   3. Read source tasks   4. Build ExportPackage via exportSubtree/exportSingle   5. Import into target via importFromPackage()   6. Create bidirectional external_task_links   7. Write nexus_audit_log entry   8. If move mode: archive source tasks   9. If transferBrain: copy brain observations
 any - Pino log levels as written by CLEO's logger (uppercase).
 Record<PinoLevel, number> - Numeric pino level values for comparison.
 any - A parsed pino log entry from a CLEO log file. Core fields are always present; additional fields are captured in `extra`.
@@ -2522,7 +2670,7 @@ any - Summary of log activity across files.
 () => Promise<Record<string, unknown>> - Get combined token usage summary.
 (opts: { session?: string | undefined; task?: string | undefined; }) => Promise<Record<string, unknown>> - Get session-level token data.
 (opts: { task?: string | undefined; epic?: string | undefined; }) => Promise<Record<string, unknown>> - Get spawn-level token data.
-(_opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>> - Get real token usage from Claude Code API.
+(opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>> - Get real token usage from Claude Code API.
 () => Promise<Record<string, unknown>> - Clear token tracking data with backup.
 (projectRoot: string, accessor?: DataAccessor | undefined) => Promise<{ success: boolean; data?: ListPhasesResult | undefined; error?: { code: string; message: string; } | undefined; }> - List all phases with status summaries.  T5326
 (projectRoot: string, phaseId?: string | undefined, accessor?: DataAccessor | undefined) => Promise<{ success: boolean; data?: ShowPhaseResult | undefined; error?: { ...; } | undefined; }> - Show phase details by slug or current phase.  T5326
@@ -2591,9 +2739,9 @@ any - Configuration for SignalDockTransport.
 typeof SignalDockTransport - SignalDock HTTP transport implementation.  Communicates with a SignalDock server via its REST API to provide provider-neutral inter-agent messaging with delivery guarantees.
 any - Configuration for transport selection.
 (config?: TransportFactoryConfig | undefined) => AgentTransport - Create an AgentTransport instance based on configuration.  Returns SignalDockTransport if signaldock is enabled, otherwise returns ClaudeCodeTransport as the default.
-any - Skill frontmatter parsed from SKILL.md YAML header.
-any - Skill definition loaded from disk.
-any - Lightweight skill summary for manifest/listing.
+any - Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
+any - Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
+any - Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
 any - Skill manifest (cached aggregate of all discovered skills).
 any - RCASD-IVTR+C protocol types.
 any - Agent configuration from AGENT.md or agent definition.
@@ -2664,17 +2812,17 @@ any - Token values map: TOKEN_NAME - value.
 any - Result of multi-skill composition.
 (skillNames: string[], tokenValues: Record<string, string>, cwd?: string | undefined) => MultiSkillComposition - Compose multiple skills into a single prompt with progressive disclosure. Ports skill_prepare_spawn_multi from lib/skills/skill-dispatch.sh.  The first skill is loaded fully (primary). Secondary skills use progressive disclosure (frontmatter + first section only) to save context budget.   T4712  T4663
 (cwd?: string | undefined) => string | null - Load the subagent protocol base content.  T4521
-(taskId: string, cwd?: string | undefined) => string - Build task context block for injection into a subagent prompt.  T4521
+(taskId: string, cwd?: string | undefined) => Promise<string> - Build task context block for injection into a subagent prompt.  T4521
 (content: string, tier: 0 | 1 | 2) => string - Filter protocol content by MVI tier. Extracts sections based on !-- TIER:X -- markers. - tier 0: header + minimal only + footer - tier 1: header + minimal + standard + footer - tier 2: header + all tiers + footer (full content)  Header = content before first TIER marker. Footer = content after last /TIER marker.   T5155
-(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string - Inject the subagent protocol into skill content. Composes: skill content + protocol base + task context.  T4521
-(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string - Full orchestrator spawn workflow (skill-based). High-level function that loads the skill, injects protocol, and returns the prompt.  T4521
+(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string> - Inject the subagent protocol into skill content. Composes: skill content + protocol base + task context.  T4521
+(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string> - Full orchestrator spawn workflow (skill-based). High-level function that loads the skill, injects protocol, and returns the prompt.  T4521
 (taskId: string, topicSlug: string, epicId?: string | undefined, _cwd?: string | undefined) => TokenValues - Prepare standard token values for a task spawn.  T4521
 (skillName: string, projectDir?: string | undefined) => Promise<{ installed: boolean; path: string; error?: string | undefined; }> - Install a single skill via CAAMP.
 any - A contribution decision from an agent.
 any - Conflict between two agent decisions.
 any - Consensus result from weighted voting.
 (taskId: string) => string - Generate a unique contribution ID.  T4520
-(taskId: string, cwd?: string | undefined) => { valid: boolean; issues: string[]; } - Validate that a task is suitable for contribution protocol.  T4520
+(taskId: string, cwd?: string | undefined) => Promise<{ valid: boolean; issues: string[]; }> - Validate that a task is suitable for contribution protocol.  T4520
 (taskId: string, protocolPath?: string | undefined, _cwd?: string | undefined) => string - Generate the contribution injection block for a subagent prompt.  T4520
 (decisions1: ContributionDecision[], decisions2: ContributionDecision[]) => ContributionConflict[] - Detect conflicts between two sets of decisions.  T4520
 (decisions: ContributionDecision[], weights?: Record<string, number> | undefined) => ConsensusResult - Compute weighted consensus from multiple agent decisions.  T4520
@@ -2699,16 +2847,16 @@ any - Marketplace skill result (CLEO-specific shape).
 (query: string, _config?: SkillsMpConfig | undefined) => Promise<MarketplaceSkill[]> - Search the skills marketplace. Delegates to CAAMP's searchSkills for the actual API call.  T4521
 (skillId: string, _config?: SkillsMpConfig | undefined) => Promise<MarketplaceSkill | null> - Get a specific skill from the marketplace. Uses CAAMP's MarketplaceClient for retrieval.  T4521
 (cwd?: string | undefined) => boolean - Check if the marketplace is enabled and reachable.  T4521
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult - Build a fully-resolved prompt for spawning a subagent.  T4519
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult & { spawnTimestamp: string; } - Generate full spawn command with metadata.  T4519
-(taskIds: string[], cwd?: string | undefined) => { canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; } - Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult> - Build a fully-resolved prompt for spawning a subagent.  T4519
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult & { spawnTimestamp: string; }> - Generate full spawn command with metadata.  T4519
+(taskIds: string[], cwd?: string | undefined) => Promise<{ canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }> - Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
 any - Result of a single spawn within a batch.
 any - Result of a batch spawn operation.
-(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => BatchSpawnResult - Spawn prompts for multiple tasks in a batch. Ports orchestrator_spawn_batch from lib/skills/orchestrator-spawn.sh.  Iterates over task IDs, building spawn prompts for each. Individual failures are captured per-entry rather than aborting the entire batch.   T4712  T4663
+(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<BatchSpawnResult> - Spawn prompts for multiple tasks in a batch. Ports orchestrator_spawn_batch from lib/skills/orchestrator-spawn.sh.  Iterates over task IDs, building spawn prompts for each. Individual failures are captured per-entry rather than aborting the entire batch.   T4712  T4663
 (config?: Record<string, unknown> | undefined) => OrchestratorThresholds - Get orchestrator context thresholds from config or defaults.  T4519
 (sessionId?: string | undefined, cwd?: string | undefined) => ContextState - Read the current context state from session-aware files.  T4519
 any - Session init result.
-(_epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult> - Initialize orchestrator session state. Determines the recommended action based on current state.  T4519
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult> - Initialize orchestrator session state. Determines the recommended action based on current state.  T4519
 any - Pause status result.
 (config?: Record<string, unknown> | undefined, sessionId?: string | undefined, cwd?: string | undefined) => PauseStatus - Check if orchestrator should pause based on context usage.  T4519
 (epicId: string, cwd?: string | undefined) => Promise<DependencyAnalysis> - Analyze dependency graph and compute execution waves.  T4519
@@ -2718,7 +2866,7 @@ any - Pause status result.
 (researchId: string, cwd?: string | undefined) => { passed: boolean; issues: string[]; checkedRules: string[]; } - Validate a subagent's manifest entry for protocol compliance.  T4519
 (cwd?: string | undefined) => ManifestValidationResult - Validate the entire manifest file integrity.  T4519
 (previousTaskId: string, researchId?: string | undefined, cwd?: string | undefined) => ComplianceResult - Verify previous agent completed protocol compliance before spawning next.  T4519
-(epicId?: string | undefined, cwd?: string | undefined) => { compliant: boolean; violations: string[]; warnings: string[]; } - Validate orchestrator compliance (post-hoc behavioral checks).  T4519
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<{ compliant: boolean; violations: string[]; warnings: string[]; }> - Validate orchestrator compliance (post-hoc behavioral checks).  T4519
 any - Source type classification for a skill directory.
 any - Skill source mode.
 any - Search path entry with its origin.
@@ -2842,7 +2990,7 @@ any
 (projectRoot?: string | undefined, cleoHome?: string | undefined) => CheckResult - Compare templates/CLEO-INJECTION.md vs ~/.cleo/templates/CLEO-INJECTION.md.  T5153
 (cleoHome?: string | undefined) => CheckResult - Verify all 3 tier markers exist with matching close tags in deployed template.  T5153
 () => CheckResult - Check that Node.js meets the minimum required version. Provides OS-specific upgrade instructions when below minimum.
-(_projectRoot?: string | undefined) => CheckResult - Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.
+(_projectRoot?: string | undefined) => CheckResult - Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.  The projectRoot parameter exists for API consistency with other check functions in runAllGlobalChecks(), but global schemas live at ~/.cleo/schemas/ (not per-project). The parameter is intentionally unused because schema health is a system-wide concern, not project-scoped.
 (projectRoot?: string | undefined) => CheckResult - Warn if deprecated .cleo/schemas/ directory still exists in the project. Schemas should live in ~/.cleo/schemas/ (global), not in project directories.
 (projectDir: string) => Promise<CheckResult> - Check that active JSON files (config.json, project-info.json, etc.) are valid against their schemas and have current schema versions.  Maps JsonFileIntegrityResult[] from checkSchemaIntegrity() into CheckResult[], then returns a single rolled-up CheckResult for the doctor summary.
 (cleoHome?: string | undefined, projectRoot?: string | undefined) => CheckResult[] - Run all global health checks and return results array.  T4525
@@ -2876,21 +3024,6 @@ any
 any
 (projectRoot: string, opts?: { reason?: string | undefined; commit?: boolean | undefined; handoff?: string | undefined; noSessionEnd?: boolean | undefined; dryRun?: boolean | undefined; } | undefined) => SafestopResult - Safe stop: signal clean shutdown for agents.
 (projectRoot: string, params: { taskId: string; cascade?: boolean | undefined; notes?: string | undefined; dryRun?: boolean | undefined; }) => Promise<UncancelResult> - Uncancel a cancelled task (restore to pending).
-any - Result of a dependency validation check.
-any - A dependency error.
-any - A dependency warning.
-(taskId: string, tasks: Task[]) => string[] - Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
-(fromId: string, toId: string, tasks: Task[]) => boolean - Check if adding a dependency would create a cycle.
-(tasks: Task[]) => Task[] - Get tasks that are blocked (have unmet dependencies).
-(tasks: Task[]) => Task[] - Get tasks that are ready (all dependencies met).
-(taskId: string, tasks: Task[]) => Task[] - Get tasks that depend on a given task.
-(taskId: string, tasks: Task[]) => string[] - Get dependent IDs.
-(taskId: string, tasks: Task[]) => string[] - Get unresolved dependencies for a task (deps that are not done/cancelled).
-(tasks: Task[]) => DependencyError[] - Validate dependencies for missing references.
-(tasks: Task[]) => DependencyCheckResult - Full dependency graph validation.
-(tasks: Task[]) => string[] | null - Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
-(taskId: string, tasks: Task[]) => string[] - Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
-(taskId: string, tasks: Task[]) => string[] - From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
 any - Result of getting current task.
 any - Result of starting work on a task.
 any - Task work history entry.
@@ -2939,9 +3072,126 @@ any - Parsed flag state.
 (args: string[]) => ParsedFlags - Parse common CLI flags from an argument array. Returns flags and remaining positional arguments.
 (flagFormat: string) => "json" | "human" - Resolve output format based on flags and TTY detection. Returns 'json' for non-TTY (piped), 'human' for TTY.
 (flags: ParsedFlags) => boolean - Check if output should be JSON.
-Readonly<Record<string, string>> - Validation key names for JSON output. Maps target filenames to JSON-safe key names used in validation results.
-(target: string) => string - Get the validation key for a target filename.
-(markerLine: string) => string | null - Extract the CLEO version from an injection marker string. Returns null if no version is present (current format). Returns the version string for legacy format.
+ZodEnum<{ cancelled: "cancelled"; active: "active"; pending: "pending"; blocked: "blocked"; done: "done"; archived: "archived"; }> - Zod enum schema for task statuses.
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; critical: "critical"; }> - Zod enum schema for task priorities.
+ZodEnum<{ epic: "epic"; task: "task"; subtask: "subtask"; }> - Zod enum schema for task types.
+ZodEnum<{ medium: "medium"; small: "small"; large: "large"; }> - Zod enum schema for task sizes.
+ZodEnum<{ active: "active"; ended: "ended"; orphaned: "orphaned"; suspended: "suspended"; }> - Zod enum schema for session statuses.
+ZodEnum<{ completed: "completed"; failed: "failed"; cancelled: "cancelled"; active: "active"; blocked: "blocked"; aborted: "aborted"; }> - Zod enum schema for lifecycle pipeline statuses.
+ZodEnum<{ completed: "completed"; failed: "failed"; blocked: "blocked"; not_started: "not_started"; in_progress: "in_progress"; skipped: "skipped"; }> - Zod enum schema for lifecycle stage statuses.
+ZodEnum<{ research: "research"; consensus: "consensus"; architecture_decision: "architecture_decision"; specification: "specification"; decomposition: "decomposition"; implementation: "implementation"; validation: "validation"; testing: "testing"; release: "release"; contribution: "contribution"; }> - Zod enum schema for lifecycle stage names.
+ZodEnum<{ warn: "warn"; pass: "pass"; fail: "fail"; }> - Zod enum schema for lifecycle gate results.
+ZodEnum<{ file: "file"; url: "url"; manifest: "manifest"; }> - Zod enum schema for lifecycle evidence types.
+ZodEnum<{ proposed: "proposed"; accepted: "accepted"; superseded: "superseded"; deprecated: "deprecated"; }> - Zod enum schema for ADR statuses.
+ZodEnum<{ failed: "failed"; pending: "pending"; passed: "passed"; waived: "waived"; }> - Zod enum schema for gate statuses.
+ZodEnum<{ completed: "completed"; blocked: "blocked"; archived: "archived"; partial: "partial"; }> - Zod enum schema for manifest statuses.
+ZodEnum<{ otel: "otel"; provider_api: "provider_api"; tokenizer: "tokenizer"; heuristic: "heuristic"; }> - Zod enum schema for token usage measurement methods.
+ZodEnum<{ high: "high"; real: "real"; estimated: "estimated"; coarse: "coarse"; }> - Zod enum schema for token usage confidence levels.
+ZodEnum<{ cli: "cli"; mcp: "mcp"; unknown: "unknown"; api: "api"; agent: "agent"; }> - Zod enum schema for token usage transports.
+ZodEnum<{ related: "related"; blocks: "blocks"; duplicates: "duplicates"; absorbs: "absorbs"; fixes: "fixes"; extends: "extends"; supersedes: "supersedes"; }> - Zod enum schema for task relation types.
+ZodEnum<{ manual: "manual"; created: "created"; matched: "matched"; transferred: "transferred"; }> - Zod enum schema for external task link types.
+ZodEnum<{ inbound: "inbound"; outbound: "outbound"; bidirectional: "bidirectional"; }> - Zod enum schema for sync directions.
+ZodEnum<{ automatic: "automatic"; manual: "manual"; forced: "forced"; }> - Zod enum schema for lifecycle transition types.
+ZodEnum<{ discovery: "discovery"; change: "change"; feature: "feature"; bugfix: "bugfix"; decision: "decision"; refactor: "refactor"; }> - Zod enum schema for brain observation types.
+ZodEnum<{ agent: "agent"; manual: "manual"; "session-debrief": "session-debrief"; "claude-mem": "claude-mem"; }> - Zod enum schema for brain observation source types.
+ZodEnum<{ architecture: "architecture"; technical: "technical"; process: "process"; strategic: "strategic"; tactical: "tactical"; }> - Zod enum schema for brain decision types.
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }> - Zod enum schema for brain confidence levels.
+ZodEnum<{ pending: "pending"; success: "success"; failure: "failure"; mixed: "mixed"; }> - Zod enum schema for brain outcome types.
+ZodEnum<{ success: "success"; workflow: "workflow"; failure: "failure"; blocker: "blocker"; optimization: "optimization"; }> - Zod enum schema for brain pattern types.
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }> - Zod enum schema for brain impact levels.
+ZodEnum<{ produced_by: "produced_by"; applies_to: "applies_to"; informed_by: "informed_by"; contradicts: "contradicts"; }> - Zod enum schema for brain link types.
+ZodEnum<{ decision: "decision"; pattern: "pattern"; learning: "learning"; observation: "observation"; }> - Zod enum schema for brain memory entity types.
+ZodEnum<{ active: "active"; archived: "archived"; converted: "converted"; }> - Zod enum schema for brain sticky note statuses.
+ZodEnum<{ yellow: "yellow"; blue: "blue"; green: "green"; red: "red"; purple: "purple"; }> - Zod enum schema for brain sticky note colors.
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }> - Zod enum schema for brain sticky note priorities.
+ZodEnum<{ task: "task"; file: "file"; doc: "doc"; concept: "concept"; }> - Zod enum schema for brain page node types.
+ZodEnum<{ depends_on: "depends_on"; implements: "implements"; relates_to: "relates_to"; documents: "documents"; }> - Zod enum schema for brain page edge types.
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "tasks"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefined; ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "tasks"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefined; ...
+BuildSchema<"insert", { taskId: SQLiteColumn<{ name: string; tableName: "task_dependencies"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; dependsOn: SQLiteColumn<...>; }, undefined, ...
+BuildSchema<"select", { taskId: SQLiteColumn<{ name: string; tableName: "task_dependencies"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; dependsOn: SQLiteColumn<...>; }, undefined, ...
+BuildSchema<"insert", { taskId: SQLiteColumn<{ name: string; tableName: "task_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; relatedTo: SQLiteColumn<...>; relationType: SQL...
+BuildSchema<"select", { taskId: SQLiteColumn<{ name: string; tableName: "task_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; relatedTo: SQLiteColumn<...>; relationType: SQL...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "sessions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefine...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "sessions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefine...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "task_work_history"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; sessionId: SQLiteColumn<...>; taskId: SQLite...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "task_work_history"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; sessionId: SQLiteColumn<...>; taskId: SQLite...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_pipelines"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; version: SQLiteColumn<...>; }, ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_pipelines"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; version: SQLiteColumn<...>; }, ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_stages"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 17 more ...; provenanceChainJson: SQLiteColumn...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_stages"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 17 more ...; provenanceChainJson: SQLiteColumn...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_gate_results"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; reason: SQLiteColumn<...>; }...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_gate_results"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; reason: SQLiteColumn<...>; }...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_evidence"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; description: SQLiteColumn<...>; ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_evidence"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; description: SQLiteColumn<...>; ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_transitions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; createdAt: SQLiteColumn<...>;...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_transitions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; createdAt: SQLiteColumn<...>;...
+BuildSchema<"insert", { key: SQLiteColumn<{ name: string; tableName: "schema_meta"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; value: SQLiteColumn<...>; }, undefined, CoerceOptions>
+BuildSchema<"select", { key: SQLiteColumn<{ name: string; tableName: "schema_meta"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; value: SQLiteColumn<...>; }, undefined, CoerceOptions>
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, { ...... - Zod schema for validating audit log insert payloads.  T4848
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, { ...... - Canonical named export for audit log insert schema (T4848). Alias for insertAuditLogSchema.
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, undef...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, undef... - Canonical named export for audit log select schema (T4848). Alias for selectAuditLogSchema.
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "architecture_decisions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; topics: SQLiteColumn<...>; ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "architecture_decisions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; topics: SQLiteColumn<...>; ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+ZodEnum<{ error: "error"; starting: "starting"; active: "active"; idle: "idle"; crashed: "crashed"; stopped: "stopped"; }> - Zod enum schema for agent instance statuses.
+ZodEnum<{ custom: "custom"; orchestrator: "orchestrator"; executor: "executor"; researcher: "researcher"; architect: "architect"; validator: "validator"; documentor: "documentor"; }> - Zod enum schema for agent types.
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any - Canonical type alias for audit log insert (T4848).
+any - Canonical type alias for audit log select (T4848).
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
+any
 any
 any
 any
@@ -3005,23 +3255,23 @@ any
 (reason: string) => ValidationResult - T4523
 (note: string) => ValidationResult - T4523
 (reason: string) => ValidationResult - Validate a cancellation reason.  T4523
-(oldStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived", newStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived") => ValidationResult - Validate that a status transition is allowed.  T4523
-(status: string) => status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" - Check if a status string is valid.  T4523
+(oldStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived", newStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived") => ValidationResult - Validate that a status transition is allowed.  T4523
+(status: string) => status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" - Check if a status string is valid.  T4523
 (createdAt: string, completedAt?: string | undefined) => ValidationResult - Check timestamp format and sanity.  T4523
 (fields: string[]) => boolean - Check if an update contains only metadata fields (safe for done tasks).  T4523
 (labels: string) => string - Deduplicate and normalize labels.  T4523
 any
-any
-any
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ValidationResult - Check ID uniqueness within and across files.  T4523
+any - Task data shape for validation functions.
+any - Archive data shape for validation functions.
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ValidationResult - Check ID uniqueness within and across files.  T4523
 (task: Task) => ValidationResult - Validate a single task object.  T4523
 (tasks: Task[], taskId: string, newDeps: string[]) => ValidationResult - Check for circular dependencies using DFS.  T4523
-(taskFile: TaskFile) => ValidationResult - Validate only one phase is active.  T4523
-(taskFile: TaskFile) => ValidationResult - Validate currentPhase matches an active phase.  T4523
-(taskFile: TaskFile) => ValidationResult - Validate phase timestamp ordering.  T4523
-(taskFile: TaskFile) => ValidationResult - Validate phase status requirements (e.g., active phases must have startedAt).  T4523
+(taskFile: TaskData) => ValidationResult - Validate only one phase is active.  T4523
+(taskFile: TaskData) => ValidationResult - Validate currentPhase matches an active phase.  T4523
+(taskFile: TaskData) => ValidationResult - Validate phase timestamp ordering.  T4523
+(taskFile: TaskData) => ValidationResult - Validate phase status requirements (e.g., active phases must have startedAt).  T4523
 any
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ComprehensiveValidationResult - Run all validation checks on a TaskFile.  T4523
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ComprehensiveValidationResult - Run all validation checks on a TaskFile.  T4523
 any
 any
 any
@@ -3044,7 +3294,7 @@ any
 any
 (taskId: string, expectedDir: string, pattern?: string | undefined) => boolean - Check if expected output file exists.  T4527
 (filePath: string, sections: string[]) => boolean - Check if file contains required documentation sections.  T4527
-(message: string, _protocolType?: string | undefined) => boolean - Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  T4527
+(message: string, protocolType?: string | undefined) => boolean - Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 (entry: Record<string, unknown>, fieldName: string) => boolean - Check if manifest entry has a required field (non-null, non-empty).  T4527
 (entry: Record<string, unknown>, fieldName: string, expectedType: "string" | "number" | "boolean" | "object" | "array") => boolean - Check if manifest field has expected type.  T4527
 (entry: Record<string, unknown>) => boolean - Check if key_findings array has valid count (3-7).  T4527
@@ -3052,7 +3302,7 @@ any
 (entry: Record<string, unknown>, expectedType: string) => boolean - Check if agent_type matches expected value.  T4527
 (entry: Record<string, unknown>, requiredIds: string[]) => boolean - Check if linked_tasks array contains required task IDs.  T4527
 (filePath: string, taskId?: string | undefined) => boolean - Check if file contains  provenance tag.  T4527
-(entry: Record<string, unknown>, _protocolType?: string | undefined) => ProtocolValidationResult - Validate common manifest requirements across all protocols.  T4527
+(entry: Record<string, unknown>, protocolType?: string | undefined) => ProtocolValidationResult - Validate common manifest requirements across all protocols.  When protocolType is provided, additionally validates that the manifest entry's agent_type matches the expected protocol type.   T4527
 readonly ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
 any
 readonly ["planner", "coder", "testing", "qa", "cleanup", "security", "docs"]
@@ -3087,6 +3337,7 @@ any
 any - Fields consumed by logging, audit, and correlation subsystems.
 (cwd?: string | undefined) => Promise<ProjectInfo> - Read project-info.json and return a typed ProjectInfo.  Falls back gracefully when projectId is missing (pre-T5333 installs) by returning an empty string, allowing callers to detect and handle.
 (cwd?: string | undefined) => ProjectInfo | null - Synchronous variant for use in hot paths where async is not feasible. Returns null if the file is missing or unparseable.
+(cwd: string, name: string) => void - Update the project name in project-info.json. Used by `cleo upgrade --name` and programmatic consumers.
 any - RFC 2119 requirement levels
 any - Violation severity
 any - Protocol rule definition
@@ -3203,22 +3454,22 @@ any
 any
 any
 (input: TokenExchangeInput) => Promise<TokenMeasurement>
-(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
-(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
-(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
+(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
 (filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<TokenUsageSummary>
 (id: string, cwd?: string | undefined) => Promise<{ deleted: boolean; id: string; }>
 (filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ deleted: number; }>
 (input: TokenExchangeInput) => Promise<void>
-(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 (cwd?: string | undefined) => Promise<{ provider: string; transport: string; totalTokens: number; count: number; }[]>
 (epicId: string, wave: number, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<{ epicId: string; wave: number; tasks: string[]; taskCount: number; startedAt: string; }> - Start parallel execution for a wave.
 (epicId: string, wave: number, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<{ epicId: string; wave: number; tasks: string[]; taskCount: number; startedAt: string | null; endedAt: string; durationMs: number; alreadyEnded?: boolean | undefined; }> - End parallel execution for a wave.
 (cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<ParallelState> - Get current parallel execution state.
 any
 any
-(_projectRoot: string) => { skills: SkillEntry[]; total: number; } - List available skills.
-(skillName: string, _projectRoot: string) => SkillContent - Read skill content for injection into agent context.
+(projectRoot: string) => { skills: SkillEntry[]; total: number; } - List available skills from canonical and project-local directories.
+(skillName: string, projectRoot: string) => SkillContent - Read skill content for injection into agent context. Checks project-local skills first.
 any
 any
 any
@@ -3244,76 +3495,6 @@ any - Data returned by context injection.
 (sessionId: string, limit?: number, cwd?: string | undefined) => Promise<{ taskId: string; setAt: string; clearedAt: string | null; }[]> - Get work history for a session.
 (maxAgeDays?: number, cwd?: string | undefined) => Promise<number> - Garbage collect old sessions (mark ended sessions as orphaned after threshold).
 (cwd?: string | undefined) => Promise<Session | null> - Get the currently active session (if any).
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "tasks"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefined; ...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "tasks"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefined; ...
-BuildSchema<"insert", { taskId: SQLiteColumn<{ name: string; tableName: "task_dependencies"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; dependsOn: SQLiteColumn<...>; }, undefined, ...
-BuildSchema<"select", { taskId: SQLiteColumn<{ name: string; tableName: "task_dependencies"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; dependsOn: SQLiteColumn<...>; }, undefined, ...
-BuildSchema<"insert", { taskId: SQLiteColumn<{ name: string; tableName: "task_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; relatedTo: SQLiteColumn<...>; relationType: SQL...
-BuildSchema<"select", { taskId: SQLiteColumn<{ name: string; tableName: "task_relations"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; relatedTo: SQLiteColumn<...>; relationType: SQL...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "sessions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefine...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "sessions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [...]; baseColumn: never; identity: undefined; generated: undefine...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "task_work_history"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; sessionId: SQLiteColumn<...>; taskId: SQLite...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "task_work_history"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; sessionId: SQLiteColumn<...>; taskId: SQLite...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_pipelines"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; version: SQLiteColumn<...>; }, ...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_pipelines"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; version: SQLiteColumn<...>; }, ...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_stages"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 17 more ...; provenanceChainJson: SQLiteColumn...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_stages"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 17 more ...; provenanceChainJson: SQLiteColumn...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_gate_results"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; reason: SQLiteColumn<...>; }...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_gate_results"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 6 more ...; reason: SQLiteColumn<...>; }...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_evidence"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; description: SQLiteColumn<...>; ...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_evidence"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; description: SQLiteColumn<...>; ...
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_transitions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; createdAt: SQLiteColumn<...>;...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "lifecycle_transitions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; createdAt: SQLiteColumn<...>;...
-BuildSchema<"insert", { key: SQLiteColumn<{ name: string; tableName: "schema_meta"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; value: SQLiteColumn<...>; }, undefined, CoerceOptions>
-BuildSchema<"select", { key: SQLiteColumn<{ name: string; tableName: "schema_meta"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; value: SQLiteColumn<...>; }, undefined, CoerceOptions>
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, { ...... - Zod schema for validating audit log insert payloads.  T4848
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, { ...... - Canonical named export for audit log insert schema (T4848). Alias for insertAuditLogSchema.
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, undef...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "audit_log"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; projectHash: SQLiteColumn<...>; }, undef... - Canonical named export for audit log select schema (T4848). Alias for selectAuditLogSchema.
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "architecture_decisions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; topics: SQLiteColumn<...>; ...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "architecture_decisions"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 16 more ...; topics: SQLiteColumn<...>; ...
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any
-any - Canonical type alias for audit log insert (T4848).
-any - Canonical type alias for audit log select (T4848).
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
-any
-any
-any
-any
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
-any
-any
-any - A wave of parallelizable tasks.
-(tasks: Task[]) => DependencyWave[] - Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
-(tasks: Task[]) => Task | null - Get the next task to work on (highest priority ready task).
-(tasks: Task[]) => string[] - Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
-(tasks: Task[]) => string[] - Get task ordering by dependency + priority.
-(tasks: Task[]) => string[] - Get parallelizable tasks (tasks with no unmet dependencies).
 (taskId: string, opts: { threshold?: number | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<Record<string, unknown>> - Suggest related tasks based on shared attributes.
 (from: string, to: string, type: string, reason: string, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<Record<string, unknown>> - Add a relation between tasks.
 (taskId: string, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<Record<string, unknown>> - Discover related tasks using various methods.
@@ -3371,7 +3552,7 @@ any - A single repair action with status.
 (cwd: string | undefined, dryRun: boolean) => Promise<RepairAction[]> - Run all repair functions. Returns all actions taken (or previewed in dry-run mode).
 any - A single upgrade action with status.
 any - Full upgrade result.
-(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; cwd?: string | undefined; }) => Promise<UpgradeResult> - Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight storage check (JSON → SQLite)   2. If migration needed and not dry-run, run auto-migration with backup   3. Schema version checks on JSON files   4. Structural repairs (checksums, missing fields)
+(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; forceDetect?: boolean | undefined; mapCodebase?: boolean | undefined; projectName?: string | undefined; cwd?: string | undefined; }) => Promise<...> - Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight storage check (JSON → SQLite)   2. If migration needed and not dry-run, run auto-migration with backup   3. Schema version checks on JSON files   4. Structural repairs (checksums, missing fields)
 typeof GateLayer - Gate layer enumeration
 typeof GateStatus - Gate status for each layer
 any - Violation detail for a specific gate layer
@@ -3460,9 +3641,9 @@ any - Result from validate + fix operation.
 any
 any
 (cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<CriticalPathResult> - Find the critical path (longest dependency chain) in the task graph.
-any
-any
-any
+any - Configuration for skill precedence resolution across providers.
+any - A resolved skill path with full provenance metadata.
+any - Context for a skill installation operation.
 (providerId: string, scope: "global" | "project", projectRoot?: string | undefined) => Promise<ResolvedSkillPath[]> - Get effective skill paths for a provider considering precedence
 (precedence: SkillsPrecedence) => string[] - Get all providers that use a specific precedence mode
 () => { providerId: string; toolName: string; precedence: SkillsPrecedence; paths: { global: string | null; project: string | null; }; }[] - Build complete skills map with precedence information
@@ -3502,22 +3683,6 @@ any - Change entry.
 (options?: ConsolidateOptions) => MoveRecord[] - Migrate `.cleo/contributions/` files to appropriate epic's contributions/ subdirectory.  Files follow the pattern `T####-session-*.json` with epicId in content.
 (options?: ConsolidateOptions) => MoveRecord[] - Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/{epicId}/research/` subdirectories.
 (options?: ConsolidateOptions) => MigrationResult - Consolidate all provenance files into the unified `.cleo/rcasd/{epicId}/` structure with stage subdirectories.  Performs migrations in order:   1. Rename suffixed directories (T4881_install-channels → T4881)   2. Move consensus files to appropriate epic's consensus/ subdirectory   3. Move contribution files to appropriate epic's contributions/ subdirectory   4. Move loose research files to appropriate epic's research/ subdirectory
-any - Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-any - Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-any - Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-any - Options for initializing a pipeline.   T4800
-any - Options for advancing pipeline stage.   T4800
-any - Pipeline query options.   T4800
-(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline> - Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
-(taskId: string) => Promise<Pipeline | null> - Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
-(taskId: string, options: AdvanceStageOptions) => Promise<void> - Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
-(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"> - Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
-(options?: PipelineQueryOptions) => Promise<Pipeline[]> - List pipelines with optional filtering.
-(taskId: string, _reason?: string | undefined) => Promise<void> - Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
-(taskId: string, reason: string) => Promise<void> - Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
-(taskId: string) => Promise<boolean> - Check if a pipeline exists for a task.
-() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }> - Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
-(taskId: string) => Promise<PipelineStageRecord[]> - Get all stages for a pipeline.
 any - Resumable pipeline information returned to callers.   T4805  T4798
 any - Pipeline context for session resume.   T4805
 any - Stage context within a pipeline.   T4805
@@ -3558,7 +3723,7 @@ any - State transition result.   T4800
 (context: StateMachineContext) => boolean - Check if the pipeline is blocked.
 (transitions: StateTransition[], context: StateMachineContext) => Promise<TransitionValidation[]> - Validate multiple transitions.
 (stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release") => boolean - Check if a stage can be skipped.
-(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", _reason: string, context: StateMachineContext) => StageState - Skip a stage with validation.
+(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", reason: string, context: StateMachineContext) => StageState - Skip a stage with validation.
 any - Context window input from Claude Code.
 any - Context status derived from input.
 (percentage: number) => ContextStatus - Determine status from percentage.
@@ -3582,11 +3747,10 @@ any - Statusline integration status.
 () => StatuslineStatus - Check if statusline integration is configured. Returns the current integration status.
 () => Record<string, unknown> - Get the statusline setup command for Claude Code settings.
 () => string - Get human-readable setup instructions.
-any - Routing entry describing the preferred channel for an operation.
-RoutingEntry[] - Static routing table for all canonical operations.  Operations are grouped by domain with channel preferences based on: - MCP: lower overhead (no CLI startup), direct DB access, structured JSON - CLI: human-readable output, shell integration, interactive prompts - Either: no significant difference or context-dependent
-(domain: string, operation: string) => "cli" | "mcp" | "either" - Look up the preferred channel for a given domain + operation.
-(domain: string) => RoutingEntry[] - Get routing entries for a specific domain.
-(channel: "cli" | "mcp" | "either") => RoutingEntry[] - Get all operations that prefer a specific channel.
+any - Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
+(domain: string, operation: string) => "cli" | "mcp" | "either" - Look up the preferred channel for a given domain + operation.  Reads from the merged capability matrix (single SSoT).
+(domain: string) => RoutingEntry[] - Get routing entries for a specific domain.  Derives entries from the capability matrix.
+(channel: "cli" | "mcp" | "either") => RoutingEntry[] - Get all operations that prefer a specific channel.  Derives entries from the capability matrix.
 any - Provider capability context for dynamic skill generation.
 (context: ProviderContext) => string - Generate dynamic memory protocol instructions based on provider capabilities.
 (context: ProviderContext) => string - Generate a dynamic routing guide based on operation preferences.
@@ -3600,7 +3764,7 @@ any - Import options for logging context.
 (sourceFilePath: string) => Promise<ImportPackageMeta> - Extract package metadata from an export file.  T4552
 (sourceFilePath: string, sessionId?: string | undefined, cwd?: string | undefined) => Promise<void> - Log import operation start with package metadata.  T4552
 (sourceFilePath: string, tasksImported: string[], idRemap: Record<string, string>, conflicts?: { type: string; resolution: string; }[] | undefined, options?: ImportOptions | undefined, sessionId?: string | undefined, cwd?: string | undefined) => Promise<...> - Log import operation completion with full metadata.  T4552
-(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "validation" | "unknown" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...> - Log import operation error with diagnostic details.  T4552
+(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "unknown" | "validation" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...> - Log import operation error with diagnostic details.  T4552
 (conflictType: ImportConflictType, taskId: string, conflictDetails: Record<string, unknown>, resolution: ImportConflictResolution, sessionId?: string | undefined, cwd?: string | undefined) => Promise<...> - Log import conflict detection and resolution.  T4552
 any - Minimal task shape needed for topological sorting.
 (tasks: SortableTask[]) => string[] - Topological sort for task import order using Kahn's algorithm.  Ensures tasks are imported in dependency order: - Parents before children (parentId references) - Dependencies before dependents (depends[] references) - Only counts edges to tasks within the set (external deps ignored)   T4552
@@ -3611,7 +3775,7 @@ any - Row shape for pipeline + stage JOIN.
 (taskId: string, cwd?: string | undefined) => Promise<PipelineStageTaskRow[]> - Find a pipeline with its current stage and task by taskId. Matches stages where stageName equals the pipeline's currentStageId.
 (taskId: string, stageName: string, cwd?: string | undefined) => Promise<PipelineStageRow[]> - Find a pipeline and a specific stage by taskId and stageName.
 (pipelineId: string, currentStageId: string, cwd?: string | undefined) => Promise<void> - Update pipeline's currentStageId.
-(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]> - Get all stages for a pipeline, ordered by sequence.
+(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]> - Get all stages for a pipeline, ordered by sequence.
 (stageId: string, startedAt: string, cwd?: string | undefined) => Promise<void> - Update a stage's status to 'in_progress' and clear block fields.
 (taskId: string, cwd?: string | undefined) => Promise<PipelineStageRow[]> - Find pipeline with current stage (no task join) by taskId. Used by checkBlockedStageDetails.
 (stageId: string, cwd?: string | undefined) => Promise<{ id: string; reason: string | null; stageId: string; gateName: string; result: "warn" | "pass" | "fail"; checkedAt: string; checkedBy: string; details: string | null; }[]> - Get gate results for a stage, ordered by checkedAt descending.
@@ -3676,9 +3840,6 @@ any - Validate a phase transition.
 (project: ProjectMeta, toPhase: string, transitionType: "completed" | "started" | "rollback", taskCount: number, reason?: string | undefined) => ProjectMeta - Apply a phase transition to project metadata. Returns updated project data.
 (currentPhaseName: string | null, phases: Record<string, Phase>) => string | null - Get the next phase in order.
 (phases: Record<string, Phase>) => boolean - Check if all phases are complete.
-any - Options for reparenting a task.
-any - Result of a reparent operation.
-(data: TaskFile, opts: ReparentOptions) => Promise<ReparentResult> - Reparent a task within a TaskFile.  Mutates the task in-place within `data.tasks`. Updates `parentId`, `type`, and `updatedAt` on the target task, and `lastUpdated` on the TaskFile.
 (size: TaskSize | null | undefined) => number - Get weight for a task size.
 (priority: TaskPriority) => number - Get weight for a task priority.
 (task: Task) => number - Calculate a composite score for task ordering. Higher score = should be worked on first.

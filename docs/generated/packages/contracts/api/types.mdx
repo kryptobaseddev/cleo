@@ -435,7 +435,7 @@ A single CLEO task as stored in the database.  Fields marked as required are enf
 | `id` | `string` | Yes | Unique task identifier. Must match pattern `T\d\{3,\}` (e.g., T001, T5800). |
 | `title` | `string` | Yes | Human-readable task title. Required, max 120 characters. |
 | `description` | `string` | Yes | Task description. **Required** — CLEO's anti-hallucination rules reject tasks without a description, and require it to differ from the title. |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | Current task status. Must be a valid `TaskStatus` enum value. |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"` | Yes | Current task status. Must be a valid `TaskStatus` enum value. |
 | `priority` | `TaskPriority` | Yes | Task priority level. Defaults to `'medium'` on creation. |
 | `type` | `TaskType \| undefined` | No | Task type in hierarchy. Inferred from parent context if not specified. |
 | `parentId` | `string \| null \| undefined` | No | ID of the parent task. `null` for root-level tasks. |
@@ -469,7 +469,7 @@ Input type for creating a new task via `addTask()`.  Only the fields the caller 
 |----------|------|----------|-------------|
 | `title` | `string` | Yes | Human-readable task title. Required, max 120 characters. |
 | `description` | `string` | Yes | Task description. **Required** — CLEO's anti-hallucination rules reject tasks without a description, and require it to differ from the title. |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | Initial status. Defaults to `'pending'`. |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | Initial status. Defaults to `'pending'`. |
 | `priority` | `TaskPriority \| undefined` | No | Priority level. Defaults to `'medium'`. |
 | `type` | `TaskType \| undefined` | No | Task type. Inferred from parent context if not specified. |
 | `parentId` | `string \| null \| undefined` | No | Parent task ID for hierarchy placement. |
@@ -606,21 +606,6 @@ Task work state.
 | `sessionNotes` | `SessionNote[] \| undefined` | No | sessionNotes |
 | `nextAction` | `string \| null \| undefined` | No | nextAction |
 | `primarySession` | `string \| null \| undefined` | No | primarySession |
-
-## TaskFile
-
-Root task data structure.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `version` | `string` | Yes | version |
-| `project` | `ProjectMeta` | Yes | project |
-| `lastUpdated` | `string` | Yes | lastUpdated |
-| `_meta` | `FileMeta` | Yes | _meta |
-| `taskWork` | `TaskWorkState \| undefined` | No | taskWork |
-| `focus` | `TaskWorkState \| undefined` | No | focus |
-| `tasks` | `Task[]` | Yes | tasks |
-| `labels` | `Record&lt;string, string[]> \| undefined` | No | labels |
 
 ## ArchiveMetadata
 
@@ -1090,14 +1075,14 @@ Filter bag for queryTasks(). Covers ~90% of task query patterns.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `TaskType \| undefined` | No | type |
 | `parentId` | `string \| null \| undefined` | No | parentId |
 | `phase` | `string \| undefined` | No | phase |
 | `label` | `string \| undefined` | No | label |
 | `search` | `string \| undefined` | No | search |
-| `excludeStatus` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | excludeStatus |
+| `excludeStatus` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived")[] \| undefined` | No | excludeStatus |
 | `limit` | `number \| undefined` | No | limit |
 | `offset` | `number \| undefined` | No | offset |
 | `orderBy` | `"createdAt" \| "updatedAt" \| "priority" \| "position" \| undefined` | No | orderBy |
@@ -1119,7 +1104,7 @@ Partial task row fields for updateTaskFields().
 |----------|------|----------|-------------|
 | `title` | `string \| undefined` | No | title |
 | `description` | `string \| null \| undefined` | No | description |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `TaskType \| null \| undefined` | No | type |
 | `parentId` | `string \| null \| undefined` | No | parentId |
@@ -1179,7 +1164,7 @@ DataAccessor interface.  Core modules call these methods instead of readJson/sav
 | `setMetaValue` | `(key: string, value: unknown) => Promise&lt;void&gt;` | Yes | Write a typed value to the metadata store. |
 | `getSchemaVersion` | `() => Promise&lt;string \| null&gt;` | Yes | Read the schema version from metadata. Convenience for getMetaValue('schema_version'). |
 | `queryTasks` | `(filters: TaskQueryFilters) => Promise&lt;QueryTasksResult&gt;` | Yes | Query tasks with filters, pagination, and ordering. Returns matching tasks + total count. |
-| `countTasks` | `(filters?: \{ status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived")[] \| undefined; parentId?: string \| undefined; \} \| undefined) => Promise<...>` | No | Count tasks matching optional filters. Excludes archived by default. |
+| `countTasks` | `(filters?: \{ status?: "cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| ("cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived")[] \| undefined; parentId?: string \| undefined; \} \| undefined) => Promise<...>` | No | Count tasks matching optional filters. Excludes archived by default. |
 | `getChildren` | `(parentId: string) => Promise&lt;Task[]>` | Yes | Get direct children of a parent task. |
 | `countChildren` | `(parentId: string) => Promise&lt;number&gt;` | Yes | Count direct children of a parent task (all statuses except archived). |
 | `countActiveChildren` | `(parentId: string) => Promise&lt;number&gt;` | Yes | Count active (non-terminal) children of a parent task. |
@@ -3076,7 +3061,7 @@ any
 | `id` | `string` | Yes | id |
 | `title` | `string` | Yes | title |
 | `description` | `string` | Yes | description |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"` | Yes | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `parent` | `string \| undefined` | No | parent |
 | `depends` | `string[] \| undefined` | No | depends |
@@ -3092,7 +3077,7 @@ any
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | id |
 | `title` | `string` | Yes | title |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"` | Yes | status |
 | `parent` | `string \| undefined` | No | parent |
 
 ## TasksGetParams
@@ -3112,7 +3097,7 @@ any
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `parent` | `string \| undefined` | No | parent |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `string \| undefined` | No | type |
 | `phase` | `string \| undefined` | No | phase |
@@ -3189,7 +3174,7 @@ any
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | taskId |
 | `title` | `string` | Yes | title |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"` | Yes | status |
 | `blockType` | `"gate" \| "parent" \| "dependency"` | Yes | blockType |
 
 ## TasksBlockersResult
@@ -3211,7 +3196,7 @@ any
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | taskId |
 | `title` | `string` | Yes | title |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"` | Yes | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"` | Yes | status |
 | `distance` | `number` | Yes | distance |
 
 ## TasksDepsResult
@@ -3290,7 +3275,7 @@ any
 | `taskId` | `string` | Yes | taskId |
 | `title` | `string \| undefined` | No | title |
 | `description` | `string \| undefined` | No | description |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `notes` | `string \| undefined` | No | notes |
 | `parent` | `string \| null \| undefined` | No | parent |
@@ -4140,7 +4125,7 @@ A chain bound to a specific epic.
 | `epicId` | `string` | Yes | epicId |
 | `variables` | `Record&lt;string, unknown&gt;` | Yes | variables |
 | `stageToTask` | `Record&lt;string, string&gt;` | Yes | stageToTask |
-| `status` | `"completed" \| "failed" \| "cancelled" \| "pending" \| "active"` | Yes | status |
+| `status` | `"completed" \| "failed" \| "cancelled" \| "active" \| "pending"` | Yes | status |
 | `currentStage` | `string` | Yes | currentStage |
 | `createdAt` | `string` | Yes | createdAt |
 | `createdBy` | `string` | Yes | createdBy |
@@ -4177,7 +4162,7 @@ A variable declaration within a Tessera template.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `name` | `string` | Yes | name |
-| `type` | `"string" \| "number" \| "boolean" \| "epicId" \| "taskId"` | Yes | type |
+| `type` | `"string" \| "number" \| "boolean" \| "taskId" \| "epicId"` | Yes | type |
 | `description` | `string` | Yes | description |
 | `required` | `boolean` | Yes | required |
 | `default` | `unknown` | Yes | default |

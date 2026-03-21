@@ -1010,16 +1010,20 @@ const config: Partial<TemplateConfig> = {
 
 ## `SkillsPrecedenceConfig`
 
+Configuration for skill precedence resolution across providers.
+
 ```typescript
 import type { SkillsPrecedenceConfig } from "@cleocode/monorepo";
 
 const config: Partial<SkillsPrecedenceConfig> = {
+  // Default precedence mode when no provider-specific override exists.
   defaultPrecedence: { /* ... */ },
+  // Per-provider precedence overrides (provider ID - precedence).
   providerOverrides: { /* ... */ },
 };
 ```
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `defaultPrecedence` | `SkillsPrecedence | undefined` |  |
-| `providerOverrides` | `Record<string, SkillsPrecedence> | undefined` |  |
+| `defaultPrecedence` | `SkillsPrecedence | undefined` | Default precedence mode when no provider-specific override exists. |
+| `providerOverrides` | `Record<string, SkillsPrecedence> | undefined` | Per-provider precedence overrides (provider ID - precedence). |

@@ -2154,6 +2154,22 @@ Import a snapshot into the project.
 (projectRoot: string, inputPath: string) => Promise<EngineResult<ImportResult>>
 ```
 
+### `nexusTransferPreview`
+
+Preview a cross-project task transfer (dry run).
+
+```typescript
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+```
+
+### `nexusTransferExecute`
+
+Execute a cross-project task transfer.
+
+```typescript
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+```
+
 ### `bindSession`
 
 Bind a session to the current process. Called by session.start mutation handler after successful session creation.
@@ -3085,6 +3101,14 @@ Get the OS config directory for CLEO. Linux: ~/.config/cleo | macOS: ~/Library/P
 () => string
 ```
 
+### `getCleoTemplatesTildePath`
+
+Get the CLEO templates directory as a tilde-prefixed path for use in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform: replaces the user's home directory with `~` so the reference works when loaded by LLM providers that resolve `~` at runtime.  Linux:   ~/.local/share/cleo/templates macOS:   ~/Library/Application Support/cleo/templates Windows: ~/AppData/Local/cleo/Data/templates (approximate)
+
+```typescript
+() => string
+```
+
 ### `getAgentsHome`
 
 Get the global agents hub directory. Respects AGENTS_HOME env var, defaults to ~/.agents.
@@ -3135,7 +3159,7 @@ Get the path to the brain.db SQLite database file.
 
 ### `resolveBrainMigrationsFolder`
 
-Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
 
 ```typescript
 () => string
@@ -3191,7 +3215,7 @@ Get the path to the nexus.db SQLite database file. nexus.db lives in the global 
 
 ### `resolveNexusMigrationsFolder`
 
-Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
 
 ```typescript
 () => string
@@ -3255,7 +3279,7 @@ Initialize the SQLite database (lazy, singleton). Creates the database file and 
 
 ### `resolveMigrationsFolder`
 
-Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
 
 ```typescript
 () => string
@@ -3346,7 +3370,7 @@ Parse a JSON string expected to contain an array. Returns undefined for null/und
 Convert a database TaskRow to a domain Task object.
 
 ```typescript
-(row: { sessionId: string | null; id: string; description: string | null; createdAt: string; updatedAt: string | null; status: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"; ... 24 more ...; modifiedBy: string | null; }) => Task
+(row: { sessionId: string | null; id: string; status: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"; description: string | null; createdAt: string; updatedAt: string | null; ... 24 more ...; modifiedBy: string | null; }) => Task
 ```
 
 ### `taskToRow`
@@ -3354,7 +3378,7 @@ Convert a database TaskRow to a domain Task object.
 Convert a domain Task to a database row for insert/upsert.
 
 ```typescript
-(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 ```
 
 ### `archivedTaskToRow`
@@ -3362,7 +3386,7 @@ Convert a domain Task to a database row for insert/upsert.
 Convert a domain Task to a row suitable for archived tasks.
 
 ```typescript
-(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; description?: string | ... 1 more ... | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 ```
 
 ### `rowToSession`
@@ -3370,7 +3394,7 @@ Convert a domain Task to a row suitable for archived tasks.
 Convert a SessionRow to a domain Session.
 
 ```typescript
-(row: { gradeMode: number | null; id: string; name: string; status: "active" | "ended" | "orphaned" | "suspended"; agent: string | null; notesJson: string | null; scopeJson: string; currentTask: string | null; ... 14 more ...; resumeCount: number | null; }) => Session
+(row: { gradeMode: number | null; id: string; status: "active" | "ended" | "orphaned" | "suspended"; startedAt: string; name: string; agent: string | null; notesJson: string | null; scopeJson: string; ... 14 more ...; resumeCount: number | null; }) => Session
 ```
 
 ### `getErrorDefinition`
@@ -3402,7 +3426,7 @@ Get all error definitions as an array.
 Upsert a single task row into the tasks table. Handles both active task upsert and archived task upsert via optional archiveFields.  Defensively nulls out parentId if it references a non-existent task, preventing orphaned FK violations from blocking bulk operations (T5034).
 
 ```typescript
-(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => ...
+(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => Promise<...>
 ```
 
 ### `upsertSession`
@@ -4014,7 +4038,7 @@ Delete a task by ID.
 List tasks with optional filters.
 
 ```typescript
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
 ```
 
 ### `findTasks`
@@ -5020,12 +5044,12 @@ Create a temporary directory with an initialized tasks.db.  Usage:
 () => Promise<TestDbEnv>
 ```
 
-### `makeTaskFile`
+### `makeTasks`
 
-Build a TaskFile structure from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
+Build full Task objects from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
 
 ```typescript
-(tasks: (Partial<Task> & { id: string; })[]) => TaskFile
+(tasks: (Partial<Task> & { id: string; })[]) => Task[]
 ```
 
 ### `seedTasks`
@@ -5263,6 +5287,12 @@ Set a config value in the project or global config file (dot-notation supported)
 (key: string, value: unknown, cwd?: string | undefined, opts?: { global?: boolean | undefined; } | undefined) => Promise<{ key: string; value: unknown; scope: "global" | "project"; }>
 ```
 
+### `createAcceptanceEnforcement`
+
+```typescript
+(cwd?: string | undefined) => Promise<AcceptanceEnforcement>
+```
+
 ### `validateTitle`
 
 Validate a task title.  T4460
@@ -5276,7 +5306,7 @@ Validate a task title.  T4460
 Validate task status.  T4460
 
 ```typescript
-(status: string) => asserts status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => asserts status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 ```
 
 ### `normalizePriority`
@@ -5623,6 +5653,12 @@ Register the delete command.  T4461
 (program: ShimCommand) => void
 ```
 
+### `registerDetectCommand`
+
+```typescript
+(program: ShimCommand) => void
+```
+
 ### `registerDetectDriftCommand`
 
 ```typescript
@@ -5758,12 +5794,6 @@ Register the init command.  T4681  T4663
 ```
 
 ### `registerInjectCommand`
-
-```typescript
-(program: ShimCommand) => void
-```
-
-### `registerInstallGlobalCommand`
 
 ```typescript
 (program: ShimCommand) => void
@@ -7042,6 +7072,22 @@ Factory: get a BrainDataAccessor backed by the brain.db singleton.
 (cwd?: string | undefined) => Promise<BrainDataAccessor>
 ```
 
+### `typedAll`
+
+Type-safe wrapper for `StatementSync.all` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
+```typescript
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T[]
+```
+
+### `typedGet`
+
+Type-safe wrapper for `StatementSync.get` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
+```typescript
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T | undefined
+```
+
 ### `setEmbeddingProvider`
 
 Register an embedding provider for the brain system. Validates that the provider's dimensions match the vec0 table.
@@ -7156,7 +7202,7 @@ Get the CLEO-INJECTION.md template content from the package templates/ directory
 
 ### `ensureInjection`
 
-Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.cleo/templates/CLEO-INJECTION.md + .cleo/project-context.json   T4682
+Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.agents/AGENTS.md + .cleo/project-context.json + .cleo/memory-bridge.md   T4682
 
 ```typescript
 (projectRoot: string) => Promise<ScaffoldResult>
@@ -7188,7 +7234,7 @@ Check if a file exists and is readable.
 
 ### `stripCLEOBlocks`
 
-Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.
+Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.  Handles both bare markers (!-- CLEO:START --) and versioned markers (!-- CLEO:START v0.53.4 --, !-- CLEO:START v1.2.3 --).
 
 ```typescript
 (filePath: string) => Promise<void>
@@ -7378,7 +7424,7 @@ Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) —
 
 ### `ensureGlobalHome`
 
-Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
+Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  Also removes known stale project-level entries that old CLEO versions incorrectly placed at the global level (see STALE_GLOBAL_ENTRIES).  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
 
 ```typescript
 () => Promise<ScaffoldResult>
@@ -7394,10 +7440,10 @@ Ensure the global CLEO injection template is installed. Delegates to injection.t
 
 ### `ensureGlobalScaffold`
 
-Perform a complete global scaffold operation: ensure home, schemas, and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
+Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
 
 ```typescript
-() => Promise<{ home: ScaffoldResult; schemas: { installed: number; updated: number; total: number; }; templates: ScaffoldResult; }>
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }>
 ```
 
 ### `checkGlobalHome`
@@ -7462,14 +7508,6 @@ Verify managed hooks are installed and current.  Compares installed hooks in .gi
 
 ```typescript
 (projectRoot: string) => Promise<HookCheckResult[]>
-```
-
-### `toTaskFileExt`
-
-Convert a TaskFile (from contracts) to the looser TaskFileExt shape. Accepts any object with at least the basic TaskFileExt structure. The runtime object is the same reference — this only changes the TS type.
-
-```typescript
-<T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string; }>(taskFile: T) => TaskFileExt
 ```
 
 ### `recordDecision`
@@ -8557,6 +8595,54 @@ Resolve tokens in a prompt string.  T4466
 (prompt: string, context: Record<string, string>) => { resolved: string; unresolved: string[]; }
 ```
 
+### `getLinksByProvider`
+
+Find all links for a given provider.
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+### `getLinkByExternalId`
+
+Find a link by provider + external ID.
+
+```typescript
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
+```
+
+### `getLinksByTaskId`
+
+Find all links for a given CLEO task.
+
+```typescript
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+### `createLink`
+
+Create a new external task link.
+
+```typescript
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
+```
+
+### `touchLink`
+
+Update the lastSyncAt and optionally the title/metadata for an existing link.
+
+```typescript
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
+```
+
+### `removeLinksByProvider`
+
+Remove all links for a provider (used during provider deregistration).
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<number>
+```
+
 ### `bridgeSessionToMemory`
 
 Bridge session end data to brain.db as an observation.  Builds a summary text from the session metadata and saves it as a 'change' observation with source_type 'agent'.
@@ -8648,54 +8734,6 @@ Update a task's fields.  T4461
 
 ```typescript
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult>
-```
-
-### `getLinksByProvider`
-
-Find all links for a given provider.
-
-```typescript
-(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-```
-
-### `getLinkByExternalId`
-
-Find a link by provider + external ID.
-
-```typescript
-(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
-```
-
-### `getLinksByTaskId`
-
-Find all links for a given CLEO task.
-
-```typescript
-(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-```
-
-### `createLink`
-
-Create a new external task link.
-
-```typescript
-(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
-```
-
-### `touchLink`
-
-Update the lastSyncAt and optionally the title/metadata for an existing link.
-
-```typescript
-(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
-```
-
-### `removeLinksByProvider`
-
-Remove all links for a provider (used during provider deregistration).
-
-```typescript
-(providerId: string, cwd?: string | undefined) => Promise<number>
 ```
 
 ### `reconcile`
@@ -9255,7 +9293,7 @@ Remove a link between a memory entry and a task.   T5156
 Get all memory entries linked to a specific task.   T5156
 
 ```typescript
-(projectRoot: string, taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
+(projectRoot: string, taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
 ```
 
 ### `getMemoryLinks`
@@ -9263,7 +9301,7 @@ Get all memory entries linked to a specific task.   T5156
 Get all tasks linked to a specific memory entry.   T5156
 
 ```typescript
-(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
+(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
 ```
 
 ### `bulkLink`
@@ -9352,6 +9390,183 @@ Check if all dependencies of a task are satisfied.
 - `taskLookup` — Map from task ID to a task-like object with at least  status: string
 
 **Returns:** true if all dependencies are done/cancelled, or if no dependencies exist
+
+### `initializePipeline`
+
+Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
+
+```typescript
+(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID (e.g., 'T4800')
+- `options` — Optional configuration
+
+**Returns:** Promise resolving to the created Pipeline
+
+```typescript
+const pipeline = await initializePipeline('T4800', {
+  startStage: 'research',
+  assignedAgent: 'agent-001'
+});
+console.log(`Pipeline initialized: ${pipeline.id}`);
+```
+
+### `getPipeline`
+
+Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
+
+```typescript
+(taskId: string) => Promise<Pipeline | null>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID (e.g., 'T4800')
+
+**Returns:** Promise resolving to Pipeline or null
+
+```typescript
+const pipeline = await getPipeline('T4800');
+if (pipeline) {
+  console.log(`Current stage: ${pipeline.currentStage}`);
+}
+```
+
+### `advanceStage`
+
+Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
+
+```typescript
+(taskId: string, options: AdvanceStageOptions) => Promise<void>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+- `options` — Advance options including target stage and reason
+
+**Returns:** Promise resolving when transition is complete
+
+```typescript
+await advanceStage('T4800', {
+  toStage: 'consensus',
+  reason: 'Research completed, moving to consensus',
+  initiatedBy: 'agent-001'
+});
+```
+
+### `getCurrentStage`
+
+Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
+
+```typescript
+(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+
+**Returns:** Promise resolving to the current Stage
+
+```typescript
+const currentStage = await getCurrentStage('T4800');
+if (currentStage === 'validation') {
+  console.log('Task is in verification');
+}
+```
+
+### `listPipelines`
+
+List pipelines with optional filtering.
+
+```typescript
+(options?: PipelineQueryOptions) => Promise<Pipeline[]>
+```
+
+**Parameters:**
+
+- `options` — Query options for filtering and pagination
+
+**Returns:** Promise resolving to array of Pipelines
+
+```typescript
+const activePipelines = await listPipelines({
+  status: 'active',
+  limit: 10
+});
+```
+
+### `completePipeline`
+
+Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
+
+```typescript
+(taskId: string, reason?: string | undefined) => Promise<void>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+- `reason` — Optional completion reason, stored in the final stage's notes
+
+**Returns:** Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
+
+### `cancelPipeline`
+
+Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
+
+```typescript
+(taskId: string, reason: string) => Promise<void>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+- `reason` — Reason for cancellation
+
+**Returns:** Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
+
+### `pipelineExists`
+
+Check if a pipeline exists for a task.
+
+```typescript
+(taskId: string) => Promise<boolean>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+
+**Returns:** Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
+
+### `getPipelineStatistics`
+
+Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
+
+```typescript
+() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
+```
+
+**Returns:** Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
+
+### `getPipelineStages`
+
+Get all stages for a pipeline.
+
+```typescript
+(taskId: string) => Promise<PipelineStageRecord[]>
+```
+
+**Parameters:**
+
+- `taskId` — The task ID
+
+**Returns:** Promise resolving to array of stage records   T4912
 
 ### `computeBriefing`
 
@@ -9736,7 +9951,7 @@ Build relationship graph from tasks.
 Build a complete export package.
 
 ```typescript
-(tasks: Task[], taskData: TaskFile, options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; }) => ExportPackage
+(tasks: Task[], options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; projectName?: string | undefined; }) => ExportPackage
 ```
 
 ### `exportSingle`
@@ -9744,7 +9959,7 @@ Build a complete export package.
 Export a single task.
 
 ```typescript
-(taskId: string, taskData: TaskFile) => ExportPackage | null
+(taskId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 ```
 
 ### `exportSubtree`
@@ -9752,7 +9967,7 @@ Export a single task.
 Export a subtree (task + all descendants).
 
 ```typescript
-(rootId: string, taskData: TaskFile) => ExportPackage | null
+(rootId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 ```
 
 ### `exportTasksPackage`
@@ -9871,9 +10086,17 @@ Resolve duplicate title by appending suffix.
 (title: string, existingTitles: Set<string>) => string
 ```
 
+### `importFromPackage`
+
+Import tasks from an in-memory ExportPackage with ID remapping. Core logic extracted from importTasksPackage for reuse by transfer engine.
+
+```typescript
+(exportPkg: ExportPackage, options?: ImportFromPackageOptions) => Promise<ImportFromPackageResult>
+```
+
 ### `importTasksPackage`
 
-Import tasks from a cross-project export package with ID remapping.
+Import tasks from a cross-project export package file with ID remapping. Thin wrapper around importFromPackage that handles file I/O.
 
 ```typescript
 (params: ImportTasksParams) => Promise<ImportTasksResult>
@@ -9908,6 +10131,231 @@ Validate all ADRs in .cleo/adrs/ against the schema
 ```typescript
 (projectRoot: string) => Promise<ValidationResult>
 ```
+
+### `generateAgentId`
+
+Generate a unique agent instance ID. Format: `agt_{YYYYMMDDHHmmss}_{6hex}`
+
+```typescript
+() => string
+```
+
+### `registerAgent`
+
+Register a new agent instance in the database. Sets initial status to 'starting' and records the first heartbeat.
+
+```typescript
+(opts: RegisterAgentOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }>
+```
+
+### `deregisterAgent`
+
+Deregister (stop) an agent instance. Sets status to 'stopped' and records the stop timestamp.
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+### `heartbeat`
+
+Record a heartbeat for an agent instance. Updates `last_heartbeat` and returns the current status so the agent can detect if it has been externally marked for shutdown.
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<"error" | "starting" | "active" | "idle" | "crashed" | "stopped" | null>
+```
+
+### `updateAgentStatus`
+
+Update agent status with optional error tracking. When status is 'error' or 'crashed', increments the error count and logs the error to the agent_error_log table.
+
+```typescript
+(id: string, opts: UpdateStatusOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+### `incrementTasksCompleted`
+
+Increment the completed task count for an agent.
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<void>
+```
+
+### `listAgentInstances`
+
+List agent instances with optional filters.
+
+```typescript
+(filters?: ListAgentFilters | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+```
+
+### `getAgentInstance`
+
+Get a single agent instance by ID.
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+### `classifyError`
+
+Classify an error as retriable, permanent, or unknown.  Retriable errors are transient conditions (network, rate limits, locks) where a retry may succeed. Permanent errors are structural (auth, not found, constraint violations) where retrying is pointless.
+
+```typescript
+(error: unknown) => AgentErrorType
+```
+
+### `getAgentErrorHistory`
+
+Get the error history for a specific agent.
+
+```typescript
+(agentId: string, cwd?: string | undefined) => Promise<{ id: number; agentId: string; errorType: "retriable" | "permanent" | "unknown"; message: string; stack: string | null; occurredAt: string; resolved: boolean; }[]>
+```
+
+### `checkAgentHealth`
+
+Check agent health by finding instances whose last heartbeat exceeds the threshold. Default threshold: 30000ms (30 seconds) as specified by the BRAIN spec.  Returns agents that appear to have crashed (stale heartbeat).
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+```
+
+### `markCrashed`
+
+Mark an agent instance as crashed. Increments error count and sets status to 'crashed'.
+
+```typescript
+(id: string, reason?: string | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+### `getHealthReport`
+
+Generate a health report summarizing all agent instances. Includes counts by status and identifies stale agents.
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentHealthReport>
+```
+
+### `updateCapacity`
+
+Update the capacity value for an agent instance.
+
+```typescript
+(id: string, capacity: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+**Parameters:**
+
+- `id` — Agent instance ID
+- `capacity` — New capacity value (0.0 to 1.0)
+- `cwd` — Working directory
+
+**Returns:** Updated agent row, or null if not found
+
+### `getAvailableCapacity`
+
+Get the total available capacity across all active agents.  Only considers agents in 'active' or 'idle' status. Returns the sum of all capacity values.
+
+```typescript
+(cwd?: string | undefined) => Promise<number>
+```
+
+### `findLeastLoadedAgent`
+
+Find the agent with the most available capacity.
+
+```typescript
+(agentType?: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor" | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; ... 11 more ...; parentAgentId: string | null; } | null>
+```
+
+**Parameters:**
+
+- `agentType` — Optional type filter
+- `cwd` — Working directory
+
+**Returns:** Agent with highest capacity, or null if no active agents
+
+### `isOverloaded`
+
+Check if the system is overloaded (total capacity below threshold).
+
+```typescript
+(threshold?: number, cwd?: string | undefined) => Promise<boolean>
+```
+
+**Parameters:**
+
+- `threshold` — Minimum acceptable capacity (default: 0.1)
+- `cwd` — Working directory
+
+**Returns:** true if total available capacity is below the threshold
+
+### `getCapacitySummary`
+
+Get a capacity summary across the entire agent pool.
+
+```typescript
+(threshold?: number, cwd?: string | undefined) => Promise<CapacitySummary>
+```
+
+**Parameters:**
+
+- `threshold` — Overload threshold (default: 0.1)
+- `cwd` — Working directory
+
+### `createRetryPolicy`
+
+Create a retry policy by merging overrides with the default policy.
+
+```typescript
+(overrides?: Partial<RetryPolicy> | undefined) => RetryPolicy
+```
+
+### `calculateDelay`
+
+Calculate the delay for a given retry attempt using exponential backoff.  Formula: min(baseDelay * multiplier^attempt, maxDelay) + jitter Jitter adds 0-25% randomness to prevent thundering herd.
+
+```typescript
+(attempt: number, policy: RetryPolicy) => number
+```
+
+### `shouldRetry`
+
+Determine whether an error should be retried based on its classification and the retry policy.
+
+```typescript
+(error: unknown, attempt: number, policy: RetryPolicy) => boolean
+```
+
+### `withRetry`
+
+Wrap an async function with retry logic using configurable exponential backoff.  The function will be retried according to the policy when retriable errors occur. Permanent errors cause immediate failure. Unknown errors respect the `retryOnUnknown` policy setting.
+
+```typescript
+<T>(fn: () => Promise<T>, policy?: Partial<RetryPolicy> | undefined) => Promise<RetryResult<T>>
+```
+
+**Parameters:**
+
+- `fn` — The async function to execute with retries
+- `policy` — Retry policy (uses DEFAULT_RETRY_POLICY if not provided)
+
+**Returns:** The result of the operation with retry metadata
+
+### `recoverCrashedAgents`
+
+Attempt to recover crashed agents.  Finds all agents with status 'crashed' and determines if they can be restarted based on their error history. Agents whose last error was classified as 'permanent' are abandoned. Agents with retriable errors are reset to 'starting' for the orchestration layer to re-assign.
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentRecoveryResult[]>
+```
+
+**Parameters:**
+
+- `thresholdMs` — Heartbeat threshold for crash detection (default: 30000)
+- `cwd` — Working directory
+
+**Returns:** Recovery results for each crashed agent
 
 ### `providerList`
 
@@ -10172,12 +10620,316 @@ List all context state files.
 (cwd?: string | undefined) => Promise<Record<string, unknown>>
 ```
 
+### `validatePayload`
+
+Validate a hook payload against its event-specific Zod schema.  Falls back to the base `HookPayloadSchema` for events without a dedicated schema. Returns a result object rather than throwing, so callers can decide how to handle validation failures.
+
+```typescript
+(event: HookEvent, payload: unknown) => PayloadValidationResult
+```
+
+**Parameters:**
+
+- `event` — The hook event name
+- `payload` — The payload to validate
+
+**Returns:** Validation result with any error messages
+
 ### `injectTasks`
 
 Inject tasks for external consumption.
 
 ```typescript
 (opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...>
+```
+
+### `detectCircularDeps`
+
+Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+### `wouldCreateCycle`
+
+Check if adding a dependency would create a cycle.
+
+```typescript
+(fromId: string, toId: string, tasks: Task[]) => boolean
+```
+
+### `getBlockedTasks`
+
+Get tasks that are blocked (have unmet dependencies).
+
+```typescript
+(tasks: Task[]) => Task[]
+```
+
+### `getReadyTasks`
+
+Get tasks that are ready (all dependencies met).
+
+```typescript
+(tasks: Task[]) => Task[]
+```
+
+### `getDependents`
+
+Get tasks that depend on a given task.
+
+```typescript
+(taskId: string, tasks: Task[]) => Task[]
+```
+
+### `getDependentIds`
+
+Get dependent IDs.
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+### `getUnresolvedDeps`
+
+Get unresolved dependencies for a task (deps that are not done/cancelled).
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+### `validateDependencyRefs`
+
+Validate dependencies for missing references.
+
+```typescript
+(tasks: Task[]) => DependencyError[]
+```
+
+### `validateDependencies`
+
+Full dependency graph validation.
+
+```typescript
+(tasks: Task[]) => DependencyCheckResult
+```
+
+### `topologicalSort`
+
+Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
+
+```typescript
+(tasks: Task[]) => string[] | null
+```
+
+### `getTransitiveBlockers`
+
+Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+### `getLeafBlockers`
+
+From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+### `computeDependencyWaves`
+
+Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
+
+```typescript
+(tasks: Task[]) => DependencyWave[]
+```
+
+### `getNextTask`
+
+Get the next task to work on (highest priority ready task).
+
+```typescript
+(tasks: Task[]) => Task | null
+```
+
+### `getCriticalPath`
+
+Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+### `getTaskOrder`
+
+Get task ordering by dependency + priority.
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+### `getParallelTasks`
+
+Get parallelizable tasks (tasks with no unmet dependencies).
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+### `analyzeTaskImpact`
+
+Analyze the full downstream impact of a task.  Computes direct and transitive dependents, affected lifecycle pipelines, blocked work counts, critical path membership, and blast radius.
+
+```typescript
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ImpactAssessment>
+```
+
+**Parameters:**
+
+- `taskId` — The task to analyze
+- `accessor` — DataAccessor instance (or auto-created from cwd)
+- `cwd` — Working directory (used if accessor is not provided)
+
+**Returns:** Full impact assessment
+
+### `analyzeChangeImpact`
+
+Analyze the downstream effects of a specific change to a task.  Predicts what happens when a task is cancelled, blocked, completed, or reprioritized, including cascading status changes.
+
+```typescript
+(taskId: string, changeType: ChangeType, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ChangeImpact>
+```
+
+**Parameters:**
+
+- `taskId` — The task being changed
+- `changeType` — The type of change
+- `accessor` — DataAccessor instance (or auto-created from cwd)
+- `cwd` — Working directory (used if accessor is not provided)
+
+**Returns:** Predicted change impact
+
+### `calculateBlastRadius`
+
+Calculate the blast radius for a task.  Quantifies how many tasks, epics, and what percentage of the project would be impacted by changes to this task.
+
+```typescript
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<BlastRadius>
+```
+
+**Parameters:**
+
+- `taskId` — The task to analyze
+- `accessor` — DataAccessor instance (or auto-created from cwd)
+- `cwd` — Working directory (used if accessor is not provided)
+
+**Returns:** Blast radius metrics
+
+### `extractPatternsFromHistory`
+
+Analyze brain_observations and task history to find recurring patterns.  Detects: - Workflow patterns: common task sequences that succeed/fail - Blocker patterns: what commonly blocks tasks - Success patterns: what correlates with successful task completion - Time patterns: recurring label/type distributions by task status
+
+```typescript
+(taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor, options?: PatternExtractionOptions | undefined) => Promise<...>
+```
+
+**Parameters:**
+
+- `taskAccessor` — DataAccessor for tasks.db
+- `brainAccessor` — BrainDataAccessor for brain.db
+- `options` — Extraction options (min frequency, confidence, limit)
+
+**Returns:** Array of detected patterns sorted by frequency descending
+
+### `matchPatterns`
+
+Find which known patterns from brain_patterns apply to a given task.  Compares task attributes (labels, title, description, type, size, status) against stored patterns and returns matches with relevance scores.
+
+```typescript
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<PatternMatch[]>
+```
+
+**Parameters:**
+
+- `taskId` — The task to match patterns against
+- `taskAccessor` — DataAccessor for tasks.db
+- `brainAccessor` — BrainDataAccessor for brain.db
+
+**Returns:** Array of pattern matches sorted by relevance descending
+
+### `storeDetectedPattern`
+
+Save a detected pattern to the brain_patterns table.  Uses the existing brain_patterns schema: type, pattern, context, frequency, success_rate, impact, anti_pattern, mitigation, examples_json.
+
+```typescript
+(detected: DetectedPattern, brainAccessor: BrainDataAccessor) => Promise<{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; ... 8 more ...; extractedAt: string; }>
+```
+
+**Parameters:**
+
+- `detected` — The pattern to store
+- `brainAccessor` — BrainDataAccessor for brain.db
+
+**Returns:** The stored pattern row
+
+### `updatePatternStats`
+
+Update the frequency and success_rate of an existing pattern after an outcome.  Increments frequency by 1 and recalculates success_rate using the running average formula: newRate = (oldRate * oldFreq + (success ? 1 : 0)) / newFreq.
+
+```typescript
+(patternId: string, outcome: boolean, brainAccessor: BrainDataAccessor) => Promise<PatternStatsUpdate | null>
+```
+
+**Parameters:**
+
+- `patternId` — The brain_patterns ID to update
+- `outcome` — Whether the outcome was successful
+- `brainAccessor` — BrainDataAccessor for brain.db
+
+**Returns:** The update result or null if the pattern was not found
+
+### `calculateTaskRisk`
+
+Calculate the risk score for a task based on multiple contributing factors.  Factors considered: - Task complexity (size, dependency count, hierarchy depth) - Historical patterns (similar tasks' failure rates from brain_patterns) - Blocking risk (does this task block others?) - Dependency depth (how deep in the dependency chain)
+
+```typescript
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<RiskAssessment>
+```
+
+**Parameters:**
+
+- `taskId` — The task to assess
+- `taskAccessor` — DataAccessor for tasks.db
+- `brainAccessor` — BrainDataAccessor for brain.db
+
+**Returns:** A complete risk assessment with score, confidence, factors, and recommendation
+
+### `predictValidationOutcome`
+
+Predict the likelihood of a task passing a lifecycle validation gate.  Combines: - Historical gate results for similar tasks (from brain_patterns) - Current task completion state - Applicable learnings from brain_learnings
+
+```typescript
+(taskId: string, stage: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<ValidationPrediction>
+```
+
+**Parameters:**
+
+- `taskId` — The task to evaluate
+- `stage` — The lifecycle stage (e.g., "specification", "implementation")
+- `taskAccessor` — DataAccessor for tasks.db
+- `brainAccessor` — BrainDataAccessor for brain.db
+
+**Returns:** Prediction with pass likelihood, blockers, and suggestions
+
+### `gatherLearningContext`
+
+Gather applicable learnings for a task from brain_learnings.
+
+```typescript
+(task: Task, brainAccessor: BrainDataAccessor) => Promise<LearningContext>
 ```
 
 ### `collectDiagnostics`
@@ -10230,10 +10982,10 @@ Cache parsed templates to .cleo/issue-templates.json.
 
 ### `validateLabelsExist`
 
-Validate that required labels exist (informational).
+Validate that labels referenced in issue templates are consistent.  Collects all labels used across templates and checks that each label appears in at least one template definition. Reports any labels that are referenced by only one template but not defined as a known label across the template set. This catches typos and orphaned labels without requiring GitHub API access.
 
 ```typescript
-(_templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
+(templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
 ```
 
 ### `buildIssueBody`
@@ -11290,6 +12042,22 @@ Detect orphaned cross-project dependencies. Finds tasks with dependency referenc
 () => Promise<OrphanEntry[]>
 ```
 
+### `previewTransfer`
+
+Preview a transfer without writing any data. Validates projects, permissions, and builds the manifest.
+
+```typescript
+(params: TransferParams) => Promise<TransferResult>
+```
+
+### `executeTransfer`
+
+Execute a cross-project task transfer.  Pipeline:   1. Validate source/target projects via nexusGetProject()   2. Check permissions: read on source, write on target   3. Read source tasks   4. Build ExportPackage via exportSubtree/exportSingle   5. Import into target via importFromPackage()   6. Create bidirectional external_task_links   7. Write nexus_audit_log entry   8. If move mode: archive source tasks   9. If transferBrain: copy brain observations
+
+```typescript
+(params: TransferParams) => Promise<TransferResult>
+```
+
 ### `compareLevels`
 
 Compare two pino levels numerically. Returns negative if a  b, 0 if equal, positive if a  b.
@@ -11447,7 +12215,7 @@ Get spawn-level token data.
 Get real token usage from Claude Code API.
 
 ```typescript
-(_opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
+(opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
 ```
 
 ### `clearOtelData`
@@ -12031,7 +12799,7 @@ Load the subagent protocol base content.  T4521
 Build task context block for injection into a subagent prompt.  T4521
 
 ```typescript
-(taskId: string, cwd?: string | undefined) => string
+(taskId: string, cwd?: string | undefined) => Promise<string>
 ```
 
 ### `filterProtocolByTier`
@@ -12047,7 +12815,7 @@ Filter protocol content by MVI tier. Extracts sections based on !-- TIER:X -- ma
 Inject the subagent protocol into skill content. Composes: skill content + protocol base + task context.  T4521
 
 ```typescript
-(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 ```
 
 ### `orchestratorSpawnSkill`
@@ -12055,7 +12823,7 @@ Inject the subagent protocol into skill content. Composes: skill content + proto
 Full orchestrator spawn workflow (skill-based). High-level function that loads the skill, injects protocol, and returns the prompt.  T4521
 
 ```typescript
-(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 ```
 
 ### `prepareTokenValues`
@@ -12087,7 +12855,7 @@ Generate a unique contribution ID.  T4520
 Validate that a task is suitable for contribution protocol.  T4520
 
 ```typescript
-(taskId: string, cwd?: string | undefined) => { valid: boolean; issues: string[]; }
+(taskId: string, cwd?: string | undefined) => Promise<{ valid: boolean; issues: string[]; }>
 ```
 
 ### `getContributionInjection`
@@ -12271,7 +13039,7 @@ Check if the marketplace is enabled and reachable.  T4521
 Build a fully-resolved prompt for spawning a subagent.  T4519
 
 ```typescript
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult>
 ```
 
 ### `spawn`
@@ -12279,7 +13047,7 @@ Build a fully-resolved prompt for spawning a subagent.  T4519
 Generate full spawn command with metadata.  T4519
 
 ```typescript
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult & { spawnTimestamp: string; }
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult & { spawnTimestamp: string; }>
 ```
 
 ### `canParallelize`
@@ -12287,7 +13055,7 @@ Generate full spawn command with metadata.  T4519
 Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
 
 ```typescript
-(taskIds: string[], cwd?: string | undefined) => { canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }
+(taskIds: string[], cwd?: string | undefined) => Promise<{ canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }>
 ```
 
 ### `spawnBatch`
@@ -12295,7 +13063,7 @@ Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
 Spawn prompts for multiple tasks in a batch. Ports orchestrator_spawn_batch from lib/skills/orchestrator-spawn.sh.  Iterates over task IDs, building spawn prompts for each. Individual failures are captured per-entry rather than aborting the entire batch.   T4712  T4663
 
 ```typescript
-(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => BatchSpawnResult
+(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<BatchSpawnResult>
 ```
 
 ### `getThresholds`
@@ -12319,7 +13087,7 @@ Read the current context state from session-aware files.  T4519
 Initialize orchestrator session state. Determines the recommended action based on current state.  T4519
 
 ```typescript
-(_epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
 ```
 
 ### `shouldPause`
@@ -12391,7 +13159,7 @@ Verify previous agent completed protocol compliance before spawning next.  T4519
 Validate orchestrator compliance (post-hoc behavioral checks).  T4519
 
 ```typescript
-(epicId?: string | undefined, cwd?: string | undefined) => { compliant: boolean; violations: string[]; warnings: string[]; }
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<{ compliant: boolean; violations: string[]; warnings: string[]; }>
 ```
 
 ### `getSkillSearchPaths`
@@ -13095,7 +13863,7 @@ Check that Node.js meets the minimum required version. Provides OS-specific upgr
 
 ### `checkGlobalSchemaHealth`
 
-Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.
+Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.  The projectRoot parameter exists for API consistency with other check functions in runAllGlobalChecks(), but global schemas live at ~/.cleo/schemas/ (not per-project). The parameter is intentionally unused because schema health is a system-wide concern, not project-scoped.
 
 ```typescript
 (_projectRoot?: string | undefined) => CheckResult
@@ -13229,102 +13997,6 @@ Uncancel a cancelled task (restore to pending).
 
 ```typescript
 (projectRoot: string, params: { taskId: string; cascade?: boolean | undefined; notes?: string | undefined; dryRun?: boolean | undefined; }) => Promise<UncancelResult>
-```
-
-### `detectCircularDeps`
-
-Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-### `wouldCreateCycle`
-
-Check if adding a dependency would create a cycle.
-
-```typescript
-(fromId: string, toId: string, tasks: Task[]) => boolean
-```
-
-### `getBlockedTasks`
-
-Get tasks that are blocked (have unmet dependencies).
-
-```typescript
-(tasks: Task[]) => Task[]
-```
-
-### `getReadyTasks`
-
-Get tasks that are ready (all dependencies met).
-
-```typescript
-(tasks: Task[]) => Task[]
-```
-
-### `getDependents`
-
-Get tasks that depend on a given task.
-
-```typescript
-(taskId: string, tasks: Task[]) => Task[]
-```
-
-### `getDependentIds`
-
-Get dependent IDs.
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-### `getUnresolvedDeps`
-
-Get unresolved dependencies for a task (deps that are not done/cancelled).
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-### `validateDependencyRefs`
-
-Validate dependencies for missing references.
-
-```typescript
-(tasks: Task[]) => DependencyError[]
-```
-
-### `validateDependencies`
-
-Full dependency graph validation.
-
-```typescript
-(tasks: Task[]) => DependencyCheckResult
-```
-
-### `topologicalSort`
-
-Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
-
-```typescript
-(tasks: Task[]) => string[] | null
-```
-
-### `getTransitiveBlockers`
-
-Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-### `getLeafBlockers`
-
-From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
 ```
 
 ### `currentTask`
@@ -13607,22 +14279,6 @@ Check if output should be JSON.
 (flags: ParsedFlags) => boolean
 ```
 
-### `getValidationKey`
-
-Get the validation key for a target filename.
-
-```typescript
-(target: string) => string
-```
-
-### `extractMarkerVersion`
-
-Extract the CLEO version from an injection marker string. Returns null if no version is present (current format). Returns the version string for legacy format.
-
-```typescript
-(markerLine: string) => string | null
-```
-
 ### `checkManifestEntry`
 
 Verify a manifest entry for a task has valid required fields.  T4524
@@ -13900,7 +14556,7 @@ Validate a cancellation reason.  T4523
 Validate that a status transition is allowed.  T4523
 
 ```typescript
-(oldStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived", newStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived") => ValidationResult
+(oldStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived", newStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived") => ValidationResult
 ```
 
 ### `isValidStatus`
@@ -13908,7 +14564,7 @@ Validate that a status transition is allowed.  T4523
 Check if a status string is valid.  T4523
 
 ```typescript
-(status: string) => status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 ```
 
 ### `checkTimestampSanity`
@@ -13940,7 +14596,7 @@ Deduplicate and normalize labels.  T4523
 Check ID uniqueness within and across files.  T4523
 
 ```typescript
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ValidationResult
 ```
 
 ### `validateTask`
@@ -13964,7 +14620,7 @@ Check for circular dependencies using DFS.  T4523
 Validate only one phase is active.  T4523
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ### `validateCurrentPhaseConsistency`
@@ -13972,7 +14628,7 @@ Validate only one phase is active.  T4523
 Validate currentPhase matches an active phase.  T4523
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ### `validatePhaseTimestamps`
@@ -13980,7 +14636,7 @@ Validate currentPhase matches an active phase.  T4523
 Validate phase timestamp ordering.  T4523
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ### `validatePhaseStatusRequirements`
@@ -13988,7 +14644,7 @@ Validate phase timestamp ordering.  T4523
 Validate phase status requirements (e.g., active phases must have startedAt).  T4523
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ### `validateAll`
@@ -13996,7 +14652,7 @@ Validate phase status requirements (e.g., active phases must have startedAt).  T
 Run all validation checks on a TaskFile.  T4523
 
 ```typescript
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ComprehensiveValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ComprehensiveValidationResult
 ```
 
 ### `parseManifest`
@@ -14097,10 +14753,10 @@ Check if file contains required documentation sections.  T4527
 
 ### `checkReturnMessageFormat`
 
-Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  T4527
+Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 
 ```typescript
-(message: string, _protocolType?: string | undefined) => boolean
+(message: string, protocolType?: string | undefined) => boolean
 ```
 
 ### `checkManifestFieldPresent`
@@ -14161,10 +14817,10 @@ Check if file contains  provenance tag.  T4527
 
 ### `validateCommonManifestRequirements`
 
-Validate common manifest requirements across all protocols.  T4527
+Validate common manifest requirements across all protocols.  When protocolType is provided, additionally validates that the manifest entry's agent_type matches the expected protocol type.   T4527
 
 ```typescript
-(entry: Record<string, unknown>, _protocolType?: string | undefined) => ProtocolValidationResult
+(entry: Record<string, unknown>, protocolType?: string | undefined) => ProtocolValidationResult
 ```
 
 ### `isValidGateName`
@@ -14349,6 +15005,14 @@ Synchronous variant for use in hot paths where async is not feasible. Returns nu
 
 ```typescript
 (cwd?: string | undefined) => ProjectInfo | null
+```
+
+### `updateProjectName`
+
+Update the project name in project-info.json. Used by `cleo upgrade --name` and programmatic consumers.
+
+```typescript
+(cwd: string, name: string) => void
 ```
 
 ### `getHookCapableProviders`
@@ -14989,19 +15653,19 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 ### `recordTokenExchange`
 
 ```typescript
-(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
+(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
 ```
 
 ### `showTokenUsage`
 
 ```typescript
-(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 ```
 
 ### `listTokenUsage`
 
 ```typescript
-(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
+(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
 ```
 
 ### `summarizeTokenUsage`
@@ -15031,7 +15695,7 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 ### `getLatestTokenRecord`
 
 ```typescript
-(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 ```
 
 ### `getTokenUsageAggregateSql`
@@ -15066,18 +15730,18 @@ Get current parallel execution state.
 
 ### `listSkills`
 
-List available skills.
+List available skills from canonical and project-local directories.
 
 ```typescript
-(_projectRoot: string) => { skills: SkillEntry[]; total: number; }
+(projectRoot: string) => { skills: SkillEntry[]; total: number; }
 ```
 
 ### `getSkillContent`
 
-Read skill content for injection into agent context.
+Read skill content for injection into agent context. Checks project-local skills first.
 
 ```typescript
-(skillName: string, _projectRoot: string) => SkillContent
+(skillName: string, projectRoot: string) => SkillContent
 ```
 
 ### `getUnblockOpportunities`
@@ -15222,46 +15886,6 @@ Get the currently active session (if any).
 
 ```typescript
 (cwd?: string | undefined) => Promise<Session | null>
-```
-
-### `computeDependencyWaves`
-
-Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
-
-```typescript
-(tasks: Task[]) => DependencyWave[]
-```
-
-### `getNextTask`
-
-Get the next task to work on (highest priority ready task).
-
-```typescript
-(tasks: Task[]) => Task | null
-```
-
-### `getCriticalPath`
-
-Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
-
-```typescript
-(tasks: Task[]) => string[]
-```
-
-### `getTaskOrder`
-
-Get task ordering by dependency + priority.
-
-```typescript
-(tasks: Task[]) => string[]
-```
-
-### `getParallelTasks`
-
-Get parallelizable tasks (tasks with no unmet dependencies).
-
-```typescript
-(tasks: Task[]) => string[]
 ```
 
 ### `suggestRelated`
@@ -15627,7 +16251,7 @@ Run all repair functions. Returns all actions taken (or previewed in dry-run mod
 Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight storage check (JSON → SQLite)   2. If migration needed and not dry-run, run auto-migration with backup   3. Schema version checks on JSON files   4. Structural repairs (checksums, missing fields)
 
 ```typescript
-(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; cwd?: string | undefined; }) => Promise<UpgradeResult>
+(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; forceDetect?: boolean | undefined; mapCodebase?: boolean | undefined; projectName?: string | undefined; cwd?: string | undefined; }) => Promise<...>
 ```
 
 **Parameters:**
@@ -15635,6 +16259,9 @@ Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight
 - `` — options.dryRun  Preview changes without applying
 - `` — options.includeGlobal  Also check global ~/.cleo
 - `` — options.autoMigrate  Auto-migrate storage if needed (default: true)
+- `` — options.forceDetect  Force re-detection of project type (ignore staleness)
+- `` — options.mapCodebase  Run full codebase analysis and store to brain.db
+- `` — options.projectName  Update project name in project-info and nexus
 - `` — options.cwd  Project directory override
 
 ### `createVerificationGate`
@@ -16355,183 +16982,6 @@ Consolidate all provenance files into the unified `.cleo/rcasd/{epicId}/` struct
 - `` — options.dryRun - If true, log planned moves without executing them
 - `` — options.cwd - Optional working directory override
 
-### `initializePipeline`
-
-Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
-
-```typescript
-(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID (e.g., 'T4800')
-- `options` — Optional configuration
-
-**Returns:** Promise resolving to the created Pipeline
-
-```typescript
-const pipeline = await initializePipeline('T4800', {
-  startStage: 'research',
-  assignedAgent: 'agent-001'
-});
-console.log(`Pipeline initialized: ${pipeline.id}`);
-```
-
-### `getPipeline`
-
-Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
-
-```typescript
-(taskId: string) => Promise<Pipeline | null>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID (e.g., 'T4800')
-
-**Returns:** Promise resolving to Pipeline or null
-
-```typescript
-const pipeline = await getPipeline('T4800');
-if (pipeline) {
-  console.log(`Current stage: ${pipeline.currentStage}`);
-}
-```
-
-### `advanceStage`
-
-Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
-
-```typescript
-(taskId: string, options: AdvanceStageOptions) => Promise<void>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-- `options` — Advance options including target stage and reason
-
-**Returns:** Promise resolving when transition is complete
-
-```typescript
-await advanceStage('T4800', {
-  toStage: 'consensus',
-  reason: 'Research completed, moving to consensus',
-  initiatedBy: 'agent-001'
-});
-```
-
-### `getCurrentStage`
-
-Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
-
-```typescript
-(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-
-**Returns:** Promise resolving to the current Stage
-
-```typescript
-const currentStage = await getCurrentStage('T4800');
-if (currentStage === 'validation') {
-  console.log('Task is in verification');
-}
-```
-
-### `listPipelines`
-
-List pipelines with optional filtering.
-
-```typescript
-(options?: PipelineQueryOptions) => Promise<Pipeline[]>
-```
-
-**Parameters:**
-
-- `options` — Query options for filtering and pagination
-
-**Returns:** Promise resolving to array of Pipelines
-
-```typescript
-const activePipelines = await listPipelines({
-  status: 'active',
-  limit: 10
-});
-```
-
-### `completePipeline`
-
-Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
-
-```typescript
-(taskId: string, _reason?: string | undefined) => Promise<void>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-- `_reason` — Optional completion reason (unused, for API compatibility)
-
-**Returns:** Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
-
-### `cancelPipeline`
-
-Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
-
-```typescript
-(taskId: string, reason: string) => Promise<void>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-- `reason` — Reason for cancellation
-
-**Returns:** Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
-
-### `pipelineExists`
-
-Check if a pipeline exists for a task.
-
-```typescript
-(taskId: string) => Promise<boolean>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-
-**Returns:** Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
-
-### `getPipelineStatistics`
-
-Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
-
-```typescript
-() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
-```
-
-**Returns:** Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
-
-### `getPipelineStages`
-
-Get all stages for a pipeline.
-
-```typescript
-(taskId: string) => Promise<PipelineStageRecord[]>
-```
-
-**Parameters:**
-
-- `taskId` — The task ID
-
-**Returns:** Promise resolving to array of stage records   T4912
-
 ### `findResumablePipelines`
 
 Query active pipelines that can be resumed.  Searches the lifecycle_pipelines table for pipelines with status 'active' and joins with lifecycle_stages to determine current stage status. Also joins with tasks table to get task metadata.
@@ -16941,7 +17391,7 @@ Check if a stage can be skipped.
 Skip a stage with validation.
 
 ```typescript
-(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", _reason: string, context: StateMachineContext) => StageState
+(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", reason: string, context: StateMachineContext) => StageState
 ```
 
 **Parameters:**
@@ -17066,7 +17516,7 @@ Get human-readable setup instructions.
 
 ### `getPreferredChannel`
 
-Look up the preferred channel for a given domain + operation.
+Look up the preferred channel for a given domain + operation.  Reads from the merged capability matrix (single SSoT).
 
 ```typescript
 (domain: string, operation: string) => "cli" | "mcp" | "either"
@@ -17081,7 +17531,7 @@ Look up the preferred channel for a given domain + operation.
 
 ### `getRoutingForDomain`
 
-Get routing entries for a specific domain.
+Get routing entries for a specific domain.  Derives entries from the capability matrix.
 
 ```typescript
 (domain: string) => RoutingEntry[]
@@ -17095,7 +17545,7 @@ Get routing entries for a specific domain.
 
 ### `getOperationsByChannel`
 
-Get all operations that prefer a specific channel.
+Get all operations that prefer a specific channel.  Derives entries from the capability matrix.
 
 ```typescript
 (channel: "cli" | "mcp" | "either") => RoutingEntry[]
@@ -17178,7 +17628,7 @@ Log import operation completion with full metadata.  T4552
 Log import operation error with diagnostic details.  T4552
 
 ```typescript
-(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "validation" | "unknown" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
+(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "unknown" | "validation" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
 ```
 
 ### `logImportConflict`
@@ -17270,7 +17720,7 @@ Update pipeline's currentStageId.
 Get all stages for a pipeline, ordered by sequence.
 
 ```typescript
-(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
+(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
 ```
 
 **Parameters:**
@@ -17596,21 +18046,6 @@ Check if all phases are complete.
 ```typescript
 (phases: Record<string, Phase>) => boolean
 ```
-
-### `reparentTask`
-
-Reparent a task within a TaskFile.  Mutates the task in-place within `data.tasks`. Updates `parentId`, `type`, and `updatedAt` on the target task, and `lastUpdated` on the TaskFile.
-
-```typescript
-(data: TaskFile, opts: ReparentOptions) => Promise<ReparentResult>
-```
-
-**Parameters:**
-
-- `data` — The loaded TaskFile (mutated in place)
-- `opts` — Reparent options (taskId, newParentId)
-
-**Returns:** Result with old/new parent and new type
 
 ### `getSizeWeight`
 
@@ -18531,6 +18966,48 @@ any
 
 - `cwd`
 - `force`
+
+### `AgentInstanceRow`
+
+```typescript
+any
+```
+
+### `NewAgentInstanceRow`
+
+```typescript
+any
+```
+
+### `AgentErrorLogRow`
+
+```typescript
+any
+```
+
+### `NewAgentErrorLogRow`
+
+```typescript
+any
+```
+
+### `AgentInstanceStatus`
+
+```typescript
+any
+```
+
+### `AgentType`
+
+```typescript
+any
+```
+
+### `AgentErrorType`
+
+```typescript
+any
+```
 
 ### `WarpChainRow`
 
@@ -19954,6 +20431,53 @@ any
 - `valid`
 - `error`
 
+### `ValidationResult`
+
+```typescript
+any
+```
+
+**Members:**
+
+- `valid`
+- `error`
+- `fix`
+- `exitCode`
+
+### `AddTaskEnforcementOptions`
+
+```typescript
+any
+```
+
+**Members:**
+
+- `acceptance`
+- `priority`
+
+### `UpdateTaskEnforcementOptions`
+
+```typescript
+any
+```
+
+**Members:**
+
+- `acceptance`
+
+### `AcceptanceEnforcement`
+
+```typescript
+any
+```
+
+**Members:**
+
+- `validateCreation`
+- `validateUpdate`
+- `validateCompletion`
+- `checkMinimumCriteria`
+
 ### `AddTaskOptions`
 
 Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
@@ -21172,25 +21696,6 @@ any
 - `sessionNotes`
 - `nextAction`
 - `primarySession`
-
-### `TaskFile`
-
-Root task data structure.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `version`
-- `project`
-- `lastUpdated`
-- `_meta`
-- `taskWork`
-- `focus`
-- `tasks`
-- `labels`
 
 ### `ArchiveMetadata`
 
@@ -26203,7 +26708,7 @@ any
 
 ### `BrainFtsRow`
 
-Row returned by FTS content_hash duplicate check.
+Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
 
 ```typescript
 any
@@ -26217,7 +26722,7 @@ any
 
 ### `BrainNarrativeRow`
 
-Row returned by narrative backfill query (missing embeddings).
+Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
 
 ```typescript
 any
@@ -26231,7 +26736,7 @@ any
 
 ### `BrainSearchHit`
 
-Flattened FTS hit used in hybrid search scoring.
+Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
 
 ```typescript
 any
@@ -26246,7 +26751,7 @@ any
 
 ### `BrainKnnRow`
 
-Row returned by KNN vector similarity query.
+Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
 
 ```typescript
 any
@@ -26259,7 +26764,7 @@ any
 
 ### `BrainDecisionNode`
 
-Decision node attached to a blocker in causal traces.
+Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
 
 ```typescript
 any
@@ -26273,7 +26778,7 @@ any
 
 ### `BrainAnchor`
 
-Anchor entry in a timeline result.
+Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
 
 ```typescript
 any
@@ -26284,6 +26789,49 @@ any
 - `id`
 - `type`
 - `data`
+
+### `BrainTimelineNeighborRow`
+
+Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id`
+- `type`
+- `date`
+
+### `BrainConsolidationObservationRow`
+
+Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id`
+- `type`
+- `title`
+- `narrative`
+- `project`
+- `created_at`
+
+### `BrainIdCheckRow`
+
+Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id`
 
 ### `EmbeddingProvider`
 
@@ -26528,7 +27076,7 @@ any
 
 ### `TaskWorkStateExt`
 
-Task work state from the task store.
+Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 
 ```typescript
 any
@@ -26543,21 +27091,6 @@ any
 - `sessionNotes`
 - `nextAction`
 - `primarySession`
-
-### `TaskFileExt`
-
-Task file structure (subset for session operations).
-
-```typescript
-any
-```
-
-**Members:**
-
-- `focus`
-- `_meta`
-- `tasks`
-- `lastUpdated`
 
 ### `DecisionRecord`
 
@@ -27243,7 +27776,6 @@ any
 - `name` — Project name override.
 - `force` — Overwrite existing files.
 - `detect` — Auto-detect project configuration.
-- `updateDocs` — Update agent documentation injections only.
 - `mapCodebase` — Run codebase analysis and store findings to brain.db.
 
 ### `InitResult`
@@ -28390,6 +28922,116 @@ any
 - `recentLearnings` — Recent learnings relevant to this scope
 - `tokensEstimated` — Total token estimate for this context
 
+### `Pipeline`
+
+Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id` — Unique identifier (task ID format: T####)
+- `currentStage` — Current stage in the pipeline
+- `createdAt` — When the pipeline was created
+- `updatedAt` — When the pipeline was last updated
+- `status` — Overall pipeline status
+- `isActive` — Whether the pipeline is currently active (not completed/cancelled)
+- `completedAt` — When the pipeline completed (if applicable)
+- `cancelledReason` — Cancellation reason (if cancelled)
+- `transitionCount` — Number of stage transitions made
+- `version` — Version for optimistic locking
+
+### `PipelineStageRecord`
+
+Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id` — Unique identifier
+- `pipelineId` — Reference to the pipeline
+- `stage` — Stage name
+- `status` — Stage status
+- `startedAt` — When the stage was started
+- `completedAt` — When the stage was completed
+- `durationMs` — Stage duration in milliseconds (computed)
+- `assignedAgent` — Assigned agent for this stage
+- `notes` — Stage-specific metadata/notes
+- `order` — Stage order in pipeline
+
+### `PipelineTransition`
+
+Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id` — Unique identifier
+- `pipelineId` — Pipeline reference
+- `fromStage` — From stage
+- `toStage` — To stage
+- `transitionedAt` — When the transition occurred
+- `transitionedBy` — Agent/user who initiated the transition
+- `reason` — Reason for the transition
+- `prerequisitesChecked` — Whether prerequisites were checked
+- `validationErrors` — Any validation errors that occurred
+
+### `InitializePipelineOptions`
+
+Options for initializing a pipeline.   T4800
+
+```typescript
+any
+```
+
+**Members:**
+
+- `startStage` — Starting stage (defaults to 'research')
+- `initialStatus` — Initial status (defaults to 'active')
+- `assignedAgent` — Assigning agent
+
+### `AdvanceStageOptions`
+
+Options for advancing pipeline stage.   T4800
+
+```typescript
+any
+```
+
+**Members:**
+
+- `toStage` — Target stage to advance to
+- `reason` — Reason for the advancement
+- `initiatedBy` — Agent/user initiating the transition
+- `skipPrerequisites` — Whether to skip prerequisite check (emergency only)
+- `force` — Whether to force transition even if blocked
+
+### `PipelineQueryOptions`
+
+Pipeline query options.   T4800
+
+```typescript
+any
+```
+
+**Members:**
+
+- `status` — Filter by status
+- `currentStage` — Filter by current stage
+- `isActive` — Filter by active state
+- `limit` — Limit results
+- `offset` — Offset for pagination
+- `orderBy` — Order by (default: createdAt desc)
+- `order` — Order direction
+
 ### `BriefingTask`
 
 Task summary for briefing output.
@@ -29227,6 +29869,148 @@ any
 - `guidance`
 - `escalation`
 
+### `TransferMode`
+
+Transfer mode: copy keeps source tasks, move archives them.
+
+```typescript
+any
+```
+
+### `TransferScope`
+
+Transfer scope: single task or full subtree.
+
+```typescript
+any
+```
+
+### `TransferOnConflict`
+
+Conflict resolution when target has tasks with duplicate titles.
+
+```typescript
+any
+```
+
+### `TransferOnMissingDep`
+
+How to handle missing dependencies in the target project.
+
+```typescript
+any
+```
+
+### `TransferParams`
+
+Parameters for a cross-project transfer operation.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `taskIds` — Task IDs to transfer from the source project.
+- `sourceProject` — Source project name or hash.
+- `targetProject` — Target project name or hash.
+- `mode` — Copy (default) keeps source tasks; move archives them.
+- `scope` — Single transfers individual tasks; subtree transfers tasks + all descendants.
+- `onConflict` — How to handle title conflicts in the target.
+- `onMissingDep` — How to handle missing deps in the target.
+- `provenance` — Whether to add provenance notes to transferred tasks.
+- `targetParent` — Override parent ID in target project.
+- `transferBrain` — Whether to transfer brain observations linked to source tasks.
+- `dryRun` — Dry run: preview without writing.
+
+### `TransferManifestEntry`
+
+A single task entry in the transfer manifest.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `sourceId` — Original task ID in source project.
+- `targetId` — New task ID in target project.
+- `title` — Task title.
+- `type` — Task type (task, epic, milestone, etc.).
+
+### `TransferManifest`
+
+Manifest describing what was (or would be) transferred.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `sourceProject` — Source project name.
+- `targetProject` — Target project name.
+- `mode` — Transfer mode used.
+- `scope` — Transfer scope used.
+- `entries` — Tasks included in the transfer.
+- `idRemap` — ID remap table: sourceId - targetId.
+- `brainObservationsTransferred` — Number of brain observations transferred.
+
+### `TransferResult`
+
+Result of a transfer operation.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `dryRun` — Whether this was a dry run.
+- `transferred` — Number of tasks transferred.
+- `skipped` — Number of tasks skipped (conflict resolution).
+- `archived` — Number of source tasks archived (move mode only).
+- `linksCreated` — Number of external links created.
+- `brainObservationsTransferred` — Number of brain observations transferred.
+- `manifest` — Transfer manifest with full details.
+
+### `ImportFromPackageOptions`
+
+Options passed to importFromPackage (extracted from importTasksPackage).
+
+```typescript
+any
+```
+
+**Members:**
+
+- `cwd` — Working directory for the target project.
+- `dryRun` — Dry run: preview without writing.
+- `parent` — Parent task ID in target.
+- `phase` — Phase override.
+- `addLabel` — Label to add to imported tasks.
+- `provenance` — Whether to add provenance notes.
+- `resetStatus` — Status to reset imported tasks to.
+- `onConflict` — Conflict resolution strategy.
+- `onMissingDep` — Missing dependency strategy.
+- `force` — Force import (skip duplicate checks).
+
+### `ImportFromPackageResult`
+
+Result from importFromPackage.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `imported`
+- `skipped`
+- `idRemap`
+- `dryRun`
+- `preview`
+
 ### `RemapTable`
 
 Forward and reverse remap tables.
@@ -29314,11 +30098,418 @@ ValidationResult — canonical name per ADR-017 spec
 any
 ```
 
+### `RegisterAgentOptions`
+
+Options for registering a new agent instance.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `agentType`
+- `sessionId`
+- `taskId`
+- `parentAgentId`
+- `metadata`
+
+### `UpdateStatusOptions`
+
+Options for updating agent status.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `status`
+- `error`
+- `taskId`
+
+### `ListAgentFilters`
+
+Filters for listing agent instances.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `status`
+- `agentType`
+- `sessionId`
+- `parentAgentId`
+
+### `AgentHealthReport`
+
+Agent health report summary.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `total`
+- `active`
+- `idle`
+- `starting`
+- `error`
+- `crashed`
+- `stopped`
+- `totalErrors`
+- `staleAgents`
+
+### `CapacitySummary`
+
+Capacity summary for reporting.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `totalCapacity`
+- `activeAgentCount`
+- `averageCapacity`
+- `overloaded`
+- `threshold`
+
+### `RetryPolicy`
+
+Configuration for retry behavior.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `maxRetries` — Maximum number of retry attempts. Default: 3.
+- `baseDelayMs` — Base delay in milliseconds before first retry. Default: 1000.
+- `maxDelayMs` — Maximum delay in milliseconds between retries. Default: 30000.
+- `backoffMultiplier` — Multiplier for exponential backoff. Default: 2.
+- `jitter` — Whether to add random jitter to delays. Default: true.
+- `retryOnUnknown` — Whether to retry on 'unknown' error classification. Default: true.
+
+### `RetryResult`
+
+Result of a retried operation.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `success`
+- `value`
+- `error`
+- `attempts`
+- `totalDelayMs`
+
+### `AgentRecoveryResult`
+
+Result of a recovery attempt for a single agent.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `agentId`
+- `recovered`
+- `action`
+- `reason`
+
 ### `ComplianceJsonlEntry`
 
 ```typescript
 any
 ```
+
+### `PayloadValidationResult`
+
+Result of payload validation.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `valid` — Whether the payload passed validation.
+- `errors` — Validation errors (empty when valid).
+
+### `DependencyCheckResult`
+
+Result of a dependency validation check.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `valid`
+- `errors`
+- `warnings`
+
+### `DependencyError`
+
+A dependency error.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `code`
+- `taskId`
+- `message`
+- `relatedIds`
+
+### `DependencyWarning`
+
+A dependency warning.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `code`
+- `taskId`
+- `message`
+
+### `DependencyWave`
+
+A wave of parallelizable tasks.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `wave`
+- `taskIds`
+
+### `RiskFactor`
+
+A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `name` — Human-readable factor name (e.g., "complexity", "blocking_risk").
+- `weight` — How much this factor contributes to the total score (0-1).
+- `value` — Current measured value for this factor (0-1, where 1 = highest risk).
+- `description` — Explanation of why this factor has its current value.
+
+### `RiskAssessment`
+
+Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `taskId` — The task ID this assessment applies to.
+- `riskScore` — Aggregate risk score (0-1, where 1 = highest risk).
+- `confidence` — Confidence in the assessment (0-1). Higher when more data is available.
+- `factors` — Individual risk factors that contributed to the score.
+- `recommendation` — Human-readable recommendation based on the risk level.
+
+### `ValidationPrediction`
+
+Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `taskId` — The task ID being evaluated.
+- `stage` — The lifecycle stage being predicted (e.g., "specification", "implementation").
+- `passLikelihood` — Probability of passing the gate (0-1).
+- `blockers` — Known blockers that may prevent passing.
+- `suggestions` — Actionable suggestions to improve pass likelihood.
+
+### `DetectedPattern`
+
+A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `type` — Pattern type classification.
+- `pattern` — Human-readable pattern description.
+- `context` — Context in which the pattern was observed.
+- `frequency` — How many times this pattern was observed.
+- `successRate` — Success rate when this pattern appears (0-1, null if unknown).
+- `impact` — Estimated impact level.
+- `antiPattern` — If this is an anti-pattern, describe the negative behavior.
+- `mitigation` — Recommended mitigation for anti-patterns.
+- `examples` — Example task IDs or descriptions where this pattern occurred.
+- `confidence` — Confidence in this pattern's validity (0-1).
+
+### `PatternMatch`
+
+Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `pattern` — The matched brain_patterns row.
+- `relevanceScore` — How relevant this pattern is to the target task (0-1).
+- `matchReason` — Why this pattern was matched.
+- `isAntiPattern` — Whether this is an anti-pattern match (warns about potential issues).
+
+### `PatternExtractionOptions`
+
+Options for pattern extraction from historical data.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `minFrequency` — Minimum number of occurrences to consider something a pattern. Default: 2.
+- `minConfidence` — Minimum confidence threshold (0-1). Default: 0.3.
+- `limit` — Maximum number of patterns to return. Default: 50.
+- `type` — Filter by pattern type.
+
+### `PatternStatsUpdate`
+
+Result of updating pattern statistics after an outcome.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `patternId` — The pattern ID that was updated.
+- `newFrequency` — New frequency value.
+- `newSuccessRate` — New success rate (0-1).
+- `outcomeSuccess` — Whether the outcome was successful.
+
+### `LearningContext`
+
+Summary of applicable learnings for a task, used in prediction.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `applicable` — Learnings that apply to this task's context.
+- `averageConfidence` — Average confidence of applicable learnings.
+- `actionableCount` — Count of actionable learnings.
+
+### `ImpactAssessment`
+
+Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `taskId` — The task being assessed.
+- `directDependents` — Tasks that directly depend on this task.
+- `transitiveDependents` — All downstream tasks (direct + transitive).
+- `affectedPipelines` — Epic IDs whose lifecycle pipelines are affected.
+- `blockedWorkCount` — Count of tasks that would be blocked if this task is not completed.
+- `isOnCriticalPath` — Whether this task lies on the project's critical path.
+- `blastRadius` — Quantified scope of the impact.
+
+### `ChangeType`
+
+The type of change being analyzed.
+
+```typescript
+any
+```
+
+### `ChangeImpact`
+
+Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `taskId` — The task being changed.
+- `changeType` — The type of change being analyzed.
+- `affectedTasks` — Tasks affected by this change, with predicted new status.
+- `cascadeDepth` — Maximum depth of cascading effects in the dependency graph.
+- `recommendation` — Human-readable recommendation based on the analysis.
+
+### `AffectedTask`
+
+A single task affected by a change, with its predicted new state.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `id` — Task ID.
+- `title` — Task title.
+- `currentStatus` — Current status before the change.
+- `newStatus` — Predicted new status after the change (if it would change).
+- `reason` — Why this task is affected.
+
+### `BlastRadiusSeverity`
+
+Severity classification for blast radius.
+
+```typescript
+any
+```
+
+### `BlastRadius`
+
+Quantified scope of a task's impact across the project.
+
+```typescript
+any
+```
+
+**Members:**
+
+- `directCount` — Number of direct dependents.
+- `transitiveCount` — Number of transitive dependents (full downstream tree).
+- `epicCount` — Number of distinct epics affected.
+- `projectPercentage` — Percentage of the total project impacted (0-100).
+- `severity` — Classification of impact severity.
 
 ### `BuildConfig`
 
@@ -30668,7 +31859,7 @@ any
 
 ### `SkillFrontmatter`
 
-Skill frontmatter parsed from SKILL.md YAML header.
+Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
 
 ```typescript
 any
@@ -30676,22 +31867,22 @@ any
 
 **Members:**
 
-- `name`
-- `description`
-- `version`
-- `author`
-- `tags`
-- `triggers`
-- `dispatchPriority`
-- `model`
-- `allowedTools`
-- `invocable`
-- `command`
-- `protocol`
+- `name` — Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.
+- `description` — Human-readable description. Maps to CaampSkillMetadata.description.
+- `version` — Semantic version string. Maps to CaampSkillMetadata.version.
+- `author` — Skill author (CLEO extension).
+- `tags` — Classification tags for search/filter (CLEO extension).
+- `triggers` — Trigger patterns for auto-dispatch (CLEO extension).
+- `dispatchPriority` — Priority for dispatch selection (CLEO extension).
+- `model` — Preferred LLM model (CLEO extension).
+- `allowedTools` — Allowed tool names. Maps to CaampSkillMetadata.allowedTools.
+- `invocable` — Whether the skill can be invoked directly (CLEO extension).
+- `command` — CLI command for direct invocation (CLEO extension).
+- `protocol` — RCASD-IVTR+C protocol type (CLEO extension).
 
 ### `Skill`
 
-Skill definition loaded from disk.
+Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
 
 ```typescript
 any
@@ -30708,7 +31899,7 @@ any
 
 ### `SkillSummary`
 
-Lightweight skill summary for manifest/listing.
+Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
 
 ```typescript
 any
@@ -31980,49 +33171,6 @@ any
 - `cascadeCount`
 - `dryRun`
 
-### `DependencyCheckResult`
-
-Result of a dependency validation check.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `valid`
-- `errors`
-- `warnings`
-
-### `DependencyError`
-
-A dependency error.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `code`
-- `taskId`
-- `message`
-- `relatedIds`
-
-### `DependencyWarning`
-
-A dependency warning.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `code`
-- `taskId`
-- `message`
-
 ### `TaskCurrentResult`
 
 Result of getting current task.
@@ -32189,6 +33337,262 @@ any
 - `help`
 - `force`
 - `remaining`
+
+### `InsertTask`
+
+```typescript
+any
+```
+
+### `SelectTask`
+
+```typescript
+any
+```
+
+### `InsertTaskDependency`
+
+```typescript
+any
+```
+
+### `SelectTaskDependency`
+
+```typescript
+any
+```
+
+### `InsertTaskRelation`
+
+```typescript
+any
+```
+
+### `SelectTaskRelation`
+
+```typescript
+any
+```
+
+### `InsertSession`
+
+```typescript
+any
+```
+
+### `SelectSession`
+
+```typescript
+any
+```
+
+### `InsertWorkHistory`
+
+```typescript
+any
+```
+
+### `SelectWorkHistory`
+
+```typescript
+any
+```
+
+### `InsertLifecyclePipeline`
+
+```typescript
+any
+```
+
+### `SelectLifecyclePipeline`
+
+```typescript
+any
+```
+
+### `InsertLifecycleStage`
+
+```typescript
+any
+```
+
+### `SelectLifecycleStage`
+
+```typescript
+any
+```
+
+### `InsertLifecycleGateResult`
+
+```typescript
+any
+```
+
+### `SelectLifecycleGateResult`
+
+```typescript
+any
+```
+
+### `InsertLifecycleEvidence`
+
+```typescript
+any
+```
+
+### `SelectLifecycleEvidence`
+
+```typescript
+any
+```
+
+### `InsertLifecycleTransition`
+
+```typescript
+any
+```
+
+### `SelectLifecycleTransition`
+
+```typescript
+any
+```
+
+### `InsertSchemaMeta`
+
+```typescript
+any
+```
+
+### `SelectSchemaMeta`
+
+```typescript
+any
+```
+
+### `InsertAuditLog`
+
+```typescript
+any
+```
+
+### `SelectAuditLog`
+
+```typescript
+any
+```
+
+### `AuditLogInsert`
+
+Canonical type alias for audit log insert (T4848).
+
+```typescript
+any
+```
+
+### `AuditLogSelect`
+
+Canonical type alias for audit log select (T4848).
+
+```typescript
+any
+```
+
+### `InsertTokenUsage`
+
+```typescript
+any
+```
+
+### `SelectTokenUsage`
+
+```typescript
+any
+```
+
+### `InsertArchitectureDecision`
+
+```typescript
+any
+```
+
+### `SelectArchitectureDecision`
+
+```typescript
+any
+```
+
+### `InsertManifestEntry`
+
+```typescript
+any
+```
+
+### `SelectManifestEntry`
+
+```typescript
+any
+```
+
+### `InsertPipelineManifest`
+
+```typescript
+any
+```
+
+### `SelectPipelineManifest`
+
+```typescript
+any
+```
+
+### `InsertReleaseManifest`
+
+```typescript
+any
+```
+
+### `SelectReleaseManifest`
+
+```typescript
+any
+```
+
+### `InsertExternalTaskLink`
+
+```typescript
+any
+```
+
+### `SelectExternalTaskLink`
+
+```typescript
+any
+```
+
+### `InsertAgentInstance`
+
+```typescript
+any
+```
+
+### `SelectAgentInstance`
+
+```typescript
+any
+```
+
+### `InsertAgentErrorLog`
+
+```typescript
+any
+```
+
+### `SelectAgentErrorLog`
+
+```typescript
+any
+```
 
 ### `ManifestIntegrity`
 
@@ -32478,7 +33882,9 @@ any
 - `cancelledAt`
 - `cancellationReason`
 
-### `TaskFile`
+### `TaskData`
+
+Task data shape for validation functions.
 
 ```typescript
 any
@@ -32489,7 +33895,9 @@ any
 - `tasks`
 - `project`
 
-### `ArchiveFile`
+### `ArchiveData`
+
+Archive data shape for validation functions.
 
 ```typescript
 any
@@ -33354,215 +34762,6 @@ any
 - `taskId`
 - `variant`
 
-### `InsertTask`
-
-```typescript
-any
-```
-
-### `SelectTask`
-
-```typescript
-any
-```
-
-### `InsertTaskDependency`
-
-```typescript
-any
-```
-
-### `SelectTaskDependency`
-
-```typescript
-any
-```
-
-### `InsertTaskRelation`
-
-```typescript
-any
-```
-
-### `SelectTaskRelation`
-
-```typescript
-any
-```
-
-### `InsertSession`
-
-```typescript
-any
-```
-
-### `SelectSession`
-
-```typescript
-any
-```
-
-### `InsertWorkHistory`
-
-```typescript
-any
-```
-
-### `SelectWorkHistory`
-
-```typescript
-any
-```
-
-### `InsertLifecyclePipeline`
-
-```typescript
-any
-```
-
-### `SelectLifecyclePipeline`
-
-```typescript
-any
-```
-
-### `InsertLifecycleStage`
-
-```typescript
-any
-```
-
-### `SelectLifecycleStage`
-
-```typescript
-any
-```
-
-### `InsertLifecycleGateResult`
-
-```typescript
-any
-```
-
-### `SelectLifecycleGateResult`
-
-```typescript
-any
-```
-
-### `InsertLifecycleEvidence`
-
-```typescript
-any
-```
-
-### `SelectLifecycleEvidence`
-
-```typescript
-any
-```
-
-### `InsertLifecycleTransition`
-
-```typescript
-any
-```
-
-### `SelectLifecycleTransition`
-
-```typescript
-any
-```
-
-### `InsertSchemaMeta`
-
-```typescript
-any
-```
-
-### `SelectSchemaMeta`
-
-```typescript
-any
-```
-
-### `InsertAuditLog`
-
-```typescript
-any
-```
-
-### `SelectAuditLog`
-
-```typescript
-any
-```
-
-### `AuditLogInsert`
-
-Canonical type alias for audit log insert (T4848).
-
-```typescript
-any
-```
-
-### `AuditLogSelect`
-
-Canonical type alias for audit log select (T4848).
-
-```typescript
-any
-```
-
-### `InsertTokenUsage`
-
-```typescript
-any
-```
-
-### `SelectTokenUsage`
-
-```typescript
-any
-```
-
-### `InsertArchitectureDecision`
-
-```typescript
-any
-```
-
-### `SelectArchitectureDecision`
-
-```typescript
-any
-```
-
-### `InsertManifestEntry`
-
-```typescript
-any
-```
-
-### `SelectManifestEntry`
-
-```typescript
-any
-```
-
-### `DependencyWave`
-
-A wave of parallelizable tasks.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `wave`
-- `taskIds`
-
 ### `CancelResult`
 
 Result of a cancel operation.
@@ -34149,42 +35348,48 @@ any
 
 ### `SkillsPrecedenceConfig`
 
+Configuration for skill precedence resolution across providers.
+
 ```typescript
 any
 ```
 
 **Members:**
 
-- `defaultPrecedence`
-- `providerOverrides`
+- `defaultPrecedence` — Default precedence mode when no provider-specific override exists.
+- `providerOverrides` — Per-provider precedence overrides (provider ID - precedence).
 
 ### `ResolvedSkillPath`
 
+A resolved skill path with full provenance metadata.
+
 ```typescript
 any
 ```
 
 **Members:**
 
-- `path`
-- `source`
-- `scope`
-- `precedence`
-- `providerId`
+- `path` — Absolute filesystem path to the skill directory.
+- `source` — Where the skill was sourced from.
+- `scope` — Whether this is a global or project-scoped skill.
+- `precedence` — The precedence mode that selected this path.
+- `providerId` — The provider that owns this skill path.
 
 ### `SkillInstallationContext`
 
+Context for a skill installation operation.
+
 ```typescript
 any
 ```
 
 **Members:**
 
-- `skillName`
-- `source`
-- `targetProviders`
-- `precedenceMode`
-- `projectRoot`
+- `skillName` — Name of the skill being installed.
+- `source` — Source URL or path to install from.
+- `targetProviders` — Provider IDs to install the skill for.
+- `precedenceMode` — Precedence mode for the installation.
+- `projectRoot` — Project root for project-scoped installations.
 
 ### `InProgressEpic`
 
@@ -34428,116 +35633,6 @@ any
 - `changeType`
 - `stage`
 - `description`
-
-### `Pipeline`
-
-Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-
-```typescript
-any
-```
-
-**Members:**
-
-- `id` — Unique identifier (task ID format: T####)
-- `currentStage` — Current stage in the pipeline
-- `createdAt` — When the pipeline was created
-- `updatedAt` — When the pipeline was last updated
-- `status` — Overall pipeline status
-- `isActive` — Whether the pipeline is currently active (not completed/cancelled)
-- `completedAt` — When the pipeline completed (if applicable)
-- `cancelledReason` — Cancellation reason (if cancelled)
-- `transitionCount` — Number of stage transitions made
-- `version` — Version for optimistic locking
-
-### `PipelineStageRecord`
-
-Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-
-```typescript
-any
-```
-
-**Members:**
-
-- `id` — Unique identifier
-- `pipelineId` — Reference to the pipeline
-- `stage` — Stage name
-- `status` — Stage status
-- `startedAt` — When the stage was started
-- `completedAt` — When the stage was completed
-- `durationMs` — Stage duration in milliseconds (computed)
-- `assignedAgent` — Assigned agent for this stage
-- `notes` — Stage-specific metadata/notes
-- `order` — Stage order in pipeline
-
-### `PipelineTransition`
-
-Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-
-```typescript
-any
-```
-
-**Members:**
-
-- `id` — Unique identifier
-- `pipelineId` — Pipeline reference
-- `fromStage` — From stage
-- `toStage` — To stage
-- `transitionedAt` — When the transition occurred
-- `transitionedBy` — Agent/user who initiated the transition
-- `reason` — Reason for the transition
-- `prerequisitesChecked` — Whether prerequisites were checked
-- `validationErrors` — Any validation errors that occurred
-
-### `InitializePipelineOptions`
-
-Options for initializing a pipeline.   T4800
-
-```typescript
-any
-```
-
-**Members:**
-
-- `startStage` — Starting stage (defaults to 'research')
-- `initialStatus` — Initial status (defaults to 'active')
-- `assignedAgent` — Assigning agent
-
-### `AdvanceStageOptions`
-
-Options for advancing pipeline stage.   T4800
-
-```typescript
-any
-```
-
-**Members:**
-
-- `toStage` — Target stage to advance to
-- `reason` — Reason for the advancement
-- `initiatedBy` — Agent/user initiating the transition
-- `skipPrerequisites` — Whether to skip prerequisite check (emergency only)
-- `force` — Whether to force transition even if blocked
-
-### `PipelineQueryOptions`
-
-Pipeline query options.   T4800
-
-```typescript
-any
-```
-
-**Members:**
-
-- `status` — Filter by status
-- `currentStage` — Filter by current stage
-- `isActive` — Filter by active state
-- `limit` — Limit results
-- `offset` — Offset for pagination
-- `orderBy` — Order by (default: createdAt desc)
-- `order` — Order direction
 
 ### `ResumablePipeline`
 
@@ -34971,7 +36066,7 @@ any
 
 ### `RoutingEntry`
 
-Routing entry describing the preferred channel for an operation.
+Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
 
 ```typescript
 any
@@ -34980,7 +36075,7 @@ any
 **Members:**
 
 - `domain` — Domain name (e.g. 'tasks', 'memory', 'session')
-- `operation` — Operation name (e.g. 'brain.search', 'show')
+- `operation` — Operation name (e.g. 'show', 'find')
 - `preferredChannel` — Preferred channel for token efficiency
 - `reason` — Reason for the channel preference
 
@@ -35328,34 +36423,6 @@ any
 
 - `valid`
 - `error`
-
-### `ReparentOptions`
-
-Options for reparenting a task.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `taskId`
-- `newParentId` — New parent ID, or null to promote to root.
-- `policy` — Optional resolved hierarchy policy. If not provided, uses llm-agent-first defaults.
-
-### `ReparentResult`
-
-Result of a reparent operation.
-
-```typescript
-any
-```
-
-**Members:**
-
-- `oldParent`
-- `newParent`
-- `newType`
 
 ### `StalenessThresholds`
 
@@ -35744,7 +36811,6 @@ typeof AdminHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35757,7 +36823,6 @@ typeof CheckHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35770,7 +36835,6 @@ typeof MemoryHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35783,7 +36847,6 @@ typeof NexusHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35796,7 +36859,6 @@ typeof OrchestrateHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35809,7 +36871,6 @@ typeof PipelineHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35832,7 +36893,6 @@ typeof SessionHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35845,7 +36905,6 @@ typeof StickyHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35858,7 +36917,6 @@ typeof TasksHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -35871,7 +36929,6 @@ typeof ToolsHandler
 
 **Members:**
 
-- `projectRoot`
 - `query`
 - `mutate`
 - `getSupportedOperations`
@@ -36698,6 +37755,34 @@ Record<MviTier, ProjectionConfig>
 RateLimitingConfig
 ```
 
+### `AGENT_INSTANCE_STATUSES`
+
+Agent instance status values matching DB CHECK constraint.
+
+```typescript
+readonly ["starting", "active", "idle", "error", "crashed", "stopped"]
+```
+
+### `AGENT_TYPES`
+
+Agent type values for classification.
+
+```typescript
+readonly ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]
+```
+
+### `agentInstances`
+
+```typescript
+SQLiteTableWithColumns<{ name: "agent_instances"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteC...
+```
+
+### `agentErrorLog`
+
+```typescript
+SQLiteTableWithColumns<{ name: "agent_error_log"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteCo...
+```
+
 ### `WARP_CHAIN_INSTANCE_STATUSES`
 
 Chain instance status values.
@@ -36792,6 +37877,38 @@ Transport types for token telemetry.
 
 ```typescript
 readonly ["cli", "mcp", "api", "agent", "unknown"]
+```
+
+### `TASK_RELATION_TYPES`
+
+Task relation types matching DB CHECK constraint on task_relations.relation_type.
+
+```typescript
+readonly ["related", "blocks", "duplicates", "absorbs", "fixes", "extends", "supersedes"]
+```
+
+### `LIFECYCLE_TRANSITION_TYPES`
+
+Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type.
+
+```typescript
+readonly ["automatic", "manual", "forced"]
+```
+
+### `EXTERNAL_LINK_TYPES`
+
+External task link types matching DB constraint on external_task_links.link_type.
+
+```typescript
+readonly ["created", "matched", "manual", "transferred"]
+```
+
+### `SYNC_DIRECTIONS`
+
+Sync direction types matching DB constraint on external_task_links.sync_direction.
+
+```typescript
+readonly ["inbound", "outbound", "bidirectional"]
 ```
 
 ### `tasks`
@@ -37787,7 +38904,7 @@ readonly ["completed", "partial", "blocked", "archived"]
 ### `TERMINAL_TASK_STATUSES`
 
 ```typescript
-ReadonlySet<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived">
+ReadonlySet<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived">
 ```
 
 ### `TERMINAL_PIPELINE_STATUSES`
@@ -37829,7 +38946,7 @@ Record<"completed" | "failed" | "blocked" | "not_started" | "in_progress" | "ski
 Task status → Unicode symbol (rich terminal / Unicode-enabled). Falls back to TASK_STATUS_SYMBOLS_ASCII when Unicode is unavailable.
 
 ```typescript
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string>
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string>
 ```
 
 ### `TASK_STATUS_SYMBOLS_ASCII`
@@ -37837,7 +38954,7 @@ Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", str
 Task status → ASCII fallback symbol (non-Unicode terminals, CI output).
 
 ```typescript
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string>
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string>
 ```
 
 ### `EMBEDDING_DIMENSIONS`
@@ -37866,10 +38983,18 @@ Embedded fallback for .cleo/.gitignore content (deny-by-default).
 
 ### `REQUIRED_GLOBAL_SUBDIRS`
 
-Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.
+Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.  Truly global:   - logs      — global log output   - templates — CLEO-INJECTION.md symlink target  Note: nexus.db lives directly in ~/.cleo/, not a subdir. Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed. Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
 
 ```typescript
-readonly ["schemas", "templates"]
+readonly ["logs", "templates"]
+```
+
+### `STALE_GLOBAL_ENTRIES`
+
+Stale entries that must NOT exist at the global ~/.cleo/ level. These were project-level artefacts accidentally placed in the global home by old versions of CLEO. They are safe to remove because:   - adrs/, rcasd/, agent-outputs/, backups/ — project-level, live in .cleo/   - sandbox/                                — unused   - tasks.db / tasks.db-shm / tasks.db-wal  — project-level database files   - brain-worker.pid                         — stale PID file   - VERSION                                  — redundant (read from package.json)   - schemas/                                 — now read from npm binary at runtime   - bin/                                     — stale dev symlink directory
+
+```typescript
+readonly ["adrs", "rcasd", "agent-outputs", "backups", "sandbox", "tasks.db", "tasks.db-shm", "tasks.db-wal", "brain-worker.pid", "VERSION", "schemas", "bin", ".install-state", "templates/templates"]
 ```
 
 ### `MANAGED_HOOKS`
@@ -37894,6 +39019,126 @@ Configuration files relative to .cleo/ that MUST remain tracked by project git. 
 
 ```typescript
 readonly ["config.json", ".gitignore", "project-info.json", "project-context.json"]
+```
+
+### `DEFAULT_RETRY_POLICY`
+
+Default retry policy matching the BRAIN specification.
+
+```typescript
+Readonly<RetryPolicy>
+```
+
+### `HookPayloadSchema`
+
+Zod schema for `HookPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; }, $strip>
+```
+
+### `OnSessionStartPayloadSchema`
+
+Zod schema for `OnSessionStartPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; name: ZodString; scope: ZodString; agent: ZodOptional<...>; }, $strip>
+```
+
+### `OnSessionEndPayloadSchema`
+
+Zod schema for `OnSessionEndPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; duration: ZodNumber; tasksCompleted: ZodArray<...>; }, $strip>
+```
+
+### `OnToolStartPayloadSchema`
+
+Zod schema for `OnToolStartPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; previousTask: ZodOptional<...>; }, $strip>
+```
+
+### `OnToolCompletePayloadSchema`
+
+Zod schema for `OnToolCompletePayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; status: ZodEnum<...>; }, $strip>
+```
+
+### `OnFileChangePayloadSchema`
+
+Zod schema for `OnFileChangePayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; filePath: ZodString; changeType: ZodEnum<...>; sizeBytes: ZodOptional<...>; }, $strip>
+```
+
+### `OnErrorPayloadSchema`
+
+Zod schema for `OnErrorPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; stack: ZodOptional<...>; }, $strip>
+```
+
+### `OnPromptSubmitPayloadSchema`
+
+Zod schema for `OnPromptSubmitPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; source: ZodOptional<...>; }, $strip>
+```
+
+### `OnResponseCompletePayloadSchema`
+
+Zod schema for `OnResponseCompletePayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; errorCode: ZodOptional<...>; }, $strip>
+```
+
+### `OnWorkAvailablePayloadSchema`
+
+Zod schema for `OnWorkAvailablePayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; reason: ZodOptional<...>; }, $strip>
+```
+
+### `OnAgentSpawnPayloadSchema`
+
+Zod schema for `OnAgentSpawnPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; agentId: ZodString; role: ZodString; adapterId: ZodOptional<...>; taskId: ZodOptional<...>; }, $strip>
+```
+
+### `OnAgentCompletePayloadSchema`
+
+Zod schema for `OnAgentCompletePayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; ... 4 more ...; summary: ZodOptional<...>; }, $strip>
+```
+
+### `OnCascadeStartPayloadSchema`
+
+Zod schema for `OnCascadeStartPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; taskIds: ZodOptional<...>; }, $strip>
+```
+
+### `OnPatrolPayloadSchema`
+
+Zod schema for `OnPatrolPayload`.
+
+```typescript
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; watcherId: ZodString; patrolType: ZodEnum<...>; scope: ZodOptional<...>; }, $strip>
 ```
 
 ### `BUILD_CONFIG`
@@ -38006,122 +39251,276 @@ Current alias version.
 "1.0.0"
 ```
 
-### `INJECTION_VALIDATION_KEYS`
+### `taskStatusSchema`
 
-Validation key names for JSON output. Maps target filenames to JSON-safe key names used in validation results.
+Zod enum schema for task statuses.
 
 ```typescript
-Readonly<Record<string, string>>
+ZodEnum<{ cancelled: "cancelled"; active: "active"; pending: "pending"; blocked: "blocked"; done: "done"; archived: "archived"; }>
 ```
 
-### `CACHE_VERSION`
+### `taskPrioritySchema`
+
+Zod enum schema for task priorities.
 
 ```typescript
-"1.0.0"
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; critical: "critical"; }>
 ```
 
-### `CACHE_TTL_SECONDS`
+### `taskTypeSchema`
+
+Zod enum schema for task types.
 
 ```typescript
-300
+ZodEnum<{ epic: "epic"; task: "task"; subtask: "subtask"; }>
 ```
 
-### `VALID_OPERATIONS`
+### `taskSizeSchema`
+
+Zod enum schema for task sizes.
 
 ```typescript
-readonly ["create", "update", "complete", "archive", "restore", "delete", "validate", "backup"]
+ZodEnum<{ medium: "medium"; small: "small"; large: "large"; }>
 ```
 
-### `FIELD_LIMITS`
+### `sessionStatusSchema`
 
-Field length limits matching the Bash implementation.
+Zod enum schema for session statuses.
 
 ```typescript
-{ readonly MAX_TITLE_LENGTH: 120; readonly MAX_DESCRIPTION_LENGTH: 2000; readonly MAX_NOTE_LENGTH: 5000; readonly MAX_BLOCKED_BY_LENGTH: 300; readonly MAX_SESSION_NOTE_LENGTH: 2500; readonly MIN_CANCEL_REASON_LENGTH: 5; readonly MAX_CANCEL_REASON_LENGTH: 300; }
+ZodEnum<{ active: "active"; ended: "ended"; orphaned: "orphaned"; suspended: "suspended"; }>
 ```
 
-### `VAL_SUCCESS`
+### `lifecyclePipelineStatusSchema`
 
-Validation result exit codes.
+Zod enum schema for lifecycle pipeline statuses.
 
 ```typescript
-0
+ZodEnum<{ completed: "completed"; failed: "failed"; cancelled: "cancelled"; active: "active"; blocked: "blocked"; aborted: "aborted"; }>
 ```
 
-### `VAL_SCHEMA_ERROR`
+### `lifecycleStageStatusSchema`
+
+Zod enum schema for lifecycle stage statuses.
 
 ```typescript
-1
+ZodEnum<{ completed: "completed"; failed: "failed"; blocked: "blocked"; not_started: "not_started"; in_progress: "in_progress"; skipped: "skipped"; }>
 ```
 
-### `VAL_SEMANTIC_ERROR`
+### `lifecycleStageNameSchema`
+
+Zod enum schema for lifecycle stage names.
 
 ```typescript
-2
+ZodEnum<{ research: "research"; consensus: "consensus"; architecture_decision: "architecture_decision"; specification: "specification"; decomposition: "decomposition"; implementation: "implementation"; validation: "validation"; testing: "testing"; release: "release"; contribution: "contribution"; }>
 ```
 
-### `VAL_BOTH_ERRORS`
+### `lifecycleGateResultSchema`
+
+Zod enum schema for lifecycle gate results.
 
 ```typescript
-3
+ZodEnum<{ warn: "warn"; pass: "pass"; fail: "fail"; }>
 ```
 
-### `VERIFICATION_GATE_ORDER`
+### `lifecycleEvidenceTypeSchema`
+
+Zod enum schema for lifecycle evidence types.
 
 ```typescript
-readonly ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+ZodEnum<{ file: "file"; url: "url"; manifest: "manifest"; }>
 ```
 
-### `VERIFICATION_VALID_AGENTS`
+### `adrStatusSchema`
+
+Zod enum schema for ADR statuses.
 
 ```typescript
-readonly ["planner", "coder", "testing", "qa", "cleanup", "security", "docs"]
+ZodEnum<{ proposed: "proposed"; accepted: "accepted"; superseded: "superseded"; deprecated: "deprecated"; }>
 ```
 
-### `PROTOCOL_RULES`
+### `gateStatusSchema`
 
-Protocol rule registry
+Zod enum schema for gate statuses.
 
 ```typescript
-Record<string, ProtocolRule[]>
+ZodEnum<{ failed: "failed"; pending: "pending"; passed: "passed"; waived: "waived"; }>
 ```
 
-### `protocolEnforcer`
+### `manifestStatusSchema`
 
-Default protocol enforcer instance
+Zod enum schema for manifest statuses.
 
 ```typescript
-ProtocolEnforcer
+ZodEnum<{ completed: "completed"; blocked: "blocked"; archived: "archived"; partial: "partial"; }>
 ```
 
-### `PROTOCOL_TYPES`
+### `tokenUsageMethodSchema`
 
-All supported protocol types.
+Zod enum schema for token usage measurement methods.
 
 ```typescript
-readonly ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "artifact-publish", "provenance"]
+ZodEnum<{ otel: "otel"; provider_api: "provider_api"; tokenizer: "tokenizer"; heuristic: "heuristic"; }>
 ```
 
-### `PROTOCOL_EXIT_CODES`
+### `tokenUsageConfidenceSchema`
 
-Map protocol types to exit codes.
+Zod enum schema for token usage confidence levels.
 
 ```typescript
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", ExitCode>
+ZodEnum<{ high: "high"; real: "real"; estimated: "estimated"; coarse: "coarse"; }>
 ```
 
-### `DEFAULT_CHAIN_ID`
+### `tokenUsageTransportSchema`
+
+Zod enum schema for token usage transports.
 
 ```typescript
-"rcasd-ivtrc"
+ZodEnum<{ cli: "cli"; mcp: "mcp"; unknown: "unknown"; api: "api"; agent: "agent"; }>
 ```
 
-### `DEFAULT_PROTOCOL_STAGE_MAP`
+### `taskRelationTypeSchema`
 
-Stage mapping for protocol validation gates in the default chain.  `contribution` is cross-cutting and is validated at implementation. `artifact-publish` and `provenance` are validated at release.   T5419
+Zod enum schema for task relation types.
 
 ```typescript
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", "research" | "consensus" | ... 6 more ... | "release">
+ZodEnum<{ related: "related"; blocks: "blocks"; duplicates: "duplicates"; absorbs: "absorbs"; fixes: "fixes"; extends: "extends"; supersedes: "supersedes"; }>
+```
+
+### `externalLinkTypeSchema`
+
+Zod enum schema for external task link types.
+
+```typescript
+ZodEnum<{ manual: "manual"; created: "created"; matched: "matched"; transferred: "transferred"; }>
+```
+
+### `syncDirectionSchema`
+
+Zod enum schema for sync directions.
+
+```typescript
+ZodEnum<{ inbound: "inbound"; outbound: "outbound"; bidirectional: "bidirectional"; }>
+```
+
+### `lifecycleTransitionTypeSchema`
+
+Zod enum schema for lifecycle transition types.
+
+```typescript
+ZodEnum<{ automatic: "automatic"; manual: "manual"; forced: "forced"; }>
+```
+
+### `brainObservationTypeSchema`
+
+Zod enum schema for brain observation types.
+
+```typescript
+ZodEnum<{ discovery: "discovery"; change: "change"; feature: "feature"; bugfix: "bugfix"; decision: "decision"; refactor: "refactor"; }>
+```
+
+### `brainObservationSourceTypeSchema`
+
+Zod enum schema for brain observation source types.
+
+```typescript
+ZodEnum<{ agent: "agent"; manual: "manual"; "session-debrief": "session-debrief"; "claude-mem": "claude-mem"; }>
+```
+
+### `brainDecisionTypeSchema`
+
+Zod enum schema for brain decision types.
+
+```typescript
+ZodEnum<{ architecture: "architecture"; technical: "technical"; process: "process"; strategic: "strategic"; tactical: "tactical"; }>
+```
+
+### `brainConfidenceLevelSchema`
+
+Zod enum schema for brain confidence levels.
+
+```typescript
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+```
+
+### `brainOutcomeTypeSchema`
+
+Zod enum schema for brain outcome types.
+
+```typescript
+ZodEnum<{ pending: "pending"; success: "success"; failure: "failure"; mixed: "mixed"; }>
+```
+
+### `brainPatternTypeSchema`
+
+Zod enum schema for brain pattern types.
+
+```typescript
+ZodEnum<{ success: "success"; workflow: "workflow"; failure: "failure"; blocker: "blocker"; optimization: "optimization"; }>
+```
+
+### `brainImpactLevelSchema`
+
+Zod enum schema for brain impact levels.
+
+```typescript
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+```
+
+### `brainLinkTypeSchema`
+
+Zod enum schema for brain link types.
+
+```typescript
+ZodEnum<{ produced_by: "produced_by"; applies_to: "applies_to"; informed_by: "informed_by"; contradicts: "contradicts"; }>
+```
+
+### `brainMemoryTypeSchema`
+
+Zod enum schema for brain memory entity types.
+
+```typescript
+ZodEnum<{ decision: "decision"; pattern: "pattern"; learning: "learning"; observation: "observation"; }>
+```
+
+### `brainStickyStatusSchema`
+
+Zod enum schema for brain sticky note statuses.
+
+```typescript
+ZodEnum<{ active: "active"; archived: "archived"; converted: "converted"; }>
+```
+
+### `brainStickyColorSchema`
+
+Zod enum schema for brain sticky note colors.
+
+```typescript
+ZodEnum<{ yellow: "yellow"; blue: "blue"; green: "green"; red: "red"; purple: "purple"; }>
+```
+
+### `brainStickyPrioritySchema`
+
+Zod enum schema for brain sticky note priorities.
+
+```typescript
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+```
+
+### `brainNodeTypeSchema`
+
+Zod enum schema for brain page node types.
+
+```typescript
+ZodEnum<{ task: "task"; file: "file"; doc: "doc"; concept: "concept"; }>
+```
+
+### `brainEdgeTypeSchema`
+
+Zod enum schema for brain page edge types.
+
+```typescript
+ZodEnum<{ depends_on: "depends_on"; implements: "implements"; relates_to: "relates_to"; documents: "documents"; }>
 ```
 
 ### `insertTaskSchema`
@@ -38301,13 +39700,13 @@ BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "architectur
 ### `insertTokenUsageSchema`
 
 ```typescript
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
 ```
 
 ### `selectTokenUsageSchema`
 
 ```typescript
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
 ```
 
 ### `insertManifestEntrySchema`
@@ -38320,6 +39719,192 @@ BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "manifest_en
 
 ```typescript
 BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
+```
+
+### `insertPipelineManifestSchema`
+
+```typescript
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+```
+
+### `selectPipelineManifestSchema`
+
+```typescript
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+```
+
+### `insertReleaseManifestSchema`
+
+```typescript
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+```
+
+### `selectReleaseManifestSchema`
+
+```typescript
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+```
+
+### `insertExternalTaskLinkSchema`
+
+```typescript
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+```
+
+### `selectExternalTaskLinkSchema`
+
+```typescript
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+```
+
+### `insertAgentInstanceSchema`
+
+```typescript
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+```
+
+### `selectAgentInstanceSchema`
+
+```typescript
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+```
+
+### `insertAgentErrorLogSchema`
+
+```typescript
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+```
+
+### `selectAgentErrorLogSchema`
+
+```typescript
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+```
+
+### `agentInstanceStatusSchema`
+
+Zod enum schema for agent instance statuses.
+
+```typescript
+ZodEnum<{ error: "error"; starting: "starting"; active: "active"; idle: "idle"; crashed: "crashed"; stopped: "stopped"; }>
+```
+
+### `agentTypeSchema`
+
+Zod enum schema for agent types.
+
+```typescript
+ZodEnum<{ custom: "custom"; orchestrator: "orchestrator"; executor: "executor"; researcher: "researcher"; architect: "architect"; validator: "validator"; documentor: "documentor"; }>
+```
+
+### `CACHE_VERSION`
+
+```typescript
+"1.0.0"
+```
+
+### `CACHE_TTL_SECONDS`
+
+```typescript
+300
+```
+
+### `VALID_OPERATIONS`
+
+```typescript
+readonly ["create", "update", "complete", "archive", "restore", "delete", "validate", "backup"]
+```
+
+### `FIELD_LIMITS`
+
+Field length limits matching the Bash implementation.
+
+```typescript
+{ readonly MAX_TITLE_LENGTH: 120; readonly MAX_DESCRIPTION_LENGTH: 2000; readonly MAX_NOTE_LENGTH: 5000; readonly MAX_BLOCKED_BY_LENGTH: 300; readonly MAX_SESSION_NOTE_LENGTH: 2500; readonly MIN_CANCEL_REASON_LENGTH: 5; readonly MAX_CANCEL_REASON_LENGTH: 300; }
+```
+
+### `VAL_SUCCESS`
+
+Validation result exit codes.
+
+```typescript
+0
+```
+
+### `VAL_SCHEMA_ERROR`
+
+```typescript
+1
+```
+
+### `VAL_SEMANTIC_ERROR`
+
+```typescript
+2
+```
+
+### `VAL_BOTH_ERRORS`
+
+```typescript
+3
+```
+
+### `VERIFICATION_GATE_ORDER`
+
+```typescript
+readonly ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+```
+
+### `VERIFICATION_VALID_AGENTS`
+
+```typescript
+readonly ["planner", "coder", "testing", "qa", "cleanup", "security", "docs"]
+```
+
+### `PROTOCOL_RULES`
+
+Protocol rule registry
+
+```typescript
+Record<string, ProtocolRule[]>
+```
+
+### `protocolEnforcer`
+
+Default protocol enforcer instance
+
+```typescript
+ProtocolEnforcer
+```
+
+### `PROTOCOL_TYPES`
+
+All supported protocol types.
+
+```typescript
+readonly ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "artifact-publish", "provenance"]
+```
+
+### `PROTOCOL_EXIT_CODES`
+
+Map protocol types to exit codes.
+
+```typescript
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", ExitCode>
+```
+
+### `DEFAULT_CHAIN_ID`
+
+```typescript
+"rcasd-ivtrc"
+```
+
+### `DEFAULT_PROTOCOL_STAGE_MAP`
+
+Stage mapping for protocol validation gates in the default chain.  `contribution` is cross-cutting and is validated at implementation. `artifact-publish` and `provenance` are validated at release.   T5419
+
+```typescript
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", "research" | "consensus" | ... 6 more ... | "release">
 ```
 
 ### `GATE_SEQUENCE`
@@ -38368,14 +39953,6 @@ Valid workflow gate status values per Section 7.3
 
 ```typescript
 readonly [null, "passed", "failed", "blocked"]
-```
-
-### `ROUTING_TABLE`
-
-Static routing table for all canonical operations.  Operations are grouped by domain with channel preferences based on: - MCP: lower overhead (no CLI startup), direct DB access, structured JSON - CLI: human-readable output, shell integration, interactive prompts - Either: no significant difference or context-dependent
-
-```typescript
-RoutingEntry[]
 ```
 
 ### `insertProjectRegistrySchema`

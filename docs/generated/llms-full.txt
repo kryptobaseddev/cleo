@@ -1,7 +1,7 @@
 # . - Full Context
 
 Root: .
-Generated: 2026-03-19T23:16:26.644Z
+Generated: 2026-03-21T07:15:37.253Z
 
 ## Functions
 
@@ -1614,6 +1614,18 @@ Export a snapshot of the project's tasks.
 
 Import a snapshot into the project.
 
+### nexusTransferPreview()
+
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+
+Preview a cross-project task transfer (dry run).
+
+### nexusTransferExecute()
+
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+
+Execute a cross-project task transfer.
+
 ### bindSession()
 
 (ctx: Omit<SessionContext, "agentPid" | "boundAt">) => SessionContext
@@ -2324,6 +2336,12 @@ Get the OS temp directory for CLEO ephemeral files.
 
 Get the OS config directory for CLEO. Linux: ~/.config/cleo | macOS: ~/Library/Preferences/cleo | Windows: %APPDATA%cleoConfig
 
+### getCleoTemplatesTildePath()
+
+() => string
+
+Get the CLEO templates directory as a tilde-prefixed path for use in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform: replaces the user's home directory with `~` so the reference works when loaded by LLM providers that resolve `~` at runtime.  Linux:   ~/.local/share/cleo/templates macOS:   ~/Library/Application Support/cleo/templates Windows: ~/AppData/Local/cleo/Data/templates (approximate)
+
 ### getAgentsHome()
 
 () => string
@@ -2368,7 +2386,7 @@ Get the path to the brain.db SQLite database file.
 
 () => string
 
-Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
 
 ### isBrainVecLoaded()
 
@@ -2410,7 +2428,7 @@ Get the path to the nexus.db SQLite database file. nexus.db lives in the global 
 
 () => string
 
-Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
 
 ### getNexusDb()
 
@@ -2458,7 +2476,7 @@ Initialize the SQLite database (lazy, singleton). Creates the database file and 
 
 () => string
 
-Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
 
 ### isSqliteBusy()
 
@@ -2522,25 +2540,25 @@ Parse a JSON string expected to contain an array. Returns undefined for null/und
 
 ### rowToTask()
 
-(row: { sessionId: string | null; id: string; description: string | null; createdAt: string; updatedAt: string | null; status: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"; ... 24 more ...; modifiedBy: string | null; }) => Task
+(row: { sessionId: string | null; id: string; status: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"; description: string | null; createdAt: string; updatedAt: string | null; ... 24 more ...; modifiedBy: string | null; }) => Task
 
 Convert a database TaskRow to a domain Task object.
 
 ### taskToRow()
 
-(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 
 Convert a domain Task to a database row for insert/upsert.
 
 ### archivedTaskToRow()
 
-(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; description?: string | ... 1 more ... | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 
 Convert a domain Task to a row suitable for archived tasks.
 
 ### rowToSession()
 
-(row: { gradeMode: number | null; id: string; name: string; status: "active" | "ended" | "orphaned" | "suspended"; agent: string | null; notesJson: string | null; scopeJson: string; currentTask: string | null; ... 14 more ...; resumeCount: number | null; }) => Session
+(row: { gradeMode: number | null; id: string; status: "active" | "ended" | "orphaned" | "suspended"; startedAt: string; name: string; agent: string | null; notesJson: string | null; scopeJson: string; ... 14 more ...; resumeCount: number | null; }) => Session
 
 Convert a SessionRow to a domain Session.
 
@@ -2564,7 +2582,7 @@ Get all error definitions as an array.
 
 ### upsertTask()
 
-(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => ...
+(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => Promise<...>
 
 Upsert a single task row into the tasks table. Handles both active task upsert and archived task upsert via optional archiveFields.  Defensively nulls out parentId if it references a non-existent task, preventing orphaned FK violations from blocking bulk operations (T5034).
 
@@ -3028,7 +3046,7 @@ Delete a task by ID.
 
 ### listTasks()
 
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
 
 List tasks with optional filters.
 
@@ -3810,11 +3828,11 @@ Check if a LAFS code is registered in the CLEO error registry.   T4671  T4663
 
 Create a temporary directory with an initialized tasks.db.  Usage:
 
-### makeTaskFile()
+### makeTasks()
 
-(tasks: (Partial<Task> & { id: string; })[]) => TaskFile
+(tasks: (Partial<Task> & { id: string; })[]) => Task[]
 
-Build a TaskFile structure from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
+Build full Task objects from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
 
 ### seedTasks()
 
@@ -3992,6 +4010,10 @@ Parse a string value into its appropriate JS type. Handles booleans, null, integ
 
 Set a config value in the project or global config file (dot-notation supported). Creates intermediate objects as needed. Parses string values into appropriate types (boolean, number, null, JSON).  T4789  T4795
 
+### createAcceptanceEnforcement()
+
+(cwd?: string | undefined) => Promise<AcceptanceEnforcement>
+
 ### validateTitle()
 
 (title: string) => void
@@ -4000,7 +4022,7 @@ Validate a task title.  T4460
 
 ### validateStatus()
 
-(status: string) => asserts status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => asserts status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 Validate task status.  T4460
 
@@ -4258,6 +4280,10 @@ Register the delete command.  T4461
 
 (program: ShimCommand) => void
 
+### registerDetectCommand()
+
+(program: ShimCommand) => void
+
 ### registerDetectDriftCommand()
 
 (program: ShimCommand) => void
@@ -4355,10 +4381,6 @@ Load the gitignore template from the package's templates/ directory. Falls back 
 Register the init command.  T4681  T4663
 
 ### registerInjectCommand()
-
-(program: ShimCommand) => void
-
-### registerInstallGlobalCommand()
 
 (program: ShimCommand) => void
 
@@ -5326,6 +5348,18 @@ Detect project type from directory contents. Returns a schema-compliant ProjectC
 
 Factory: get a BrainDataAccessor backed by the brain.db singleton.
 
+### typedAll()
+
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T[]
+
+Type-safe wrapper for `StatementSync.all` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
+### typedGet()
+
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T | undefined
+
+Type-safe wrapper for `StatementSync.get` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
 ### setEmbeddingProvider()
 
 (provider: EmbeddingProvider) => void
@@ -5416,7 +5450,7 @@ Get the CLEO-INJECTION.md template content from the package templates/ directory
 
 (projectRoot: string) => Promise<ScaffoldResult>
 
-Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.cleo/templates/CLEO-INJECTION.md + .cleo/project-context.json   T4682
+Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.agents/AGENTS.md + .cleo/project-context.json + .cleo/memory-bridge.md   T4682
 
 ### buildContributorInjectionBlock()
 
@@ -5440,7 +5474,7 @@ Check if a file exists and is readable.
 
 (filePath: string) => Promise<void>
 
-Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.
+Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.  Handles both bare markers (!-- CLEO:START --) and versioned markers (!-- CLEO:START v0.53.4 --, !-- CLEO:START v1.2.3 --).
 
 ### removeCleoFromRootGitignore()
 
@@ -5582,7 +5616,7 @@ Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) —
 
 () => Promise<ScaffoldResult>
 
-Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
+Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  Also removes known stale project-level entries that old CLEO versions incorrectly placed at the global level (see STALE_GLOBAL_ENTRIES).  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
 
 ### ensureGlobalTemplates()
 
@@ -5592,9 +5626,9 @@ Ensure the global CLEO injection template is installed. Delegates to injection.t
 
 ### ensureGlobalScaffold()
 
-() => Promise<{ home: ScaffoldResult; schemas: { installed: number; updated: number; total: number; }; templates: ScaffoldResult; }>
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }>
 
-Perform a complete global scaffold operation: ensure home, schemas, and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
+Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
 
 ### checkGlobalHome()
 
@@ -5643,12 +5677,6 @@ Install or update managed git hooks from templates/git-hooks/ into .git/hooks/. 
 (projectRoot: string) => Promise<HookCheckResult[]>
 
 Verify managed hooks are installed and current.  Compares installed hooks in .git/hooks/ against source templates in the package's templates/git-hooks/ directory. Returns per-hook status including whether the hook is installed and whether its content matches the source.
-
-### toTaskFileExt()
-
-<T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string; }>(taskFile: T) => TaskFileExt
-
-Convert a TaskFile (from contracts) to the looser TaskFileExt shape. Accepts any object with at least the basic TaskFileExt structure. The runtime object is the same reference — this only changes the TS type.
 
 ### recordDecision()
 
@@ -6475,6 +6503,42 @@ Auto-dispatch: determine the protocol for a task based on metadata.  T4466
 
 Resolve tokens in a prompt string.  T4466
 
+### getLinksByProvider()
+
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+
+Find all links for a given provider.
+
+### getLinkByExternalId()
+
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
+
+Find a link by provider + external ID.
+
+### getLinksByTaskId()
+
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+
+Find all links for a given CLEO task.
+
+### createLink()
+
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
+
+Create a new external task link.
+
+### touchLink()
+
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
+
+Update the lastSyncAt and optionally the title/metadata for an existing link.
+
+### removeLinksByProvider()
+
+(providerId: string, cwd?: string | undefined) => Promise<number>
+
+Remove all links for a provider (used during provider deregistration).
+
 ### bridgeSessionToMemory()
 
 (projectRoot: string, sessionData: SessionBridgeData) => Promise<void>
@@ -6544,42 +6608,6 @@ Complete a task by ID. Handles dependency checking and optional auto-completion 
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult>
 
 Update a task's fields.  T4461
-
-### getLinksByProvider()
-
-(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-
-Find all links for a given provider.
-
-### getLinkByExternalId()
-
-(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
-
-Find a link by provider + external ID.
-
-### getLinksByTaskId()
-
-(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-
-Find all links for a given CLEO task.
-
-### createLink()
-
-(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
-
-Create a new external task link.
-
-### touchLink()
-
-(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
-
-Update the lastSyncAt and optionally the title/metadata for an existing link.
-
-### removeLinksByProvider()
-
-(providerId: string, cwd?: string | undefined) => Promise<number>
-
-Remove all links for a provider (used during provider deregistration).
 
 ### reconcile()
 
@@ -6998,13 +7026,13 @@ Remove a link between a memory entry and a task.   T5156
 
 ### getTaskLinks()
 
-(projectRoot: string, taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
+(projectRoot: string, taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
 
 Get all memory entries linked to a specific task.   T5156
 
 ### getMemoryLinks()
 
-(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
+(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
 
 Get all tasks linked to a specific memory entry.   T5156
 
@@ -7075,6 +7103,149 @@ Parameters:
 - taskLookup: Map from task ID to a task-like object with at least  status: string
 
 Returns: true if all dependencies are done/cancelled, or if no dependencies exist
+
+### initializePipeline()
+
+(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
+
+Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
+
+Parameters:
+- taskId: The task ID (e.g., 'T4800')
+- options: Optional configuration
+
+Returns: Promise resolving to the created Pipeline
+
+Example:
+  const pipeline = await initializePipeline('T4800', {
+    startStage: 'research',
+    assignedAgent: 'agent-001'
+  });
+  console.log(`Pipeline initialized: ${pipeline.id}`);
+
+### getPipeline()
+
+(taskId: string) => Promise<Pipeline | null>
+
+Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
+
+Parameters:
+- taskId: The task ID (e.g., 'T4800')
+
+Returns: Promise resolving to Pipeline or null
+
+Example:
+  const pipeline = await getPipeline('T4800');
+  if (pipeline) {
+    console.log(`Current stage: ${pipeline.currentStage}`);
+  }
+
+### advanceStage()
+
+(taskId: string, options: AdvanceStageOptions) => Promise<void>
+
+Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
+
+Parameters:
+- taskId: The task ID
+- options: Advance options including target stage and reason
+
+Returns: Promise resolving when transition is complete
+
+Example:
+  await advanceStage('T4800', {
+    toStage: 'consensus',
+    reason: 'Research completed, moving to consensus',
+    initiatedBy: 'agent-001'
+  });
+
+### getCurrentStage()
+
+(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
+
+Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
+
+Parameters:
+- taskId: The task ID
+
+Returns: Promise resolving to the current Stage
+
+Example:
+  const currentStage = await getCurrentStage('T4800');
+  if (currentStage === 'validation') {
+    console.log('Task is in verification');
+  }
+
+### listPipelines()
+
+(options?: PipelineQueryOptions) => Promise<Pipeline[]>
+
+List pipelines with optional filtering.
+
+Parameters:
+- options: Query options for filtering and pagination
+
+Returns: Promise resolving to array of Pipelines
+
+Example:
+  const activePipelines = await listPipelines({
+    status: 'active',
+    limit: 10
+  });
+
+### completePipeline()
+
+(taskId: string, reason?: string | undefined) => Promise<void>
+
+Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
+
+Parameters:
+- taskId: The task ID
+- reason: Optional completion reason, stored in the final stage's notes
+
+Returns: Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
+
+### cancelPipeline()
+
+(taskId: string, reason: string) => Promise<void>
+
+Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
+
+Parameters:
+- taskId: The task ID
+- reason: Reason for cancellation
+
+Returns: Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
+
+### pipelineExists()
+
+(taskId: string) => Promise<boolean>
+
+Check if a pipeline exists for a task.
+
+Parameters:
+- taskId: The task ID
+
+Returns: Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
+
+### getPipelineStatistics()
+
+() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
+
+Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
+
+Returns: Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
+
+### getPipelineStages()
+
+(taskId: string) => Promise<PipelineStageRecord[]>
+
+Get all stages for a pipeline.
+
+Parameters:
+- taskId: The task ID
+
+Returns: Promise resolving to array of stage records   T4912
 
 ### computeBriefing()
 
@@ -7369,19 +7540,19 @@ Build relationship graph from tasks.
 
 ### buildExportPackage()
 
-(tasks: Task[], taskData: TaskFile, options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; }) => ExportPackage
+(tasks: Task[], options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; projectName?: string | undefined; }) => ExportPackage
 
 Build a complete export package.
 
 ### exportSingle()
 
-(taskId: string, taskData: TaskFile) => ExportPackage | null
+(taskId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 
 Export a single task.
 
 ### exportSubtree()
 
-(rootId: string, taskData: TaskFile) => ExportPackage | null
+(rootId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 
 Export a subtree (task + all descendants).
 
@@ -7474,11 +7645,17 @@ Detect duplicate titles between import and target.
 
 Resolve duplicate title by appending suffix.
 
+### importFromPackage()
+
+(exportPkg: ExportPackage, options?: ImportFromPackageOptions) => Promise<ImportFromPackageResult>
+
+Import tasks from an in-memory ExportPackage with ID remapping. Core logic extracted from importTasksPackage for reuse by transfer engine.
+
 ### importTasksPackage()
 
 (params: ImportTasksParams) => Promise<ImportTasksResult>
 
-Import tasks from a cross-project export package with ID remapping.
+Import tasks from a cross-project export package file with ID remapping. Thin wrapper around importFromPackage that handles file I/O.
 
 ### findAdrs()
 
@@ -7501,6 +7678,179 @@ Retrieve a single ADR by ID (e.g., 'ADR-007')
 (projectRoot: string) => Promise<ValidationResult>
 
 Validate all ADRs in .cleo/adrs/ against the schema
+
+### generateAgentId()
+
+() => string
+
+Generate a unique agent instance ID. Format: `agt_{YYYYMMDDHHmmss}_{6hex}`
+
+### registerAgent()
+
+(opts: RegisterAgentOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }>
+
+Register a new agent instance in the database. Sets initial status to 'starting' and records the first heartbeat.
+
+### deregisterAgent()
+
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+
+Deregister (stop) an agent instance. Sets status to 'stopped' and records the stop timestamp.
+
+### heartbeat()
+
+(id: string, cwd?: string | undefined) => Promise<"error" | "starting" | "active" | "idle" | "crashed" | "stopped" | null>
+
+Record a heartbeat for an agent instance. Updates `last_heartbeat` and returns the current status so the agent can detect if it has been externally marked for shutdown.
+
+### updateAgentStatus()
+
+(id: string, opts: UpdateStatusOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+
+Update agent status with optional error tracking. When status is 'error' or 'crashed', increments the error count and logs the error to the agent_error_log table.
+
+### incrementTasksCompleted()
+
+(id: string, cwd?: string | undefined) => Promise<void>
+
+Increment the completed task count for an agent.
+
+### listAgentInstances()
+
+(filters?: ListAgentFilters | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+
+List agent instances with optional filters.
+
+### getAgentInstance()
+
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+
+Get a single agent instance by ID.
+
+### classifyError()
+
+(error: unknown) => AgentErrorType
+
+Classify an error as retriable, permanent, or unknown.  Retriable errors are transient conditions (network, rate limits, locks) where a retry may succeed. Permanent errors are structural (auth, not found, constraint violations) where retrying is pointless.
+
+### getAgentErrorHistory()
+
+(agentId: string, cwd?: string | undefined) => Promise<{ id: number; agentId: string; errorType: "retriable" | "permanent" | "unknown"; message: string; stack: string | null; occurredAt: string; resolved: boolean; }[]>
+
+Get the error history for a specific agent.
+
+### checkAgentHealth()
+
+(thresholdMs?: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+
+Check agent health by finding instances whose last heartbeat exceeds the threshold. Default threshold: 30000ms (30 seconds) as specified by the BRAIN spec.  Returns agents that appear to have crashed (stale heartbeat).
+
+### markCrashed()
+
+(id: string, reason?: string | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+
+Mark an agent instance as crashed. Increments error count and sets status to 'crashed'.
+
+### getHealthReport()
+
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentHealthReport>
+
+Generate a health report summarizing all agent instances. Includes counts by status and identifies stale agents.
+
+### updateCapacity()
+
+(id: string, capacity: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+
+Update the capacity value for an agent instance.
+
+Parameters:
+- id: Agent instance ID
+- capacity: New capacity value (0.0 to 1.0)
+- cwd: Working directory
+
+Returns: Updated agent row, or null if not found
+
+### getAvailableCapacity()
+
+(cwd?: string | undefined) => Promise<number>
+
+Get the total available capacity across all active agents.  Only considers agents in 'active' or 'idle' status. Returns the sum of all capacity values.
+
+### findLeastLoadedAgent()
+
+(agentType?: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor" | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; ... 11 more ...; parentAgentId: string | null; } | null>
+
+Find the agent with the most available capacity.
+
+Parameters:
+- agentType: Optional type filter
+- cwd: Working directory
+
+Returns: Agent with highest capacity, or null if no active agents
+
+### isOverloaded()
+
+(threshold?: number, cwd?: string | undefined) => Promise<boolean>
+
+Check if the system is overloaded (total capacity below threshold).
+
+Parameters:
+- threshold: Minimum acceptable capacity (default: 0.1)
+- cwd: Working directory
+
+Returns: true if total available capacity is below the threshold
+
+### getCapacitySummary()
+
+(threshold?: number, cwd?: string | undefined) => Promise<CapacitySummary>
+
+Get a capacity summary across the entire agent pool.
+
+Parameters:
+- threshold: Overload threshold (default: 0.1)
+- cwd: Working directory
+
+### createRetryPolicy()
+
+(overrides?: Partial<RetryPolicy> | undefined) => RetryPolicy
+
+Create a retry policy by merging overrides with the default policy.
+
+### calculateDelay()
+
+(attempt: number, policy: RetryPolicy) => number
+
+Calculate the delay for a given retry attempt using exponential backoff.  Formula: min(baseDelay * multiplier^attempt, maxDelay) + jitter Jitter adds 0-25% randomness to prevent thundering herd.
+
+### shouldRetry()
+
+(error: unknown, attempt: number, policy: RetryPolicy) => boolean
+
+Determine whether an error should be retried based on its classification and the retry policy.
+
+### withRetry()
+
+<T>(fn: () => Promise<T>, policy?: Partial<RetryPolicy> | undefined) => Promise<RetryResult<T>>
+
+Wrap an async function with retry logic using configurable exponential backoff.  The function will be retried according to the policy when retriable errors occur. Permanent errors cause immediate failure. Unknown errors respect the `retryOnUnknown` policy setting.
+
+Parameters:
+- fn: The async function to execute with retries
+- policy: Retry policy (uses DEFAULT_RETRY_POLICY if not provided)
+
+Returns: The result of the operation with retry metadata
+
+### recoverCrashedAgents()
+
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentRecoveryResult[]>
+
+Attempt to recover crashed agents.  Finds all agents with status 'crashed' and determines if they can be restarted based on their error history. Agents whose last error was classified as 'permanent' are abandoned. Agents with retriable errors are reset to 'starting' for the orchestration layer to re-assign.
+
+Parameters:
+- thresholdMs: Heartbeat threshold for crash detection (default: 30000)
+- cwd: Working directory
+
+Returns: Recovery results for each crashed agent
 
 ### providerList()
 
@@ -7700,11 +8050,249 @@ Check context threshold (returns exit code info).
 
 List all context state files.
 
+### validatePayload()
+
+(event: HookEvent, payload: unknown) => PayloadValidationResult
+
+Validate a hook payload against its event-specific Zod schema.  Falls back to the base `HookPayloadSchema` for events without a dedicated schema. Returns a result object rather than throwing, so callers can decide how to handle validation failures.
+
+Parameters:
+- event: The hook event name
+- payload: The payload to validate
+
+Returns: Validation result with any error messages
+
 ### injectTasks()
 
 (opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...>
 
 Inject tasks for external consumption.
+
+### detectCircularDeps()
+
+(taskId: string, tasks: Task[]) => string[]
+
+Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
+
+### wouldCreateCycle()
+
+(fromId: string, toId: string, tasks: Task[]) => boolean
+
+Check if adding a dependency would create a cycle.
+
+### getBlockedTasks()
+
+(tasks: Task[]) => Task[]
+
+Get tasks that are blocked (have unmet dependencies).
+
+### getReadyTasks()
+
+(tasks: Task[]) => Task[]
+
+Get tasks that are ready (all dependencies met).
+
+### getDependents()
+
+(taskId: string, tasks: Task[]) => Task[]
+
+Get tasks that depend on a given task.
+
+### getDependentIds()
+
+(taskId: string, tasks: Task[]) => string[]
+
+Get dependent IDs.
+
+### getUnresolvedDeps()
+
+(taskId: string, tasks: Task[]) => string[]
+
+Get unresolved dependencies for a task (deps that are not done/cancelled).
+
+### validateDependencyRefs()
+
+(tasks: Task[]) => DependencyError[]
+
+Validate dependencies for missing references.
+
+### validateDependencies()
+
+(tasks: Task[]) => DependencyCheckResult
+
+Full dependency graph validation.
+
+### topologicalSort()
+
+(tasks: Task[]) => string[] | null
+
+Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
+
+### getTransitiveBlockers()
+
+(taskId: string, tasks: Task[]) => string[]
+
+Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
+
+### getLeafBlockers()
+
+(taskId: string, tasks: Task[]) => string[]
+
+From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
+
+### computeDependencyWaves()
+
+(tasks: Task[]) => DependencyWave[]
+
+Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
+
+### getNextTask()
+
+(tasks: Task[]) => Task | null
+
+Get the next task to work on (highest priority ready task).
+
+### getCriticalPath()
+
+(tasks: Task[]) => string[]
+
+Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
+
+### getTaskOrder()
+
+(tasks: Task[]) => string[]
+
+Get task ordering by dependency + priority.
+
+### getParallelTasks()
+
+(tasks: Task[]) => string[]
+
+Get parallelizable tasks (tasks with no unmet dependencies).
+
+### analyzeTaskImpact()
+
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ImpactAssessment>
+
+Analyze the full downstream impact of a task.  Computes direct and transitive dependents, affected lifecycle pipelines, blocked work counts, critical path membership, and blast radius.
+
+Parameters:
+- taskId: The task to analyze
+- accessor: DataAccessor instance (or auto-created from cwd)
+- cwd: Working directory (used if accessor is not provided)
+
+Returns: Full impact assessment
+
+### analyzeChangeImpact()
+
+(taskId: string, changeType: ChangeType, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ChangeImpact>
+
+Analyze the downstream effects of a specific change to a task.  Predicts what happens when a task is cancelled, blocked, completed, or reprioritized, including cascading status changes.
+
+Parameters:
+- taskId: The task being changed
+- changeType: The type of change
+- accessor: DataAccessor instance (or auto-created from cwd)
+- cwd: Working directory (used if accessor is not provided)
+
+Returns: Predicted change impact
+
+### calculateBlastRadius()
+
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<BlastRadius>
+
+Calculate the blast radius for a task.  Quantifies how many tasks, epics, and what percentage of the project would be impacted by changes to this task.
+
+Parameters:
+- taskId: The task to analyze
+- accessor: DataAccessor instance (or auto-created from cwd)
+- cwd: Working directory (used if accessor is not provided)
+
+Returns: Blast radius metrics
+
+### extractPatternsFromHistory()
+
+(taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor, options?: PatternExtractionOptions | undefined) => Promise<...>
+
+Analyze brain_observations and task history to find recurring patterns.  Detects: - Workflow patterns: common task sequences that succeed/fail - Blocker patterns: what commonly blocks tasks - Success patterns: what correlates with successful task completion - Time patterns: recurring label/type distributions by task status
+
+Parameters:
+- taskAccessor: DataAccessor for tasks.db
+- brainAccessor: BrainDataAccessor for brain.db
+- options: Extraction options (min frequency, confidence, limit)
+
+Returns: Array of detected patterns sorted by frequency descending
+
+### matchPatterns()
+
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<PatternMatch[]>
+
+Find which known patterns from brain_patterns apply to a given task.  Compares task attributes (labels, title, description, type, size, status) against stored patterns and returns matches with relevance scores.
+
+Parameters:
+- taskId: The task to match patterns against
+- taskAccessor: DataAccessor for tasks.db
+- brainAccessor: BrainDataAccessor for brain.db
+
+Returns: Array of pattern matches sorted by relevance descending
+
+### storeDetectedPattern()
+
+(detected: DetectedPattern, brainAccessor: BrainDataAccessor) => Promise<{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; ... 8 more ...; extractedAt: string; }>
+
+Save a detected pattern to the brain_patterns table.  Uses the existing brain_patterns schema: type, pattern, context, frequency, success_rate, impact, anti_pattern, mitigation, examples_json.
+
+Parameters:
+- detected: The pattern to store
+- brainAccessor: BrainDataAccessor for brain.db
+
+Returns: The stored pattern row
+
+### updatePatternStats()
+
+(patternId: string, outcome: boolean, brainAccessor: BrainDataAccessor) => Promise<PatternStatsUpdate | null>
+
+Update the frequency and success_rate of an existing pattern after an outcome.  Increments frequency by 1 and recalculates success_rate using the running average formula: newRate = (oldRate * oldFreq + (success ? 1 : 0)) / newFreq.
+
+Parameters:
+- patternId: The brain_patterns ID to update
+- outcome: Whether the outcome was successful
+- brainAccessor: BrainDataAccessor for brain.db
+
+Returns: The update result or null if the pattern was not found
+
+### calculateTaskRisk()
+
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<RiskAssessment>
+
+Calculate the risk score for a task based on multiple contributing factors.  Factors considered: - Task complexity (size, dependency count, hierarchy depth) - Historical patterns (similar tasks' failure rates from brain_patterns) - Blocking risk (does this task block others?) - Dependency depth (how deep in the dependency chain)
+
+Parameters:
+- taskId: The task to assess
+- taskAccessor: DataAccessor for tasks.db
+- brainAccessor: BrainDataAccessor for brain.db
+
+Returns: A complete risk assessment with score, confidence, factors, and recommendation
+
+### predictValidationOutcome()
+
+(taskId: string, stage: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<ValidationPrediction>
+
+Predict the likelihood of a task passing a lifecycle validation gate.  Combines: - Historical gate results for similar tasks (from brain_patterns) - Current task completion state - Applicable learnings from brain_learnings
+
+Parameters:
+- taskId: The task to evaluate
+- stage: The lifecycle stage (e.g., "specification", "implementation")
+- taskAccessor: DataAccessor for tasks.db
+- brainAccessor: BrainDataAccessor for brain.db
+
+Returns: Prediction with pass likelihood, blockers, and suggestions
+
+### gatherLearningContext()
+
+(task: Task, brainAccessor: BrainDataAccessor) => Promise<LearningContext>
+
+Gather applicable learnings for a task from brain_learnings.
 
 ### collectDiagnostics()
 
@@ -7744,9 +8332,9 @@ Cache parsed templates to .cleo/issue-templates.json.
 
 ### validateLabelsExist()
 
-(_templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
+(templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
 
-Validate that required labels exist (informational).
+Validate that labels referenced in issue templates are consistent.  Collects all labels used across templates and checks that each label appears in at least one template definition. Reports any labels that are referenced by only one template but not defined as a known label across the template set. This catches typos and orphaned labels without requiring GitHub API access.
 
 ### buildIssueBody()
 
@@ -8552,6 +9140,18 @@ Analyze the blocking impact of a task across all projects. Uses BFS to find all 
 
 Detect orphaned cross-project dependencies. Finds tasks with dependency references to projects or tasks that don't exist.
 
+### previewTransfer()
+
+(params: TransferParams) => Promise<TransferResult>
+
+Preview a transfer without writing any data. Validates projects, permissions, and builds the manifest.
+
+### executeTransfer()
+
+(params: TransferParams) => Promise<TransferResult>
+
+Execute a cross-project task transfer.  Pipeline:   1. Validate source/target projects via nexusGetProject()   2. Check permissions: read on source, write on target   3. Read source tasks   4. Build ExportPackage via exportSubtree/exportSingle   5. Import into target via importFromPackage()   6. Create bidirectional external_task_links   7. Write nexus_audit_log entry   8. If move mode: archive source tasks   9. If transferBrain: copy brain observations
+
 ### compareLevels()
 
 (a: PinoLevel, b: PinoLevel) => number
@@ -8668,7 +9268,7 @@ Get spawn-level token data.
 
 ### getRealTokenUsage()
 
-(_opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
+(opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
 
 Get real token usage from Claude Code API.
 
@@ -9106,7 +9706,7 @@ Load the subagent protocol base content.  T4521
 
 ### buildTaskContext()
 
-(taskId: string, cwd?: string | undefined) => string
+(taskId: string, cwd?: string | undefined) => Promise<string>
 
 Build task context block for injection into a subagent prompt.  T4521
 
@@ -9118,13 +9718,13 @@ Filter protocol content by MVI tier. Extracts sections based on !-- TIER:X -- ma
 
 ### injectProtocol()
 
-(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 
 Inject the subagent protocol into skill content. Composes: skill content + protocol base + task context.  T4521
 
 ### orchestratorSpawnSkill()
 
-(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 
 Full orchestrator spawn workflow (skill-based). High-level function that loads the skill, injects protocol, and returns the prompt.  T4521
 
@@ -9148,7 +9748,7 @@ Generate a unique contribution ID.  T4520
 
 ### validateContributionTask()
 
-(taskId: string, cwd?: string | undefined) => { valid: boolean; issues: string[]; }
+(taskId: string, cwd?: string | undefined) => Promise<{ valid: boolean; issues: string[]; }>
 
 Validate that a task is suitable for contribution protocol.  T4520
 
@@ -9286,25 +9886,25 @@ Check if the marketplace is enabled and reachable.  T4521
 
 ### buildPrompt()
 
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult>
 
 Build a fully-resolved prompt for spawning a subagent.  T4519
 
 ### spawn()
 
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult & { spawnTimestamp: string; }
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult & { spawnTimestamp: string; }>
 
 Generate full spawn command with metadata.  T4519
 
 ### canParallelize()
 
-(taskIds: string[], cwd?: string | undefined) => { canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }
+(taskIds: string[], cwd?: string | undefined) => Promise<{ canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }>
 
 Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
 
 ### spawnBatch()
 
-(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => BatchSpawnResult
+(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<BatchSpawnResult>
 
 Spawn prompts for multiple tasks in a batch. Ports orchestrator_spawn_batch from lib/skills/orchestrator-spawn.sh.  Iterates over task IDs, building spawn prompts for each. Individual failures are captured per-entry rather than aborting the entire batch.   T4712  T4663
 
@@ -9322,7 +9922,7 @@ Read the current context state from session-aware files.  T4519
 
 ### sessionInit()
 
-(_epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
 
 Initialize orchestrator session state. Determines the recommended action based on current state.  T4519
 
@@ -9376,7 +9976,7 @@ Verify previous agent completed protocol compliance before spawning next.  T4519
 
 ### validateOrchestratorCompliance()
 
-(epicId?: string | undefined, cwd?: string | undefined) => { compliant: boolean; violations: string[]; warnings: string[]; }
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<{ compliant: boolean; violations: string[]; warnings: string[]; }>
 
 Validate orchestrator compliance (post-hoc behavioral checks).  T4519
 
@@ -9913,7 +10513,7 @@ Check that Node.js meets the minimum required version. Provides OS-specific upgr
 
 (_projectRoot?: string | undefined) => CheckResult
 
-Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.
+Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.  The projectRoot parameter exists for API consistency with other check functions in runAllGlobalChecks(), but global schemas live at ~/.cleo/schemas/ (not per-project). The parameter is intentionally unused because schema health is a system-wide concern, not project-scoped.
 
 ### checkNoLocalSchemas()
 
@@ -10011,78 +10611,6 @@ Safe stop: signal clean shutdown for agents.
 (projectRoot: string, params: { taskId: string; cascade?: boolean | undefined; notes?: string | undefined; dryRun?: boolean | undefined; }) => Promise<UncancelResult>
 
 Uncancel a cancelled task (restore to pending).
-
-### detectCircularDeps()
-
-(taskId: string, tasks: Task[]) => string[]
-
-Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
-
-### wouldCreateCycle()
-
-(fromId: string, toId: string, tasks: Task[]) => boolean
-
-Check if adding a dependency would create a cycle.
-
-### getBlockedTasks()
-
-(tasks: Task[]) => Task[]
-
-Get tasks that are blocked (have unmet dependencies).
-
-### getReadyTasks()
-
-(tasks: Task[]) => Task[]
-
-Get tasks that are ready (all dependencies met).
-
-### getDependents()
-
-(taskId: string, tasks: Task[]) => Task[]
-
-Get tasks that depend on a given task.
-
-### getDependentIds()
-
-(taskId: string, tasks: Task[]) => string[]
-
-Get dependent IDs.
-
-### getUnresolvedDeps()
-
-(taskId: string, tasks: Task[]) => string[]
-
-Get unresolved dependencies for a task (deps that are not done/cancelled).
-
-### validateDependencyRefs()
-
-(tasks: Task[]) => DependencyError[]
-
-Validate dependencies for missing references.
-
-### validateDependencies()
-
-(tasks: Task[]) => DependencyCheckResult
-
-Full dependency graph validation.
-
-### topologicalSort()
-
-(tasks: Task[]) => string[] | null
-
-Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
-
-### getTransitiveBlockers()
-
-(taskId: string, tasks: Task[]) => string[]
-
-Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
-
-### getLeafBlockers()
-
-(taskId: string, tasks: Task[]) => string[]
-
-From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
 
 ### currentTask()
 
@@ -10294,18 +10822,6 @@ Resolve output format based on flags and TTY detection. Returns 'json' for non-T
 
 Check if output should be JSON.
 
-### getValidationKey()
-
-(target: string) => string
-
-Get the validation key for a target filename.
-
-### extractMarkerVersion()
-
-(markerLine: string) => string | null
-
-Extract the CLEO version from an injection marker string. Returns null if no version is present (current format). Returns the version string for legacy format.
-
 ### checkManifestEntry()
 
 (entry: ManifestEntry | null) => ManifestIntegrity
@@ -10512,13 +11028,13 @@ Validate a cancellation reason.  T4523
 
 ### validateStatusTransition()
 
-(oldStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived", newStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived") => ValidationResult
+(oldStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived", newStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived") => ValidationResult
 
 Validate that a status transition is allowed.  T4523
 
 ### isValidStatus()
 
-(status: string) => status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 Check if a status string is valid.  T4523
 
@@ -10542,7 +11058,7 @@ Deduplicate and normalize labels.  T4523
 
 ### checkIdUniqueness()
 
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ValidationResult
 
 Check ID uniqueness within and across files.  T4523
 
@@ -10560,31 +11076,31 @@ Check for circular dependencies using DFS.  T4523
 
 ### validateSingleActivePhase()
 
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 
 Validate only one phase is active.  T4523
 
 ### validateCurrentPhaseConsistency()
 
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 
 Validate currentPhase matches an active phase.  T4523
 
 ### validatePhaseTimestamps()
 
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 
 Validate phase timestamp ordering.  T4523
 
 ### validatePhaseStatusRequirements()
 
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 
 Validate phase status requirements (e.g., active phases must have startedAt).  T4523
 
 ### validateAll()
 
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ComprehensiveValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ComprehensiveValidationResult
 
 Run all validation checks on a TaskFile.  T4523
 
@@ -10662,9 +11178,9 @@ Check if file contains required documentation sections.  T4527
 
 ### checkReturnMessageFormat()
 
-(message: string, _protocolType?: string | undefined) => boolean
+(message: string, protocolType?: string | undefined) => boolean
 
-Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  T4527
+Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 
 ### checkManifestFieldPresent()
 
@@ -10710,9 +11226,9 @@ Check if file contains  provenance tag.  T4527
 
 ### validateCommonManifestRequirements()
 
-(entry: Record<string, unknown>, _protocolType?: string | undefined) => ProtocolValidationResult
+(entry: Record<string, unknown>, protocolType?: string | undefined) => ProtocolValidationResult
 
-Validate common manifest requirements across all protocols.  T4527
+Validate common manifest requirements across all protocols.  When protocolType is provided, additionally validates that the manifest entry's agent_type matches the expected protocol type.   T4527
 
 ### isValidGateName()
 
@@ -10851,6 +11367,12 @@ Read project-info.json and return a typed ProjectInfo.  Falls back gracefully wh
 (cwd?: string | undefined) => ProjectInfo | null
 
 Synchronous variant for use in hot paths where async is not feasible. Returns null if the file is missing or unparseable.
+
+### updateProjectName()
+
+(cwd: string, name: string) => void
+
+Update the project name in project-info.json. Used by `cleo upgrade --name` and programmatic consumers.
 
 ### getHookCapableProviders()
 
@@ -11331,15 +11853,15 @@ Returns: Count of migrated and skipped entries.
 
 ### recordTokenExchange()
 
-(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
+(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
 
 ### showTokenUsage()
 
-(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 
 ### listTokenUsage()
 
-(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
+(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
 
 ### summarizeTokenUsage()
 
@@ -11359,7 +11881,7 @@ Returns: Count of migrated and skipped entries.
 
 ### getLatestTokenRecord()
 
-(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 
 ### getTokenUsageAggregateSql()
 
@@ -11385,15 +11907,15 @@ Get current parallel execution state.
 
 ### listSkills()
 
-(_projectRoot: string) => { skills: SkillEntry[]; total: number; }
+(projectRoot: string) => { skills: SkillEntry[]; total: number; }
 
-List available skills.
+List available skills from canonical and project-local directories.
 
 ### getSkillContent()
 
-(skillName: string, _projectRoot: string) => SkillContent
+(skillName: string, projectRoot: string) => SkillContent
 
-Read skill content for injection into agent context.
+Read skill content for injection into agent context. Checks project-local skills first.
 
 ### getUnblockOpportunities()
 
@@ -11502,36 +12024,6 @@ Garbage collect old sessions (mark ended sessions as orphaned after threshold).
 (cwd?: string | undefined) => Promise<Session | null>
 
 Get the currently active session (if any).
-
-### computeDependencyWaves()
-
-(tasks: Task[]) => DependencyWave[]
-
-Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
-
-### getNextTask()
-
-(tasks: Task[]) => Task | null
-
-Get the next task to work on (highest priority ready task).
-
-### getCriticalPath()
-
-(tasks: Task[]) => string[]
-
-Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
-
-### getTaskOrder()
-
-(tasks: Task[]) => string[]
-
-Get task ordering by dependency + priority.
-
-### getParallelTasks()
-
-(tasks: Task[]) => string[]
-
-Get parallelizable tasks (tasks with no unmet dependencies).
 
 ### suggestRelated()
 
@@ -11804,7 +12296,7 @@ Run all repair functions. Returns all actions taken (or previewed in dry-run mod
 
 ### runUpgrade()
 
-(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; cwd?: string | undefined; }) => Promise<UpgradeResult>
+(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; forceDetect?: boolean | undefined; mapCodebase?: boolean | undefined; projectName?: string | undefined; cwd?: string | undefined; }) => Promise<...>
 
 Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight storage check (JSON → SQLite)   2. If migration needed and not dry-run, run auto-migration with backup   3. Schema version checks on JSON files   4. Structural repairs (checksums, missing fields)
 
@@ -11812,6 +12304,9 @@ Parameters:
 - : options.dryRun  Preview changes without applying
 - : options.includeGlobal  Also check global ~/.cleo
 - : options.autoMigrate  Auto-migrate storage if needed (default: true)
+- : options.forceDetect  Force re-detection of project type (ignore staleness)
+- : options.mapCodebase  Run full codebase analysis and store to brain.db
+- : options.projectName  Update project name in project-info and nexus
 - : options.cwd  Project directory override
 
 ### createVerificationGate()
@@ -12361,149 +12856,6 @@ Parameters:
 - : options.dryRun - If true, log planned moves without executing them
 - : options.cwd - Optional working directory override
 
-### initializePipeline()
-
-(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
-
-Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
-
-Parameters:
-- taskId: The task ID (e.g., 'T4800')
-- options: Optional configuration
-
-Returns: Promise resolving to the created Pipeline
-
-Example:
-  const pipeline = await initializePipeline('T4800', {
-    startStage: 'research',
-    assignedAgent: 'agent-001'
-  });
-  console.log(`Pipeline initialized: ${pipeline.id}`);
-
-### getPipeline()
-
-(taskId: string) => Promise<Pipeline | null>
-
-Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
-
-Parameters:
-- taskId: The task ID (e.g., 'T4800')
-
-Returns: Promise resolving to Pipeline or null
-
-Example:
-  const pipeline = await getPipeline('T4800');
-  if (pipeline) {
-    console.log(`Current stage: ${pipeline.currentStage}`);
-  }
-
-### advanceStage()
-
-(taskId: string, options: AdvanceStageOptions) => Promise<void>
-
-Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
-
-Parameters:
-- taskId: The task ID
-- options: Advance options including target stage and reason
-
-Returns: Promise resolving when transition is complete
-
-Example:
-  await advanceStage('T4800', {
-    toStage: 'consensus',
-    reason: 'Research completed, moving to consensus',
-    initiatedBy: 'agent-001'
-  });
-
-### getCurrentStage()
-
-(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
-
-Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
-
-Parameters:
-- taskId: The task ID
-
-Returns: Promise resolving to the current Stage
-
-Example:
-  const currentStage = await getCurrentStage('T4800');
-  if (currentStage === 'validation') {
-    console.log('Task is in verification');
-  }
-
-### listPipelines()
-
-(options?: PipelineQueryOptions) => Promise<Pipeline[]>
-
-List pipelines with optional filtering.
-
-Parameters:
-- options: Query options for filtering and pagination
-
-Returns: Promise resolving to array of Pipelines
-
-Example:
-  const activePipelines = await listPipelines({
-    status: 'active',
-    limit: 10
-  });
-
-### completePipeline()
-
-(taskId: string, _reason?: string | undefined) => Promise<void>
-
-Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
-
-Parameters:
-- taskId: The task ID
-- _reason: Optional completion reason (unused, for API compatibility)
-
-Returns: Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
-
-### cancelPipeline()
-
-(taskId: string, reason: string) => Promise<void>
-
-Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
-
-Parameters:
-- taskId: The task ID
-- reason: Reason for cancellation
-
-Returns: Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
-
-### pipelineExists()
-
-(taskId: string) => Promise<boolean>
-
-Check if a pipeline exists for a task.
-
-Parameters:
-- taskId: The task ID
-
-Returns: Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
-
-### getPipelineStatistics()
-
-() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
-
-Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
-
-Returns: Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
-
-### getPipelineStages()
-
-(taskId: string) => Promise<PipelineStageRecord[]>
-
-Get all stages for a pipeline.
-
-Parameters:
-- taskId: The task ID
-
-Returns: Promise resolving to array of stage records   T4912
-
 ### findResumablePipelines()
 
 (options?: FindResumableOptions, cwd?: string | undefined) => Promise<ResumablePipeline[]>
@@ -12836,7 +13188,7 @@ Returns: True if stage is skippable   T4800
 
 ### skipStage()
 
-(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", _reason: string, context: StateMachineContext) => StageState
+(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", reason: string, context: StateMachineContext) => StageState
 
 Skip a stage with validation.
 
@@ -12935,7 +13287,7 @@ Get human-readable setup instructions.
 
 (domain: string, operation: string) => "cli" | "mcp" | "either"
 
-Look up the preferred channel for a given domain + operation.
+Look up the preferred channel for a given domain + operation.  Reads from the merged capability matrix (single SSoT).
 
 Parameters:
 - domain: Domain name
@@ -12947,7 +13299,7 @@ Returns: Preferred channel ('mcp', 'cli', or 'either' as fallback)
 
 (domain: string) => RoutingEntry[]
 
-Get routing entries for a specific domain.
+Get routing entries for a specific domain.  Derives entries from the capability matrix.
 
 Parameters:
 - domain: Domain name
@@ -12958,7 +13310,7 @@ Returns: All routing entries for the domain
 
 (channel: "cli" | "mcp" | "either") => RoutingEntry[]
 
-Get all operations that prefer a specific channel.
+Get all operations that prefer a specific channel.  Derives entries from the capability matrix.
 
 Parameters:
 - channel: Channel preference to filter by
@@ -13018,7 +13370,7 @@ Log import operation completion with full metadata.  T4552
 
 ### logImportError()
 
-(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "validation" | "unknown" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
+(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "unknown" | "validation" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
 
 Log import operation error with diagnostic details.  T4552
 
@@ -13090,7 +13442,7 @@ Parameters:
 
 ### getStagesByPipelineId()
 
-(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
+(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
 
 Get all stages for a pipeline, ordered by sequence.
 
@@ -13341,18 +13693,6 @@ Get the next phase in order.
 (phases: Record<string, Phase>) => boolean
 
 Check if all phases are complete.
-
-### reparentTask()
-
-(data: TaskFile, opts: ReparentOptions) => Promise<ReparentResult>
-
-Reparent a task within a TaskFile.  Mutates the task in-place within `data.tasks`. Updates `parentId`, `type`, and `updatedAt` on the target task, and `lastUpdated` on the TaskFile.
-
-Parameters:
-- data: The loaded TaskFile (mutated in place)
-- opts: Reparent options (taskId, newParentId)
-
-Returns: Result with old/new parent and new type
 
 ### getSizeWeight()
 
@@ -14411,10 +14751,6 @@ typeof AdminHandler
 
 Members:
 
-#### projectRoot
-
-string
-
 #### query()
 
 (operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
@@ -14432,10 +14768,6 @@ string
 typeof CheckHandler
 
 Members:
-
-#### projectRoot
-
-string
 
 #### query()
 
@@ -14455,10 +14787,6 @@ typeof MemoryHandler
 
 Members:
 
-#### projectRoot
-
-string
-
 #### query()
 
 (operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
@@ -14476,10 +14804,6 @@ string
 typeof NexusHandler
 
 Members:
-
-#### projectRoot
-
-string
 
 #### query()
 
@@ -14499,10 +14823,6 @@ typeof OrchestrateHandler
 
 Members:
 
-#### projectRoot
-
-string
-
 #### query()
 
 (operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
@@ -14520,10 +14840,6 @@ string
 typeof PipelineHandler
 
 Members:
-
-#### projectRoot
-
-string
 
 #### query()
 
@@ -14583,10 +14899,6 @@ typeof SessionHandler
 
 Members:
 
-#### projectRoot
-
-string
-
 #### query()
 
 (operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
@@ -14604,10 +14916,6 @@ string
 typeof StickyHandler
 
 Members:
-
-#### projectRoot
-
-string
 
 #### query()
 
@@ -14627,10 +14935,6 @@ typeof TasksHandler
 
 Members:
 
-#### projectRoot
-
-string
-
 #### query()
 
 (operation: string, params?: Record<string, unknown> | undefined) => Promise<DispatchResponse>
@@ -14648,10 +14952,6 @@ string
 typeof ToolsHandler
 
 Members:
-
-#### projectRoot
-
-string
 
 #### query()
 
@@ -15057,7 +15357,7 @@ Get safety options for data-safety-central operations.
 
 #### countTasks()
 
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | ("cancelled" | "pending" | "active" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | ("cancelled" | "active" | "pending" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
 
 #### getChildren()
 
@@ -15669,11 +15969,11 @@ Members:
 
 #### getLinksForMemory()
 
-(memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
+(memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
 
 #### getLinksForTask()
 
-(taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
+(taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
 
 #### removeLink()
 
@@ -15681,11 +15981,11 @@ Members:
 
 #### addStickyNote()
 
-(row: { id: string; content: string; createdAt?: string | undefined; updatedAt?: string | null | undefined; status?: "active" | "archived" | "converted" | undefined; priority?: "high" | "medium" | "low" | null | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 more ... | undefin...
+(row: { id: string; content: string; status?: "active" | "archived" | "converted" | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; priority?: "high" | "medium" | "low" | null | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 more ... | undefin...
 
 #### getStickyNote()
 
-(id: string) => Promise<{ id: string; createdAt: string; updatedAt: string | null; status: "active" | "archived" | "converted"; priority: "high" | "medium" | "low" | null; content: string; sourceType: string | null; tagsJson: string | null; convertedToJson: string | null; color: "yellow" | ... 4 more ... | null; } |...
+(id: string) => Promise<{ id: string; status: "active" | "archived" | "converted"; createdAt: string; updatedAt: string | null; priority: "high" | "medium" | "low" | null; content: string; sourceType: string | null; tagsJson: string | null; convertedToJson: string | null; color: "yellow" | ... 4 more ... | null; } |...
 
 #### findStickyNotes()
 
@@ -15693,7 +15993,7 @@ Members:
 
 #### updateStickyNote()
 
-(id: string, updates: Partial<{ id: string; content: string; createdAt?: string | undefined; updatedAt?: string | null | undefined; status?: "active" | "archived" | "converted" | undefined; priority?: "high" | ... 3 more ... | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 mor...
+(id: string, updates: Partial<{ id: string; content: string; status?: "active" | "archived" | "converted" | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; priority?: "high" | ... 3 more ... | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 mor...
 
 #### deleteStickyNote()
 
@@ -15701,15 +16001,15 @@ Members:
 
 #### addPageNode()
 
-(node: { id: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; createdAt?: string | undefined; metadataJson?: string | null | undefined; }) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | ... 2 more ... | "concept"; label: string; }>
+(node: { id: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; metadataJson?: string | null | undefined; createdAt?: string | undefined; }) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | ... 2 more ... | "concept"; label: string; }>
 
 #### getPageNode()
 
-(id: string) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; } | null>
+(id: string) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; } | null>
 
 #### findPageNodes()
 
-(params?: { nodeType?: "task" | "file" | "doc" | "concept" | undefined; limit?: number | undefined; }) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
+(params?: { nodeType?: "task" | "file" | "doc" | "concept" | undefined; limit?: number | undefined; }) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
 
 #### removePageNode()
 
@@ -15725,7 +16025,7 @@ Members:
 
 #### getNeighbors()
 
-(nodeId: string, edgeType?: "depends_on" | "implements" | "relates_to" | "documents" | undefined) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
+(nodeId: string, edgeType?: "depends_on" | "implements" | "relates_to" | "documents" | undefined) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
 
 #### removePageEdge()
 
@@ -16225,7 +16525,7 @@ SignalDockTransportConfig
 
 #### poll()
 
-(agentId: string, _since?: string | undefined) => Promise<Message[]>
+(agentId: string, since?: string | undefined) => Promise<Message[]>
 
 #### heartbeat()
 
@@ -19198,7 +19498,7 @@ Members:
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -19318,7 +19618,7 @@ boolean | undefined
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### field
 
@@ -20098,6 +20398,74 @@ boolean
 
 { code: string; message: string; } | undefined
 
+### ValidationResult
+
+any
+
+Members:
+
+#### valid
+
+boolean
+
+#### error
+
+string | undefined
+
+#### fix
+
+string | undefined
+
+#### exitCode
+
+ExitCode | undefined
+
+### AddTaskEnforcementOptions
+
+any
+
+Members:
+
+#### acceptance
+
+string[] | undefined
+
+#### priority
+
+string | undefined
+
+### UpdateTaskEnforcementOptions
+
+any
+
+Members:
+
+#### acceptance
+
+string[] | undefined
+
+### AcceptanceEnforcement
+
+any
+
+Members:
+
+#### validateCreation()
+
+(options: AddTaskEnforcementOptions) => ValidationResult
+
+#### validateUpdate()
+
+(task: Task, updates: UpdateTaskEnforcementOptions) => ValidationResult
+
+#### validateCompletion()
+
+(task: Task) => ValidationResult
+
+#### checkMinimumCriteria()
+
+(criteria: string[], minCriteria: number) => boolean
+
 ### AddTaskOptions
 
 any
@@ -20116,7 +20484,7 @@ string
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -21764,7 +22132,7 @@ Task description. **Required** — CLEO's anti-hallucination rules reject tasks 
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 Current task status. Must be a valid `TaskStatus` enum value.
 
@@ -21934,7 +22302,7 @@ Task description. **Required** — CLEO's anti-hallucination rules reject tasks 
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 Initial status. Defaults to `'pending'`.
 
@@ -22235,46 +22603,6 @@ string | null | undefined
 #### primarySession
 
 string | null | undefined
-
-### TaskFile
-
-any
-
-Root task data structure.
-
-Members:
-
-#### version
-
-string
-
-#### project
-
-ProjectMeta
-
-#### lastUpdated
-
-string
-
-#### _meta
-
-FileMeta
-
-#### taskWork
-
-TaskWorkState | undefined
-
-#### focus
-
-TaskWorkState | undefined
-
-#### tasks
-
-Task[]
-
-#### labels
-
-Record<string, string[]> | undefined
 
 ### ArchiveMetadata
 
@@ -23202,7 +23530,7 @@ Members:
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | ("cancelled" | "pending" | "active" | "blocked" | "done" | "archived")[] | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | ("cancelled" | "active" | "pending" | "blocked" | "done" | "archived")[] | undefined
 
 #### priority
 
@@ -23230,7 +23558,7 @@ string | undefined
 
 #### excludeStatus
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | ("cancelled" | "pending" | "active" | "blocked" | "done" | "archived")[] | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | ("cancelled" | "active" | "pending" | "blocked" | "done" | "archived")[] | undefined
 
 #### limit
 
@@ -23278,7 +23606,7 @@ string | null | undefined
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -23510,7 +23838,7 @@ Query tasks with filters, pagination, and ordering. Returns matching tasks + tot
 
 #### countTasks()
 
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | ("cancelled" | "pending" | "active" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | ("cancelled" | "active" | "pending" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
 
 Count tasks matching optional filters. Excludes archived by default.
 
@@ -27120,7 +27448,7 @@ string
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 #### priority
 
@@ -27170,7 +27498,7 @@ string
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 #### parent
 
@@ -27198,7 +27526,7 @@ string | undefined
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -27346,7 +27674,7 @@ string
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 #### blockType
 
@@ -27382,7 +27710,7 @@ string
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 
 #### distance
 
@@ -27528,7 +27856,7 @@ string | undefined
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -29330,7 +29658,7 @@ Record<string, string>
 
 #### status
 
-"completed" | "failed" | "cancelled" | "pending" | "active"
+"completed" | "failed" | "cancelled" | "active" | "pending"
 
 #### currentStage
 
@@ -29418,7 +29746,7 @@ string
 
 #### type
 
-"string" | "number" | "boolean" | "epicId" | "taskId"
+"string" | "number" | "boolean" | "taskId" | "epicId"
 
 #### description
 
@@ -29720,7 +30048,7 @@ boolean
 
 any
 
-Row returned by FTS content_hash duplicate check.
+Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
 
 Members:
 
@@ -29740,7 +30068,7 @@ string
 
 any
 
-Row returned by narrative backfill query (missing embeddings).
+Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
 
 Members:
 
@@ -29760,7 +30088,7 @@ string
 
 any
 
-Flattened FTS hit used in hybrid search scoring.
+Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
 
 Members:
 
@@ -29784,7 +30112,7 @@ string
 
 any
 
-Row returned by KNN vector similarity query.
+Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
 
 Members:
 
@@ -29800,7 +30128,7 @@ number
 
 any
 
-Decision node attached to a blocker in causal traces.
+Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
 
 Members:
 
@@ -29820,7 +30148,7 @@ string | undefined
 
 any
 
-Anchor entry in a timeline result.
+Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
 
 Members:
 
@@ -29835,6 +30163,70 @@ string
 #### data
 
 unknown
+
+### BrainTimelineNeighborRow
+
+any
+
+Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+
+Members:
+
+#### id
+
+string
+
+#### type
+
+string
+
+#### date
+
+string
+
+### BrainConsolidationObservationRow
+
+any
+
+Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
+
+Members:
+
+#### id
+
+string
+
+#### type
+
+string
+
+#### title
+
+string
+
+#### narrative
+
+string | null
+
+#### project
+
+string | null
+
+#### created_at
+
+string
+
+### BrainIdCheckRow
+
+any
+
+Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
+
+Members:
+
+#### id
+
+string
 
 ### EmbeddingProvider
 
@@ -29996,7 +30388,7 @@ Members:
 
 #### action
 
-"skipped" | "created" | "repaired"
+"created" | "skipped" | "repaired"
 
 #### path
 
@@ -30046,7 +30438,7 @@ Members:
 
 #### action
 
-"skipped" | "created" | "repaired"
+"created" | "skipped" | "repaired"
 
 #### path
 
@@ -30120,7 +30512,7 @@ Members:
 
 #### action
 
-"skipped" | "created" | "repaired"
+"created" | "skipped" | "repaired"
 
 #### path
 
@@ -30272,7 +30664,7 @@ Rich debrief data (superset of handoffJson).
 
 any
 
-Task work state from the task store.
+Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 
 Members:
 
@@ -30294,7 +30686,7 @@ string | null
 
 #### sessionNotes
 
-unknown[]
+SessionNote[]
 
 #### nextAction
 
@@ -30303,30 +30695,6 @@ string | null
 #### primarySession
 
 string | null
-
-### TaskFileExt
-
-any
-
-Task file structure (subset for session operations).
-
-Members:
-
-#### focus
-
-TaskWorkStateExt | { [key: string]: unknown; currentTask?: string | null | undefined; currentPhase?: string | null | undefined; } | undefined
-
-#### _meta
-
-{ [key: string]: unknown; schemaVersion: string; checksum?: string | undefined; configVersion?: string | undefined; lastSessionId?: string | null | undefined; activeSessionCount?: number | undefined; sessionsFile?: string | ... 1 more ... | undefined; generation?: number | undefined; } | undefined
-
-#### tasks
-
-{ [key: string]: unknown; id: string; status: string; parentId?: string | undefined; completedAt?: string | undefined; }[] | undefined
-
-#### lastUpdated
-
-string | undefined
 
 ### DecisionRecord
 
@@ -31456,7 +31824,7 @@ Members:
 
 #### focus
 
-"testing" | "architecture" | "stack" | "structure" | "conventions" | "integrations" | "concerns" | undefined
+"stack" | "testing" | "architecture" | "structure" | "conventions" | "integrations" | "concerns" | undefined
 
 #### storeToBrain
 
@@ -31519,12 +31887,6 @@ Overwrite existing files.
 boolean | undefined
 
 Auto-detect project configuration.
-
-#### updateDocs
-
-boolean | undefined
-
-Update agent documentation injections only.
 
 #### mapCodebase
 
@@ -32574,7 +32936,7 @@ string | undefined
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### priority
 
@@ -32936,7 +33298,7 @@ Members:
 
 #### mode
 
-"skipped" | "manual" | "created"
+"manual" | "created" | "skipped"
 
 #### prUrl
 
@@ -33463,6 +33825,318 @@ Recent learnings relevant to this scope
 number
 
 Total token estimate for this context
+
+### Pipeline
+
+any
+
+Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+
+Members:
+
+#### id
+
+string
+
+Unique identifier (task ID format: T####)
+
+#### currentStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
+
+Current stage in the pipeline
+
+#### createdAt
+
+Date
+
+When the pipeline was created
+
+#### updatedAt
+
+Date
+
+When the pipeline was last updated
+
+#### status
+
+"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"
+
+Overall pipeline status
+
+#### isActive
+
+boolean
+
+Whether the pipeline is currently active (not completed/cancelled)
+
+#### completedAt
+
+Date | undefined
+
+When the pipeline completed (if applicable)
+
+#### cancelledReason
+
+string | undefined
+
+Cancellation reason (if cancelled)
+
+#### transitionCount
+
+number
+
+Number of stage transitions made
+
+#### version
+
+number
+
+Version for optimistic locking
+
+### PipelineStageRecord
+
+any
+
+Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+
+Members:
+
+#### id
+
+string | undefined
+
+Unique identifier
+
+#### pipelineId
+
+string
+
+Reference to the pipeline
+
+#### stage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
+
+Stage name
+
+#### status
+
+"completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"
+
+Stage status
+
+#### startedAt
+
+Date | undefined
+
+When the stage was started
+
+#### completedAt
+
+Date | undefined
+
+When the stage was completed
+
+#### durationMs
+
+number | undefined
+
+Stage duration in milliseconds (computed)
+
+#### assignedAgent
+
+string | undefined
+
+Assigned agent for this stage
+
+#### notes
+
+string | undefined
+
+Stage-specific metadata/notes
+
+#### order
+
+number
+
+Stage order in pipeline
+
+### PipelineTransition
+
+any
+
+Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+
+Members:
+
+#### id
+
+string | undefined
+
+Unique identifier
+
+#### pipelineId
+
+string
+
+Pipeline reference
+
+#### fromStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
+
+From stage
+
+#### toStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
+
+To stage
+
+#### transitionedAt
+
+Date
+
+When the transition occurred
+
+#### transitionedBy
+
+string
+
+Agent/user who initiated the transition
+
+#### reason
+
+string | undefined
+
+Reason for the transition
+
+#### prerequisitesChecked
+
+boolean
+
+Whether prerequisites were checked
+
+#### validationErrors
+
+string[] | undefined
+
+Any validation errors that occurred
+
+### InitializePipelineOptions
+
+any
+
+Options for initializing a pipeline.   T4800
+
+Members:
+
+#### startStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | undefined
+
+Starting stage (defaults to 'research')
+
+#### initialStatus
+
+"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted" | undefined
+
+Initial status (defaults to 'active')
+
+#### assignedAgent
+
+string | undefined
+
+Assigning agent
+
+### AdvanceStageOptions
+
+any
+
+Options for advancing pipeline stage.   T4800
+
+Members:
+
+#### toStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
+
+Target stage to advance to
+
+#### reason
+
+string | undefined
+
+Reason for the advancement
+
+#### initiatedBy
+
+string
+
+Agent/user initiating the transition
+
+#### skipPrerequisites
+
+boolean | undefined
+
+Whether to skip prerequisite check (emergency only)
+
+#### force
+
+boolean | undefined
+
+Whether to force transition even if blocked
+
+### PipelineQueryOptions
+
+any
+
+Pipeline query options.   T4800
+
+Members:
+
+#### status
+
+"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted" | undefined
+
+Filter by status
+
+#### currentStage
+
+"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | undefined
+
+Filter by current stage
+
+#### isActive
+
+boolean | undefined
+
+Filter by active state
+
+#### limit
+
+number | undefined
+
+Limit results
+
+#### offset
+
+number | undefined
+
+Offset for pagination
+
+#### orderBy
+
+"createdAt" | "updatedAt" | "currentStage" | undefined
+
+Order by (default: createdAt desc)
+
+#### order
+
+"asc" | "desc" | undefined
+
+Order direction
 
 ### BriefingTask
 
@@ -34262,7 +34936,7 @@ Members:
 
 #### find()
 
-(params: { query?: string | undefined; id?: string | undefined; status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; limit?: number | undefined; }) => Promise<...>
+(params: { query?: string | undefined; id?: string | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; limit?: number | undefined; }) => Promise<...>
 
 #### show()
 
@@ -34270,11 +34944,11 @@ Members:
 
 #### list()
 
-(params?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; priority?: TaskPriority | undefined; parentId?: string | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined) => Promise<...>
+(params?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; priority?: TaskPriority | undefined; parentId?: string | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined) => Promise<...>
 
 #### update()
 
-(params: { taskId: string; title?: string | undefined; status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; priority?: TaskPriority | undefined; description?: string | undefined; notes?: string | undefined; }) => Promise<...>
+(params: { taskId: string; title?: string | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; priority?: TaskPriority | undefined; description?: string | undefined; notes?: string | undefined; }) => Promise<...>
 
 #### complete()
 
@@ -34962,6 +35636,308 @@ string
 
 string
 
+### TransferParams
+
+any
+
+Parameters for a cross-project transfer operation.
+
+Members:
+
+#### taskIds
+
+string[]
+
+Task IDs to transfer from the source project.
+
+#### sourceProject
+
+string
+
+Source project name or hash.
+
+#### targetProject
+
+string
+
+Target project name or hash.
+
+#### mode
+
+TransferMode | undefined
+
+Copy (default) keeps source tasks; move archives them.
+
+#### scope
+
+TransferScope | undefined
+
+Single transfers individual tasks; subtree transfers tasks + all descendants.
+
+#### onConflict
+
+TransferOnConflict | undefined
+
+How to handle title conflicts in the target.
+
+#### onMissingDep
+
+TransferOnMissingDep | undefined
+
+How to handle missing deps in the target.
+
+#### provenance
+
+boolean | undefined
+
+Whether to add provenance notes to transferred tasks.
+
+#### targetParent
+
+string | undefined
+
+Override parent ID in target project.
+
+#### transferBrain
+
+boolean | undefined
+
+Whether to transfer brain observations linked to source tasks.
+
+#### dryRun
+
+boolean | undefined
+
+Dry run: preview without writing.
+
+### TransferManifestEntry
+
+any
+
+A single task entry in the transfer manifest.
+
+Members:
+
+#### sourceId
+
+string
+
+Original task ID in source project.
+
+#### targetId
+
+string
+
+New task ID in target project.
+
+#### title
+
+string
+
+Task title.
+
+#### type
+
+string
+
+Task type (task, epic, milestone, etc.).
+
+### TransferManifest
+
+any
+
+Manifest describing what was (or would be) transferred.
+
+Members:
+
+#### sourceProject
+
+string
+
+Source project name.
+
+#### targetProject
+
+string
+
+Target project name.
+
+#### mode
+
+TransferMode
+
+Transfer mode used.
+
+#### scope
+
+TransferScope
+
+Transfer scope used.
+
+#### entries
+
+TransferManifestEntry[]
+
+Tasks included in the transfer.
+
+#### idRemap
+
+Record<string, string>
+
+ID remap table: sourceId - targetId.
+
+#### brainObservationsTransferred
+
+number
+
+Number of brain observations transferred.
+
+### TransferResult
+
+any
+
+Result of a transfer operation.
+
+Members:
+
+#### dryRun
+
+boolean
+
+Whether this was a dry run.
+
+#### transferred
+
+number
+
+Number of tasks transferred.
+
+#### skipped
+
+number
+
+Number of tasks skipped (conflict resolution).
+
+#### archived
+
+number
+
+Number of source tasks archived (move mode only).
+
+#### linksCreated
+
+number
+
+Number of external links created.
+
+#### brainObservationsTransferred
+
+number
+
+Number of brain observations transferred.
+
+#### manifest
+
+TransferManifest
+
+Transfer manifest with full details.
+
+### ImportFromPackageOptions
+
+any
+
+Options passed to importFromPackage (extracted from importTasksPackage).
+
+Members:
+
+#### cwd
+
+string | undefined
+
+Working directory for the target project.
+
+#### dryRun
+
+boolean | undefined
+
+Dry run: preview without writing.
+
+#### parent
+
+string | undefined
+
+Parent task ID in target.
+
+#### phase
+
+string | undefined
+
+Phase override.
+
+#### addLabel
+
+string | undefined
+
+Label to add to imported tasks.
+
+#### provenance
+
+boolean | undefined
+
+Whether to add provenance notes.
+
+#### resetStatus
+
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
+
+Status to reset imported tasks to.
+
+#### onConflict
+
+TransferOnConflict | undefined
+
+Conflict resolution strategy.
+
+#### onMissingDep
+
+TransferOnMissingDep | undefined
+
+Missing dependency strategy.
+
+#### force
+
+boolean | undefined
+
+Force import (skip duplicate checks).
+
+### ImportFromPackageResult
+
+any
+
+Result from importFromPackage.
+
+Members:
+
+#### imported
+
+number
+
+#### skipped
+
+number
+
+#### idRemap
+
+Record<string, string>
+
+#### dryRun
+
+boolean | undefined
+
+#### preview
+
+{ tasks: { id: string; title: string; type: string; }[]; } | undefined
+
 ### RemapTable
 
 any
@@ -35010,7 +35986,7 @@ boolean | undefined
 
 #### resetStatus
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### onConflict
 
@@ -35089,6 +36065,808 @@ ValidationError[]
 #### checked
 
 number
+
+### RegisterAgentOptions
+
+any
+
+Options for registering a new agent instance.
+
+Members:
+
+#### agentType
+
+"custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"
+
+#### sessionId
+
+string | undefined
+
+#### taskId
+
+string | undefined
+
+#### parentAgentId
+
+string | undefined
+
+#### metadata
+
+Record<string, unknown> | undefined
+
+### UpdateStatusOptions
+
+any
+
+Options for updating agent status.
+
+Members:
+
+#### status
+
+"error" | "starting" | "active" | "idle" | "crashed" | "stopped"
+
+#### error
+
+string | undefined
+
+#### taskId
+
+string | undefined
+
+### ListAgentFilters
+
+any
+
+Filters for listing agent instances.
+
+Members:
+
+#### status
+
+"error" | "starting" | "active" | "idle" | "crashed" | "stopped" | ("error" | "starting" | "active" | "idle" | "crashed" | "stopped")[] | undefined
+
+#### agentType
+
+"custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor" | ("custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor")[] | undefined
+
+#### sessionId
+
+string | undefined
+
+#### parentAgentId
+
+string | undefined
+
+### AgentHealthReport
+
+any
+
+Agent health report summary.
+
+Members:
+
+#### total
+
+number
+
+#### active
+
+number
+
+#### idle
+
+number
+
+#### starting
+
+number
+
+#### error
+
+number
+
+#### crashed
+
+number
+
+#### stopped
+
+number
+
+#### totalErrors
+
+number
+
+#### staleAgents
+
+{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status: "error" | "starting" | "active" | "idle" | "crashed" | "stopped"; ... 8 more ...; parentAgentId: string | null; }[]
+
+### CapacitySummary
+
+any
+
+Capacity summary for reporting.
+
+Members:
+
+#### totalCapacity
+
+number
+
+#### activeAgentCount
+
+number
+
+#### averageCapacity
+
+number
+
+#### overloaded
+
+boolean
+
+#### threshold
+
+number
+
+### RetryPolicy
+
+any
+
+Configuration for retry behavior.
+
+Members:
+
+#### maxRetries
+
+number
+
+Maximum number of retry attempts. Default: 3.
+
+#### baseDelayMs
+
+number
+
+Base delay in milliseconds before first retry. Default: 1000.
+
+#### maxDelayMs
+
+number
+
+Maximum delay in milliseconds between retries. Default: 30000.
+
+#### backoffMultiplier
+
+number
+
+Multiplier for exponential backoff. Default: 2.
+
+#### jitter
+
+boolean
+
+Whether to add random jitter to delays. Default: true.
+
+#### retryOnUnknown
+
+boolean
+
+Whether to retry on 'unknown' error classification. Default: true.
+
+### RetryResult
+
+any
+
+Result of a retried operation.
+
+Members:
+
+#### success
+
+boolean
+
+#### value
+
+T | undefined
+
+#### error
+
+Error | undefined
+
+#### attempts
+
+number
+
+#### totalDelayMs
+
+number
+
+### AgentRecoveryResult
+
+any
+
+Result of a recovery attempt for a single agent.
+
+Members:
+
+#### agentId
+
+string
+
+#### recovered
+
+boolean
+
+#### action
+
+"skipped" | "restarted" | "abandoned"
+
+#### reason
+
+string
+
+### PayloadValidationResult
+
+any
+
+Result of payload validation.
+
+Members:
+
+#### valid
+
+boolean
+
+Whether the payload passed validation.
+
+#### errors
+
+string[]
+
+Validation errors (empty when valid).
+
+### DependencyCheckResult
+
+any
+
+Result of a dependency validation check.
+
+Members:
+
+#### valid
+
+boolean
+
+#### errors
+
+DependencyError[]
+
+#### warnings
+
+DependencyWarning[]
+
+### DependencyError
+
+any
+
+A dependency error.
+
+Members:
+
+#### code
+
+string
+
+#### taskId
+
+string
+
+#### message
+
+string
+
+#### relatedIds
+
+string[] | undefined
+
+### DependencyWarning
+
+any
+
+A dependency warning.
+
+Members:
+
+#### code
+
+string
+
+#### taskId
+
+string
+
+#### message
+
+string
+
+### DependencyWave
+
+any
+
+A wave of parallelizable tasks.
+
+Members:
+
+#### wave
+
+number
+
+#### taskIds
+
+string[]
+
+### RiskFactor
+
+any
+
+A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+
+Members:
+
+#### name
+
+string
+
+Human-readable factor name (e.g., "complexity", "blocking_risk").
+
+#### weight
+
+number
+
+How much this factor contributes to the total score (0-1).
+
+#### value
+
+number
+
+Current measured value for this factor (0-1, where 1 = highest risk).
+
+#### description
+
+string
+
+Explanation of why this factor has its current value.
+
+### RiskAssessment
+
+any
+
+Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+
+Members:
+
+#### taskId
+
+string
+
+The task ID this assessment applies to.
+
+#### riskScore
+
+number
+
+Aggregate risk score (0-1, where 1 = highest risk).
+
+#### confidence
+
+number
+
+Confidence in the assessment (0-1). Higher when more data is available.
+
+#### factors
+
+RiskFactor[]
+
+Individual risk factors that contributed to the score.
+
+#### recommendation
+
+string
+
+Human-readable recommendation based on the risk level.
+
+### ValidationPrediction
+
+any
+
+Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+
+Members:
+
+#### taskId
+
+string
+
+The task ID being evaluated.
+
+#### stage
+
+string
+
+The lifecycle stage being predicted (e.g., "specification", "implementation").
+
+#### passLikelihood
+
+number
+
+Probability of passing the gate (0-1).
+
+#### blockers
+
+string[]
+
+Known blockers that may prevent passing.
+
+#### suggestions
+
+string[]
+
+Actionable suggestions to improve pass likelihood.
+
+### DetectedPattern
+
+any
+
+A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
+
+Members:
+
+#### type
+
+"success" | "workflow" | "failure" | "blocker" | "optimization"
+
+Pattern type classification.
+
+#### pattern
+
+string
+
+Human-readable pattern description.
+
+#### context
+
+string
+
+Context in which the pattern was observed.
+
+#### frequency
+
+number
+
+How many times this pattern was observed.
+
+#### successRate
+
+number | null
+
+Success rate when this pattern appears (0-1, null if unknown).
+
+#### impact
+
+"high" | "medium" | "low"
+
+Estimated impact level.
+
+#### antiPattern
+
+string | null
+
+If this is an anti-pattern, describe the negative behavior.
+
+#### mitigation
+
+string | null
+
+Recommended mitigation for anti-patterns.
+
+#### examples
+
+string[]
+
+Example task IDs or descriptions where this pattern occurred.
+
+#### confidence
+
+number
+
+Confidence in this pattern's validity (0-1).
+
+### PatternMatch
+
+any
+
+Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+
+Members:
+
+#### pattern
+
+{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; pattern: string; context: string; frequency: number; successRate: number | null; ... 4 more ...; extractedAt: string; }
+
+The matched brain_patterns row.
+
+#### relevanceScore
+
+number
+
+How relevant this pattern is to the target task (0-1).
+
+#### matchReason
+
+string
+
+Why this pattern was matched.
+
+#### isAntiPattern
+
+boolean
+
+Whether this is an anti-pattern match (warns about potential issues).
+
+### PatternExtractionOptions
+
+any
+
+Options for pattern extraction from historical data.
+
+Members:
+
+#### minFrequency
+
+number | undefined
+
+Minimum number of occurrences to consider something a pattern. Default: 2.
+
+#### minConfidence
+
+number | undefined
+
+Minimum confidence threshold (0-1). Default: 0.3.
+
+#### limit
+
+number | undefined
+
+Maximum number of patterns to return. Default: 50.
+
+#### type
+
+"success" | "workflow" | "failure" | "blocker" | "optimization" | undefined
+
+Filter by pattern type.
+
+### PatternStatsUpdate
+
+any
+
+Result of updating pattern statistics after an outcome.
+
+Members:
+
+#### patternId
+
+string
+
+The pattern ID that was updated.
+
+#### newFrequency
+
+number
+
+New frequency value.
+
+#### newSuccessRate
+
+number | null
+
+New success rate (0-1).
+
+#### outcomeSuccess
+
+boolean
+
+Whether the outcome was successful.
+
+### LearningContext
+
+any
+
+Summary of applicable learnings for a task, used in prediction.
+
+Members:
+
+#### applicable
+
+{ id: string; createdAt: string; updatedAt: string | null; source: string; confidence: number; insight: string; actionable: boolean; application: string | null; applicableTypesJson: string | null; }[]
+
+Learnings that apply to this task's context.
+
+#### averageConfidence
+
+number
+
+Average confidence of applicable learnings.
+
+#### actionableCount
+
+number
+
+Count of actionable learnings.
+
+### ImpactAssessment
+
+any
+
+Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+
+Members:
+
+#### taskId
+
+string
+
+The task being assessed.
+
+#### directDependents
+
+string[]
+
+Tasks that directly depend on this task.
+
+#### transitiveDependents
+
+string[]
+
+All downstream tasks (direct + transitive).
+
+#### affectedPipelines
+
+string[]
+
+Epic IDs whose lifecycle pipelines are affected.
+
+#### blockedWorkCount
+
+number
+
+Count of tasks that would be blocked if this task is not completed.
+
+#### isOnCriticalPath
+
+boolean
+
+Whether this task lies on the project's critical path.
+
+#### blastRadius
+
+BlastRadius
+
+Quantified scope of the impact.
+
+### ChangeImpact
+
+any
+
+Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+
+Members:
+
+#### taskId
+
+string
+
+The task being changed.
+
+#### changeType
+
+ChangeType
+
+The type of change being analyzed.
+
+#### affectedTasks
+
+AffectedTask[]
+
+Tasks affected by this change, with predicted new status.
+
+#### cascadeDepth
+
+number
+
+Maximum depth of cascading effects in the dependency graph.
+
+#### recommendation
+
+string
+
+Human-readable recommendation based on the analysis.
+
+### AffectedTask
+
+any
+
+A single task affected by a change, with its predicted new state.
+
+Members:
+
+#### id
+
+string
+
+Task ID.
+
+#### title
+
+string
+
+Task title.
+
+#### currentStatus
+
+string
+
+Current status before the change.
+
+#### newStatus
+
+string | undefined
+
+Predicted new status after the change (if it would change).
+
+#### reason
+
+string
+
+Why this task is affected.
+
+### BlastRadius
+
+any
+
+Quantified scope of a task's impact across the project.
+
+Members:
+
+#### directCount
+
+number
+
+Number of direct dependents.
+
+#### transitiveCount
+
+number
+
+Number of transitive dependents (full downstream tree).
+
+#### epicCount
+
+number
+
+Number of distinct epics affected.
+
+#### projectPercentage
+
+number
+
+Percentage of the total project impacted (0-100).
+
+#### severity
+
+BlastRadiusSeverity
+
+Classification of impact severity.
 
 ### IssueTemplate
 
@@ -36676,7 +38454,7 @@ ExecutionMode
 
 #### preferredChannel
 
-PreferredChannel | undefined
+PreferredChannel
 
 ### CapabilityReport
 
@@ -37112,7 +38890,7 @@ string
 
 any
 
-Skill frontmatter parsed from SKILL.md YAML header.
+Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
 
 Members:
 
@@ -37120,55 +38898,79 @@ Members:
 
 string
 
+Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.
+
 #### description
 
 string
+
+Human-readable description. Maps to CaampSkillMetadata.description.
 
 #### version
 
 string | undefined
 
+Semantic version string. Maps to CaampSkillMetadata.version.
+
 #### author
 
 string | undefined
+
+Skill author (CLEO extension).
 
 #### tags
 
 string[] | undefined
 
+Classification tags for search/filter (CLEO extension).
+
 #### triggers
 
 string[] | undefined
+
+Trigger patterns for auto-dispatch (CLEO extension).
 
 #### dispatchPriority
 
 number | undefined
 
+Priority for dispatch selection (CLEO extension).
+
 #### model
 
 string | undefined
+
+Preferred LLM model (CLEO extension).
 
 #### allowedTools
 
 string[] | undefined
 
+Allowed tool names. Maps to CaampSkillMetadata.allowedTools.
+
 #### invocable
 
 boolean | undefined
+
+Whether the skill can be invoked directly (CLEO extension).
 
 #### command
 
 string | undefined
 
+CLI command for direct invocation (CLEO extension).
+
 #### protocol
 
 SkillProtocolType | undefined
+
+RCASD-IVTR+C protocol type (CLEO extension).
 
 ### Skill
 
 any
 
-Skill definition loaded from disk.
+Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
 
 Members:
 
@@ -37200,7 +39002,7 @@ string | undefined
 
 any
 
-Lightweight skill summary for manifest/listing.
+Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
 
 Members:
 
@@ -39288,70 +41090,6 @@ number
 
 boolean
 
-### DependencyCheckResult
-
-any
-
-Result of a dependency validation check.
-
-Members:
-
-#### valid
-
-boolean
-
-#### errors
-
-DependencyError[]
-
-#### warnings
-
-DependencyWarning[]
-
-### DependencyError
-
-any
-
-A dependency error.
-
-Members:
-
-#### code
-
-string
-
-#### taskId
-
-string
-
-#### message
-
-string
-
-#### relatedIds
-
-string[] | undefined
-
-### DependencyWarning
-
-any
-
-A dependency warning.
-
-Members:
-
-#### code
-
-string
-
-#### taskId
-
-string
-
-#### message
-
-string
-
 ### TaskCurrentResult
 
 any
@@ -40138,9 +41876,11 @@ string | undefined
 
 string | undefined
 
-### TaskFile
+### TaskData
 
 any
+
+Task data shape for validation functions.
 
 Members:
 
@@ -40152,9 +41892,11 @@ Task[]
 
 { currentPhase?: string | undefined; phases?: Record<string, { status?: string | undefined; startedAt?: string | undefined; completedAt?: string | undefined; }> | undefined; } | undefined
 
-### ArchiveFile
+### ArchiveData
 
 any
+
+Archive data shape for validation functions.
 
 Members:
 
@@ -41504,22 +43246,6 @@ string | null
 
 string | null
 
-### DependencyWave
-
-any
-
-A wave of parallelizable tasks.
-
-Members:
-
-#### wave
-
-number
-
-#### taskIds
-
-string[]
-
 ### CancelResult
 
 any
@@ -41616,7 +43342,7 @@ Members:
 
 #### status
 
-"cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined
+"cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined
 
 #### parentId
 
@@ -42506,19 +44232,27 @@ number
 
 any
 
+Configuration for skill precedence resolution across providers.
+
 Members:
 
 #### defaultPrecedence
 
 SkillsPrecedence | undefined
 
+Default precedence mode when no provider-specific override exists.
+
 #### providerOverrides
 
 Record<string, SkillsPrecedence> | undefined
 
+Per-provider precedence overrides (provider ID - precedence).
+
 ### ResolvedSkillPath
 
 any
+
+A resolved skill path with full provenance metadata.
 
 Members:
 
@@ -42526,25 +44260,37 @@ Members:
 
 string
 
+Absolute filesystem path to the skill directory.
+
 #### source
 
 "marketplace" | "vendor" | "agents"
+
+Where the skill was sourced from.
 
 #### scope
 
 "global" | "project"
 
+Whether this is a global or project-scoped skill.
+
 #### precedence
 
 SkillsPrecedence
+
+The precedence mode that selected this path.
 
 #### providerId
 
 string
 
+The provider that owns this skill path.
+
 ### SkillInstallationContext
 
 any
+
+Context for a skill installation operation.
 
 Members:
 
@@ -42552,21 +44298,31 @@ Members:
 
 string
 
+Name of the skill being installed.
+
 #### source
 
 string
+
+Source URL or path to install from.
 
 #### targetProviders
 
 string[]
 
+Provider IDs to install the skill for.
+
 #### precedenceMode
 
 SkillsPrecedence | undefined
 
+Precedence mode for the installation.
+
 #### projectRoot
 
 string | undefined
+
+Project root for project-scoped installations.
 
 ### InProgressEpic
 
@@ -42999,318 +44755,6 @@ string | undefined
 #### description
 
 string
-
-### Pipeline
-
-any
-
-Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-
-Members:
-
-#### id
-
-string
-
-Unique identifier (task ID format: T####)
-
-#### currentStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
-
-Current stage in the pipeline
-
-#### createdAt
-
-Date
-
-When the pipeline was created
-
-#### updatedAt
-
-Date
-
-When the pipeline was last updated
-
-#### status
-
-"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"
-
-Overall pipeline status
-
-#### isActive
-
-boolean
-
-Whether the pipeline is currently active (not completed/cancelled)
-
-#### completedAt
-
-Date | undefined
-
-When the pipeline completed (if applicable)
-
-#### cancelledReason
-
-string | undefined
-
-Cancellation reason (if cancelled)
-
-#### transitionCount
-
-number
-
-Number of stage transitions made
-
-#### version
-
-number
-
-Version for optimistic locking
-
-### PipelineStageRecord
-
-any
-
-Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-
-Members:
-
-#### id
-
-string | undefined
-
-Unique identifier
-
-#### pipelineId
-
-string
-
-Reference to the pipeline
-
-#### stage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
-
-Stage name
-
-#### status
-
-"completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"
-
-Stage status
-
-#### startedAt
-
-Date | undefined
-
-When the stage was started
-
-#### completedAt
-
-Date | undefined
-
-When the stage was completed
-
-#### durationMs
-
-number | undefined
-
-Stage duration in milliseconds (computed)
-
-#### assignedAgent
-
-string | undefined
-
-Assigned agent for this stage
-
-#### notes
-
-string | undefined
-
-Stage-specific metadata/notes
-
-#### order
-
-number
-
-Stage order in pipeline
-
-### PipelineTransition
-
-any
-
-Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-
-Members:
-
-#### id
-
-string | undefined
-
-Unique identifier
-
-#### pipelineId
-
-string
-
-Pipeline reference
-
-#### fromStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
-
-From stage
-
-#### toStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
-
-To stage
-
-#### transitionedAt
-
-Date
-
-When the transition occurred
-
-#### transitionedBy
-
-string
-
-Agent/user who initiated the transition
-
-#### reason
-
-string | undefined
-
-Reason for the transition
-
-#### prerequisitesChecked
-
-boolean
-
-Whether prerequisites were checked
-
-#### validationErrors
-
-string[] | undefined
-
-Any validation errors that occurred
-
-### InitializePipelineOptions
-
-any
-
-Options for initializing a pipeline.   T4800
-
-Members:
-
-#### startStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | undefined
-
-Starting stage (defaults to 'research')
-
-#### initialStatus
-
-"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted" | undefined
-
-Initial status (defaults to 'active')
-
-#### assignedAgent
-
-string | undefined
-
-Assigning agent
-
-### AdvanceStageOptions
-
-any
-
-Options for advancing pipeline stage.   T4800
-
-Members:
-
-#### toStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release"
-
-Target stage to advance to
-
-#### reason
-
-string | undefined
-
-Reason for the advancement
-
-#### initiatedBy
-
-string
-
-Agent/user initiating the transition
-
-#### skipPrerequisites
-
-boolean | undefined
-
-Whether to skip prerequisite check (emergency only)
-
-#### force
-
-boolean | undefined
-
-Whether to force transition even if blocked
-
-### PipelineQueryOptions
-
-any
-
-Pipeline query options.   T4800
-
-Members:
-
-#### status
-
-"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted" | undefined
-
-Filter by status
-
-#### currentStage
-
-"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | undefined
-
-Filter by current stage
-
-#### isActive
-
-boolean | undefined
-
-Filter by active state
-
-#### limit
-
-number | undefined
-
-Limit results
-
-#### offset
-
-number | undefined
-
-Offset for pagination
-
-#### orderBy
-
-"createdAt" | "updatedAt" | "currentStage" | undefined
-
-Order by (default: createdAt desc)
-
-#### order
-
-"asc" | "desc" | undefined
-
-Order direction
 
 ### ResumablePipeline
 
@@ -44280,7 +45724,7 @@ string | undefined
 
 any
 
-Routing entry describing the preferred channel for an operation.
+Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
 
 Members:
 
@@ -44294,7 +45738,7 @@ Domain name (e.g. 'tasks', 'memory', 'session')
 
 string
 
-Operation name (e.g. 'brain.search', 'show')
+Operation name (e.g. 'show', 'find')
 
 #### preferredChannel
 
@@ -44418,15 +45862,15 @@ Members:
 
 #### pipeline
 
-{ id: string; version: number; updatedAt: string | null; status: "completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"; completedAt: string | null; taskId: string; startedAt: string; currentStageId: string | null; }
+{ id: string; status: "completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"; taskId: string; startedAt: string; version: number; updatedAt: string | null; completedAt: string | null; currentStageId: string | null; }
 
 #### stage
 
-{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; completedAt: string | null; createdBy: string | null; ... 13 more ...; provenanceChainJson: string | null; }
+{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; metadataJson: string | null; notesJson: string | null; ... 13 more ...; provenanceChainJson: string | null; }
 
 #### task
 
-{ sessionId: string | null; id: string; description: string | null; createdAt: string; updatedAt: string | null; status: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"; ... 24 more ...; modifiedBy: string | null; }
+{ sessionId: string | null; id: string; status: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"; description: string | null; createdAt: string; updatedAt: string | null; ... 24 more ...; modifiedBy: string | null; }
 
 ### PipelineStageRow
 
@@ -44438,11 +45882,11 @@ Members:
 
 #### pipeline
 
-{ id: string; version: number; updatedAt: string | null; status: "completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"; completedAt: string | null; taskId: string; startedAt: string; currentStageId: string | null; }
+{ id: string; status: "completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted"; taskId: string; startedAt: string; version: number; updatedAt: string | null; completedAt: string | null; currentStageId: string | null; }
 
 #### stageRecord
 
-{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; completedAt: string | null; createdBy: string | null; ... 13 more ...; provenanceChainJson: string | null; }
+{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; metadataJson: string | null; notesJson: string | null; ... 13 more ...; provenanceChainJson: string | null; }
 
 ### AtomicityResult
 
@@ -44726,50 +46170,6 @@ boolean
 
 string | undefined
 
-### ReparentOptions
-
-any
-
-Options for reparenting a task.
-
-Members:
-
-#### taskId
-
-string
-
-#### newParentId
-
-string | null
-
-New parent ID, or null to promote to root.
-
-#### policy
-
-HierarchyPolicy | undefined
-
-Optional resolved hierarchy policy. If not provided, uses llm-agent-first defaults.
-
-### ReparentResult
-
-any
-
-Result of a reparent operation.
-
-Members:
-
-#### oldParent
-
-string | null
-
-#### newParent
-
-string | null
-
-#### newType
-
-string
-
 ### StalenessThresholds
 
 any
@@ -44905,6 +46305,34 @@ Background job status
 any
 
 MVI (Minimum Viable Information) projection configurations. Maps disclosure tiers to operation access and field filtering rules.   T4820  T5096
+
+### AgentInstanceRow
+
+any
+
+### NewAgentInstanceRow
+
+any
+
+### AgentErrorLogRow
+
+any
+
+### NewAgentErrorLogRow
+
+any
+
+### AgentInstanceStatus
+
+any
+
+### AgentType
+
+any
+
+### AgentErrorType
+
+any
 
 ### WarpChainRow
 
@@ -45842,6 +47270,30 @@ any
 
 Cost hint classification for an operation.
 
+### TransferMode
+
+any
+
+Transfer mode: copy keeps source tasks, move archives them.
+
+### TransferScope
+
+any
+
+Transfer scope: single task or full subtree.
+
+### TransferOnConflict
+
+any
+
+Conflict resolution when target has tasks with duplicate titles.
+
+### TransferOnMissingDep
+
+any
+
+How to handle missing dependencies in the target project.
+
 ### AdrValidationError
 
 any
@@ -45857,6 +47309,18 @@ ValidationResult — canonical name per ADR-017 spec
 ### ComplianceJsonlEntry
 
 any
+
+### ChangeType
+
+any
+
+The type of change being analyzed.
+
+### BlastRadiusSeverity
+
+any
+
+Severity classification for blast radius.
 
 ### BuildConfig
 
@@ -46048,62 +47512,6 @@ any
 
 Supported shell types.
 
-### ManifestIntegrity
-
-any
-
-### Severity
-
-any
-
-### UserJourneyStage
-
-any
-
-### GateName
-
-any
-
-### AgentName
-
-any
-
-### VerificationStatus
-
-any
-
-### RequirementLevel
-
-any
-
-RFC 2119 requirement levels
-
-### ViolationSeverity
-
-any
-
-Violation severity
-
-### ProtocolType
-
-any
-
-### ManifestEntry
-
-any
-
-### TokenMethod
-
-any
-
-### TokenConfidence
-
-any
-
-### TokenTransport
-
-any
-
 ### InsertTask
 
 any
@@ -46233,6 +47641,102 @@ any
 any
 
 ### SelectManifestEntry
+
+any
+
+### InsertPipelineManifest
+
+any
+
+### SelectPipelineManifest
+
+any
+
+### InsertReleaseManifest
+
+any
+
+### SelectReleaseManifest
+
+any
+
+### InsertExternalTaskLink
+
+any
+
+### SelectExternalTaskLink
+
+any
+
+### InsertAgentInstance
+
+any
+
+### SelectAgentInstance
+
+any
+
+### InsertAgentErrorLog
+
+any
+
+### SelectAgentErrorLog
+
+any
+
+### ManifestIntegrity
+
+any
+
+### Severity
+
+any
+
+### UserJourneyStage
+
+any
+
+### GateName
+
+any
+
+### AgentName
+
+any
+
+### VerificationStatus
+
+any
+
+### RequirementLevel
+
+any
+
+RFC 2119 requirement levels
+
+### ViolationSeverity
+
+any
+
+Violation severity
+
+### ProtocolType
+
+any
+
+### ManifestEntry
+
+any
+
+### TokenMethod
+
+any
+
+### TokenConfidence
+
+any
+
+### TokenTransport
 
 any
 
@@ -47326,6 +48830,26 @@ Record<MviTier, ProjectionConfig>
 
 RateLimitingConfig
 
+### AGENT_INSTANCE_STATUSES
+
+readonly ["starting", "active", "idle", "error", "crashed", "stopped"]
+
+Agent instance status values matching DB CHECK constraint.
+
+### AGENT_TYPES
+
+readonly ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]
+
+Agent type values for classification.
+
+### agentInstances
+
+SQLiteTableWithColumns<{ name: "agent_instances"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteC...
+
+### agentErrorLog
+
+SQLiteTableWithColumns<{ name: "agent_error_log"; schema: undefined; columns: { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteCo...
+
 ### WARP_CHAIN_INSTANCE_STATUSES
 
 readonly ["pending", "active", "completed", "failed", "cancelled"]
@@ -47397,6 +48921,30 @@ Confidence levels for token measurements.
 readonly ["cli", "mcp", "api", "agent", "unknown"]
 
 Transport types for token telemetry.
+
+### TASK_RELATION_TYPES
+
+readonly ["related", "blocks", "duplicates", "absorbs", "fixes", "extends", "supersedes"]
+
+Task relation types matching DB CHECK constraint on task_relations.relation_type.
+
+### LIFECYCLE_TRANSITION_TYPES
+
+readonly ["automatic", "manual", "forced"]
+
+Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type.
+
+### EXTERNAL_LINK_TYPES
+
+readonly ["created", "matched", "manual", "transferred"]
+
+External task link types matching DB constraint on external_task_links.link_type.
+
+### SYNC_DIRECTIONS
+
+readonly ["inbound", "outbound", "bidirectional"]
+
+Sync direction types matching DB constraint on external_task_links.sync_direction.
 
 ### tasks
 
@@ -48110,7 +49658,7 @@ readonly ["completed", "partial", "blocked", "archived"]
 
 ### TERMINAL_TASK_STATUSES
 
-ReadonlySet<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived">
+ReadonlySet<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived">
 
 ### TERMINAL_PIPELINE_STATUSES
 
@@ -48138,13 +49686,13 @@ Stage status → Unicode progress icon. Used wherever pipeline stage status is r
 
 ### TASK_STATUS_SYMBOLS_UNICODE
 
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string>
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string>
 
 Task status → Unicode symbol (rich terminal / Unicode-enabled). Falls back to TASK_STATUS_SYMBOLS_ASCII when Unicode is unavailable.
 
 ### TASK_STATUS_SYMBOLS_ASCII
 
-Record<"cancelled" | "pending" | "active" | "blocked" | "done" | "archived", string>
+Record<"cancelled" | "active" | "pending" | "blocked" | "done" | "archived", string>
 
 Task status → ASCII fallback symbol (non-Unicode terminals, CI output).
 
@@ -48168,9 +49716,15 @@ Embedded fallback for .cleo/.gitignore content (deny-by-default).
 
 ### REQUIRED_GLOBAL_SUBDIRS
 
-readonly ["schemas", "templates"]
+readonly ["logs", "templates"]
 
-Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.
+Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.  Truly global:   - logs      — global log output   - templates — CLEO-INJECTION.md symlink target  Note: nexus.db lives directly in ~/.cleo/, not a subdir. Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed. Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
+
+### STALE_GLOBAL_ENTRIES
+
+readonly ["adrs", "rcasd", "agent-outputs", "backups", "sandbox", "tasks.db", "tasks.db-shm", "tasks.db-wal", "brain-worker.pid", "VERSION", "schemas", "bin", ".install-state", "templates/templates"]
+
+Stale entries that must NOT exist at the global ~/.cleo/ level. These were project-level artefacts accidentally placed in the global home by old versions of CLEO. They are safe to remove because:   - adrs/, rcasd/, agent-outputs/, backups/ — project-level, live in .cleo/   - sandbox/                                — unused   - tasks.db / tasks.db-shm / tasks.db-wal  — project-level database files   - brain-worker.pid                         — stale PID file   - VERSION                                  — redundant (read from package.json)   - schemas/                                 — now read from npm binary at runtime   - bin/                                     — stale dev symlink directory
 
 ### MANAGED_HOOKS
 
@@ -48189,6 +49743,96 @@ All supported platforms.
 readonly ["config.json", ".gitignore", "project-info.json", "project-context.json"]
 
 Configuration files relative to .cleo/ that MUST remain tracked by project git. These are JSON/text config files only — NOT databases. SQLite databases (tasks.db) are excluded: they must be gitignored to prevent data-loss from merge conflicts (see ADR-013).  If any of these files are gitignored, cleo doctor reports a critical finding.
+
+### DEFAULT_RETRY_POLICY
+
+Readonly<RetryPolicy>
+
+Default retry policy matching the BRAIN specification.
+
+### HookPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; }, $strip>
+
+Zod schema for `HookPayload`.
+
+### OnSessionStartPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; name: ZodString; scope: ZodString; agent: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnSessionStartPayload`.
+
+### OnSessionEndPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; taskId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; sessionId: ZodString; duration: ZodNumber; tasksCompleted: ZodArray<...>; }, $strip>
+
+Zod schema for `OnSessionEndPayload`.
+
+### OnToolStartPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; previousTask: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnToolStartPayload`.
+
+### OnToolCompletePayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; taskId: ZodString; taskTitle: ZodString; status: ZodEnum<...>; }, $strip>
+
+Zod schema for `OnToolCompletePayload`.
+
+### OnFileChangePayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; filePath: ZodString; changeType: ZodEnum<...>; sizeBytes: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnFileChangePayload`.
+
+### OnErrorPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; stack: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnErrorPayload`.
+
+### OnPromptSubmitPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; source: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnPromptSubmitPayload`.
+
+### OnResponseCompletePayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 6 more ...; errorCode: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnResponseCompletePayload`.
+
+### OnWorkAvailablePayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; reason: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnWorkAvailablePayload`.
+
+### OnAgentSpawnPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; agentId: ZodString; role: ZodString; adapterId: ZodOptional<...>; taskId: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnAgentSpawnPayload`.
+
+### OnAgentCompletePayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; providerId: ZodOptional<ZodString>; metadata: ZodOptional<...>; ... 4 more ...; summary: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnAgentCompletePayload`.
+
+### OnCascadeStartPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; ... 4 more ...; taskIds: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnCascadeStartPayload`.
+
+### OnPatrolPayloadSchema
+
+ZodObject<{ timestamp: ZodISODateTime; sessionId: ZodOptional<ZodString>; taskId: ZodOptional<ZodString>; providerId: ZodOptional<...>; metadata: ZodOptional<...>; watcherId: ZodString; patrolType: ZodEnum<...>; scope: ZodOptional<...>; }, $strip>
+
+Zod schema for `OnPatrolPayload`.
 
 ### BUILD_CONFIG
 
@@ -48270,89 +49914,209 @@ Get task work history (canonical verb alias for dispatch layer).  T5323
 
 Current alias version.
 
-### INJECTION_VALIDATION_KEYS
+### taskStatusSchema
 
-Readonly<Record<string, string>>
+ZodEnum<{ cancelled: "cancelled"; active: "active"; pending: "pending"; blocked: "blocked"; done: "done"; archived: "archived"; }>
 
-Validation key names for JSON output. Maps target filenames to JSON-safe key names used in validation results.
+Zod enum schema for task statuses.
 
-### CACHE_VERSION
+### taskPrioritySchema
 
-"1.0.0"
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; critical: "critical"; }>
 
-### CACHE_TTL_SECONDS
+Zod enum schema for task priorities.
 
-300
+### taskTypeSchema
 
-### VALID_OPERATIONS
+ZodEnum<{ epic: "epic"; task: "task"; subtask: "subtask"; }>
 
-readonly ["create", "update", "complete", "archive", "restore", "delete", "validate", "backup"]
+Zod enum schema for task types.
 
-### FIELD_LIMITS
+### taskSizeSchema
 
-{ readonly MAX_TITLE_LENGTH: 120; readonly MAX_DESCRIPTION_LENGTH: 2000; readonly MAX_NOTE_LENGTH: 5000; readonly MAX_BLOCKED_BY_LENGTH: 300; readonly MAX_SESSION_NOTE_LENGTH: 2500; readonly MIN_CANCEL_REASON_LENGTH: 5; readonly MAX_CANCEL_REASON_LENGTH: 300; }
+ZodEnum<{ medium: "medium"; small: "small"; large: "large"; }>
 
-Field length limits matching the Bash implementation.
+Zod enum schema for task sizes.
 
-### VAL_SUCCESS
+### sessionStatusSchema
 
-0
+ZodEnum<{ active: "active"; ended: "ended"; orphaned: "orphaned"; suspended: "suspended"; }>
 
-Validation result exit codes.
+Zod enum schema for session statuses.
 
-### VAL_SCHEMA_ERROR
+### lifecyclePipelineStatusSchema
 
-1
+ZodEnum<{ completed: "completed"; failed: "failed"; cancelled: "cancelled"; active: "active"; blocked: "blocked"; aborted: "aborted"; }>
 
-### VAL_SEMANTIC_ERROR
+Zod enum schema for lifecycle pipeline statuses.
 
-2
+### lifecycleStageStatusSchema
 
-### VAL_BOTH_ERRORS
+ZodEnum<{ completed: "completed"; failed: "failed"; blocked: "blocked"; not_started: "not_started"; in_progress: "in_progress"; skipped: "skipped"; }>
 
-3
+Zod enum schema for lifecycle stage statuses.
 
-### VERIFICATION_GATE_ORDER
+### lifecycleStageNameSchema
 
-readonly ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+ZodEnum<{ research: "research"; consensus: "consensus"; architecture_decision: "architecture_decision"; specification: "specification"; decomposition: "decomposition"; implementation: "implementation"; validation: "validation"; testing: "testing"; release: "release"; contribution: "contribution"; }>
 
-### VERIFICATION_VALID_AGENTS
+Zod enum schema for lifecycle stage names.
 
-readonly ["planner", "coder", "testing", "qa", "cleanup", "security", "docs"]
+### lifecycleGateResultSchema
 
-### PROTOCOL_RULES
+ZodEnum<{ warn: "warn"; pass: "pass"; fail: "fail"; }>
 
-Record<string, ProtocolRule[]>
+Zod enum schema for lifecycle gate results.
 
-Protocol rule registry
+### lifecycleEvidenceTypeSchema
 
-### protocolEnforcer
+ZodEnum<{ file: "file"; url: "url"; manifest: "manifest"; }>
 
-ProtocolEnforcer
+Zod enum schema for lifecycle evidence types.
 
-Default protocol enforcer instance
+### adrStatusSchema
 
-### PROTOCOL_TYPES
+ZodEnum<{ proposed: "proposed"; accepted: "accepted"; superseded: "superseded"; deprecated: "deprecated"; }>
 
-readonly ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "artifact-publish", "provenance"]
+Zod enum schema for ADR statuses.
 
-All supported protocol types.
+### gateStatusSchema
 
-### PROTOCOL_EXIT_CODES
+ZodEnum<{ failed: "failed"; pending: "pending"; passed: "passed"; waived: "waived"; }>
 
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", ExitCode>
+Zod enum schema for gate statuses.
 
-Map protocol types to exit codes.
+### manifestStatusSchema
 
-### DEFAULT_CHAIN_ID
+ZodEnum<{ completed: "completed"; blocked: "blocked"; archived: "archived"; partial: "partial"; }>
 
-"rcasd-ivtrc"
+Zod enum schema for manifest statuses.
 
-### DEFAULT_PROTOCOL_STAGE_MAP
+### tokenUsageMethodSchema
 
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", "research" | "consensus" | ... 6 more ... | "release">
+ZodEnum<{ otel: "otel"; provider_api: "provider_api"; tokenizer: "tokenizer"; heuristic: "heuristic"; }>
 
-Stage mapping for protocol validation gates in the default chain.  `contribution` is cross-cutting and is validated at implementation. `artifact-publish` and `provenance` are validated at release.   T5419
+Zod enum schema for token usage measurement methods.
+
+### tokenUsageConfidenceSchema
+
+ZodEnum<{ high: "high"; real: "real"; estimated: "estimated"; coarse: "coarse"; }>
+
+Zod enum schema for token usage confidence levels.
+
+### tokenUsageTransportSchema
+
+ZodEnum<{ cli: "cli"; mcp: "mcp"; unknown: "unknown"; api: "api"; agent: "agent"; }>
+
+Zod enum schema for token usage transports.
+
+### taskRelationTypeSchema
+
+ZodEnum<{ related: "related"; blocks: "blocks"; duplicates: "duplicates"; absorbs: "absorbs"; fixes: "fixes"; extends: "extends"; supersedes: "supersedes"; }>
+
+Zod enum schema for task relation types.
+
+### externalLinkTypeSchema
+
+ZodEnum<{ manual: "manual"; created: "created"; matched: "matched"; transferred: "transferred"; }>
+
+Zod enum schema for external task link types.
+
+### syncDirectionSchema
+
+ZodEnum<{ inbound: "inbound"; outbound: "outbound"; bidirectional: "bidirectional"; }>
+
+Zod enum schema for sync directions.
+
+### lifecycleTransitionTypeSchema
+
+ZodEnum<{ automatic: "automatic"; manual: "manual"; forced: "forced"; }>
+
+Zod enum schema for lifecycle transition types.
+
+### brainObservationTypeSchema
+
+ZodEnum<{ discovery: "discovery"; change: "change"; feature: "feature"; bugfix: "bugfix"; decision: "decision"; refactor: "refactor"; }>
+
+Zod enum schema for brain observation types.
+
+### brainObservationSourceTypeSchema
+
+ZodEnum<{ agent: "agent"; manual: "manual"; "session-debrief": "session-debrief"; "claude-mem": "claude-mem"; }>
+
+Zod enum schema for brain observation source types.
+
+### brainDecisionTypeSchema
+
+ZodEnum<{ architecture: "architecture"; technical: "technical"; process: "process"; strategic: "strategic"; tactical: "tactical"; }>
+
+Zod enum schema for brain decision types.
+
+### brainConfidenceLevelSchema
+
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+
+Zod enum schema for brain confidence levels.
+
+### brainOutcomeTypeSchema
+
+ZodEnum<{ pending: "pending"; success: "success"; failure: "failure"; mixed: "mixed"; }>
+
+Zod enum schema for brain outcome types.
+
+### brainPatternTypeSchema
+
+ZodEnum<{ success: "success"; workflow: "workflow"; failure: "failure"; blocker: "blocker"; optimization: "optimization"; }>
+
+Zod enum schema for brain pattern types.
+
+### brainImpactLevelSchema
+
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+
+Zod enum schema for brain impact levels.
+
+### brainLinkTypeSchema
+
+ZodEnum<{ produced_by: "produced_by"; applies_to: "applies_to"; informed_by: "informed_by"; contradicts: "contradicts"; }>
+
+Zod enum schema for brain link types.
+
+### brainMemoryTypeSchema
+
+ZodEnum<{ decision: "decision"; pattern: "pattern"; learning: "learning"; observation: "observation"; }>
+
+Zod enum schema for brain memory entity types.
+
+### brainStickyStatusSchema
+
+ZodEnum<{ active: "active"; archived: "archived"; converted: "converted"; }>
+
+Zod enum schema for brain sticky note statuses.
+
+### brainStickyColorSchema
+
+ZodEnum<{ yellow: "yellow"; blue: "blue"; green: "green"; red: "red"; purple: "purple"; }>
+
+Zod enum schema for brain sticky note colors.
+
+### brainStickyPrioritySchema
+
+ZodEnum<{ high: "high"; medium: "medium"; low: "low"; }>
+
+Zod enum schema for brain sticky note priorities.
+
+### brainNodeTypeSchema
+
+ZodEnum<{ task: "task"; file: "file"; doc: "doc"; concept: "concept"; }>
+
+Zod enum schema for brain page node types.
+
+### brainEdgeTypeSchema
+
+ZodEnum<{ depends_on: "depends_on"; implements: "implements"; relates_to: "relates_to"; documents: "documents"; }>
+
+Zod enum schema for brain page edge types.
 
 ### insertTaskSchema
 
@@ -48474,11 +50238,11 @@ BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "architectur
 
 ### insertTokenUsageSchema
 
-BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
 
 ### selectTokenUsageSchema
 
-BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, un...
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "token_usage"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 19 more ...; metadataJson: SQLiteColumn<...>; }, { ...
 
 ### insertManifestEntrySchema
 
@@ -48487,6 +50251,136 @@ BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "manifest_en
 ### selectManifestEntrySchema
 
 BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "manifest_entries"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; createdAt: SQLiteColumn<...>; }, ...
+
+### insertPipelineManifestSchema
+
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+
+### selectPipelineManifestSchema
+
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "pipeline_manifest"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 12 more ...; archivedAt: SQLiteColumn<...>; }...
+
+### insertReleaseManifestSchema
+
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+
+### selectReleaseManifestSchema
+
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "release_manifests"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 15 more ...; pushedAt: SQLiteColumn<...>; }, ...
+
+### insertExternalTaskLinkSchema
+
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+
+### selectExternalTaskLinkSchema
+
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "external_task_links"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 9 more ...; lastSyncAt: SQLiteColumn<...>; ...
+
+### insertAgentInstanceSchema
+
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+
+### selectAgentInstanceSchema
+
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 11 more ...; parentAgentId: SQLiteColumn<...>; ...
+
+### insertAgentErrorLogSchema
+
+BuildSchema<"insert", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+
+### selectAgentErrorLogSchema
+
+BuildSchema<"select", { id: SQLiteColumn<{ name: string; tableName: "agent_error_log"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: true; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}>; ... 5 more ...; resolved: SQLiteColumn<...>; }...
+
+### agentInstanceStatusSchema
+
+ZodEnum<{ error: "error"; starting: "starting"; active: "active"; idle: "idle"; crashed: "crashed"; stopped: "stopped"; }>
+
+Zod enum schema for agent instance statuses.
+
+### agentTypeSchema
+
+ZodEnum<{ custom: "custom"; orchestrator: "orchestrator"; executor: "executor"; researcher: "researcher"; architect: "architect"; validator: "validator"; documentor: "documentor"; }>
+
+Zod enum schema for agent types.
+
+### CACHE_VERSION
+
+"1.0.0"
+
+### CACHE_TTL_SECONDS
+
+300
+
+### VALID_OPERATIONS
+
+readonly ["create", "update", "complete", "archive", "restore", "delete", "validate", "backup"]
+
+### FIELD_LIMITS
+
+{ readonly MAX_TITLE_LENGTH: 120; readonly MAX_DESCRIPTION_LENGTH: 2000; readonly MAX_NOTE_LENGTH: 5000; readonly MAX_BLOCKED_BY_LENGTH: 300; readonly MAX_SESSION_NOTE_LENGTH: 2500; readonly MIN_CANCEL_REASON_LENGTH: 5; readonly MAX_CANCEL_REASON_LENGTH: 300; }
+
+Field length limits matching the Bash implementation.
+
+### VAL_SUCCESS
+
+0
+
+Validation result exit codes.
+
+### VAL_SCHEMA_ERROR
+
+1
+
+### VAL_SEMANTIC_ERROR
+
+2
+
+### VAL_BOTH_ERRORS
+
+3
+
+### VERIFICATION_GATE_ORDER
+
+readonly ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+
+### VERIFICATION_VALID_AGENTS
+
+readonly ["planner", "coder", "testing", "qa", "cleanup", "security", "docs"]
+
+### PROTOCOL_RULES
+
+Record<string, ProtocolRule[]>
+
+Protocol rule registry
+
+### protocolEnforcer
+
+ProtocolEnforcer
+
+Default protocol enforcer instance
+
+### PROTOCOL_TYPES
+
+readonly ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "artifact-publish", "provenance"]
+
+All supported protocol types.
+
+### PROTOCOL_EXIT_CODES
+
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", ExitCode>
+
+Map protocol types to exit codes.
+
+### DEFAULT_CHAIN_ID
+
+"rcasd-ivtrc"
+
+### DEFAULT_PROTOCOL_STAGE_MAP
+
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", "research" | "consensus" | ... 6 more ... | "release">
+
+Stage mapping for protocol validation gates in the default chain.  `contribution` is cross-cutting and is validated at implementation. `artifact-publish` and `provenance` are validated at release.   T5419
 
 ### GATE_SEQUENCE
 
@@ -48523,12 +50417,6 @@ Valid workflow gate agent names per Section 7.2
 readonly [null, "passed", "failed", "blocked"]
 
 Valid workflow gate status values per Section 7.3
-
-### ROUTING_TABLE
-
-RoutingEntry[]
-
-Static routing table for all canonical operations.  Operations are grouped by domain with channel preferences based on: - MCP: lower overhead (no CLI startup), direct DB access, structured JSON - CLI: human-readable output, shell integration, interactive prompts - Either: no significant difference or context-dependent
 
 ### insertProjectRegistrySchema
 

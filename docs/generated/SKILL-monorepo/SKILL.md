@@ -1,7 +1,7 @@
 ---
 name: SKILL-monorepo
 description: >
-  Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard directory layout: - Config dir: ~/.claude (or CLAUDE_HOME) - Settings: ~/.claude/settings.json (or CLAUDE_SETTINGS) - Agents: ~/.claude/agents - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB) Use when: (1) calling its 2026 API functions, (2) configuring @cleocode/monorepo, (3) understanding its 1343 type definitions, (4) working with its 58 classes, (5) user mentions "@cleocode/monorepo" or asks about its API.
+  Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard directory layout: - Config dir: ~/.claude (or CLAUDE_HOME) - Settings: ~/.claude/settings.json (or CLAUDE_SETTINGS) - Agents: ~/.claude/agents - Memory DB: ~/.claude-mem/claude-mem.db (or CLAUDE_MEM_DB) Use when: (1) calling its 2066 API functions, (2) configuring @cleocode/monorepo, (3) understanding its 1396 type definitions, (4) working with its 58 classes, (5) user mentions "@cleocode/monorepo" or asks about its API.
 ---
 
 # @cleocode/monorepo
@@ -42,7 +42,7 @@ try {
 | `setFormatContext()` | Set the resolved format for this CLI invocation. Called once from the preAction hook in src/cli/index.ts. |
 | `getFormatContext()` | Get the current resolved format. |
 | `isJsonFormat()` | Check if output should be JSON format. |
-| ... | 2011 more — see API reference |
+| ... | 2051 more — see API reference |
 
 ## Configuration
 
@@ -75,9 +75,6 @@ See [references/CONFIGURATION.md](references/CONFIGURATION.md) for full details.
 - `setEmbeddingProvider()` throws: Error if provider dimensions do not match EMBEDDING_DIMENSIONS
 - `loadAdapterFromManifest()` throws: If the module cannot be loaded or does not export a valid adapter
 - `parseQuery()` throws: CleoError with NEXUS_INVALID_SYNTAX for bad format.
-- `formatIsoDate()` throws: Error if date format is invalid or missing  T4552
-- `getProjectInfo()` throws: Error If .cleo/project-info.json does not exist or is invalid JSON.
-- `resolveSkillPathsForProvider()` throws: Error if provider not found
 - `initializePipeline()` throws: CleoError If pipeline already exists or database operation fails
 - `getPipeline()` throws: CleoError If database query fails
 - `advanceStage()` throws: CleoError If transition is invalid or prerequisites not met
@@ -86,6 +83,9 @@ See [references/CONFIGURATION.md](references/CONFIGURATION.md) for full details.
 - `completePipeline()` throws: CleoError If pipeline not found or not in releasable state
 - `cancelPipeline()` throws: CleoError If pipeline not found or already completed
 - `getPipelineStatistics()` throws: CleoError If database query fails
+- `formatIsoDate()` throws: Error if date format is invalid or missing  T4552
+- `getProjectInfo()` throws: Error If .cleo/project-info.json does not exist or is invalid JSON.
+- `resolveSkillPathsForProvider()` throws: Error if provider not found
 - `checkPrerequisites()` throws: CleoError If validation fails
 - `validateTransition()` throws: CleoError If validation fails unexpectedly
 - `executeTransition()` throws: CleoError If transition is invalid

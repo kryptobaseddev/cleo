@@ -45,6 +45,48 @@ Immutable system information snapshot, captured once per process.
 | `cwd` | `string \| undefined` | No | cwd |
 | `force` | `boolean \| undefined` | No | force |
 
+## AgentInstanceRow
+
+```typescript
+any
+```
+
+## NewAgentInstanceRow
+
+```typescript
+any
+```
+
+## AgentErrorLogRow
+
+```typescript
+any
+```
+
+## NewAgentErrorLogRow
+
+```typescript
+any
+```
+
+## AgentInstanceStatus
+
+```typescript
+any
+```
+
+## AgentType
+
+```typescript
+any
+```
+
+## AgentErrorType
+
+```typescript
+any
+```
+
 ## WarpChainRow
 
 ```typescript
@@ -812,7 +854,7 @@ Filter options for listing tasks.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `TaskType \| undefined` | No | type |
 | `parentId` | `string \| undefined` | No | parentId |
@@ -857,7 +899,7 @@ Options for finding tasks.
 | `query` | `string \| undefined` | No | query |
 | `id` | `string \| undefined` | No | id |
 | `exact` | `boolean \| undefined` | No | exact |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `field` | `string \| undefined` | No | field |
 | `includeArchive` | `boolean \| undefined` | No | includeArchive |
 | `limit` | `number \| undefined` | No | limit |
@@ -1211,6 +1253,37 @@ Build a tree structure from flat task list.
 | `valid` | `boolean` | Yes | valid |
 | `error` | `\{ code: string; message: string; \} \| undefined` | No | error |
 
+## ValidationResult
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `error` | `string \| undefined` | No | error |
+| `fix` | `string \| undefined` | No | fix |
+| `exitCode` | `ExitCode \| undefined` | No | exitCode |
+
+## AddTaskEnforcementOptions
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptance` | `string[] \| undefined` | No | acceptance |
+| `priority` | `string \| undefined` | No | priority |
+
+## UpdateTaskEnforcementOptions
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptance` | `string[] \| undefined` | No | acceptance |
+
+## AcceptanceEnforcement
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `validateCreation` | `(options: AddTaskEnforcementOptions) => ValidationResult` | Yes | validateCreation |
+| `validateUpdate` | `(task: Task, updates: UpdateTaskEnforcementOptions) => ValidationResult` | Yes | validateUpdate |
+| `validateCompletion` | `(task: Task) => ValidationResult` | Yes | validateCompletion |
+| `checkMinimumCriteria` | `(criteria: string[], minCriteria: number) => boolean` | Yes | checkMinimumCriteria |
+
 ## AddTaskOptions
 
 Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
@@ -1219,7 +1292,7 @@ Options for creating a task.  `description` is **required** per CLEO's anti-hall
 |----------|------|----------|-------------|
 | `title` | `string` | Yes | title |
 | `description` | `string` | Yes | description |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `TaskType \| undefined` | No | type |
 | `parentId` | `string \| null \| undefined` | No | parentId |
@@ -1451,7 +1524,7 @@ Schema-compliant project context for LLM agent consumption.
 
 ## BrainFtsRow
 
-Row returned by FTS content_hash duplicate check.
+Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1461,7 +1534,7 @@ Row returned by FTS content_hash duplicate check.
 
 ## BrainNarrativeRow
 
-Row returned by narrative backfill query (missing embeddings).
+Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1471,7 +1544,7 @@ Row returned by narrative backfill query (missing embeddings).
 
 ## BrainSearchHit
 
-Flattened FTS hit used in hybrid search scoring.
+Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1482,7 +1555,7 @@ Flattened FTS hit used in hybrid search scoring.
 
 ## BrainKnnRow
 
-Row returned by KNN vector similarity query.
+Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1491,7 +1564,7 @@ Row returned by KNN vector similarity query.
 
 ## BrainDecisionNode
 
-Decision node attached to a blocker in causal traces.
+Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1501,13 +1574,44 @@ Decision node attached to a blocker in causal traces.
 
 ## BrainAnchor
 
-Anchor entry in a timeline result.
+Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | id |
 | `type` | `string` | Yes | type |
 | `data` | `unknown` | Yes | data |
+
+## BrainTimelineNeighborRow
+
+Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `type` | `string` | Yes | type |
+| `date` | `string` | Yes | date |
+
+## BrainConsolidationObservationRow
+
+Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
+| `type` | `string` | Yes | type |
+| `title` | `string` | Yes | title |
+| `narrative` | `string \| null` | Yes | narrative |
+| `project` | `string \| null` | Yes | project |
+| `created_at` | `string` | Yes | created_at |
+
+## BrainIdCheckRow
+
+Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | id |
 
 ## EmbeddingProvider
 
@@ -1577,7 +1681,7 @@ Options for hybridSearch weighting and limits.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `action` | `"skipped" \| "created" \| "repaired"` | Yes | action |
+| `action` | `"created" \| "skipped" \| "repaired"` | Yes | action |
 | `path` | `string` | Yes | path |
 | `details` | `string \| undefined` | No | details |
 
@@ -1598,7 +1702,7 @@ Result of an ensure* scaffolding operation.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `action` | `"skipped" \| "created" \| "repaired"` | Yes | action |
+| `action` | `"created" \| "skipped" \| "repaired"` | Yes | action |
 | `path` | `string` | Yes | path |
 | `details` | `string \| undefined` | No | details |
 
@@ -1637,7 +1741,7 @@ Resolved environment mode for MCP server config.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `action` | `"skipped" \| "created" \| "repaired"` | Yes | action |
+| `action` | `"created" \| "skipped" \| "repaired"` | Yes | action |
 | `path` | `string` | Yes | path |
 | `details` | `string \| undefined` | No | details |
 
@@ -1692,7 +1796,7 @@ Session object (engine-compatible).
 
 ## TaskWorkStateExt
 
-Task work state from the task store.
+Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -1700,20 +1804,9 @@ Task work state from the task store.
 | `currentPhase` | `string \| null` | Yes | currentPhase |
 | `blockedUntil` | `string \| null` | Yes | blockedUntil |
 | `sessionNote` | `string \| null` | Yes | sessionNote |
-| `sessionNotes` | `unknown[]` | Yes | sessionNotes |
+| `sessionNotes` | `SessionNote[]` | Yes | sessionNotes |
 | `nextAction` | `string \| null` | Yes | nextAction |
 | `primarySession` | `string \| null` | Yes | primarySession |
-
-## TaskFileExt
-
-Task file structure (subset for session operations).
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `focus` | `TaskWorkStateExt \| \{ [key: string]: unknown; currentTask?: string \| null \| undefined; currentPhase?: string \| null \| undefined; \} \| undefined` | No | focus |
-| `_meta` | `\{ [key: string]: unknown; schemaVersion: string; checksum?: string \| undefined; configVersion?: string \| undefined; lastSessionId?: string \| null \| undefined; activeSessionCount?: number \| undefined; sessionsFile?: string \| ... 1 more ... \| undefined; generation?: number \| undefined; \} \| undefined` | No | _meta |
-| `tasks` | `\{ [key: string]: unknown; id: string; status: string; parentId?: string \| undefined; completedAt?: string \| undefined; \}[] \| undefined` | No | tasks |
-| `lastUpdated` | `string \| undefined` | No | lastUpdated |
 
 ## DecisionRecord
 
@@ -2206,7 +2299,7 @@ Result from populateEmbeddings backfill.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `focus` | `"testing" \| "architecture" \| "stack" \| "structure" \| "conventions" \| "integrations" \| "concerns" \| undefined` | No | focus |
+| `focus` | `"stack" \| "testing" \| "architecture" \| "structure" \| "conventions" \| "integrations" \| "concerns" \| undefined` | No | focus |
 | `storeToBrain` | `boolean \| undefined` | No | storeToBrain |
 
 ## AdapterInfo
@@ -2231,7 +2324,6 @@ Options for the init operation.
 | `name` | `string \| undefined` | No | Project name override. |
 | `force` | `boolean \| undefined` | No | Overwrite existing files. |
 | `detect` | `boolean \| undefined` | No | Auto-detect project configuration. |
-| `updateDocs` | `boolean \| undefined` | No | Update agent documentation injections only. |
 | `mapCodebase` | `boolean \| undefined` | No | Run codebase analysis and store findings to brain.db. |
 
 ## InitResult
@@ -2706,7 +2798,7 @@ Options for updating a task.
 |----------|------|----------|-------------|
 | `taskId` | `string` | Yes | taskId |
 | `title` | `string \| undefined` | No | title |
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `priority` | `TaskPriority \| undefined` | No | priority |
 | `type` | `TaskType \| undefined` | No | type |
 | `size` | `TaskSize \| undefined` | No | size |
@@ -2884,7 +2976,7 @@ any
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `mode` | `"skipped" \| "manual" \| "created"` | Yes | mode |
+| `mode` | `"manual" \| "created" \| "skipped"` | Yes | mode |
 | `prUrl` | `string \| undefined` | No | prUrl |
 | `prNumber` | `number \| undefined` | No | prNumber |
 | `instructions` | `string \| undefined` | No | instructions |
@@ -3093,6 +3185,92 @@ Memory context returned for session start/resume enrichment.
 | `recentObservations` | `BrainCompactHit[]` | Yes | Recent observations from prior sessions |
 | `recentLearnings` | `BrainCompactHit[]` | Yes | Recent learnings relevant to this scope |
 | `tokensEstimated` | `number` | Yes | Total token estimate for this context |
+
+## Pipeline
+
+Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier (task ID format: T####) |
+| `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Current stage in the pipeline |
+| `createdAt` | `Date` | Yes | When the pipeline was created |
+| `updatedAt` | `Date` | Yes | When the pipeline was last updated |
+| `status` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"` | Yes | Overall pipeline status |
+| `isActive` | `boolean` | Yes | Whether the pipeline is currently active (not completed/cancelled) |
+| `completedAt` | `Date \| undefined` | No | When the pipeline completed (if applicable) |
+| `cancelledReason` | `string \| undefined` | No | Cancellation reason (if cancelled) |
+| `transitionCount` | `number` | Yes | Number of stage transitions made |
+| `version` | `number` | Yes | Version for optimistic locking |
+
+## PipelineStageRecord
+
+Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string \| undefined` | No | Unique identifier |
+| `pipelineId` | `string` | Yes | Reference to the pipeline |
+| `stage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Stage name |
+| `status` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | Stage status |
+| `startedAt` | `Date \| undefined` | No | When the stage was started |
+| `completedAt` | `Date \| undefined` | No | When the stage was completed |
+| `durationMs` | `number \| undefined` | No | Stage duration in milliseconds (computed) |
+| `assignedAgent` | `string \| undefined` | No | Assigned agent for this stage |
+| `notes` | `string \| undefined` | No | Stage-specific metadata/notes |
+| `order` | `number` | Yes | Stage order in pipeline |
+
+## PipelineTransition
+
+Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string \| undefined` | No | Unique identifier |
+| `pipelineId` | `string` | Yes | Pipeline reference |
+| `fromStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | From stage |
+| `toStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | To stage |
+| `transitionedAt` | `Date` | Yes | When the transition occurred |
+| `transitionedBy` | `string` | Yes | Agent/user who initiated the transition |
+| `reason` | `string \| undefined` | No | Reason for the transition |
+| `prerequisitesChecked` | `boolean` | Yes | Whether prerequisites were checked |
+| `validationErrors` | `string[] \| undefined` | No | Any validation errors that occurred |
+
+## InitializePipelineOptions
+
+Options for initializing a pipeline.   T4800
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `startStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | No | Starting stage (defaults to 'research') |
+| `initialStatus` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted" \| undefined` | No | Initial status (defaults to 'active') |
+| `assignedAgent` | `string \| undefined` | No | Assigning agent |
+
+## AdvanceStageOptions
+
+Options for advancing pipeline stage.   T4800
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `toStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Target stage to advance to |
+| `reason` | `string \| undefined` | No | Reason for the advancement |
+| `initiatedBy` | `string` | Yes | Agent/user initiating the transition |
+| `skipPrerequisites` | `boolean \| undefined` | No | Whether to skip prerequisite check (emergency only) |
+| `force` | `boolean \| undefined` | No | Whether to force transition even if blocked |
+
+## PipelineQueryOptions
+
+Pipeline query options.   T4800
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `status` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted" \| undefined` | No | Filter by status |
+| `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | No | Filter by current stage |
+| `isActive` | `boolean \| undefined` | No | Filter by active state |
+| `limit` | `number \| undefined` | No | Limit results |
+| `offset` | `number \| undefined` | No | Offset for pagination |
+| `orderBy` | `"createdAt" \| "updatedAt" \| "currentStage" \| undefined` | No | Order by (default: createdAt desc) |
+| `order` | `"asc" \| "desc" \| undefined` | No | Order direction |
 
 ## BriefingTask
 
@@ -3451,10 +3629,10 @@ Result of deleting a task.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `add` | `(params: \{ title: string; description: string; parent?: string \| undefined; priority?: TaskPriority \| undefined; type?: TaskType \| undefined; size?: TaskSize \| undefined; phase?: string \| undefined; labels?: string[] \| undefined; depends?: string[] \| undefined; notes?: string \| undefined; \}) => Promise<...>` | No | add |
-| `find` | `(params: \{ query?: string \| undefined; id?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; limit?: number \| undefined; \}) => Promise<...>` | No | find |
+| `find` | `(params: \{ query?: string \| undefined; id?: string \| undefined; status?: "cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined; limit?: number \| undefined; \}) => Promise<...>` | No | find |
 | `show` | `(taskId: string) => Promise&lt;unknown&gt;` | Yes | show |
-| `list` | `(params?: \{ status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; parentId?: string \| undefined; phase?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise<...>` | No | list |
-| `update` | `(params: \{ taskId: string; title?: string \| undefined; status?: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; description?: string \| undefined; notes?: string \| undefined; \}) => Promise<...>` | No | update |
+| `list` | `(params?: \{ status?: "cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; parentId?: string \| undefined; phase?: string \| undefined; limit?: number \| undefined; \} \| undefined) => Promise<...>` | No | list |
+| `update` | `(params: \{ taskId: string; title?: string \| undefined; status?: "cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined; priority?: TaskPriority \| undefined; description?: string \| undefined; notes?: string \| undefined; \}) => Promise<...>` | No | update |
 | `complete` | `(params: \{ taskId: string; notes?: string \| undefined; \}) => Promise&lt;unknown&gt;` | No | complete |
 | `delete` | `(params: \{ taskId: string; force?: boolean \| undefined; \}) => Promise&lt;unknown&gt;` | No | delete |
 | `archive` | `(params?: \{ before?: string \| undefined; taskIds?: string[] \| undefined; dryRun?: boolean \| undefined; \} \| undefined) => Promise&lt;unknown&gt;` | No | archive |
@@ -3723,6 +3901,124 @@ Result of the help computation.
 | `guidance` | `string` | Yes | guidance |
 | `escalation` | `string` | Yes | escalation |
 
+## TransferMode
+
+Transfer mode: copy keeps source tasks, move archives them.
+
+```typescript
+any
+```
+
+## TransferScope
+
+Transfer scope: single task or full subtree.
+
+```typescript
+any
+```
+
+## TransferOnConflict
+
+Conflict resolution when target has tasks with duplicate titles.
+
+```typescript
+any
+```
+
+## TransferOnMissingDep
+
+How to handle missing dependencies in the target project.
+
+```typescript
+any
+```
+
+## TransferParams
+
+Parameters for a cross-project transfer operation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskIds` | `string[]` | Yes | Task IDs to transfer from the source project. |
+| `sourceProject` | `string` | Yes | Source project name or hash. |
+| `targetProject` | `string` | Yes | Target project name or hash. |
+| `mode` | `TransferMode \| undefined` | No | Copy (default) keeps source tasks; move archives them. |
+| `scope` | `TransferScope \| undefined` | No | Single transfers individual tasks; subtree transfers tasks + all descendants. |
+| `onConflict` | `TransferOnConflict \| undefined` | No | How to handle title conflicts in the target. |
+| `onMissingDep` | `TransferOnMissingDep \| undefined` | No | How to handle missing deps in the target. |
+| `provenance` | `boolean \| undefined` | No | Whether to add provenance notes to transferred tasks. |
+| `targetParent` | `string \| undefined` | No | Override parent ID in target project. |
+| `transferBrain` | `boolean \| undefined` | No | Whether to transfer brain observations linked to source tasks. |
+| `dryRun` | `boolean \| undefined` | No | Dry run: preview without writing. |
+
+## TransferManifestEntry
+
+A single task entry in the transfer manifest.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sourceId` | `string` | Yes | Original task ID in source project. |
+| `targetId` | `string` | Yes | New task ID in target project. |
+| `title` | `string` | Yes | Task title. |
+| `type` | `string` | Yes | Task type (task, epic, milestone, etc.). |
+
+## TransferManifest
+
+Manifest describing what was (or would be) transferred.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `sourceProject` | `string` | Yes | Source project name. |
+| `targetProject` | `string` | Yes | Target project name. |
+| `mode` | `TransferMode` | Yes | Transfer mode used. |
+| `scope` | `TransferScope` | Yes | Transfer scope used. |
+| `entries` | `TransferManifestEntry[]` | Yes | Tasks included in the transfer. |
+| `idRemap` | `Record&lt;string, string&gt;` | Yes | ID remap table: sourceId - targetId. |
+| `brainObservationsTransferred` | `number` | Yes | Number of brain observations transferred. |
+
+## TransferResult
+
+Result of a transfer operation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `dryRun` | `boolean` | Yes | Whether this was a dry run. |
+| `transferred` | `number` | Yes | Number of tasks transferred. |
+| `skipped` | `number` | Yes | Number of tasks skipped (conflict resolution). |
+| `archived` | `number` | Yes | Number of source tasks archived (move mode only). |
+| `linksCreated` | `number` | Yes | Number of external links created. |
+| `brainObservationsTransferred` | `number` | Yes | Number of brain observations transferred. |
+| `manifest` | `TransferManifest` | Yes | Transfer manifest with full details. |
+
+## ImportFromPackageOptions
+
+Options passed to importFromPackage (extracted from importTasksPackage).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cwd` | `string \| undefined` | No | Working directory for the target project. |
+| `dryRun` | `boolean \| undefined` | No | Dry run: preview without writing. |
+| `parent` | `string \| undefined` | No | Parent task ID in target. |
+| `phase` | `string \| undefined` | No | Phase override. |
+| `addLabel` | `string \| undefined` | No | Label to add to imported tasks. |
+| `provenance` | `boolean \| undefined` | No | Whether to add provenance notes. |
+| `resetStatus` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | Status to reset imported tasks to. |
+| `onConflict` | `TransferOnConflict \| undefined` | No | Conflict resolution strategy. |
+| `onMissingDep` | `TransferOnMissingDep \| undefined` | No | Missing dependency strategy. |
+| `force` | `boolean \| undefined` | No | Force import (skip duplicate checks). |
+
+## ImportFromPackageResult
+
+Result from importFromPackage.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `imported` | `number` | Yes | imported |
+| `skipped` | `number` | Yes | skipped |
+| `idRemap` | `Record&lt;string, string&gt;` | Yes | idRemap |
+| `dryRun` | `boolean \| undefined` | No | dryRun |
+| `preview` | `\{ tasks: \{ id: string; title: string; type: string; \}[]; \} \| undefined` | No | preview |
+
 ## RemapTable
 
 Forward and reverse remap tables.
@@ -3742,7 +4038,7 @@ Forward and reverse remap tables.
 | `phase` | `string \| undefined` | No | phase |
 | `addLabel` | `string \| undefined` | No | addLabel |
 | `provenance` | `boolean \| undefined` | No | provenance |
-| `resetStatus` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | resetStatus |
+| `resetStatus` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | resetStatus |
 | `onConflict` | `OnConflict \| undefined` | No | onConflict |
 | `onMissingDep` | `OnMissingDep \| undefined` | No | onMissingDep |
 | `force` | `boolean \| undefined` | No | force |
@@ -3790,11 +4086,318 @@ ValidationResult — canonical name per ADR-017 spec
 any
 ```
 
+## RegisterAgentOptions
+
+Options for registering a new agent instance.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `agentType` | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes | agentType |
+| `sessionId` | `string \| undefined` | No | sessionId |
+| `taskId` | `string \| undefined` | No | taskId |
+| `parentAgentId` | `string \| undefined` | No | parentAgentId |
+| `metadata` | `Record&lt;string, unknown&gt; \| undefined` | No | metadata |
+
+## UpdateStatusOptions
+
+Options for updating agent status.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `status` | `"error" \| "starting" \| "active" \| "idle" \| "crashed" \| "stopped"` | Yes | status |
+| `error` | `string \| undefined` | No | error |
+| `taskId` | `string \| undefined` | No | taskId |
+
+## ListAgentFilters
+
+Filters for listing agent instances.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `status` | `"error" \| "starting" \| "active" \| "idle" \| "crashed" \| "stopped" \| ("error" \| "starting" \| "active" \| "idle" \| "crashed" \| "stopped")[] \| undefined` | No | status |
+| `agentType` | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor" \| ("custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor")[] \| undefined` | No | agentType |
+| `sessionId` | `string \| undefined` | No | sessionId |
+| `parentAgentId` | `string \| undefined` | No | parentAgentId |
+
+## AgentHealthReport
+
+Agent health report summary.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `total` | `number` | Yes | total |
+| `active` | `number` | Yes | active |
+| `idle` | `number` | Yes | idle |
+| `starting` | `number` | Yes | starting |
+| `error` | `number` | Yes | error |
+| `crashed` | `number` | Yes | crashed |
+| `stopped` | `number` | Yes | stopped |
+| `totalErrors` | `number` | Yes | totalErrors |
+| `staleAgents` | `\{ sessionId: string \| null; id: string; agentType: "custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"; status: "error" \| "starting" \| "active" \| "idle" \| "crashed" \| "stopped"; ... 8 more ...; parentAgentId: string \| null; \}[]` | Yes | staleAgents |
+
+## CapacitySummary
+
+Capacity summary for reporting.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `totalCapacity` | `number` | Yes | totalCapacity |
+| `activeAgentCount` | `number` | Yes | activeAgentCount |
+| `averageCapacity` | `number` | Yes | averageCapacity |
+| `overloaded` | `boolean` | Yes | overloaded |
+| `threshold` | `number` | Yes | threshold |
+
+## RetryPolicy
+
+Configuration for retry behavior.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `maxRetries` | `number` | Yes | Maximum number of retry attempts. Default: 3. |
+| `baseDelayMs` | `number` | Yes | Base delay in milliseconds before first retry. Default: 1000. |
+| `maxDelayMs` | `number` | Yes | Maximum delay in milliseconds between retries. Default: 30000. |
+| `backoffMultiplier` | `number` | Yes | Multiplier for exponential backoff. Default: 2. |
+| `jitter` | `boolean` | Yes | Whether to add random jitter to delays. Default: true. |
+| `retryOnUnknown` | `boolean` | Yes | Whether to retry on 'unknown' error classification. Default: true. |
+
+## RetryResult
+
+Result of a retried operation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `success` | `boolean` | Yes | success |
+| `value` | `T \| undefined` | No | value |
+| `error` | `Error \| undefined` | No | error |
+| `attempts` | `number` | Yes | attempts |
+| `totalDelayMs` | `number` | Yes | totalDelayMs |
+
+## AgentRecoveryResult
+
+Result of a recovery attempt for a single agent.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `agentId` | `string` | Yes | agentId |
+| `recovered` | `boolean` | Yes | recovered |
+| `action` | `"skipped" \| "restarted" \| "abandoned"` | Yes | action |
+| `reason` | `string` | Yes | reason |
+
 ## ComplianceJsonlEntry
 
 ```typescript
 any
 ```
+
+## PayloadValidationResult
+
+Result of payload validation.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | Whether the payload passed validation. |
+| `errors` | `string[]` | Yes | Validation errors (empty when valid). |
+
+## DependencyCheckResult
+
+Result of a dependency validation check.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `valid` | `boolean` | Yes | valid |
+| `errors` | `DependencyError[]` | Yes | errors |
+| `warnings` | `DependencyWarning[]` | Yes | warnings |
+
+## DependencyError
+
+A dependency error.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string` | Yes | code |
+| `taskId` | `string` | Yes | taskId |
+| `message` | `string` | Yes | message |
+| `relatedIds` | `string[] \| undefined` | No | relatedIds |
+
+## DependencyWarning
+
+A dependency warning.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | `string` | Yes | code |
+| `taskId` | `string` | Yes | taskId |
+| `message` | `string` | Yes | message |
+
+## DependencyWave
+
+A wave of parallelizable tasks.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `wave` | `number` | Yes | wave |
+| `taskIds` | `string[]` | Yes | taskIds |
+
+## RiskFactor
+
+A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | Human-readable factor name (e.g., "complexity", "blocking_risk"). |
+| `weight` | `number` | Yes | How much this factor contributes to the total score (0-1). |
+| `value` | `number` | Yes | Current measured value for this factor (0-1, where 1 = highest risk). |
+| `description` | `string` | Yes | Explanation of why this factor has its current value. |
+
+## RiskAssessment
+
+Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | The task ID this assessment applies to. |
+| `riskScore` | `number` | Yes | Aggregate risk score (0-1, where 1 = highest risk). |
+| `confidence` | `number` | Yes | Confidence in the assessment (0-1). Higher when more data is available. |
+| `factors` | `RiskFactor[]` | Yes | Individual risk factors that contributed to the score. |
+| `recommendation` | `string` | Yes | Human-readable recommendation based on the risk level. |
+
+## ValidationPrediction
+
+Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | The task ID being evaluated. |
+| `stage` | `string` | Yes | The lifecycle stage being predicted (e.g., "specification", "implementation"). |
+| `passLikelihood` | `number` | Yes | Probability of passing the gate (0-1). |
+| `blockers` | `string[]` | Yes | Known blockers that may prevent passing. |
+| `suggestions` | `string[]` | Yes | Actionable suggestions to improve pass likelihood. |
+
+## DetectedPattern
+
+A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | `"success" \| "workflow" \| "failure" \| "blocker" \| "optimization"` | Yes | Pattern type classification. |
+| `pattern` | `string` | Yes | Human-readable pattern description. |
+| `context` | `string` | Yes | Context in which the pattern was observed. |
+| `frequency` | `number` | Yes | How many times this pattern was observed. |
+| `successRate` | `number \| null` | Yes | Success rate when this pattern appears (0-1, null if unknown). |
+| `impact` | `"high" \| "medium" \| "low"` | Yes | Estimated impact level. |
+| `antiPattern` | `string \| null` | Yes | If this is an anti-pattern, describe the negative behavior. |
+| `mitigation` | `string \| null` | Yes | Recommended mitigation for anti-patterns. |
+| `examples` | `string[]` | Yes | Example task IDs or descriptions where this pattern occurred. |
+| `confidence` | `number` | Yes | Confidence in this pattern's validity (0-1). |
+
+## PatternMatch
+
+Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `pattern` | `\{ id: string; updatedAt: string \| null; type: "success" \| "workflow" \| "failure" \| "blocker" \| "optimization"; pattern: string; context: string; frequency: number; successRate: number \| null; ... 4 more ...; extractedAt: string; \}` | Yes | The matched brain_patterns row. |
+| `relevanceScore` | `number` | Yes | How relevant this pattern is to the target task (0-1). |
+| `matchReason` | `string` | Yes | Why this pattern was matched. |
+| `isAntiPattern` | `boolean` | Yes | Whether this is an anti-pattern match (warns about potential issues). |
+
+## PatternExtractionOptions
+
+Options for pattern extraction from historical data.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `minFrequency` | `number \| undefined` | No | Minimum number of occurrences to consider something a pattern. Default: 2. |
+| `minConfidence` | `number \| undefined` | No | Minimum confidence threshold (0-1). Default: 0.3. |
+| `limit` | `number \| undefined` | No | Maximum number of patterns to return. Default: 50. |
+| `type` | `"success" \| "workflow" \| "failure" \| "blocker" \| "optimization" \| undefined` | No | Filter by pattern type. |
+
+## PatternStatsUpdate
+
+Result of updating pattern statistics after an outcome.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `patternId` | `string` | Yes | The pattern ID that was updated. |
+| `newFrequency` | `number` | Yes | New frequency value. |
+| `newSuccessRate` | `number \| null` | Yes | New success rate (0-1). |
+| `outcomeSuccess` | `boolean` | Yes | Whether the outcome was successful. |
+
+## LearningContext
+
+Summary of applicable learnings for a task, used in prediction.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `applicable` | `\{ id: string; createdAt: string; updatedAt: string \| null; source: string; confidence: number; insight: string; actionable: boolean; application: string \| null; applicableTypesJson: string \| null; \}[]` | Yes | Learnings that apply to this task's context. |
+| `averageConfidence` | `number` | Yes | Average confidence of applicable learnings. |
+| `actionableCount` | `number` | Yes | Count of actionable learnings. |
+
+## ImpactAssessment
+
+Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | The task being assessed. |
+| `directDependents` | `string[]` | Yes | Tasks that directly depend on this task. |
+| `transitiveDependents` | `string[]` | Yes | All downstream tasks (direct + transitive). |
+| `affectedPipelines` | `string[]` | Yes | Epic IDs whose lifecycle pipelines are affected. |
+| `blockedWorkCount` | `number` | Yes | Count of tasks that would be blocked if this task is not completed. |
+| `isOnCriticalPath` | `boolean` | Yes | Whether this task lies on the project's critical path. |
+| `blastRadius` | `BlastRadius` | Yes | Quantified scope of the impact. |
+
+## ChangeType
+
+The type of change being analyzed.
+
+```typescript
+any
+```
+
+## ChangeImpact
+
+Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `taskId` | `string` | Yes | The task being changed. |
+| `changeType` | `ChangeType` | Yes | The type of change being analyzed. |
+| `affectedTasks` | `AffectedTask[]` | Yes | Tasks affected by this change, with predicted new status. |
+| `cascadeDepth` | `number` | Yes | Maximum depth of cascading effects in the dependency graph. |
+| `recommendation` | `string` | Yes | Human-readable recommendation based on the analysis. |
+
+## AffectedTask
+
+A single task affected by a change, with its predicted new state.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `string` | Yes | Task ID. |
+| `title` | `string` | Yes | Task title. |
+| `currentStatus` | `string` | Yes | Current status before the change. |
+| `newStatus` | `string \| undefined` | No | Predicted new status after the change (if it would change). |
+| `reason` | `string` | Yes | Why this task is affected. |
+
+## BlastRadiusSeverity
+
+Severity classification for blast radius.
+
+```typescript
+any
+```
+
+## BlastRadius
+
+Quantified scope of a task's impact across the project.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `directCount` | `number` | Yes | Number of direct dependents. |
+| `transitiveCount` | `number` | Yes | Number of transitive dependents (full downstream tree). |
+| `epicCount` | `number` | Yes | Number of distinct epics affected. |
+| `projectPercentage` | `number` | Yes | Percentage of the total project impacted (0-100). |
+| `severity` | `BlastRadiusSeverity` | Yes | Classification of impact severity. |
 
 ## BuildConfig
 
@@ -4643,7 +5246,7 @@ any
 | `operation` | `string` | Yes | operation |
 | `gateway` | `GatewayType` | Yes | gateway |
 | `mode` | `ExecutionMode` | Yes | mode |
-| `preferredChannel` | `PreferredChannel \| undefined` | No | preferredChannel |
+| `preferredChannel` | `PreferredChannel` | Yes | preferredChannel |
 
 ## CapabilityReport
 
@@ -4872,26 +5475,26 @@ Configuration for transport selection.
 
 ## SkillFrontmatter
 
-Skill frontmatter parsed from SKILL.md YAML header.
+Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `name` | `string` | Yes | name |
-| `description` | `string` | Yes | description |
-| `version` | `string \| undefined` | No | version |
-| `author` | `string \| undefined` | No | author |
-| `tags` | `string[] \| undefined` | No | tags |
-| `triggers` | `string[] \| undefined` | No | triggers |
-| `dispatchPriority` | `number \| undefined` | No | dispatchPriority |
-| `model` | `string \| undefined` | No | model |
-| `allowedTools` | `string[] \| undefined` | No | allowedTools |
-| `invocable` | `boolean \| undefined` | No | invocable |
-| `command` | `string \| undefined` | No | command |
-| `protocol` | `SkillProtocolType \| undefined` | No | protocol |
+| `name` | `string` | Yes | Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name. |
+| `description` | `string` | Yes | Human-readable description. Maps to CaampSkillMetadata.description. |
+| `version` | `string \| undefined` | No | Semantic version string. Maps to CaampSkillMetadata.version. |
+| `author` | `string \| undefined` | No | Skill author (CLEO extension). |
+| `tags` | `string[] \| undefined` | No | Classification tags for search/filter (CLEO extension). |
+| `triggers` | `string[] \| undefined` | No | Trigger patterns for auto-dispatch (CLEO extension). |
+| `dispatchPriority` | `number \| undefined` | No | Priority for dispatch selection (CLEO extension). |
+| `model` | `string \| undefined` | No | Preferred LLM model (CLEO extension). |
+| `allowedTools` | `string[] \| undefined` | No | Allowed tool names. Maps to CaampSkillMetadata.allowedTools. |
+| `invocable` | `boolean \| undefined` | No | Whether the skill can be invoked directly (CLEO extension). |
+| `command` | `string \| undefined` | No | CLI command for direct invocation (CLEO extension). |
+| `protocol` | `SkillProtocolType \| undefined` | No | RCASD-IVTR+C protocol type (CLEO extension). |
 
 ## Skill
 
-Skill definition loaded from disk.
+Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -4904,7 +5507,7 @@ Skill definition loaded from disk.
 
 ## SkillSummary
 
-Lightweight skill summary for manifest/listing.
+Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -5868,37 +6471,6 @@ any
 | `cascadeCount` | `number` | Yes | cascadeCount |
 | `dryRun` | `boolean` | Yes | dryRun |
 
-## DependencyCheckResult
-
-Result of a dependency validation check.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `valid` | `boolean` | Yes | valid |
-| `errors` | `DependencyError[]` | Yes | errors |
-| `warnings` | `DependencyWarning[]` | Yes | warnings |
-
-## DependencyError
-
-A dependency error.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `code` | `string` | Yes | code |
-| `taskId` | `string` | Yes | taskId |
-| `message` | `string` | Yes | message |
-| `relatedIds` | `string[] \| undefined` | No | relatedIds |
-
-## DependencyWarning
-
-A dependency warning.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `code` | `string` | Yes | code |
-| `taskId` | `string` | Yes | taskId |
-| `message` | `string` | Yes | message |
-
 ## TaskCurrentResult
 
 Result of getting current task.
@@ -6025,6 +6597,262 @@ Parsed flag state.
 | `help` | `boolean` | Yes | help |
 | `force` | `boolean` | Yes | force |
 | `remaining` | `string[]` | Yes | remaining |
+
+## InsertTask
+
+```typescript
+any
+```
+
+## SelectTask
+
+```typescript
+any
+```
+
+## InsertTaskDependency
+
+```typescript
+any
+```
+
+## SelectTaskDependency
+
+```typescript
+any
+```
+
+## InsertTaskRelation
+
+```typescript
+any
+```
+
+## SelectTaskRelation
+
+```typescript
+any
+```
+
+## InsertSession
+
+```typescript
+any
+```
+
+## SelectSession
+
+```typescript
+any
+```
+
+## InsertWorkHistory
+
+```typescript
+any
+```
+
+## SelectWorkHistory
+
+```typescript
+any
+```
+
+## InsertLifecyclePipeline
+
+```typescript
+any
+```
+
+## SelectLifecyclePipeline
+
+```typescript
+any
+```
+
+## InsertLifecycleStage
+
+```typescript
+any
+```
+
+## SelectLifecycleStage
+
+```typescript
+any
+```
+
+## InsertLifecycleGateResult
+
+```typescript
+any
+```
+
+## SelectLifecycleGateResult
+
+```typescript
+any
+```
+
+## InsertLifecycleEvidence
+
+```typescript
+any
+```
+
+## SelectLifecycleEvidence
+
+```typescript
+any
+```
+
+## InsertLifecycleTransition
+
+```typescript
+any
+```
+
+## SelectLifecycleTransition
+
+```typescript
+any
+```
+
+## InsertSchemaMeta
+
+```typescript
+any
+```
+
+## SelectSchemaMeta
+
+```typescript
+any
+```
+
+## InsertAuditLog
+
+```typescript
+any
+```
+
+## SelectAuditLog
+
+```typescript
+any
+```
+
+## AuditLogInsert
+
+Canonical type alias for audit log insert (T4848).
+
+```typescript
+any
+```
+
+## AuditLogSelect
+
+Canonical type alias for audit log select (T4848).
+
+```typescript
+any
+```
+
+## InsertTokenUsage
+
+```typescript
+any
+```
+
+## SelectTokenUsage
+
+```typescript
+any
+```
+
+## InsertArchitectureDecision
+
+```typescript
+any
+```
+
+## SelectArchitectureDecision
+
+```typescript
+any
+```
+
+## InsertManifestEntry
+
+```typescript
+any
+```
+
+## SelectManifestEntry
+
+```typescript
+any
+```
+
+## InsertPipelineManifest
+
+```typescript
+any
+```
+
+## SelectPipelineManifest
+
+```typescript
+any
+```
+
+## InsertReleaseManifest
+
+```typescript
+any
+```
+
+## SelectReleaseManifest
+
+```typescript
+any
+```
+
+## InsertExternalTaskLink
+
+```typescript
+any
+```
+
+## SelectExternalTaskLink
+
+```typescript
+any
+```
+
+## InsertAgentInstance
+
+```typescript
+any
+```
+
+## SelectAgentInstance
+
+```typescript
+any
+```
+
+## InsertAgentErrorLog
+
+```typescript
+any
+```
+
+## SelectAgentErrorLog
+
+```typescript
+any
+```
 
 ## ManifestIntegrity
 
@@ -6238,14 +7066,18 @@ any
 | `cancelledAt` | `string \| undefined` | No | cancelledAt |
 | `cancellationReason` | `string \| undefined` | No | cancellationReason |
 
-## TaskFile
+## TaskData
+
+Task data shape for validation functions.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `tasks` | `Task[]` | Yes | tasks |
 | `project` | `\{ currentPhase?: string \| undefined; phases?: Record&lt;string, \{ status?: string \| undefined; startedAt?: string \| undefined; completedAt?: string \| undefined; \}> \| undefined; \} \| undefined` | No | project |
 
-## ArchiveFile
+## ArchiveData
+
+Archive data shape for validation functions.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -6918,211 +7750,6 @@ Data returned by context injection.
 | `taskId` | `string \| null` | Yes | taskId |
 | `variant` | `string \| null` | Yes | variant |
 
-## InsertTask
-
-```typescript
-any
-```
-
-## SelectTask
-
-```typescript
-any
-```
-
-## InsertTaskDependency
-
-```typescript
-any
-```
-
-## SelectTaskDependency
-
-```typescript
-any
-```
-
-## InsertTaskRelation
-
-```typescript
-any
-```
-
-## SelectTaskRelation
-
-```typescript
-any
-```
-
-## InsertSession
-
-```typescript
-any
-```
-
-## SelectSession
-
-```typescript
-any
-```
-
-## InsertWorkHistory
-
-```typescript
-any
-```
-
-## SelectWorkHistory
-
-```typescript
-any
-```
-
-## InsertLifecyclePipeline
-
-```typescript
-any
-```
-
-## SelectLifecyclePipeline
-
-```typescript
-any
-```
-
-## InsertLifecycleStage
-
-```typescript
-any
-```
-
-## SelectLifecycleStage
-
-```typescript
-any
-```
-
-## InsertLifecycleGateResult
-
-```typescript
-any
-```
-
-## SelectLifecycleGateResult
-
-```typescript
-any
-```
-
-## InsertLifecycleEvidence
-
-```typescript
-any
-```
-
-## SelectLifecycleEvidence
-
-```typescript
-any
-```
-
-## InsertLifecycleTransition
-
-```typescript
-any
-```
-
-## SelectLifecycleTransition
-
-```typescript
-any
-```
-
-## InsertSchemaMeta
-
-```typescript
-any
-```
-
-## SelectSchemaMeta
-
-```typescript
-any
-```
-
-## InsertAuditLog
-
-```typescript
-any
-```
-
-## SelectAuditLog
-
-```typescript
-any
-```
-
-## AuditLogInsert
-
-Canonical type alias for audit log insert (T4848).
-
-```typescript
-any
-```
-
-## AuditLogSelect
-
-Canonical type alias for audit log select (T4848).
-
-```typescript
-any
-```
-
-## InsertTokenUsage
-
-```typescript
-any
-```
-
-## SelectTokenUsage
-
-```typescript
-any
-```
-
-## InsertArchitectureDecision
-
-```typescript
-any
-```
-
-## SelectArchitectureDecision
-
-```typescript
-any
-```
-
-## InsertManifestEntry
-
-```typescript
-any
-```
-
-## SelectManifestEntry
-
-```typescript
-any
-```
-
-## DependencyWave
-
-A wave of parallelizable tasks.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `wave` | `number` | Yes | wave |
-| `taskIds` | `string[]` | Yes | taskIds |
-
 ## CancelResult
 
 Result of a cancel operation.
@@ -7177,7 +7804,7 @@ Common task filter options.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `status` | `"cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
+| `status` | `"cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived" \| undefined` | No | status |
 | `parentId` | `string \| null \| undefined` | No | parentId |
 | `type` | `TaskType \| undefined` | No | type |
 | `phase` | `string \| undefined` | No | phase |
@@ -7585,30 +8212,36 @@ Result from validate + fix operation.
 
 ## SkillsPrecedenceConfig
 
+Configuration for skill precedence resolution across providers.
+
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `defaultPrecedence` | `SkillsPrecedence \| undefined` | No | defaultPrecedence |
-| `providerOverrides` | `Record&lt;string, SkillsPrecedence&gt; \| undefined` | No | providerOverrides |
+| `defaultPrecedence` | `SkillsPrecedence \| undefined` | No | Default precedence mode when no provider-specific override exists. |
+| `providerOverrides` | `Record&lt;string, SkillsPrecedence&gt; \| undefined` | No | Per-provider precedence overrides (provider ID - precedence). |
 
 ## ResolvedSkillPath
 
+A resolved skill path with full provenance metadata.
+
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `path` | `string` | Yes | path |
-| `source` | `"marketplace" \| "vendor" \| "agents"` | Yes | source |
-| `scope` | `"global" \| "project"` | Yes | scope |
-| `precedence` | `SkillsPrecedence` | Yes | precedence |
-| `providerId` | `string` | Yes | providerId |
+| `path` | `string` | Yes | Absolute filesystem path to the skill directory. |
+| `source` | `"marketplace" \| "vendor" \| "agents"` | Yes | Where the skill was sourced from. |
+| `scope` | `"global" \| "project"` | Yes | Whether this is a global or project-scoped skill. |
+| `precedence` | `SkillsPrecedence` | Yes | The precedence mode that selected this path. |
+| `providerId` | `string` | Yes | The provider that owns this skill path. |
 
 ## SkillInstallationContext
 
+Context for a skill installation operation.
+
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `skillName` | `string` | Yes | skillName |
-| `source` | `string` | Yes | source |
-| `targetProviders` | `string[]` | Yes | targetProviders |
-| `precedenceMode` | `SkillsPrecedence \| undefined` | No | precedenceMode |
-| `projectRoot` | `string \| undefined` | No | projectRoot |
+| `skillName` | `string` | Yes | Name of the skill being installed. |
+| `source` | `string` | Yes | Source URL or path to install from. |
+| `targetProviders` | `string[]` | Yes | Provider IDs to install the skill for. |
+| `precedenceMode` | `SkillsPrecedence \| undefined` | No | Precedence mode for the installation. |
+| `projectRoot` | `string \| undefined` | No | Project root for project-scoped installations. |
 
 ## InProgressEpic
 
@@ -7792,92 +8425,6 @@ Change entry.
 | `changeType` | `string` | Yes | changeType |
 | `stage` | `string \| undefined` | No | stage |
 | `description` | `string` | Yes | description |
-
-## Pipeline
-
-Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | `string` | Yes | Unique identifier (task ID format: T####) |
-| `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Current stage in the pipeline |
-| `createdAt` | `Date` | Yes | When the pipeline was created |
-| `updatedAt` | `Date` | Yes | When the pipeline was last updated |
-| `status` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"` | Yes | Overall pipeline status |
-| `isActive` | `boolean` | Yes | Whether the pipeline is currently active (not completed/cancelled) |
-| `completedAt` | `Date \| undefined` | No | When the pipeline completed (if applicable) |
-| `cancelledReason` | `string \| undefined` | No | Cancellation reason (if cancelled) |
-| `transitionCount` | `number` | Yes | Number of stage transitions made |
-| `version` | `number` | Yes | Version for optimistic locking |
-
-## PipelineStageRecord
-
-Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | `string \| undefined` | No | Unique identifier |
-| `pipelineId` | `string` | Yes | Reference to the pipeline |
-| `stage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Stage name |
-| `status` | `"completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"` | Yes | Stage status |
-| `startedAt` | `Date \| undefined` | No | When the stage was started |
-| `completedAt` | `Date \| undefined` | No | When the stage was completed |
-| `durationMs` | `number \| undefined` | No | Stage duration in milliseconds (computed) |
-| `assignedAgent` | `string \| undefined` | No | Assigned agent for this stage |
-| `notes` | `string \| undefined` | No | Stage-specific metadata/notes |
-| `order` | `number` | Yes | Stage order in pipeline |
-
-## PipelineTransition
-
-Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | `string \| undefined` | No | Unique identifier |
-| `pipelineId` | `string` | Yes | Pipeline reference |
-| `fromStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | From stage |
-| `toStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | To stage |
-| `transitionedAt` | `Date` | Yes | When the transition occurred |
-| `transitionedBy` | `string` | Yes | Agent/user who initiated the transition |
-| `reason` | `string \| undefined` | No | Reason for the transition |
-| `prerequisitesChecked` | `boolean` | Yes | Whether prerequisites were checked |
-| `validationErrors` | `string[] \| undefined` | No | Any validation errors that occurred |
-
-## InitializePipelineOptions
-
-Options for initializing a pipeline.   T4800
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `startStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | No | Starting stage (defaults to 'research') |
-| `initialStatus` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted" \| undefined` | No | Initial status (defaults to 'active') |
-| `assignedAgent` | `string \| undefined` | No | Assigning agent |
-
-## AdvanceStageOptions
-
-Options for advancing pipeline stage.   T4800
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `toStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes | Target stage to advance to |
-| `reason` | `string \| undefined` | No | Reason for the advancement |
-| `initiatedBy` | `string` | Yes | Agent/user initiating the transition |
-| `skipPrerequisites` | `boolean \| undefined` | No | Whether to skip prerequisite check (emergency only) |
-| `force` | `boolean \| undefined` | No | Whether to force transition even if blocked |
-
-## PipelineQueryOptions
-
-Pipeline query options.   T4800
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `status` | `"completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted" \| undefined` | No | Filter by status |
-| `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | No | Filter by current stage |
-| `isActive` | `boolean \| undefined` | No | Filter by active state |
-| `limit` | `number \| undefined` | No | Limit results |
-| `offset` | `number \| undefined` | No | Offset for pagination |
-| `orderBy` | `"createdAt" \| "updatedAt" \| "currentStage" \| undefined` | No | Order by (default: createdAt desc) |
-| `order` | `"asc" \| "desc" \| undefined` | No | Order direction |
 
 ## ResumablePipeline
 
@@ -8219,12 +8766,12 @@ any
 
 ## RoutingEntry
 
-Routing entry describing the preferred channel for an operation.
+Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `domain` | `string` | Yes | Domain name (e.g. 'tasks', 'memory', 'session') |
-| `operation` | `string` | Yes | Operation name (e.g. 'brain.search', 'show') |
+| `operation` | `string` | Yes | Operation name (e.g. 'show', 'find') |
 | `preferredChannel` | `"cli" \| "mcp" \| "either"` | Yes | Preferred channel for token efficiency |
 | `reason` | `string` | Yes | Reason for the channel preference |
 
@@ -8303,9 +8850,9 @@ Row shape for pipeline + stage + task JOIN.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `pipeline` | `\{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; \}` | Yes | pipeline |
-| `stage` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stage |
-| `task` | `\{ sessionId: string \| null; id: string; description: string \| null; createdAt: string; updatedAt: string \| null; status: "cancelled" \| "pending" \| "active" \| "blocked" \| "done" \| "archived"; ... 24 more ...; modifiedBy: string \| null; \}` | Yes | task |
+| `pipeline` | `\{ id: string; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; taskId: string; startedAt: string; version: number; updatedAt: string \| null; completedAt: string \| null; currentStageId: string \| null; \}` | Yes | pipeline |
+| `stage` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; startedAt: string \| null; metadataJson: string \| null; notesJson: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stage |
+| `task` | `\{ sessionId: string \| null; id: string; status: "cancelled" \| "active" \| "pending" \| "blocked" \| "done" \| "archived"; description: string \| null; createdAt: string; updatedAt: string \| null; ... 24 more ...; modifiedBy: string \| null; \}` | Yes | task |
 
 ## PipelineStageRow
 
@@ -8313,8 +8860,8 @@ Row shape for pipeline + stage JOIN.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `pipeline` | `\{ id: string; version: number; updatedAt: string \| null; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; completedAt: string \| null; taskId: string; startedAt: string; currentStageId: string \| null; \}` | Yes | pipeline |
-| `stageRecord` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; notesJson: string \| null; completedAt: string \| null; createdBy: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stageRecord |
+| `pipeline` | `\{ id: string; status: "completed" \| "failed" \| "cancelled" \| "active" \| "blocked" \| "aborted"; taskId: string; startedAt: string; version: number; updatedAt: string \| null; completedAt: string \| null; currentStageId: string \| null; \}` | Yes | pipeline |
+| `stageRecord` | `\{ id: string; status: "completed" \| "failed" \| "blocked" \| "not_started" \| "in_progress" \| "skipped"; startedAt: string \| null; metadataJson: string \| null; notesJson: string \| null; ... 13 more ...; provenanceChainJson: string \| null; \}` | Yes | stageRecord |
 
 ## InsertProjectRegistry
 
@@ -8508,26 +9055,6 @@ Validate a phase transition.
 |----------|------|----------|-------------|
 | `valid` | `boolean` | Yes | valid |
 | `error` | `string \| undefined` | No | error |
-
-## ReparentOptions
-
-Options for reparenting a task.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `taskId` | `string` | Yes | taskId |
-| `newParentId` | `string \| null` | Yes | New parent ID, or null to promote to root. |
-| `policy` | `HierarchyPolicy \| undefined` | No | Optional resolved hierarchy policy. If not provided, uses llm-agent-first defaults. |
-
-## ReparentResult
-
-Result of a reparent operation.
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `oldParent` | `string \| null` | Yes | oldParent |
-| `newParent` | `string \| null` | Yes | newParent |
-| `newType` | `string` | Yes | newType |
 
 ## StalenessThresholds
 

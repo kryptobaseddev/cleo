@@ -342,6 +342,16 @@ Get the OS config directory for CLEO. Linux: ~/.config/cleo | macOS: ~/Library/P
 () => string
 ```
 
+## getCleoTemplatesTildePath()
+
+Get the CLEO templates directory as a tilde-prefixed path for use in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform: replaces the user's home directory with `~` so the reference works when loaded by LLM providers that resolve `~` at runtime.  Linux:   ~/.local/share/cleo/templates macOS:   ~/Library/Application Support/cleo/templates Windows: ~/AppData/Local/cleo/Data/templates (approximate)
+
+**Signature**
+
+```typescript
+() => string
+```
+
 ## getAgentsHome()
 
 Get the global agents hub directory. Respects AGENTS_HOME env var, defaults to ~/.agents.
@@ -408,7 +418,7 @@ Get the path to the brain.db SQLite database file.
 
 ## resolveBrainMigrationsFolder()
 
-Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-brain migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
 
 **Signature**
 
@@ -478,7 +488,7 @@ Get the path to the nexus.db SQLite database file. nexus.db lives in the global 
 
 ## resolveNexusMigrationsFolder()
 
-Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle-nexus migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
 
 **Signature**
 
@@ -558,7 +568,7 @@ Initialize the SQLite database (lazy, singleton). Creates the database file and 
 
 ## resolveMigrationsFolder()
 
-Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled).
+Resolve the path to the drizzle migrations folder. Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).  - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
 
 **Signature**
 
@@ -673,7 +683,7 @@ Convert a database TaskRow to a domain Task object.
 **Signature**
 
 ```typescript
-(row: { sessionId: string | null; id: string; description: string | null; createdAt: string; updatedAt: string | null; status: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"; ... 24 more ...; modifiedBy: string | null; }) => Task
+(row: { sessionId: string | null; id: string; status: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"; description: string | null; createdAt: string; updatedAt: string | null; ... 24 more ...; modifiedBy: string | null; }) => Task
 ```
 
 ## taskToRow()
@@ -683,7 +693,7 @@ Convert a domain Task to a database row for insert/upsert.
 **Signature**
 
 ```typescript
-(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Partial<Task> & { id: string; }) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 ```
 
 ## archivedTaskToRow()
@@ -693,7 +703,7 @@ Convert a domain Task to a row suitable for archived tasks.
 **Signature**
 
 ```typescript
-(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
+(task: Task) => { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; description?: string | ... 1 more ... | undefined; ... 25 more ...; modifiedBy?: string | ... 1 more ... | undefined; }
 ```
 
 ## rowToSession()
@@ -703,7 +713,7 @@ Convert a SessionRow to a domain Session.
 **Signature**
 
 ```typescript
-(row: { gradeMode: number | null; id: string; name: string; status: "active" | "ended" | "orphaned" | "suspended"; agent: string | null; notesJson: string | null; scopeJson: string; currentTask: string | null; ... 14 more ...; resumeCount: number | null; }) => Session
+(row: { gradeMode: number | null; id: string; status: "active" | "ended" | "orphaned" | "suspended"; startedAt: string; name: string; agent: string | null; notesJson: string | null; scopeJson: string; ... 14 more ...; resumeCount: number | null; }) => Session
 ```
 
 ## getErrorDefinition()
@@ -787,7 +797,7 @@ Upsert a single task row into the tasks table. Handles both active task upsert a
 **Signature**
 
 ```typescript
-(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; description?: string | null | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; ... 24 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => ...
+(db: DrizzleDb, row: { id: string; title: string; sessionId?: string | null | undefined; status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; ... 26 more ...; modifiedBy?: string | ... 1 more ... | undefined; }, archiveFields?: ArchiveFields | undefined) => Promise<...>
 ```
 
 ## upsertSession()
@@ -1486,7 +1496,7 @@ Get safety options for data-safety-central operations.
 ### countTasks()
 
 ```typescript
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | ("cancelled" | "pending" | "active" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | ("cancelled" | "active" | "pending" | "blocked" | "done" | "archived")[] | undefined; parentId?: string | undefined; } | undefined) => Promise<...>
 ```
 
 ### getChildren()
@@ -1861,7 +1871,7 @@ List tasks with optional filters.
 **Signature**
 
 ```typescript
-(filters?: { status?: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
+(filters?: { status?: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived" | undefined; parentId?: string | null | undefined; type?: TaskType | undefined; phase?: string | undefined; limit?: number | undefined; } | undefined, cwd?: string | undefined) => Promise<...>
 ```
 
 ## findTasks()
@@ -3110,14 +3120,14 @@ Create a temporary directory with an initialized tasks.db.  Usage:
 () => Promise<TestDbEnv>
 ```
 
-## makeTaskFile()
+## makeTasks()
 
-Build a TaskFile structure from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
+Build full Task objects from a list of task partials. Useful for seeding test data via accessor.upsertSingleTask().
 
 **Signature**
 
 ```typescript
-(tasks: (Partial<Task> & { id: string; })[]) => TaskFile
+(tasks: (Partial<Task> & { id: string; })[]) => Task[]
 ```
 
 ## seedTasks()
@@ -3386,6 +3396,14 @@ Set a config value in the project or global config file (dot-notation supported)
 (key: string, value: unknown, cwd?: string | undefined, opts?: { global?: boolean | undefined; } | undefined) => Promise<{ key: string; value: unknown; scope: "global" | "project"; }>
 ```
 
+## createAcceptanceEnforcement()
+
+**Signature**
+
+```typescript
+(cwd?: string | undefined) => Promise<AcceptanceEnforcement>
+```
+
 ## validateTitle()
 
 Validate a task title.  T4460
@@ -3403,7 +3421,7 @@ Validate task status.  T4460
 **Signature**
 
 ```typescript
-(status: string) => asserts status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => asserts status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 ```
 
 ## normalizePriority()
@@ -3952,13 +3970,13 @@ typeof BrainDataAccessor
 ### getLinksForMemory()
 
 ```typescript
-(memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
+(memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
 ```
 
 ### getLinksForTask()
 
 ```typescript
-(taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
+(taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
 ```
 
 ### removeLink()
@@ -3970,13 +3988,13 @@ typeof BrainDataAccessor
 ### addStickyNote()
 
 ```typescript
-(row: { id: string; content: string; createdAt?: string | undefined; updatedAt?: string | null | undefined; status?: "active" | "archived" | "converted" | undefined; priority?: "high" | "medium" | "low" | null | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 more ... | undefin...
+(row: { id: string; content: string; status?: "active" | "archived" | "converted" | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; priority?: "high" | "medium" | "low" | null | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 more ... | undefin...
 ```
 
 ### getStickyNote()
 
 ```typescript
-(id: string) => Promise<{ id: string; createdAt: string; updatedAt: string | null; status: "active" | "archived" | "converted"; priority: "high" | "medium" | "low" | null; content: string; sourceType: string | null; tagsJson: string | null; convertedToJson: string | null; color: "yellow" | ... 4 more ... | null; } |...
+(id: string) => Promise<{ id: string; status: "active" | "archived" | "converted"; createdAt: string; updatedAt: string | null; priority: "high" | "medium" | "low" | null; content: string; sourceType: string | null; tagsJson: string | null; convertedToJson: string | null; color: "yellow" | ... 4 more ... | null; } |...
 ```
 
 ### findStickyNotes()
@@ -3988,7 +4006,7 @@ typeof BrainDataAccessor
 ### updateStickyNote()
 
 ```typescript
-(id: string, updates: Partial<{ id: string; content: string; createdAt?: string | undefined; updatedAt?: string | null | undefined; status?: "active" | "archived" | "converted" | undefined; priority?: "high" | ... 3 more ... | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 mor...
+(id: string, updates: Partial<{ id: string; content: string; status?: "active" | "archived" | "converted" | undefined; createdAt?: string | undefined; updatedAt?: string | null | undefined; priority?: "high" | ... 3 more ... | undefined; sourceType?: string | ... 1 more ... | undefined; tagsJson?: string | ... 1 mor...
 ```
 
 ### deleteStickyNote()
@@ -4000,19 +4018,19 @@ typeof BrainDataAccessor
 ### addPageNode()
 
 ```typescript
-(node: { id: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; createdAt?: string | undefined; metadataJson?: string | null | undefined; }) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | ... 2 more ... | "concept"; label: string; }>
+(node: { id: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; metadataJson?: string | null | undefined; createdAt?: string | undefined; }) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | ... 2 more ... | "concept"; label: string; }>
 ```
 
 ### getPageNode()
 
 ```typescript
-(id: string) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; } | null>
+(id: string) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; } | null>
 ```
 
 ### findPageNodes()
 
 ```typescript
-(params?: { nodeType?: "task" | "file" | "doc" | "concept" | undefined; limit?: number | undefined; }) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
+(params?: { nodeType?: "task" | "file" | "doc" | "concept" | undefined; limit?: number | undefined; }) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
 ```
 
 ### removePageNode()
@@ -4036,7 +4054,7 @@ typeof BrainDataAccessor
 ### getNeighbors()
 
 ```typescript
-(nodeId: string, edgeType?: "depends_on" | "implements" | "relates_to" | "documents" | undefined) => Promise<{ id: string; createdAt: string; metadataJson: string | null; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
+(nodeId: string, edgeType?: "depends_on" | "implements" | "relates_to" | "documents" | undefined) => Promise<{ id: string; metadataJson: string | null; createdAt: string; nodeType: "task" | "file" | "doc" | "concept"; label: string; }[]>
 ```
 
 ### removePageEdge()
@@ -4053,6 +4071,26 @@ Factory: get a BrainDataAccessor backed by the brain.db singleton.
 
 ```typescript
 (cwd?: string | undefined) => Promise<BrainDataAccessor>
+```
+
+## typedAll()
+
+Type-safe wrapper for `StatementSync.all` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
+**Signature**
+
+```typescript
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T[]
+```
+
+## typedGet()
+
+Type-safe wrapper for `StatementSync.get` — centralizes the `as unknown as` cast required by node:sqlite's untyped return type.
+
+**Signature**
+
+```typescript
+<T>(stmt: StatementSync, ...params: SQLInputValue[]) => T | undefined
 ```
 
 ## setEmbeddingProvider()
@@ -4201,7 +4239,7 @@ Get the CLEO-INJECTION.md template content from the package templates/ directory
 
 ## ensureInjection()
 
-Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.cleo/templates/CLEO-INJECTION.md + .cleo/project-context.json   T4682
+Full injection refresh: strip legacy blocks, inject CAAMP content, install global template, create hub.  Replaces initInjection from init.ts with a ScaffoldResult return type.  Target architecture:   CLAUDE.md/GEMINI.md - AGENTS.md (via injectAll)   AGENTS.md - ~/.agents/AGENTS.md + .cleo/project-context.json + .cleo/memory-bridge.md   T4682
 
 **Signature**
 
@@ -4241,7 +4279,7 @@ Check if a file exists and is readable.
 
 ## stripCLEOBlocks()
 
-Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.
+Strip legacy !-- CLEO:START --...!-- CLEO:END -- blocks from a file. Called before CAAMP injection to prevent competing blocks.  Handles both bare markers (!-- CLEO:START --) and versioned markers (!-- CLEO:START v0.53.4 --, !-- CLEO:START v1.2.3 --).
 
 **Signature**
 
@@ -4479,7 +4517,7 @@ Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) —
 
 ## ensureGlobalHome()
 
-Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
+Ensure the global ~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  Also removes known stale project-level entries that old CLEO versions incorrectly placed at the global level (see STALE_GLOBAL_ENTRIES).  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.
 
 **Signature**
 
@@ -4499,12 +4537,12 @@ Ensure the global CLEO injection template is installed. Delegates to injection.t
 
 ## ensureGlobalScaffold()
 
-Perform a complete global scaffold operation: ensure home, schemas, and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
+Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - MCP startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
 
 **Signature**
 
 ```typescript
-() => Promise<{ home: ScaffoldResult; schemas: { installed: number; updated: number; total: number; }; templates: ScaffoldResult; }>
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }>
 ```
 
 ## checkGlobalHome()
@@ -4585,16 +4623,6 @@ Verify managed hooks are installed and current.  Compares installed hooks in .gi
 
 ```typescript
 (projectRoot: string) => Promise<HookCheckResult[]>
-```
-
-## toTaskFileExt()
-
-Convert a TaskFile (from contracts) to the looser TaskFileExt shape. Accepts any object with at least the basic TaskFileExt structure. The runtime object is the same reference — this only changes the TS type.
-
-**Signature**
-
-```typescript
-<T extends { _meta?: object; tasks?: unknown[]; focus?: object; lastUpdated?: string; }>(taskFile: T) => TaskFileExt
 ```
 
 ## recordDecision()
@@ -6110,6 +6138,66 @@ Resolve tokens in a prompt string.  T4466
 (prompt: string, context: Record<string, string>) => { resolved: string; unresolved: string[]; }
 ```
 
+## getLinksByProvider()
+
+Find all links for a given provider.
+
+**Signature**
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+## getLinkByExternalId()
+
+Find a link by provider + external ID.
+
+**Signature**
+
+```typescript
+(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
+```
+
+## getLinksByTaskId()
+
+Find all links for a given CLEO task.
+
+**Signature**
+
+```typescript
+(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
+```
+
+## createLink()
+
+Create a new external task link.
+
+**Signature**
+
+```typescript
+(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
+```
+
+## touchLink()
+
+Update the lastSyncAt and optionally the title/metadata for an existing link.
+
+**Signature**
+
+```typescript
+(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
+```
+
+## removeLinksByProvider()
+
+Remove all links for a provider (used during provider deregistration).
+
+**Signature**
+
+```typescript
+(providerId: string, cwd?: string | undefined) => Promise<number>
+```
+
 ## bridgeSessionToMemory(projectRoot, sessionData)
 
 Bridge session end data to brain.db as an observation.  Builds a summary text from the session metadata and saves it as a 'change' observation with source_type 'agent'.
@@ -6225,66 +6313,6 @@ Update a task's fields.  T4461
 
 ```typescript
 (options: UpdateTaskOptions, cwd?: string | undefined, accessor?: DataAccessor | undefined) => Promise<UpdateTaskResult>
-```
-
-## getLinksByProvider()
-
-Find all links for a given provider.
-
-**Signature**
-
-```typescript
-(providerId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-```
-
-## getLinkByExternalId()
-
-Find a link by provider + external ID.
-
-**Signature**
-
-```typescript
-(providerId: string, externalId: string, cwd?: string | undefined) => Promise<ExternalTaskLink | null>
-```
-
-## getLinksByTaskId()
-
-Find all links for a given CLEO task.
-
-**Signature**
-
-```typescript
-(taskId: string, cwd?: string | undefined) => Promise<ExternalTaskLink[]>
-```
-
-## createLink()
-
-Create a new external task link.
-
-**Signature**
-
-```typescript
-(params: { taskId: string; providerId: string; externalId: string; externalUrl?: string | undefined; externalTitle?: string | undefined; linkType: ExternalLinkType; syncDirection?: SyncDirection | undefined; metadata?: Record<...> | undefined; }, cwd?: string | undefined) => Promise<...>
-```
-
-## touchLink()
-
-Update the lastSyncAt and optionally the title/metadata for an existing link.
-
-**Signature**
-
-```typescript
-(linkId: string, updates?: { externalTitle?: string | undefined; metadata?: Record<string, unknown> | undefined; } | undefined, cwd?: string | undefined) => Promise<void>
-```
-
-## removeLinksByProvider()
-
-Remove all links for a provider (used during provider deregistration).
-
-**Signature**
-
-```typescript
-(providerId: string, cwd?: string | undefined) => Promise<number>
 ```
 
 ## reconcile(externalTasks, options, accessor)
@@ -6984,7 +7012,7 @@ Get all memory entries linked to a specific task.   T5156
 **Signature**
 
 ```typescript
-(projectRoot: string, taskId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
+(projectRoot: string, taskId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | "pattern" | "learning" | "observation"; memoryId: string; }[]>
 ```
 
 ## getMemoryLinks()
@@ -6994,7 +7022,7 @@ Get all tasks linked to a specific memory entry.   T5156
 **Signature**
 
 ```typescript
-(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ createdAt: string; taskId: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
+(projectRoot: string, memoryType: "decision" | "pattern" | "learning" | "observation", memoryId: string) => Promise<{ taskId: string; createdAt: string; linkType: "produced_by" | "applies_to" | "informed_by" | "contradicts"; memoryType: "decision" | ... 2 more ... | "observation"; memoryId: string; }[]>
 ```
 
 ## bulkLink()
@@ -7105,6 +7133,263 @@ Check if all dependencies of a task are satisfied.
 | `taskLookup` | `ReadonlyMap&lt;string` | Map from task ID to a task-like object with at least  status: string |
 
 **Returns** — true if all dependencies are done/cancelled, or if no dependencies exist
+
+## initializePipeline(taskId, options)
+
+Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
+
+**Signature**
+
+```typescript
+(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID (e.g., 'T4800') |
+| `options` | `: InitializePipelineOptions` | Optional configuration |
+
+**Returns** — Promise resolving to the created Pipeline
+
+**Throws**
+
+- CleoError If pipeline already exists or database operation fails
+
+**Example**
+
+```typescript
+const pipeline = await initializePipeline('T4800', {
+  startStage: 'research',
+  assignedAgent: 'agent-001'
+});
+console.log(`Pipeline initialized: ${pipeline.id}`);
+```
+
+## getPipeline(taskId)
+
+Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
+
+**Signature**
+
+```typescript
+(taskId: string) => Promise<Pipeline | null>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID (e.g., 'T4800') |
+
+**Returns** — Promise resolving to Pipeline or null
+
+**Throws**
+
+- CleoError If database query fails
+
+**Example**
+
+```typescript
+const pipeline = await getPipeline('T4800');
+if (pipeline) {
+  console.log(`Current stage: ${pipeline.currentStage}`);
+}
+```
+
+## advanceStage(taskId, options)
+
+Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
+
+**Signature**
+
+```typescript
+(taskId: string, options: AdvanceStageOptions) => Promise<void>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+| `options` | `AdvanceStageOptions` | Advance options including target stage and reason |
+
+**Returns** — Promise resolving when transition is complete
+
+**Throws**
+
+- CleoError If transition is invalid or prerequisites not met
+
+**Example**
+
+```typescript
+await advanceStage('T4800', {
+  toStage: 'consensus',
+  reason: 'Research completed, moving to consensus',
+  initiatedBy: 'agent-001'
+});
+```
+
+## getCurrentStage(taskId)
+
+Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
+
+**Signature**
+
+```typescript
+(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+
+**Returns** — Promise resolving to the current Stage
+
+**Throws**
+
+- CleoError If database query fails
+
+**Example**
+
+```typescript
+const currentStage = await getCurrentStage('T4800');
+if (currentStage === 'validation') {
+  console.log('Task is in verification');
+}
+```
+
+## listPipelines(options)
+
+List pipelines with optional filtering.
+
+**Signature**
+
+```typescript
+(options?: PipelineQueryOptions) => Promise<Pipeline[]>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `options` | `: PipelineQueryOptions` | Query options for filtering and pagination |
+
+**Returns** — Promise resolving to array of Pipelines
+
+**Throws**
+
+- CleoError If database query fails
+
+**Example**
+
+```typescript
+const activePipelines = await listPipelines({
+  status: 'active',
+  limit: 10
+});
+```
+
+## completePipeline(taskId, reason)
+
+Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
+
+**Signature**
+
+```typescript
+(taskId: string, reason?: string | undefined) => Promise<void>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+| `reason` | `: string \| undefined` | Optional completion reason, stored in the final stage's notes |
+
+**Returns** — Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
+
+**Throws**
+
+- CleoError If pipeline not found or not in releasable state
+
+## cancelPipeline(taskId, reason)
+
+Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
+
+**Signature**
+
+```typescript
+(taskId: string, reason: string) => Promise<void>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+| `reason` | `string` | Reason for cancellation |
+
+**Returns** — Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
+
+**Throws**
+
+- CleoError If pipeline not found or already completed
+
+## pipelineExists(taskId)
+
+Check if a pipeline exists for a task.
+
+**Signature**
+
+```typescript
+(taskId: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+
+**Returns** — Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
+
+## getPipelineStatistics()
+
+Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
+
+**Signature**
+
+```typescript
+() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
+```
+
+**Returns** — Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
+
+**Throws**
+
+- CleoError If database query fails
+
+## getPipelineStages(taskId)
+
+Get all stages for a pipeline.
+
+**Signature**
+
+```typescript
+(taskId: string) => Promise<PipelineStageRecord[]>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task ID |
+
+**Returns** — Promise resolving to array of stage records   T4912
 
 ## computeBriefing()
 
@@ -7693,7 +7978,7 @@ Build a complete export package.
 **Signature**
 
 ```typescript
-(tasks: Task[], taskData: TaskFile, options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; }) => ExportPackage
+(tasks: Task[], options: { mode: string; rootTaskIds: string[]; includeChildren: boolean; cleoVersion?: string | undefined; filters?: unknown; projectName?: string | undefined; }) => ExportPackage
 ```
 
 ## exportSingle()
@@ -7703,7 +7988,7 @@ Export a single task.
 **Signature**
 
 ```typescript
-(taskId: string, taskData: TaskFile) => ExportPackage | null
+(taskId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 ```
 
 ## exportSubtree()
@@ -7713,7 +7998,7 @@ Export a subtree (task + all descendants).
 **Signature**
 
 ```typescript
-(rootId: string, taskData: TaskFile) => ExportPackage | null
+(rootId: string, allTasks: Task[], projectName?: string | undefined) => ExportPackage | null
 ```
 
 ## exportTasksPackage()
@@ -7862,9 +8147,19 @@ Resolve duplicate title by appending suffix.
 (title: string, existingTitles: Set<string>) => string
 ```
 
+## importFromPackage()
+
+Import tasks from an in-memory ExportPackage with ID remapping. Core logic extracted from importTasksPackage for reuse by transfer engine.
+
+**Signature**
+
+```typescript
+(exportPkg: ExportPackage, options?: ImportFromPackageOptions) => Promise<ImportFromPackageResult>
+```
+
 ## importTasksPackage()
 
-Import tasks from a cross-project export package with ID remapping.
+Import tasks from a cross-project export package file with ID remapping. Thin wrapper around importFromPackage that handles file I/O.
 
 **Signature**
 
@@ -7909,6 +8204,289 @@ Validate all ADRs in .cleo/adrs/ against the schema
 ```typescript
 (projectRoot: string) => Promise<ValidationResult>
 ```
+
+## generateAgentId()
+
+Generate a unique agent instance ID. Format: `agt_\{YYYYMMDDHHmmss\}_\{6hex\}`
+
+**Signature**
+
+```typescript
+() => string
+```
+
+## registerAgent()
+
+Register a new agent instance in the database. Sets initial status to 'starting' and records the first heartbeat.
+
+**Signature**
+
+```typescript
+(opts: RegisterAgentOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }>
+```
+
+## deregisterAgent()
+
+Deregister (stop) an agent instance. Sets status to 'stopped' and records the stop timestamp.
+
+**Signature**
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+## heartbeat()
+
+Record a heartbeat for an agent instance. Updates `last_heartbeat` and returns the current status so the agent can detect if it has been externally marked for shutdown.
+
+**Signature**
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<"error" | "starting" | "active" | "idle" | "crashed" | "stopped" | null>
+```
+
+## updateAgentStatus()
+
+Update agent status with optional error tracking. When status is 'error' or 'crashed', increments the error count and logs the error to the agent_error_log table.
+
+**Signature**
+
+```typescript
+(id: string, opts: UpdateStatusOptions, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+## incrementTasksCompleted()
+
+Increment the completed task count for an agent.
+
+**Signature**
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<void>
+```
+
+## listAgentInstances()
+
+List agent instances with optional filters.
+
+**Signature**
+
+```typescript
+(filters?: ListAgentFilters | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+```
+
+## getAgentInstance()
+
+Get a single agent instance by ID.
+
+**Signature**
+
+```typescript
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+## classifyError()
+
+Classify an error as retriable, permanent, or unknown.  Retriable errors are transient conditions (network, rate limits, locks) where a retry may succeed. Permanent errors are structural (auth, not found, constraint violations) where retrying is pointless.
+
+**Signature**
+
+```typescript
+(error: unknown) => AgentErrorType
+```
+
+## getAgentErrorHistory()
+
+Get the error history for a specific agent.
+
+**Signature**
+
+```typescript
+(agentId: string, cwd?: string | undefined) => Promise<{ id: number; agentId: string; errorType: "retriable" | "permanent" | "unknown"; message: string; stack: string | null; occurredAt: string; resolved: boolean; }[]>
+```
+
+## checkAgentHealth()
+
+Check agent health by finding instances whose last heartbeat exceeds the threshold. Default threshold: 30000ms (30 seconds) as specified by the BRAIN spec.  Returns agents that appear to have crashed (stale heartbeat).
+
+**Signature**
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; }[]>
+```
+
+## markCrashed()
+
+Mark an agent instance as crashed. Increments error count and sets status to 'crashed'.
+
+**Signature**
+
+```typescript
+(id: string, reason?: string | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+## getHealthReport()
+
+Generate a health report summarizing all agent instances. Includes counts by status and identifies stale agents.
+
+**Signature**
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentHealthReport>
+```
+
+## updateCapacity(id, capacity, cwd)
+
+Update the capacity value for an agent instance.
+
+**Signature**
+
+```typescript
+(id: string, capacity: number, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; ... 9 more ...; parentAgentId: string | null; } | null>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Agent instance ID |
+| `capacity` | `number` | New capacity value (0.0 to 1.0) |
+| `cwd` | `: string \| undefined` | Working directory |
+
+**Returns** — Updated agent row, or null if not found
+
+## getAvailableCapacity()
+
+Get the total available capacity across all active agents.  Only considers agents in 'active' or 'idle' status. Returns the sum of all capacity values.
+
+**Signature**
+
+```typescript
+(cwd?: string | undefined) => Promise<number>
+```
+
+## findLeastLoadedAgent(agentType, cwd)
+
+Find the agent with the most available capacity.
+
+**Signature**
+
+```typescript
+(agentType?: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor" | undefined, cwd?: string | undefined) => Promise<{ sessionId: string | null; ... 11 more ...; parentAgentId: string | null; } | null>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `agentType` | `: "custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor" \| undefined` | Optional type filter |
+| `cwd` | `: string \| undefined` | Working directory |
+
+**Returns** — Agent with highest capacity, or null if no active agents
+
+## isOverloaded(threshold, cwd)
+
+Check if the system is overloaded (total capacity below threshold).
+
+**Signature**
+
+```typescript
+(threshold?: number, cwd?: string | undefined) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `threshold` | `: number` | Minimum acceptable capacity (default: 0.1) |
+| `cwd` | `: string \| undefined` | Working directory |
+
+**Returns** — true if total available capacity is below the threshold
+
+## getCapacitySummary(threshold, cwd)
+
+Get a capacity summary across the entire agent pool.
+
+**Signature**
+
+```typescript
+(threshold?: number, cwd?: string | undefined) => Promise<CapacitySummary>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `threshold` | `: number` | Overload threshold (default: 0.1) |
+| `cwd` | `: string \| undefined` | Working directory |
+
+## createRetryPolicy()
+
+Create a retry policy by merging overrides with the default policy.
+
+**Signature**
+
+```typescript
+(overrides?: Partial<RetryPolicy> | undefined) => RetryPolicy
+```
+
+## calculateDelay()
+
+Calculate the delay for a given retry attempt using exponential backoff.  Formula: min(baseDelay * multiplier^attempt, maxDelay) + jitter Jitter adds 0-25% randomness to prevent thundering herd.
+
+**Signature**
+
+```typescript
+(attempt: number, policy: RetryPolicy) => number
+```
+
+## shouldRetry()
+
+Determine whether an error should be retried based on its classification and the retry policy.
+
+**Signature**
+
+```typescript
+(error: unknown, attempt: number, policy: RetryPolicy) => boolean
+```
+
+## withRetry(fn, policy)
+
+Wrap an async function with retry logic using configurable exponential backoff.  The function will be retried according to the policy when retriable errors occur. Permanent errors cause immediate failure. Unknown errors respect the `retryOnUnknown` policy setting.
+
+**Signature**
+
+```typescript
+<T>(fn: () => Promise<T>, policy?: Partial<RetryPolicy> | undefined) => Promise<RetryResult<T>>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fn` | `(` | The async function to execute with retries |
+| `policy` | `: Partial&lt;RetryPolicy&gt; \| undefined` | Retry policy (uses DEFAULT_RETRY_POLICY if not provided) |
+
+**Returns** — The result of the operation with retry metadata
+
+## recoverCrashedAgents(thresholdMs, cwd)
+
+Attempt to recover crashed agents.  Finds all agents with status 'crashed' and determines if they can be restarted based on their error history. Agents whose last error was classified as 'permanent' are abandoned. Agents with retriable errors are reset to 'starting' for the orchestration layer to re-assign.
+
+**Signature**
+
+```typescript
+(thresholdMs?: number, cwd?: string | undefined) => Promise<AgentRecoveryResult[]>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `thresholdMs` | `: number` | Heartbeat threshold for crash detection (default: 30000) |
+| `cwd` | `: string \| undefined` | Working directory |
+
+**Returns** — Recovery results for each crashed agent
 
 ## providerList()
 
@@ -8239,6 +8817,25 @@ List all context state files.
 (cwd?: string | undefined) => Promise<Record<string, unknown>>
 ```
 
+## validatePayload(event, payload)
+
+Validate a hook payload against its event-specific Zod schema.  Falls back to the base `HookPayloadSchema` for events without a dedicated schema. Returns a result object rather than throwing, so callers can decide how to handle validation failures.
+
+**Signature**
+
+```typescript
+(event: HookEvent, payload: unknown) => PayloadValidationResult
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `event` | `HookEvent` | The hook event name |
+| `payload` | `unknown` | The payload to validate |
+
+**Returns** — Validation result with any error messages
+
 ## injectTasks()
 
 Inject tasks for external consumption.
@@ -8247,6 +8844,367 @@ Inject tasks for external consumption.
 
 ```typescript
 (opts: { maxTasks?: number | undefined; focusedOnly?: boolean | undefined; phase?: string | undefined; output?: string | undefined; saveState?: boolean | undefined; dryRun?: boolean | undefined; cwd?: string | undefined; }, accessor?: DataAccessor | undefined) => Promise<...>
+```
+
+## detectCircularDeps()
+
+Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+## wouldCreateCycle()
+
+Check if adding a dependency would create a cycle.
+
+**Signature**
+
+```typescript
+(fromId: string, toId: string, tasks: Task[]) => boolean
+```
+
+## getBlockedTasks()
+
+Get tasks that are blocked (have unmet dependencies).
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => Task[]
+```
+
+## getReadyTasks()
+
+Get tasks that are ready (all dependencies met).
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => Task[]
+```
+
+## getDependents()
+
+Get tasks that depend on a given task.
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => Task[]
+```
+
+## getDependentIds()
+
+Get dependent IDs.
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+## getUnresolvedDeps()
+
+Get unresolved dependencies for a task (deps that are not done/cancelled).
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+## validateDependencyRefs()
+
+Validate dependencies for missing references.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => DependencyError[]
+```
+
+## validateDependencies()
+
+Full dependency graph validation.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => DependencyCheckResult
+```
+
+## topologicalSort()
+
+Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => string[] | null
+```
+
+## getTransitiveBlockers()
+
+Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+## getLeafBlockers()
+
+From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
+
+**Signature**
+
+```typescript
+(taskId: string, tasks: Task[]) => string[]
+```
+
+## computeDependencyWaves()
+
+Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => DependencyWave[]
+```
+
+## getNextTask()
+
+Get the next task to work on (highest priority ready task).
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => Task | null
+```
+
+## getCriticalPath()
+
+Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+## getTaskOrder()
+
+Get task ordering by dependency + priority.
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+## getParallelTasks()
+
+Get parallelizable tasks (tasks with no unmet dependencies).
+
+**Signature**
+
+```typescript
+(tasks: Task[]) => string[]
+```
+
+## analyzeTaskImpact(taskId, accessor, cwd)
+
+Analyze the full downstream impact of a task.  Computes direct and transitive dependents, affected lifecycle pipelines, blocked work counts, critical path membership, and blast radius.
+
+**Signature**
+
+```typescript
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ImpactAssessment>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task to analyze |
+| `accessor` | `: DataAccessor \| undefined` | DataAccessor instance (or auto-created from cwd) |
+| `cwd` | `: string \| undefined` | Working directory (used if accessor is not provided) |
+
+**Returns** — Full impact assessment
+
+## analyzeChangeImpact(taskId, changeType, accessor, cwd)
+
+Analyze the downstream effects of a specific change to a task.  Predicts what happens when a task is cancelled, blocked, completed, or reprioritized, including cascading status changes.
+
+**Signature**
+
+```typescript
+(taskId: string, changeType: ChangeType, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<ChangeImpact>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task being changed |
+| `changeType` | `ChangeType` | The type of change |
+| `accessor` | `: DataAccessor \| undefined` | DataAccessor instance (or auto-created from cwd) |
+| `cwd` | `: string \| undefined` | Working directory (used if accessor is not provided) |
+
+**Returns** — Predicted change impact
+
+## calculateBlastRadius(taskId, accessor, cwd)
+
+Calculate the blast radius for a task.  Quantifies how many tasks, epics, and what percentage of the project would be impacted by changes to this task.
+
+**Signature**
+
+```typescript
+(taskId: string, accessor?: DataAccessor | undefined, cwd?: string | undefined) => Promise<BlastRadius>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task to analyze |
+| `accessor` | `: DataAccessor \| undefined` | DataAccessor instance (or auto-created from cwd) |
+| `cwd` | `: string \| undefined` | Working directory (used if accessor is not provided) |
+
+**Returns** — Blast radius metrics
+
+## extractPatternsFromHistory(taskAccessor, brainAccessor, options)
+
+Analyze brain_observations and task history to find recurring patterns.  Detects: - Workflow patterns: common task sequences that succeed/fail - Blocker patterns: what commonly blocks tasks - Success patterns: what correlates with successful task completion - Time patterns: recurring label/type distributions by task status
+
+**Signature**
+
+```typescript
+(taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor, options?: PatternExtractionOptions | undefined) => Promise<...>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskAccessor` | `DataAccessor` | DataAccessor for tasks.db |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+| `options` | `: PatternExtractionOptions \| undefined` | Extraction options (min frequency, confidence, limit) |
+
+**Returns** — Array of detected patterns sorted by frequency descending
+
+## matchPatterns(taskId, taskAccessor, brainAccessor)
+
+Find which known patterns from brain_patterns apply to a given task.  Compares task attributes (labels, title, description, type, size, status) against stored patterns and returns matches with relevance scores.
+
+**Signature**
+
+```typescript
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<PatternMatch[]>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task to match patterns against |
+| `taskAccessor` | `DataAccessor` | DataAccessor for tasks.db |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+
+**Returns** — Array of pattern matches sorted by relevance descending
+
+## storeDetectedPattern(detected, brainAccessor)
+
+Save a detected pattern to the brain_patterns table.  Uses the existing brain_patterns schema: type, pattern, context, frequency, success_rate, impact, anti_pattern, mitigation, examples_json.
+
+**Signature**
+
+```typescript
+(detected: DetectedPattern, brainAccessor: BrainDataAccessor) => Promise<{ id: string; updatedAt: string | null; type: "success" | "workflow" | "failure" | "blocker" | "optimization"; ... 8 more ...; extractedAt: string; }>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `detected` | `DetectedPattern` | The pattern to store |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+
+**Returns** — The stored pattern row
+
+## updatePatternStats(patternId, outcome, brainAccessor)
+
+Update the frequency and success_rate of an existing pattern after an outcome.  Increments frequency by 1 and recalculates success_rate using the running average formula: newRate = (oldRate * oldFreq + (success ? 1 : 0)) / newFreq.
+
+**Signature**
+
+```typescript
+(patternId: string, outcome: boolean, brainAccessor: BrainDataAccessor) => Promise<PatternStatsUpdate | null>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `patternId` | `string` | The brain_patterns ID to update |
+| `outcome` | `boolean` | Whether the outcome was successful |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+
+**Returns** — The update result or null if the pattern was not found
+
+## calculateTaskRisk(taskId, taskAccessor, brainAccessor)
+
+Calculate the risk score for a task based on multiple contributing factors.  Factors considered: - Task complexity (size, dependency count, hierarchy depth) - Historical patterns (similar tasks' failure rates from brain_patterns) - Blocking risk (does this task block others?) - Dependency depth (how deep in the dependency chain)
+
+**Signature**
+
+```typescript
+(taskId: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<RiskAssessment>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task to assess |
+| `taskAccessor` | `DataAccessor` | DataAccessor for tasks.db |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+
+**Returns** — A complete risk assessment with score, confidence, factors, and recommendation
+
+## predictValidationOutcome(taskId, stage, taskAccessor, brainAccessor)
+
+Predict the likelihood of a task passing a lifecycle validation gate.  Combines: - Historical gate results for similar tasks (from brain_patterns) - Current task completion state - Applicable learnings from brain_learnings
+
+**Signature**
+
+```typescript
+(taskId: string, stage: string, taskAccessor: DataAccessor, brainAccessor: BrainDataAccessor) => Promise<ValidationPrediction>
+```
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `taskId` | `string` | The task to evaluate |
+| `stage` | `string` | The lifecycle stage (e.g., "specification", "implementation") |
+| `taskAccessor` | `DataAccessor` | DataAccessor for tasks.db |
+| `brainAccessor` | `BrainDataAccessor` | BrainDataAccessor for brain.db |
+
+**Returns** — Prediction with pass likelihood, blockers, and suggestions
+
+## gatherLearningContext()
+
+Gather applicable learnings for a task from brain_learnings.
+
+**Signature**
+
+```typescript
+(task: Task, brainAccessor: BrainDataAccessor) => Promise<LearningContext>
 ```
 
 ## collectDiagnostics()
@@ -8311,12 +9269,12 @@ Cache parsed templates to .cleo/issue-templates.json.
 
 ## validateLabelsExist()
 
-Validate that required labels exist (informational).
+Validate that labels referenced in issue templates are consistent.  Collects all labels used across templates and checks that each label appears in at least one template definition. Reports any labels that are referenced by only one template but not defined as a known label across the template set. This catches typos and orphaned labels without requiring GitHub API access.
 
 **Signature**
 
 ```typescript
-(_templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
+(templates: IssueTemplate[]) => { valid: boolean; missingLabels: string[]; }
 ```
 
 ## buildIssueBody()
@@ -9825,6 +10783,26 @@ Detect orphaned cross-project dependencies. Finds tasks with dependency referenc
 () => Promise<OrphanEntry[]>
 ```
 
+## previewTransfer()
+
+Preview a transfer without writing any data. Validates projects, permissions, and builds the manifest.
+
+**Signature**
+
+```typescript
+(params: TransferParams) => Promise<TransferResult>
+```
+
+## executeTransfer()
+
+Execute a cross-project task transfer.  Pipeline:   1. Validate source/target projects via nexusGetProject()   2. Check permissions: read on source, write on target   3. Read source tasks   4. Build ExportPackage via exportSubtree/exportSingle   5. Import into target via importFromPackage()   6. Create bidirectional external_task_links   7. Write nexus_audit_log entry   8. If move mode: archive source tasks   9. If transferBrain: copy brain observations
+
+**Signature**
+
+```typescript
+(params: TransferParams) => Promise<TransferResult>
+```
+
 ## compareLevels()
 
 Compare two pino levels numerically. Returns negative if a  b, 0 if equal, positive if a  b.
@@ -10022,7 +11000,7 @@ Get real token usage from Claude Code API.
 **Signature**
 
 ```typescript
-(_opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
+(opts: { session?: string | undefined; since?: string | undefined; }) => Promise<Record<string, unknown>>
 ```
 
 ## clearOtelData()
@@ -10440,7 +11418,7 @@ typeof SignalDockTransport
 ### poll()
 
 ```typescript
-(agentId: string, _since?: string | undefined) => Promise<Message[]>
+(agentId: string, since?: string | undefined) => Promise<Message[]>
 ```
 
 ### heartbeat()
@@ -10926,7 +11904,7 @@ Build task context block for injection into a subagent prompt.  T4521
 **Signature**
 
 ```typescript
-(taskId: string, cwd?: string | undefined) => string
+(taskId: string, cwd?: string | undefined) => Promise<string>
 ```
 
 ## filterProtocolByTier()
@@ -10946,7 +11924,7 @@ Inject the subagent protocol into skill content. Composes: skill content + proto
 **Signature**
 
 ```typescript
-(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(skillContent: string, taskId: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 ```
 
 ## orchestratorSpawnSkill()
@@ -10956,7 +11934,7 @@ Full orchestrator spawn workflow (skill-based). High-level function that loads t
 **Signature**
 
 ```typescript
-(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => string
+(taskId: string, skillName: string, tokenValues: TokenValues, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<string>
 ```
 
 ## prepareTokenValues()
@@ -10996,7 +11974,7 @@ Validate that a task is suitable for contribution protocol.  T4520
 **Signature**
 
 ```typescript
-(taskId: string, cwd?: string | undefined) => { valid: boolean; issues: string[]; }
+(taskId: string, cwd?: string | undefined) => Promise<{ valid: boolean; issues: string[]; }>
 ```
 
 ## getContributionInjection()
@@ -11226,7 +12204,7 @@ Build a fully-resolved prompt for spawning a subagent.  T4519
 **Signature**
 
 ```typescript
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult>
 ```
 
 ## spawn()
@@ -11236,7 +12214,7 @@ Generate full spawn command with metadata.  T4519
 **Signature**
 
 ```typescript
-(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => SpawnPromptResult & { spawnTimestamp: string; }
+(taskId: string, templateName?: string, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<SpawnPromptResult & { spawnTimestamp: string; }>
 ```
 
 ## canParallelize()
@@ -11246,7 +12224,7 @@ Check if tasks can be spawned in parallel (no inter-dependencies).  T4519
 **Signature**
 
 ```typescript
-(taskIds: string[], cwd?: string | undefined) => { canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }
+(taskIds: string[], cwd?: string | undefined) => Promise<{ canParallelize: boolean; conflicts: (Pick<Task, "id"> & { dependsOn: string[]; })[]; safeToSpawn: string[]; }>
 ```
 
 ## spawnBatch()
@@ -11256,7 +12234,7 @@ Spawn prompts for multiple tasks in a batch. Ports orchestrator_spawn_batch from
 **Signature**
 
 ```typescript
-(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => BatchSpawnResult
+(taskIds: string[], templateName?: string | undefined, cwd?: string | undefined, tier?: 0 | 1 | 2 | undefined) => Promise<BatchSpawnResult>
 ```
 
 ## getThresholds()
@@ -11286,7 +12264,7 @@ Initialize orchestrator session state. Determines the recommended action based o
 **Signature**
 
 ```typescript
-(_epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<SessionInitResult>
 ```
 
 ## shouldPause()
@@ -11376,7 +12354,7 @@ Validate orchestrator compliance (post-hoc behavioral checks).  T4519
 **Signature**
 
 ```typescript
-(epicId?: string | undefined, cwd?: string | undefined) => { compliant: boolean; violations: string[]; warnings: string[]; }
+(epicId?: string | undefined, cwd?: string | undefined) => Promise<{ compliant: boolean; violations: string[]; warnings: string[]; }>
 ```
 
 ## getSkillSearchPaths()
@@ -12338,7 +13316,7 @@ Check that Node.js meets the minimum required version. Provides OS-specific upgr
 
 ## checkGlobalSchemaHealth()
 
-Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.
+Check that global schemas at ~/.cleo/schemas/ are installed and not stale. Delegates to checkGlobalSchemas() from schema-management.ts.  The projectRoot parameter exists for API consistency with other check functions in runAllGlobalChecks(), but global schemas live at ~/.cleo/schemas/ (not per-project). The parameter is intentionally unused because schema health is a system-wide concern, not project-scoped.
 
 **Signature**
 
@@ -12508,126 +13486,6 @@ Uncancel a cancelled task (restore to pending).
 
 ```typescript
 (projectRoot: string, params: { taskId: string; cascade?: boolean | undefined; notes?: string | undefined; dryRun?: boolean | undefined; }) => Promise<UncancelResult>
-```
-
-## detectCircularDeps()
-
-Detect circular dependencies using DFS. Returns the cycle path if found, empty array otherwise.
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-## wouldCreateCycle()
-
-Check if adding a dependency would create a cycle.
-
-**Signature**
-
-```typescript
-(fromId: string, toId: string, tasks: Task[]) => boolean
-```
-
-## getBlockedTasks()
-
-Get tasks that are blocked (have unmet dependencies).
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => Task[]
-```
-
-## getReadyTasks()
-
-Get tasks that are ready (all dependencies met).
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => Task[]
-```
-
-## getDependents()
-
-Get tasks that depend on a given task.
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => Task[]
-```
-
-## getDependentIds()
-
-Get dependent IDs.
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-## getUnresolvedDeps()
-
-Get unresolved dependencies for a task (deps that are not done/cancelled).
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-## validateDependencyRefs()
-
-Validate dependencies for missing references.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => DependencyError[]
-```
-
-## validateDependencies()
-
-Full dependency graph validation.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => DependencyCheckResult
-```
-
-## topologicalSort()
-
-Topological sort of tasks by dependencies. Returns sorted task IDs or null if cycle detected.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => string[] | null
-```
-
-## getTransitiveBlockers()
-
-Walk upstream recursively through a task's dependency chain. Returns all non-done/non-cancelled dependency IDs (deduplicated). Uses a visited set for cycle protection.
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
-```
-
-## getLeafBlockers()
-
-From the transitive blockers, return only "leaf" blockers — those whose own dependencies are all resolved (done/cancelled) or that have no dependencies at all. These are the root-cause tasks that need action first.
-
-**Signature**
-
-```typescript
-(taskId: string, tasks: Task[]) => string[]
 ```
 
 ## currentTask()
@@ -12980,26 +13838,6 @@ Check if output should be JSON.
 (flags: ParsedFlags) => boolean
 ```
 
-## getValidationKey()
-
-Get the validation key for a target filename.
-
-**Signature**
-
-```typescript
-(target: string) => string
-```
-
-## extractMarkerVersion()
-
-Extract the CLEO version from an injection marker string. Returns null if no version is present (current format). Returns the version string for legacy format.
-
-**Signature**
-
-```typescript
-(markerLine: string) => string | null
-```
-
 ## checkManifestEntry()
 
 Verify a manifest entry for a task has valid required fields.  T4524
@@ -13347,7 +14185,7 @@ Validate that a status transition is allowed.  T4523
 **Signature**
 
 ```typescript
-(oldStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived", newStatus: "cancelled" | "pending" | "active" | "blocked" | "done" | "archived") => ValidationResult
+(oldStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived", newStatus: "cancelled" | "active" | "pending" | "blocked" | "done" | "archived") => ValidationResult
 ```
 
 ## isValidStatus()
@@ -13357,7 +14195,7 @@ Check if a status string is valid.  T4523
 **Signature**
 
 ```typescript
-(status: string) => status is "cancelled" | "pending" | "active" | "blocked" | "done" | "archived"
+(status: string) => status is "cancelled" | "active" | "pending" | "blocked" | "done" | "archived"
 ```
 
 ## checkTimestampSanity()
@@ -13397,7 +14235,7 @@ Check ID uniqueness within and across files.  T4523
 **Signature**
 
 ```typescript
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ValidationResult
 ```
 
 ## validateTask()
@@ -13427,7 +14265,7 @@ Validate only one phase is active.  T4523
 **Signature**
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ## validateCurrentPhaseConsistency()
@@ -13437,7 +14275,7 @@ Validate currentPhase matches an active phase.  T4523
 **Signature**
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ## validatePhaseTimestamps()
@@ -13447,7 +14285,7 @@ Validate phase timestamp ordering.  T4523
 **Signature**
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ## validatePhaseStatusRequirements()
@@ -13457,7 +14295,7 @@ Validate phase status requirements (e.g., active phases must have startedAt).  T
 **Signature**
 
 ```typescript
-(taskFile: TaskFile) => ValidationResult
+(taskFile: TaskData) => ValidationResult
 ```
 
 ## validateAll()
@@ -13467,7 +14305,7 @@ Run all validation checks on a TaskFile.  T4523
 **Signature**
 
 ```typescript
-(taskFile: TaskFile, archiveFile?: ArchiveFile | undefined) => ComprehensiveValidationResult
+(taskFile: TaskData, archiveFile?: ArchiveData | undefined) => ComprehensiveValidationResult
 ```
 
 ## parseManifest()
@@ -13592,12 +14430,12 @@ Check if file contains required documentation sections.  T4527
 
 ## checkReturnMessageFormat()
 
-Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  T4527
+Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 
 **Signature**
 
 ```typescript
-(message: string, _protocolType?: string | undefined) => boolean
+(message: string, protocolType?: string | undefined) => boolean
 ```
 
 ## checkManifestFieldPresent()
@@ -13672,12 +14510,12 @@ Check if file contains  provenance tag.  T4527
 
 ## validateCommonManifestRequirements()
 
-Validate common manifest requirements across all protocols.  T4527
+Validate common manifest requirements across all protocols.  When protocolType is provided, additionally validates that the manifest entry's agent_type matches the expected protocol type.   T4527
 
 **Signature**
 
 ```typescript
-(entry: Record<string, unknown>, _protocolType?: string | undefined) => ProtocolValidationResult
+(entry: Record<string, unknown>, protocolType?: string | undefined) => ProtocolValidationResult
 ```
 
 ## isValidGateName()
@@ -13912,6 +14750,16 @@ Synchronous variant for use in hot paths where async is not feasible. Returns nu
 
 ```typescript
 (cwd?: string | undefined) => ProjectInfo | null
+```
+
+## updateProjectName()
+
+Update the project name in project-info.json. Used by `cleo upgrade --name` and programmatic consumers.
+
+**Signature**
+
+```typescript
+(cwd: string, name: string) => void
 ```
 
 ## ProtocolEnforcer
@@ -14824,7 +15672,7 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 **Signature**
 
 ```typescript
-(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
+(input: TokenExchangeInput) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; ... 14 more ...; responseHash: string | null; }>
 ```
 
 ## showTokenUsage()
@@ -14832,7 +15680,7 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 **Signature**
 
 ```typescript
-(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(id: string, cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 ```
 
 ## listTokenUsage()
@@ -14840,7 +15688,7 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 **Signature**
 
 ```typescript
-(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
+(filters?: TokenUsageFilters, cwd?: string | undefined) => Promise<{ records: { sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; ... 15 more ...; responseHash: string | null; }[]; total: number; filtered: number; }>
 ```
 
 ## summarizeTokenUsage()
@@ -14880,7 +15728,7 @@ Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. 
 **Signature**
 
 ```typescript
-(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; createdAt: string; taskId: string | null; metadataJson: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
+(cwd?: string | undefined) => Promise<{ sessionId: string | null; id: string; taskId: string | null; metadataJson: string; createdAt: string; domain: string | null; operation: string | null; ... 13 more ...; responseHash: string | null; } | null>
 ```
 
 ## getTokenUsageAggregateSql()
@@ -14923,22 +15771,22 @@ Get current parallel execution state.
 
 ## listSkills()
 
-List available skills.
+List available skills from canonical and project-local directories.
 
 **Signature**
 
 ```typescript
-(_projectRoot: string) => { skills: SkillEntry[]; total: number; }
+(projectRoot: string) => { skills: SkillEntry[]; total: number; }
 ```
 
 ## getSkillContent()
 
-Read skill content for injection into agent context.
+Read skill content for injection into agent context. Checks project-local skills first.
 
 **Signature**
 
 ```typescript
-(skillName: string, _projectRoot: string) => SkillContent
+(skillName: string, projectRoot: string) => SkillContent
 ```
 
 ## getUnblockOpportunities()
@@ -15119,56 +15967,6 @@ Get the currently active session (if any).
 
 ```typescript
 (cwd?: string | undefined) => Promise<Session | null>
-```
-
-## computeDependencyWaves()
-
-Compute dependency waves for parallel execution. Tasks in the same wave can run in parallel; waves must be sequential.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => DependencyWave[]
-```
-
-## getNextTask()
-
-Get the next task to work on (highest priority ready task).
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => Task | null
-```
-
-## getCriticalPath()
-
-Calculate the critical path (longest dependency chain). Returns task IDs along the critical path.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => string[]
-```
-
-## getTaskOrder()
-
-Get task ordering by dependency + priority.
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => string[]
-```
-
-## getParallelTasks()
-
-Get parallelizable tasks (tasks with no unmet dependencies).
-
-**Signature**
-
-```typescript
-(tasks: Task[]) => string[]
 ```
 
 ## suggestRelated()
@@ -15619,24 +16417,27 @@ Run all repair functions. Returns all actions taken (or previewed in dry-run mod
 (cwd: string | undefined, dryRun: boolean) => Promise<RepairAction[]>
 ```
 
-## runUpgrade(, , , )
+## runUpgrade(, , , , , , )
 
 Run a full upgrade pass on the project .cleo/ directory.  Steps:   1. Pre-flight storage check (JSON → SQLite)   2. If migration needed and not dry-run, run auto-migration with backup   3. Schema version checks on JSON files   4. Structural repairs (checksums, missing fields)
 
 **Signature**
 
 ```typescript
-(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; cwd?: string | undefined; }) => Promise<UpgradeResult>
+(options?: { dryRun?: boolean | undefined; includeGlobal?: boolean | undefined; autoMigrate?: boolean | undefined; forceDetect?: boolean | undefined; mapCodebase?: boolean | undefined; projectName?: string | undefined; cwd?: string | undefined; }) => Promise<...>
 ```
 
 **Parameters**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.dryRun  Preview changes without applying |
-| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.includeGlobal  Also check global ~/.cleo |
-| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.autoMigrate  Auto-migrate storage if needed (default: true) |
-| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; cwd?: string \| undefined; \}` | options.cwd  Project directory override |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.dryRun  Preview changes without applying |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.includeGlobal  Also check global ~/.cleo |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.autoMigrate  Auto-migrate storage if needed (default: true) |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.forceDetect  Force re-detection of project type (ignore staleness) |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.mapCodebase  Run full codebase analysis and store to brain.db |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.projectName  Update project name in project-info and nexus |
+| `` | `: \{ dryRun?: boolean \| undefined; includeGlobal?: boolean \| undefined; autoMigrate?: boolean \| undefined; forceDetect?: boolean \| undefined; mapCodebase?: boolean \| undefined; projectName?: string \| undefined; cwd?: string \| undefined; \}` | options.cwd  Project directory override |
 
 ## VerificationGate
 
@@ -16762,263 +17563,6 @@ Consolidate all provenance files into the unified `.cleo/rcasd/\{epicId\}/` stru
 | `` | `: ConsolidateOptions` | options.dryRun - If true, log planned moves without executing them |
 | `` | `: ConsolidateOptions` | options.cwd - Optional working directory override |
 
-## initializePipeline(taskId, options)
-
-Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default.
-
-**Signature**
-
-```typescript
-(taskId: string, options?: InitializePipelineOptions) => Promise<Pipeline>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID (e.g., 'T4800') |
-| `options` | `: InitializePipelineOptions` | Optional configuration |
-
-**Returns** — Promise resolving to the created Pipeline
-
-**Throws**
-
-- CleoError If pipeline already exists or database operation fails
-
-**Example**
-
-```typescript
-const pipeline = await initializePipeline('T4800', {
-  startStage: 'research',
-  assignedAgent: 'agent-001'
-});
-console.log(`Pipeline initialized: ${pipeline.id}`);
-```
-
-## getPipeline(taskId)
-
-Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.
-
-**Signature**
-
-```typescript
-(taskId: string) => Promise<Pipeline | null>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID (e.g., 'T4800') |
-
-**Returns** — Promise resolving to Pipeline or null
-
-**Throws**
-
-- CleoError If database query fails
-
-**Example**
-
-```typescript
-const pipeline = await getPipeline('T4800');
-if (pipeline) {
-  console.log(`Current stage: ${pipeline.currentStage}`);
-}
-```
-
-## advanceStage(taskId, options)
-
-Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.
-
-**Signature**
-
-```typescript
-(taskId: string, options: AdvanceStageOptions) => Promise<void>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-| `options` | `AdvanceStageOptions` | Advance options including target stage and reason |
-
-**Returns** — Promise resolving when transition is complete
-
-**Throws**
-
-- CleoError If transition is invalid or prerequisites not met
-
-**Example**
-
-```typescript
-await advanceStage('T4800', {
-  toStage: 'consensus',
-  reason: 'Research completed, moving to consensus',
-  initiatedBy: 'agent-001'
-});
-```
-
-## getCurrentStage(taskId)
-
-Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.
-
-**Signature**
-
-```typescript
-(taskId: string) => Promise<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-
-**Returns** — Promise resolving to the current Stage
-
-**Throws**
-
-- CleoError If database query fails
-
-**Example**
-
-```typescript
-const currentStage = await getCurrentStage('T4800');
-if (currentStage === 'validation') {
-  console.log('Task is in verification');
-}
-```
-
-## listPipelines(options)
-
-List pipelines with optional filtering.
-
-**Signature**
-
-```typescript
-(options?: PipelineQueryOptions) => Promise<Pipeline[]>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `options` | `: PipelineQueryOptions` | Query options for filtering and pagination |
-
-**Returns** — Promise resolving to array of Pipelines
-
-**Throws**
-
-- CleoError If database query fails
-
-**Example**
-
-```typescript
-const activePipelines = await listPipelines({
-  status: 'active',
-  limit: 10
-});
-```
-
-## completePipeline(taskId, _reason)
-
-Complete a pipeline (mark all stages done).  Marks the pipeline as completed and sets the completion timestamp. Only valid when the pipeline is in the 'release' stage.
-
-**Signature**
-
-```typescript
-(taskId: string, _reason?: string | undefined) => Promise<void>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-| `_reason` | `: string \| undefined` | Optional completion reason (unused, for API compatibility) |
-
-**Returns** — Promise resolving when complete   T4800  T4912 - Implemented SQLite wiring
-
-**Throws**
-
-- CleoError If pipeline not found or not in releasable state
-
-## cancelPipeline(taskId, reason)
-
-Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-initiated). Once cancelled, the pipeline cannot be resumed (a new one must be created). Use this for deliberate user decisions to abandon a pipeline. System-forced terminations should use the 'aborted' status directly.
-
-**Signature**
-
-```typescript
-(taskId: string, reason: string) => Promise<void>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-| `reason` | `string` | Reason for cancellation |
-
-**Returns** — Promise resolving when cancelled   T4800  T4912 - Implemented SQLite wiring
-
-**Throws**
-
-- CleoError If pipeline not found or already completed
-
-## pipelineExists(taskId)
-
-Check if a pipeline exists for a task.
-
-**Signature**
-
-```typescript
-(taskId: string) => Promise<boolean>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-
-**Returns** — Promise resolving to boolean   T4800  T4912 - Implemented SQLite wiring
-
-## getPipelineStatistics()
-
-Get pipeline statistics.  Returns aggregate counts of pipelines by status and stage.
-
-**Signature**
-
-```typescript
-() => Promise<{ total: number; byStatus: Record<"completed" | "failed" | "cancelled" | "active" | "blocked" | "aborted", number>; byStage: Partial<Record<"research" | "consensus" | "architecture_decision" | ... 5 more ... | "release", number>>; }>
-```
-
-**Returns** — Promise resolving to statistics object   T4800  T4912 - Implemented SQLite wiring
-
-**Throws**
-
-- CleoError If database query fails
-
-## getPipelineStages(taskId)
-
-Get all stages for a pipeline.
-
-**Signature**
-
-```typescript
-(taskId: string) => Promise<PipelineStageRecord[]>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `taskId` | `string` | The task ID |
-
-**Returns** — Promise resolving to array of stage records   T4912
-
 ## findResumablePipelines(options, cwd)
 
 Query active pipelines that can be resumed.  Searches the lifecycle_pipelines table for pipelines with status 'active' and joins with lifecycle_stages to determine current stage status. Also joins with tasks table to get task metadata.
@@ -17550,7 +18094,7 @@ Skip a stage with validation.
 **Signature**
 
 ```typescript
-(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", _reason: string, context: StateMachineContext) => StageState
+(stage: "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", reason: string, context: StateMachineContext) => StageState
 ```
 
 **Parameters**
@@ -17558,7 +18102,7 @@ Skip a stage with validation.
 | Name | Type | Description |
 |------|------|-------------|
 | `stage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | The stage to skip |
-| `reason` | — | Reason for skipping |
+| `reason` | `string` | Reason for skipping |
 | `context` | `StateMachineContext` | State machine context |
 
 **Returns** — Updated StageState   T4800
@@ -17709,7 +18253,7 @@ Get human-readable setup instructions.
 
 ## getPreferredChannel(domain, operation)
 
-Look up the preferred channel for a given domain + operation.
+Look up the preferred channel for a given domain + operation.  Reads from the merged capability matrix (single SSoT).
 
 **Signature**
 
@@ -17728,7 +18272,7 @@ Look up the preferred channel for a given domain + operation.
 
 ## getRoutingForDomain(domain)
 
-Get routing entries for a specific domain.
+Get routing entries for a specific domain.  Derives entries from the capability matrix.
 
 **Signature**
 
@@ -17746,7 +18290,7 @@ Get routing entries for a specific domain.
 
 ## getOperationsByChannel(channel)
 
-Get all operations that prefer a specific channel.
+Get all operations that prefer a specific channel.  Derives entries from the capability matrix.
 
 **Signature**
 
@@ -18003,7 +18547,7 @@ Log import operation error with diagnostic details.  T4552
 **Signature**
 
 ```typescript
-(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "validation" | "unknown" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
+(sourceFilePath: string, errorMessage: string, errorCode: string | number, stage?: "unknown" | "validation" | "parsing" | "remapping" | "writing", sessionId?: string | undefined, cwd?: string | undefined) => Promise<...>
 ```
 
 ## logImportConflict()
@@ -18119,7 +18663,7 @@ Get all stages for a pipeline, ordered by sequence.
 **Signature**
 
 ```typescript
-(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; notesJson: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
+(pipelineId: string, cwd?: string | undefined) => Promise<{ id: string; status: "completed" | "failed" | "blocked" | "not_started" | "in_progress" | "skipped"; startedAt: string | null; ... 15 more ...; provenanceChainJson: string | null; }[]>
 ```
 
 **Parameters**
@@ -18621,25 +19165,6 @@ Check if all phases are complete.
 ```typescript
 (phases: Record<string, Phase>) => boolean
 ```
-
-## reparentTask(data, opts)
-
-Reparent a task within a TaskFile.  Mutates the task in-place within `data.tasks`. Updates `parentId`, `type`, and `updatedAt` on the target task, and `lastUpdated` on the TaskFile.
-
-**Signature**
-
-```typescript
-(data: TaskFile, opts: ReparentOptions) => Promise<ReparentResult>
-```
-
-**Parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `data` | `TaskFile` | The loaded TaskFile (mutated in place) |
-| `opts` | `ReparentOptions` | Reparent options (taskId, newParentId) |
-
-**Returns** — Result with old/new parent and new type
 
 ## getSizeWeight()
 

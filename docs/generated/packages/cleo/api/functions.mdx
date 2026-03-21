@@ -2766,6 +2766,26 @@ Import a snapshot into the project.
 (projectRoot: string, inputPath: string) => Promise<EngineResult<ImportResult>>
 ```
 
+## nexusTransferPreview()
+
+Preview a cross-project task transfer (dry run).
+
+**Signature**
+
+```typescript
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+```
+
+## nexusTransferExecute()
+
+Execute a cross-project task transfer.
+
+**Signature**
+
+```typescript
+(params: TransferParams) => Promise<EngineResult<TransferResult>>
+```
+
 ## NexusHandler
 
 **Signature**
@@ -4413,6 +4433,14 @@ Register the delete command.  T4461
 (program: ShimCommand) => void
 ```
 
+## registerDetectCommand()
+
+**Signature**
+
+```typescript
+(program: ShimCommand) => void
+```
+
 ## registerDetectDriftCommand()
 
 **Signature**
@@ -4674,14 +4702,6 @@ Register the init command.  T4681  T4663
 ```
 
 ## registerInjectCommand()
-
-**Signature**
-
-```typescript
-(program: ShimCommand) => void
-```
-
-## registerInstallGlobalCommand()
 
 **Signature**
 

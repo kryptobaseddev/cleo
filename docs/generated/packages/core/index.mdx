@@ -38,6 +38,7 @@ description: "core package overview"
 | [`getCleoCacheDir()`](/packages/core/api/index#getcleocachedir) | function | Get the OS cache directory for CLEO. Linux: ~/.cache/cleo \| macOS: ~/Library/... |
 | [`getCleoTempDir()`](/packages/core/api/index#getcleotempdir) | function | Get the OS temp directory for CLEO ephemeral files. |
 | [`getCleoConfigDir()`](/packages/core/api/index#getcleoconfigdir) | function | Get the OS config directory for CLEO. Linux: ~/.config/cleo \| macOS: ~/Librar... |
+| [`getCleoTemplatesTildePath()`](/packages/core/api/index#getcleotemplatestildepath) | function | Get the CLEO templates directory as a tilde-prefixed path for use in `@` refe... |
 | [`getAgentsHome()`](/packages/core/api/index#getagentshome) | function | Get the global agents hub directory. Respects AGENTS_HOME env var, defaults t... |
 | [`getClaudeAgentsDir()`](/packages/core/api/index#getclaudeagentsdir) | function | Get the Claude Code agents directory (~/.claude/agents by default). |
 | [`getClaudeMemDbPath()`](/packages/core/api/index#getclaudememdbpath) | function | Get the claude-mem SQLite database path. |
@@ -248,7 +249,7 @@ description: "core package overview"
 | [`getCleoErrorRegistry()`](/packages/core/api/index#getcleoerrorregistry) | function | Get the full CLEO error registry for conformance testing.   T4671  T4663 |
 | [`isCleoRegisteredCode()`](/packages/core/api/index#iscleoregisteredcode) | function | Check if a LAFS code is registered in the CLEO error registry.   T4671  T4663 |
 | [`createTestDb()`](/packages/core/api/index#createtestdb) | function | Create a temporary directory with an initialized tasks.db.  Usage: |
-| [`makeTaskFile()`](/packages/core/api/index#maketaskfile) | function | Build a TaskFile structure from a list of task partials. Useful for seeding t... |
+| [`makeTasks()`](/packages/core/api/index#maketasks) | function | Build full Task objects from a list of task partials. Useful for seeding test... |
 | [`seedTasks()`](/packages/core/api/index#seedtasks) | function | Seed tasks into the test database via the accessor.  Uses a two-pass approach... |
 | [`getChildren()`](/packages/core/api/index#getchildren) | function | Get direct children of a task. |
 | [`getChildIds()`](/packages/core/api/index#getchildids) | function | Get direct child IDs. |
@@ -276,6 +277,7 @@ description: "core package overview"
 | [`getRawConfig()`](/packages/core/api/index#getrawconfig) | function | Get the full raw project config (no cascade). Returns null if no config file ... |
 | [`parseConfigValue()`](/packages/core/api/index#parseconfigvalue) | function | Parse a string value into its appropriate JS type. Handles booleans, null, in... |
 | [`setConfigValue()`](/packages/core/api/index#setconfigvalue) | function | Set a config value in the project or global config file (dot-notation support... |
+| [`createAcceptanceEnforcement()`](/packages/core/api/index#createacceptanceenforcement) | function |  |
 | [`validateTitle()`](/packages/core/api/index#validatetitle) | function | Validate a task title.  T4460 |
 | [`validateStatus()`](/packages/core/api/index#validatestatus) | function | Validate task status.  T4460 |
 | [`normalizePriority()`](/packages/core/api/index#normalizepriority) | function | Normalize priority to canonical string format. Accepts both string names ("cr... |
@@ -318,6 +320,8 @@ description: "core package overview"
 | [`detectProjectType()`](/packages/core/api/index#detectprojecttype) | function | Detect project type from directory contents. Returns a schema-compliant Proje... |
 | [`BrainDataAccessor`](/packages/core/api/index#braindataaccessor) | class |  |
 | [`getBrainAccessor()`](/packages/core/api/index#getbrainaccessor) | function | Factory: get a BrainDataAccessor backed by the brain.db singleton. |
+| [`typedAll()`](/packages/core/api/index#typedall) | function | Type-safe wrapper for `StatementSync.all` — centralizes the `as unknown as` c... |
+| [`typedGet()`](/packages/core/api/index#typedget) | function | Type-safe wrapper for `StatementSync.get` — centralizes the `as unknown as` c... |
 | [`setEmbeddingProvider()`](/packages/core/api/index#setembeddingprovider) | function | Register an embedding provider for the brain system. Validates that the provi... |
 | [`getEmbeddingProvider()`](/packages/core/api/index#getembeddingprovider) | function | Get the currently registered embedding provider, or null. |
 | [`clearEmbeddingProvider()`](/packages/core/api/index#clearembeddingprovider) | function | Clear the current embedding provider (useful for testing). |
@@ -360,7 +364,7 @@ description: "core package overview"
 | [`checkMemoryBridge()`](/packages/core/api/index#checkmemorybridge) | function | Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) ... |
 | [`ensureGlobalHome()`](/packages/core/api/index#ensureglobalhome) | function | Ensure the global ~/.cleo/ home directory and its required subdirectories exi... |
 | [`ensureGlobalTemplates()`](/packages/core/api/index#ensureglobaltemplates) | function | Ensure the global CLEO injection template is installed. Delegates to injectio... |
-| [`ensureGlobalScaffold()`](/packages/core/api/index#ensureglobalscaffold) | function | Perform a complete global scaffold operation: ensure home, schemas, and templ... |
+| [`ensureGlobalScaffold()`](/packages/core/api/index#ensureglobalscaffold) | function | Perform a complete global scaffold operation: ensure home and templates are a... |
 | [`checkGlobalHome()`](/packages/core/api/index#checkglobalhome) | function | Check that the global ~/.cleo/ home and its required subdirectories exist. Re... |
 | [`checkGlobalTemplates()`](/packages/core/api/index#checkglobaltemplates) | function | Check that the global injection template is present and current. Read-only: n... |
 | [`checkLogDir()`](/packages/core/api/index#checklogdir) | function | Check that the project log directory exists. Read-only: no side effects. |
@@ -369,7 +373,6 @@ description: "core package overview"
 | [`generateMcpServerEntry()`](/packages/core/api/index#generatemcpserverentry) | function | Generate the MCP server entry for the cleo server based on env mode.  Returns... |
 | [`ensureGitHooks()`](/packages/core/api/index#ensuregithooks) | function | Install or update managed git hooks from templates/git-hooks/ into .git/hooks... |
 | [`checkGitHooks()`](/packages/core/api/index#checkgithooks) | function | Verify managed hooks are installed and current.  Compares installed hooks in ... |
-| [`toTaskFileExt()`](/packages/core/api/index#totaskfileext) | function | Convert a TaskFile (from contracts) to the looser TaskFileExt shape. Accepts ... |
 | [`recordDecision()`](/packages/core/api/index#recorddecision) | function | Record a decision to the audit trail. Appends a JSON line to `.cleo/audit/dec... |
 | [`getDecisionLog()`](/packages/core/api/index#getdecisionlog) | function | Read the decision log, optionally filtered by sessionId and/or taskId. |
 | [`computeHandoff()`](/packages/core/api/index#computehandoff) | function | Compute handoff data for a session. Gathers all session statistics and auto-c... |
@@ -493,6 +496,12 @@ description: "core package overview"
 | [`getOrchestratorContext()`](/packages/core/api/index#getorchestratorcontext) | function | Get orchestrator context summary.  T4466 |
 | [`autoDispatch()`](/packages/core/api/index#autodispatch) | function | Auto-dispatch: determine the protocol for a task based on metadata.  T4466 |
 | [`resolveTokens()`](/packages/core/api/index#resolvetokens) | function | Resolve tokens in a prompt string.  T4466 |
+| [`getLinksByProvider()`](/packages/core/api/index#getlinksbyprovider) | function | Find all links for a given provider. |
+| [`getLinkByExternalId()`](/packages/core/api/index#getlinkbyexternalid) | function | Find a link by provider + external ID. |
+| [`getLinksByTaskId()`](/packages/core/api/index#getlinksbytaskid) | function | Find all links for a given CLEO task. |
+| [`createLink()`](/packages/core/api/index#createlink) | function | Create a new external task link. |
+| [`touchLink()`](/packages/core/api/index#touchlink) | function | Update the lastSyncAt and optionally the title/metadata for an existing link. |
+| [`removeLinksByProvider()`](/packages/core/api/index#removelinksbyprovider) | function | Remove all links for a provider (used during provider deregistration). |
 | [`bridgeSessionToMemory()`](/packages/core/api/index#bridgesessiontomemory) | function | Bridge session end data to brain.db as an observation.  Builds a summary text... |
 | [`storeDecision()`](/packages/core/api/index#storedecision) | function | Store a new decision or update an existing one if a duplicate is found. Dupli... |
 | [`recallDecision()`](/packages/core/api/index#recalldecision) | function | Recall a specific decision by ID.   T5155 |
@@ -504,12 +513,6 @@ description: "core package overview"
 | [`resolveTaskDetails()`](/packages/core/api/index#resolvetaskdetails) | function | Resolve an array of task IDs to their full Task objects. Tasks that cannot be... |
 | [`completeTask()`](/packages/core/api/index#completetask) | function | Complete a task by ID. Handles dependency checking and optional auto-completi... |
 | [`updateTask()`](/packages/core/api/index#updatetask) | function | Update a task's fields.  T4461 |
-| [`getLinksByProvider()`](/packages/core/api/index#getlinksbyprovider) | function | Find all links for a given provider. |
-| [`getLinkByExternalId()`](/packages/core/api/index#getlinkbyexternalid) | function | Find a link by provider + external ID. |
-| [`getLinksByTaskId()`](/packages/core/api/index#getlinksbytaskid) | function | Find all links for a given CLEO task. |
-| [`createLink()`](/packages/core/api/index#createlink) | function | Create a new external task link. |
-| [`touchLink()`](/packages/core/api/index#touchlink) | function | Update the lastSyncAt and optionally the title/metadata for an existing link. |
-| [`removeLinksByProvider()`](/packages/core/api/index#removelinksbyprovider) | function | Remove all links for a provider (used during provider deregistration). |
 | [`reconcile()`](/packages/core/api/index#reconcile) | function | Reconcile external task state with CLEO's authoritative task store. |
 | [`getArtifactHandler()`](/packages/core/api/index#getartifacthandler) | function | Get handler for an artifact type.  T4552 |
 | [`hasArtifactHandler()`](/packages/core/api/index#hasartifacthandler) | function | Check if a handler is registered for an artifact type.  T4552 |
@@ -588,6 +591,16 @@ description: "core package overview"
 | [`persistSessionMemory()`](/packages/core/api/index#persistsessionmemory) | function | Main entry point -- called from session.end handler. Extracts memory-worthy c... |
 | [`getSessionMemoryContext()`](/packages/core/api/index#getsessionmemorycontext) | function | Retrieve session memory for a given scope. Used by briefing/handoff to enrich... |
 | [`depsReady()`](/packages/core/api/index#depsready) | function | Check if all dependencies of a task are satisfied. |
+| [`initializePipeline()`](/packages/core/api/index#initializepipeline) | function | Initialize a new pipeline for a task.  Creates a new pipeline record in the d... |
+| [`getPipeline()`](/packages/core/api/index#getpipeline) | function | Retrieve a pipeline by task ID.  Returns the complete pipeline state includin... |
+| [`advanceStage()`](/packages/core/api/index#advancestage) | function | Advance a pipeline to the next stage.  Performs atomic stage transition with ... |
+| [`getCurrentStage()`](/packages/core/api/index#getcurrentstage) | function | Get the current stage of a pipeline.  Convenience method to quickly check whi... |
+| [`listPipelines()`](/packages/core/api/index#listpipelines) | function | List pipelines with optional filtering. |
+| [`completePipeline()`](/packages/core/api/index#completepipeline) | function | Complete a pipeline (mark all stages done).  Marks the pipeline as completed ... |
+| [`cancelPipeline()`](/packages/core/api/index#cancelpipeline) | function | Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-i... |
+| [`pipelineExists()`](/packages/core/api/index#pipelineexists) | function | Check if a pipeline exists for a task. |
+| [`getPipelineStatistics()`](/packages/core/api/index#getpipelinestatistics) | function | Get pipeline statistics.  Returns aggregate counts of pipelines by status and... |
+| [`getPipelineStages()`](/packages/core/api/index#getpipelinestages) | function | Get all stages for a pipeline. |
 | [`computeBriefing()`](/packages/core/api/index#computebriefing) | function | Compute the complete session briefing. Aggregates data from all 6+ sources. |
 | [`findSessions()`](/packages/core/api/index#findsessions) | function | Find sessions with minimal field projection.  Loads all sessions, applies fil... |
 | [`archiveSessions()`](/packages/core/api/index#archivesessions) | function | Archive old/ended sessions. Identifies ended and suspended sessions older tha... |
@@ -643,11 +656,35 @@ description: "core package overview"
 | [`remapTaskReferences()`](/packages/core/api/index#remaptaskreferences) | function | Remap all ID references in a task. |
 | [`detectDuplicateTitles()`](/packages/core/api/index#detectduplicatetitles) | function | Detect duplicate titles between import and target. |
 | [`resolveDuplicateTitle()`](/packages/core/api/index#resolveduplicatetitle) | function | Resolve duplicate title by appending suffix. |
-| [`importTasksPackage()`](/packages/core/api/index#importtaskspackage) | function | Import tasks from a cross-project export package with ID remapping. |
+| [`importFromPackage()`](/packages/core/api/index#importfrompackage) | function | Import tasks from an in-memory ExportPackage with ID remapping. Core logic ex... |
+| [`importTasksPackage()`](/packages/core/api/index#importtaskspackage) | function | Import tasks from a cross-project export package file with ID remapping. Thin... |
 | [`findAdrs()`](/packages/core/api/index#findadrs) | function |  |
 | [`listAdrs()`](/packages/core/api/index#listadrs) | function | List ADRs from .cleo/adrs/ directory with optional status filter |
 | [`showAdr()`](/packages/core/api/index#showadr) | function | Retrieve a single ADR by ID (e.g., 'ADR-007') |
 | [`validateAllAdrs()`](/packages/core/api/index#validatealladrs) | function | Validate all ADRs in .cleo/adrs/ against the schema |
+| [`generateAgentId()`](/packages/core/api/index#generateagentid) | function | Generate a unique agent instance ID. Format: `agt_\{YYYYMMDDHHmmss\}_\{6hex\}` |
+| [`registerAgent()`](/packages/core/api/index#registeragent) | function | Register a new agent instance in the database. Sets initial status to 'starti... |
+| [`deregisterAgent()`](/packages/core/api/index#deregisteragent) | function | Deregister (stop) an agent instance. Sets status to 'stopped' and records the... |
+| [`heartbeat()`](/packages/core/api/index#heartbeat) | function | Record a heartbeat for an agent instance. Updates `last_heartbeat` and return... |
+| [`updateAgentStatus()`](/packages/core/api/index#updateagentstatus) | function | Update agent status with optional error tracking. When status is 'error' or '... |
+| [`incrementTasksCompleted()`](/packages/core/api/index#incrementtaskscompleted) | function | Increment the completed task count for an agent. |
+| [`listAgentInstances()`](/packages/core/api/index#listagentinstances) | function | List agent instances with optional filters. |
+| [`getAgentInstance()`](/packages/core/api/index#getagentinstance) | function | Get a single agent instance by ID. |
+| [`classifyError()`](/packages/core/api/index#classifyerror) | function | Classify an error as retriable, permanent, or unknown.  Retriable errors are ... |
+| [`getAgentErrorHistory()`](/packages/core/api/index#getagenterrorhistory) | function | Get the error history for a specific agent. |
+| [`checkAgentHealth()`](/packages/core/api/index#checkagenthealth) | function | Check agent health by finding instances whose last heartbeat exceeds the thre... |
+| [`markCrashed()`](/packages/core/api/index#markcrashed) | function | Mark an agent instance as crashed. Increments error count and sets status to ... |
+| [`getHealthReport()`](/packages/core/api/index#gethealthreport) | function | Generate a health report summarizing all agent instances. Includes counts by ... |
+| [`updateCapacity()`](/packages/core/api/index#updatecapacity) | function | Update the capacity value for an agent instance. |
+| [`getAvailableCapacity()`](/packages/core/api/index#getavailablecapacity) | function | Get the total available capacity across all active agents.  Only considers ag... |
+| [`findLeastLoadedAgent()`](/packages/core/api/index#findleastloadedagent) | function | Find the agent with the most available capacity. |
+| [`isOverloaded()`](/packages/core/api/index#isoverloaded) | function | Check if the system is overloaded (total capacity below threshold). |
+| [`getCapacitySummary()`](/packages/core/api/index#getcapacitysummary) | function | Get a capacity summary across the entire agent pool. |
+| [`createRetryPolicy()`](/packages/core/api/index#createretrypolicy) | function | Create a retry policy by merging overrides with the default policy. |
+| [`calculateDelay()`](/packages/core/api/index#calculatedelay) | function | Calculate the delay for a given retry attempt using exponential backoff.  For... |
+| [`shouldRetry()`](/packages/core/api/index#shouldretry) | function | Determine whether an error should be retried based on its classification and ... |
+| [`withRetry()`](/packages/core/api/index#withretry) | function | Wrap an async function with retry logic using configurable exponential backof... |
+| [`recoverCrashedAgents()`](/packages/core/api/index#recovercrashedagents) | function | Attempt to recover crashed agents.  Finds all agents with status 'crashed' an... |
 | [`providerList()`](/packages/core/api/index#providerlist) | function | List all registered providers.  T4332 |
 | [`providerGet()`](/packages/core/api/index#providerget) | function | Get a single provider by ID or alias.  T4332 |
 | [`providerDetect()`](/packages/core/api/index#providerdetect) | function | Detect all providers installed on the system.  T4332 |
@@ -680,14 +717,42 @@ description: "core package overview"
 | [`getContextStatus()`](/packages/core/api/index#getcontextstatus) | function | Get context status. |
 | [`checkContextThreshold()`](/packages/core/api/index#checkcontextthreshold) | function | Check context threshold (returns exit code info). |
 | [`listContextSessions()`](/packages/core/api/index#listcontextsessions) | function | List all context state files. |
+| [`validatePayload()`](/packages/core/api/index#validatepayload) | function | Validate a hook payload against its event-specific Zod schema.  Falls back to... |
 | [`injectTasks()`](/packages/core/api/index#injecttasks) | function | Inject tasks for external consumption. |
+| [`detectCircularDeps()`](/packages/core/api/index#detectcirculardeps) | function | Detect circular dependencies using DFS. Returns the cycle path if found, empt... |
+| [`wouldCreateCycle()`](/packages/core/api/index#wouldcreatecycle) | function | Check if adding a dependency would create a cycle. |
+| [`getBlockedTasks()`](/packages/core/api/index#getblockedtasks) | function | Get tasks that are blocked (have unmet dependencies). |
+| [`getReadyTasks()`](/packages/core/api/index#getreadytasks) | function | Get tasks that are ready (all dependencies met). |
+| [`getDependents()`](/packages/core/api/index#getdependents) | function | Get tasks that depend on a given task. |
+| [`getDependentIds()`](/packages/core/api/index#getdependentids) | function | Get dependent IDs. |
+| [`getUnresolvedDeps()`](/packages/core/api/index#getunresolveddeps) | function | Get unresolved dependencies for a task (deps that are not done/cancelled). |
+| [`validateDependencyRefs()`](/packages/core/api/index#validatedependencyrefs) | function | Validate dependencies for missing references. |
+| [`validateDependencies()`](/packages/core/api/index#validatedependencies) | function | Full dependency graph validation. |
+| [`topologicalSort()`](/packages/core/api/index#topologicalsort) | function | Topological sort of tasks by dependencies. Returns sorted task IDs or null if... |
+| [`getTransitiveBlockers()`](/packages/core/api/index#gettransitiveblockers) | function | Walk upstream recursively through a task's dependency chain. Returns all non-... |
+| [`getLeafBlockers()`](/packages/core/api/index#getleafblockers) | function | From the transitive blockers, return only "leaf" blockers — those whose own d... |
+| [`computeDependencyWaves()`](/packages/core/api/index#computedependencywaves) | function | Compute dependency waves for parallel execution. Tasks in the same wave can r... |
+| [`getNextTask()`](/packages/core/api/index#getnexttask) | function | Get the next task to work on (highest priority ready task). |
+| [`getCriticalPath()`](/packages/core/api/index#getcriticalpath) | function | Calculate the critical path (longest dependency chain). Returns task IDs alon... |
+| [`getTaskOrder()`](/packages/core/api/index#gettaskorder) | function | Get task ordering by dependency + priority. |
+| [`getParallelTasks()`](/packages/core/api/index#getparalleltasks) | function | Get parallelizable tasks (tasks with no unmet dependencies). |
+| [`analyzeTaskImpact()`](/packages/core/api/index#analyzetaskimpact) | function | Analyze the full downstream impact of a task.  Computes direct and transitive... |
+| [`analyzeChangeImpact()`](/packages/core/api/index#analyzechangeimpact) | function | Analyze the downstream effects of a specific change to a task.  Predicts what... |
+| [`calculateBlastRadius()`](/packages/core/api/index#calculateblastradius) | function | Calculate the blast radius for a task.  Quantifies how many tasks, epics, and... |
+| [`extractPatternsFromHistory()`](/packages/core/api/index#extractpatternsfromhistory) | function | Analyze brain_observations and task history to find recurring patterns.  Dete... |
+| [`matchPatterns()`](/packages/core/api/index#matchpatterns) | function | Find which known patterns from brain_patterns apply to a given task.  Compare... |
+| [`storeDetectedPattern()`](/packages/core/api/index#storedetectedpattern) | function | Save a detected pattern to the brain_patterns table.  Uses the existing brain... |
+| [`updatePatternStats()`](/packages/core/api/index#updatepatternstats) | function | Update the frequency and success_rate of an existing pattern after an outcome... |
+| [`calculateTaskRisk()`](/packages/core/api/index#calculatetaskrisk) | function | Calculate the risk score for a task based on multiple contributing factors.  ... |
+| [`predictValidationOutcome()`](/packages/core/api/index#predictvalidationoutcome) | function | Predict the likelihood of a task passing a lifecycle validation gate.  Combin... |
+| [`gatherLearningContext()`](/packages/core/api/index#gatherlearningcontext) | function | Gather applicable learnings for a task from brain_learnings. |
 | [`collectDiagnostics()`](/packages/core/api/index#collectdiagnostics) | function | Collect system diagnostics for bug reports. |
 | [`formatDiagnosticsTable()`](/packages/core/api/index#formatdiagnosticstable) | function | Format diagnostics as markdown table. |
 | [`parseIssueTemplates()`](/packages/core/api/index#parseissuetemplates) | function | Parse all issue templates from available sources. Priority:   1. Packaged tem... |
 | [`getTemplateConfig()`](/packages/core/api/index#gettemplateconfig) | function | Get template configuration - tries live parse, cache, then fallback. |
 | [`getTemplateForSubcommand()`](/packages/core/api/index#gettemplateforsubcommand) | function | Get the template for a specific subcommand (bug, feature, etc.). |
 | [`cacheTemplates()`](/packages/core/api/index#cachetemplates) | function | Cache parsed templates to .cleo/issue-templates.json. |
-| [`validateLabelsExist()`](/packages/core/api/index#validatelabelsexist) | function | Validate that required labels exist (informational). |
+| [`validateLabelsExist()`](/packages/core/api/index#validatelabelsexist) | function | Validate that labels referenced in issue templates are consistent.  Collects ... |
 | [`buildIssueBody()`](/packages/core/api/index#buildissuebody) | function | Build structured issue body with template sections. |
 | [`checkGhCli()`](/packages/core/api/index#checkghcli) | function | Check that gh CLI is installed and authenticated. |
 | [`addIssue()`](/packages/core/api/index#addissue) | function | Add a GitHub issue for a given type (bug, feature, help). Returns structured ... |
@@ -803,6 +868,8 @@ description: "core package overview"
 | [`criticalPath()`](/packages/core/api/index#criticalpath) | function | Calculate the critical path across project boundaries. Returns the longest de... |
 | [`blockingAnalysis()`](/packages/core/api/index#blockinganalysis) | function | Analyze the blocking impact of a task across all projects. Uses BFS to find a... |
 | [`orphanDetection()`](/packages/core/api/index#orphandetection) | function | Detect orphaned cross-project dependencies. Finds tasks with dependency refer... |
+| [`previewTransfer()`](/packages/core/api/index#previewtransfer) | function | Preview a transfer without writing any data. Validates projects, permissions,... |
+| [`executeTransfer()`](/packages/core/api/index#executetransfer) | function | Execute a cross-project task transfer.  Pipeline:   1. Validate source/target... |
 | [`compareLevels()`](/packages/core/api/index#comparelevels) | function | Compare two pino levels numerically. Returns negative if a  b, 0 if equal, po... |
 | [`matchesFilter()`](/packages/core/api/index#matchesfilter) | function | Check if a single entry matches the filter criteria. All specified fields mus... |
 | [`filterEntries()`](/packages/core/api/index#filterentries) | function | Filter an array of parsed log entries against criteria. Returns entries match... |
@@ -1044,18 +1111,6 @@ description: "core package overview"
 | [`getRuntimeDiagnostics()`](/packages/core/api/index#getruntimediagnostics) | function |  |
 | [`safestop()`](/packages/core/api/index#safestop) | function | Safe stop: signal clean shutdown for agents. |
 | [`uncancelTask()`](/packages/core/api/index#uncanceltask) | function | Uncancel a cancelled task (restore to pending). |
-| [`detectCircularDeps()`](/packages/core/api/index#detectcirculardeps) | function | Detect circular dependencies using DFS. Returns the cycle path if found, empt... |
-| [`wouldCreateCycle()`](/packages/core/api/index#wouldcreatecycle) | function | Check if adding a dependency would create a cycle. |
-| [`getBlockedTasks()`](/packages/core/api/index#getblockedtasks) | function | Get tasks that are blocked (have unmet dependencies). |
-| [`getReadyTasks()`](/packages/core/api/index#getreadytasks) | function | Get tasks that are ready (all dependencies met). |
-| [`getDependents()`](/packages/core/api/index#getdependents) | function | Get tasks that depend on a given task. |
-| [`getDependentIds()`](/packages/core/api/index#getdependentids) | function | Get dependent IDs. |
-| [`getUnresolvedDeps()`](/packages/core/api/index#getunresolveddeps) | function | Get unresolved dependencies for a task (deps that are not done/cancelled). |
-| [`validateDependencyRefs()`](/packages/core/api/index#validatedependencyrefs) | function | Validate dependencies for missing references. |
-| [`validateDependencies()`](/packages/core/api/index#validatedependencies) | function | Full dependency graph validation. |
-| [`topologicalSort()`](/packages/core/api/index#topologicalsort) | function | Topological sort of tasks by dependencies. Returns sorted task IDs or null if... |
-| [`getTransitiveBlockers()`](/packages/core/api/index#gettransitiveblockers) | function | Walk upstream recursively through a task's dependency chain. Returns all non-... |
-| [`getLeafBlockers()`](/packages/core/api/index#getleafblockers) | function | From the transitive blockers, return only "leaf" blockers — those whose own d... |
 | [`currentTask()`](/packages/core/api/index#currenttask) | function | Show current task work state.  T4462  T4750 |
 | [`startTask()`](/packages/core/api/index#starttask) | function | Start working on a specific task.  T4462  T4750 |
 | [`stopTask()`](/packages/core/api/index#stoptask) | function | Stop working on the current task.  T4462  T4750 |
@@ -1091,8 +1146,6 @@ description: "core package overview"
 | [`parseCommonFlags()`](/packages/core/api/index#parsecommonflags) | function | Parse common CLI flags from an argument array. Returns flags and remaining po... |
 | [`resolveFormat()`](/packages/core/api/index#resolveformat) | function | Resolve output format based on flags and TTY detection. Returns 'json' for no... |
 | [`isJsonOutput()`](/packages/core/api/index#isjsonoutput) | function | Check if output should be JSON. |
-| [`getValidationKey()`](/packages/core/api/index#getvalidationkey) | function | Get the validation key for a target filename. |
-| [`extractMarkerVersion()`](/packages/core/api/index#extractmarkerversion) | function | Extract the CLEO version from an injection marker string. Returns null if no ... |
 | [`checkManifestEntry()`](/packages/core/api/index#checkmanifestentry) | function | Verify a manifest entry for a task has valid required fields.  T4524 |
 | [`checkReturnFormat()`](/packages/core/api/index#checkreturnformat) | function | Check if a response matches the expected return format.  T4524 |
 | [`scoreSubagentCompliance()`](/packages/core/api/index#scoresubagentcompliance) | function | Calculate comprehensive compliance score for a subagent.  T4524 |
@@ -1160,7 +1213,7 @@ description: "core package overview"
 | [`checkAgentType()`](/packages/core/api/index#checkagenttype) | function | Check if agent_type matches expected value.  T4527 |
 | [`checkLinkedTasksPresent()`](/packages/core/api/index#checklinkedtaskspresent) | function | Check if linked_tasks array contains required task IDs.  T4527 |
 | [`checkProvenanceTags()`](/packages/core/api/index#checkprovenancetags) | function | Check if file contains  provenance tag.  T4527 |
-| [`validateCommonManifestRequirements()`](/packages/core/api/index#validatecommonmanifestrequirements) | function | Validate common manifest requirements across all protocols.  T4527 |
+| [`validateCommonManifestRequirements()`](/packages/core/api/index#validatecommonmanifestrequirements) | function | Validate common manifest requirements across all protocols.  When protocolTyp... |
 | [`isValidGateName()`](/packages/core/api/index#isvalidgatename) | function | T4526 |
 | [`isValidAgentName()`](/packages/core/api/index#isvalidagentname) | function | T4526 |
 | [`getGateOrder()`](/packages/core/api/index#getgateorder) | function | T4526 |
@@ -1184,6 +1237,7 @@ description: "core package overview"
 | [`allSiblingsVerified()`](/packages/core/api/index#allsiblingsverified) | function | Check if all siblings of a task are verified.  T4526 |
 | [`getProjectInfo()`](/packages/core/api/index#getprojectinfo) | function | Read project-info.json and return a typed ProjectInfo.  Falls back gracefully... |
 | [`getProjectInfoSync()`](/packages/core/api/index#getprojectinfosync) | function | Synchronous variant for use in hot paths where async is not feasible. Returns... |
+| [`updateProjectName()`](/packages/core/api/index#updateprojectname) | function | Update the project name in project-info.json. Used by `cleo upgrade --name` a... |
 | [`ProtocolEnforcer`](/packages/core/api/index#protocolenforcer) | class | Main protocol enforcement class |
 | [`getHookCapableProviders()`](/packages/core/api/index#gethookcapableproviders) | function | Get all providers that support a specific hook event |
 | [`getSharedHookEvents()`](/packages/core/api/index#getsharedhookevents) | function | Get hook events supported by all specified providers |
@@ -1274,8 +1328,8 @@ description: "core package overview"
 | [`startParallelExecution()`](/packages/core/api/index#startparallelexecution) | function | Start parallel execution for a wave. |
 | [`endParallelExecution()`](/packages/core/api/index#endparallelexecution) | function | End parallel execution for a wave. |
 | [`getParallelStatus()`](/packages/core/api/index#getparallelstatus) | function | Get current parallel execution state. |
-| [`listSkills()`](/packages/core/api/index#listskills) | function | List available skills. |
-| [`getSkillContent()`](/packages/core/api/index#getskillcontent) | function | Read skill content for injection into agent context. |
+| [`listSkills()`](/packages/core/api/index#listskills) | function | List available skills from canonical and project-local directories. |
+| [`getSkillContent()`](/packages/core/api/index#getskillcontent) | function | Read skill content for injection into agent context. Checks project-local ski... |
 | [`getUnblockOpportunities()`](/packages/core/api/index#getunblockopportunities) | function | Analyze dependency graph for unblocking opportunities. |
 | [`validateSpawnReadiness()`](/packages/core/api/index#validatespawnreadiness) | function | Validate spawn readiness for a task. |
 | [`injectContext()`](/packages/core/api/index#injectcontext) | function | Read protocol injection content for a given protocol type. Core logic for ses... |
@@ -1294,11 +1348,6 @@ description: "core package overview"
 | [`workHistory()`](/packages/core/api/index#workhistory) | function | Get work history for a session. |
 | [`gcSessions()`](/packages/core/api/index#gcsessions) | function | Garbage collect old sessions (mark ended sessions as orphaned after threshold). |
 | [`getActiveSession()`](/packages/core/api/index#getactivesession) | function | Get the currently active session (if any). |
-| [`computeDependencyWaves()`](/packages/core/api/index#computedependencywaves) | function | Compute dependency waves for parallel execution. Tasks in the same wave can r... |
-| [`getNextTask()`](/packages/core/api/index#getnexttask) | function | Get the next task to work on (highest priority ready task). |
-| [`getCriticalPath()`](/packages/core/api/index#getcriticalpath) | function | Calculate the critical path (longest dependency chain). Returns task IDs alon... |
-| [`getTaskOrder()`](/packages/core/api/index#gettaskorder) | function | Get task ordering by dependency + priority. |
-| [`getParallelTasks()`](/packages/core/api/index#getparalleltasks) | function | Get parallelizable tasks (tasks with no unmet dependencies). |
 | [`suggestRelated()`](/packages/core/api/index#suggestrelated) | function | Suggest related tasks based on shared attributes. |
 | [`addRelation()`](/packages/core/api/index#addrelation) | function | Add a relation between tasks. |
 | [`discoverRelated()`](/packages/core/api/index#discoverrelated) | function | Discover related tasks using various methods. |
@@ -1424,16 +1473,6 @@ description: "core package overview"
 | [`migrateContributionFiles()`](/packages/core/api/index#migratecontributionfiles) | function | Migrate `.cleo/contributions/` files to appropriate epic's contributions/ sub... |
 | [`migrateLooseFiles()`](/packages/core/api/index#migrateloosefiles) | function | Migrate loose `T####_*.md` files from `.cleo/rcasd/` root into `rcasd/\{epicId... |
 | [`consolidateRcasd()`](/packages/core/api/index#consolidatercasd) | function | Consolidate all provenance files into the unified `.cleo/rcasd/\{epicId\}/` str... |
-| [`initializePipeline()`](/packages/core/api/index#initializepipeline) | function | Initialize a new pipeline for a task.  Creates a new pipeline record in the d... |
-| [`getPipeline()`](/packages/core/api/index#getpipeline) | function | Retrieve a pipeline by task ID.  Returns the complete pipeline state includin... |
-| [`advanceStage()`](/packages/core/api/index#advancestage) | function | Advance a pipeline to the next stage.  Performs atomic stage transition with ... |
-| [`getCurrentStage()`](/packages/core/api/index#getcurrentstage) | function | Get the current stage of a pipeline.  Convenience method to quickly check whi... |
-| [`listPipelines()`](/packages/core/api/index#listpipelines) | function | List pipelines with optional filtering. |
-| [`completePipeline()`](/packages/core/api/index#completepipeline) | function | Complete a pipeline (mark all stages done).  Marks the pipeline as completed ... |
-| [`cancelPipeline()`](/packages/core/api/index#cancelpipeline) | function | Cancel a pipeline before completion.  Marks the pipeline as cancelled (user-i... |
-| [`pipelineExists()`](/packages/core/api/index#pipelineexists) | function | Check if a pipeline exists for a task. |
-| [`getPipelineStatistics()`](/packages/core/api/index#getpipelinestatistics) | function | Get pipeline statistics.  Returns aggregate counts of pipelines by status and... |
-| [`getPipelineStages()`](/packages/core/api/index#getpipelinestages) | function | Get all stages for a pipeline. |
 | [`findResumablePipelines()`](/packages/core/api/index#findresumablepipelines) | function | Query active pipelines that can be resumed.  Searches the lifecycle_pipelines... |
 | [`loadPipelineContext()`](/packages/core/api/index#loadpipelinecontext) | function | Load complete pipeline context for session resume.  Uses SQL JOINs to efficie... |
 | [`resumeStage()`](/packages/core/api/index#resumestage) | function | Resume a specific stage in a pipeline.  Updates the stage status from 'blocke... |
@@ -1471,9 +1510,9 @@ description: "core package overview"
 | [`checkStatuslineIntegration()`](/packages/core/api/index#checkstatuslineintegration) | function | Check if statusline integration is configured. Returns the current integratio... |
 | [`getStatuslineConfig()`](/packages/core/api/index#getstatuslineconfig) | function | Get the statusline setup command for Claude Code settings. |
 | [`getSetupInstructions()`](/packages/core/api/index#getsetupinstructions) | function | Get human-readable setup instructions. |
-| [`getPreferredChannel()`](/packages/core/api/index#getpreferredchannel) | function | Look up the preferred channel for a given domain + operation. |
-| [`getRoutingForDomain()`](/packages/core/api/index#getroutingfordomain) | function | Get routing entries for a specific domain. |
-| [`getOperationsByChannel()`](/packages/core/api/index#getoperationsbychannel) | function | Get all operations that prefer a specific channel. |
+| [`getPreferredChannel()`](/packages/core/api/index#getpreferredchannel) | function | Look up the preferred channel for a given domain + operation.  Reads from the... |
+| [`getRoutingForDomain()`](/packages/core/api/index#getroutingfordomain) | function | Get routing entries for a specific domain.  Derives entries from the capabili... |
+| [`getOperationsByChannel()`](/packages/core/api/index#getoperationsbychannel) | function | Get all operations that prefer a specific channel.  Derives entries from the ... |
 | [`generateMemoryProtocol()`](/packages/core/api/index#generatememoryprotocol) | function | Generate dynamic memory protocol instructions based on provider capabilities. |
 | [`generateRoutingGuide()`](/packages/core/api/index#generateroutingguide) | function | Generate a dynamic routing guide based on operation preferences. |
 | [`generateDynamicSkillContent()`](/packages/core/api/index#generatedynamicskillcontent) | function | Generate complete dynamic skill content for the current provider. |
@@ -1525,7 +1564,6 @@ description: "core package overview"
 | [`applyPhaseTransition()`](/packages/core/api/index#applyphasetransition) | function | Apply a phase transition to project metadata. Returns updated project data. |
 | [`getNextPhase()`](/packages/core/api/index#getnextphase) | function | Get the next phase in order. |
 | [`allPhasesComplete()`](/packages/core/api/index#allphasescomplete) | function | Check if all phases are complete. |
-| [`reparentTask()`](/packages/core/api/index#reparenttask) | function | Reparent a task within a TaskFile.  Mutates the task in-place within `data.ta... |
 | [`getSizeWeight()`](/packages/core/api/index#getsizeweight) | function | Get weight for a task size. |
 | [`getPriorityWeight()`](/packages/core/api/index#getpriorityweight) | function | Get weight for a task priority. |
 | [`calculateTaskScore()`](/packages/core/api/index#calculatetaskscore) | function | Calculate a composite score for task ordering. Higher score = should be worke... |
@@ -1555,6 +1593,13 @@ description: "core package overview"
 | [`PlatformPaths`](/packages/core/api/index#platformpaths) | interface | OS-appropriate paths for CLEO's global directories. |
 | [`SystemInfo`](/packages/core/api/index#systeminfo) | interface | Immutable system information snapshot, captured once per process. |
 | [`VacuumOptions`](/packages/core/api/index#vacuumoptions) | interface |  |
+| [`AgentInstanceRow`](/packages/core/api/index#agentinstancerow) | type |  |
+| [`NewAgentInstanceRow`](/packages/core/api/index#newagentinstancerow) | type |  |
+| [`AgentErrorLogRow`](/packages/core/api/index#agenterrorlogrow) | type |  |
+| [`NewAgentErrorLogRow`](/packages/core/api/index#newagenterrorlogrow) | type |  |
+| [`AgentInstanceStatus`](/packages/core/api/index#agentinstancestatus) | type |  |
+| [`AgentType`](/packages/core/api/index#agenttype) | type |  |
+| [`AgentErrorType`](/packages/core/api/index#agenterrortype) | type |  |
 | [`WarpChainRow`](/packages/core/api/index#warpchainrow) | type |  |
 | [`NewWarpChainRow`](/packages/core/api/index#newwarpchainrow) | type |  |
 | [`WarpChainInstanceRow`](/packages/core/api/index#warpchaininstancerow) | type |  |
@@ -1691,6 +1736,10 @@ description: "core package overview"
 | [`TaskTreeNode`](/packages/core/api/index#tasktreenode) | interface | Build a tree structure from flat task list. |
 | [`HierarchyPolicy`](/packages/core/api/index#hierarchypolicy) | interface |  |
 | [`HierarchyValidationResult`](/packages/core/api/index#hierarchyvalidationresult) | interface |  |
+| [`ValidationResult`](/packages/core/api/index#validationresult) | interface |  |
+| [`AddTaskEnforcementOptions`](/packages/core/api/index#addtaskenforcementoptions) | interface |  |
+| [`UpdateTaskEnforcementOptions`](/packages/core/api/index#updatetaskenforcementoptions) | interface |  |
+| [`AcceptanceEnforcement`](/packages/core/api/index#acceptanceenforcement) | interface |  |
 | [`AddTaskOptions`](/packages/core/api/index#addtaskoptions) | interface | Options for creating a task.  `description` is **required** per CLEO's anti-h... |
 | [`AddTaskResult`](/packages/core/api/index#addtaskresult) | interface | Result of adding a task. |
 | [`ListPhasesResult`](/packages/core/api/index#listphasesresult) | interface | Options for listing phases. |
@@ -1713,12 +1762,15 @@ description: "core package overview"
 | [`FileNamingConvention`](/packages/core/api/index#filenamingconvention) | type |  |
 | [`ImportStyle`](/packages/core/api/index#importstyle) | type |  |
 | [`ProjectContext`](/packages/core/api/index#projectcontext) | interface | Schema-compliant project context for LLM agent consumption. |
-| [`BrainFtsRow`](/packages/core/api/index#brainftsrow) | interface | Row returned by FTS content_hash duplicate check. |
-| [`BrainNarrativeRow`](/packages/core/api/index#brainnarrativerow) | interface | Row returned by narrative backfill query (missing embeddings). |
-| [`BrainSearchHit`](/packages/core/api/index#brainsearchhit) | interface | Flattened FTS hit used in hybrid search scoring. |
-| [`BrainKnnRow`](/packages/core/api/index#brainknnrow) | interface | Row returned by KNN vector similarity query. |
-| [`BrainDecisionNode`](/packages/core/api/index#braindecisionnode) | interface | Decision node attached to a blocker in causal traces. |
-| [`BrainAnchor`](/packages/core/api/index#brainanchor) | interface | Anchor entry in a timeline result. |
+| [`BrainFtsRow`](/packages/core/api/index#brainftsrow) | interface | Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeB... |
+| [`BrainNarrativeRow`](/packages/core/api/index#brainnarrativerow) | interface | Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddin... |
+| [`BrainSearchHit`](/packages/core/api/index#brainsearchhit) | interface | Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch). |
+| [`BrainKnnRow`](/packages/core/api/index#brainknnrow) | interface | Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar). |
+| [`BrainDecisionNode`](/packages/core/api/index#braindecisionnode) | interface | Decision node attached to a blocker in causal traces (brain-reasoning.ts reas... |
+| [`BrainAnchor`](/packages/core/api/index#brainanchor) | interface | Anchor entry in a timeline result (brain-retrieval.ts timelineBrain). |
+| [`BrainTimelineNeighborRow`](/packages/core/api/index#braintimelineneighborrow) | interface | Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timel... |
+| [`BrainConsolidationObservationRow`](/packages/core/api/index#brainconsolidationobservationrow) | interface | Row returned by the consolidation observation query (brain-lifecycle.ts conso... |
+| [`BrainIdCheckRow`](/packages/core/api/index#brainidcheckrow) | interface | Row returned by ID existence check queries (claude-mem-migration.ts).  Used b... |
 | [`EmbeddingProvider`](/packages/core/api/index#embeddingprovider) | interface | Contract for embedding providers (local models, API services, etc.). |
 | [`SimilarityResult`](/packages/core/api/index#similarityresult) | interface |  |
 | [`BrainSearchResult`](/packages/core/api/index#brainsearchresult) | interface | Search result with BM25 rank. |
@@ -1736,8 +1788,7 @@ description: "core package overview"
 | [`EnsureGitHooksOptions`](/packages/core/api/index#ensuregithooksoptions) | interface |  |
 | [`ManagedHook`](/packages/core/api/index#managedhook) | type |  |
 | [`SessionRecord`](/packages/core/api/index#sessionrecord) | interface | Session object (engine-compatible). |
-| [`TaskWorkStateExt`](/packages/core/api/index#taskworkstateext) | interface | Task work state from the task store. |
-| [`TaskFileExt`](/packages/core/api/index#taskfileext) | interface | Task file structure (subset for session operations). |
+| [`TaskWorkStateExt`](/packages/core/api/index#taskworkstateext) | interface | Task work state from the task store.  Extends the strict contracts `TaskWorkS... |
 | [`DecisionRecord`](/packages/core/api/index#decisionrecord) | interface | Decision record stored in decisions.jsonl. |
 | [`AssumptionRecord`](/packages/core/api/index#assumptionrecord) | interface | Assumption record stored in assumptions.jsonl. |
 | [`RecordDecisionParams`](/packages/core/api/index#recorddecisionparams) | interface |  |
@@ -1865,6 +1916,12 @@ description: "core package overview"
 | [`SessionMemoryResult`](/packages/core/api/index#sessionmemoryresult) | interface | Result of persisting session memory to brain.db. |
 | [`MemoryItem`](/packages/core/api/index#memoryitem) | interface | A memory item to be persisted to brain.db. |
 | [`SessionMemoryContext`](/packages/core/api/index#sessionmemorycontext) | interface | Memory context returned for session start/resume enrichment. |
+| [`Pipeline`](/packages/core/api/index#pipeline) | interface | Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unifi... |
+| [`PipelineStageRecord`](/packages/core/api/index#pipelinestagerecord) | interface | Pipeline stage record linking pipeline to individual stages.   T4800  T4801 -... |
+| [`PipelineTransition`](/packages/core/api/index#pipelinetransition) | interface | Pipeline transition record for audit trail.   T4800  T4801 - Requires pipelin... |
+| [`InitializePipelineOptions`](/packages/core/api/index#initializepipelineoptions) | interface | Options for initializing a pipeline.   T4800 |
+| [`AdvanceStageOptions`](/packages/core/api/index#advancestageoptions) | interface | Options for advancing pipeline stage.   T4800 |
+| [`PipelineQueryOptions`](/packages/core/api/index#pipelinequeryoptions) | interface | Pipeline query options.   T4800 |
 | [`BriefingTask`](/packages/core/api/index#briefingtask) | interface | Task summary for briefing output. |
 | [`BriefingBug`](/packages/core/api/index#briefingbug) | interface | Bug summary for briefing output. |
 | [`BriefingBlockedTask`](/packages/core/api/index#briefingblockedtask) | interface | Blocked task summary for briefing output. |
@@ -1922,6 +1979,16 @@ description: "core package overview"
 | [`GroupedOperations`](/packages/core/api/index#groupedoperations) | interface | Domain-grouped operation format (compact). |
 | [`VerboseOperation`](/packages/core/api/index#verboseoperation) | interface | Verbose operation entry with cost hints. |
 | [`HelpResult`](/packages/core/api/index#helpresult) | interface | Result of the help computation. |
+| [`TransferMode`](/packages/core/api/index#transfermode) | type | Transfer mode: copy keeps source tasks, move archives them. |
+| [`TransferScope`](/packages/core/api/index#transferscope) | type | Transfer scope: single task or full subtree. |
+| [`TransferOnConflict`](/packages/core/api/index#transferonconflict) | type | Conflict resolution when target has tasks with duplicate titles. |
+| [`TransferOnMissingDep`](/packages/core/api/index#transferonmissingdep) | type | How to handle missing dependencies in the target project. |
+| [`TransferParams`](/packages/core/api/index#transferparams) | interface | Parameters for a cross-project transfer operation. |
+| [`TransferManifestEntry`](/packages/core/api/index#transfermanifestentry) | interface | A single task entry in the transfer manifest. |
+| [`TransferManifest`](/packages/core/api/index#transfermanifest) | interface | Manifest describing what was (or would be) transferred. |
+| [`TransferResult`](/packages/core/api/index#transferresult) | interface | Result of a transfer operation. |
+| [`ImportFromPackageOptions`](/packages/core/api/index#importfrompackageoptions) | interface | Options passed to importFromPackage (extracted from importTasksPackage). |
+| [`ImportFromPackageResult`](/packages/core/api/index#importfrompackageresult) | interface | Result from importFromPackage. |
 | [`RemapTable`](/packages/core/api/index#remaptable) | interface | Forward and reverse remap tables. |
 | [`ImportTasksParams`](/packages/core/api/index#importtasksparams) | interface |  |
 | [`ImportTasksResult`](/packages/core/api/index#importtasksresult) | interface |  |
@@ -1929,7 +1996,34 @@ description: "core package overview"
 | [`ValidationResult`](/packages/core/api/index#validationresult) | interface |  |
 | [`AdrValidationError`](/packages/core/api/index#adrvalidationerror) | type | ValidationError — canonical name per ADR-017 spec |
 | [`AdrValidationResult`](/packages/core/api/index#adrvalidationresult) | type | ValidationResult — canonical name per ADR-017 spec |
+| [`RegisterAgentOptions`](/packages/core/api/index#registeragentoptions) | interface | Options for registering a new agent instance. |
+| [`UpdateStatusOptions`](/packages/core/api/index#updatestatusoptions) | interface | Options for updating agent status. |
+| [`ListAgentFilters`](/packages/core/api/index#listagentfilters) | interface | Filters for listing agent instances. |
+| [`AgentHealthReport`](/packages/core/api/index#agenthealthreport) | interface | Agent health report summary. |
+| [`CapacitySummary`](/packages/core/api/index#capacitysummary) | interface | Capacity summary for reporting. |
+| [`RetryPolicy`](/packages/core/api/index#retrypolicy) | interface | Configuration for retry behavior. |
+| [`RetryResult`](/packages/core/api/index#retryresult) | interface | Result of a retried operation. |
+| [`AgentRecoveryResult`](/packages/core/api/index#agentrecoveryresult) | interface | Result of a recovery attempt for a single agent. |
 | [`ComplianceJsonlEntry`](/packages/core/api/index#compliancejsonlentry) | type |  |
+| [`PayloadValidationResult`](/packages/core/api/index#payloadvalidationresult) | interface | Result of payload validation. |
+| [`DependencyCheckResult`](/packages/core/api/index#dependencycheckresult) | interface | Result of a dependency validation check. |
+| [`DependencyError`](/packages/core/api/index#dependencyerror) | interface | A dependency error. |
+| [`DependencyWarning`](/packages/core/api/index#dependencywarning) | interface | A dependency warning. |
+| [`DependencyWave`](/packages/core/api/index#dependencywave) | interface | A wave of parallelizable tasks. |
+| [`RiskFactor`](/packages/core/api/index#riskfactor) | interface | A single factor contributing to a task's overall risk score.  Each factor has... |
+| [`RiskAssessment`](/packages/core/api/index#riskassessment) | interface | Complete risk assessment for a single task.  Returned by `calculateTaskRisk`.... |
+| [`ValidationPrediction`](/packages/core/api/index#validationprediction) | interface | Predicted outcome for a lifecycle validation gate.  Returned by `predictValid... |
+| [`DetectedPattern`](/packages/core/api/index#detectedpattern) | interface | A pattern automatically detected from historical brain/task data.  Detected p... |
+| [`PatternMatch`](/packages/core/api/index#patternmatch) | interface | Result of matching a task against known patterns from brain_patterns.  Includ... |
+| [`PatternExtractionOptions`](/packages/core/api/index#patternextractionoptions) | interface | Options for pattern extraction from historical data. |
+| [`PatternStatsUpdate`](/packages/core/api/index#patternstatsupdate) | interface | Result of updating pattern statistics after an outcome. |
+| [`LearningContext`](/packages/core/api/index#learningcontext) | interface | Summary of applicable learnings for a task, used in prediction. |
+| [`ImpactAssessment`](/packages/core/api/index#impactassessment) | interface | Full impact assessment for a task within its dependency graph.  Captures dire... |
+| [`ChangeType`](/packages/core/api/index#changetype) | type | The type of change being analyzed. |
+| [`ChangeImpact`](/packages/core/api/index#changeimpact) | interface | Predicted downstream effects of a specific change to a task.  Models what hap... |
+| [`AffectedTask`](/packages/core/api/index#affectedtask) | interface | A single task affected by a change, with its predicted new state. |
+| [`BlastRadiusSeverity`](/packages/core/api/index#blastradiusseverity) | type | Severity classification for blast radius. |
+| [`BlastRadius`](/packages/core/api/index#blastradius) | interface | Quantified scope of a task's impact across the project. |
 | [`BuildConfig`](/packages/core/api/index#buildconfig) | type |  |
 | [`RepositoryConfig`](/packages/core/api/index#repositoryconfig) | type |  |
 | [`IssueTemplate`](/packages/core/api/index#issuetemplate) | interface | Parsed issue template. |
@@ -2025,9 +2119,9 @@ description: "core package overview"
 | [`AgentTransport`](/packages/core/api/index#agenttransport) | interface | Provider-neutral interface for inter-agent communication.  Implementations: -... |
 | [`SignalDockTransportConfig`](/packages/core/api/index#signaldocktransportconfig) | interface | Configuration for SignalDockTransport. |
 | [`TransportFactoryConfig`](/packages/core/api/index#transportfactoryconfig) | interface | Configuration for transport selection. |
-| [`SkillFrontmatter`](/packages/core/api/index#skillfrontmatter) | interface | Skill frontmatter parsed from SKILL.md YAML header. |
-| [`Skill`](/packages/core/api/index#skill) | interface | Skill definition loaded from disk. |
-| [`SkillSummary`](/packages/core/api/index#skillsummary) | interface | Lightweight skill summary for manifest/listing. |
+| [`SkillFrontmatter`](/packages/core/api/index#skillfrontmatter) | interface | Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended ... |
+| [`Skill`](/packages/core/api/index#skill) | interface | Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFro... |
+| [`SkillSummary`](/packages/core/api/index#skillsummary) | interface | Lightweight skill summary for manifest/listing.  Projected from `Skill` for e... |
 | [`SkillManifest`](/packages/core/api/index#skillmanifest) | interface | Skill manifest (cached aggregate of all discovered skills). |
 | [`SkillProtocolType`](/packages/core/api/index#skillprotocoltype) | type | RCASD-IVTR+C protocol types. |
 | [`AgentConfig`](/packages/core/api/index#agentconfig) | interface | Agent configuration from AGENT.md or agent definition. |
@@ -2117,9 +2211,6 @@ description: "core package overview"
 | [`RuntimeDiagnostics`](/packages/core/api/index#runtimediagnostics) | interface |  |
 | [`SafestopResult`](/packages/core/api/index#safestopresult) | interface |  |
 | [`UncancelResult`](/packages/core/api/index#uncancelresult) | interface |  |
-| [`DependencyCheckResult`](/packages/core/api/index#dependencycheckresult) | interface | Result of a dependency validation check. |
-| [`DependencyError`](/packages/core/api/index#dependencyerror) | interface | A dependency error. |
-| [`DependencyWarning`](/packages/core/api/index#dependencywarning) | interface | A dependency warning. |
 | [`TaskCurrentResult`](/packages/core/api/index#taskcurrentresult) | interface | Result of getting current task. |
 | [`TaskStartResult`](/packages/core/api/index#taskstartresult) | interface | Result of starting work on a task. |
 | [`TaskWorkHistoryEntry`](/packages/core/api/index#taskworkhistoryentry) | interface | Task work history entry. |
@@ -2131,6 +2222,48 @@ description: "core package overview"
 | [`ChangelogSection`](/packages/core/api/index#changelogsection) | interface | Grouped changelog sections. |
 | [`CommandMeta`](/packages/core/api/index#commandmeta) | interface | Parsed command metadata. |
 | [`ParsedFlags`](/packages/core/api/index#parsedflags) | interface | Parsed flag state. |
+| [`InsertTask`](/packages/core/api/index#inserttask) | type |  |
+| [`SelectTask`](/packages/core/api/index#selecttask) | type |  |
+| [`InsertTaskDependency`](/packages/core/api/index#inserttaskdependency) | type |  |
+| [`SelectTaskDependency`](/packages/core/api/index#selecttaskdependency) | type |  |
+| [`InsertTaskRelation`](/packages/core/api/index#inserttaskrelation) | type |  |
+| [`SelectTaskRelation`](/packages/core/api/index#selecttaskrelation) | type |  |
+| [`InsertSession`](/packages/core/api/index#insertsession) | type |  |
+| [`SelectSession`](/packages/core/api/index#selectsession) | type |  |
+| [`InsertWorkHistory`](/packages/core/api/index#insertworkhistory) | type |  |
+| [`SelectWorkHistory`](/packages/core/api/index#selectworkhistory) | type |  |
+| [`InsertLifecyclePipeline`](/packages/core/api/index#insertlifecyclepipeline) | type |  |
+| [`SelectLifecyclePipeline`](/packages/core/api/index#selectlifecyclepipeline) | type |  |
+| [`InsertLifecycleStage`](/packages/core/api/index#insertlifecyclestage) | type |  |
+| [`SelectLifecycleStage`](/packages/core/api/index#selectlifecyclestage) | type |  |
+| [`InsertLifecycleGateResult`](/packages/core/api/index#insertlifecyclegateresult) | type |  |
+| [`SelectLifecycleGateResult`](/packages/core/api/index#selectlifecyclegateresult) | type |  |
+| [`InsertLifecycleEvidence`](/packages/core/api/index#insertlifecycleevidence) | type |  |
+| [`SelectLifecycleEvidence`](/packages/core/api/index#selectlifecycleevidence) | type |  |
+| [`InsertLifecycleTransition`](/packages/core/api/index#insertlifecycletransition) | type |  |
+| [`SelectLifecycleTransition`](/packages/core/api/index#selectlifecycletransition) | type |  |
+| [`InsertSchemaMeta`](/packages/core/api/index#insertschemameta) | type |  |
+| [`SelectSchemaMeta`](/packages/core/api/index#selectschemameta) | type |  |
+| [`InsertAuditLog`](/packages/core/api/index#insertauditlog) | type |  |
+| [`SelectAuditLog`](/packages/core/api/index#selectauditlog) | type |  |
+| [`AuditLogInsert`](/packages/core/api/index#auditloginsert) | type | Canonical type alias for audit log insert (T4848). |
+| [`AuditLogSelect`](/packages/core/api/index#auditlogselect) | type | Canonical type alias for audit log select (T4848). |
+| [`InsertTokenUsage`](/packages/core/api/index#inserttokenusage) | type |  |
+| [`SelectTokenUsage`](/packages/core/api/index#selecttokenusage) | type |  |
+| [`InsertArchitectureDecision`](/packages/core/api/index#insertarchitecturedecision) | type |  |
+| [`SelectArchitectureDecision`](/packages/core/api/index#selectarchitecturedecision) | type |  |
+| [`InsertManifestEntry`](/packages/core/api/index#insertmanifestentry) | type |  |
+| [`SelectManifestEntry`](/packages/core/api/index#selectmanifestentry) | type |  |
+| [`InsertPipelineManifest`](/packages/core/api/index#insertpipelinemanifest) | type |  |
+| [`SelectPipelineManifest`](/packages/core/api/index#selectpipelinemanifest) | type |  |
+| [`InsertReleaseManifest`](/packages/core/api/index#insertreleasemanifest) | type |  |
+| [`SelectReleaseManifest`](/packages/core/api/index#selectreleasemanifest) | type |  |
+| [`InsertExternalTaskLink`](/packages/core/api/index#insertexternaltasklink) | type |  |
+| [`SelectExternalTaskLink`](/packages/core/api/index#selectexternaltasklink) | type |  |
+| [`InsertAgentInstance`](/packages/core/api/index#insertagentinstance) | type |  |
+| [`SelectAgentInstance`](/packages/core/api/index#selectagentinstance) | type |  |
+| [`InsertAgentErrorLog`](/packages/core/api/index#insertagenterrorlog) | type |  |
+| [`SelectAgentErrorLog`](/packages/core/api/index#selectagenterrorlog) | type |  |
 | [`ManifestIntegrity`](/packages/core/api/index#manifestintegrity) | type |  |
 | [`Severity`](/packages/core/api/index#severity) | type |  |
 | [`ComplianceMetrics`](/packages/core/api/index#compliancemetrics) | interface |  |
@@ -2153,8 +2286,8 @@ description: "core package overview"
 | [`ValidationError`](/packages/core/api/index#validationerror) | interface |  |
 | [`ValidationResult`](/packages/core/api/index#validationresult) | interface |  |
 | [`Task`](/packages/core/api/index#task) | interface |  |
-| [`TaskFile`](/packages/core/api/index#taskfile) | interface |  |
-| [`ArchiveFile`](/packages/core/api/index#archivefile) | interface |  |
+| [`TaskData`](/packages/core/api/index#taskdata) | interface | Task data shape for validation functions. |
+| [`ArchiveData`](/packages/core/api/index#archivedata) | interface | Archive data shape for validation functions. |
 | [`ComprehensiveValidationResult`](/packages/core/api/index#comprehensivevalidationresult) | interface |  |
 | [`ManifestDoc`](/packages/core/api/index#manifestdoc) | interface |  |
 | [`GapEntry`](/packages/core/api/index#gapentry) | interface |  |
@@ -2216,39 +2349,6 @@ description: "core package overview"
 | [`ValidationIssue`](/packages/core/api/index#validationissue) | interface |  |
 | [`SpawnValidationResult`](/packages/core/api/index#spawnvalidationresult) | interface |  |
 | [`ContextInjectionData`](/packages/core/api/index#contextinjectiondata) | interface | Data returned by context injection. |
-| [`InsertTask`](/packages/core/api/index#inserttask) | type |  |
-| [`SelectTask`](/packages/core/api/index#selecttask) | type |  |
-| [`InsertTaskDependency`](/packages/core/api/index#inserttaskdependency) | type |  |
-| [`SelectTaskDependency`](/packages/core/api/index#selecttaskdependency) | type |  |
-| [`InsertTaskRelation`](/packages/core/api/index#inserttaskrelation) | type |  |
-| [`SelectTaskRelation`](/packages/core/api/index#selecttaskrelation) | type |  |
-| [`InsertSession`](/packages/core/api/index#insertsession) | type |  |
-| [`SelectSession`](/packages/core/api/index#selectsession) | type |  |
-| [`InsertWorkHistory`](/packages/core/api/index#insertworkhistory) | type |  |
-| [`SelectWorkHistory`](/packages/core/api/index#selectworkhistory) | type |  |
-| [`InsertLifecyclePipeline`](/packages/core/api/index#insertlifecyclepipeline) | type |  |
-| [`SelectLifecyclePipeline`](/packages/core/api/index#selectlifecyclepipeline) | type |  |
-| [`InsertLifecycleStage`](/packages/core/api/index#insertlifecyclestage) | type |  |
-| [`SelectLifecycleStage`](/packages/core/api/index#selectlifecyclestage) | type |  |
-| [`InsertLifecycleGateResult`](/packages/core/api/index#insertlifecyclegateresult) | type |  |
-| [`SelectLifecycleGateResult`](/packages/core/api/index#selectlifecyclegateresult) | type |  |
-| [`InsertLifecycleEvidence`](/packages/core/api/index#insertlifecycleevidence) | type |  |
-| [`SelectLifecycleEvidence`](/packages/core/api/index#selectlifecycleevidence) | type |  |
-| [`InsertLifecycleTransition`](/packages/core/api/index#insertlifecycletransition) | type |  |
-| [`SelectLifecycleTransition`](/packages/core/api/index#selectlifecycletransition) | type |  |
-| [`InsertSchemaMeta`](/packages/core/api/index#insertschemameta) | type |  |
-| [`SelectSchemaMeta`](/packages/core/api/index#selectschemameta) | type |  |
-| [`InsertAuditLog`](/packages/core/api/index#insertauditlog) | type |  |
-| [`SelectAuditLog`](/packages/core/api/index#selectauditlog) | type |  |
-| [`AuditLogInsert`](/packages/core/api/index#auditloginsert) | type | Canonical type alias for audit log insert (T4848). |
-| [`AuditLogSelect`](/packages/core/api/index#auditlogselect) | type | Canonical type alias for audit log select (T4848). |
-| [`InsertTokenUsage`](/packages/core/api/index#inserttokenusage) | type |  |
-| [`SelectTokenUsage`](/packages/core/api/index#selecttokenusage) | type |  |
-| [`InsertArchitectureDecision`](/packages/core/api/index#insertarchitecturedecision) | type |  |
-| [`SelectArchitectureDecision`](/packages/core/api/index#selectarchitecturedecision) | type |  |
-| [`InsertManifestEntry`](/packages/core/api/index#insertmanifestentry) | type |  |
-| [`SelectManifestEntry`](/packages/core/api/index#selectmanifestentry) | type |  |
-| [`DependencyWave`](/packages/core/api/index#dependencywave) | interface | A wave of parallelizable tasks. |
 | [`CancelResult`](/packages/core/api/index#cancelresult) | interface | Result of a cancel operation. |
 | [`FlatTreeNode`](/packages/core/api/index#flattreenode) | interface | Tree node representation for task hierarchy. |
 | [`ComplexityFactor`](/packages/core/api/index#complexityfactor) | interface | Complexity factor. |
@@ -2288,9 +2388,9 @@ description: "core package overview"
 | [`ValidateAndFixResult`](/packages/core/api/index#validateandfixresult) | interface | Result from validate + fix operation. |
 | [`CriticalPathNode`](/packages/core/api/index#criticalpathnode) | interface |  |
 | [`CriticalPathResult`](/packages/core/api/index#criticalpathresult) | interface |  |
-| [`SkillsPrecedenceConfig`](/packages/core/api/index#skillsprecedenceconfig) | interface |  |
-| [`ResolvedSkillPath`](/packages/core/api/index#resolvedskillpath) | interface |  |
-| [`SkillInstallationContext`](/packages/core/api/index#skillinstallationcontext) | interface |  |
+| [`SkillsPrecedenceConfig`](/packages/core/api/index#skillsprecedenceconfig) | interface | Configuration for skill precedence resolution across providers. |
+| [`ResolvedSkillPath`](/packages/core/api/index#resolvedskillpath) | interface | A resolved skill path with full provenance metadata. |
+| [`SkillInstallationContext`](/packages/core/api/index#skillinstallationcontext) | interface | Context for a skill installation operation. |
 | [`InProgressEpic`](/packages/core/api/index#inprogressepic) | interface | In-progress epic entry. |
 | [`ReadyTask`](/packages/core/api/index#readytask) | interface | Ready task entry with leverage analysis. |
 | [`BlockedTask`](/packages/core/api/index#blockedtask) | interface | Blocked task entry. |
@@ -2306,12 +2406,6 @@ description: "core package overview"
 | [`PipelineState`](/packages/core/api/index#pipelinestate) | interface | Pipeline state. |
 | [`PipelineOperation`](/packages/core/api/index#pipelineoperation) | interface | Active pipeline operation. |
 | [`ChangeEntry`](/packages/core/api/index#changeentry) | interface | Change entry. |
-| [`Pipeline`](/packages/core/api/index#pipeline) | interface | Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unifi... |
-| [`PipelineStageRecord`](/packages/core/api/index#pipelinestagerecord) | interface | Pipeline stage record linking pipeline to individual stages.   T4800  T4801 -... |
-| [`PipelineTransition`](/packages/core/api/index#pipelinetransition) | interface | Pipeline transition record for audit trail.   T4800  T4801 - Requires pipelin... |
-| [`InitializePipelineOptions`](/packages/core/api/index#initializepipelineoptions) | interface | Options for initializing a pipeline.   T4800 |
-| [`AdvanceStageOptions`](/packages/core/api/index#advancestageoptions) | interface | Options for advancing pipeline stage.   T4800 |
-| [`PipelineQueryOptions`](/packages/core/api/index#pipelinequeryoptions) | interface | Pipeline query options.   T4800 |
 | [`ResumablePipeline`](/packages/core/api/index#resumablepipeline) | interface | Resumable pipeline information returned to callers.   T4805  T4798 |
 | [`PipelineContext`](/packages/core/api/index#pipelinecontext) | interface | Pipeline context for session resume.   T4805 |
 | [`StageContext`](/packages/core/api/index#stagecontext) | interface | Stage context within a pipeline.   T4805 |
@@ -2339,7 +2433,7 @@ description: "core package overview"
 | [`ActiveSessionInfo`](/packages/core/api/index#activesessioninfo) | interface | Session info for enforcement checks. |
 | [`EnforcementResult`](/packages/core/api/index#enforcementresult) | interface | Enforcement result. |
 | [`StatuslineStatus`](/packages/core/api/index#statuslinestatus) | type | Statusline integration status. |
-| [`RoutingEntry`](/packages/core/api/index#routingentry) | interface | Routing entry describing the preferred channel for an operation. |
+| [`RoutingEntry`](/packages/core/api/index#routingentry) | interface | Routing entry describing the preferred channel for an operation.  Derived fro... |
 | [`ProviderContext`](/packages/core/api/index#providercontext) | interface | Provider capability context for dynamic skill generation. |
 | [`IndexMap`](/packages/core/api/index#indexmap) | type | Cache index mapping labels/phases to task IDs. |
 | [`ImportPackageMeta`](/packages/core/api/index#importpackagemeta) | interface | Import package metadata extracted from the export file. |
@@ -2370,8 +2464,6 @@ description: "core package overview"
 | [`DiscoveryMatch`](/packages/core/api/index#discoverymatch) | interface | A single discovery match. |
 | [`PhaseProgress`](/packages/core/api/index#phaseprogress) | interface | Phase progress information. |
 | [`PhaseTransitionValidation`](/packages/core/api/index#phasetransitionvalidation) | interface | Validate a phase transition. |
-| [`ReparentOptions`](/packages/core/api/index#reparentoptions) | interface | Options for reparenting a task. |
-| [`ReparentResult`](/packages/core/api/index#reparentresult) | interface | Result of a reparent operation. |
 | [`StalenessThresholds`](/packages/core/api/index#stalenessthresholds) | interface | Staleness thresholds in days. |
 | [`StalenessLevel`](/packages/core/api/index#stalenesslevel) | type | Staleness classification. |
 | [`StalenessInfo`](/packages/core/api/index#stalenessinfo) | interface | Staleness assessment for a single task. |
@@ -2381,6 +2473,10 @@ description: "core package overview"
 
 | Symbol | Kind | Description |
 |--------|------|-------------|
+| [`AGENT_INSTANCE_STATUSES`](/packages/core/api/index#agentinstancestatuses) | variable | Agent instance status values matching DB CHECK constraint. |
+| [`AGENT_TYPES`](/packages/core/api/index#agenttypes) | variable | Agent type values for classification. |
+| [`agentInstances`](/packages/core/api/index#agentinstances) | variable |  |
+| [`agentErrorLog`](/packages/core/api/index#agenterrorlog) | variable |  |
 | [`WARP_CHAIN_INSTANCE_STATUSES`](/packages/core/api/index#warpchaininstancestatuses) | variable | Chain instance status values. |
 | [`warpChains`](/packages/core/api/index#warpchains) | variable | Stored WarpChain definitions (serialized as JSON). |
 | [`warpChainInstances`](/packages/core/api/index#warpchaininstances) | variable | Runtime chain instances bound to epics. |
@@ -2393,6 +2489,10 @@ description: "core package overview"
 | [`TOKEN_USAGE_METHODS`](/packages/core/api/index#tokenusagemethods) | variable | Token measurement methods for central token telemetry. |
 | [`TOKEN_USAGE_CONFIDENCE`](/packages/core/api/index#tokenusageconfidence) | variable | Confidence levels for token measurements. |
 | [`TOKEN_USAGE_TRANSPORTS`](/packages/core/api/index#tokenusagetransports) | variable | Transport types for token telemetry. |
+| [`TASK_RELATION_TYPES`](/packages/core/api/index#taskrelationtypes) | variable | Task relation types matching DB CHECK constraint on task_relations.relation_t... |
+| [`LIFECYCLE_TRANSITION_TYPES`](/packages/core/api/index#lifecycletransitiontypes) | variable | Lifecycle transition types matching DB CHECK constraint on lifecycle_transiti... |
+| [`EXTERNAL_LINK_TYPES`](/packages/core/api/index#externallinktypes) | variable | External task link types matching DB constraint on external_task_links.link_t... |
+| [`SYNC_DIRECTIONS`](/packages/core/api/index#syncdirections) | variable | Sync direction types matching DB constraint on external_task_links.sync_direc... |
 | [`tasks`](/packages/core/api/index#tasks) | variable |  |
 | [`taskDependencies`](/packages/core/api/index#taskdependencies) | variable |  |
 | [`taskRelations`](/packages/core/api/index#taskrelations) | variable |  |
@@ -2469,9 +2569,25 @@ description: "core package overview"
 | [`REQUIRED_CLEO_SUBDIRS`](/packages/core/api/index#requiredcleosubdirs) | variable | Required subdirectories under .cleo/. |
 | [`CLEO_GITIGNORE_FALLBACK`](/packages/core/api/index#cleogitignorefallback) | variable | Embedded fallback for .cleo/.gitignore content (deny-by-default). |
 | [`REQUIRED_GLOBAL_SUBDIRS`](/packages/core/api/index#requiredglobalsubdirs) | variable | Required subdirectories under the global ~/.cleo/ home. These are infrastruct... |
+| [`STALE_GLOBAL_ENTRIES`](/packages/core/api/index#staleglobalentries) | variable | Stale entries that must NOT exist at the global ~/.cleo/ level. These were pr... |
 | [`MANAGED_HOOKS`](/packages/core/api/index#managedhooks) | variable | Git hooks managed by CLEO. |
 | [`SUPPORTED_PLATFORMS`](/packages/core/api/index#supportedplatforms) | variable | All supported platforms. |
 | [`CORE_PROTECTED_FILES`](/packages/core/api/index#coreprotectedfiles) | variable | Configuration files relative to .cleo/ that MUST remain tracked by project gi... |
+| [`DEFAULT_RETRY_POLICY`](/packages/core/api/index#defaultretrypolicy) | variable | Default retry policy matching the BRAIN specification. |
+| [`HookPayloadSchema`](/packages/core/api/index#hookpayloadschema) | variable | Zod schema for `HookPayload`. |
+| [`OnSessionStartPayloadSchema`](/packages/core/api/index#onsessionstartpayloadschema) | variable | Zod schema for `OnSessionStartPayload`. |
+| [`OnSessionEndPayloadSchema`](/packages/core/api/index#onsessionendpayloadschema) | variable | Zod schema for `OnSessionEndPayload`. |
+| [`OnToolStartPayloadSchema`](/packages/core/api/index#ontoolstartpayloadschema) | variable | Zod schema for `OnToolStartPayload`. |
+| [`OnToolCompletePayloadSchema`](/packages/core/api/index#ontoolcompletepayloadschema) | variable | Zod schema for `OnToolCompletePayload`. |
+| [`OnFileChangePayloadSchema`](/packages/core/api/index#onfilechangepayloadschema) | variable | Zod schema for `OnFileChangePayload`. |
+| [`OnErrorPayloadSchema`](/packages/core/api/index#onerrorpayloadschema) | variable | Zod schema for `OnErrorPayload`. |
+| [`OnPromptSubmitPayloadSchema`](/packages/core/api/index#onpromptsubmitpayloadschema) | variable | Zod schema for `OnPromptSubmitPayload`. |
+| [`OnResponseCompletePayloadSchema`](/packages/core/api/index#onresponsecompletepayloadschema) | variable | Zod schema for `OnResponseCompletePayload`. |
+| [`OnWorkAvailablePayloadSchema`](/packages/core/api/index#onworkavailablepayloadschema) | variable | Zod schema for `OnWorkAvailablePayload`. |
+| [`OnAgentSpawnPayloadSchema`](/packages/core/api/index#onagentspawnpayloadschema) | variable | Zod schema for `OnAgentSpawnPayload`. |
+| [`OnAgentCompletePayloadSchema`](/packages/core/api/index#onagentcompletepayloadschema) | variable | Zod schema for `OnAgentCompletePayload`. |
+| [`OnCascadeStartPayloadSchema`](/packages/core/api/index#oncascadestartpayloadschema) | variable | Zod schema for `OnCascadeStartPayload`. |
+| [`OnPatrolPayloadSchema`](/packages/core/api/index#onpatrolpayloadschema) | variable | Zod schema for `OnPatrolPayload`. |
 | [`BUILD_CONFIG`](/packages/core/api/index#buildconfig) | variable | BUILD CONFIGURATION - AUTO-GENERATED FILE  This file is generated by dev/gene... |
 | [`PINO_LEVEL_VALUES`](/packages/core/api/index#pinolevelvalues) | variable | Numeric pino level values for comparison. |
 | [`VALID_DOMAINS`](/packages/core/api/index#validdomains) | variable | Known enum values for CLEO domains |
@@ -2487,23 +2603,40 @@ description: "core package overview"
 | [`MINIMUM_NODE_MAJOR`](/packages/core/api/index#minimumnodemajor) | variable | Minimum required Node.js major version. |
 | [`getTaskHistory`](/packages/core/api/index#gettaskhistory) | variable | Get task work history (canonical verb alias for dispatch layer).  T5323 |
 | [`ALIASES_VERSION`](/packages/core/api/index#aliasesversion) | variable | Current alias version. |
-| [`INJECTION_VALIDATION_KEYS`](/packages/core/api/index#injectionvalidationkeys) | variable | Validation key names for JSON output. Maps target filenames to JSON-safe key ... |
-| [`CACHE_VERSION`](/packages/core/api/index#cacheversion) | variable |  |
-| [`CACHE_TTL_SECONDS`](/packages/core/api/index#cachettlseconds) | variable |  |
-| [`VALID_OPERATIONS`](/packages/core/api/index#validoperations) | variable |  |
-| [`FIELD_LIMITS`](/packages/core/api/index#fieldlimits) | variable | Field length limits matching the Bash implementation. |
-| [`VAL_SUCCESS`](/packages/core/api/index#valsuccess) | variable | Validation result exit codes. |
-| [`VAL_SCHEMA_ERROR`](/packages/core/api/index#valschemaerror) | variable |  |
-| [`VAL_SEMANTIC_ERROR`](/packages/core/api/index#valsemanticerror) | variable |  |
-| [`VAL_BOTH_ERRORS`](/packages/core/api/index#valbotherrors) | variable |  |
-| [`VERIFICATION_GATE_ORDER`](/packages/core/api/index#verificationgateorder) | variable |  |
-| [`VERIFICATION_VALID_AGENTS`](/packages/core/api/index#verificationvalidagents) | variable |  |
-| [`PROTOCOL_RULES`](/packages/core/api/index#protocolrules) | variable | Protocol rule registry |
-| [`protocolEnforcer`](/packages/core/api/index#protocolenforcer) | variable | Default protocol enforcer instance |
-| [`PROTOCOL_TYPES`](/packages/core/api/index#protocoltypes) | variable | All supported protocol types. |
-| [`PROTOCOL_EXIT_CODES`](/packages/core/api/index#protocolexitcodes) | variable | Map protocol types to exit codes. |
-| [`DEFAULT_CHAIN_ID`](/packages/core/api/index#defaultchainid) | variable |  |
-| [`DEFAULT_PROTOCOL_STAGE_MAP`](/packages/core/api/index#defaultprotocolstagemap) | variable | Stage mapping for protocol validation gates in the default chain.  `contribut... |
+| [`taskStatusSchema`](/packages/core/api/index#taskstatusschema) | variable | Zod enum schema for task statuses. |
+| [`taskPrioritySchema`](/packages/core/api/index#taskpriorityschema) | variable | Zod enum schema for task priorities. |
+| [`taskTypeSchema`](/packages/core/api/index#tasktypeschema) | variable | Zod enum schema for task types. |
+| [`taskSizeSchema`](/packages/core/api/index#tasksizeschema) | variable | Zod enum schema for task sizes. |
+| [`sessionStatusSchema`](/packages/core/api/index#sessionstatusschema) | variable | Zod enum schema for session statuses. |
+| [`lifecyclePipelineStatusSchema`](/packages/core/api/index#lifecyclepipelinestatusschema) | variable | Zod enum schema for lifecycle pipeline statuses. |
+| [`lifecycleStageStatusSchema`](/packages/core/api/index#lifecyclestagestatusschema) | variable | Zod enum schema for lifecycle stage statuses. |
+| [`lifecycleStageNameSchema`](/packages/core/api/index#lifecyclestagenameschema) | variable | Zod enum schema for lifecycle stage names. |
+| [`lifecycleGateResultSchema`](/packages/core/api/index#lifecyclegateresultschema) | variable | Zod enum schema for lifecycle gate results. |
+| [`lifecycleEvidenceTypeSchema`](/packages/core/api/index#lifecycleevidencetypeschema) | variable | Zod enum schema for lifecycle evidence types. |
+| [`adrStatusSchema`](/packages/core/api/index#adrstatusschema) | variable | Zod enum schema for ADR statuses. |
+| [`gateStatusSchema`](/packages/core/api/index#gatestatusschema) | variable | Zod enum schema for gate statuses. |
+| [`manifestStatusSchema`](/packages/core/api/index#manifeststatusschema) | variable | Zod enum schema for manifest statuses. |
+| [`tokenUsageMethodSchema`](/packages/core/api/index#tokenusagemethodschema) | variable | Zod enum schema for token usage measurement methods. |
+| [`tokenUsageConfidenceSchema`](/packages/core/api/index#tokenusageconfidenceschema) | variable | Zod enum schema for token usage confidence levels. |
+| [`tokenUsageTransportSchema`](/packages/core/api/index#tokenusagetransportschema) | variable | Zod enum schema for token usage transports. |
+| [`taskRelationTypeSchema`](/packages/core/api/index#taskrelationtypeschema) | variable | Zod enum schema for task relation types. |
+| [`externalLinkTypeSchema`](/packages/core/api/index#externallinktypeschema) | variable | Zod enum schema for external task link types. |
+| [`syncDirectionSchema`](/packages/core/api/index#syncdirectionschema) | variable | Zod enum schema for sync directions. |
+| [`lifecycleTransitionTypeSchema`](/packages/core/api/index#lifecycletransitiontypeschema) | variable | Zod enum schema for lifecycle transition types. |
+| [`brainObservationTypeSchema`](/packages/core/api/index#brainobservationtypeschema) | variable | Zod enum schema for brain observation types. |
+| [`brainObservationSourceTypeSchema`](/packages/core/api/index#brainobservationsourcetypeschema) | variable | Zod enum schema for brain observation source types. |
+| [`brainDecisionTypeSchema`](/packages/core/api/index#braindecisiontypeschema) | variable | Zod enum schema for brain decision types. |
+| [`brainConfidenceLevelSchema`](/packages/core/api/index#brainconfidencelevelschema) | variable | Zod enum schema for brain confidence levels. |
+| [`brainOutcomeTypeSchema`](/packages/core/api/index#brainoutcometypeschema) | variable | Zod enum schema for brain outcome types. |
+| [`brainPatternTypeSchema`](/packages/core/api/index#brainpatterntypeschema) | variable | Zod enum schema for brain pattern types. |
+| [`brainImpactLevelSchema`](/packages/core/api/index#brainimpactlevelschema) | variable | Zod enum schema for brain impact levels. |
+| [`brainLinkTypeSchema`](/packages/core/api/index#brainlinktypeschema) | variable | Zod enum schema for brain link types. |
+| [`brainMemoryTypeSchema`](/packages/core/api/index#brainmemorytypeschema) | variable | Zod enum schema for brain memory entity types. |
+| [`brainStickyStatusSchema`](/packages/core/api/index#brainstickystatusschema) | variable | Zod enum schema for brain sticky note statuses. |
+| [`brainStickyColorSchema`](/packages/core/api/index#brainstickycolorschema) | variable | Zod enum schema for brain sticky note colors. |
+| [`brainStickyPrioritySchema`](/packages/core/api/index#brainstickypriorityschema) | variable | Zod enum schema for brain sticky note priorities. |
+| [`brainNodeTypeSchema`](/packages/core/api/index#brainnodetypeschema) | variable | Zod enum schema for brain page node types. |
+| [`brainEdgeTypeSchema`](/packages/core/api/index#brainedgetypeschema) | variable | Zod enum schema for brain page edge types. |
 | [`insertTaskSchema`](/packages/core/api/index#inserttaskschema) | variable |  |
 | [`selectTaskSchema`](/packages/core/api/index#selecttaskschema) | variable |  |
 | [`insertTaskDependencySchema`](/packages/core/api/index#inserttaskdependencyschema) | variable |  |
@@ -2536,13 +2669,40 @@ description: "core package overview"
 | [`selectTokenUsageSchema`](/packages/core/api/index#selecttokenusageschema) | variable |  |
 | [`insertManifestEntrySchema`](/packages/core/api/index#insertmanifestentryschema) | variable |  |
 | [`selectManifestEntrySchema`](/packages/core/api/index#selectmanifestentryschema) | variable |  |
+| [`insertPipelineManifestSchema`](/packages/core/api/index#insertpipelinemanifestschema) | variable |  |
+| [`selectPipelineManifestSchema`](/packages/core/api/index#selectpipelinemanifestschema) | variable |  |
+| [`insertReleaseManifestSchema`](/packages/core/api/index#insertreleasemanifestschema) | variable |  |
+| [`selectReleaseManifestSchema`](/packages/core/api/index#selectreleasemanifestschema) | variable |  |
+| [`insertExternalTaskLinkSchema`](/packages/core/api/index#insertexternaltasklinkschema) | variable |  |
+| [`selectExternalTaskLinkSchema`](/packages/core/api/index#selectexternaltasklinkschema) | variable |  |
+| [`insertAgentInstanceSchema`](/packages/core/api/index#insertagentinstanceschema) | variable |  |
+| [`selectAgentInstanceSchema`](/packages/core/api/index#selectagentinstanceschema) | variable |  |
+| [`insertAgentErrorLogSchema`](/packages/core/api/index#insertagenterrorlogschema) | variable |  |
+| [`selectAgentErrorLogSchema`](/packages/core/api/index#selectagenterrorlogschema) | variable |  |
+| [`agentInstanceStatusSchema`](/packages/core/api/index#agentinstancestatusschema) | variable | Zod enum schema for agent instance statuses. |
+| [`agentTypeSchema`](/packages/core/api/index#agenttypeschema) | variable | Zod enum schema for agent types. |
+| [`CACHE_VERSION`](/packages/core/api/index#cacheversion) | variable |  |
+| [`CACHE_TTL_SECONDS`](/packages/core/api/index#cachettlseconds) | variable |  |
+| [`VALID_OPERATIONS`](/packages/core/api/index#validoperations) | variable |  |
+| [`FIELD_LIMITS`](/packages/core/api/index#fieldlimits) | variable | Field length limits matching the Bash implementation. |
+| [`VAL_SUCCESS`](/packages/core/api/index#valsuccess) | variable | Validation result exit codes. |
+| [`VAL_SCHEMA_ERROR`](/packages/core/api/index#valschemaerror) | variable |  |
+| [`VAL_SEMANTIC_ERROR`](/packages/core/api/index#valsemanticerror) | variable |  |
+| [`VAL_BOTH_ERRORS`](/packages/core/api/index#valbotherrors) | variable |  |
+| [`VERIFICATION_GATE_ORDER`](/packages/core/api/index#verificationgateorder) | variable |  |
+| [`VERIFICATION_VALID_AGENTS`](/packages/core/api/index#verificationvalidagents) | variable |  |
+| [`PROTOCOL_RULES`](/packages/core/api/index#protocolrules) | variable | Protocol rule registry |
+| [`protocolEnforcer`](/packages/core/api/index#protocolenforcer) | variable | Default protocol enforcer instance |
+| [`PROTOCOL_TYPES`](/packages/core/api/index#protocoltypes) | variable | All supported protocol types. |
+| [`PROTOCOL_EXIT_CODES`](/packages/core/api/index#protocolexitcodes) | variable | Map protocol types to exit codes. |
+| [`DEFAULT_CHAIN_ID`](/packages/core/api/index#defaultchainid) | variable |  |
+| [`DEFAULT_PROTOCOL_STAGE_MAP`](/packages/core/api/index#defaultprotocolstagemap) | variable | Stage mapping for protocol validation gates in the default chain.  `contribut... |
 | [`GATE_SEQUENCE`](/packages/core/api/index#gatesequence) | variable | Export gate layer sequence for external use |
 | [`WORKFLOW_GATE_DEFINITIONS`](/packages/core/api/index#workflowgatedefinitions) | variable | Complete workflow gate definitions per Section 7.2 |
 | [`WORKFLOW_GATE_SEQUENCE`](/packages/core/api/index#workflowgatesequence) | variable | Ordered workflow gate sequence per Section 7.1 |
 | [`GATE_VALIDATION_RULES`](/packages/core/api/index#gatevalidationrules) | variable | Validation rule definitions for reuse |
 | [`VALID_WORKFLOW_AGENTS`](/packages/core/api/index#validworkflowagents) | variable | Valid workflow gate agent names per Section 7.2 |
 | [`VALID_WORKFLOW_GATE_STATUSES`](/packages/core/api/index#validworkflowgatestatuses) | variable | Valid workflow gate status values per Section 7.3 |
-| [`ROUTING_TABLE`](/packages/core/api/index#routingtable) | variable | Static routing table for all canonical operations.  Operations are grouped by... |
 | [`insertProjectRegistrySchema`](/packages/core/api/index#insertprojectregistryschema) | variable |  |
 | [`selectProjectRegistrySchema`](/packages/core/api/index#selectprojectregistryschema) | variable |  |
 | [`insertNexusAuditLogSchema`](/packages/core/api/index#insertnexusauditlogschema) | variable |  |
