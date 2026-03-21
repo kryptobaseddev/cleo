@@ -556,6 +556,19 @@
           "default": true,
           "description": "Enable verification gates for task completion. When true, parent auto-complete requires verification.passed = true."
         },
+        "requiredForTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["epic", "task", "subtask"],
+          "description": "Task types that require verification gates."
+        },
+        "autoInitialize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically initialize verification metadata on task creation."
+        },
         "maxRounds": {
           "type": "integer",
           "minimum": 1,
@@ -2061,7 +2074,7 @@
                 "warn",
                 "block"
               ],
-              "default": "warn",
+              "default": "block",
               "description": "Enforcement mode: off=no enforcement, warn=warn when missing, block=require on creation."
             },
             "requiredForPriorities": {
@@ -2077,9 +2090,41 @@
               },
               "default": [
                 "critical",
-                "high"
+                "high",
+                "medium",
+                "low"
               ],
               "description": "Priority levels that require acceptance criteria when mode is 'warn' or 'block'."
+            },
+            "minimumCriteria": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "description": "Minimum number of acceptance criteria required."
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "description": "Session enforcement settings for tasks.",
+          "additionalProperties": false,
+          "properties": {
+            "requiredForMutate": {
+              "type": "boolean",
+              "default": true,
+              "description": "Require an active session for task operations."
+            }
+          }
+        },
+        "pipeline": {
+          "type": "object",
+          "description": "Pipeline stage enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "bindTasksToStage": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically bind tasks to RCASD-IVTR+C pipeline stages."
             }
           }
         },

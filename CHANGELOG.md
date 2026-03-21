@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.3.57] (2026-03-21)
+
+### Fixed
+- Remove install-global hints from self-update (postinstall handles bootstrap)
+- Template version bumped to 2.2.0 for refresh verification
+- Remove packageRoot override from install-global and postinstall
+
 ## [2026.3.56] (2026-03-21)
 
 ### Fixed

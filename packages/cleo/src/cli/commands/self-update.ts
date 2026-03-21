@@ -397,8 +397,6 @@ async function runPostUpdateDiagnostics(opts?: {
           : 'Post-update upgrade had errors.',
       },
     );
-    process.stderr.write(`\n💡 Run 'cleo install-global' to refresh global provider configs.\n\n`);
-
     if (!result.success) {
       process.stderr.write(
         `\n⚠ Some upgrade steps failed. Manual fix:\n` + `  ${preflight.fix}\n\n`,
@@ -414,9 +412,6 @@ async function runPostUpdateDiagnostics(opts?: {
         },
       },
       { command: 'self-update', message: 'No post-update actions needed.' },
-    );
-    process.stderr.write(
-      `\n💡 Run 'cleo install-global' to refresh global provider configs after updates.\n\n`,
     );
   }
 }

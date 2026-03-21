@@ -1,8 +1,8 @@
 /**
- * Test CLEO-INJECTION.md v2.1.0 minimal-only template.
+ * Test CLEO-INJECTION.md v2.2.0 minimal-only template.
  *
  * Validates the trimmed template:
- * 1. Has version 2.1.0
+ * 1. Has version 2.2.0
  * 2. Contains all minimal sections
  * 3. Does NOT contain standard/orchestrator content
  * 4. Contains escalation section with skill pointers
@@ -24,7 +24,7 @@ const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 
 const templateExists = existsSync(injectionPath);
 
-describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
+describe('CLEO-INJECTION v2.2.0 minimal-only template', () => {
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
@@ -32,8 +32,8 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
   });
 
   describe('Version and metadata', () => {
-    it('has version 2.1.0', () => {
-      expect(content).toContain('Version: 2.1.0');
+    it('has version 2.2.0', () => {
+      expect(content).toContain('Version: 2.2.0');
     });
 
     it('has status ACTIVE', () => {
