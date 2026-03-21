@@ -66,9 +66,12 @@ This specification defines the public contract for `@cleocode/core`, the standal
     }
   },
   "dependencies": {
-    "@cleocode/caamp": "^1.7.0",
+    "@cleocode/adapters": "workspace:*",
+    "@cleocode/agents": "workspace:*",
+    "@cleocode/caamp": "^1.8.0",
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/lafs-protocol": "^1.7.0",
+    "@cleocode/lafs-protocol": "^1.8.0",
+    "@cleocode/skills": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.19-d95b7a4",
@@ -529,9 +532,12 @@ The following are internal implementation details, not part of the public contra
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@cleocode/caamp` | `^1.7.0` | Provider capability API, spawn coordination |
+| `@cleocode/adapters` | `workspace:*` | Provider adapter runtime |
+| `@cleocode/agents` | `workspace:*` | Agent protocol templates |
+| `@cleocode/caamp` | `^1.8.0` | Provider capability API, spawn coordination |
 | `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
-| `@cleocode/lafs-protocol` | `^1.7.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+| `@cleocode/lafs-protocol` | `^1.8.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+| `@cleocode/skills` | `workspace:*` | Skill definitions |
 | `ajv` | `^8.18.0` | JSON Schema validation |
 | `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
 | `drizzle-orm` | `1.0.0-beta.19-d95b7a4` | ORM for lifecycle, brain, and nexus SQLite tables (beta, pinned) |
@@ -768,7 +774,7 @@ The `files` field restricts what ships to npm:
 
 ```json
 {
-  "files": ["dist", "migrations", "src"]
+  "files": ["dist", "migrations", "schemas", "templates", "src"]
 }
 ```
 

@@ -160,8 +160,10 @@ jobs:
           # Core package (standalone business logic kernel)
           mkdir -p "$STAGING/packages/core"
           cp -r packages/core/dist packages/core/package.json "$STAGING/packages/core/"
-          [[ -d packages/core/migrations ]] \
-            && cp -r packages/core/migrations "$STAGING/packages/core/" || true
+          for extra in migrations schemas templates; do
+            [[ -d "packages/core/$extra" ]] \
+              && cp -r "packages/core/$extra" "$STAGING/packages/core/" || true
+          done
 
           # Contracts package (type-only interfaces)
           mkdir -p "$STAGING/packages/contracts"
@@ -171,6 +173,21 @@ jobs:
           if [[ -d packages/adapters/dist ]]; then
             mkdir -p "$STAGING/packages/adapters"
             cp -r packages/adapters/dist packages/adapters/package.json "$STAGING/packages/adapters/"
+          fi
+
+          # Skills package (data)
+          if [[ -d packages/skills/skills ]]; then
+            mkdir -p "$STAGING/packages/skills"
+            cp -r packages/skills/skills packages/skills/package.json "$STAGING/packages/skills/"
+            for f in packages/skills/*.json packages/skills/*.js packages/skills/*.d.ts; do
+              [[ -f "$f" ]] && cp "$f" "$STAGING/packages/skills/" || true
+            done
+          fi
+
+          # Agents package (templates)
+          if [[ -d packages/agents ]]; then
+            mkdir -p "$STAGING/packages/agents"
+            cp -r packages/agents/* "$STAGING/packages/agents/" 2>/dev/null || true
           fi
 
           # CLI/MCP package (the assembled product)

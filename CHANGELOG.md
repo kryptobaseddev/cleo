@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.3.46] (2026-03-20)
+
+### Fixed
+- **MCP `tasks.find` E_NOT_INITIALIZED** (T073): All 10 domain handlers deferred `getProjectRoot()` from constructor to request time, fixing initialization failures in MCP transport.
+- **MCP `session.start --scope global` rejected** (T074): Fixed broken regex in `operation-gate-validators.ts` that required `global:` (with colon) instead of accepting bare `"global"`.
+- **Bare catch blocks in task-engine.ts** (T073): `taskFind` and `taskList` now properly distinguish `E_NOT_FOUND`, `E_INVALID_INPUT`, and `E_NOT_INITIALIZED` errors instead of masking all as initialization failure.
+- **681 duplicate CAAMP blocks in `~/.agents/AGENTS.md`** (T084): Upgraded to CAAMP v1.8.0 with native idempotent `inject()`. Removed workaround guards.
+- **skill-paths.ts CAAMP path bug** (T085): Was using `getAgentsHome()` instead of `getCanonicalSkillsDir()`, causing skill resolution to look in wrong directory.
+- **Broken cleo-subagent symlink**: Fixed stale symlink pointing to dev source path.
+
+### Changed
+- **CLI-First Pivot** (T078): All skills (ct-cleo, ct-orchestrator, ct-memory) now show CLI as primary channel, MCP as fallback.
+- **Dependency Consolidation**: `@cleocode/core` now bundles adapters, skills, and agents as workspace deps. `@cleocode/cleo` slimmed to core + MCP SDK + citty only.
+- **CAAMP ^1.8.0**: Idempotent `inject()`, `ensureProviderInstructionFile()` API, skill lock file support.
+- **LAFS ^1.8.0**: Updated protocol dependency.
+- **Templates/schemas moved into `packages/core/`**: No longer symlinked from root. Shipped in npm package via `getPackageRoot()`.
+- **Global scaffold cleanup**: Removed project-level dirs (`adrs/`, `rcasd/`, `agent-outputs/`, `backups/`, `tasks.db`) from `~/.cleo/`. Schemas read from npm binary at runtime.
+- **Skills install global-only**: Skills installation moved from project `init` to global bootstrap only.
+- **Windows symlink support**: Directory symlinks use `junction` type on Windows.
+- **Injection chain**: Project AGENTS.md now references `@~/.agents/AGENTS.md` (global hub) instead of template directly.
+- **CleoOS detection**: CLEO-INJECTION.md includes `${CLEO_RUNTIME:-standalone}` mode with channel routing table.
+
+### Added
+- **Skills-registry validator** (T079): `packages/skills/scripts/validate-operations.ts` — automated drift detection between skills and canonical registry.
+- **Capability matrix SSoT** (T076): Merged `capability-matrix.ts` + `routing-table.ts` into single source with 211 operations, required `preferredChannel` field.
+
+### Removed
+- `cleoctl` binary alias (stale separation-era artifact).
+- `injection-legacy.ts` and its test (mapped CLAUDE.md/GEMINI.md — no longer valid).
+- Root `templates/` and `schemas/` directories (moved into `packages/core/`).
+- 30+ deprecated operation references across skills (`research` domain, `memory.brain.*`, `system` domain, `tasks.exists`, `admin.grade`).
+
 ## [2026.3.45] (2026-03-20)
 
 ### Added

@@ -70,13 +70,13 @@ Consumers can access the API at two levels:
 
 ### 2.2 Transport Adapters
 
-| Adapter            | Transport        | Status          | Purpose                                   |
-| ------------------ | ---------------- | --------------- | ----------------------------------------- |
-| **@cleocode/core** | Direct import    | **Implemented** | Typed function API for app developers     |
-| **MCP Tools**      | stdio (JSON-RPC) | **Implemented** | AI agents, Claude Code                    |
-| **CLI**            | Process          | **Implemented** | Scripts, automation, human use            |
-| **CLEO-NEXUS-API** | MCP/CLI          | **Implemented** | Cross-project operations, global registry |
-| **CLEO-WEB-API**   | HTTP (Fastify)   | **PLANNED**     | Web dashboard, browser access (CleoOS)    |
+| Adapter            | Transport        | Status          | Purpose                                                      |
+| ------------------ | ---------------- | --------------- | ------------------------------------------------------------ |
+| **@cleocode/core** | Direct import    | **Implemented** | Typed function API for app developers                        |
+| **CLI**            | Process          | **Implemented** | Primary channel — scripts, automation, human use             |
+| **MCP Tools**      | stdio (JSON-RPC) | **Implemented** | Fallback channel — AI agents, Claude Code                    |
+| **CLEO-NEXUS-API** | MCP/CLI          | **Implemented** | Cross-project operations, global registry                    |
+| **CLEO-WEB-API**   | HTTP (Fastify)   | **PLANNED**     | Web dashboard, browser access (CleoOS)                       |
 
 ---
 
@@ -316,7 +316,7 @@ cleo session start
 | Document                                                             | Status          | Purpose                                |
 | -------------------------------------------------------------------- | --------------- | -------------------------------------- |
 | **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)**                         | Exists          | Cross-project API (builds on CLEO-API) |
-| **[CLEO-OPERATION-CONSTITUTION.md](./CLEO-OPERATION-CONSTITUTION.md)**| Exists          | Canonical operation registry (209 ops) |
+| **[CLEO-OPERATION-CONSTITUTION.md](./CLEO-OPERATION-CONSTITUTION.md)**| Exists          | Canonical operation registry (see registry for live count) |
 | **[VERB-STANDARDS.md](./VERB-STANDARDS.md)**                          | Exists          | Canonical verb definitions             |
 | **[LAFS Protocol](https://github.com/kryptobaseddev/lafs-protocol)** | External        | LLM-Agent-First Specification          |
 | CLEO-WEB-API.md                                                       | **PLANNED**     | HTTP adapter specification (not yet written) |
