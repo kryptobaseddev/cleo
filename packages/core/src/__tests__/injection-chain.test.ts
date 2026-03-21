@@ -257,8 +257,9 @@ describe('E2E: injection chain validation (T4694)', () => {
     expect(existsSync(join(testDir, 'CLAUDE.md'))).toBe(true);
     expect(existsSync(join(testDir, 'AGENTS.md'))).toBe(true);
 
-    // Run updateDocs mode
-    const result = await initProject({ updateDocs: true });
+    // Run updateDocs directly (no longer available via initProject flag — use upgrade path)
+    const { updateDocs } = await import('../init.js');
+    const result = await updateDocs();
     expect(result.updateDocsOnly).toBe(true);
     expect(result.initialized).toBe(true);
   });

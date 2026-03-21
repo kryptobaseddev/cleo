@@ -281,7 +281,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
       status: 'warning',
       message: 'AGENTS.md not found in project root',
       details: { path: agentsMdPath, exists: false },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -311,7 +311,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
       status: 'warning',
       message: 'AGENTS.md exists but has no CAAMP markers',
       details: { path: agentsMdPath, hasCaampMarker: false },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -323,7 +323,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
       status: 'warning',
       message: `CAAMP markers unbalanced: ${startCount} START vs ${endCount} END`,
       details: { path: agentsMdPath, startCount, endCount },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -352,7 +352,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
         status: 'warning',
         message: `Missing @ reference targets: ${missing.join(', ')}`,
         details: { path: agentsMdPath, missing, totalRefs: refs.length },
-        fix: 'cleo init --update-docs',
+        fix: 'cleo upgrade',
       };
     }
   }
@@ -372,7 +372,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
           status: 'warning',
           message: `CLAUDE.md CAAMP markers unbalanced: ${cStartCount} START vs ${cEndCount} END`,
           details: { file: 'CLAUDE.md', startCount: cStartCount, endCount: cEndCount },
-          fix: 'cleo init --update-docs',
+          fix: 'cleo upgrade',
         };
       }
 
@@ -383,7 +383,7 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
           status: 'warning',
           message: 'CLAUDE.md has no CAAMP markers',
           details: { file: 'CLAUDE.md', hasCaampMarker: false },
-          fix: 'cleo init --update-docs',
+          fix: 'cleo upgrade',
         };
       }
     } catch {

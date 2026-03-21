@@ -16,7 +16,7 @@
  *   9. Core skill installation via CAAMP
  *  10. NEXUS project registration
  *  11. Project type detection (--detect)
- *  12. Injection refresh (--update-docs)
+ *  12. Injection refresh
  *  13. Git hook installation (commit-msg, pre-commit)
  *  14. GitHub issue/PR templates (.github/ directory)
  *
@@ -68,8 +68,6 @@ export interface InitOptions {
   force?: boolean;
   /** Auto-detect project configuration. */
   detect?: boolean;
-  /** Update agent documentation injections only. */
-  updateDocs?: boolean;
   /** Run codebase analysis and store findings to brain.db. */
   mapCodebase?: boolean;
 }
@@ -472,11 +470,6 @@ export async function updateDocs(): Promise<InitResult> {
  * @task T4707
  */
 export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
-  // Handle --update-docs (T4686)
-  if (opts.updateDocs) {
-    return updateDocs();
-  }
-
   const cleoDir = getCleoDirAbsolute();
   const projRoot = getProjectRoot();
 

@@ -211,7 +211,7 @@ export function checkAgentsMdHub(projectRoot?: string): CheckResult {
       status: 'warning',
       message: 'AGENTS.md not found in project root',
       details: { path: agentsMdPath, exists: false },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -236,7 +236,7 @@ export function checkAgentsMdHub(projectRoot?: string): CheckResult {
       status: 'warning',
       message: 'AGENTS.md exists but has no CAAMP:START marker',
       details: { path: agentsMdPath, hasCaampMarker: false },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -709,7 +709,7 @@ export function checkCaampMarkerIntegrity(projectRoot?: string): CheckResult {
       status: 'warning',
       message: `CAAMP marker issues: ${issues.join('; ')}`,
       details: { issues },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 
@@ -797,7 +797,7 @@ export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult 
       status: 'warning',
       message: `Missing @ reference targets: ${missing.join(', ')}`,
       details: { missing, totalRefs: refs.length },
-      fix: 'cleo init --update-docs',
+      fix: 'cleo upgrade',
     };
   }
 

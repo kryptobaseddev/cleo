@@ -62,7 +62,6 @@ export function registerInitCommand(program: Command): void {
     .option('--force', 'Overwrite existing files')
     .option('--detect', 'Auto-detect project configuration')
     .option('--refresh', 'Force re-detection of project type (alias for --detect)')
-    .option('--update-docs', 'Update agent documentation injections')
     .option('--map-codebase', 'Run codebase analysis and store findings to brain.db')
     .argument('[projectName]', 'Project name (alternative to --name)')
     .action(async (projectName: string | undefined, opts: Record<string, unknown>) => {
@@ -72,7 +71,6 @@ export function registerInitCommand(program: Command): void {
           name: (opts['name'] as string) || projectName || undefined,
           force: !!opts['force'],
           detect: !!opts['detect'],
-          updateDocs: !!opts['updateDocs'],
           mapCodebase: !!opts['mapCodebase'],
         };
 
