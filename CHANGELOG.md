@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.3.51] (2026-03-21)
+
+### Fixed
+- **Postinstall bootstrap import**: Fall back from `@cleocode/core/internal` (multi-file) to `@cleocode/core` (esbuild bundle) — `dist/internal.js` doesn't exist in published package.
+- **bootstrapGlobalCleo exported from public barrel**: Now available via `@cleocode/core` import, not just `@cleocode/core/internal`.
+
 ## [2026.3.50] (2026-03-21)
 
 ### Fixed

@@ -55,8 +55,15 @@ async function runPostinstall() {
   console.log('CLEO: Bootstrapping global system...');
 
   try {
-    // Import bootstrap from @cleocode/core (installed as dependency)
-    const { bootstrapGlobalCleo } = await import('@cleocode/core/internal');
+    // Import bootstrap from @cleocode/core.
+    // Try the internal subpath first (multi-file tsc build), fall back to main
+    // barrel (esbuild single-file bundle where internal.js doesn't exist).
+    let bootstrapGlobalCleo;
+    try {
+      ({ bootstrapGlobalCleo } = await import('@cleocode/core/internal'));
+    } catch {
+      ({ bootstrapGlobalCleo } = await import('@cleocode/core'));
+    }
 
     const result = await bootstrapGlobalCleo({
       packageRoot: getPackageRoot(),

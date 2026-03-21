@@ -238,6 +238,9 @@ export {
 
 // Adapter manager
 export { AdapterManager } from './adapters/index.js';
+export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
+// Bootstrap — used by postinstall and install-global
+export { bootstrapGlobalCleo } from './bootstrap.js';
 export type {
   AdminAPI,
   CleoInitOptions,
