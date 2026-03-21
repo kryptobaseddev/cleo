@@ -6,7 +6,7 @@
  *   - `cleo install-global` CLI command
  *
  * This is the single source of truth for global setup operations.
- * Neither postinstall nor install-global should duplicate this logic.
+ * This is the SSoT — postinstall and self-update both delegate here.
  *
  * @task T5267
  */

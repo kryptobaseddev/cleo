@@ -11,6 +11,7 @@ import { getRawConfigValue } from '../config.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { createAcceptanceEnforcement } from './enforcement.js';
 
 /** Options for completing a task. */
 export interface CompleteTaskOptions {
@@ -148,19 +149,14 @@ export async function completeTask(
     }
   }
 
-  if (
-    enforcement.acceptanceMode === 'block' &&
-    enforcement.acceptanceRequiredForPriorities.includes(task.priority)
-  ) {
-    if (!task.acceptance || task.acceptance.length === 0) {
-      throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        `Task ${options.taskId} requires acceptance criteria before completion (priority: ${task.priority})`,
-        {
-          fix: `Add criteria: cleo update ${options.taskId} --acceptance "criterion 1,criterion 2"`,
-        },
-      );
-    }
+  const acceptanceEnforcement = await createAcceptanceEnforcement(cwd);
+  const completionValidation = acceptanceEnforcement.validateCompletion(task);
+  if (!completionValidation.valid) {
+    throw new CleoError(
+      completionValidation.exitCode ?? ExitCode.VALIDATION_ERROR,
+      completionValidation.error!,
+      { fix: completionValidation.fix },
+    );
   }
 
   if (enforcement.verificationEnabled && task.type !== 'epic') {

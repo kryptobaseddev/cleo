@@ -19,6 +19,7 @@ import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
+import { createAcceptanceEnforcement } from './enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 /**
@@ -421,6 +422,18 @@ export async function addTask(
   // priority is already normalized above
   validateSize(size);
   if (options.labels?.length) validateLabels(options.labels);
+
+  // Enforce Acceptance Criteria
+  const enforcement = await createAcceptanceEnforcement(cwd);
+  const acValidation = enforcement.validateCreation({
+    acceptance: options.acceptance,
+    priority: priority,
+  });
+  if (!acValidation.valid) {
+    throw new CleoError(acValidation.exitCode ?? ExitCode.VALIDATION_ERROR, acValidation.error!, {
+      fix: acValidation.fix,
+    });
+  }
 
   // Validate dependency IDs exist using targeted queries
   if (options.depends?.length) {

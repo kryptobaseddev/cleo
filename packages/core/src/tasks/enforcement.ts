@@ -1,0 +1,118 @@
+import { ExitCode, type Task } from '@cleocode/contracts';
+import { getRawConfigValue } from '../config.js';
+
+export interface ValidationResult {
+  valid: boolean;
+  error?: string;
+  fix?: string;
+  exitCode?: ExitCode;
+}
+
+export interface AddTaskEnforcementOptions {
+  acceptance?: string[];
+  priority?: string;
+}
+
+export interface UpdateTaskEnforcementOptions {
+  acceptance?: string[];
+}
+
+export interface AcceptanceEnforcement {
+  validateCreation(options: AddTaskEnforcementOptions): ValidationResult;
+  validateUpdate(task: Task, updates: UpdateTaskEnforcementOptions): ValidationResult;
+  validateCompletion(task: Task): ValidationResult;
+  checkMinimumCriteria(criteria: string[], minCriteria: number): boolean;
+}
+
+function checkMin(criteria: string[], min: number): boolean {
+  return Array.isArray(criteria) && criteria.length >= min;
+}
+
+export async function createAcceptanceEnforcement(cwd?: string): Promise<AcceptanceEnforcement> {
+  const modeRaw = await getRawConfigValue('enforcement.acceptance.mode', cwd);
+  const prioritiesRaw = await getRawConfigValue(
+    'enforcement.acceptance.requiredForPriorities',
+    cwd,
+  );
+  const minCriteriaRaw = await getRawConfigValue('enforcement.acceptance.minimumCriteria', cwd);
+  const defaultPriorityRaw = await getRawConfigValue('defaults.priority', cwd);
+
+  const mode = modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block' ? modeRaw : 'block';
+
+  const requiredForPriorities = Array.isArray(prioritiesRaw)
+    ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
+    : ['critical', 'high', 'medium', 'low'];
+
+  const minCriteria =
+    typeof minCriteriaRaw === 'number' && Number.isInteger(minCriteriaRaw) ? minCriteriaRaw : 3;
+
+  const defaultPriority = typeof defaultPriorityRaw === 'string' ? defaultPriorityRaw : 'medium';
+
+  return {
+    checkMinimumCriteria: checkMin,
+
+    validateCreation(options: AddTaskEnforcementOptions): ValidationResult {
+      const priority = options.priority ?? defaultPriority;
+
+      if (mode === 'off') return { valid: true };
+
+      if (requiredForPriorities.includes(priority)) {
+        const hasEnough = checkMin(options.acceptance ?? [], minCriteria);
+        if (!hasEnough) {
+          const msg = `Task requires at least ${minCriteria} acceptance criteria (priority: ${priority})`;
+          if (mode === 'block') {
+            return {
+              valid: false,
+              error: msg,
+              fix: `Add --acceptance "criterion 1" --acceptance "criterion 2" --acceptance "criterion 3"`,
+              exitCode: ExitCode.VALIDATION_ERROR,
+            };
+          } else if (mode === 'warn') {
+            return { valid: true, error: msg };
+          }
+        }
+      }
+      return { valid: true };
+    },
+
+    validateUpdate(task: Task, updates: UpdateTaskEnforcementOptions): ValidationResult {
+      if (mode === 'off') return { valid: true };
+
+      if (updates.acceptance !== undefined) {
+        if (mode === 'block' && requiredForPriorities.includes(task.priority)) {
+          if (!checkMin(updates.acceptance, minCriteria)) {
+            return {
+              valid: false,
+              error: `Task requires at least ${minCriteria} acceptance criteria`,
+              fix: `Provide at least ${minCriteria} criteria when updating acceptance`,
+              exitCode: ExitCode.VALIDATION_ERROR,
+            };
+          }
+        }
+      }
+
+      return { valid: true };
+    },
+
+    validateCompletion(task: Task): ValidationResult {
+      if (mode === 'off') return { valid: true };
+
+      if (requiredForPriorities.includes(task.priority)) {
+        if (!checkMin(task.acceptance ?? [], minCriteria)) {
+          const msg = `Task ${task.id} requires at least ${minCriteria} acceptance criteria before completion`;
+          if (mode === 'block') {
+            return {
+              valid: false,
+              error: msg,
+              fix: `Add criteria: cleo update ${task.id} --acceptance "criterion 1" --acceptance "criterion 2"`,
+              exitCode: ExitCode.VALIDATION_ERROR,
+            };
+          } else if (mode === 'warn') {
+            return { valid: true, error: msg };
+          }
+        }
+      }
+      return { valid: true };
+    },
+  };
+}

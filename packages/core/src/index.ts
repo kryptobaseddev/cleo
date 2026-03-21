@@ -239,7 +239,7 @@ export {
 // Adapter manager
 export { AdapterManager } from './adapters/index.js';
 export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
-// Bootstrap — used by postinstall and install-global
+// Bootstrap — used by postinstall and self-update
 export { bootstrapGlobalCleo } from './bootstrap.js';
 export type {
   AdminAPI,

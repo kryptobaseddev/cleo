@@ -272,7 +272,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `ProjectInfo` (type) | `project-info.ts` | Project info shape |
 | `CORE_PROTECTED_FILES` | `constants.ts` | List of protected `.cleo/` files |
 | `EngineResult` (type) | `engine-result.ts` | Engine result shape for dispatch layer |
-| `bootstrapGlobalCleo` | `bootstrap.ts` | Global bootstrap for postinstall and install-global |
+| `bootstrapGlobalCleo` | `bootstrap.ts` | Global bootstrap for postinstall and self-update |
 | `BootstrapContext` (type) | `bootstrap.ts` | Bootstrap result tracking arrays |
 | `BootstrapOptions` (type) | `bootstrap.ts` | Bootstrap configuration options |
 | `getCleoTemplatesTildePath` | `paths.ts` | OS-aware tilde-prefixed templates path for `@` references |

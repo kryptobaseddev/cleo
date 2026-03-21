@@ -20,6 +20,7 @@ import {
   validateTitle,
 } from './add.js';
 import { completeTask } from './complete.js';
+import { createAcceptanceEnforcement } from './enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
@@ -111,6 +112,17 @@ export async function updateTask(
       {
         fix: `Run 'cleo complete ${options.taskId}' first, then apply additional updates with 'cleo update ${options.taskId} ...'`,
       },
+    );
+  }
+
+  // Enforce Acceptance Criteria on Update
+  const enforcement = await createAcceptanceEnforcement(cwd);
+  const updateValidation = enforcement.validateUpdate(task, { acceptance: options.acceptance });
+  if (!updateValidation.valid) {
+    throw new CleoError(
+      updateValidation.exitCode ?? ExitCode.VALIDATION_ERROR,
+      updateValidation.error!,
+      { fix: updateValidation.fix },
     );
   }
 
