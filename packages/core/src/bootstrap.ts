@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getAgentsHome, getCleoTemplatesDir } from './paths.js';
+import { getAgentsHome, getCleoTemplatesDir, getCleoTemplatesTildePath } from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -155,8 +155,8 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
       }
 
       // CAAMP 1.8.1: inject() is idempotent AND consolidates duplicates
-      const expectedContent = '@~/.cleo/templates/CLEO-INJECTION.md';
-      const action = await inject(globalAgentsMd, expectedContent);
+      const templateRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+      const action = await inject(globalAgentsMd, templateRef);
       ctx.created.push(`~/.agents/AGENTS.md (${action})`);
     } else {
       ctx.created.push('~/.agents/AGENTS.md (would create/update CAAMP block)');

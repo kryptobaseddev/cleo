@@ -322,6 +322,25 @@ export function getCleoConfigDir(): string {
   return getPlatformPaths().config;
 }
 
+/**
+ * Get the CLEO templates directory as a tilde-prefixed path for use
+ * in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform:
+ * replaces the user's home directory with `~` so the reference works
+ * when loaded by LLM providers that resolve `~` at runtime.
+ *
+ * Linux:   ~/.local/share/cleo/templates
+ * macOS:   ~/Library/Application Support/cleo/templates
+ * Windows: ~/AppData/Local/cleo/Data/templates (approximate)
+ */
+export function getCleoTemplatesTildePath(): string {
+  const absPath = getCleoTemplatesDir();
+  const home = homedir();
+  if (absPath.startsWith(home)) {
+    return `~${absPath.slice(home.length)}`;
+  }
+  return absPath;
+}
+
 // ============================================================================
 // Third-Party Tool Paths (OS-aware)
 // ============================================================================

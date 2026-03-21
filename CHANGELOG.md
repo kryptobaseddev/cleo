@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.3.54] (2026-03-21)
+
+### Changed
+- **Dynamic template paths**: All `@` references in AGENTS.md now use `getCleoTemplatesTildePath()` — resolves to OS-appropriate XDG path (`~/.local/share/cleo/templates` on Linux, `~/Library/Application Support/cleo/templates` on macOS). No more hardcoded `~/.cleo/templates/`.
+- **`getCleoTemplatesTildePath()`**: New path function that returns the templates dir as a `~`-prefixed string for cross-platform `@` references.
+
+### Fixed
+- **Template path mismatch**: AGENTS.md referenced `~/.cleo/templates/` but templates live at XDG path (`~/.local/share/cleo/templates/`). Now both reference and storage use the same dynamic path.
+
 ## [2026.3.53] (2026-03-21)
 
 ### Fixed
