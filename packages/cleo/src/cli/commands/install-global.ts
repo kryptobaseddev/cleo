@@ -15,8 +15,6 @@
  * @task T4916
  */
 
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -31,13 +29,10 @@ export function registerInstallGlobalCommand(program: Command): void {
       try {
         const { bootstrapGlobalCleo } = await import('@cleocode/core/internal');
 
-        // Resolve package root for template/skill discovery
-        const thisFile = fileURLToPath(import.meta.url);
-        const packageRoot = resolve(dirname(thisFile), '..', '..', '..');
-
+        // No packageRoot override — let bootstrap resolve templates from
+        // @cleocode/core's getPackageRoot() (templates live in core, not cleo)
         const result = await bootstrapGlobalCleo({
           dryRun: isDryRun,
-          packageRoot,
         });
 
         cliOutput(

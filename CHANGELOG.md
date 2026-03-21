@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026.3.56] (2026-03-21)
+
+### Fixed
+- **Template refresh on install**: install-global and postinstall were passing packageRoot pointing to @cleocode/cleo, but templates live in @cleocode/core. Bootstrap now resolves from core getPackageRoot() without override.
+
 ## [2026.3.55] (2026-03-21)
 
 ### Fixed

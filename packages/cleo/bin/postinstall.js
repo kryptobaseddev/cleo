@@ -65,9 +65,9 @@ async function runPostinstall() {
       ({ bootstrapGlobalCleo } = await import('@cleocode/core'));
     }
 
-    const result = await bootstrapGlobalCleo({
-      packageRoot: getPackageRoot(),
-    });
+    // No packageRoot override — let bootstrap resolve templates from
+    // @cleocode/core's getPackageRoot() (templates live in core, not cleo)
+    const result = await bootstrapGlobalCleo({});
 
     for (const item of result.created) {
       console.log(`CLEO: ${item}`);
