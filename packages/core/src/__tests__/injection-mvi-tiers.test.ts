@@ -50,18 +50,18 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
 
     it('includes Mandatory Efficiency Sequence', () => {
       expect(content).toContain('## Mandatory Efficiency Sequence');
-      expect(content).toContain('query session status');
-      expect(content).toContain('query admin dash');
-      expect(content).toContain('query tasks current');
-      expect(content).toContain('query tasks next');
-      expect(content).toContain('query tasks show');
+      expect(content).toContain('cleo session status');
+      expect(content).toContain('cleo dash');
+      expect(content).toContain('cleo current');
+      expect(content).toContain('cleo next');
+      expect(content).toContain('cleo show');
     });
 
     it('includes Agent Work Loop', () => {
       expect(content).toContain('## Agent Work Loop');
-      expect(content).toContain('tasks current');
-      expect(content).toContain('tasks complete');
-      expect(content).toContain('tasks next');
+      expect(content).toContain('cleo current');
+      expect(content).toContain('cleo complete');
+      expect(content).toContain('cleo next');
     });
 
     it('includes Context Ethics', () => {
@@ -173,9 +173,9 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 120 lines', () => {
+    it('is under 160 lines', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThan(130);
+      expect(lines).toBeLessThan(160);
     });
 
     it('is at least 60 lines (not accidentally empty)', () => {

@@ -3,29 +3,53 @@
 Version: 2.1.0
 Status: ACTIVE
 
+## Runtime Environment
+
+<!-- CleoOS injects CLEO_RUNTIME=cleoos when launching agents from a workspace -->
+<!-- When this variable is absent, assume standalone CLI mode -->
+
+**Mode**: `${CLEO_RUNTIME:-standalone}`
+
+### Channel Preference
+
+| Runtime | Primary Channel | Fallback | Rationale |
+|---------|----------------|----------|-----------|
+| `standalone` | CLI (`cleo <command>`) | MCP (query/mutate) | CLI is cheaper (fewer tokens), more reliable, and baked into core |
+| `cleoos` | Workspace-provided | CLI | CleoOS workspace manages channel routing via capability matrix |
+
+When running in **standalone** mode (the default):
+- Prefer CLI commands over MCP tool calls for all CLEO operations
+- CLI commands are shorter, use fewer tokens, and bypass the MCP dispatch layer
+- Use MCP only when the provider does not support shell execution
+
+When running in **CleoOS** mode:
+- Follow the workspace-provided channel routing preferences
+- CleoOS manages the capability matrix and optimal channel selection
+- This mode is a work-in-progress — fall back to CLI if unsure
+
 ## CLEO Identity
 
-You are a CLEO protocol agent. Use MCP-first operations:
-- `query` for reads
-- `mutate` for writes
+You are a CLEO protocol agent. CLEO operations are available via CLI (primary) and MCP (fallback):
+- CLI: `cleo <command> [args]` — preferred for token efficiency (flat commands, not domain-prefixed)
+- MCP: `query`/`mutate` gateways with `{domain, operation, params}` — use when CLI is unavailable
 
 ## Mandatory Efficiency Sequence
 
 Run cheapest-first at session start:
-1. `query session status` — resume existing? (~200 tokens)
-2. `query admin dash` — project overview (~500 tokens)
-3. `query tasks current` — active task? (~100 tokens)
-4. `query tasks next` — what to work on (~300 tokens)
-5. `query tasks show` — full details for chosen task (~400 tokens)
+1. `cleo session status` — resume existing? (~200 tokens)
+2. `cleo dash` — project overview (~500 tokens)
+3. `cleo current` — active task? (~100 tokens)
+4. `cleo next` — what to work on (~300 tokens)
+5. `cleo show {id}` — full details for chosen task (~400 tokens)
 
 ## Agent Work Loop
 
 Repeat until session ends:
-1. `tasks current` or `tasks next` → pick task
-2. `tasks show {id}` → read requirements
+1. `cleo current` or `cleo next` → pick task
+2. `cleo show {id}` → read requirements
 3. Do the work (code, test, document)
-4. `tasks complete {id}` → mark done
-5. `tasks next` → continue or end session
+4. `cleo complete {id}` → mark done
+5. `cleo next` → continue or end session
 
 ## Context Ethics
 
@@ -61,12 +85,12 @@ Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large
 
 ## Session Quick Reference
 
-| Goal | Operation | Gateway |
-|------|-----------|---------|
-| Check active session | `session status` | query |
-| Resume context from last session | `session handoff.show` | query |
-| Start working | `session start` (scope required) | mutate |
-| Stop working | `session end` | mutate |
+| Goal | CLI (Primary) | MCP (Fallback) |
+|------|--------------|----------------|
+| Check active session | `cleo session status` | `query session status` |
+| Resume context | `cleo briefing` | `query session briefing.show` |
+| Start working | `cleo session start --scope global` | `mutate session start {scope: "global"}` |
+| Stop working | `cleo session end` | `mutate session end` |
 
 For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo/agent-outputs/T5124-session-decision-tree.md`
 
@@ -78,23 +102,23 @@ CLEO includes a native BRAIN memory system. Use the 3-layer retrieval pattern fo
 
 | Step | Operation | Gateway | ~Tokens | Purpose |
 |------|-----------|---------|---------|---------|
-| 1 | `memory brain.search` | query | 50/hit | Search index (IDs + titles) |
-| 2 | `memory brain.timeline` | query | 200-500 | Context around an anchor ID |
-| 3 | `memory brain.fetch` | query | 500/entry | Full details for filtered IDs |
-| Save | `memory brain.observe` | mutate | — | Save observation to brain.db |
+| 1 | `memory find` | query | 50/hit | Search index (IDs + titles) |
+| 2 | `memory timeline` | query | 200-500 | Context around an anchor ID |
+| 3 | `memory fetch` | query | 500/entry | Full details for filtered IDs |
+| Save | `memory observe` | mutate | — | Save observation to brain.db |
 
 **Workflow**: Search first (cheap) → filter interesting IDs → fetch only what you need.
 
-**Example**:
+**Example** (CLI):
 ```
-query memory brain.search {query: "authentication"}
-query memory brain.fetch {ids: ["O-abc123"]}
-mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery"}
+cleo memory find "authentication"
+cleo memory fetch O-abc123
+cleo observe "Found auth uses JWT" --title "Auth discovery"
 ```
 
 **Anti-patterns:**
 - Fetching all entries without searching first (expensive)
-- Skipping brain.search and going straight to brain.fetch
+- Skipping memory find and going straight to memory fetch
 
 ## Memory Bridge
 

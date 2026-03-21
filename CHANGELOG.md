@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.3.55] (2026-03-21)
+
+### Fixed
+- **CRITICAL: CLEO-INJECTION.md template was stale in npm package** — agents received old MCP-first template with deprecated `memory brain.search` operations. Template now correctly shows CLI-first, `memory find`, Runtime Environment section, and actual CLI command syntax.
+- **CLI command syntax in template** — changed from wrong `cleo <domain> <operation>` to actual flat commands (`cleo find`, `cleo current`, `cleo dash`, etc.)
+- **Session quick reference** — now shows CLI as primary with MCP fallback
+- **Memory examples** — CLI-first (`cleo memory find "auth"` not MCP query)
+
 ## [2026.3.54] (2026-03-21)
 
 ### Changed
