@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -116,11 +116,14 @@ export async function fileExists(path: string): Promise<boolean> {
 /**
  * Strip legacy <!-- CLEO:START -->...<!-- CLEO:END --> blocks from a file.
  * Called before CAAMP injection to prevent competing blocks.
+ *
+ * Handles both bare markers (<!-- CLEO:START -->) and versioned markers
+ * (<!-- CLEO:START v0.53.4 -->, <!-- CLEO:START v1.2.3 -->).
  */
 export async function stripCLEOBlocks(filePath: string): Promise<void> {
   if (!existsSync(filePath)) return;
   const content = await readFile(filePath, 'utf8');
-  const stripped = content.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
+  const stripped = content.replace(/\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
   if (stripped !== content) await writeFile(filePath, stripped, 'utf8');
 }
 
@@ -1049,8 +1052,38 @@ export function checkMemoryBridge(projectRoot: string): CheckResult {
 export const REQUIRED_GLOBAL_SUBDIRS = ['logs', 'templates'] as const;
 
 /**
+ * Stale entries that must NOT exist at the global ~/.cleo/ level.
+ * These were project-level artefacts accidentally placed in the global home
+ * by old versions of CLEO. They are safe to remove because:
+ *   - adrs/, rcasd/, agent-outputs/, backups/ — project-level, live in .cleo/
+ *   - sandbox/                                — unused
+ *   - tasks.db / tasks.db-shm / tasks.db-wal  — project-level database files
+ *   - brain-worker.pid                         — stale PID file
+ *   - VERSION                                  — redundant (read from package.json)
+ *   - schemas/                                 — now read from npm binary at runtime
+ *   - bin/                                     — stale dev symlink directory
+ */
+export const STALE_GLOBAL_ENTRIES = [
+  'adrs',
+  'rcasd',
+  'agent-outputs',
+  'backups',
+  'sandbox',
+  'tasks.db',
+  'tasks.db-shm',
+  'tasks.db-wal',
+  'brain-worker.pid',
+  'VERSION',
+  'schemas',
+  'bin',
+] as const;
+
+/**
  * Ensure the global ~/.cleo/ home directory and its required
  * subdirectories exist. Idempotent: skips directories that already exist.
+ *
+ * Also removes known stale project-level entries that old CLEO versions
+ * incorrectly placed at the global level (see STALE_GLOBAL_ENTRIES).
  *
  * This is the SSoT for global home scaffolding, replacing raw mkdirSync
  * calls that were previously scattered across global-bootstrap.ts.
@@ -1063,6 +1096,23 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
 
   for (const subdir of REQUIRED_GLOBAL_SUBDIRS) {
     await mkdir(join(cleoHome, subdir), { recursive: true });
+  }
+
+  // Remove stale project-level entries from global home (one-time cleanup).
+  for (const stale of STALE_GLOBAL_ENTRIES) {
+    const stalePath = join(cleoHome, stale);
+    if (existsSync(stalePath)) {
+      try {
+        await rm(stalePath, { recursive: true, force: true });
+        // eslint-disable-next-line no-console
+        console.warn(`[CLEO] Removed stale global entry: ${stalePath}`);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[CLEO] Could not remove stale global entry ${stalePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 
   return {

@@ -6,11 +6,19 @@
  * TODO: Migrate all 89 commands to native citty pattern (epic T5730)
  */
 
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type CommandDef, defineCommand, runMain } from 'citty';
 import { ShimCommand } from './commander-shim.js';
 
-const CLI_VERSION = '2026.3.38';
+function getPackageVersion(): string {
+  const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
+  return pkg.version;
+}
+
+const CLI_VERSION = getPackageVersion();
 
 // Create root shim to collect all commands
 const rootShim = new ShimCommand();

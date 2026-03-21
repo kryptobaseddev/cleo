@@ -65,7 +65,10 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   // Step 4: Install core skills globally
   await installSkillsGlobally(ctx);
 
-  // Step 5: Install provider adapters
+  // Step 5: Install agent definition (cleo-subagent symlink)
+  await installAgentDefinitionGlobally(ctx);
+
+  // Step 6: Install provider adapters
   await installProviderAdapters(ctx, options?.packageRoot);
 
   return ctx;
@@ -132,10 +135,13 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
     if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
 
-      // Strip any legacy CLEO blocks first
+      // Strip any legacy CLEO blocks first (handles bare and versioned markers)
       if (existsSync(globalAgentsMd)) {
         const content = await readFile(globalAgentsMd, 'utf8');
-        const stripped = content.replace(/\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, '');
+        const stripped = content.replace(
+          /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g,
+          '',
+        );
         if (stripped !== content) {
           await writeFile(globalAgentsMd, stripped, 'utf8');
         }
@@ -161,12 +167,13 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
 
       if (!ctx.isDryRun) {
         // Strip legacy CLEO blocks from global provider files first
+        // (handles bare and versioned markers, e.g. <!-- CLEO:START v0.53.4 -->)
         for (const provider of providers) {
           const instructFilePath = join(provider.pathGlobal, provider.instructFile);
           if (existsSync(instructFilePath)) {
             const fileContent = await readFile(instructFilePath, 'utf8');
             const stripped = fileContent.replace(
-              /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g,
+              /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g,
               '',
             );
             if (stripped !== fileContent) {
@@ -254,7 +261,29 @@ export async function installSkillsGlobally(ctx: BootstrapContext): Promise<void
   }
 }
 
-// ── Step 5: Provider adapter installation ────────────────────────────
+// ── Step 5: Agent definition installation ────────────────────────────
+
+/**
+ * Install the cleo-subagent agent definition to ~/.agents/agents/.
+ * Delegates to initAgentDefinition() in init.ts which handles require.resolve
+ * fallback and symlink/copy logic.
+ */
+async function installAgentDefinitionGlobally(ctx: BootstrapContext): Promise<void> {
+  try {
+    if (!ctx.isDryRun) {
+      const { initAgentDefinition } = await import('./init.js');
+      await initAgentDefinition(ctx.created, ctx.warnings);
+    } else {
+      ctx.created.push('agent: cleo-subagent (would symlink)');
+    }
+  } catch (err) {
+    ctx.warnings.push(
+      `Agent definition install: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+// ── Step 6: Provider adapter installation ────────────────────────────
 
 async function installProviderAdapters(
   ctx: BootstrapContext,
