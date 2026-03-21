@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.3.48] (2026-03-20)
+
+### Added
+- **`cleo detect` command**: Standalone lightweight re-detection of project type. Updates project-context.json without full init or upgrade.
+- **`cleo upgrade --detect`**: Force re-detection ignoring staleness schedule.
+- **`cleo upgrade --map-codebase`**: Run full codebase analysis and store findings to brain.db.
+- **`cleo upgrade --name <name>`**: Programmatically update project name in project-info.json and nexus registry.
+- **`updateProjectName()`**: Core function in project-info.ts (SSoT for project name updates).
+
+### Changed
+- **init/upgrade boundary**: `--update-docs` removed from init. All maintenance goes through `cleo upgrade`.
+- **`--refresh` alias removed** from init (keep flags simple, `--detect` only).
+- **Fix hints** across injection.ts and doctor/checks.ts now say `cleo upgrade` instead of `cleo init --update-docs`.
+
+### Fixed
+- **CLI version**: Now reads from package.json at runtime instead of build-time constant.
+- **stripCLEOBlocks**: Handles versioned legacy markers (`<!-- CLEO:START v0.53.4 -->`).
+- **Global scaffold cleanup**: Removes stale project-level dirs from `~/.cleo/` on bootstrap.
+- **cleo-subagent symlink**: Installed via `bootstrapGlobalCleo` using `require.resolve` for npm package path.
+
 ## [2026.3.47] (2026-03-20)
 
 ### Fixed
