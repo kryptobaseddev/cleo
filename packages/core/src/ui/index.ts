@@ -59,4 +59,3 @@ export {
 //   injection.ts    -> CAAMP inject()/checkInjection()
 //   mcp-config.ts   -> CAAMP detectAllProviders()/installMcpServer()
 //   injection-registry.ts -> CAAMP getInstructionFiles()
-

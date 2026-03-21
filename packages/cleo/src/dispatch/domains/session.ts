@@ -100,10 +100,7 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'context.drift': {
-          const result = await sessionContextDrift(
-            projectRoot,
-            params as { sessionId?: string },
-          );
+          const result = await sessionContextDrift(projectRoot, params as { sessionId?: string });
           return wrapResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -306,10 +303,7 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'gc': {
-          const result = await sessionGc(
-            projectRoot,
-            params?.maxAgeDays as number | undefined,
-          );
+          const result = await sessionGc(projectRoot, params?.maxAgeDays as number | undefined);
           return wrapResult(result, 'mutate', 'session', operation, startTime);
         }
 

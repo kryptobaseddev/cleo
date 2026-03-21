@@ -43,8 +43,16 @@ describe('routing-table', () => {
   describe('getRoutingForDomain', () => {
     it('returns entries covering all 10 canonical domains', () => {
       const domains = [
-        'memory', 'tasks', 'session', 'admin', 'tools',
-        'check', 'pipeline', 'orchestrate', 'nexus', 'sticky',
+        'memory',
+        'tasks',
+        'session',
+        'admin',
+        'tools',
+        'check',
+        'pipeline',
+        'orchestrate',
+        'nexus',
+        'sticky',
       ];
       for (const domain of domains) {
         const entries = getRoutingForDomain(domain);

@@ -101,10 +101,7 @@ export class AdminHandler implements DomainHandler {
             const result = await systemDoctor(projectRoot);
             return wrapResult(result, 'query', 'admin', operation, startTime);
           }
-          const result = systemHealth(
-            projectRoot,
-            params as { detailed?: boolean } | undefined,
-          );
+          const result = systemHealth(projectRoot, params as { detailed?: boolean } | undefined);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -114,18 +111,12 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'stats': {
-          const result = await systemStats(
-            projectRoot,
-            params as { period?: number } | undefined,
-          );
+          const result = await systemStats(projectRoot, params as { period?: number } | undefined);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
         case 'context': {
-          const result = systemContext(
-            projectRoot,
-            params as { session?: string } | undefined,
-          );
+          const result = systemContext(projectRoot, params as { session?: string } | undefined);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -473,8 +464,7 @@ export class AdminHandler implements DomainHandler {
           const scope = params?.scope as string | undefined;
           if (scope === 'snapshot') {
             const snapshot = await exportSnapshot(projectRoot);
-            const outputPath =
-              (params?.output as string) ?? getDefaultSnapshotPath(projectRoot);
+            const outputPath = (params?.output as string) ?? getDefaultSnapshotPath(projectRoot);
             await writeSnapshot(snapshot, outputPath);
             return {
               _meta: dispatchMeta('query', 'admin', operation, startTime),
