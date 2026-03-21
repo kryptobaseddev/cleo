@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.3.52] (2026-03-21)
+
+### Fixed
+- **Global scaffold cleanup works**: Was cleaning XDG path (`~/.local/share/cleo/`) but stale dirs were at legacy `~/.cleo/` path. Now cleans both locations.
+- **CAAMP ^1.8.1**: Consolidates pre-existing duplicate blocks natively. Removed workaround that stripped all CAAMP blocks before inject.
+
 ## [2026.3.51] (2026-03-21)
 
 ### Fixed

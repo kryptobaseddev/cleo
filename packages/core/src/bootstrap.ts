@@ -142,20 +142,19 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
     if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
 
-      // Consolidate: strip ALL legacy CLEO blocks AND duplicate CAAMP blocks,
-      // then inject a single clean block. CAAMP 1.8.0 idempotency doesn't
-      // consolidate pre-existing duplicates — it only prevents new ones.
+      // Strip legacy CLEO blocks (versioned markers from pre-CAAMP era)
       if (existsSync(globalAgentsMd)) {
         const content = await readFile(globalAgentsMd, 'utf8');
-        const stripped = content
-          .replace(/\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g, '')
-          .replace(/\n?<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->\n?/g, '')
-          .trim();
-        // Write clean file (empty or user content only)
-        await writeFile(globalAgentsMd, stripped ? `${stripped}\n` : '', 'utf8');
+        const stripped = content.replace(
+          /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g,
+          '',
+        );
+        if (stripped !== content) {
+          await writeFile(globalAgentsMd, stripped, 'utf8');
+        }
       }
 
-      // Single inject call on a clean file — no duplicates possible
+      // CAAMP 1.8.1: inject() is idempotent AND consolidates duplicates
       const expectedContent = '@~/.cleo/templates/CLEO-INJECTION.md';
       const action = await inject(globalAgentsMd, expectedContent);
       ctx.created.push(`~/.agents/AGENTS.md (${action})`);

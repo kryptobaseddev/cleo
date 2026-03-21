@@ -1098,19 +1098,30 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
     await mkdir(join(cleoHome, subdir), { recursive: true });
   }
 
-  // Remove stale project-level entries from global home (one-time cleanup).
-  for (const stale of STALE_GLOBAL_ENTRIES) {
-    const stalePath = join(cleoHome, stale);
-    if (existsSync(stalePath)) {
-      try {
-        await rm(stalePath, { recursive: true, force: true });
-        // eslint-disable-next-line no-console
-        console.warn(`[CLEO] Removed stale global entry: ${stalePath}`);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[CLEO] Could not remove stale global entry ${stalePath}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+  // Remove stale project-level entries from both the current global home
+  // AND the legacy ~/.cleo/ path (old CLEO versions used ~/.cleo/ before
+  // env-paths moved it to the XDG-compliant location).
+  const homedir = (await import('node:os')).homedir();
+  const legacyCleoHome = join(homedir, '.cleo');
+  const cleanupPaths = [cleoHome];
+  if (legacyCleoHome !== cleoHome && existsSync(legacyCleoHome)) {
+    cleanupPaths.push(legacyCleoHome);
+  }
+
+  for (const homeDir of cleanupPaths) {
+    for (const stale of STALE_GLOBAL_ENTRIES) {
+      const stalePath = join(homeDir, stale);
+      if (existsSync(stalePath)) {
+        try {
+          await rm(stalePath, { recursive: true, force: true });
+          // eslint-disable-next-line no-console
+          console.warn(`[CLEO] Removed stale global entry: ${stalePath}`);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[CLEO] Could not remove stale global entry ${stalePath}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
   }

@@ -94,8 +94,8 @@ importers:
   packages/cleo:
     dependencies:
       '@cleocode/caamp':
-        specifier: ^1.8.0
-        version: 1.8.0
+        specifier: ^1.8.1
+        version: 1.8.1
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -123,8 +123,8 @@ importers:
         specifier: workspace:*
         version: link:../agents
       '@cleocode/caamp':
-        specifier: ^1.8.0
-        version: 1.8.0
+        specifier: ^1.8.1
+        version: 1.8.1
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -327,8 +327,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@cleocode/caamp@1.8.0':
-    resolution: {integrity: sha512-OH/qt2P6h5hlSgB2ckxYM288gb0a06yQF8uxZTFayd2vCW/Ho0U1pYxbo8jX79DkywhCm/5pU2Fasob0iktooA==}
+  '@cleocode/caamp@1.8.1':
+    resolution: {integrity: sha512-o9Sjg9IjdhFhWhlx5E0a+KVaeb6qQy4x5r1XB8lescZsr3oBsqwEMrIUPfDzQzp6KDpRmyxAn3gCGzV/dd1pBw==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1781,6 +1781,9 @@ packages:
   simple-git@3.32.2:
     resolution: {integrity: sha512-n/jhNmvYh8dwyfR6idSfpXrFazuyd57jwNMzgjGnKZV/1lTh0HKvPq20v4AQ62rP+l19bWjjXPTCdGHMt0AdrQ==}
 
+  simple-git@3.33.0:
+    resolution: {integrity: sha512-D4V/tGC2sjsoNhoMybKyGoE+v8A60hRawKQ1iFRA1zwuDgGZCBJ4ByOzZ5J8joBbi4Oam0qiPH+GhzmSBwbJng==}
+
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
 
@@ -2206,7 +2209,7 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
-  '@cleocode/caamp@1.8.0':
+  '@cleocode/caamp@1.8.1':
     dependencies:
       '@cleocode/lafs-protocol': 1.8.0
       '@iarna/toml': 2.2.5
@@ -2216,7 +2219,7 @@ snapshots:
       js-yaml: 4.1.1
       jsonc-parser: 3.3.1
       picocolors: 1.1.1
-      simple-git: 3.32.2
+      simple-git: 3.33.0
     transitivePeerDependencies:
       - '@bufbuild/protobuf'
       - '@grpc/grpc-js'
@@ -3462,6 +3465,14 @@ snapshots:
   signal-exit@4.1.0: {}
 
   simple-git@3.32.2:
+    dependencies:
+      '@kwsites/file-exists': 1.1.1
+      '@kwsites/promise-deferred': 1.1.1
+      debug: 4.4.3
+    transitivePeerDependencies:
+      - supports-color
+
+  simple-git@3.33.0:
     dependencies:
       '@kwsites/file-exists': 1.1.1
       '@kwsites/promise-deferred': 1.1.1
