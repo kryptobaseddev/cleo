@@ -231,11 +231,11 @@ describe('updateTask', () => {
       await writeFile(
         join(env.cleoDir, 'config.json'),
         JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
-        lifecycle: { mode: 'off' },
-        verification: { enabled: false },
-        hierarchy: { maxDepth: 3, maxSiblings: 20 },
-      }),
+          enforcement: { session: { requiredForMutate: false } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+          hierarchy: { maxDepth: 3, maxSiblings: 20 },
+        }),
       );
 
       const result = await updateTask({ taskId: 'T002', parentId: 'T001' }, env.tempDir, accessor);
@@ -266,11 +266,11 @@ describe('updateTask', () => {
       await writeFile(
         join(env.cleoDir, 'config.json'),
         JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
-        lifecycle: { mode: 'off' },
-        verification: { enabled: false },
-        hierarchy: { maxDepth: 3, maxSiblings: 20 },
-      }),
+          enforcement: { session: { requiredForMutate: false } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+          hierarchy: { maxDepth: 3, maxSiblings: 20 },
+        }),
       );
 
       const result = await updateTask({ taskId: 'T002', parentId: null }, env.tempDir, accessor);
@@ -301,11 +301,11 @@ describe('updateTask', () => {
       await writeFile(
         join(env.cleoDir, 'config.json'),
         JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
-        lifecycle: { mode: 'off' },
-        verification: { enabled: false },
-        hierarchy: { maxDepth: 3, maxSiblings: 20 },
-      }),
+          enforcement: { session: { requiredForMutate: false } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+          hierarchy: { maxDepth: 3, maxSiblings: 20 },
+        }),
       );
 
       const result = await updateTask({ taskId: 'T002', parentId: '' }, env.tempDir, accessor);
@@ -336,11 +336,11 @@ describe('updateTask', () => {
       await writeFile(
         join(env.cleoDir, 'config.json'),
         JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
-        lifecycle: { mode: 'off' },
-        verification: { enabled: false },
-        hierarchy: { maxDepth: 3, maxSiblings: 20 },
-      }),
+          enforcement: { session: { requiredForMutate: false } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+          hierarchy: { maxDepth: 3, maxSiblings: 20 },
+        }),
       );
 
       await expect(
@@ -370,11 +370,11 @@ describe('updateTask', () => {
       await writeFile(
         join(env.cleoDir, 'config.json'),
         JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
-        lifecycle: { mode: 'off' },
-        verification: { enabled: false },
-        hierarchy: { maxDepth: 3, maxSiblings: 20 },
-      }),
+          enforcement: { session: { requiredForMutate: false } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+          hierarchy: { maxDepth: 3, maxSiblings: 20 },
+        }),
       );
 
       const result = await updateTask(

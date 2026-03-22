@@ -41,9 +41,12 @@ export async function createAcceptanceEnforcement(cwd?: string): Promise<Accepta
   const minCriteriaRaw = await getRawConfigValue('enforcement.acceptance.minimumCriteria', cwd);
   const defaultPriorityRaw = await getRawConfigValue('defaults.priority', cwd);
 
-  const mode = modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
-    ? modeRaw
-    : isTest ? 'off' : 'block';
+  const mode =
+    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
+      ? modeRaw
+      : isTest
+        ? 'off'
+        : 'block';
 
   const requiredForPriorities = Array.isArray(prioritiesRaw)
     ? prioritiesRaw.filter((p): p is string => typeof p === 'string')

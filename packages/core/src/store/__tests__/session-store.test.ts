@@ -8,7 +8,7 @@
  * @epic T4638
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
@@ -404,9 +404,27 @@ describe('SQLite session-store', () => {
       const db = await getDb();
       db.insert(tasksTable)
         .values([
-          { id: 'T001', title: 'Task T001', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T002', title: 'Task T002', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T003', title: 'Task T003', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Task T001',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T002',
+            title: 'Task T002',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T003',
+            title: 'Task T003',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
         ])
         .run();
       await createSession(makeSession({ id: 'sess-001' }));
@@ -430,9 +448,27 @@ describe('SQLite session-store', () => {
       const db = await getDb();
       db.insert(tasksTable)
         .values([
-          { id: 'T001', title: 'Task T001', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T002', title: 'Task T002', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: 'T003', title: 'Task T003', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+          {
+            id: 'T001',
+            title: 'Task T001',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T002',
+            title: 'Task T002',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'T003',
+            title: 'Task T003',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: new Date().toISOString(),
+          },
         ])
         .run();
       await createSession(makeSession({ id: 'sess-001' }));

@@ -76,15 +76,18 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const acceptanceMode =
     modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
       ? modeRaw
-      : isTest ? 'off' : 'block';
+      : isTest
+        ? 'off'
+        : 'block';
 
   const acceptanceRequiredForPriorities = Array.isArray(prioritiesRaw)
     ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
-    : isTest ? [] : ['critical', 'high', 'medium', 'low'];
+    : isTest
+      ? []
+      : ['critical', 'high', 'medium', 'low'];
 
-  const verificationEnabled = verificationEnabledRaw === true ? true
-    : verificationEnabledRaw === false ? false
-    : !isTest;
+  const verificationEnabled =
+    verificationEnabledRaw === true ? true : verificationEnabledRaw === false ? false : !isTest;
 
   const verificationRequiredGates = Array.isArray(verificationRequiredGatesRaw)
     ? verificationRequiredGatesRaw
@@ -104,7 +107,9 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
     lifecycleModeRaw === 'none' ||
     lifecycleModeRaw === 'off'
       ? lifecycleModeRaw
-      : isTest ? 'off' : 'strict';
+      : isTest
+        ? 'off'
+        : 'strict';
 
   return {
     acceptanceMode,

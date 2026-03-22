@@ -19,8 +19,13 @@ import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-help
 
 // Epic enforcement tests NEED enforcement active — temporarily clear VITEST
 const savedVitest = process.env.VITEST;
-beforeAll(() => { delete process.env.VITEST; });
-afterAll(() => { if (savedVitest) process.env.VITEST = savedVitest; });
+beforeAll(() => {
+  delete process.env.VITEST;
+});
+afterAll(() => {
+  if (savedVitest) process.env.VITEST = savedVitest;
+});
+
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { addTask } from '../add.js';
 import {
@@ -380,7 +385,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       id: 'T002',
       title: 'Child',
       description: 'Child',
-      status: 'in-progress',
+      status: 'active',
       priority: 'medium',
       type: 'task',
       parentId: 'T001',
@@ -416,7 +421,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       id: 'T002',
       title: 'Child',
       description: 'Child',
-      status: 'in-progress',
+      status: 'active',
       priority: 'medium',
       type: 'task',
       parentId: 'T001',

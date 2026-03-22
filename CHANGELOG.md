@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.3.58] (2026-03-22)
+
+### Added
+- **Enforcement gates**: Session required for mutations, AC required on creation (min 3), verification gates required for completion, orphan tasks blocked (must have parent epic) — all in strict mode
+- **Pipeline stage binding**: RCASD-IVTR+C auto-assignment, forward-only transitions (T060)
+- **Verification gate auto-init**: Tasks get verification metadata on creation (T061)
+- **Epic lifecycle enforcement**: Min 5 AC, child stage ceiling, advancement gates (T062)
+- **Workflow compliance telemetry**: `cleo stats compliance` dashboard (T065)
+- **Task backfill**: `cleo backfill [--dry-run]` for existing tasks (T066)
+- **Strictness presets**: `cleo config set-preset strict|standard|minimal` (T067)
+- **Agent dimension**: Execution learning, self-healing patterns (T034)
+- **Intelligence dimension**: Adaptive validation, confidence scoring (T035)
+- **ERD diagrams**: Mermaid ERDs for all 3 databases (T036)
+- **Skills updated**: Mandatory workflow rules WF-001 through WF-005 (T063)
+- **ct-validator skill**: Gate enforcement skill (T064)
+- **Agent code quality rules**: Added to AGENTS.md for all subagents
+
+### Fixed
+- CTE column mismatch (#61): Rewritten to column-independent ID-only pattern
+- Table constraint loss (#62): Migration uses proper CREATE TABLE with constraints
+- Session FK ordering: Insert new session before updating predecessor.nextSessionId
+- `closeDb()` production bug: Now resets `_initPromise` to prevent stale connections
+- `tasks.add` dispatch: acceptance, phase, size, notes, files params now passed through
+- `--acceptance` delimiter: Changed from comma to pipe for AC items with commas
+- Config templates: enforcement/verification/lifecycle fields added with strict defaults
+- `complete.ts` defaults: Corrected from warn→block, off→strict
+- Test infrastructure: 141→0 test failures via centralized VITEST enforcement bypass
+- Schema hardening: 9 composite indexes, 17 soft FKs hardened, PRAGMA foreign_keys=ON
+
+### Changed
+- Config templates ship with 100% strict enforcement defaults
+- `loadCompletionEnforcement` honors explicit config values in test mode
+
 ## [2026.3.57] (2026-03-21)
 
 ### Fixed

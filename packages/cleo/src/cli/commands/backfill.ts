@@ -33,13 +33,12 @@ export function registerBackfillCommand(program: Command): void {
       const root = getProjectRoot();
       const dryRun = !!opts.dryRun;
       const rollback = !!opts.rollback;
-      const taskIds =
-        opts.tasks && opts.tasks.trim()
-          ? opts.tasks
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : undefined;
+      const taskIds = opts.tasks?.trim()
+        ? opts.tasks
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined;
 
       if (dryRun) {
         console.log('[dry run] No changes will be made.\n');

@@ -585,10 +585,11 @@ describe('NexusHandler', () => {
       vi.mocked(nexusShareStatus).mockResolvedValue({
         success: true,
         data: {
-          hasGit: false,
-          remotes: [],
-          pendingChanges: 0,
-          lastSync: null,
+          mode: 'none',
+          allowlist: [],
+          denylist: [],
+          tracked: [],
+          ignored: [],
         },
       });
 
@@ -639,12 +640,15 @@ describe('NexusHandler', () => {
           skipped: 0,
           archived: 0,
           linksCreated: 0,
+          brainObservationsTransferred: 0,
           manifest: {
             sourceProject: 'src',
             targetProject: 'tgt',
             mode: 'copy',
+            scope: 'single',
             entries: [],
             idRemap: {},
+            brainObservationsTransferred: 0,
           },
         },
       });
@@ -674,12 +678,15 @@ describe('NexusHandler', () => {
           skipped: 0,
           archived: 0,
           linksCreated: 0,
+          brainObservationsTransferred: 0,
           manifest: {
             sourceProject: 'src',
             targetProject: 'tgt',
             mode: 'move',
+            scope: 'single',
             entries: [],
             idRemap: {},
+            brainObservationsTransferred: 0,
           },
         },
       });
@@ -780,7 +787,7 @@ describe('NexusHandler', () => {
     it('imports snapshot from input path', async () => {
       vi.mocked(nexusShareSnapshotImport).mockResolvedValue({
         success: true,
-        data: { imported: 5, skipped: 0, conflicts: 0 },
+        data: { added: 5, updated: 0, skipped: 0, conflicts: [] },
       });
 
       const result = await handler.mutate('share.snapshot.import', {
@@ -835,12 +842,15 @@ describe('NexusHandler', () => {
           skipped: 0,
           archived: 0,
           linksCreated: 2,
+          brainObservationsTransferred: 0,
           manifest: {
             sourceProject: 'src',
             targetProject: 'tgt',
             mode: 'copy',
+            scope: 'single',
             entries: [],
             idRemap: {},
+            brainObservationsTransferred: 0,
           },
         },
       });
@@ -872,12 +882,15 @@ describe('NexusHandler', () => {
           skipped: 0,
           archived: 1,
           linksCreated: 0,
+          brainObservationsTransferred: 0,
           manifest: {
             sourceProject: 'src',
             targetProject: 'tgt',
             mode: 'move',
+            scope: 'single',
             entries: [],
             idRemap: {},
+            brainObservationsTransferred: 0,
           },
         },
       });

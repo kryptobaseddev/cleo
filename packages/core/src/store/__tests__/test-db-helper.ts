@@ -8,7 +8,7 @@
  * @task T5244
  */
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -57,7 +57,9 @@ export async function createTestDb(): Promise<TestDbEnv> {
   const { readdirSync } = await import('node:fs');
   const contents = readdirSync(cleoDir);
   if (!contents.includes('config.json')) {
-    throw new Error(`createTestDb: config.json not found in ${cleoDir} after write (contents: ${JSON.stringify(contents)})`);
+    throw new Error(
+      `createTestDb: config.json not found in ${cleoDir} after write (contents: ${JSON.stringify(contents)})`,
+    );
   }
 
   const accessor = await createSqliteDataAccessor(tempDir);
@@ -66,7 +68,9 @@ export async function createTestDb(): Promise<TestDbEnv> {
   const { readdirSync: readdirSync2 } = await import('node:fs');
   const contentsAfterDb = readdirSync2(cleoDir);
   if (!contentsAfterDb.includes('config.json')) {
-    throw new Error(`createTestDb: config.json DELETED by createSqliteDataAccessor! ${cleoDir}: ${JSON.stringify(contentsAfterDb)}`);
+    throw new Error(
+      `createTestDb: config.json DELETED by createSqliteDataAccessor! ${cleoDir}: ${JSON.stringify(contentsAfterDb)}`,
+    );
   }
 
   return {
