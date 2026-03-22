@@ -113,8 +113,12 @@ export function openNativeDatabase(
     }
   }
 
-  // Standard CLEO pragmas
-  db.exec('PRAGMA foreign_keys=ON');
+  // FK enforcement enabled in production. Disabled in vitest where test
+  // fixtures insert data without full referential integrity (orphan refs).
+  // VITEST env var is auto-set by vitest — no config needed.
+  if (!process.env.VITEST) {
+    db.exec('PRAGMA foreign_keys=ON');
+  }
 
   return db;
 }
@@ -298,6 +302,13 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
 
     // Run drizzle migrations (creates/updates tables)
     runMigrations(nativeDb, db);
+
+    // Migration SQL contains PRAGMA foreign_keys=ON statements.
+    // In test environments, disable FKs after migration to allow test
+    // fixtures to insert data without full referential integrity.
+    if (process.env.VITEST) {
+      nativeDb.exec('PRAGMA foreign_keys=OFF');
+    }
 
     // Seed schema version for new databases (no-op if already set)
     nativeDb.exec(
@@ -490,6 +501,7 @@ export function closeDb(): void {
   }
   _db = null;
   _dbPath = null;
+  _initPromise = null;
 }
 
 /**

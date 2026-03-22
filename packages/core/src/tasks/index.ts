@@ -8,6 +8,7 @@ export {
   type AddTaskOptions,
   type AddTaskResult,
   addTask,
+  buildDefaultVerification,
   findRecentDuplicate,
   getNextPosition,
   getTaskDepth,

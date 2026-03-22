@@ -26,7 +26,7 @@ export function registerAddCommand(program: Command): void {
     .option('-d, --description <desc>', 'Task description')
     .option('-l, --labels <labels>', 'Comma-separated labels')
     .option('--files <files>', 'Comma-separated file paths')
-    .option('--acceptance <criteria>', 'Comma-separated acceptance criteria')
+    .option('--acceptance <criteria>', 'Pipe-separated acceptance criteria (e.g. "AC1|AC2|AC3")')
     .option('-D, --depends <ids>', 'Comma-separated dependency IDs')
     .option('--notes <note>', 'Initial note entry')
     .option('--position <pos>', 'Position within sibling group', parseInt)
@@ -51,7 +51,10 @@ export function registerAddCommand(program: Command): void {
       if (opts['files'])
         params['files'] = (opts['files'] as string).split(',').map((s) => s.trim());
       if (opts['acceptance'])
-        params['acceptance'] = (opts['acceptance'] as string).split(',').map((s) => s.trim());
+        params['acceptance'] = (opts['acceptance'] as string)
+          .split('|')
+          .map((s) => s.trim())
+          .filter(Boolean);
       if (opts['depends'])
         params['depends'] = (opts['depends'] as string).split(',').map((s) => s.trim());
       if (opts['notes'] !== undefined) params['notes'] = opts['notes'];

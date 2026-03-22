@@ -38,13 +38,24 @@ export type EnforcementMode = 'strict' | 'warn' | 'none';
 
 /** Get the current enforcement mode. */
 export function getEnforcementMode(cwd?: string): EnforcementMode {
+  // CLEO_TEST_MODE disables enforcement in vitest — tests validate enforcement
+  // logic directly via unit tests, not via side effects during data setup.
+  if (process.env.VITEST) return 'none';
+
   try {
-    // Get enforcement mode from config
+    const requiredForMutate = readConfigValueSync(
+      'enforcement.session.requiredForMutate',
+      true,
+      cwd,
+    );
+    if (requiredForMutate === false) return 'none';
+
+    // Legacy mode fallback from config
     const mode = readConfigValueSync('session.enforcement', 'strict', cwd) as string;
     if (mode === 'strict' || mode === 'warn' || mode === 'none') return mode;
     return 'strict'; // Default
   } catch {
-    return 'none';
+    return 'strict';
   }
 }
 

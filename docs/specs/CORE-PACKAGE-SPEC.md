@@ -730,6 +730,63 @@ The following breaking changes were introduced during the T029 Core Hardening in
 
 Consumers using the **Cleo facade** (`Cleo.init()`) are **NOT affected** -- the facade API is unchanged. These breaking changes only affect consumers that import internal functions directly from `@cleocode/core/internal` or submodule paths.
 
+### 15.6 New Features in T029 + T056 Release
+
+The following features were added during the T029 (Schema Architecture) and T056 (Task System Hardening) epics:
+
+#### Contract Changes
+
+| Change | Details |
+|--------|---------|
+| `Task.pipelineStage` added | Optional `string \| null` — RCASD-IVTR+C stage (T060) |
+| `TaskVerification.initializedAt` added | Optional `string \| null` — auto-set on task creation (T061) |
+
+#### New Internal Exports
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `backfillTasks` | `backfill/index.ts` | Retroactively add AC and verification to existing tasks (T066) |
+| `generateAcFromDescription` | `backfill/index.ts` | Generate acceptance criteria from task descriptions (T066) |
+| `buildDefaultVerification` | `tasks/add.ts` | Create default verification metadata (T061) |
+| `applyStrictnessPreset` | `config.ts` | Apply strict/standard/minimal preset (T067) |
+| `listStrictnessPresets` | `config.ts` | List available presets (T067) |
+| `STRICTNESS_PRESETS` | `config.ts` | Preset definitions (T067) |
+| `getWorkflowCompliance` | `stats/workflow-telemetry.ts` | Compute compliance metrics (T065) |
+| `validateEpicCreation` | `tasks/epic-enforcement.ts` | Enforce epic creation rules (T062) |
+| `validateChildStageCeiling` | `tasks/epic-enforcement.ts` | Prevent children from exceeding epic stage (T062) |
+| `validateEpicStageAdvancement` | `tasks/epic-enforcement.ts` | Gate epic stage advancement (T062) |
+| `PIPELINE_STAGES` | `tasks/pipeline-stage.ts` | Valid RCASD-IVTR+C stages (T060) |
+| `assignPipelineStage` | `tasks/pipeline-stage.ts` | Auto-assign pipeline stage (T060) |
+| `validateStageTransition` | `tasks/pipeline-stage.ts` | Forward-only stage transitions (T060) |
+| `BackfillOptions`, `BackfillResult`, `BackfillTaskChange` (types) | `backfill/index.ts` | Backfill operation types (T066) |
+
+#### New CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `cleo backfill [--dry-run]` | Backfill AC and verification for existing tasks (T066) |
+| `cleo compliance` | Show workflow compliance metrics dashboard (T065) |
+| `cleo config set-preset <preset>` | Apply strictness preset (strict/standard/minimal) (T067) |
+| `cleo config presets` | List available presets (T067) |
+
+#### New Dispatch Operations
+
+| Gateway | Domain | Operation | Purpose |
+|---------|--------|-----------|---------|
+| `query` | `check` | `workflow.compliance` | Compliance telemetry metrics (T065) |
+| `query` | `admin` | `config.presets` | List strictness presets (T067) |
+| `mutate` | `admin` | `config.set-preset` | Apply a preset (T067) |
+
+#### Schema Changes (Auto-Migration)
+
+| Change | Migration |
+|--------|-----------|
+| `tasks.pipeline_stage` column added | Auto-migrated via Drizzle on DB init |
+| `tasks.session_id` column added | Auto-migrated via Drizzle on DB init |
+| 9 composite indexes added | Auto-migrated via Drizzle on DB init |
+| 17 intra-DB soft FKs hardened | Auto-migrated via table rebuild pattern |
+| `PRAGMA foreign_keys = ON` enforced | Set on every DB connection open |
+
 ---
 
 ## 16. Build Architecture

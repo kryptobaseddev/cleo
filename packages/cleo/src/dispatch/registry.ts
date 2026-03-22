@@ -813,6 +813,26 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['chain'],
   },
+  // T065: Agent workflow compliance telemetry
+  {
+    gateway: 'query',
+    domain: 'check',
+    operation: 'workflow.compliance',
+    description:
+      'check.workflow.compliance (query) — WF-001..WF-005 compliance dashboard; AC rate, session rate, gate rate',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'since',
+        type: 'string',
+        required: false,
+        description: 'ISO 8601 date; only include tasks/events on or after this date',
+      },
+    ],
+  },
 
   {
     gateway: 'query',
@@ -839,6 +859,17 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'admin',
     operation: 'config.show',
     description: 'admin.config.show (query) — show config value',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'config.presets',
+    description:
+      'admin.config.presets (query) — list all strictness presets with descriptions and values',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -1962,6 +1993,25 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'admin',
+    operation: 'config.set-preset',
+    description:
+      'admin.config.set-preset (mutate) — apply a strictness preset (strict, standard, minimal)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['preset'],
+    params: [
+      {
+        name: 'preset',
+        type: 'string',
+        required: true,
+        description: 'Preset name: strict | standard | minimal',
+      },
+    ],
   },
   {
     gateway: 'mutate',

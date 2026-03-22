@@ -5,6 +5,7 @@
  *
  * @epic T4454
  * @task T4458
+ * @task T067
  */
 
 import { existsSync } from 'node:fs';
@@ -315,4 +316,129 @@ export async function setConfigValue(
   await saveJson(configPath, config);
 
   return { key, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
+}
+
+// ---------------------------------------------------------------------------
+// Strictness Presets (@task T067)
+// ---------------------------------------------------------------------------
+
+/** Valid preset names. */
+export type StrictnessPreset = 'strict' | 'standard' | 'minimal';
+
+/** A preset definition: the config keys it sets and a human description. */
+export interface PresetDefinition {
+  /** Short summary of what this preset enforces. */
+  description: string;
+  /** Flat dot-notation key/value pairs applied to project config. */
+  values: Record<string, unknown>;
+}
+
+/**
+ * All three strictness presets.
+ *
+ * strict   — block on missing AC, require sessions, enforce lifecycle pipeline
+ * standard — warn on missing AC, optional sessions, advisory pipeline
+ * minimal  — no AC checking, no session requirement, lifecycle off
+ */
+export const STRICTNESS_PRESETS: Record<StrictnessPreset, PresetDefinition> = {
+  strict: {
+    description:
+      'Block on missing acceptance criteria, require sessions, enforce lifecycle pipeline.',
+    values: {
+      'session.autoStart': false,
+      'session.requireNotes': true,
+      'session.multiSession': false,
+      'hierarchy.requireAcceptanceCriteria': true,
+      'lifecycle.mode': 'strict',
+    },
+  },
+  standard: {
+    description:
+      'Warn on missing acceptance criteria, optional sessions, advisory lifecycle pipeline.',
+    values: {
+      'session.autoStart': false,
+      'session.requireNotes': false,
+      'session.multiSession': true,
+      'hierarchy.requireAcceptanceCriteria': false,
+      'lifecycle.mode': 'advisory',
+    },
+  },
+  minimal: {
+    description: 'No acceptance criteria checking, no session requirement, lifecycle pipeline off.',
+    values: {
+      'session.autoStart': false,
+      'session.requireNotes': false,
+      'session.multiSession': true,
+      'hierarchy.requireAcceptanceCriteria': false,
+      'lifecycle.mode': 'off',
+    },
+  },
+};
+
+/** Result of applying a preset. */
+export interface ApplyPresetResult {
+  preset: StrictnessPreset;
+  description: string;
+  applied: Record<string, unknown>;
+  scope: 'project' | 'global';
+}
+
+/**
+ * Apply a strictness preset to the project (or global) config.
+ * Merges preset values over existing config — keys not covered by the preset
+ * are preserved unchanged.
+ * Idempotent: applying the same preset twice yields the same config.
+ *
+ * @task T067
+ */
+export async function applyStrictnessPreset(
+  preset: StrictnessPreset,
+  cwd?: string,
+  opts?: { global?: boolean },
+): Promise<ApplyPresetResult> {
+  const definition = STRICTNESS_PRESETS[preset];
+  const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
+
+  // Ensure config file exists
+  if (!existsSync(configPath)) {
+    const dir = dirname(configPath);
+    await mkdir(dir, { recursive: true });
+    await writeFile(configPath, '{}', 'utf-8');
+  }
+
+  const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
+
+  // Apply each preset key via dot-notation setter
+  for (const [key, value] of Object.entries(definition.values)) {
+    setNestedValue(config, key, value);
+  }
+
+  await saveJson(configPath, config);
+
+  return {
+    preset,
+    description: definition.description,
+    applied: definition.values,
+    scope: opts?.global ? 'global' : 'project',
+  };
+}
+
+/**
+ * List all available presets with their descriptions and values.
+ * Used by the CLI help output.
+ *
+ * @task T067
+ */
+export function listStrictnessPresets(): Array<{
+  name: StrictnessPreset;
+  description: string;
+  values: Record<string, unknown>;
+}> {
+  return (Object.entries(STRICTNESS_PRESETS) as Array<[StrictnessPreset, PresetDefinition]>).map(
+    ([name, def]) => ({
+      name,
+      description: def.description,
+      values: def.values,
+    }),
+  );
 }

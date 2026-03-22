@@ -9,6 +9,7 @@ import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleoco
 import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
+import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import {
@@ -21,7 +22,13 @@ import {
 } from './add.js';
 import { completeTask } from './complete.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import {
+  findEpicAncestor,
+  validateChildStageCeiling,
+  validateEpicStageAdvancement,
+} from './epic-enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
+import { validatePipelineTransition } from './pipeline-stage.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
   'title',
@@ -42,6 +49,7 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'blockedBy',
   'parentId',
   'noAutoComplete',
+  'pipelineStage',
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -70,6 +78,8 @@ export interface UpdateTaskOptions {
   blockedBy?: string;
   parentId?: string | null;
   noAutoComplete?: boolean;
+  /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
+  pipelineStage?: string;
 }
 
 /** Result of updating a task. */
@@ -94,6 +104,9 @@ export async function updateTask(
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
+
+  await requireActiveSession('tasks.update', cwd);
+
   const changes: string[] = [];
   const now = new Date().toISOString();
 
@@ -240,6 +253,43 @@ export async function updateTask(
   if (options.noAutoComplete !== undefined) {
     task.noAutoComplete = options.noAutoComplete;
     changes.push('noAutoComplete');
+  }
+
+  // Pipeline stage transition — forward-only (T060)
+  if (options.pipelineStage !== undefined) {
+    validatePipelineTransition(task.pipelineStage, options.pipelineStage);
+
+    // Epic stage advancement gate (T062): block advancement if children are in-flight
+    // at the current stage.
+    if (task.type === 'epic' && task.pipelineStage) {
+      await validateEpicStageAdvancement(
+        {
+          epicId: task.id,
+          currentStage: task.pipelineStage,
+          newStage: options.pipelineStage,
+        },
+        acc,
+        cwd,
+      );
+    }
+
+    // Child stage ceiling (T062): non-epic tasks cannot advance past their epic ancestor.
+    if (task.type !== 'epic') {
+      const epicAncestor = task.parentId ? await findEpicAncestor(task.parentId, acc) : null;
+      // Also check if the direct parent is an epic
+      const directParent = task.parentId ? await acc.loadSingleTask(task.parentId) : null;
+      const epicToCheck = directParent?.type === 'epic' ? directParent : epicAncestor;
+      if (epicToCheck) {
+        await validateChildStageCeiling(
+          { childStage: options.pipelineStage, epicId: epicToCheck.id },
+          acc,
+          cwd,
+        );
+      }
+    }
+
+    task.pipelineStage = options.pipelineStage;
+    changes.push('pipelineStage');
   }
 
   // Handle parentId change (reparent) using targeted queries

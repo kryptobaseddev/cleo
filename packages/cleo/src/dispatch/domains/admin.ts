@@ -43,7 +43,9 @@ import {
 import {
   backupRestore,
   configGet,
+  configListPresets,
   configSet,
+  configSetPreset,
   getVersion,
   initProject,
   sessionContextInject,
@@ -107,6 +109,11 @@ export class AdminHandler implements DomainHandler {
 
         case 'config.show': {
           const result = await configGet(projectRoot, params?.key as string | undefined);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'config.presets': {
+          const result = configListPresets();
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -576,6 +583,22 @@ export class AdminHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        case 'config.set-preset': {
+          const preset = params?.preset as string;
+          if (!preset) {
+            return errorResult(
+              'mutate',
+              'admin',
+              operation,
+              'E_INVALID_INPUT',
+              'preset is required (strict, standard, or minimal)',
+              startTime,
+            );
+          }
+          const result = await configSetPreset(projectRoot, preset);
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
         // Merged: backup absorbs restore and backup.restore via action param (T5615)
         case 'backup': {
           const action = params?.action as string | undefined;
@@ -1037,6 +1060,7 @@ export class AdminHandler implements DomainHandler {
         'version',
         'health',
         'config.show',
+        'config.presets',
         'stats',
         'context',
         'runtime',
@@ -1054,6 +1078,7 @@ export class AdminHandler implements DomainHandler {
       mutate: [
         'init',
         'config.set',
+        'config.set-preset',
         'backup',
         'migrate',
         'cleanup',

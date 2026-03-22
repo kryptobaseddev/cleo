@@ -397,6 +397,9 @@ describe('Migration Safety Integration Tests', () => {
       const tempDbPath = join(cleoDir, 'tasks.db.migrating');
       const result = await migrateJsonToSqliteAtomic(tempDir, tempDbPath);
 
+      if (!result.success) {
+        console.error('ATOMIC MIGRATION ERRORS:', JSON.stringify(result.errors, null, 2));
+      }
       expect(result.success).toBe(true);
 
       // Verify temp file was created

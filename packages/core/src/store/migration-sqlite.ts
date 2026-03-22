@@ -188,6 +188,12 @@ export async function migrateJsonToSqliteAtomic(
     const migrationsFolder = resolveMigrationsFolder();
     migrate(db, { migrationsFolder });
 
+    // Migration SQL contains PRAGMA foreign_keys=ON. In test mode, disable
+    // FKs so test fixtures can import data with orphan references.
+    if (process.env.VITEST) {
+      nativeDb.exec('PRAGMA foreign_keys=OFF');
+    }
+
     // Run the actual migration
     logger?.info('import', 'data-import', 'Starting data import from JSON files');
     await runMigrationDataImport(db, cleoDir, result, logger);

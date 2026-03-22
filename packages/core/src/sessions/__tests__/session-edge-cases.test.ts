@@ -6,7 +6,7 @@
  * @epic T4498
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,15 @@ beforeEach(async () => {
   cleoDir = join(tempDir, '.cleo');
   await mkdir(cleoDir, { recursive: true });
   await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
+  // Disable session enforcement and lifecycle so unit tests don't require active sessions.
+  await writeFile(
+    join(cleoDir, 'config.json'),
+    JSON.stringify({
+      enforcement: { session: { requiredForMutate: false } },
+      lifecycle: { mode: 'off' },
+      verification: { enabled: false },
+    }),
+  );
 });
 
 afterEach(async () => {
@@ -227,6 +236,20 @@ describe('Session GC edge cases', () => {
 
 describe('Session focus and notes', () => {
   it('session can start with focus task', async () => {
+    // Insert FK parent task: sessions.current_task -> tasks.id SET NULL.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    db.insert(tasksTable)
+      .values({
+        id: 'T002',
+        title: 'Focus task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+
     const session = await startSession(
       {
         name: 'Focused',

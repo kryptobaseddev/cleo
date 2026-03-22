@@ -8,6 +8,7 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { resetDbState } from '../../store/sqlite.js';
 import {
   addTask,
   findRecentDuplicate,
@@ -194,13 +195,28 @@ describe('addTask (integration)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    // Pin CLEO_DIR to the test cleoDir so concurrent workers cannot contaminate the path
+    process.env['CLEO_DIR'] = env.cleoDir;
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
   it('creates a task with default values', async () => {
+    // DEBUG: verify CLEO_DIR and config are correct
+    const { existsSync, readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const cleoDir = process.env['CLEO_DIR'];
+    console.log('DEBUG CLEO_DIR:', cleoDir);
+    console.log('DEBUG env.cleoDir:', env.cleoDir);
+    console.log('DEBUG match:', cleoDir === env.cleoDir);
+    console.log('DEBUG cleoDir exists:', existsSync(cleoDir!));
+    if (existsSync(cleoDir!)) {
+      console.log('DEBUG cleoDir contents:', readdirSync(cleoDir!));
+    }
     const result = await addTask(
       { title: 'Test task', description: 'A test task for defaults' },
       env.tempDir,

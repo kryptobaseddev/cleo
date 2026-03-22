@@ -27,7 +27,9 @@ export { mapCodebase } from '../engines/codebase-map-engine.js';
 // Config engine
 export {
   configGet,
+  configListPresets,
   configSet,
+  configSetPreset,
 } from '../engines/config-engine.js';
 // Init engine
 export {

@@ -34,6 +34,19 @@ export {
   isOverloaded,
   updateCapacity,
 } from './capacity.js';
+// Execution learning, failure pattern tracking, and self-healing
+export {
+  type AgentExecutionEvent,
+  type AgentExecutionOutcome,
+  type AgentPerformanceSummary,
+  getAgentPerformanceHistory,
+  getSelfHealingSuggestions,
+  type HealingSuggestion,
+  processAgentLifecycleEvent,
+  recordAgentExecution,
+  recordFailurePattern,
+  storeHealingStrategy,
+} from './execution-learning.js';
 // Registry (CRUD, heartbeat, health, errors)
 export {
   type AgentHealthReport,

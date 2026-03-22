@@ -6,6 +6,9 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
     hookTimeout: 60000,
+    // Note: VITEST env var is auto-set by vitest. Enforcement code checks
+    // process.env.VITEST to disable enforcement during test runs.
+    // Tests that validate enforcement directly must clear VITEST in beforeAll.
     include: [
       'packages/*/src/**/*.test.ts',
       'packages/*/src/**/__tests__/*.test.ts',

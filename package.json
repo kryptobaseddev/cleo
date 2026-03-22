@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/monorepo",
-  "version": "2026.3.45",
+  "version": "2026.3.57",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.0",
@@ -30,7 +30,9 @@
     "db:generate:custom": "drizzle-kit generate --custom --config drizzle/tasks.config.ts",
     "db:studio": "drizzle-kit studio --config drizzle/tasks.config.ts",
     "db:studio:brain": "drizzle-kit studio --config drizzle/brain.config.ts",
-    "db:studio:nexus": "drizzle-kit studio --config drizzle/nexus.config.ts"
+    "db:studio:nexus": "drizzle-kit studio --config drizzle/nexus.config.ts",
+    "version:check": "node scripts/check-version-sync.mjs",
+    "version:bump": "node scripts/version-all.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

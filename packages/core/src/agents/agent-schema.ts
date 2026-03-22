@@ -49,6 +49,11 @@ export const agentInstances = sqliteTable(
     id: text('id').primaryKey(),
     agentType: text('agent_type', { enum: AGENT_TYPES }).notNull(),
     status: text('status', { enum: AGENT_INSTANCE_STATUSES }).notNull().default('starting'),
+    // T033: FK constraints enforced at DB level by migration; kept soft here
+    // to avoid circular dependency with tasks-schema.ts (which imports agent-schema.ts).
+    // The migration SQL adds: session_id -> sessions ON DELETE SET NULL,
+    //                         task_id -> tasks ON DELETE SET NULL,
+    //                         parent_agent_id -> agent_instances ON DELETE SET NULL.
     sessionId: text('session_id'),
     taskId: text('task_id'),
     startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),

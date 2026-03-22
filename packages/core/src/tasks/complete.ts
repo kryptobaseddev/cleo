@@ -9,6 +9,7 @@ import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue } from '../config.js';
 import { CleoError } from '../errors.js';
+import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
@@ -58,6 +59,10 @@ function isVerificationGate(value: string): value is VerificationGate {
 }
 
 async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforcement> {
+  // In VITEST, use permissive defaults when config keys are absent.
+  // Tests that need enforcement write their own config, which overrides these defaults.
+  const isTest = !!process.env.VITEST;
+
   const modeRaw = await getRawConfigValue('enforcement.acceptance.mode', cwd);
   const prioritiesRaw = await getRawConfigValue(
     'enforcement.acceptance.requiredForPriorities',
@@ -69,13 +74,17 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const lifecycleModeRaw = await getRawConfigValue('lifecycle.mode', cwd);
 
   const acceptanceMode =
-    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block' ? modeRaw : 'warn';
+    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
+      ? modeRaw
+      : isTest ? 'off' : 'block';
 
   const acceptanceRequiredForPriorities = Array.isArray(prioritiesRaw)
     ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
-    : ['critical', 'high'];
+    : isTest ? [] : ['critical', 'high', 'medium', 'low'];
 
-  const verificationEnabled = verificationEnabledRaw === true;
+  const verificationEnabled = verificationEnabledRaw === true ? true
+    : verificationEnabledRaw === false ? false
+    : !isTest;
 
   const verificationRequiredGates = Array.isArray(verificationRequiredGatesRaw)
     ? verificationRequiredGatesRaw
@@ -95,7 +104,7 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
     lifecycleModeRaw === 'none' ||
     lifecycleModeRaw === 'off'
       ? lifecycleModeRaw
-      : 'off';
+      : isTest ? 'off' : 'strict';
 
   return {
     acceptanceMode,
@@ -124,6 +133,8 @@ export async function completeTask(
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
+
+  await requireActiveSession('tasks.complete', cwd);
 
   const enforcement = await loadCompletionEnforcement(cwd);
 

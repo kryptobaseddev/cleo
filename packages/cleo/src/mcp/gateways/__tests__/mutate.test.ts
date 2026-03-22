@@ -55,7 +55,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.memory.length).toBe(7);
     expect(MUTATE_OPERATIONS.check.length).toBe(4);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(17);
-    expect(MUTATE_OPERATIONS.admin.length).toBe(16);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(17);
     expect(MUTATE_OPERATIONS.tools.length).toBe(6);
     expect(MUTATE_OPERATIONS.nexus.length).toBe(9); // Includes share.* + transfer operations
     expect(getMutateOperationCount('nexus')).toBe(9);
@@ -466,7 +466,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('memory')).toBe(7);
     expect(getMutateOperationCount('check')).toBe(4);
     expect(getMutateOperationCount('pipeline')).toBe(17);
-    expect(getMutateOperationCount('admin')).toBe(16);
+    expect(getMutateOperationCount('admin')).toBe(17);
     expect(getMutateOperationCount('tools')).toBe(6);
     expect(getMutateOperationCount('sticky')).toBe(4);
     expect(getMutateOperationCount('nexus')).toBe(9);

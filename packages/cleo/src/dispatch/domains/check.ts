@@ -12,7 +12,13 @@
  */
 
 import type { WarpChain } from '@cleocode/contracts';
-import { getLogger, getProjectRoot, paginate, validateChain } from '@cleocode/core/internal';
+import {
+  getLogger,
+  getProjectRoot,
+  getWorkflowComplianceReport,
+  paginate,
+  validateChain,
+} from '@cleocode/core/internal';
 
 import {
   systemArchiveStats,
@@ -304,6 +310,20 @@ export class CheckHandler implements DomainHandler {
           };
         }
 
+        // T065: Workflow compliance telemetry — WF-001 through WF-005
+        case 'workflow.compliance': {
+          const since = params?.since as string | undefined;
+          const result = await getWorkflowComplianceReport({
+            since,
+            cwd: projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('query', 'check', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return unsupportedOp('query', 'check', operation, startTime);
       }
@@ -423,6 +443,7 @@ export class CheckHandler implements DomainHandler {
         'manifest',
         'output',
         'compliance.summary',
+        'workflow.compliance',
         'test',
         'coherence',
         'gate.status',

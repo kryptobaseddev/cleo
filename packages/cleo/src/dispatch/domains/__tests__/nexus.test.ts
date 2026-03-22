@@ -33,22 +33,32 @@ vi.mock('../../engines/nexus-engine.js', () => ({
   nexusShareStatus: vi.fn(),
   nexusShareSnapshotExport: vi.fn(),
   nexusShareSnapshotImport: vi.fn(),
+  nexusTransferPreview: vi.fn(),
+  nexusTransferExecute: vi.fn(),
 }));
 
 import {
   nexusBlockers,
   nexusCriticalPath,
   nexusDepsQuery,
+  nexusDiscover,
   nexusGraph,
   nexusInitialize,
   nexusListProjects,
   nexusOrphans,
+  nexusReconcileProject,
   nexusRegisterProject,
   nexusResolve,
+  nexusSearch,
   nexusSetPermission,
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusShareStatus,
   nexusShowProject,
   nexusStatus,
   nexusSyncProject,
+  nexusTransferExecute,
+  nexusTransferPreview,
   nexusUnregisterProject,
 } from '../../engines/nexus-engine.js';
 import { NexusHandler } from '../nexus.js';
@@ -474,6 +484,437 @@ describe('NexusHandler', () => {
 
       expect(result.success).toBe(true);
       expect(nexusSetPermission).toHaveBeenCalledWith('project-a', 'write');
+    });
+  });
+
+  describe('query: discover', () => {
+    it('returns error when query param is missing', async () => {
+      const result = await handler.query('discover', {});
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('discovers related tasks across projects', async () => {
+      vi.mocked(nexusDiscover).mockResolvedValue({
+        success: true,
+        data: {
+          query: 'project-a:T001',
+          method: 'auto',
+          results: [
+            {
+              project: 'project-b',
+              taskId: 'T010',
+              title: 'Related task',
+              score: 0.85,
+              type: 'labels',
+              reason: 'shared label: auth',
+            },
+          ],
+          total: 1,
+        },
+      });
+
+      const result = await handler.query('discover', {
+        query: 'project-a:T001',
+        method: 'auto',
+        limit: 10,
+      });
+
+      expect(result.success).toBe(true);
+      expect(nexusDiscover).toHaveBeenCalledWith('project-a:T001', 'auto', 10);
+    });
+
+    it('uses default method=auto and limit=10 when not provided', async () => {
+      vi.mocked(nexusDiscover).mockResolvedValue({
+        success: true,
+        data: { query: 'p:T001', method: 'auto', results: [], total: 0 },
+      });
+
+      await handler.query('discover', { query: 'p:T001' });
+
+      expect(nexusDiscover).toHaveBeenCalledWith('p:T001', 'auto', 10);
+    });
+  });
+
+  describe('query: search', () => {
+    it('returns error when pattern param is missing', async () => {
+      const result = await handler.query('search', {});
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('searches tasks across projects by pattern', async () => {
+      vi.mocked(nexusSearch).mockResolvedValue({
+        success: true,
+        data: {
+          pattern: 'auth',
+          results: [
+            { id: 'T001', title: 'Auth API', status: 'active', _project: 'backend' },
+            { id: 'T100', title: 'Auth UI', status: 'blocked', _project: 'frontend' },
+          ],
+          resultCount: 2,
+        },
+      });
+
+      const result = await handler.query('search', {
+        pattern: 'auth',
+        project: 'backend',
+        limit: 20,
+      });
+
+      expect(result.success).toBe(true);
+      expect(nexusSearch).toHaveBeenCalledWith('auth', 'backend', 20);
+    });
+
+    it('uses default limit=20 when not provided', async () => {
+      vi.mocked(nexusSearch).mockResolvedValue({
+        success: true,
+        data: { pattern: 'test', results: [], resultCount: 0 },
+      });
+
+      await handler.query('search', { pattern: 'test' });
+
+      expect(nexusSearch).toHaveBeenCalledWith('test', undefined, 20);
+    });
+  });
+
+  describe('query: share.status', () => {
+    it('returns sharing status for project root', async () => {
+      vi.mocked(nexusShareStatus).mockResolvedValue({
+        success: true,
+        data: {
+          hasGit: false,
+          remotes: [],
+          pendingChanges: 0,
+          lastSync: null,
+        },
+      });
+
+      const result = await handler.query('share.status');
+
+      expect(result.success).toBe(true);
+      expect(nexusShareStatus).toHaveBeenCalledWith('/mock/project');
+    });
+  });
+
+  describe('query: transfer.preview', () => {
+    it('returns error when taskIds is missing', async () => {
+      const result = await handler.query('transfer.preview', {
+        sourceProject: 'src',
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns error when sourceProject is missing', async () => {
+      const result = await handler.query('transfer.preview', {
+        taskIds: ['T001'],
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns error when targetProject is missing', async () => {
+      const result = await handler.query('transfer.preview', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('previews a transfer with default mode=copy and scope=subtree', async () => {
+      vi.mocked(nexusTransferPreview).mockResolvedValue({
+        success: true,
+        data: {
+          dryRun: true,
+          transferred: 3,
+          skipped: 0,
+          archived: 0,
+          linksCreated: 0,
+          manifest: {
+            sourceProject: 'src',
+            targetProject: 'tgt',
+            mode: 'copy',
+            entries: [],
+            idRemap: {},
+          },
+        },
+      });
+
+      const result = await handler.query('transfer.preview', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(true);
+      expect(nexusTransferPreview).toHaveBeenCalledWith({
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'copy',
+        scope: 'subtree',
+      });
+    });
+
+    it('accepts explicit mode and scope parameters', async () => {
+      vi.mocked(nexusTransferPreview).mockResolvedValue({
+        success: true,
+        data: {
+          dryRun: true,
+          transferred: 1,
+          skipped: 0,
+          archived: 0,
+          linksCreated: 0,
+          manifest: {
+            sourceProject: 'src',
+            targetProject: 'tgt',
+            mode: 'move',
+            entries: [],
+            idRemap: {},
+          },
+        },
+      });
+
+      await handler.query('transfer.preview', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'move',
+        scope: 'single',
+      });
+
+      expect(nexusTransferPreview).toHaveBeenCalledWith({
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'move',
+        scope: 'single',
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mutate operations (additional)
+  // -----------------------------------------------------------------------
+
+  describe('mutate: reconcile', () => {
+    it('reconciles using process.cwd() when projectRoot is omitted', async () => {
+      vi.mocked(nexusReconcileProject).mockResolvedValue({
+        success: true,
+        data: { status: 'ok' },
+      });
+
+      const result = await handler.mutate('reconcile', {});
+
+      expect(result.success).toBe(true);
+      expect(nexusReconcileProject).toHaveBeenCalledWith(process.cwd());
+    });
+
+    it('reconciles using explicit projectRoot when provided', async () => {
+      vi.mocked(nexusReconcileProject).mockResolvedValue({
+        success: true,
+        data: { status: 'auto_registered' },
+      });
+
+      const result = await handler.mutate('reconcile', { projectRoot: '/custom/path' });
+
+      expect(result.success).toBe(true);
+      expect(nexusReconcileProject).toHaveBeenCalledWith('/custom/path');
+    });
+
+    it('propagates error from engine', async () => {
+      vi.mocked(nexusReconcileProject).mockResolvedValue({
+        success: false,
+        error: { code: 'E_INTERNAL', message: 'Registry corrupt' },
+      });
+
+      const result = await handler.mutate('reconcile', {});
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INTERNAL');
+    });
+  });
+
+  describe('mutate: share.snapshot.export', () => {
+    it('exports snapshot using project root', async () => {
+      vi.mocked(nexusShareSnapshotExport).mockResolvedValue({
+        success: true,
+        data: { path: '/mock/project/.cleo/snapshot.json', taskCount: 5, checksum: 'abc123' },
+      });
+
+      const result = await handler.mutate('share.snapshot.export', {});
+
+      expect(result.success).toBe(true);
+      expect(nexusShareSnapshotExport).toHaveBeenCalledWith('/mock/project', undefined);
+    });
+
+    it('exports snapshot to explicit output path', async () => {
+      vi.mocked(nexusShareSnapshotExport).mockResolvedValue({
+        success: true,
+        data: { path: '/custom/output.json', taskCount: 3, checksum: 'def456' },
+      });
+
+      await handler.mutate('share.snapshot.export', { outputPath: '/custom/output.json' });
+
+      expect(nexusShareSnapshotExport).toHaveBeenCalledWith('/mock/project', '/custom/output.json');
+    });
+  });
+
+  describe('mutate: share.snapshot.import', () => {
+    it('returns error when inputPath is missing', async () => {
+      const result = await handler.mutate('share.snapshot.import', {});
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('imports snapshot from input path', async () => {
+      vi.mocked(nexusShareSnapshotImport).mockResolvedValue({
+        success: true,
+        data: { imported: 5, skipped: 0, conflicts: 0 },
+      });
+
+      const result = await handler.mutate('share.snapshot.import', {
+        inputPath: '/path/to/snapshot.json',
+      });
+
+      expect(result.success).toBe(true);
+      expect(nexusShareSnapshotImport).toHaveBeenCalledWith(
+        '/mock/project',
+        '/path/to/snapshot.json',
+      );
+    });
+  });
+
+  describe('mutate: transfer', () => {
+    it('returns error when taskIds is missing', async () => {
+      const result = await handler.mutate('transfer', {
+        sourceProject: 'src',
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns error when sourceProject is missing', async () => {
+      const result = await handler.mutate('transfer', {
+        taskIds: ['T001'],
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns error when targetProject is missing', async () => {
+      const result = await handler.mutate('transfer', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('executes transfer with default mode=copy, scope=subtree, onConflict=rename', async () => {
+      vi.mocked(nexusTransferExecute).mockResolvedValue({
+        success: true,
+        data: {
+          dryRun: false,
+          transferred: 3,
+          skipped: 0,
+          archived: 0,
+          linksCreated: 2,
+          manifest: {
+            sourceProject: 'src',
+            targetProject: 'tgt',
+            mode: 'copy',
+            entries: [],
+            idRemap: {},
+          },
+        },
+      });
+
+      const result = await handler.mutate('transfer', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(true);
+      expect(nexusTransferExecute).toHaveBeenCalledWith({
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'copy',
+        scope: 'subtree',
+        onConflict: 'rename',
+        transferBrain: false,
+      });
+    });
+
+    it('accepts explicit mode, scope, onConflict, and transferBrain', async () => {
+      vi.mocked(nexusTransferExecute).mockResolvedValue({
+        success: true,
+        data: {
+          dryRun: false,
+          transferred: 1,
+          skipped: 0,
+          archived: 1,
+          linksCreated: 0,
+          manifest: {
+            sourceProject: 'src',
+            targetProject: 'tgt',
+            mode: 'move',
+            entries: [],
+            idRemap: {},
+          },
+        },
+      });
+
+      await handler.mutate('transfer', {
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'move',
+        scope: 'single',
+        onConflict: 'skip',
+        transferBrain: true,
+      });
+
+      expect(nexusTransferExecute).toHaveBeenCalledWith({
+        taskIds: ['T001'],
+        sourceProject: 'src',
+        targetProject: 'tgt',
+        mode: 'move',
+        scope: 'single',
+        onConflict: 'skip',
+        transferBrain: true,
+      });
+    });
+
+    it('propagates engine errors as E_INTERNAL', async () => {
+      vi.mocked(nexusTransferExecute).mockRejectedValue(new Error('Source project not found'));
+
+      const result = await handler.mutate('transfer', {
+        taskIds: ['T001'],
+        sourceProject: 'nonexistent',
+        targetProject: 'tgt',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INTERNAL');
+      expect(result.error?.message).toBe('Source project not found');
     });
   });
 

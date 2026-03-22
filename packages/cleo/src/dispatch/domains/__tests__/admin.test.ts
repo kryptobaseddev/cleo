@@ -172,6 +172,7 @@ describe('AdminHandler', () => {
         'version',
         'health',
         'config.show',
+        'config.presets',
         'stats',
         'context',
         'runtime',
@@ -193,6 +194,7 @@ describe('AdminHandler', () => {
       expect(ops.mutate).toEqual([
         'init',
         'config.set',
+        'config.set-preset',
         'backup',
         'migrate',
         'cleanup',

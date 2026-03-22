@@ -82,6 +82,8 @@ export interface TaskVerification {
   lastAgent: VerificationAgent | null;
   lastUpdated: string | null;
   failureLog: VerificationFailure[];
+  /** ISO timestamp set when verification was first initialized on task creation (T061). */
+  initializedAt?: string | null;
 }
 
 /** Task provenance tracking. */
@@ -201,6 +203,17 @@ export interface Task {
 
   /** Provenance tracking (who created/modified, which session). */
   provenance?: TaskProvenance | null;
+
+  /**
+   * RCASD-IVTR+C pipeline stage this task is associated with.
+   *
+   * Valid values: research, consensus, architecture_decision, specification,
+   * decomposition, implementation, validation, testing, release, contribution.
+   *
+   * Auto-assigned on creation; only moves forward through stages.
+   * @task T060
+   */
+  pipelineStage?: string | null;
 }
 
 // ---------------------------------------------------------------------------

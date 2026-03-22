@@ -12,15 +12,24 @@ import type {
   TaskSize,
   TaskStatus,
   TaskType,
+  TaskVerification,
 } from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
 import { ExitCode, TASK_STATUSES } from '@cleocode/contracts';
-import { loadConfig } from '../config.js';
+import { getRawConfigValue, loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { allocateNextTaskId } from '../sequence/index.js';
+import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import {
+  findEpicAncestor,
+  getLifecycleMode,
+  validateChildStageCeiling,
+  validateEpicCreation,
+} from './epic-enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
+import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
 
 /**
  * Options for creating a task.
@@ -45,6 +54,8 @@ export interface AddTaskOptions {
   position?: number;
   addPhase?: boolean;
   dryRun?: boolean;
+  /** RCASD-IVTR+C pipeline stage to assign. Auto-resolved if not provided. @task T060 */
+  pipelineStage?: string;
 }
 
 /** Result of adding a task. */
@@ -52,6 +63,28 @@ export interface AddTaskResult {
   task: Task;
   duplicate?: boolean;
   dryRun?: boolean;
+}
+
+/**
+ * Build the default verification metadata applied to every new task.
+ * Gates are initialized to false (not yet passed). `passed` starts false
+ * because no gates have been verified yet.
+ * @task T061
+ */
+export function buildDefaultVerification(initializedAt: string): TaskVerification {
+  return {
+    passed: false,
+    round: 1,
+    gates: {
+      implemented: false,
+      testsPassed: false,
+      qaPassed: false,
+    },
+    lastAgent: null,
+    lastUpdated: null,
+    failureLog: [],
+    initializedAt,
+  };
 }
 
 /**
@@ -406,6 +439,24 @@ export async function addTask(
     );
   }
 
+  await requireActiveSession('tasks.add', cwd);
+
+  // Orphan prevention (T101): non-epic tasks must have a parent in strict mode.
+  // Epics are root containers and are exempt. Only enforced in strict lifecycle mode.
+  const parentId = options.parentId ?? null;
+  if (!parentId && options.type !== 'epic') {
+    const lifecycleMode = await getLifecycleMode(cwd);
+    if (lifecycleMode === 'strict') {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId> or set lifecycle.mode to "advisory".',
+        {
+          fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
+        },
+      );
+    }
+  }
+
   // Always use accessor (SQLite canonical storage per ADR-006)
   const dataAccessor =
     accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
@@ -415,7 +466,6 @@ export async function addTask(
   const priority = normalizePriority(options.priority ?? 'medium');
   const size = options.size ?? 'medium';
   let taskType = options.type;
-  const parentId = options.parentId ?? null;
 
   // Validate inputs
   validateStatus(status);
@@ -423,7 +473,7 @@ export async function addTask(
   validateSize(size);
   if (options.labels?.length) validateLabels(options.labels);
 
-  // Enforce Acceptance Criteria
+  // Enforce Acceptance Criteria (general rule: min 3 for all task types)
   const enforcement = await createAcceptanceEnforcement(cwd);
   const acValidation = enforcement.validateCreation({
     acceptance: options.acceptance,
@@ -433,6 +483,16 @@ export async function addTask(
     throw new CleoError(acValidation.exitCode ?? ExitCode.VALIDATION_ERROR, acValidation.error!, {
       fix: acValidation.fix,
     });
+  }
+
+  // Epic-specific creation enforcement (T062): min 5 AC + non-empty description.
+  // This runs after general AC enforcement so epics face both the general check
+  // (min 3 from enforcement config) AND the stricter epic check (min 5).
+  if (options.type === 'epic') {
+    await validateEpicCreation(
+      { acceptance: options.acceptance, description: options.description },
+      cwd,
+    );
   }
 
   // Validate dependency IDs exist using targeted queries
@@ -570,6 +630,11 @@ export async function addTask(
     }
   }
 
+  // Validate explicit pipelineStage if provided (T060)
+  if (options.pipelineStage) {
+    validatePipelineStage(options.pipelineStage);
+  }
+
   // Duplicate detection using targeted query
   const { tasks: candidateDupes } = await dataAccessor.queryTasks({
     search: options.title,
@@ -583,6 +648,41 @@ export async function addTask(
   const taskId = await allocateNextTaskId(cwd);
 
   const now = new Date().toISOString();
+
+  // Resolve pipeline stage: explicit > parent inheritance > type default (T060)
+  let resolvedParentForStage: import('./pipeline-stage.js').ResolvedParent | null = null;
+  if (parentId) {
+    // Re-use the already-validated parent task (loaded above)
+    const parentForStage = await dataAccessor.loadSingleTask(parentId);
+    resolvedParentForStage = parentForStage
+      ? { pipelineStage: parentForStage.pipelineStage, type: parentForStage.type }
+      : null;
+  }
+  const resolvedPipelineStage = resolveDefaultPipelineStage({
+    explicitStage: options.pipelineStage,
+    taskType: taskType ?? null,
+    parentTask: resolvedParentForStage,
+  });
+
+  // Child stage ceiling check (T062): child stage must not exceed parent epic's stage.
+  // If the direct parent is an epic, check against it; otherwise walk ancestors.
+  if (parentId && taskType !== 'epic') {
+    let epicToCheck: import('@cleocode/contracts').Task | null = null;
+    if (resolvedParentForStage?.type === 'epic') {
+      // Direct parent is an epic — load its full record to pass to validateChildStageCeiling
+      epicToCheck = await dataAccessor.loadSingleTask(parentId);
+    } else {
+      // Walk up from the parent to find the nearest epic ancestor
+      epicToCheck = await findEpicAncestor(parentId, dataAccessor);
+    }
+    if (epicToCheck) {
+      await validateChildStageCeiling(
+        { childStage: resolvedPipelineStage, epicId: epicToCheck.id },
+        dataAccessor,
+        cwd,
+      );
+    }
+  }
 
   // Compute next position using SQL-level allocation (race-safe, T024)
   let position: number;
@@ -608,6 +708,9 @@ export async function addTask(
     updatedAt: now,
   };
 
+  // Assign pipeline stage (always set — auto-assigned if not explicit) (T060)
+  task.pipelineStage = resolvedPipelineStage;
+
   // Add optional fields
   if (phase) task.phase = phase;
   if (options.labels?.length) task.labels = options.labels.map((l) => l.trim());
@@ -626,6 +729,16 @@ export async function addTask(
   }
   if (status === 'done') {
     task.completedAt = now;
+  }
+
+  // Auto-initialize verification metadata on task creation (T061).
+  // Only for non-epic tasks when verification is enabled in config.
+  // Epics are containers and do not go through verification gates themselves.
+  if (taskType !== 'epic') {
+    const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
+    if (verificationEnabledRaw === true) {
+      task.verification = buildDefaultVerification(now);
+    }
   }
 
   // Dry run

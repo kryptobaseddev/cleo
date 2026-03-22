@@ -560,46 +560,38 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const nativeDb = getNativeTasksDb();
       if (!nativeDb) return [];
 
-      const rows = nativeDb
+      const idRows = nativeDb
         .prepare(
-          `WITH RECURSIVE ancestors(id, title, description, status, priority, type, parent_id,
-              phase, size, position, position_version, labels_json, notes_json, acceptance_json,
-              files_json, origin, blocked_by, epic_lifecycle, no_auto_complete, created_at,
-              updated_at, completed_at, cancelled_at, cancellation_reason, archived_at,
-              archive_reason, cycle_time_days, verification_json, created_by, modified_by,
-              session_id, depth) AS (
-            SELECT *, 0 FROM tasks WHERE id = ?
+          `WITH RECURSIVE ancestor_ids(id, depth) AS (
+            SELECT parent_id, 0 FROM tasks WHERE id = ? AND parent_id IS NOT NULL
             UNION ALL
-            SELECT t.*, a.depth + 1 FROM tasks t
-            JOIN ancestors a ON t.id = a.parent_id
-            WHERE a.parent_id IS NOT NULL
+            SELECT t.parent_id, a.depth + 1 FROM tasks t
+            JOIN ancestor_ids a ON t.id = a.id
+            WHERE t.parent_id IS NOT NULL
           )
-          SELECT * FROM ancestors WHERE id != ? ORDER BY depth DESC`,
+          SELECT id FROM ancestor_ids ORDER BY depth DESC`,
         )
-        .all(taskId, taskId) as Array<Record<string, unknown>>;
+        .all(taskId) as Array<{ id: string }>;
 
-      // Convert raw rows — they have snake_case column names from native SQLite
+      if (idRows.length === 0) return [];
+
       const db = await getDb(cwd);
-      const tasks: Task[] = [];
-      for (const raw of rows) {
-        const id = raw.id as string;
-        // Use Drizzle for proper conversion
-        const drizzleRows = await db
-          .select()
-          .from(schema.tasks)
-          .where(eq(schema.tasks.id, id))
-          .limit(1)
-          .all();
-        if (drizzleRows[0]) {
-          tasks.push(rowToTask(drizzleRows[0]));
-        }
-      }
+      const ids = idRows.map((r: { id: string }) => r.id);
+      const taskRows = await db
+        .select()
+        .from(schema.tasks)
+        .where(inArray(schema.tasks.id, ids))
+        .all();
 
+      const tasks = taskRows.map(rowToTask);
       if (tasks.length > 0) {
         const allIds = await getAllTaskIds();
         await loadDependenciesForTasks(db, tasks, allIds);
         await loadRelationsForTasks(db, tasks);
       }
+      // Preserve depth order (ancestors from root down)
+      const orderMap = new Map(ids.map((id: string, i: number) => [id, i]));
+      tasks.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
       return tasks;
     },
 

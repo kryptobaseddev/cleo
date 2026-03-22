@@ -126,7 +126,7 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 #### 2.1.3 Data Structures
 
-> **Storage Note (ADR-006 / ADR-009)**: BRAIN memory data is stored in dedicated `.cleo/brain.db` (SQLite via Drizzle ORM). Schema defined in `packages/core/src/store/brain-schema.ts`. Tables shipped: `brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_observations`, `brain_memory_links`, `brain_schema_meta`. Legacy JSONL files remain for backward compatibility but brain.db is the canonical store. 5,122 observations migrated from claude-mem via `src/core/memory/claude-mem-migration.ts`.
+> **Storage Note (ADR-006 / ADR-009)**: BRAIN memory data is stored in dedicated `.cleo/brain.db` (SQLite via Drizzle ORM). Schema defined in `packages/core/src/store/brain-schema.ts`. Tables shipped: `brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_observations`, `brain_memory_links`, `brain_sticky_notes`, `brain_page_nodes`, `brain_page_edges`, `brain_schema_meta`. Legacy JSONL files remain for backward compatibility but brain.db is the canonical store. 5,122 observations migrated from claude-mem. For the full table reference see `docs/architecture/DATABASE-ERDS.md` section 2.
 
 **Session Context** — stored in `sessions` table (`.cleo/tasks.db`, per ADR-006)
 
@@ -1685,7 +1685,7 @@ All 5 dimensions MUST meet certification criteria:
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ NETWORK LAYER (Cross-Project) — SQLite per ADR-006           │
-│ - Global Registry (~/.cleo/nexus.db)                        │
+│ - Global Registry (~/.local/share/cleo/nexus.db)            │
 │ - Global patterns (nexus.db — future table)                 │
 │ - Agent registry (federated, Phase 3)                        │
 └─────────────────────────────────────────────────────────────┘

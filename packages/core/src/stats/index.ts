@@ -414,3 +414,10 @@ export async function getCompletionHistory(opts: {
     dailyCounts,
   };
 }
+
+// Re-export workflow telemetry (T065)
+export {
+  getWorkflowComplianceReport,
+  type WorkflowComplianceReport,
+  type WorkflowRuleMetric,
+} from './workflow-telemetry.js';

@@ -29,11 +29,18 @@ export function registerUpdateCommand(program: Command): void {
     .option('--add-depends <ids>', 'Add dependencies (comma-separated)')
     .option('--remove-depends <ids>', 'Remove dependencies (comma-separated)')
     .option('--notes <note>', 'Add a note')
-    .option('--acceptance <criteria>', 'Set acceptance criteria (comma-separated)')
+    .option(
+      '--acceptance <criteria>',
+      'Set acceptance criteria (pipe-separated, e.g. "AC1|AC2|AC3")',
+    )
     .option('--files <files>', 'Set files (comma-separated)')
     .option('--blocked-by <reason>', 'Set blocked-by reason')
     .option('--parent <id>', 'Set parent ID')
     .option('--no-auto-complete', 'Disable auto-complete for epic')
+    .option(
+      '--pipeline-stage <stage>',
+      'Set pipeline stage (forward-only: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution)',
+    )
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       const params: Record<string, unknown> = { taskId };
 
@@ -58,12 +65,16 @@ export function registerUpdateCommand(program: Command): void {
         params['removeDepends'] = (opts['removeDepends'] as string).split(',').map((s) => s.trim());
       if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
       if (opts['acceptance'])
-        params['acceptance'] = (opts['acceptance'] as string).split(',').map((s) => s.trim());
+        params['acceptance'] = (opts['acceptance'] as string)
+          .split('|')
+          .map((s) => s.trim())
+          .filter(Boolean);
       if (opts['files'])
         params['files'] = (opts['files'] as string).split(',').map((s) => s.trim());
       if (opts['blockedBy'] !== undefined) params['blockedBy'] = opts['blockedBy'];
       if (opts['parent'] !== undefined) params['parent'] = opts['parent'];
       if (opts['autoComplete'] === false) params['noAutoComplete'] = true;
+      if (opts['pipelineStage'] !== undefined) params['pipelineStage'] = opts['pipelineStage'];
 
       await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
     });

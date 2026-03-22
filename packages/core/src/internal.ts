@@ -33,6 +33,9 @@ export { findAdrs } from './adrs/find.js';
 export { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from './adrs/index.js';
 // Audit
 export type { AuditEntry } from './audit.js';
+// Backfill
+export type { BackfillOptions, BackfillResult, BackfillTaskChange } from './backfill/index.js';
+export { backfillTasks, generateAcFromDescription } from './backfill/index.js';
 export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
 // Bootstrap (global setup)
 export {
@@ -348,6 +351,12 @@ export {
 } from './snapshot/index.js';
 // System
 export { getDashboard, getProjectStats } from './stats/index.js';
+// Workflow telemetry (T065)
+export {
+  getWorkflowComplianceReport,
+  type WorkflowComplianceReport,
+  type WorkflowRuleMetric,
+} from './stats/workflow-telemetry.js';
 // Sticky
 export { archiveSticky } from './sticky/archive.js';
 export {
@@ -599,9 +608,13 @@ export { coreTaskStats } from './tasks/task-ops.js';
 // ---------------------------------------------------------------------------
 
 export type {
+  AgentExecutionEvent,
+  AgentExecutionOutcome,
   AgentHealthReport,
+  AgentPerformanceSummary,
   AgentRecoveryResult,
   CapacitySummary,
+  HealingSuggestion,
   ListAgentFilters,
   RegisterAgentOptions,
   RetryPolicy,
@@ -619,16 +632,22 @@ export {
   generateAgentId,
   getAgentErrorHistory,
   getAgentInstance,
+  getAgentPerformanceHistory,
   getAvailableCapacity,
   getCapacitySummary,
   getHealthReport,
+  getSelfHealingSuggestions,
   heartbeat,
   incrementTasksCompleted,
   isOverloaded,
   listAgentInstances,
   markCrashed,
+  processAgentLifecycleEvent,
+  recordAgentExecution,
+  recordFailurePattern,
   recoverCrashedAgents,
   registerAgent as registerAgentInstance,
+  storeHealingStrategy,
   updateAgentStatus,
   updateCapacity,
   withRetry,

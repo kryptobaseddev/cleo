@@ -320,6 +320,20 @@ cleo session start
 cleo detect               # Re-detect project type
 cleo upgrade --detect     # Force re-detect during upgrade
 cleo upgrade --name "foo" # Update project name
+
+# Task System Hardening (T056)
+cleo backfill --dry-run   # Preview AC/verification backfill
+cleo backfill             # Apply AC/verification to existing tasks
+cleo compliance           # Show workflow compliance metrics
+cleo config set-preset strict   # Apply strictness preset
+cleo config presets       # List available presets
+
+# Acceptance criteria (pipe-separated to allow commas in AC text)
+cleo add "Task" --acceptance "AC1|AC2|AC3"
+cleo update T001 --acceptance "AC1|AC2|AC3"
+
+# Pipeline stage management
+cleo update T001 --pipeline-stage implementation
 ```
 
 ---

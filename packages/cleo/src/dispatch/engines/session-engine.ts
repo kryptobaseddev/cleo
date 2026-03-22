@@ -403,8 +403,18 @@ export async function sessionStart(
     // T4959: Set chain fields on new session
     if (previousSessionId) {
       newSession.previousSessionId = previousSessionId;
+    }
 
-      // Update predecessor's nextSessionId
+    if (agentIdentifier) {
+      newSession.agentIdentifier = agentIdentifier;
+    }
+
+    // Insert new session FIRST — FK constraints require the target row to exist
+    // before predecessor.nextSessionId can reference it.
+    await accessor.upsertSingleSession(newSession);
+
+    // Now update predecessor's nextSessionId (new session row exists for FK)
+    if (previousSessionId) {
       const sessions = await accessor.loadSessions();
       const pred = sessions.find((s: Session) => s.id === previousSessionId);
       if (pred) {
@@ -412,12 +422,6 @@ export async function sessionStart(
         await accessor.upsertSingleSession(pred);
       }
     }
-
-    if (agentIdentifier) {
-      newSession.agentIdentifier = agentIdentifier;
-    }
-
-    await accessor.upsertSingleSession(newSession);
 
     // Enable grade mode: set env vars so audit middleware logs queries too
     if (params.grade) {

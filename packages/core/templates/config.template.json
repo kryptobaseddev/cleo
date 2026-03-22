@@ -23,6 +23,40 @@
     "logSessionEvents": true
   },
 
+  "enforcement": {
+    "acceptance": {
+      "mode": "block",
+      "requiredForPriorities": ["critical", "high", "medium", "low"],
+      "minimumCriteria": 3
+    },
+    "session": {
+      "requiredForMutate": true
+    },
+    "pipeline": {
+      "bindTasksToStage": true
+    }
+  },
+
+  "verification": {
+    "enabled": true,
+    "requiredForTypes": ["epic", "task", "subtask"],
+    "autoInitialize": true,
+    "maxRounds": 5,
+    "requiredGates": ["implemented", "testsPassed", "qaPassed"],
+    "autoSetImplementedOnComplete": true,
+    "requireForParentAutoComplete": true,
+    "allowManualOverride": true
+  },
+
+  "lifecycle": {
+    "mode": "strict"
+  },
+
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 0
+  },
+
   "validation": {
     "strictMode": false,
     "checksumEnabled": true,

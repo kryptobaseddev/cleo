@@ -250,6 +250,11 @@ export class TasksHandler implements DomainHandler {
             priority: params?.priority as string | undefined,
             labels: params?.labels as string[] | undefined,
             type: params?.type as string | undefined,
+            acceptance: params?.acceptance as string[] | undefined,
+            phase: params?.phase as string | undefined,
+            size: params?.size as string | undefined,
+            notes: params?.notes as string | undefined,
+            files: params?.files as string[] | undefined,
           });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

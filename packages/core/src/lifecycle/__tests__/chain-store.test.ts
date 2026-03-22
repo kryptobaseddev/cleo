@@ -191,9 +191,13 @@ describe('WarpChain chain-store', () => {
 
   it('enforces DB foreign key for chain instances', async () => {
     const { getDb } = await import('../../store/sqlite.js');
+    const { getNativeTasksDb } = await import('../../store/sqlite.js');
     const { warpChainInstances } = await import('../../store/chain-schema.js');
 
     const db = await getDb(tempDir);
+    // Enable FKs for this specific test — it validates FK enforcement
+    const nativeDb = getNativeTasksDb();
+    nativeDb?.exec('PRAGMA foreign_keys=ON');
 
     await expect(
       db.insert(warpChainInstances).values({
@@ -206,6 +210,9 @@ describe('WarpChain chain-store', () => {
 
     const instances = await db.select().from(warpChainInstances);
     expect(instances).toHaveLength(0);
+
+    // Restore FKs OFF for remaining tests
+    nativeDb?.exec('PRAGMA foreign_keys=OFF');
   });
 
   it('advanceInstance updates currentStage and records gate results', async () => {

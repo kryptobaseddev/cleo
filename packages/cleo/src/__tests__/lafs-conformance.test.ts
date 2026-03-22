@@ -32,6 +32,7 @@ import {
   type TestDbEnv,
 } from '../../../core/src/store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../core/src/store/data-accessor.js';
+import { resetDbState } from '../../../core/src/store/sqlite.js';
 import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
 import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
 import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';

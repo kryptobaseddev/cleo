@@ -110,6 +110,7 @@ function taskToRecord(task: Task): TaskRecord {
     origin: task.origin ?? null,
     cancellationReason: task.cancellationReason,
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
+    pipelineStage: task.pipelineStage ?? null,
   };
 }
 
@@ -163,6 +164,8 @@ export interface TaskRecord {
   validationHistory?: Array<Record<string, unknown>>;
   blockedBy?: string[];
   cancellationReason?: string;
+  /** RCASD-IVTR+C pipeline stage (T060). */
+  pipelineStage?: string | null;
 }
 
 // Local TaskFile interface removed — DataAccessor uses the canonical TaskFile from types/task.ts.

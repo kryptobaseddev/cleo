@@ -11,6 +11,7 @@
 import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { rowToTask, taskToRow } from './converters.js';
+import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
 import {
   type SafetyConfig,
   safeCreateTask,
@@ -123,6 +124,11 @@ export async function deleteTask(taskId: string, cwd?: string): Promise<boolean>
   if (existing.length === 0) return false;
 
   db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+
+  // T033 Part 4: Cross-DB cleanup — nullify brain.db soft FK refs to this task.
+  // Runs after deletion to avoid blocking the task delete path on brain errors.
+  void cleanupBrainRefsOnTaskDelete(taskId, cwd);
+
   return true;
 }
 

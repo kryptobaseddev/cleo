@@ -84,19 +84,47 @@ describe('Agent Registry', () => {
     });
 
     it('accepts optional session, task, and parent', async () => {
+      // Insert FK parent records before creating the agent that references them.
+      // FK constraints: session_id -> sessions.id, task_id -> tasks.id,
+      //                 parent_agent_id -> agent_instances.id (all SET NULL on delete).
+      const { getDb } = await import('../../store/sqlite.js');
+      const { tasks: tasksTable, sessions: sessionsTable } = await import(
+        '../../store/tasks-schema.js'
+      );
+      const db = await getDb(tempDir);
+      db.insert(sessionsTable)
+        .values({
+          id: 'ses_test_123',
+          name: 'Test session',
+          status: 'active',
+          scopeJson: '{"type":"global"}',
+          startedAt: new Date().toISOString(),
+        })
+        .run();
+      db.insert(tasksTable)
+        .values({
+          id: 'T001',
+          title: 'Test task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        })
+        .run();
+      const parent = await registerAgent({ agentType: 'orchestrator' }, tempDir);
+
       const agent = await registerAgent(
         {
           agentType: 'researcher',
           sessionId: 'ses_test_123',
           taskId: 'T001',
-          parentAgentId: 'agt_parent_abc123',
+          parentAgentId: parent.id,
         },
         tempDir,
       );
 
       expect(agent.sessionId).toBe('ses_test_123');
       expect(agent.taskId).toBe('T001');
-      expect(agent.parentAgentId).toBe('agt_parent_abc123');
+      expect(agent.parentAgentId).toBe(parent.id);
     });
 
     it('stores metadata as JSON', async () => {

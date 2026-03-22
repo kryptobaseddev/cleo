@@ -183,7 +183,10 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_created_at').on(table.createdAt),
     index('idx_brain_observations_source_type').on(table.sourceType),
     index('idx_brain_observations_source_session').on(table.sourceSessionId),
-    index('idx_brain_observations_content_hash').on(table.contentHash),
+    // T033: composite replaces single-col content_hash; see brain migration
+    index('idx_brain_observations_content_hash_created_at').on(table.contentHash, table.createdAt),
+    // T033: type + project compound filter optimization
+    index('idx_brain_observations_type_project').on(table.type, table.project),
   ],
 );
 

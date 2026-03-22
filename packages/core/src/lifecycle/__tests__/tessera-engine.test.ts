@@ -111,6 +111,19 @@ describe('Tessera engine', () => {
 
   it('instantiate default RCASD template creates valid instance', async () => {
     const { buildDefaultTessera, instantiateTessera } = await import('../tessera-engine.js');
+    // Insert FK parent task: warp_chain_instances.epic_id -> tasks.id CASCADE.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    db.insert(tasksTable)
+      .values({
+        id: 'T8888',
+        title: 'Epic task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
 
     const template = buildDefaultTessera();
     const instance = await instantiateTessera(
@@ -146,6 +159,19 @@ describe('Tessera engine', () => {
 
   it('default values applied when optional variable not provided', async () => {
     const { buildDefaultTessera, instantiateTessera } = await import('../tessera-engine.js');
+    // Insert FK parent task: warp_chain_instances.epic_id -> tasks.id CASCADE.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    db.insert(tasksTable)
+      .values({
+        id: 'T8888',
+        title: 'Epic task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
 
     const template = buildDefaultTessera();
     const instance = await instantiateTessera(
@@ -219,6 +245,19 @@ describe('Tessera engine', () => {
 
   it('positive path still succeeds after invalid-type assertions', async () => {
     const { instantiateTessera } = await import('../tessera-engine.js');
+    // Insert FK parent task: warp_chain_instances.epic_id -> tasks.id CASCADE.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    db.insert(tasksTable)
+      .values({
+        id: 'T8888',
+        title: 'Epic task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
 
     const instance = await instantiateTessera(
       buildTypedTemplate(),
@@ -307,6 +346,19 @@ describe('Tessera engine', () => {
   it('performs deep substitution in nested chain structures', async () => {
     const { buildDefaultTessera, instantiateTessera } = await import('../tessera-engine.js');
     const { showChain } = await import('../chain-store.js');
+    // Insert FK parent task: warp_chain_instances.epic_id -> tasks.id CASCADE.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    db.insert(tasksTable)
+      .values({
+        id: 'T8888',
+        title: 'Epic task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
 
     const base = buildDefaultTessera();
     const template = {

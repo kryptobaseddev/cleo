@@ -5,10 +5,26 @@
  * detection, pattern matching, and pattern storage backed by the existing
  * brain_patterns and brain_learnings tables.
  *
+ * Also provides adaptive validation gate focus and confidence scoring via
+ * the adaptive-validation module (T035).
+ *
  * @task Wave3A
  * @epic T5149
  */
 
+export type {
+  AdaptiveValidationSuggestion,
+  GateFocusRecommendation,
+  StorePredictionOptions,
+  VerificationConfidenceScore,
+} from './adaptive-validation.js';
+// Adaptive validation (T035)
+export {
+  predictAndStore,
+  scoreVerificationConfidence,
+  storePrediction,
+  suggestGateFocus,
+} from './adaptive-validation.js';
 // Impact analysis
 export {
   analyzeChangeImpact,

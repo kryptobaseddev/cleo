@@ -155,11 +155,17 @@ export { queryAudit } from './audit.js';
 export { pruneAuditLog } from './audit-prune.js';
 // Config
 export {
+  type ApplyPresetResult,
+  applyStrictnessPreset,
   getConfigValue,
   getRawConfig,
   getRawConfigValue,
+  listStrictnessPresets,
   loadConfig,
+  type PresetDefinition,
   parseConfigValue,
+  STRICTNESS_PRESETS,
+  type StrictnessPreset,
   setConfigValue,
 } from './config.js';
 // Constants

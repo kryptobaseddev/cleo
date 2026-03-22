@@ -189,7 +189,13 @@ export const tasks = sqliteTable(
     // Provenance tracking
     createdBy: text('created_by'),
     modifiedBy: text('modified_by'),
-    sessionId: text('session_id'),
+    sessionId: text('session_id').references((): AnySQLiteColumn => sessions.id, {
+      onDelete: 'set null',
+    }),
+    // T060: pipeline stage name (RCASD-IVTR+C). Stored as a plain stage name string.
+    // Not referencing lifecycle_stages.id so that stage binding works without
+    // requiring a lifecycle pipeline record for every task.
+    pipelineStage: text('pipeline_stage'),
   },
   (table) => [
     index('idx_tasks_status').on(table.status),
@@ -198,6 +204,12 @@ export const tasks = sqliteTable(
     index('idx_tasks_type').on(table.type),
     index('idx_tasks_priority').on(table.priority),
     index('idx_tasks_session_id').on(table.sessionId),
+    index('idx_tasks_pipeline_stage').on(table.pipelineStage),
+    // T033 composite indexes
+    index('idx_tasks_parent_status').on(table.parentId, table.status),
+    index('idx_tasks_status_priority').on(table.status, table.priority),
+    index('idx_tasks_type_phase').on(table.type, table.phase),
+    index('idx_tasks_status_archive_reason').on(table.status, table.archiveReason),
   ],
 );
 
@@ -256,7 +268,9 @@ export const sessions = sqliteTable(
       .notNull()
       .default('active'),
     scopeJson: text('scope_json').notNull().default('{}'),
-    currentTask: text('current_task'),
+    currentTask: text('current_task').references((): AnySQLiteColumn => tasks.id, {
+      onDelete: 'set null',
+    }),
     taskStartedAt: text('task_started_at'),
     agent: text('agent'),
     notesJson: text('notes_json').default('[]'),
@@ -288,6 +302,8 @@ export const sessions = sqliteTable(
     index('idx_sessions_previous').on(table.previousSessionId),
     index('idx_sessions_agent_identifier').on(table.agentIdentifier),
     index('idx_sessions_started_at').on(table.startedAt),
+    // T033 composite index: getActiveSession hot path
+    index('idx_sessions_status_started_at').on(table.status, table.startedAt),
   ],
 );
 
@@ -300,7 +316,9 @@ export const taskWorkHistory = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
-    taskId: text('task_id').notNull(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
     setAt: text('set_at').notNull().default(sql`(datetime('now'))`),
     clearedAt: text('cleared_at'),
   },
@@ -425,8 +443,12 @@ export const lifecycleTransitions = sqliteTable(
     pipelineId: text('pipeline_id')
       .notNull()
       .references(() => lifecyclePipelines.id, { onDelete: 'cascade' }),
-    fromStageId: text('from_stage_id').notNull(),
-    toStageId: text('to_stage_id').notNull(),
+    fromStageId: text('from_stage_id')
+      .notNull()
+      .references(() => lifecycleStages.id, { onDelete: 'cascade' }),
+    toStageId: text('to_stage_id')
+      .notNull()
+      .references(() => lifecycleStages.id, { onDelete: 'cascade' }),
     transitionType: text('transition_type', {
       enum: LIFECYCLE_TRANSITION_TYPES,
     })
@@ -472,9 +494,9 @@ export const pipelineManifest = sqliteTable(
   'pipeline_manifest',
   {
     id: text('id').primaryKey(),
-    sessionId: text('session_id'),
-    taskId: text('task_id'),
-    epicId: text('epic_id'),
+    sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    epicId: text('epic_id').references(() => tasks.id, { onDelete: 'set null' }),
     type: text('type').notNull(),
     content: text('content').notNull(),
     contentHash: text('content_hash'),
@@ -503,8 +525,10 @@ export const releaseManifests = sqliteTable(
     id: text('id').primaryKey(),
     version: text('version').notNull().unique(),
     status: text('status').notNull().default('draft'),
-    pipelineId: text('pipeline_id').references(() => lifecyclePipelines.id),
-    epicId: text('epic_id'),
+    pipelineId: text('pipeline_id').references(() => lifecyclePipelines.id, {
+      onDelete: 'set null',
+    }),
+    epicId: text('epic_id').references(() => tasks.id, { onDelete: 'set null' }),
     tasksJson: text('tasks_json').notNull().default('[]'),
     changelog: text('changelog'),
     notes: text('notes'),
@@ -572,6 +596,9 @@ export const auditLog = sqliteTable(
     index('idx_audit_log_request_id').on(table.requestId),
     index('idx_audit_log_project_hash').on(table.projectHash),
     index('idx_audit_log_actor').on(table.actor),
+    // T033 composite indexes
+    index('idx_audit_log_session_timestamp').on(table.sessionId, table.timestamp),
+    index('idx_audit_log_domain_operation').on(table.domain, table.operation),
   ],
 );
 
@@ -592,8 +619,8 @@ export const tokenUsage = sqliteTable(
     gateway: text('gateway'),
     domain: text('domain'),
     operation: text('operation'),
-    sessionId: text('session_id'),
-    taskId: text('task_id'),
+    sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     requestId: text('request_id'),
     inputChars: integer('input_chars').notNull().default(0),
     outputChars: integer('output_chars').notNull().default(0),
@@ -624,9 +651,8 @@ export const tokenUsage = sqliteTable(
 /**
  * Architecture Decision Records (ADRs) stored in the database.
  * Corresponds to the physical ADR markdown files in .cleo/adrs/.
- * Created by migration 20260225024442_sync-lifecycle-enums-and-arch-decisions.
- * Self-referential FKs (supersedes_id, superseded_by_id) are enforced at the
- * DB level by the migration; omitted here to avoid Drizzle circular-ref syntax.
+ * Self-referential FKs (supersedes_id, superseded_by_id, amends_id) are
+ * enforced at the DB level by T033 migration.
  */
 export const architectureDecisions = sqliteTable(
   'architecture_decisions',
@@ -634,9 +660,18 @@ export const architectureDecisions = sqliteTable(
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     status: text('status', { enum: ADR_STATUSES }).notNull().default('proposed'),
-    supersedesId: text('supersedes_id'),
-    supersededById: text('superseded_by_id'),
-    consensusManifestId: text('consensus_manifest_id'),
+    supersedesId: text('supersedes_id').references(
+      (): AnySQLiteColumn => architectureDecisions.id,
+      { onDelete: 'set null' },
+    ),
+    supersededById: text('superseded_by_id').references(
+      (): AnySQLiteColumn => architectureDecisions.id,
+      { onDelete: 'set null' },
+    ),
+    consensusManifestId: text('consensus_manifest_id').references(
+      (): AnySQLiteColumn => manifestEntries.id,
+      { onDelete: 'set null' },
+    ),
     content: text('content').notNull(),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
@@ -645,7 +680,9 @@ export const architectureDecisions = sqliteTable(
     acceptedAt: text('accepted_at'),
     gate: text('gate', { enum: ['HITL', 'automated'] }),
     gateStatus: text('gate_status', { enum: GATE_STATUSES }),
-    amendsId: text('amends_id'),
+    amendsId: text('amends_id').references((): AnySQLiteColumn => architectureDecisions.id, {
+      onDelete: 'set null',
+    }),
     filePath: text('file_path').notNull().default(''),
     // ADR-017 §5.4 cognitive search columns (T4942)
     summary: text('summary'),
@@ -667,7 +704,9 @@ export const adrTaskLinks = sqliteTable(
     adrId: text('adr_id')
       .notNull()
       .references(() => architectureDecisions.id, { onDelete: 'cascade' }),
-    taskId: text('task_id').notNull(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
     linkType: text('link_type', {
       enum: ['related', 'governed_by', 'implements'],
     })
