@@ -1,8 +1,8 @@
 # @cleocode/core Package Specification
 
-**Version**: 3.0.0
+**Version**: 3.2.0
 **Status**: APPROVED
-**Date**: 2026-03-18
+**Date**: 2026-03-22
 **Task**: T5714
 **Epic**: T5701
 
@@ -108,7 +108,7 @@ External consumers MUST import from `@cleocode/core` (the `"."` entry). The `"./
 The public barrel re-exports all symbols intended for external consumers:
 
 1. **All `@cleocode/contracts` types** via `export * from '@cleocode/contracts'`
-2. **43 namespace re-exports** (one per domain/submodule, including `agents` and `intelligence`)
+2. **45 namespace re-exports** (one per domain/submodule, including `agents`, `intelligence`, and `lib`)
 3. **36 canonical Zod enum schemas** (flat re-exports for Pattern 3 imports)
 4. **Store factory functions** (`createDataAccessor`, `getAccessor`)
 5. **Top-level utility exports** (errors, config, logger, paths, platform, output, pagination, init, scaffold, audit, validation, project info, constants)
@@ -140,7 +140,7 @@ The internal barrel provides:
 
 ## 4. Module Structure
 
-The public barrel (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 43 namespaces, their role, and whether they require a `DataAccessor` at runtime.
+The public barrel (`packages/core/src/index.ts`) re-exports all public modules as named namespaces. The table below documents all 45 namespaces, their role, and whether they require a `DataAccessor` at runtime.
 
 ### 4.1 Domain Namespace Modules
 
@@ -149,7 +149,7 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `adapters` | `packages/core/src/adapters/` | Provider adapter discovery, detection, lifecycle | No |
 | `admin` | `packages/core/src/admin/` | Dashboard, health check, configuration map | Yes |
 | `adrs` | `packages/core/src/adrs/` | Architecture Decision Record management | No |
-| `agents` | `packages/core/src/agents/` | Agent registry, health monitoring, self-healing, capacity tracking | Yes (SQLite agent tables) |
+| `agents` | `packages/core/src/agents/` | Agent registry, health monitoring (`recordHeartbeat`, `checkAgentHealth`, `detectStaleAgents`, `detectCrashedAgents`), self-healing retry, capacity tracking (`getAgentCapacity`, `getAgentsByCapacity`, `getAgentSpecializations`), execution learning | Yes (SQLite agent tables) |
 | `caamp` | `packages/core/src/caamp/` | CAAMP wrapper -- provider capability API, spawn, skill routing | No |
 | `codebaseMap` | `packages/core/src/codebase-map/` | Codebase structure analysis and module graph | No |
 | `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
@@ -157,8 +157,9 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `coreHooks` | `packages/core/src/hooks/` | Lifecycle hook dispatch registry | No |
 | `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
 | `inject` | `packages/core/src/inject/` | AGENTS.md / CLAUDE.md content injection | No |
-| `intelligence` | `packages/core/src/intelligence/` | Quality prediction, pattern extraction, impact analysis | Yes (uses brain.db + DataAccessor) |
+| `intelligence` | `packages/core/src/intelligence/` | Quality prediction, pattern extraction, impact prediction (`predictImpact`, `analyzeChangeImpact`, `calculateBlastRadius`), adaptive validation | Yes (uses brain.db + DataAccessor) |
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
+| `lib` | `packages/core/src/lib/` | General-purpose utilities: `withRetry` (exponential backoff), `computeDelay`. No database coupling. | No |
 | `lifecycle` | `packages/core/src/lifecycle/` | RCASD-IVTR+C gate enforcement, stage transitions | Yes (SQLite lifecycle tables) |
 | `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval | No (uses brain.db directly) |
 | `metrics` | `packages/core/src/metrics/` | Telemetry, value tracking, provider detection | No |
@@ -222,7 +223,7 @@ The following symbols are exported directly from the barrel (no namespace requir
 | `formatOutput` | `output.ts` | Format-agnostic output (auto-selects JSON or text) |
 | `pushWarning` | `output.ts` | Attach a warning to the next envelope |
 | `FormatOptions` (type) | `output.ts` | Options for output formatting |
-| `loadConfig` | `config.ts` | Load CLEO config from `.cleo/config.json` |
+| `loadConfig` | `config.ts` | Load CLEO config from `.cleo/config.json`. Cascades: project config > global config > defaults. After T101 the live schema surface is ~113 fields (down from ~283 before vaporware removal). |
 | `getConfigValue` | `config.ts` | Read a typed config key |
 | `setConfigValue` | `config.ts` | Write a config key atomically |
 | `getRawConfig` | `config.ts` | Read raw config without validation |
@@ -311,6 +312,15 @@ For tree-shakeable direct imports:
 | `AdapterManager` | `adapters/index.ts` | Adapter discovery and lifecycle manager |
 | `reconcile` | `reconciliation/index.ts` | Reconcile external tasks with CLEO as SSoT |
 | `Cleo` | `cleo.ts` | Facade class for project-bound API |
+| `withRetry` | `lib/retry.ts` | General-purpose retry with exponential backoff (3 attempts, 2s/4s defaults) |
+| `computeDelay` | `lib/retry.ts` | Preview exponential delay schedule without invoking retry |
+| `recordHeartbeat` | `agents/health-monitor.ts` | Update `last_heartbeat` timestamp for a live agent |
+| `checkAgentHealth` | `agents/health-monitor.ts` | Per-agent structured health status report |
+| `detectStaleAgents` | `agents/health-monitor.ts` | List agents with heartbeat older than threshold (read-only) |
+| `detectCrashedAgents` | `agents/health-monitor.ts` | Detect + mark active agents with no heartbeat for >3 min (mutating) |
+| `getAgentCapacity` | `agents/agent-registry.ts` | Remaining task-count capacity for one agent |
+| `getAgentsByCapacity` | `agents/agent-registry.ts` | All active agents sorted by remaining capacity (descending) |
+| `predictImpact` | `intelligence/impact.ts` | Predict downstream task effects from a free-text change description |
 
 ---
 
@@ -393,7 +403,7 @@ The public barrel re-exports all types from `@cleocode/contracts` via `export * 
 | LAFS types | `LafsSuccess`, `LafsError`, `LafsEnvelope`, `LAFSMeta`, `LAFSPage`, `Warning`, `MVILevel`, `GatewayEnvelope` |
 | DataAccessor | `DataAccessor`, `TaskQueryFilters`, `QueryTasksResult`, `TaskFieldUpdates`, `TransactionAccessor` |
 | Exit codes | `ExitCode`, `isErrorCode`, `isSuccessCode`, `getExitCodeName` |
-| Config types | `CleoConfig`, `HierarchyConfig`, `SessionConfig`, `LifecycleConfig`, `BackupConfig` |
+| Config types | `CleoConfig`, `HierarchyConfig`, `SessionConfig`, `LifecycleConfig`, `BackupConfig`. Note: `enforcement.*` and `verification.*` sections are live at runtime but not yet declared in `CleoConfig` — they are read via untyped dot-path. The T101 config audit reduced the declared schema from ~283 to ~113 fields. |
 | Status registry | `TASK_STATUSES`, `SESSION_STATUSES`, `STATUS_REGISTRY`, `isValidStatus` |
 | Adapter types | `CLEOProviderAdapter`, `AdapterManifest`, `DetectionPattern`, `AdapterCapabilities` |
 | WarpChain types | `WarpChain`, `WarpChainInstance`, `WarpStage`, `ChainShape`, `GateContract` |
@@ -786,6 +796,41 @@ The following features were added during the T029 (Schema Architecture) and T056
 | 9 composite indexes added | Auto-migrated via Drizzle on DB init |
 | 17 intra-DB soft FKs hardened | Auto-migrated via table rebuild pattern |
 | `PRAGMA foreign_keys = ON` enforced | Set on every DB connection open |
+
+### 15.7 New Features in T101 + T038 Release
+
+#### T101 — Config Schema Audit (Config Surface Reduction)
+
+The T101 epic audited all CLEO configuration fields and removed approximately 170 fields that existed in schema definitions and templates but were never read by any runtime code.
+
+**Scale of reduction**: ~283 declared fields → ~113 live fields (approximately 60% reduction).
+
+**Sections removed entirely**: `tools`, `testing`, `graphRag`, `cli`, `display`, `logging` (legacy block), `documentation`, `contextStates`, `multiSession`, `project`.
+
+**Key corrections**:
+
+- `validation.enforceAcceptance` removed — the authoritative gate is `enforcement.acceptance.mode`
+- `hierarchy.requireAcceptanceCriteria` phantom write corrected — strictness presets now write `enforcement.acceptance.mode`
+- `enforcement.*` and `verification.*` read via untyped dot-path — a type safety gap documented above in Section 6.4
+
+**Consumer impact**: Consumers who read the CLEO config file and depended on removed sections will receive `undefined` for those paths instead of the previous default values. The `CleoConfig` contract type reflects the remaining live fields.
+
+#### T038 — Agent Infrastructure (Health, Retry, Capacity, Impact)
+
+The T038 epic shipped the agent health monitoring, retry utility, registry capacity, and impact prediction described in the kernel spec but not yet fully delivered. All additions are purely additive — no existing exports changed signatures.
+
+**New `lib` namespace**: A new public namespace (`export * as lib`) ships a general-purpose, dependency-free retry utility. This is distinct from the agent-specific `agents/retry.ts` which is coupled to the DB registry layer.
+
+| Module | Key Exports | Purpose |
+|--------|-------------|---------|
+| `lib/retry.ts` | `withRetry`, `computeDelay`, `RetryOptions`, `RetryContext` | Exponential backoff retry for any async operation |
+| `agents/health-monitor.ts` | `recordHeartbeat`, `checkAgentHealth`, `detectStaleAgents`, `detectCrashedAgents`, `AgentHealthStatus`, `HEARTBEAT_INTERVAL_MS`, `STALE_THRESHOLD_MS` | Agent liveness monitoring via heartbeat protocol |
+| `agents/agent-registry.ts` | `getAgentCapacity`, `getAgentsByCapacity`, `getAgentSpecializations`, `updateAgentSpecializations`, `recordAgentPerformance`, `MAX_TASKS_PER_AGENT` | Task-count capacity tracking and specialization management |
+| `intelligence/impact.ts` | `predictImpact`, `analyzeChangeImpact`, `analyzeTaskImpact`, `calculateBlastRadius` | Downstream dependency impact prediction |
+
+**Naming note**: The pre-existing `registry.checkAgentHealth(thresholdMs) -> AgentInstanceRow[]` was re-exported as `findStaleAgentRows` to avoid signature conflict with the new `health-monitor.checkAgentHealth(agentId) -> AgentHealthStatus | null`.
+
+**Namespace count update**: The public barrel now exports 45 namespaces (up from 43) — `lib` and `reconciliation` were added during this release cycle.
 
 ---
 

@@ -1,8 +1,8 @@
 # CLEO API Specification
 
-**Version**: 3.0.0
+**Version**: 3.2.0
 **Status**: Canonical Specification
-**Date**: 2026-03-18
+**Date**: 2026-03-22
 **Epic**: T4820 (CLEO Core Architecture)
 
 ---
@@ -334,6 +334,18 @@ cleo update T001 --acceptance "AC1|AC2|AC3"
 
 # Pipeline stage management
 cleo update T001 --pipeline-stage implementation
+
+# Agent health monitoring (T038/T039)
+cleo agents health                         # Full health report for all agents
+cleo agents health --id <agentId>          # Single agent status check
+cleo agents health --detect-crashed        # Detect and mark crashed agents (mutating)
+cleo agents health --threshold <ms>        # Custom staleness threshold in milliseconds
+
+# Reasoning and intelligence operations (T038/T044)
+cleo reason why <taskId>                   # Causal trace through dependency chains
+cleo reason similar <taskId>              # Find semantically similar BRAIN entries
+cleo reason impact <taskId>               # Show downstream tasks affected by changes
+cleo reason timeline <taskId>             # Show task history and audit trail
 ```
 
 ---
@@ -409,6 +421,105 @@ This mismatch is a transitional compatibility layer, not a long-term stability g
 
 ---
 
+## 15.6 New Features in T101 and T038 Release
+
+### T101 — Config Schema Audit (Config Surface Reduction)
+
+The T101 epic audited and cleaned the CLEO configuration schema, removing approximately 170 vaporware fields that existed in the schema and templates but were never read by any runtime code.
+
+**Scale of reduction**: ~283 live + vaporware fields → ~113 live fields (approximately 60% reduction in declared surface).
+
+**Sections removed entirely**:
+
+| Section | Reason |
+|---------|--------|
+| `tools` | No runtime consumer — all reads via `caamp` directly |
+| `testing` | No runtime consumer |
+| `graphRag` | Planned feature, never implemented |
+| `cli` | No runtime consumer |
+| `display` | No runtime consumer |
+| `logging` (legacy block) | Superseded by `pinoLogging`; no readers |
+| `documentation` | No runtime consumer |
+| `contextStates` | No runtime consumer |
+| `multiSession` | No runtime consumer (all 13 fields vaporware) |
+| `project` | No runtime consumer |
+
+**Key field corrections**:
+
+- `validation.enforceAcceptance` — removed; the authoritative gate is `enforcement.acceptance.mode`
+- `hierarchy.requireAcceptanceCriteria` — phantom field removed from strictness preset writes; presets now correctly write `enforcement.acceptance.mode`
+- `enforcement.*` and `verification.*` sections read via untyped dot-path (`getConfigValue`); a type safety gap remains and is tracked as a follow-up
+
+**Type safety note**: `CleoConfig` in `@cleocode/contracts` does not yet declare `enforcement` and `verification` sections as typed fields. Runtime code reads them via dot-path. Consumers relying on `CleoConfig` as an exhaustive type contract should be aware that `enforcement.*` and `verification.*` fields exist at runtime but are not present in the TypeScript interface.
+
+### T038 — Documentation-Implementation Drift Remediation (Agent Infrastructure)
+
+The T038 epic shipped the agent health monitoring, retry, and registry infrastructure described in the kernel specification but not yet implemented at the time T034 was completed.
+
+#### New Core Exports (agents namespace)
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `recordHeartbeat` | `agents/health-monitor.ts` | Update `last_heartbeat` for a live agent |
+| `checkAgentHealth` | `agents/health-monitor.ts` | Per-agent health status report |
+| `detectStaleAgents` | `agents/health-monitor.ts` | List agents with heartbeat older than threshold (read-only) |
+| `detectCrashedAgents` | `agents/health-monitor.ts` | Detect and mark active agents with no heartbeat >3min (mutating) |
+| `HEARTBEAT_INTERVAL_MS` | `agents/health-monitor.ts` | Recommended heartbeat interval constant (30 000 ms) |
+| `STALE_THRESHOLD_MS` | `agents/health-monitor.ts` | Default staleness threshold constant (180 000 ms) |
+| `AgentHealthStatus` (type) | `agents/health-monitor.ts` | Structured per-agent health report |
+| `getAgentCapacity` | `agents/agent-registry.ts` | Remaining task-count capacity for one agent |
+| `getAgentsByCapacity` | `agents/agent-registry.ts` | All active agents sorted by remaining capacity (descending) |
+| `getAgentSpecializations` | `agents/agent-registry.ts` | Skills array from agent metadata |
+| `updateAgentSpecializations` | `agents/agent-registry.ts` | Write specializations to agent metadata |
+| `recordAgentPerformance` | `agents/agent-registry.ts` | Record performance metrics via execution-learning |
+| `MAX_TASKS_PER_AGENT` | `agents/agent-registry.ts` | Upper bound for task-count capacity (5) |
+| `findStaleAgentRows` | `agents/registry.ts` | Re-export of original `checkAgentHealth` (renamed to avoid conflict) |
+
+#### New Core Exports (intelligence namespace)
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `predictImpact` | `intelligence/impact.ts` | Predict downstream task effects from a free-text change description |
+| `analyzeChangeImpact` | `intelligence/impact.ts` | Analyze change impact across the task graph |
+| `analyzeTaskImpact` | `intelligence/impact.ts` | Analyze impact for a specific task |
+| `calculateBlastRadius` | `intelligence/impact.ts` | Compute blast radius for a proposed change |
+
+#### New Core Exports (lib namespace)
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `withRetry` | `lib/retry.ts` | General-purpose retry with exponential backoff |
+| `computeDelay` | `lib/retry.ts` | Preview delay schedule without invoking retry |
+| `RetryOptions` (type) | `lib/retry.ts` | Retry configuration options |
+| `RetryContext` (type) | `lib/retry.ts` | Context attached to the error on final failure |
+
+The `lib` namespace is a new public namespace added in this release (exported as `export * as lib from './lib/index.js'`). It provides general-purpose utilities with no database coupling.
+
+#### New CLI Commands (T038)
+
+| Command | Purpose |
+|---------|---------|
+| `cleo agents health` | Full health report for all registered agents |
+| `cleo agents health --id <agentId>` | Single agent health check |
+| `cleo agents health --detect-crashed` | Detect and mark crashed agents (mutating) |
+| `cleo agents health --threshold <ms>` | Custom staleness threshold |
+| `cleo reason why <taskId>` | Causal trace via `memory.reason.why` dispatch |
+| `cleo reason similar <taskId>` | Semantically similar BRAIN entries via `memory.reason.similar` |
+| `cleo reason impact <taskId>` | Downstream dependency impact via `tasks.depends` |
+| `cleo reason timeline <taskId>` | Task audit history via `tasks.history` |
+
+#### New Dispatch Operations (T038)
+
+| Gateway | Domain | Operation | Purpose |
+|---------|--------|-----------|---------|
+| `query` | `tasks` | `impact` | Predict downstream effects of a free-text change description |
+
+#### Nexus Assessment (T045)
+
+A production usage audit conducted as part of T038 found that zero Nexus operations have been invoked outside of automated tests after 15+ days of availability. All 22 registered Nexus operations are implemented and tested, but no real workflow has exercised cross-project coordination, task discovery, graph traversal, or transfer operations. Nexus has been formally deferred to Phase 3. See `.cleo/agent-outputs/T045-nexus-assessment.md` for the full assessment.
+
+---
+
 ## 9. Document Hierarchy
 
 ```
@@ -420,5 +531,5 @@ CLEO-API.md (Master)
 
 ---
 
-**Version**: 3.1.0
-**Last Updated**: 2026-03-21
+**Version**: 3.2.0
+**Last Updated**: 2026-03-22

@@ -1,8 +1,8 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.3.18
+**Version**: 2026.3.22
 **Status**: VISION
-**Date**: 2026-03-18
+**Date**: 2026-03-22
 
 ---
 
@@ -165,6 +165,8 @@ NEXUS connects isolated CLEO projects into a federated intelligence network:
 
 At organizational scale, NEXUS transforms isolated project brains into a collective intelligence that learns across the entire development portfolio.
 
+> **Phase 3 Deferral (T045 Assessment)**: A production usage audit conducted 2026-03-22 found that zero Nexus operations have been invoked outside of automated tests in 15+ days of availability. All 22 registered operations are implemented and tested (~5,753 production LOC, ~4,423 test LOC), but no real workflow has exercised cross-project coordination, task discovery, graph traversal, or transfer. The current use case -- single-project workflows -- does not yet require federated coordination. Nexus is formally deferred to Phase 3. Deferral criteria: any real workflow requires cross-project task references, or CleoOS delivers multi-project workspace views needing federated task data. See `.cleo/agent-outputs/T045-nexus-assessment.md` for the full analysis.
+
 ---
 
 ## 5. Architecture Layers
@@ -217,15 +219,21 @@ Each layer depends only on the layers below it. The kernel never reaches up into
 
 The kernel is shipped and operational:
 
-- `@cleocode/core` v2.0.0 -- standalone business logic kernel with 41 domain modules
+- `@cleocode/core` v2.0.0 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor)
-- `@cleocode/cleo` -- full CLI + MCP product (209 operations, 86 commands)
-- BRAIN with brain.db, FTS5 search, 3-layer retrieval, and observation system
-- LOOM with RCASD-IVTR+C pipeline, lifecycle gates, and stage management
-- NEXUS with project registry, cross-project queries, and dependency graph
+- `@cleocode/cleo` -- full CLI + MCP product (219 operations across 10 domains)
+- BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
+- LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
+- NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
 - LAFS with structured envelopes, MVI progressive disclosure, and RFC 9457 errors
 - Cleo facade class with 10 domain APIs and three consumer patterns
+- Config schema audited: ~113 live fields (T101, down from ~283 before vaporware removal)
+- Agent health monitoring, heartbeat protocol, crash detection, and capacity tracking (T038)
+- General-purpose retry utility with exponential backoff in `lib` namespace (T038)
+- Task hardening gates operational: AC enforcement, pipeline stage binding, verification auto-init, epic lifecycle enforcement (T056)
+- Compliance telemetry and strictness presets (T056/T067)
+- Impact prediction for downstream dependency analysis (T038)
 
 ### What Is Specified (Runtime, Conduit)
 
