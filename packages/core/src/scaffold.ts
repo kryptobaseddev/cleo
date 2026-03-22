@@ -14,6 +14,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { homedir as getHomedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -1278,12 +1279,33 @@ export function checkGlobalTemplates(): CheckResult {
     };
   }
 
+  // Check version sync between XDG and legacy paths
+  const xdgContent = readFileSync(injectionPath, 'utf-8');
+  const xdgVersion = xdgContent.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+  const home = getHomedir();
+  const legacyPath = join(home, '.cleo', 'templates', 'CLEO-INJECTION.md');
+
+  if (existsSync(legacyPath)) {
+    const legacyContent = readFileSync(legacyPath, 'utf-8');
+    const legacyVersion = legacyContent.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+    if (legacyVersion && xdgVersion && legacyVersion !== xdgVersion) {
+      return {
+        id: 'global_templates',
+        category: 'global',
+        status: 'warning',
+        message: `Legacy template version (${legacyVersion}) out of sync with XDG (${xdgVersion})`,
+        details: { path: injectionPath, exists: true, xdgVersion, legacyVersion, legacyPath },
+        fix: 'npm install -g @cleocode/cleo (reinstall syncs both paths)',
+      };
+    }
+  }
+
   return {
     id: 'global_templates',
     category: 'global',
     status: 'passed',
-    message: 'Global injection template present',
-    details: { path: injectionPath, exists: true },
+    message: `Global injection template present (v${xdgVersion ?? 'unknown'})`,
+    details: { path: injectionPath, exists: true, version: xdgVersion },
     fix: null,
   };
 }

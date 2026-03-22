@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [2026.3.60] - 2026-03-22
+
+### Fixed
+- **Bootstrap injection chain (T124)**: Legacy `~/.cleo/templates/` now synced on every install — fixes stale injection for projects referencing old path
+- **CAAMP corruption**: `sanitizeCaampFile()` cleans orphaned fragments and duplicate markers from `~/.agents/AGENTS.md` before inject()
+- **Post-bootstrap health check**: `verifyBootstrapHealth()` Step 7 validates injection chain integrity
+- **`checkGlobalTemplates`**: Now checks version sync between XDG and legacy template paths
+
+### Added
+- **Facade: `sessions.start({ startTask })` (T125)**: Bind session + task in one call for CleoOS
+- **Facade: `tasks.start/stop/current` (T126)**: TasksAPI exposes task-work methods via facade
+- **Facade: `cleo.agents` getter (T127)**: AgentsAPI with 8 methods (register, deregister, health, detectCrashed, recordHeartbeat, capacity, isOverloaded, list)
+- **Facade: `cleo.intelligence` getter (T127)**: IntelligenceAPI with 2 methods (predictImpact, blastRadius)
+
 ## [2026.3.59] - 2026-03-22
 
 ### Added

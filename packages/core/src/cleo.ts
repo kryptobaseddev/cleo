@@ -31,6 +31,28 @@ import type {
 import { exportTasks } from './admin/export.js';
 import type { ImportParams } from './admin/import.js';
 import { importTasks } from './admin/import.js';
+// Agents
+import {
+  type AgentCapacity,
+  type AgentHealthStatus,
+  type AgentInstanceRow,
+  checkAgentHealth,
+  deregisterAgent,
+  detectCrashedAgents,
+  getAgentCapacity,
+  heartbeat,
+  isOverloaded,
+  listAgentInstances,
+  type RegisterAgentOptions,
+  registerAgent,
+} from './agents/index.js';
+// Intelligence
+import {
+  type BlastRadius,
+  calculateBlastRadius,
+  type ImpactReport,
+  predictImpact,
+} from './intelligence/index.js';
 // Lifecycle
 import {
   checkGate,
@@ -127,6 +149,8 @@ import {
 } from './sticky/index.js';
 // Store
 import { getAccessor } from './store/data-accessor.js';
+// Task Work (start/stop/current)
+import { currentTask, startTask, stopTask } from './task-work/index.js';
 // Tasks
 import { addTask } from './tasks/add.js';
 import { archiveTasks } from './tasks/archive.js';
@@ -179,10 +203,21 @@ export interface TasksAPI {
   complete(params: { taskId: string; notes?: string }): Promise<unknown>;
   delete(params: { taskId: string; force?: boolean }): Promise<unknown>;
   archive(params?: { before?: string; taskIds?: string[]; dryRun?: boolean }): Promise<unknown>;
+  /** Start working on a specific task (sets focus). */
+  start(taskId: string): Promise<unknown>;
+  /** Stop working on the current task (clears focus). */
+  stop(): Promise<{ previousTask: string | null }>;
+  /** Get the current task work state. */
+  current(): Promise<unknown>;
 }
 
 export interface SessionsAPI {
-  start(params: { name: string; scope: string; agent?: string }): Promise<unknown>;
+  start(params: {
+    name: string;
+    scope: string;
+    agent?: string;
+    startTask?: string;
+  }): Promise<unknown>;
   end(params?: { note?: string }): Promise<unknown>;
   status(): Promise<unknown>;
   resume(sessionId: string): Promise<unknown>;
@@ -324,6 +359,32 @@ export interface SyncAPI {
   removeProviderLinks(providerId: string): Promise<number>;
 }
 
+export interface AgentsAPI {
+  /** Register a new agent instance. */
+  register(options: RegisterAgentOptions): Promise<AgentInstanceRow>;
+  /** Deregister an agent instance. */
+  deregister(agentId: string): Promise<AgentInstanceRow | null>;
+  /** Get health status for a specific agent. */
+  health(agentId: string): Promise<AgentHealthStatus | null>;
+  /** Detect agents that have crashed (missed heartbeats). */
+  detectCrashed(thresholdMs?: number): Promise<AgentInstanceRow[]>;
+  /** Record a heartbeat for an agent. */
+  recordHeartbeat(agentId: string): Promise<unknown>;
+  /** Get capacity info for an agent. */
+  capacity(agentId: string): Promise<AgentCapacity | null>;
+  /** Check if system is overloaded (available capacity below threshold). */
+  isOverloaded(threshold?: number): Promise<boolean>;
+  /** List all agent instances with optional filters. */
+  list(params?: { status?: string; agentType?: string }): Promise<AgentInstanceRow[]>;
+}
+
+export interface IntelligenceAPI {
+  /** Predict impact of a change description on related tasks. */
+  predictImpact(change: string): Promise<ImpactReport>;
+  /** Calculate blast radius for a task change. */
+  blastRadius(taskId: string): Promise<BlastRadius>;
+}
+
 // ============================================================================
 // Init options
 // ============================================================================
@@ -410,6 +471,9 @@ export class Cleo {
       delete: (p) => deleteTask({ taskId: p.taskId, force: p.force }, root, store),
       archive: (p) =>
         archiveTasks({ before: p?.before, taskIds: p?.taskIds, dryRun: p?.dryRun }, root, store),
+      start: (taskId) => startTask(taskId, root, store),
+      stop: () => stopTask(root, store),
+      current: () => currentTask(root, store),
     };
   }
 
@@ -418,7 +482,12 @@ export class Cleo {
     const root = this.projectRoot;
     const store = this._store ?? undefined;
     return {
-      start: (p) => startSession({ name: p.name, scope: p.scope, agent: p.agent }, root, store),
+      start: (p) =>
+        startSession(
+          { name: p.name, scope: p.scope, agent: p.agent, startTask: p.startTask },
+          root,
+          store,
+        ),
       end: (p) => endSession({ note: p?.note }, root, store),
       status: () => sessionStatus(root, store),
       resume: (id) => resumeSession(id, root, store),
@@ -567,6 +636,38 @@ export class Cleo {
       search: (p) => searchAcrossProjects(p.pattern, p.project, p.limit),
       setPermission: (p) => setPermission(p.name, p.level),
       sharingStatus: () => getSharingStatus(),
+    };
+  }
+
+  // === Agents ===
+  get agents(): AgentsAPI {
+    const root = this.projectRoot;
+    return {
+      register: (opts) => registerAgent(opts, root),
+      deregister: (agentId) => deregisterAgent(agentId, root),
+      health: (agentId) => checkAgentHealth(agentId, undefined, root),
+      detectCrashed: (thresholdMs) => detectCrashedAgents(thresholdMs, root),
+      recordHeartbeat: (agentId) => heartbeat(agentId, root),
+      capacity: (agentId) => getAgentCapacity(agentId, root),
+      isOverloaded: (threshold) => isOverloaded(threshold, root),
+      list: (p) =>
+        listAgentInstances(
+          {
+            status: p?.status as 'active' | 'idle' | 'crashed' | undefined,
+            agentType: p?.agentType as import('./agents/index.js').AgentType | undefined,
+          },
+          root,
+        ),
+    };
+  }
+
+  // === Intelligence ===
+  get intelligence(): IntelligenceAPI {
+    const root = this.projectRoot;
+    const store = this._store ?? undefined;
+    return {
+      predictImpact: (change) => predictImpact(change, root, store ?? undefined),
+      blastRadius: (taskId) => calculateBlastRadius(taskId, store ?? undefined, root),
     };
   }
 
