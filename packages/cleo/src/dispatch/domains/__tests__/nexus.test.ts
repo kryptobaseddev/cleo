@@ -590,6 +590,10 @@ describe('NexusHandler', () => {
           denylist: [],
           tracked: [],
           ignored: [],
+          hasGit: false,
+          remotes: [],
+          pendingChanges: false,
+          lastSync: null,
         },
       });
 

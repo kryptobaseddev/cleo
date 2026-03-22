@@ -88,7 +88,7 @@ describe('Agent Registry (T041)', () => {
         .values({
           id: 'T-cap-001',
           title: 'Capacity test task',
-          status: 'in_progress',
+          status: 'active',
           priority: 'medium',
           createdAt: new Date().toISOString(),
         })
