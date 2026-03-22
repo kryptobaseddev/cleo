@@ -8,6 +8,7 @@
  *   backfillTasks(root, {})                  -- apply changes
  *   backfillTasks(root, { rollback: true })  -- revert backfill
  *
+ * @packageDocumentation
  * @epic T056
  * @task T066
  */
@@ -60,6 +61,20 @@ export interface BackfillResult {
 /**
  * Generate 3 baseline acceptance criteria from a task description.
  * Uses simple text analysis — no LLM required.
+ *
+ * @remarks
+ * Extracts action verbs from the title + description to produce contextually
+ * relevant criteria. Falls back to generic criteria when no verbs match.
+ *
+ * @param title - The task title
+ * @param description - The task description
+ * @returns Array of 3 acceptance criteria strings
+ *
+ * @example
+ * ```ts
+ * generateAcFromDescription('Fix login bug', 'Users cannot log in');
+ * // => ['The defect is resolved...', 'No breaking changes...', 'Changes verified...']
+ * ```
  */
 export function generateAcFromDescription(title: string, description: string): string[] {
   const text = `${title} ${description}`.toLowerCase();
@@ -144,8 +159,20 @@ function isBackfilledTask(task: Task): boolean {
 /**
  * Retroactively populate AC and verification metadata for tasks that lack them.
  *
+ * @remarks
+ * In dry-run mode, computes changes without writing to the database.
+ * Backfilled tasks are tagged with a note so they can be identified and
+ * optionally rolled back later.
+ *
  * @param projectRoot - Project root directory (cwd for CLEO operations)
  * @param options     - Backfill options (dryRun, rollback, taskIds)
+ * @returns Summary of changes applied (or previewed in dry-run mode)
+ *
+ * @example
+ * ```ts
+ * const result = await backfillTasks('/my/project', { dryRun: true });
+ * console.log(result.changed); // number of tasks that would be modified
+ * ```
  */
 export async function backfillTasks(
   projectRoot: string,

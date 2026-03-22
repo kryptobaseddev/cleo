@@ -11,6 +11,17 @@
  * @module agents
  */
 
+// Load-balancing registry: task-count capacity, specializations, performance recording
+export {
+  type AgentCapacity,
+  type AgentPerformanceMetrics,
+  getAgentCapacity,
+  getAgentSpecializations,
+  getAgentsByCapacity,
+  MAX_TASKS_PER_AGENT,
+  recordAgentPerformance,
+  updateAgentSpecializations,
+} from './agent-registry.js';
 // Schema & types
 export {
   AGENT_INSTANCE_STATUSES,
@@ -47,10 +58,22 @@ export {
   recordFailurePattern,
   storeHealingStrategy,
 } from './execution-learning.js';
+// Health monitoring (T039)
+export {
+  type AgentHealthStatus,
+  checkAgentHealth,
+  detectCrashedAgents,
+  detectStaleAgents,
+  HEARTBEAT_INTERVAL_MS,
+  recordHeartbeat,
+  STALE_THRESHOLD_MS,
+} from './health-monitor.js';
 // Registry (CRUD, heartbeat, health, errors)
+// Note: registry.checkAgentHealth (thresholdMs, cwd) -> AgentInstanceRow[] is exported
+// as findStaleAgentRows to avoid conflict with health-monitor.checkAgentHealth (T039).
 export {
   type AgentHealthReport,
-  checkAgentHealth,
+  checkAgentHealth as findStaleAgentRows,
   classifyError,
   deregisterAgent,
   generateAgentId,

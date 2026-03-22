@@ -23,9 +23,10 @@ const CLI_VERSION = getPackageVersion();
 // Create root shim to collect all commands
 const rootShim = new ShimCommand();
 
-// Import all command registration functions
 import { registerAddCommand } from './commands/add.js';
 import { registerAdrCommand } from './commands/adr.js';
+// Import all command registration functions
+import { registerAgentsCommand } from './commands/agents.js';
 import { registerAnalyzeCommand } from './commands/analyze.js';
 import { registerArchiveCommand } from './commands/archive.js';
 import { registerArchiveStatsCommand } from './commands/archive-stats.js';
@@ -83,6 +84,7 @@ import { registerPhaseCommand } from './commands/phase.js';
 import { registerPhasesCommand } from './commands/phases.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPromoteCommand } from './commands/promote.js';
+import { registerReasonCommand } from './commands/reason.js';
 import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
 import { registerRelatesCommand } from './commands/relates.js';
 import { registerReleaseCommand } from './commands/release.js';
@@ -113,6 +115,7 @@ import { registerVerifyCommand } from './commands/verify.js';
 import { registerWebCommand } from './commands/web.js';
 
 // Register all commands against the shim
+registerAgentsCommand(rootShim);
 registerAddCommand(rootShim);
 registerListCommand(rootShim);
 registerShowCommand(rootShim);
@@ -199,6 +202,7 @@ registerBackfillCommand(rootShim);
 registerMemoryBrainCommand(rootShim);
 registerMigrateClaudeMemCommand(rootShim);
 registerStickyCommand(rootShim);
+registerReasonCommand(rootShim);
 registerRefreshMemoryCommand(rootShim);
 registerObserveCommand(rootShim);
 

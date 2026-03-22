@@ -40,6 +40,7 @@ export * as coreHooks from './hooks/index.js';
 export * as inject from './inject/index.js';
 export * as intelligence from './intelligence/index.js';
 export * as issue from './issue/index.js';
+export * as lib from './lib/index.js';
 export * as lifecycle from './lifecycle/index.js';
 export * as coreMcp from './mcp/index.js';
 export * as memory from './memory/index.js';

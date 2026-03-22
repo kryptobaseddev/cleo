@@ -1,6 +1,25 @@
 # Changelog
 
-## [2026.3.58] (2026-03-22)
+## [Unreleased]
+
+## [2026.3.59] - 2026-03-22
+
+### Added
+- **Agent health monitoring**: `cleo agents health` — heartbeat, stale/crash detection (T039, 25 tests)
+- **Retry utility**: `withRetry()` exponential backoff in `lib/retry.ts` (T040, 16 tests)
+- **Agent registry**: Capacity tracking, specializations, performance recording (T041, 21 tests)
+- **Impact prediction**: `cleo reason impact --change <text>` — dependency analysis (T043)
+- **Reasoning CLI**: `cleo reason why|similar|impact|timeline` — CLI parity (T044)
+- **SharingStatus**: Git sync fields for Nexus visibility (T110)
+
+### Changed
+- **Config vaporware audit (T101)**: Removed ~170 dead config fields across schema/templates/presets
+- **Strictness presets**: Fixed phantom `hierarchy.requireAcceptanceCriteria` key (T107)
+
+### Assessed
+- **Nexus**: Zero production usage — deferred to Phase 3 (T045)
+
+## [2026.3.58] - 2026-03-22
 
 ### Added
 - **Enforcement gates**: Session required for mutations, AC required on creation (min 3), verification gates required for completion, orphan tasks blocked (must have parent epic) — all in strict mode
@@ -260,4 +279,7 @@ Auto-prepared by release.ship (T021)
 - **Replace saveSessions(array) with upsertSingleSession**: Make upsertSingleSession required on DataAccessor. Replace all saveSessions bulk writes with per-session targeted writes. Eliminates session array ... (T026)
 - **Async background embedding for brain memory**: Make embedding generation in observeBrain fire-and-forget via async queue. Currently synchronous and blocks CLI/Agent during LLM embedding calls. (T027)
 - **Memory decay — confidence decay for old memories**: Add decay factor so old unreferenced memory drops from context window. Implement as decay multiplier based on age and reference count. (T028)
----
+
+[Unreleased]: https://github.com/kryptobaseddev/cleo/compare/v2026.3.59...HEAD
+[2026.3.59]: https://github.com/kryptobaseddev/cleo/compare/v2026.3.58...v2026.3.59
+[2026.3.58]: https://github.com/kryptobaseddev/cleo/compare/v2026.3.57...v2026.3.58

@@ -158,6 +158,32 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
+    operation: 'impact',
+    description:
+      'tasks.impact (query) — predict downstream effects of a free-text change description using keyword matching and reverse dependency graph traversal',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['change'],
+    params: [
+      {
+        name: 'change',
+        type: 'string',
+        required: true,
+        description:
+          'Free-text description of the proposed change (e.g. "Modify authentication flow")',
+      },
+      {
+        name: 'matchLimit',
+        type: 'number',
+        required: false,
+        description: 'Maximum number of seed tasks to match by keyword (default: 5)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
     operation: 'next',
     description: 'tasks.next (query)',
     tier: 0,

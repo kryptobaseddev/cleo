@@ -67,6 +67,18 @@ export interface EpicEnforcementResult {
  * Read `lifecycle.mode` from config.  Falls back to "strict" when unset
  * (matches the DEFAULTS in config.ts).
  *
+ * @remarks
+ * In VITEST environments, returns "off" to avoid blocking tests.
+ *
+ * @param cwd - Working directory for config resolution
+ * @returns The resolved lifecycle mode
+ *
+ * @example
+ * ```ts
+ * const mode = await getLifecycleMode();
+ * // => 'strict' | 'advisory' | 'off'
+ * ```
+ *
  * @task T062
  */
 export async function getLifecycleMode(cwd?: string): Promise<LifecycleMode> {
@@ -91,11 +103,22 @@ export async function getLifecycleMode(cwd?: string): Promise<LifecycleMode> {
  *
  * In **off** mode this function is a no-op.
  *
+ * @remarks
+ * The description field serves as a proxy for completion criteria — epics
+ * without a description have no definition of "done" and should be blocked.
+ *
+ * @param options - Epic creation parameters
  * @param options.acceptance  - Acceptance criteria array supplied by the caller.
  * @param options.description - Task description (used as completion criteria proxy).
  * @param cwd                 - Working directory for config resolution.
  * @returns EpicEnforcementResult — `valid: false` only in strict mode on error.
  * @throws CleoError(VALIDATION_ERROR) in strict mode when constraints are violated.
+ *
+ * @example
+ * ```ts
+ * await validateEpicCreation({ acceptance: ['AC1','AC2','AC3','AC4','AC5'] });
+ * // => { valid: true }
+ * ```
  *
  * @task T062
  */
@@ -151,12 +174,25 @@ export async function validateEpicCreation(
  * The check walks the task's ancestor chain to find the nearest epic ancestor.
  * If none exists, the check is skipped.
  *
+ * @remarks
+ * Skips the check if the epic has no pipeline stage set, or if the child
+ * stage is not a recognised value (those are handled by separate validation).
+ *
+ * @param options - Ceiling check parameters
  * @param options.childStage  - The proposed pipeline stage for the child.
  * @param options.epicId      - ID of the epic ancestor to check against.
  * @param accessor            - DataAccessor for task lookups.
  * @param cwd                 - Working directory for config resolution.
  * @returns EpicEnforcementResult
  * @throws CleoError(VALIDATION_ERROR) in strict mode when the child stage exceeds the epic.
+ *
+ * @example
+ * ```ts
+ * await validateChildStageCeiling(
+ *   { childStage: 'testing', epicId: 'T001' },
+ *   accessor,
+ * );
+ * ```
  *
  * @task T062
  */
@@ -204,9 +240,19 @@ export async function validateChildStageCeiling(
  * Walks the ancestor chain (root-first) and returns the first task whose
  * type is "epic", or null if no epic ancestor exists.
  *
+ * @remarks
+ * Scans from closest ancestor to root so the *nearest* epic is returned,
+ * not the highest-level one.
+ *
  * @param taskId   - ID of the task whose ancestors to inspect.
  * @param accessor - DataAccessor for the ancestor chain query.
  * @returns The nearest epic ancestor, or null.
+ *
+ * @example
+ * ```ts
+ * const epic = await findEpicAncestor('T042', accessor);
+ * if (epic) console.log(epic.id); // e.g. 'T029'
+ * ```
  *
  * @task T062
  */
@@ -240,6 +286,13 @@ export async function findEpicAncestor(
  * in.  Moving the epic forward while children are unfinished at the current
  * stage violates the pipeline discipline.
  *
+ * @remarks
+ * Only fires on genuine forward advancement — same-stage updates and
+ * backward moves are handled by {@link validatePipelineTransition}.
+ * Children with status "done", "cancelled", or "archived" are excluded
+ * from the blocker check.
+ *
+ * @param options - Advancement check parameters
  * @param options.epicId       - ID of the epic being advanced.
  * @param options.currentStage - Epic's current pipeline stage (before the update).
  * @param options.newStage     - Proposed new pipeline stage.
@@ -247,6 +300,14 @@ export async function findEpicAncestor(
  * @param cwd                  - Working directory for config resolution.
  * @returns EpicEnforcementResult
  * @throws CleoError(VALIDATION_ERROR) in strict mode when incomplete children exist.
+ *
+ * @example
+ * ```ts
+ * await validateEpicStageAdvancement(
+ *   { epicId: 'T029', currentStage: 'research', newStage: 'consensus' },
+ *   accessor,
+ * );
+ * ```
  *
  * @task T062
  */

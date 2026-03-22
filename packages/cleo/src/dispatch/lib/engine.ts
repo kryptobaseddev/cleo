@@ -235,6 +235,7 @@ export {
   taskExport,
   taskFind,
   taskHistory,
+  taskImpact,
   taskImport,
   taskLabelList,
   taskLabelShow,

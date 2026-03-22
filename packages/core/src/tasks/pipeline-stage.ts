@@ -81,8 +81,18 @@ const STAGE_ORDER: Record<TaskPipelineStage, number> = {
 /**
  * Check whether a string is a valid pipeline stage name.
  *
+ * @remarks
+ * Uses a type-narrowing signature so callers can safely use the value
+ * as {@link TaskPipelineStage} after a truthy check.
+ *
  * @param stage - Raw string to test
  * @returns True if it is a valid stage name
+ *
+ * @example
+ * ```ts
+ * isValidPipelineStage('research');       // => true
+ * isValidPipelineStage('not_a_stage');    // => false
+ * ```
  *
  * @task T060
  */
@@ -93,8 +103,19 @@ export function isValidPipelineStage(stage: string): stage is TaskPipelineStage 
 /**
  * Validate a pipeline stage name and throw a CleoError on failure.
  *
+ * @remarks
+ * Uses an assertion signature — after a successful call the compiler
+ * narrows `stage` to {@link TaskPipelineStage}.
+ *
  * @param stage - Stage name to validate
+ * @returns void (assertion function — narrows type on success)
  * @throws CleoError(VALIDATION_ERROR) if invalid
+ *
+ * @example
+ * ```ts
+ * validatePipelineStage('implementation'); // passes
+ * validatePipelineStage('invalid');        // throws CleoError
+ * ```
  *
  * @task T060
  */
@@ -121,10 +142,25 @@ export function validatePipelineStage(stage: string): asserts stage is TaskPipel
  * 3. If the task type is 'epic', default to 'research'.
  * 4. Otherwise default to 'implementation'.
  *
+ * @remarks
+ * Priority order ensures explicit caller intent wins, then parent
+ * inheritance, then type-based defaults. This avoids surprising
+ * overrides when parent stages differ from the default.
+ *
+ * @param options - Resolution inputs
  * @param options.explicitStage - Stage explicitly provided by the caller
  * @param options.taskType      - Type of the task being created
  * @param options.parentTask    - Parent task (if any), for inheritance
  * @returns The resolved pipeline stage name
+ *
+ * @example
+ * ```ts
+ * resolveDefaultPipelineStage({ taskType: 'epic' });
+ * // => 'research'
+ *
+ * resolveDefaultPipelineStage({ taskType: 'task' });
+ * // => 'implementation'
+ * ```
  *
  * @task T060
  */
@@ -161,8 +197,19 @@ export function resolveDefaultPipelineStage(options: {
 /**
  * Get the numeric order of a pipeline stage (1-based).
  *
+ * @remarks
+ * Returns -1 for unrecognised stage names so callers can distinguish
+ * "unknown" from a valid low-order stage.
+ *
  * @param stage - Stage name (must be valid)
- * @returns Numeric order, or -1 if not found
+ * @returns Numeric order (1–10), or -1 if not found
+ *
+ * @example
+ * ```ts
+ * getPipelineStageOrder('research');       // => 1
+ * getPipelineStageOrder('implementation'); // => 6
+ * getPipelineStageOrder('unknown');        // => -1
+ * ```
  *
  * @task T060
  */
@@ -176,9 +223,19 @@ export function getPipelineStageOrder(stage: string): number {
  * "Forward" means the new stage's order is greater than or equal to the current
  * stage's order (same stage is a no-op and is considered valid).
  *
+ * @remarks
+ * Unknown stages are treated as valid to avoid blocking tasks with
+ * legacy or custom stage names that predate the standard set.
+ *
  * @param currentStage - The task's current pipeline stage
  * @param newStage     - The requested new pipeline stage
  * @returns True if the transition is allowed (forward or same)
+ *
+ * @example
+ * ```ts
+ * isPipelineTransitionForward('research', 'implementation'); // => true
+ * isPipelineTransitionForward('testing', 'research');        // => false
+ * ```
  *
  * @task T060
  */
@@ -192,9 +249,21 @@ export function isPipelineTransitionForward(currentStage: string, newStage: stri
 /**
  * Validate a pipeline stage transition and throw if it would move backward.
  *
+ * @remarks
+ * Validates the new stage name first via {@link validatePipelineStage},
+ * then checks directionality. A null/undefined current stage accepts any
+ * valid new stage (first assignment).
+ *
  * @param currentStage - The task's current pipeline stage (may be null/undefined)
  * @param newStage     - The new stage being requested
  * @throws CleoError(VALIDATION_ERROR) if the transition is backward
+ *
+ * @example
+ * ```ts
+ * validatePipelineTransition(null, 'research');              // passes (first assignment)
+ * validatePipelineTransition('research', 'implementation');   // passes (forward)
+ * validatePipelineTransition('testing', 'research');          // throws (backward)
+ * ```
  *
  * @task T060
  */

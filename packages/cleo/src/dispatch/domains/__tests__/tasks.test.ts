@@ -85,6 +85,7 @@ describe('TasksHandler', () => {
         'blockers',
         'depends',
         'analyze',
+        'impact',
         'next',
         'plan',
         'relates',

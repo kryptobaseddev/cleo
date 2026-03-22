@@ -17,6 +17,20 @@
 import { backfillTasks, getProjectRoot } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
+/**
+ * Register the `cleo backfill` CLI command.
+ *
+ * @remarks
+ * Wires the backfill module from core into the CLI command tree.
+ *
+ * @param program - The root CLI command to attach to
+ *
+ * @example
+ * ```ts
+ * registerBackfillCommand(rootCommand);
+ * // Adds: cleo backfill [--dry-run] [--rollback]
+ * ```
+ */
 export function registerBackfillCommand(program: Command): void {
   program
     .command('backfill')

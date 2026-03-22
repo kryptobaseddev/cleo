@@ -6,6 +6,7 @@
  *   - Task impact assessment (direct + transitive dependents)
  *   - Change impact prediction (cancel, block, complete, reprioritize)
  *   - Blast radius calculation (scope quantification)
+ *   - Free-text impact prediction (predictImpact) — T043
  *
  * @module intelligence
  */
@@ -22,6 +23,8 @@ import type {
   ChangeImpact,
   ChangeType,
   ImpactAssessment,
+  ImpactedTask,
+  ImpactReport,
 } from './types.js';
 
 // ============================================================================
@@ -635,4 +638,204 @@ function generateRecommendation(
         `across ${cascadeDepth} level(s) of dependencies.`
       );
   }
+}
+
+// ============================================================================
+// Free-text Impact Prediction (T043)
+// ============================================================================
+
+/**
+ * Score a task against a change description using simple keyword matching.
+ *
+ * Normalises both strings to lowercase and counts overlapping tokens (words).
+ * Returns a score in [0, 1] — 1 meaning every non-trivial token in the change
+ * description was found in the task text.
+ */
+function scoreTaskMatch(change: string, task: Task): number {
+  const STOP_WORDS = new Set([
+    'a',
+    'an',
+    'the',
+    'and',
+    'or',
+    'in',
+    'of',
+    'to',
+    'for',
+    'with',
+    'on',
+    'at',
+    'by',
+    'is',
+    'it',
+    'be',
+    'as',
+    'if',
+    'do',
+    'not',
+  ]);
+
+  const tokenise = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+
+  const changeTokens = new Set(tokenise(change));
+  if (changeTokens.size === 0) return 0;
+
+  const taskText = `${task.title ?? ''} ${task.description ?? ''}`;
+  const taskTokens = new Set(tokenise(taskText));
+
+  let matches = 0;
+  for (const token of changeTokens) {
+    if (taskTokens.has(token)) matches++;
+  }
+
+  return matches / changeTokens.size;
+}
+
+/**
+ * Predict the downstream impact of a free-text change description.
+ *
+ * Uses fuzzy keyword matching to identify candidate tasks that relate to
+ * the change, then walks the reverse dependency graph to enumerate all
+ * downstream tasks that may be affected.
+ *
+ * @remarks
+ * The matching is purely lexical (no embeddings). Tasks are ranked by
+ * how many tokens from the change description appear in their title and
+ * description. The top `matchLimit` (default: 5) matched tasks are used
+ * as seeds for downstream dependency tracing.
+ *
+ * @example
+ * ```ts
+ * import { predictImpact } from '@cleocode/core';
+ *
+ * const report = await predictImpact('Modify authentication flow', process.cwd());
+ * console.log(report.summary);
+ * // "3 tasks matched 'Modify authentication flow'; 7 downstream tasks affected."
+ * for (const task of report.affectedTasks) {
+ *   console.log(`${task.id} (${task.exposure}): ${task.reason}`);
+ * }
+ * ```
+ *
+ * @param change - Free-text description of the proposed change (e.g. "Modify X")
+ * @param cwd - Working directory used to locate the tasks database
+ * @param accessor - Optional pre-created DataAccessor (useful in tests)
+ * @param matchLimit - Maximum number of seed tasks to match (default: 5)
+ * @returns Full impact prediction report
+ */
+export async function predictImpact(
+  change: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+  matchLimit = 5,
+): Promise<ImpactReport> {
+  const acc = accessor ?? (await getAccessor(cwd));
+  const tasks = await loadAllTasks(acc);
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const dependentsMap = buildDependentsMap(tasks);
+
+  // --- Step 1: Score every task against the change description ---
+  const scored = tasks
+    .map((t) => ({ task: t, score: scoreTaskMatch(change, t) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const seeds = scored.slice(0, matchLimit).map(({ task }) => task);
+
+  if (seeds.length === 0) {
+    return {
+      change,
+      matchedTasks: [],
+      affectedTasks: [],
+      totalAffected: 0,
+      summary: `No tasks matched the change description "${change}".`,
+    };
+  }
+
+  // --- Step 2: Collect all affected task IDs via reverse dependency graph ---
+  const directMatchIds = new Set(seeds.map((t) => t.id));
+
+  // Map: taskId -> exposure level
+  const exposureMap = new Map<string, ImpactedTask['exposure']>();
+  for (const id of directMatchIds) {
+    exposureMap.set(id, 'direct');
+  }
+
+  // BFS over dependents for each seed
+  for (const seed of seeds) {
+    const transitive = collectTransitiveDependents(seed.id, dependentsMap);
+    for (const depId of transitive) {
+      if (!exposureMap.has(depId)) {
+        // Determine whether this is a direct dependent of the seed or further out
+        const isDirectDependent = (dependentsMap.get(seed.id) ?? new Set()).has(depId);
+        exposureMap.set(depId, isDirectDependent ? 'dependent' : 'transitive');
+      }
+    }
+  }
+
+  // --- Step 3: Build ImpactedTask list ---
+  const EXPOSURE_ORDER: Record<ImpactedTask['exposure'], number> = {
+    direct: 0,
+    dependent: 1,
+    transitive: 2,
+  };
+
+  const affectedTasks: ImpactedTask[] = [];
+
+  for (const [id, exposure] of exposureMap) {
+    const task = taskMap.get(id);
+    if (!task) continue;
+
+    const downstreamTransitive = collectTransitiveDependents(id, dependentsMap);
+    const downstreamCount = downstreamTransitive.size;
+
+    let reason: string;
+    if (exposure === 'direct') {
+      reason = `Task title/description matched "${change}".`;
+    } else if (exposure === 'dependent') {
+      const seedNames = seeds
+        .filter((s) => (dependentsMap.get(s.id) ?? new Set()).has(id))
+        .map((s) => s.id)
+        .join(', ');
+      reason = `Directly depends on matched task(s): ${seedNames}.`;
+    } else {
+      reason = 'Downstream of a matched task via transitive dependency chain.';
+    }
+
+    affectedTasks.push({
+      id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      exposure,
+      downstreamCount,
+      reason,
+    });
+  }
+
+  // Sort: exposure order first, then descending downstream count
+  affectedTasks.sort((a, b) => {
+    const expDiff = EXPOSURE_ORDER[a.exposure] - EXPOSURE_ORDER[b.exposure];
+    if (expDiff !== 0) return expDiff;
+    return b.downstreamCount - a.downstreamCount;
+  });
+
+  const matchedTasks = affectedTasks.filter((t) => t.exposure === 'direct');
+  const totalAffected = affectedTasks.length;
+
+  const summary =
+    matchedTasks.length === 0
+      ? `No tasks matched "${change}".`
+      : `${matchedTasks.length} task(s) matched "${change}"; ${totalAffected} total task(s) affected (including downstream).`;
+
+  return {
+    change,
+    matchedTasks,
+    affectedTasks,
+    totalAffected,
+    summary,
+  };
 }

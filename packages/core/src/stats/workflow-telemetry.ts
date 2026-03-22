@@ -229,6 +229,21 @@ function gradeFromScore(score: number): string {
  *   WF-003: Completed tasks SHOULD have verification gates set (T061)
  *   WF-004: Tasks with verification SHOULD have all 3 gates set
  *   WF-005: Tasks MUST have session binding on creation (non-epic)
+ *
+ * @remarks
+ * Derives all metrics from existing audit_log and tasks tables — no new
+ * tracking infrastructure is required.
+ *
+ * @param opts - Report options
+ * @param opts.since - ISO 8601 date string to filter metrics from
+ * @param opts.cwd - Working directory for database resolution
+ * @returns Compliance report with per-rule pass/fail counts and overall rate
+ *
+ * @example
+ * ```ts
+ * const report = await getWorkflowComplianceReport({ cwd: '/my/project' });
+ * console.log(report.overall.passRate); // e.g. 0.85
+ * ```
  */
 export async function getWorkflowComplianceReport(opts: {
   since?: string;

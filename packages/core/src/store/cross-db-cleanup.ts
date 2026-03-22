@@ -26,8 +26,17 @@ import { getBrainDb } from './brain-sqlite.js';
  * This is a best-effort cleanup — brain.db is a cognitive store and minor
  * staleness is preferable to failing task deletions due to brain.db errors.
  *
+ * @remarks
+ * Best-effort: failures in brain.db cleanup do not propagate to the caller.
+ * A background reconciliation pass can clean up any residual stale refs.
+ *
  * @param taskId - The ID of the task being deleted from tasks.db
  * @param cwd - Optional working directory
+ *
+ * @example
+ * ```ts
+ * await cleanupBrainRefsOnTaskDelete('T042');
+ * ```
  */
 export async function cleanupBrainRefsOnTaskDelete(taskId: string, cwd?: string): Promise<void> {
   let brainDb: Awaited<ReturnType<typeof getBrainDb>> | null = null;
@@ -84,8 +93,16 @@ export async function cleanupBrainRefsOnTaskDelete(taskId: string, cwd?: string)
  * Handles:
  * - XFKB-004: Nullify brain_observations.source_session_id where it matches
  *
+ * @remarks
+ * Best-effort: failures do not propagate. brain.db may not be initialised.
+ *
  * @param sessionId - The ID of the session being deleted from tasks.db
  * @param cwd - Optional working directory
+ *
+ * @example
+ * ```ts
+ * await cleanupBrainRefsOnSessionDelete('ses_20260321_abc');
+ * ```
  */
 export async function cleanupBrainRefsOnSessionDelete(
   sessionId: string,
@@ -116,8 +133,17 @@ export async function cleanupBrainRefsOnSessionDelete(
  *
  * Provides write-guard for XFKB-001/002/003 on brain.db insert.
  *
+ * @remarks
+ * Used as a write-guard before inserting cross-DB references into brain.db.
+ *
  * @param taskId - Task ID to verify
  * @param tasksDb - The tasks.db drizzle instance
+ * @returns True if the task exists in tasks.db
+ *
+ * @example
+ * ```ts
+ * if (await taskExistsInTasksDb('T042', db)) { /* safe to reference *\/ }
+ * ```
  */
 export async function taskExistsInTasksDb(
   taskId: string,
@@ -139,8 +165,17 @@ export async function taskExistsInTasksDb(
  *
  * Provides write-guard for XFKB-004 on brain.db insert.
  *
+ * @remarks
+ * Used as a write-guard before inserting cross-DB references into brain.db.
+ *
  * @param sessionId - Session ID to verify
  * @param tasksDb - The tasks.db drizzle instance
+ * @returns True if the session exists in tasks.db
+ *
+ * @example
+ * ```ts
+ * if (await sessionExistsInTasksDb('ses_abc', db)) { /* safe to reference *\/ }
+ * ```
  */
 export async function sessionExistsInTasksDb(
   sessionId: string,

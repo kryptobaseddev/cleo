@@ -47,6 +47,17 @@ export const DEFAULT_RETRY_POLICY: Readonly<RetryPolicy> = Object.freeze({
 
 /**
  * Create a retry policy by merging overrides with the default policy.
+ *
+ * @remarks
+ * Unspecified fields fall back to {@link DEFAULT_RETRY_POLICY}.
+ *
+ * @param overrides - Partial policy to merge with defaults
+ * @returns A complete RetryPolicy
+ *
+ * @example
+ * ```ts
+ * const policy = createRetryPolicy({ maxRetries: 5 });
+ * ```
  */
 export function createRetryPolicy(overrides?: Partial<RetryPolicy>): RetryPolicy {
   return { ...DEFAULT_RETRY_POLICY, ...overrides };
@@ -55,8 +66,19 @@ export function createRetryPolicy(overrides?: Partial<RetryPolicy>): RetryPolicy
 /**
  * Calculate the delay for a given retry attempt using exponential backoff.
  *
- * Formula: min(baseDelay * multiplier^attempt, maxDelay) + jitter
+ * @remarks
+ * Formula: `min(baseDelay * multiplier^attempt, maxDelay) + jitter`.
  * Jitter adds 0-25% randomness to prevent thundering herd.
+ *
+ * @param attempt - Zero-based attempt index
+ * @param policy - Retry policy with delay configuration
+ * @returns Delay in milliseconds before the next attempt
+ *
+ * @example
+ * ```ts
+ * const delay = calculateDelay(1, createRetryPolicy());
+ * // => ~2000ms (with jitter)
+ * ```
  */
 export function calculateDelay(attempt: number, policy: RetryPolicy): number {
   const exponentialDelay = policy.baseDelayMs * policy.backoffMultiplier ** attempt;
@@ -73,6 +95,20 @@ export function calculateDelay(attempt: number, policy: RetryPolicy): number {
 /**
  * Determine whether an error should be retried based on its classification
  * and the retry policy.
+ *
+ * @remarks
+ * Permanent errors are never retried. Retriable errors are always retried
+ * (within attempt limits). Unknown errors defer to `policy.retryOnUnknown`.
+ *
+ * @param error - The caught error to classify
+ * @param attempt - Current attempt number (0-based)
+ * @param policy - Retry policy with limits and classification rules
+ * @returns True if the error should be retried
+ *
+ * @example
+ * ```ts
+ * if (shouldRetry(err, attempt, policy)) { /* retry *\/ }
+ * ```
  */
 export function shouldRetry(error: unknown, attempt: number, policy: RetryPolicy): boolean {
   if (attempt >= policy.maxRetries) return false;
@@ -102,13 +138,20 @@ export interface RetryResult<T> {
 /**
  * Wrap an async function with retry logic using configurable exponential backoff.
  *
- * The function will be retried according to the policy when retriable errors
- * occur. Permanent errors cause immediate failure. Unknown errors respect
- * the `retryOnUnknown` policy setting.
+ * @remarks
+ * Agent-specific variant that integrates with error classification from the
+ * agent registry. For a dependency-free generic retry, use `lib/retry.ts`.
  *
+ * @typeParam T - The resolved type of the async function
  * @param fn - The async function to execute with retries
  * @param policy - Retry policy (uses DEFAULT_RETRY_POLICY if not provided)
  * @returns The result of the operation with retry metadata
+ *
+ * @example
+ * ```ts
+ * const result = await withRetry(() => fetchAgentTask(agentId));
+ * if (!result.success) console.error(result.error);
+ * ```
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
@@ -176,9 +219,19 @@ export interface AgentRecoveryResult {
  * classified as 'permanent' are abandoned. Agents with retriable errors
  * are reset to 'starting' for the orchestration layer to re-assign.
  *
+ * @remarks
+ * Two-phase process: first detects stale agents via heartbeat threshold,
+ * then evaluates each crashed agent's error history for recoverability.
+ *
  * @param thresholdMs - Heartbeat threshold for crash detection (default: 30000)
  * @param cwd - Working directory
  * @returns Recovery results for each crashed agent
+ *
+ * @example
+ * ```ts
+ * const results = await recoverCrashedAgents(60_000);
+ * results.filter(r => r.recovered).forEach(r => console.log(r.agentId));
+ * ```
  */
 export async function recoverCrashedAgents(
   thresholdMs: number = 30_000,

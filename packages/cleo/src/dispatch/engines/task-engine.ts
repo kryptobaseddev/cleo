@@ -55,6 +55,8 @@ import {
   coreTaskUnarchive,
   updateTask as coreUpdateTask,
   getAccessor,
+  type ImpactReport,
+  predictImpact,
   toCompact,
 } from '@cleocode/core/internal';
 import { type EngineResult, engineError } from './_error.js';
@@ -830,6 +832,33 @@ export async function taskAnalyze(
       return engineError('E_NOT_FOUND', message);
     }
     return engineError('E_GENERAL', `Task analysis failed: ${message}`);
+  }
+}
+
+/**
+ * Predict downstream impact of a free-text change description.
+ *
+ * Delegates to {@link predictImpact} from the intelligence module.
+ * Uses keyword matching against task titles/descriptions, then traces
+ * the reverse dependency graph for transitive effects.
+ *
+ * @param projectRoot - Project root directory
+ * @param change - Free-text description of the proposed change
+ * @param matchLimit - Maximum seed tasks to match (default: 5)
+ * @returns Impact prediction report
+ * @task T043
+ */
+export async function taskImpact(
+  projectRoot: string,
+  change: string,
+  matchLimit?: number,
+): Promise<EngineResult<ImpactReport>> {
+  try {
+    const result = await predictImpact(change, projectRoot, undefined, matchLimit);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_GENERAL', `Impact prediction failed: ${message}`);
   }
 }
 

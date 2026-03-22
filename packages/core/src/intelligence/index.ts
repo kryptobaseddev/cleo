@@ -30,6 +30,7 @@ export {
   analyzeChangeImpact,
   analyzeTaskImpact,
   calculateBlastRadius,
+  predictImpact,
 } from './impact.js';
 // Patterns
 export {
@@ -53,6 +54,8 @@ export type {
   ChangeType,
   DetectedPattern,
   ImpactAssessment,
+  ImpactedTask,
+  ImpactReport,
   LearningContext,
   PatternExtractionOptions,
   PatternMatch,

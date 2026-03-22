@@ -66,6 +66,7 @@ export {
   analyzeChangeImpact,
   analyzeTaskImpact,
   calculateBlastRadius,
+  predictImpact,
 } from './intelligence/impact.js';
 export {
   extractPatternsFromHistory,
@@ -87,6 +88,8 @@ export type {
   ChangeType,
   DetectedPattern,
   ImpactAssessment,
+  ImpactedTask,
+  ImpactReport,
   LearningContext,
   PatternExtractionOptions,
   PatternMatch,
@@ -98,6 +101,14 @@ export type {
 
 // Issue
 export { collectDiagnostics } from './issue/diagnostics.js';
+// Lib — shared primitives
+export {
+  computeDelay,
+  type RetryablePredicate,
+  type RetryContext,
+  type RetryOptions,
+  withRetry as withRetryShared,
+} from './lib/retry.js';
 export {
   addChain,
   advanceInstance,
@@ -611,6 +622,7 @@ export type {
   AgentExecutionEvent,
   AgentExecutionOutcome,
   AgentHealthReport,
+  AgentHealthStatus,
   AgentPerformanceSummary,
   AgentRecoveryResult,
   CapacitySummary,
@@ -623,12 +635,17 @@ export type {
 } from './agents/index.js';
 // Agents — runtime registry, health, retry, capacity
 export {
+  // health-monitor functions (T039)
   checkAgentHealth,
+  // registry / capacity / retry
   classifyError,
   createRetryPolicy,
   DEFAULT_RETRY_POLICY,
   deregisterAgent,
+  detectCrashedAgents,
+  detectStaleAgents,
   findLeastLoadedAgent,
+  findStaleAgentRows,
   generateAgentId,
   getAgentErrorHistory,
   getAgentInstance,
@@ -637,6 +654,7 @@ export {
   getCapacitySummary,
   getHealthReport,
   getSelfHealingSuggestions,
+  HEARTBEAT_INTERVAL_MS,
   heartbeat,
   incrementTasksCompleted,
   isOverloaded,
@@ -645,8 +663,10 @@ export {
   processAgentLifecycleEvent,
   recordAgentExecution,
   recordFailurePattern,
+  recordHeartbeat,
   recoverCrashedAgents,
   registerAgent as registerAgentInstance,
+  STALE_THRESHOLD_MS,
   storeHealingStrategy,
   updateAgentStatus,
   updateCapacity,

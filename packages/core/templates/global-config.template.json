@@ -6,40 +6,7 @@
     "showColor": true,
     "showUnicode": true,
     "showProgressBars": true,
-    "dateFormat": "iso8601",
-    "showCompactTitles": false,
-    "maxTitleLength": 80
-  },
-  "display": {
-    "showArchiveCount": true,
-    "showLogSummary": true,
-    "warnStaleDays": 30
-  },
-  "cli": {
-    "aliases": {
-      "ls": "list",
-      "done": "complete",
-      "new": "add",
-      "edit": "update",
-      "rm": "archive",
-      "check": "validate",
-      "tags": "labels",
-      "overview": "dash"
-    },
-    "plugins": {
-      "enabled": true,
-      "directories": [
-        "~/.cleo/plugins",
-        "./.cleo/plugins"
-      ],
-      "autoDiscover": true
-    },
-    "debug": {
-      "enabled": false,
-      "validateMappings": true,
-      "checksumVerify": true,
-      "showTimings": false
-    }
+    "dateFormat": "iso8601"
   },
   "enforcement": {
     "acceptance": {
@@ -68,15 +35,6 @@
     "mode": "strict"
   },
   "defaults": {
-    "priority": "medium",
-    "labels": []
-  },
-  "multiSession": {
-    "enabled": true,
-    "maxConcurrentSessions": 5,
-    "maxActiveTasksPerScope": 1,
-    "scopeValidation": "strict",
-    "allowNestedScopes": true,
-    "allowScopeOverlap": false
+    "priority": "medium"
   }
 }

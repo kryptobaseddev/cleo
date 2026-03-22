@@ -30,6 +30,7 @@ import {
   taskDepsOverview,
   taskFind,
   taskHistory,
+  taskImpact,
   taskLabelList,
   taskList,
   taskNext,
@@ -154,6 +155,23 @@ export class TasksHandler implements DomainHandler {
           const taskId = params?.taskId as string | undefined;
           const tierLimit = params?.tierLimit as number | undefined;
           const result = await taskAnalyze(projectRoot, taskId, { tierLimit });
+          return wrapResult(result, 'query', 'tasks', operation, startTime);
+        }
+
+        case 'impact': {
+          const change = params?.change as string;
+          if (!change) {
+            return errorResult(
+              'query',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'change is required (free-text description of the proposed change)',
+              startTime,
+            );
+          }
+          const matchLimit = params?.matchLimit as number | undefined;
+          const result = await taskImpact(projectRoot, change, matchLimit);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -435,6 +453,7 @@ export class TasksHandler implements DomainHandler {
         'blockers',
         'depends',
         'analyze',
+        'impact',
         'next',
         'plan',
         'relates',

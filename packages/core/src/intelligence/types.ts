@@ -246,6 +246,82 @@ export interface AffectedTask {
 }
 
 // ============================================================================
+// Impact Prediction (free-text change description)
+// ============================================================================
+
+/**
+ * A single task predicted to be affected by a free-text change description.
+ *
+ * Produced by {@link predictImpact} after matching candidate tasks against
+ * the change description and running downstream dependency analysis.
+ */
+export interface ImpactedTask {
+  /** Task ID. */
+  id: string;
+
+  /** Task title. */
+  title: string;
+
+  /** Current task status. */
+  status: string;
+
+  /** Current task priority. */
+  priority: string;
+
+  /**
+   * Severity estimate for this task's exposure to the change.
+   *
+   * - `direct` — task title/description matched the change description
+   * - `dependent` — task depends on a matched task
+   * - `transitive` — downstream of a dependent via the dependency graph
+   */
+  exposure: 'direct' | 'dependent' | 'transitive';
+
+  /**
+   * Number of downstream tasks that depend on this task.
+   * Higher values indicate higher cascading risk.
+   */
+  downstreamCount: number;
+
+  /** Why this task is predicted to be affected. */
+  reason: string;
+}
+
+/**
+ * Full impact prediction report for a free-text change description.
+ *
+ * Returned by {@link predictImpact}. Combines fuzzy task search with
+ * reverse dependency analysis to enumerate which tasks are at risk.
+ */
+export interface ImpactReport {
+  /** The original free-text change description. */
+  change: string;
+
+  /**
+   * Tasks directly matched by the change description (fuzzy search).
+   * These are the "seed" tasks from which downstream impact is traced.
+   */
+  matchedTasks: ImpactedTask[];
+
+  /**
+   * All tasks predicted to be affected, ordered by exposure severity
+   * (direct first, then dependents, then transitive) and then by
+   * descending downstream count.
+   */
+  affectedTasks: ImpactedTask[];
+
+  /**
+   * Total count of distinct affected tasks (including direct matches).
+   */
+  totalAffected: number;
+
+  /**
+   * Human-readable summary of predicted impact scope.
+   */
+  summary: string;
+}
+
+// ============================================================================
 // Blast Radius
 // ============================================================================
 
