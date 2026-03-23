@@ -77,6 +77,14 @@ export function registerDetectDriftCommand(program: Command): void {
         existsSync(join(projectRoot, 'src', 'cli', 'commands')) ||
         existsSync(join(projectRoot, 'packages', 'cleo', 'src'));
 
+      const safeRead = (filePath: string): string => {
+        try {
+          return readFileSync(filePath, 'utf-8');
+        } catch {
+          return '';
+        }
+      };
+
       if (!isCleoRepo) {
         // In user projects, only run applicable checks (injection template, config)
         const userResult: DriftResult = {
@@ -87,14 +95,6 @@ export function registerDetectDriftCommand(program: Command): void {
 
         // Check: agent injection template
         const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
-        const safeRead = (path: string): string => {
-          try {
-            return readFileSync(path, 'utf-8');
-          } catch {
-            return '';
-          }
-        };
-
         if (existsSync(injPath)) {
           const content = safeRead(injPath);
           userResult.checks.push({
@@ -203,8 +203,8 @@ export function registerDetectDriftCommand(program: Command): void {
           ];
 
           // Find mismatches
-          const specOnly = specOps.filter((op) => !gatewayOps.includes(op));
-          const gatewayOnly = gatewayOps.filter((op) => !specOps.includes(op));
+          const specOnly = specOps.filter((op: string) => !gatewayOps.includes(op));
+          const gatewayOnly = gatewayOps.filter((op: string) => !specOps.includes(op));
 
           if (specOnly.length === 0 && gatewayOnly.length === 0) {
             addCheck(
