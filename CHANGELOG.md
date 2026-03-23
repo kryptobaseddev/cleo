@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [2026.3.70] — 2026-03-23
+
+### Added
+- **Brain Memory Automation** (T134 epic, 12 tasks):
+  - `BrainConfig` typed configuration section with defaults and templates (T135)
+  - Local embedding provider via `@xenova/transformers` all-MiniLM-L6-v2, dynamic import (T136)
+  - Embedding worker thread + async queue for non-blocking processing (T137)
+  - Memory bridge refresh wired to lifecycle hooks with 30s debounce (T138)
+  - Context-aware memory bridge generation using `hybridSearch()` + token budget (T139)
+  - Session summarization: dual-mode prompt + structured `SessionSummaryInput` response (T140)
+  - Auto-link observations to focused task via `brain_memory_links` (T141)
+  - Embedding backfill with progress reporting: `cleo backfill --embeddings` (T142)
+  - Brain maintenance command: `cleo brain maintenance` with `--skip-decay`, `--skip-consolidation`, `--skip-embeddings` (T143)
+  - Cross-provider transcript hook on `AdapterHookProvider` + Claude Code adapter implementation (T144)
+  - Updated CLEO-INJECTION.md templates with Memory Automation section (T145)
+  - Updated CLEO-BRAIN-SPECIFICATION.md to v2.0.0 (T146)
+
+### Dependencies
+- Added `@xenova/transformers` ^2.17.2 to `@cleocode/core` (external, dynamic import)
+
 ## [2026.3.69] - 2026-03-23
 
 ### Fixed

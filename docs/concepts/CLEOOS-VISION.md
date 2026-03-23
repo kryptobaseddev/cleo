@@ -147,7 +147,11 @@ The BRAIN system in `@cleocode/core` stores observations, patterns, learnings, a
 
 - **Three-layer retrieval** (shipped): search/timeline/fetch with ~10x token savings over traditional RAG
 - **FTS5 full-text search** (shipped): keyword search across all brain tables
-- **Vector similarity** (in progress): SQLite-vec integration for semantic retrieval
+- **Vector similarity** (shipped): Local embedding via `@xenova/transformers` all-MiniLM-L6-v2 — dynamic import, zero overhead when disabled (T136)
+- **Session summarization** (shipped): Dual-mode prompt + structured `SessionSummaryInput` ingestion on `session.end` (T140)
+- **Memory bridge automation** (shipped): Hook-driven refresh on `session.end` and `tasks.complete` with 30-second debounce; context-aware generation via `hybridSearch()` within configurable token budget (T138, T139)
+- **Brain maintenance** (shipped): `cleo brain maintenance` combines temporal decay + consolidation + embedding backfill into a single governed command (T143)
+- **Cross-provider transcript extraction** (shipped): Optional `getTranscript()` on `AdapterHookProvider`; Claude Code adapter implementation auto-extracts observation candidates from session transcripts (T144)
 - **Knowledge graph** (planned): relationship-based discovery (updates/extends/derives) with temporal reasoning
 - **Active circulation** (planned): Living BRAIN reinforces useful memories, detects contradictions, and surfaces relevant context proactively
 
@@ -240,6 +244,7 @@ The kernel is shipped and operational:
 - Task work on facade: `tasks.start/stop/current` — no direct barrel imports needed (T126)
 - Bootstrap injection chain: legacy template sync, CAAMP sanitization, post-bootstrap health check (T124)
 - Migration resilience: journal reconciliation and `ensureRequiredColumns()` safety net (v2026.3.61)
+- Brain Memory Automation (T134 epic, v2026.3.70): `BrainConfig` typed section, local embedding via `@xenova/transformers` all-MiniLM-L6-v2, async embedding queue, lifecycle-driven bridge refresh with debounce, context-aware bridge generation, session summarization (dual-mode), auto-link observations to focused task, embedding backfill CLI (`cleo backfill --embeddings`), brain maintenance command (`cleo brain maintenance`), cross-provider transcript extraction via adapter hook, updated injection templates and CLEO-BRAIN-SPECIFICATION.md v2.0.0
 
 ### What Is Specified (Runtime, Conduit)
 

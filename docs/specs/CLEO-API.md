@@ -557,6 +557,69 @@ Sixteen GitHub issues (#63–#78) resolved across five point releases. Key fixes
 - `paginate()` null guard (v2026.3.64)
 - `detect-drift` user project detection (v2026.3.65)
 
+### 15.10 T134 — Brain Memory Automation (v2026.3.70)
+
+The T134 epic (12 tasks, T135–T146) delivers the first full automation layer for BRAIN memory: local embeddings, lifecycle-driven bridge refresh, session summarization, cross-provider transcript extraction, and a combined maintenance command.
+
+#### New CLI Commands (T134)
+
+| Command | Purpose |
+|---------|---------|
+| `cleo brain maintenance` | Combined brain maintenance: temporal decay + consolidation + embedding backfill (T143) |
+| `cleo brain maintenance --skip-decay` | Skip temporal decay step |
+| `cleo brain maintenance --skip-consolidation` | Skip memory consolidation step |
+| `cleo brain maintenance --skip-embeddings` | Skip embedding backfill step |
+| `cleo backfill --embeddings` | Retroactive embedding backfill with progress reporting (T142) |
+
+#### New Config Section (T135)
+
+The `brain` section is now a first-class typed config block in `CleoConfig`:
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `brain.autoCapture` | `boolean` | `true` | Auto-capture observations on lifecycle events |
+| `brain.embedding.enabled` | `boolean` | `false` | Enable local embedding provider |
+| `brain.embedding.provider` | `'local' \| 'openai' \| 'custom'` | `'local'` | Embedding provider selection |
+| `brain.memoryBridge.autoRefresh` | `boolean` | `true` | Auto-refresh bridge on session/task lifecycle events |
+| `brain.memoryBridge.contextAware` | `boolean` | `false` | Use `hybridSearch()` for context-aware bridge content |
+| `brain.memoryBridge.maxTokens` | `number` | `2000` | Token budget for bridge content |
+| `brain.summarization.enabled` | `boolean` | `false` | Enable session summarization on `session.end` |
+
+#### New Contract Types (T134)
+
+| Type | Purpose |
+|------|---------|
+| `BrainConfig` | Top-level brain config section in `CleoConfig` |
+| `BrainEmbeddingConfig` | `brain.embedding.*` sub-interface |
+| `BrainMemoryBridgeConfig` | `brain.memoryBridge.*` sub-interface |
+| `BrainSummarizationConfig` | `brain.summarization.*` sub-interface |
+| `SessionSummaryInput` | Structured session summary type for ingestion |
+
+**Updated interfaces:**
+
+- `AdapterHookProvider` gains an optional `getTranscript()` method for cross-provider transcript extraction (T144)
+- `SessionEndResult` gains `memoryPrompt?: string` for dual-mode summarization
+- `SessionEndParams` gains `sessionSummary?: SessionSummaryInput` for structured summary ingestion
+
+#### New Internal Exports (T134)
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `initDefaultProvider` | `memory/brain-embedding.ts` | Initialize local all-MiniLM-L6-v2 embedding provider (T136) |
+| `generateContextAwareContent` | `memory/memory-bridge.ts` | Scope-aware bridge generation using `hybridSearch()` (T139) |
+| `buildSummarizationPrompt` | `memory/session-memory.ts` | Build agent summarization prompt for dual-mode output (T140) |
+| `ingestStructuredSummary` | `memory/session-memory.ts` | Auto-ingest structured `SessionSummaryInput` to brain.db (T140) |
+| `extractFromTranscript` | `memory/auto-extract.ts` | Extract observations from provider transcript via hook (T144) |
+| `runBrainMaintenance` | `memory/brain-maintenance.ts` | Combined maintenance: decay + consolidation + embedding backfill (T143) |
+| `LocalEmbeddingProvider` | `memory/embedding-local.ts` | all-MiniLM-L6-v2 ONNX embedding via `@xenova/transformers` (T136) |
+| `EmbeddingQueue` | `memory/embedding-queue.ts` | Async embedding queue for non-blocking background processing (T137) |
+
+#### New Dependency (T136)
+
+| Package | Version | Load Strategy |
+|---------|---------|---------------|
+| `@xenova/transformers` | `^2.17.2` | Dynamic import — only loads when `brain.embedding.enabled: true` |
+
 ---
 
 ## 9. Document Hierarchy

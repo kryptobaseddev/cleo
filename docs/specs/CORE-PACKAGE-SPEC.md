@@ -161,7 +161,7 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
 | `lib` | `packages/core/src/lib/` | General-purpose utilities: `withRetry` (exponential backoff), `computeDelay`. No database coupling. | No |
 | `lifecycle` | `packages/core/src/lifecycle/` | RCASD-IVTR+C gate enforcement, stage transitions | Yes (SQLite lifecycle tables) |
-| `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval | No (uses brain.db directly) |
+| `memory` | `packages/core/src/memory/` | Brain.db observations, search, 3-layer retrieval, **local embedding provider, async embedding queue, context-aware bridge, session summarization, brain maintenance** | No (uses brain.db directly) |
 | `metrics` | `packages/core/src/metrics/` | Telemetry, value tracking, provider detection | No |
 | `migration` | `packages/core/src/migration/` | Schema version detection and migration execution | Yes (SQLite) |
 | `nexus` | `packages/core/src/nexus/` | Cross-project registry operations (nexus.db) | No (uses nexus.db) |
@@ -405,7 +405,7 @@ The public barrel re-exports all types from `@cleocode/contracts` via `export * 
 | LAFS types | `LafsSuccess`, `LafsError`, `LafsEnvelope`, `LAFSMeta`, `LAFSPage`, `Warning`, `MVILevel`, `GatewayEnvelope` |
 | DataAccessor | `DataAccessor`, `TaskQueryFilters`, `QueryTasksResult`, `TaskFieldUpdates`, `TransactionAccessor` |
 | Exit codes | `ExitCode`, `isErrorCode`, `isSuccessCode`, `getExitCodeName` |
-| Config types | `CleoConfig`, `HierarchyConfig`, `SessionConfig`, `LifecycleConfig`, `BackupConfig`. Note: `enforcement.*` and `verification.*` sections are live at runtime but not yet declared in `CleoConfig` — they are read via untyped dot-path. The T101 config audit reduced the declared schema from ~283 to ~113 fields. |
+| Config types | `CleoConfig`, `HierarchyConfig`, `SessionConfig`, `LifecycleConfig`, `BackupConfig`, `BrainConfig`, `BrainEmbeddingConfig`, `BrainMemoryBridgeConfig`, `BrainSummarizationConfig`. Note: `enforcement.*` and `verification.*` sections are live at runtime but not yet declared in `CleoConfig` — they are read via untyped dot-path. The T101 config audit reduced the declared schema from ~283 to ~113 fields. The T135 task added the `brain` section as a fully typed block in `CleoConfig` with four sub-interfaces. |
 | Status registry | `TASK_STATUSES`, `SESSION_STATUSES`, `STATUS_REGISTRY`, `isValidStatus` |
 | Adapter types | `CLEOProviderAdapter`, `AdapterManifest`, `DetectionPattern`, `AdapterCapabilities` |
 | WarpChain types | `WarpChain`, `WarpChainInstance`, `WarpStage`, `ChainShape`, `GateContract` |
@@ -566,6 +566,7 @@ The following are internal implementation details, not part of the public contra
 | `write-file-atomic` | `^6.0.0` | Atomic file write operations |
 | `yaml` | `^2.8.2` | YAML parsing and serialization |
 | `zod` | `^3.25.76` | Runtime validation schemas (used via drizzle-orm Zod integration) |
+| `@xenova/transformers` | `^2.17.2` | Local ONNX embedding (all-MiniLM-L6-v2), dynamic import — only loads when `brain.embedding.enabled: true` | No |
 
 ### 9.2 Dev Dependencies
 
@@ -873,6 +874,76 @@ Sixteen GitHub issues (#63–#78) resolved across five point releases:
 | `session find` CLI | v2026.3.63 | CLI subcommand registered for existing MCP operation |
 | `paginate()` null guard | v2026.3.64 | Handles undefined/null input arrays |
 | `detect-drift` user projects | v2026.3.65 | Distinguishes CLEO source repo from user projects |
+
+### 15.9 New Features in T134 Brain Memory Automation (v2026.3.70)
+
+The T134 epic (12 tasks, T135–T146) delivers the BRAIN memory automation layer: typed config, local embeddings, lifecycle-driven bridge refresh, session summarization, cross-provider transcript extraction, and a combined maintenance command.
+
+#### T135 — BrainConfig Typed Configuration
+
+The `brain` section is now a first-class typed block in `CleoConfig` with four sub-interfaces declared in `@cleocode/contracts`:
+
+| Interface | Purpose |
+|-----------|---------|
+| `BrainConfig` | Top-level `brain` config section |
+| `BrainEmbeddingConfig` | `brain.embedding.*` settings |
+| `BrainMemoryBridgeConfig` | `brain.memoryBridge.*` settings |
+| `BrainSummarizationConfig` | `brain.summarization.*` settings |
+
+Config templates ship with strict defaults (`autoCapture: true`, `embedding.enabled: false`, `memoryBridge.autoRefresh: true`).
+
+#### T136 — Local Embedding Provider
+
+`LocalEmbeddingProvider` in `memory/embedding-local.ts` provides all-MiniLM-L6-v2 embeddings via `@xenova/transformers`. The dependency is dynamically imported — zero overhead unless `brain.embedding.enabled: true`. Exposed via internal barrel as `initDefaultProvider`.
+
+#### T137 — Async Embedding Queue
+
+`EmbeddingQueue` in `memory/embedding-queue.ts` provides a non-blocking worker-thread queue for background embedding generation. Observations written to brain.db are queued for embedding without blocking the write path.
+
+#### T138 — Memory Bridge Lifecycle Hooks
+
+Bridge refresh is now wired to `session.end` and `tasks.complete` lifecycle hooks with a 30-second debounce to prevent thrashing during rapid completions.
+
+#### T139 — Context-Aware Bridge Generation
+
+`generateContextAwareContent` in `memory/memory-bridge.ts` uses `hybridSearch()` scoped to the current session and focused task to generate bridge content within the `brain.memoryBridge.maxTokens` budget. Activated when `brain.memoryBridge.contextAware: true`.
+
+#### T140 — Session Summarization
+
+`buildSummarizationPrompt` and `ingestStructuredSummary` in `memory/session-memory.ts` deliver dual-mode summarization:
+
+- **Prompt mode**: Returns a `memoryPrompt` string on `SessionEndResult` for agent-side summarization
+- **Ingestion mode**: Accepts a structured `SessionSummaryInput` via `sessionSummary` on `SessionEndParams` and auto-ingests to brain.db
+
+#### T141 — Auto-Link to Focused Task
+
+Observations written during a focused-task session are automatically linked to that task via `brain_memory_links`, enabling task-scoped brain retrieval.
+
+#### T142 — Embedding Backfill CLI
+
+`cleo backfill --embeddings` retroactively generates embeddings for existing brain entries with progress reporting. Dispatches to `runEmbeddingBackfill()` in the memory module.
+
+#### T143 — Brain Maintenance Command
+
+`cleo brain maintenance` runs combined maintenance in order: temporal decay → consolidation → embedding backfill. Individual steps can be skipped via `--skip-decay`, `--skip-consolidation`, `--skip-embeddings`. The `runBrainMaintenance()` function is exported from the internal barrel.
+
+#### T144 — Cross-Provider Transcript Extraction
+
+`AdapterHookProvider` gains an optional `getTranscript()` method. The Claude Code adapter implements this to expose session transcript content. `extractFromTranscript()` in `memory/auto-extract.ts` processes the transcript and emits observation candidates.
+
+#### T145 — Updated Injection Templates
+
+`CLEO-INJECTION.md` templates updated with a Memory Automation section documenting `brain.embedding`, `brain.memoryBridge`, and `brain.summarization` config keys for agent awareness.
+
+#### T146 — CLEO-BRAIN-SPECIFICATION.md v2.0.0
+
+Updated brain specification to v2.0.0 reflecting the full automation layer: embedding pipeline, lifecycle hooks, summarization protocol, and maintenance command.
+
+#### New Runtime Dependency
+
+| Package | Version | Load Strategy |
+|---------|---------|---------------|
+| `@xenova/transformers` | `^2.17.2` | Dynamic import (only when `brain.embedding.enabled: true`) |
 
 ---
 
