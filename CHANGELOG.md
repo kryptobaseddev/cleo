@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [2026.3.67] - 2026-03-23
+
+### Added
+- **`cleo doctor --full` (#79, T130)**: Operational smoke test — 13 probes exercise one read-only query per domain through the full dispatch pipeline, plus tasks.db integrity, brain.db connectivity, and migration state validation. ~100ms runtime, exit code 0/1
+- **`cleo upgrade --diagnose` (#80, T131)**: Deep read-only inspection of schema and migration state — validates required columns, migration journal entries, SQLite integrity, brain.db tables. Skipped steps now explain WHY with `reason` field
+
+### Changed
+- **Unified migration system (#82, T132)**: Shared `migration-manager.ts` consolidates duplicated reconciliation, bootstrap, retry, and column-safety logic from `sqlite.ts` and `brain-sqlite.ts` — ~170 lines dedup
+- **Upgrade output**: `UpgradeResult` now includes `summary` (checked/applied/skipped/errors) and `reason` on skipped actions
+- **Admin domain**: New `admin.smoke` query operation (tier 0)
+
+### Fixed
+- **Doctor/upgrade opts merging**: citty-parsed command-specific flags (`--full`, `--diagnose`, `--detailed`, etc.) were silently ignored because action handlers called `parseGlobalFlagsFromArgv()` which only extracts global flags. Now merges both sources
+
 ## [2026.3.66] - 2026-03-23
 
 ### Changed
