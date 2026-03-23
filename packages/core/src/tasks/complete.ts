@@ -7,7 +7,7 @@
 import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
-import { getRawConfigValue } from '../config.js';
+import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -63,53 +63,15 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   // Tests that need enforcement write their own config, which overrides these defaults.
   const isTest = !!process.env.VITEST;
 
-  const modeRaw = await getRawConfigValue('enforcement.acceptance.mode', cwd);
-  const prioritiesRaw = await getRawConfigValue(
-    'enforcement.acceptance.requiredForPriorities',
-    cwd,
-  );
-  const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
-  const verificationRequiredGatesRaw = await getRawConfigValue('verification.requiredGates', cwd);
-  const verificationMaxRoundsRaw = await getRawConfigValue('verification.maxRounds', cwd);
-  const lifecycleModeRaw = await getRawConfigValue('lifecycle.mode', cwd);
-
-  const acceptanceMode =
-    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
-      ? modeRaw
-      : isTest
-        ? 'off'
-        : 'block';
-
-  const acceptanceRequiredForPriorities = Array.isArray(prioritiesRaw)
-    ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
-    : isTest
-      ? []
-      : ['critical', 'high', 'medium', 'low'];
-
-  const verificationEnabled =
-    verificationEnabledRaw === true ? true : verificationEnabledRaw === false ? false : !isTest;
-
-  const verificationRequiredGates = Array.isArray(verificationRequiredGatesRaw)
-    ? verificationRequiredGatesRaw
-        .filter((g): g is string => typeof g === 'string')
-        .filter(isVerificationGate)
-    : DEFAULT_VERIFICATION_REQUIRED_GATES;
-
-  const verificationMaxRounds =
-    typeof verificationMaxRoundsRaw === 'number' && Number.isInteger(verificationMaxRoundsRaw)
-      ? verificationMaxRoundsRaw
-      : 5;
-
-  const lifecycleMode =
-    lifecycleModeRaw === 'strict' ||
-    lifecycleModeRaw === 'warn' ||
-    lifecycleModeRaw === 'advisory' ||
-    lifecycleModeRaw === 'none' ||
-    lifecycleModeRaw === 'off'
-      ? lifecycleModeRaw
-      : isTest
-        ? 'off'
-        : 'strict';
+  const config = await loadConfig(cwd);
+  const acceptance = config.enforcement?.acceptance;
+  const verificationCfg = config.verification;
+  const acceptanceMode = acceptance?.mode ?? (isTest ? 'off' : 'block');
+  const acceptanceRequiredForPriorities = acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
+  const verificationEnabled = verificationCfg?.enabled ?? !isTest;
+  const verificationRequiredGates = (verificationCfg?.requiredGates ?? []).filter(isVerificationGate).length > 0 ? (verificationCfg?.requiredGates ?? []).filter(isVerificationGate) : DEFAULT_VERIFICATION_REQUIRED_GATES;
+  const verificationMaxRounds = verificationCfg?.maxRounds ?? 5;
+  const lifecycleMode = config.lifecycle?.mode ?? (isTest ? 'off' : 'strict');
 
   return {
     acceptanceMode,

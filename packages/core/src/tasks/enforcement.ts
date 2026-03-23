@@ -1,5 +1,5 @@
 import { ExitCode, type Task } from '@cleocode/contracts';
-import { getRawConfigValue } from '../config.js';
+import { loadConfig } from '../config.js';
 
 export interface ValidationResult {
   valid: boolean;
@@ -33,29 +33,12 @@ export async function createAcceptanceEnforcement(cwd?: string): Promise<Accepta
   // enforcement active write their own config, which overrides the default.
   const isTest = !!process.env.VITEST;
 
-  const modeRaw = await getRawConfigValue('enforcement.acceptance.mode', cwd);
-  const prioritiesRaw = await getRawConfigValue(
-    'enforcement.acceptance.requiredForPriorities',
-    cwd,
-  );
-  const minCriteriaRaw = await getRawConfigValue('enforcement.acceptance.minimumCriteria', cwd);
-  const defaultPriorityRaw = await getRawConfigValue('defaults.priority', cwd);
-
-  const mode =
-    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
-      ? modeRaw
-      : isTest
-        ? 'off'
-        : 'block';
-
-  const requiredForPriorities = Array.isArray(prioritiesRaw)
-    ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
-    : ['critical', 'high', 'medium', 'low'];
-
-  const minCriteria =
-    typeof minCriteriaRaw === 'number' && Number.isInteger(minCriteriaRaw) ? minCriteriaRaw : 3;
-
-  const defaultPriority = typeof defaultPriorityRaw === 'string' ? defaultPriorityRaw : 'medium';
+  const config = await loadConfig(cwd);
+  const acceptance = config.enforcement?.acceptance;
+  const mode = acceptance?.mode ?? (isTest ? 'off' : 'block');
+  const requiredForPriorities = acceptance?.requiredForPriorities ?? ['critical', 'high', 'medium', 'low'];
+  const minCriteria = acceptance?.minimumCriteria ?? 3;
+  const defaultPriority = 'medium';
 
   return {
     checkMinimumCriteria: checkMin,

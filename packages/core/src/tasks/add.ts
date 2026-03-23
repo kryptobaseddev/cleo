@@ -16,7 +16,7 @@ import type {
 } from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
 import { ExitCode, TASK_STATUSES } from '@cleocode/contracts';
-import { getRawConfigValue, loadConfig } from '../config.js';
+import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
@@ -703,8 +703,8 @@ export async function addTask(
       previewTask.completedAt = previewNow;
     }
     if (taskType !== 'epic') {
-      const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
-      if (verificationEnabledRaw === true) {
+      const pCfg = await loadConfig(cwd);
+      if (pCfg.verification?.enabled) {
         previewTask.verification = buildDefaultVerification(previewNow);
       }
     }
@@ -801,8 +801,8 @@ export async function addTask(
   // Only for non-epic tasks when verification is enabled in config.
   // Epics are containers and do not go through verification gates themselves.
   if (taskType !== 'epic') {
-    const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
-    if (verificationEnabledRaw === true) {
+    const aCfg = await loadConfig(cwd);
+    if (aCfg.verification?.enabled) {
       task.verification = buildDefaultVerification(now);
     }
   }

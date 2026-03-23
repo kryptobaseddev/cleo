@@ -43,6 +43,11 @@ const DEFAULTS: CleoConfig = {
     requireNotes: false,
     multiSession: false,
   },
+  enforcement: {
+    acceptance: { mode: 'block', requiredForPriorities: ['critical', 'high', 'medium', 'low'], minimumCriteria: 3 },
+    session: { requiredForMutate: true },
+  },
+  verification: { enabled: true, maxRounds: 3, requiredGates: ['implemented', 'testsPassed', 'qaPassed'] },
   lifecycle: {
     mode: 'strict',
   },

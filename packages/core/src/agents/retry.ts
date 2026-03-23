@@ -158,45 +158,25 @@ export async function withRetry<T>(
   policy?: Partial<RetryPolicy>,
 ): Promise<RetryResult<T>> {
   const effectivePolicy = createRetryPolicy(policy);
-  let lastError: Error | undefined;
-  let totalDelayMs = 0;
-
-  for (let attempt = 0; attempt <= effectivePolicy.maxRetries; attempt++) {
-    try {
-      const value = await fn();
-      return {
-        success: true,
-        value,
-        attempts: attempt + 1,
-        totalDelayMs,
-      };
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-
-      if (!shouldRetry(err, attempt, effectivePolicy)) {
-        return {
-          success: false,
-          error: lastError,
-          attempts: attempt + 1,
-          totalDelayMs,
-        };
-      }
-
-      // Calculate and apply delay before next attempt
-      if (attempt < effectivePolicy.maxRetries) {
-        const delay = calculateDelay(attempt, effectivePolicy);
-        totalDelayMs += delay;
-        await sleep(delay);
-      }
-    }
+  const { withRetry: coreRetry } = await import('../lib/retry.js');
+  try {
+    const value = await coreRetry(fn, {
+      maxAttempts: effectivePolicy.maxRetries + 1,
+      baseDelayMs: effectivePolicy.baseDelayMs,
+      maxDelayMs: effectivePolicy.maxDelayMs,
+      retryableErrors: [(err: unknown) => shouldRetry(err, 0, effectivePolicy)],
+    });
+    return { success: true, value, attempts: 1, totalDelayMs: 0 };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const context = err as Partial<{ attempts: number; totalDelayMs: number }>;
+    return {
+      success: false,
+      error,
+      attempts: context.attempts ?? effectivePolicy.maxRetries + 1,
+      totalDelayMs: context.totalDelayMs ?? 0,
+    };
   }
-
-  return {
-    success: false,
-    error: lastError ?? new Error('Retry exhausted without error'),
-    attempts: effectivePolicy.maxRetries + 1,
-    totalDelayMs,
-  };
 }
 
 // ============================================================================
@@ -299,10 +279,3 @@ export async function recoverCrashedAgents(
 // Utilities
 // ============================================================================
 
-/**
- * Sleep for a given number of milliseconds.
- * Extracted for testability.
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

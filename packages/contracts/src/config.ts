@@ -73,6 +73,43 @@ export interface LoggingConfig {
   archiveBeforePrune: boolean;
 }
 
+/** Acceptance criteria enforcement mode. */
+export type AcceptanceEnforcementMode = 'block' | 'warn' | 'off';
+
+/** Acceptance criteria enforcement settings. */
+export interface AcceptanceEnforcementConfig {
+  /** Enforcement mode. */
+  mode: AcceptanceEnforcementMode;
+  /** Task priorities that require AC. */
+  requiredForPriorities: string[];
+  /** Minimum acceptance criteria count. */
+  minimumCriteria: number;
+}
+
+/** Session enforcement settings. */
+export interface SessionEnforcementConfig {
+  /** Whether mutate operations require an active session. */
+  requiredForMutate: boolean;
+}
+
+/** Top-level enforcement configuration. */
+export interface EnforcementConfig {
+  /** Acceptance criteria enforcement. */
+  acceptance: AcceptanceEnforcementConfig;
+  /** Session enforcement. */
+  session: SessionEnforcementConfig;
+}
+
+/** Verification gate configuration. */
+export interface VerificationConfig {
+  /** Whether verification gates are enabled. */
+  enabled: boolean;
+  /** Maximum verification rounds. */
+  maxRounds: number;
+  /** Gate names required for completion. */
+  requiredGates: string[];
+}
+
 /** Lifecycle enforcement mode. */
 export type LifecycleEnforcementMode = 'strict' | 'advisory' | 'off';
 
@@ -118,6 +155,8 @@ export interface CleoConfig {
   backup: BackupConfig;
   hierarchy: HierarchyConfig;
   session: SessionConfig;
+  enforcement: EnforcementConfig;
+  verification: VerificationConfig;
   lifecycle: LifecycleConfig;
   logging: LoggingConfig;
   sharing: SharingConfig;
