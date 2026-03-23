@@ -186,6 +186,8 @@ export interface BrainConfig {
   captureFiles: boolean;
   /** Whether to capture MCP tool events (default: false). */
   captureMcp: boolean;
+  /** Whether to capture active-work dispatch mutations (tasks.add, tasks.update) (default: false). */
+  captureWork: boolean;
   /** Embedding provider settings. */
   embedding: BrainEmbeddingConfig;
   /** Memory bridge auto-refresh settings. */

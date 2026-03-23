@@ -83,17 +83,18 @@ const DEFAULTS: CleoConfig = {
     autoCapture: true,
     captureFiles: false,
     captureMcp: false,
+    captureWork: false,
     embedding: {
-      enabled: false,
+      enabled: true,
       provider: 'local' as const,
     },
     memoryBridge: {
       autoRefresh: true,
-      contextAware: false,
+      contextAware: true,
       maxTokens: 2000,
     },
     summarization: {
-      enabled: false,
+      enabled: true,
     },
   },
 };

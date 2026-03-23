@@ -406,6 +406,27 @@ import type { RequiredColumn } from './migration-manager.js';
 const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [{ name: 'pipeline_stage', ddl: 'text' }];
 
 /**
+ * Required columns that MUST exist on the sessions table before the
+ * wave0-schema-hardening migration runs.
+ *
+ * The wave0 migration rebuilds the sessions table via:
+ *   INSERT INTO __new_sessions(..., provider_id, stats_json, resume_count, grade_mode)
+ *   SELECT ..., provider_id, stats_json, resume_count, grade_mode FROM sessions
+ *
+ * If an existing sessions table (created before these columns were added) is
+ * missing any of them, the SELECT fails with "no such column". ensureColumns()
+ * adds them as NULL-able columns before the migration runs, making the SELECT safe.
+ *
+ * @see https://github.com/anthropics/cleo/issues/83
+ */
+const REQUIRED_SESSION_COLUMNS: RequiredColumn[] = [
+  { name: 'provider_id', ddl: 'text' },
+  { name: 'stats_json', ddl: 'text' },
+  { name: 'resume_count', ddl: 'integer' },
+  { name: 'grade_mode', ddl: 'integer' },
+];
+
+/**
  * Run drizzle migrations to create/update tables.
  *
  * Delegates to shared migration-manager.ts for journal reconciliation,
@@ -425,6 +446,13 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
 
   // Bootstrap baseline + reconcile stale journal entries
   reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'sqlite');
+
+  // Pre-migration column safety: ensure sessions table has the columns that the
+  // wave0-schema-hardening migration SELECTs during its table rebuild. Without
+  // this, upgrading from a pre-wave0 DB fails with "no such column: provider_id".
+  // Must run BEFORE migrateWithRetry so the migration's INSERT...SELECT succeeds.
+  // @see https://github.com/anthropics/cleo/issues/83
+  ensureColumns(nativeDb, 'sessions', REQUIRED_SESSION_COLUMNS, 'sqlite');
 
   // Run pending migrations with SQLITE_BUSY retry
   migrateWithRetry(db, migrationsFolder);

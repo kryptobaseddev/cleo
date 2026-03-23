@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { autoRecordDispatchTokenUsage, getProjectRoot } from '@cleocode/core/internal';
+import { autoRecordDispatchTokenUsage, getProjectRoot, hooks } from '@cleocode/core/internal';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
@@ -141,6 +141,22 @@ export async function dispatchFromCli(
   outputOpts?: CliOutputOptions,
 ): Promise<void> {
   const dispatcher = getCliDispatcher();
+  const projectRoot = getProjectRoot();
+  const dispatchStart = Date.now();
+
+  // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+  hooks
+    .dispatch('onPromptSubmit', projectRoot, {
+      timestamp: new Date().toISOString(),
+      gateway,
+      domain,
+      operation,
+      source: 'cli',
+    })
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
+
   const response = await dispatcher.dispatch({
     gateway,
     domain,
@@ -149,6 +165,21 @@ export async function dispatchFromCli(
     source: 'cli',
     requestId: randomUUID(),
   });
+
+  // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+  hooks
+    .dispatch('onResponseComplete', projectRoot, {
+      timestamp: new Date().toISOString(),
+      gateway,
+      domain,
+      operation,
+      success: response.success,
+      durationMs: Date.now() - dispatchStart,
+      errorCode: response.error?.code,
+    })
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
 
   if (response.success) {
     await autoRecordDispatchTokenUsage({
@@ -219,7 +250,23 @@ export async function dispatchRaw(
   params?: Record<string, unknown>,
 ): Promise<DispatchResponse> {
   const dispatcher = getCliDispatcher();
-  return dispatcher.dispatch({
+  const projectRoot = getProjectRoot();
+  const dispatchStart = Date.now();
+
+  // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+  hooks
+    .dispatch('onPromptSubmit', projectRoot, {
+      timestamp: new Date().toISOString(),
+      gateway,
+      domain,
+      operation,
+      source: 'cli',
+    })
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
+
+  const response = await dispatcher.dispatch({
     gateway,
     domain,
     operation,
@@ -227,4 +274,21 @@ export async function dispatchRaw(
     source: 'cli',
     requestId: randomUUID(),
   });
+
+  // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+  hooks
+    .dispatch('onResponseComplete', projectRoot, {
+      timestamp: new Date().toISOString(),
+      gateway,
+      domain,
+      operation,
+      success: response.success,
+      durationMs: Date.now() - dispatchStart,
+      errorCode: response.error?.code,
+    })
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
+
+  return response;
 }

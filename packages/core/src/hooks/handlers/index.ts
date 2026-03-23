@@ -11,6 +11,7 @@ import './task-hooks.js';
 import './error-hooks.js';
 import './file-hooks.js';
 import './mcp-hooks.js';
+import './work-capture-hooks.js';
 
 export { handleError } from './error-hooks.js';
 export { handleFileChange } from './file-hooks.js';
@@ -18,3 +19,4 @@ export { handlePromptSubmit, handleResponseComplete } from './mcp-hooks.js';
 // Re-export handler functions for explicit use
 export { handleSessionEnd, handleSessionStart } from './session-hooks.js';
 export { handleToolComplete, handleToolStart } from './task-hooks.js';
+export { handleWorkPromptSubmit, handleWorkResponseComplete } from './work-capture-hooks.js';

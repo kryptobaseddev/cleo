@@ -1,9 +1,11 @@
 /**
  * MCP Prompt/Response Hook Handlers - Wave 2 of T5237
  *
- * Handlers for onPromptSubmit and onResponseComplete events.
- * By default, NO brain capture (too noisy). Brain observation is
- * opt-in via CLEO_BRAIN_CAPTURE_MCP=true environment variable.
+ * Handlers for onPromptSubmit and onResponseComplete events that capture
+ * ALL gateway operations (read and write) to BRAIN.
+ * By default, NO brain capture (too noisy). Enable via:
+ *   - Config: brain.captureMcp = true  (checked first)
+ *   - Env:    CLEO_BRAIN_CAPTURE_MCP=true  (overrides config)
  * Auto-registers on module load.
  */
 
@@ -17,23 +19,39 @@ function isMissingBrainSchemaError(err: unknown): boolean {
 }
 
 /**
- * Check if brain capture is enabled for MCP events.
- * Defaults to false (too noisy for normal operation).
+ * Check whether MCP-level brain capture is enabled.
+ *
+ * Resolution order (first truthy wins):
+ *   1. CLEO_BRAIN_CAPTURE_MCP env var (explicit override)
+ *   2. brain.captureMcp project config value
+ *
+ * Defaults to false when neither is set (too noisy for normal operation).
  */
-function isBrainCaptureEnabled(): boolean {
-  return process.env['CLEO_BRAIN_CAPTURE_MCP'] === 'true';
+async function isBrainCaptureEnabled(projectRoot: string): Promise<boolean> {
+  const envOverride = process.env['CLEO_BRAIN_CAPTURE_MCP'];
+  if (envOverride !== undefined) {
+    return envOverride === 'true';
+  }
+  try {
+    const { loadConfig } = await import('../../config.js');
+    const config = await loadConfig(projectRoot);
+    return config.brain?.captureMcp ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Handle onPromptSubmit - optionally capture prompt events to BRAIN
+ * Handle onPromptSubmit - optionally capture ALL gateway prompt events to BRAIN.
  *
- * No-op by default. Set CLEO_BRAIN_CAPTURE_MCP=true to enable.
+ * No-op by default. Enable via brain.captureMcp config or CLEO_BRAIN_CAPTURE_MCP env.
+ * For selective mutation-only capture, use work-capture-hooks.ts instead.
  */
 export async function handlePromptSubmit(
   projectRoot: string,
   payload: OnPromptSubmitPayload,
 ): Promise<void> {
-  if (!isBrainCaptureEnabled()) return;
+  if (!(await isBrainCaptureEnabled(projectRoot))) return;
 
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -50,15 +68,16 @@ export async function handlePromptSubmit(
 }
 
 /**
- * Handle onResponseComplete - optionally capture response events to BRAIN
+ * Handle onResponseComplete - optionally capture ALL gateway response events to BRAIN.
  *
- * No-op by default. Set CLEO_BRAIN_CAPTURE_MCP=true to enable.
+ * No-op by default. Enable via brain.captureMcp config or CLEO_BRAIN_CAPTURE_MCP env.
+ * For selective mutation-only capture, use work-capture-hooks.ts instead.
  */
 export async function handleResponseComplete(
   projectRoot: string,
   payload: OnResponseCompletePayload,
 ): Promise<void> {
-  if (!isBrainCaptureEnabled()) return;
+  if (!(await isBrainCaptureEnabled(projectRoot))) return;
 
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 

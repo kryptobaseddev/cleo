@@ -5,7 +5,9 @@
  * Includes 5-second dedup and path-based filtering to avoid noisy writes.
  * Auto-registers on module load.
  *
- * Disabled by default. Set CLEO_BRAIN_CAPTURE_FILES=true to enable.
+ * Disabled by default. Enable via:
+ *   - Config: brain.captureFiles = true  (checked first)
+ *   - Env:    CLEO_BRAIN_CAPTURE_FILES=true  (overrides config)
  */
 
 import { isAbsolute, relative } from 'node:path';
@@ -40,9 +42,33 @@ function shouldSkipPath(relativePath: string): boolean {
 }
 
 /**
+ * Check whether file-change capture is enabled.
+ *
+ * Resolution order (first truthy wins):
+ *   1. CLEO_BRAIN_CAPTURE_FILES env var (explicit override)
+ *   2. brain.captureFiles project config value
+ *
+ * Defaults to false when neither is set.
+ */
+async function isFileCaptureEnabled(projectRoot: string): Promise<boolean> {
+  const envOverride = process.env['CLEO_BRAIN_CAPTURE_FILES'];
+  if (envOverride !== undefined) {
+    return envOverride === 'true';
+  }
+  try {
+    const { loadConfig } = await import('../../config.js');
+    const config = await loadConfig(projectRoot);
+    return config.brain?.captureFiles ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Handle onFileChange - capture file changes to BRAIN
  *
- * Gated behind CLEO_BRAIN_CAPTURE_FILES=true env var.
+ * Gated behind brain.captureFiles config or CLEO_BRAIN_CAPTURE_FILES env var.
+ * Env var takes precedence over config for backward compatibility.
  * Deduplicates rapid writes to the same file within a 5-second window.
  * Filters out .cleo/ internal files and test temp directories.
  * Converts absolute paths to project-relative paths.
@@ -52,7 +78,7 @@ export async function handleFileChange(
   payload: OnFileChangePayload,
 ): Promise<void> {
   // Opt-in gate: disabled by default to prevent observation noise
-  if (process.env['CLEO_BRAIN_CAPTURE_FILES'] !== 'true') return;
+  if (!(await isFileCaptureEnabled(projectRoot))) return;
 
   // 5-second dedup
   const now = Date.now();
