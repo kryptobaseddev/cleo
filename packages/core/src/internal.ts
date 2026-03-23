@@ -485,9 +485,9 @@ export {
   getTemplateForSubcommand,
   parseIssueTemplates,
 } from './templates/parser.js';
-
+export type { DiagnoseFinding, DiagnoseResult, UpgradeSummary } from './upgrade.js';
 // Upgrade
-export { runUpgrade } from './upgrade.js';
+export { diagnoseUpgrade, runUpgrade } from './upgrade.js';
 // Validation — chain validation
 export { validateChain } from './validation/chain-validation.js';
 // Validation — operation gates

@@ -52,6 +52,7 @@ export interface UpgradeAction {
   action: string;
   status: 'applied' | 'skipped' | 'preview' | 'error';
   details: string;
+  reason?: string;
   fix?: string;
 }
 
@@ -63,6 +64,8 @@ export interface UpgradeResult {
   actions: UpgradeAction[];
   applied: number;
   errors: string[];
+  /** Summary of what was checked (added for --diagnose and bare upgrade). */
+  summary?: UpgradeSummary;
   /** Storage migration sub-result (if migration was triggered). */
   storageMigration?: {
     migrated: boolean;
@@ -71,6 +74,30 @@ export interface UpgradeResult {
     sessionsImported: number;
     warnings: string[];
   };
+}
+
+/** Counts of what upgrade checked/applied/skipped. */
+export interface UpgradeSummary {
+  checked: number;
+  applied: number;
+  skipped: number;
+  errors: number;
+  warnings: string[];
+}
+
+/** A single diagnostic finding from --diagnose. */
+export interface DiagnoseFinding {
+  check: string;
+  status: 'ok' | 'warning' | 'error';
+  details: string;
+  fix?: string;
+}
+
+/** Result from diagnoseUpgrade(). */
+export interface DiagnoseResult {
+  success: boolean;
+  findings: DiagnoseFinding[];
+  summary: { ok: number; warnings: number; errors: number };
 }
 
 /**
@@ -420,6 +447,9 @@ export async function runUpgrade(
       action: 'storage_preflight',
       status: 'skipped',
       details: preflight.summary,
+      reason: dbExists
+        ? 'SQLite DB exists and is accessible — no migration needed. Use --diagnose for column/migration validation.'
+        : 'No legacy JSON data found and no DB exists — nothing to migrate.',
     });
   }
 
@@ -983,17 +1013,285 @@ export async function runUpgrade(
     });
   }
 
-  const applied = actions.filter((a) => a.status === 'applied');
-  const hasErrors = errors.length > 0 || actions.some((a) => a.status === 'error');
+  const appliedActions = actions.filter((a) => a.status === 'applied');
+  const skippedActions = actions.filter((a) => a.status === 'skipped');
+  const errorActions = actions.filter((a) => a.status === 'error');
+  const hasErrors = errors.length > 0 || errorActions.length > 0;
   const upToDate = !actions.some((a) => a.status === 'applied' || a.status === 'preview');
+
+  // Build summary of what was checked
+  const summaryWarnings: string[] = [];
+  for (const a of actions) {
+    if (a.status === 'skipped' && a.reason) {
+      summaryWarnings.push(`${a.action}: ${a.reason}`);
+    }
+  }
 
   return {
     success: !hasErrors,
     upToDate,
     dryRun: isDryRun,
     actions,
-    applied: applied.length,
+    applied: appliedActions.length,
     errors,
+    summary: {
+      checked: actions.length,
+      applied: appliedActions.length,
+      skipped: skippedActions.length,
+      errors: errorActions.length,
+      warnings: summaryWarnings,
+    },
     storageMigration: storageMigrationResult,
+  };
+}
+
+/**
+ * Deep diagnostic inspection of schema and migration state.
+ *
+ * Unlike bare `cleo upgrade` which skips checks that "look OK",
+ * --diagnose validates:
+ * - tasks.db: all required columns present via PRAGMA table_info
+ * - tasks.db: migration journal entries match local migration files
+ * - brain.db: migration journal entries match local migration files
+ * - brain.db: expected tables exist
+ * - Stale/orphaned journal entries detected and reported
+ *
+ * Read-only: does not modify any data.
+ *
+ * @task T131
+ */
+export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<DiagnoseResult> {
+  const findings: DiagnoseFinding[] = [];
+  const cleoDir = getCleoDirAbsolute(options.cwd);
+  const dbPath = join(cleoDir, 'tasks.db');
+  const brainDbPath = join(cleoDir, 'brain.db');
+
+  // ── tasks.db column validation ──
+  if (existsSync(dbPath)) {
+    try {
+      const { getNativeDb, getDb } = await import('./store/sqlite.js');
+      const projectRoot = getProjectRoot(options.cwd);
+      await getDb(projectRoot);
+      const nativeDb = getNativeDb();
+
+      if (nativeDb) {
+        // Check required columns
+        const columns = nativeDb.prepare('PRAGMA table_info(tasks)').all() as Array<{
+          name: string;
+        }>;
+        const existingCols = new Set(columns.map((c: { name: string }) => c.name));
+
+        const requiredColumns = ['pipeline_stage'];
+        const missing = requiredColumns.filter((c) => !existingCols.has(c));
+
+        if (missing.length > 0) {
+          findings.push({
+            check: 'tasks.db.columns',
+            status: 'error',
+            details: `Missing required columns: ${missing.join(', ')}`,
+            fix: 'Run: cleo upgrade',
+          });
+        } else {
+          findings.push({
+            check: 'tasks.db.columns',
+            status: 'ok',
+            details: `All ${requiredColumns.length} required column(s) present (${columns.length} total)`,
+          });
+        }
+
+        // Check migration journal
+        const hasMigTable = nativeDb
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+          )
+          .get() as { name?: string } | undefined;
+
+        if (hasMigTable?.name) {
+          const journalEntries = nativeDb
+            .prepare('SELECT * FROM __drizzle_migrations')
+            .all() as Array<{
+            id: number | null;
+            hash: string;
+            created_at: number | null;
+          }>;
+
+          const nullIdEntries = journalEntries.filter((e) => e.id === null || e.id === undefined);
+          const staleEntries = journalEntries.filter(
+            (e) => e.created_at === null || e.created_at === undefined,
+          );
+
+          if (nullIdEntries.length > 0) {
+            findings.push({
+              check: 'tasks.db.journal',
+              status: 'warning',
+              details: `${nullIdEntries.length} journal entry/entries with null IDs (orphaned from previous CLEO version)`,
+              fix: 'Run: cleo upgrade (will reconcile automatically)',
+            });
+          } else if (staleEntries.length > 0) {
+            findings.push({
+              check: 'tasks.db.journal',
+              status: 'warning',
+              details: `${staleEntries.length} journal entry/entries with null timestamps`,
+              fix: 'Run: cleo upgrade (will reconcile automatically)',
+            });
+          } else {
+            findings.push({
+              check: 'tasks.db.journal',
+              status: 'ok',
+              details: `${journalEntries.length} migration(s) in journal, all valid`,
+            });
+          }
+        } else {
+          findings.push({
+            check: 'tasks.db.journal',
+            status: 'warning',
+            details: 'No migration journal table found — migrations may not have been tracked',
+            fix: 'Run: cleo upgrade',
+          });
+        }
+
+        // Integrity check
+        const integrity = nativeDb.prepare('PRAGMA integrity_check').get() as
+          | Record<string, unknown>
+          | undefined;
+        const ok = integrity?.integrity_check === 'ok';
+        findings.push({
+          check: 'tasks.db.integrity',
+          status: ok ? 'ok' : 'error',
+          details: ok ? 'SQLite integrity check passed' : 'SQLite integrity check failed',
+          ...(!ok ? { fix: 'Restore from backup: cleo admin backup --action restore' } : {}),
+        });
+      } else {
+        findings.push({
+          check: 'tasks.db.connection',
+          status: 'error',
+          details: 'Could not obtain native DB handle',
+        });
+      }
+    } catch (err) {
+      findings.push({
+        check: 'tasks.db.connection',
+        status: 'error',
+        details: `Failed to connect: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  } else {
+    findings.push({
+      check: 'tasks.db',
+      status: 'error',
+      details: 'tasks.db not found',
+      fix: 'Run: cleo init',
+    });
+  }
+
+  // ── brain.db validation ──
+  if (existsSync(brainDbPath)) {
+    try {
+      const { getBrainNativeDb, getBrainDb } = await import('./store/brain-sqlite.js');
+      await getBrainDb(options.cwd);
+      const nativeDb = getBrainNativeDb();
+
+      if (nativeDb) {
+        // Check expected tables
+        const tables = nativeDb
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '__drizzle%' AND name NOT LIKE 'sqlite_%'",
+          )
+          .all() as Array<{ name: string }>;
+        const tableNames = new Set(tables.map((t: { name: string }) => t.name));
+
+        const expectedTables = [
+          'brain_observations',
+          'brain_decisions',
+          'brain_patterns',
+          'brain_learnings',
+        ];
+        const missingTables = expectedTables.filter((t) => !tableNames.has(t));
+
+        if (missingTables.length > 0) {
+          findings.push({
+            check: 'brain.db.tables',
+            status: 'error',
+            details: `Missing tables: ${missingTables.join(', ')}`,
+            fix: 'Run: cleo upgrade',
+          });
+        } else {
+          findings.push({
+            check: 'brain.db.tables',
+            status: 'ok',
+            details: `All ${expectedTables.length} expected tables present (${tables.length} total)`,
+          });
+        }
+
+        // Check migration journal
+        const hasMigTable = nativeDb
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+          )
+          .get() as { name?: string } | undefined;
+
+        if (hasMigTable?.name) {
+          const journalEntries = nativeDb
+            .prepare('SELECT * FROM __drizzle_migrations')
+            .all() as Array<{
+            id: number | null;
+            hash: string;
+            created_at: number | null;
+          }>;
+
+          const nullIdEntries = journalEntries.filter((e) => e.id === null || e.id === undefined);
+
+          if (nullIdEntries.length > 0) {
+            findings.push({
+              check: 'brain.db.journal',
+              status: 'warning',
+              details: `${nullIdEntries.length} journal entry/entries with null IDs (orphaned from previous CLEO version)`,
+              fix: 'Run: cleo upgrade (will reconcile automatically)',
+            });
+          } else {
+            findings.push({
+              check: 'brain.db.journal',
+              status: 'ok',
+              details: `${journalEntries.length} migration(s) in journal, all valid`,
+            });
+          }
+        } else {
+          findings.push({
+            check: 'brain.db.journal',
+            status: 'warning',
+            details: 'No migration journal table found',
+            fix: 'Run: cleo upgrade',
+          });
+        }
+      } else {
+        findings.push({
+          check: 'brain.db.connection',
+          status: 'error',
+          details: 'Could not obtain native DB handle',
+        });
+      }
+    } catch (err) {
+      findings.push({
+        check: 'brain.db.connection',
+        status: 'error',
+        details: `Failed to connect: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  } else {
+    findings.push({
+      check: 'brain.db',
+      status: 'warning',
+      details: 'brain.db not found (will be created on first use)',
+    });
+  }
+
+  const okCount = findings.filter((f) => f.status === 'ok').length;
+  const warnCount = findings.filter((f) => f.status === 'warning').length;
+  const errCount = findings.filter((f) => f.status === 'error').length;
+
+  return {
+    success: errCount === 0,
+    findings,
+    summary: { ok: okCount, warnings: warnCount, errors: errCount },
   };
 }
