@@ -131,6 +131,86 @@ export interface SharingConfig {
   denylist: string[];
 }
 
+/**
+ * Brain memory bridge refresh configuration.
+ * Controls when `.cleo/memory-bridge.md` is automatically regenerated.
+ *
+ * @epic T134
+ * @task T135
+ */
+export interface BrainMemoryBridgeConfig {
+  /** Whether to automatically regenerate memory-bridge.md on lifecycle events (default: true). */
+  autoRefresh: boolean;
+  /** Whether to include scope-aware memory context in generated bridge (default: false). */
+  contextAware: boolean;
+  /** Maximum token budget for memory bridge content (default: 2000). */
+  maxTokens: number;
+}
+
+/**
+ * Brain embedding provider configuration.
+ *
+ * @epic T134
+ * @task T136
+ */
+export interface BrainEmbeddingConfig {
+  /** Whether semantic embedding is enabled (default: false). */
+  enabled: boolean;
+  /** Embedding provider to use (default: 'local'). */
+  provider: 'local' | 'openai';
+}
+
+/**
+ * Brain session summarization configuration.
+ *
+ * @epic T134
+ * @task T140
+ */
+export interface BrainSummarizationConfig {
+  /** Whether session summarization is enabled (default: false). */
+  enabled: boolean;
+}
+
+/**
+ * Brain (BRAIN memory system) configuration.
+ * Controls automated memory capture, embedding generation, memory bridge
+ * refresh behavior, and session summarization.
+ *
+ * @epic T134
+ * @task T135
+ */
+export interface BrainConfig {
+  /** Whether to automatically capture observations from lifecycle events (default: true). */
+  autoCapture: boolean;
+  /** Whether to capture file change events (default: false). */
+  captureFiles: boolean;
+  /** Whether to capture MCP tool events (default: false). */
+  captureMcp: boolean;
+  /** Embedding provider settings. */
+  embedding: BrainEmbeddingConfig;
+  /** Memory bridge auto-refresh settings. */
+  memoryBridge: BrainMemoryBridgeConfig;
+  /** Session summarization settings. */
+  summarization: BrainSummarizationConfig;
+}
+
+/**
+ * Structured session summary input for ingestStructuredSummary().
+ *
+ * @epic T134
+ * @task T140
+ */
+export interface SessionSummaryInput {
+  /** Key learnings from this session. */
+  keyLearnings: string[];
+  /** Decisions made during this session. */
+  decisions: string[];
+  /** Patterns observed during this session. */
+  patterns: string[];
+  /** Suggested next actions. */
+  nextActions: string[];
+}
+
 /** SignalDock transport mode. */
 export type SignalDockMode = 'http' | 'native';
 
@@ -162,6 +242,8 @@ export interface CleoConfig {
   sharing: SharingConfig;
   /** SignalDock inter-agent transport (optional, disabled by default). */
   signaldock?: SignalDockConfig;
+  /** Brain memory system configuration (optional, uses defaults when absent). */
+  brain?: BrainConfig;
 }
 
 /** Configuration resolution priority. */

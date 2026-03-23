@@ -14,4 +14,13 @@ export interface AdapterHookProvider {
   unregisterNativeHooks(): Promise<void>;
   /** Return the full event mapping for introspection. */
   getEventMap?(): Readonly<Record<string, string>>;
+  /**
+   * Extract a plain-text transcript from the provider's session data.
+   * Returns null if no transcript is available for this session.
+   *
+   * @param sessionId - The CLEO session ID
+   * @param projectDir - Absolute path to the project directory
+   * @task T144 @epic T134
+   */
+  getTranscript?(sessionId: string, projectDir: string): Promise<string | null>;
 }

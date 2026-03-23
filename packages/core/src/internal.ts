@@ -135,6 +135,23 @@ export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 
 // MCP helpers
 export { detectEnvMode, generateMcpServerEntry, getMcpServerName } from './mcp/index.js';
+// Memory — brain lifecycle (temporal decay + consolidation)
+export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';
+export { applyTemporalDecay, consolidateMemories } from './memory/brain-lifecycle.js';
+// Memory — brain maintenance
+export type {
+  BrainMaintenanceConsolidationResult,
+  BrainMaintenanceDecayResult,
+  BrainMaintenanceEmbeddingsResult,
+  BrainMaintenanceOptions,
+  BrainMaintenanceResult,
+} from './memory/brain-maintenance.js';
+export { runBrainMaintenance } from './memory/brain-maintenance.js';
+export type {
+  PopulateEmbeddingsOptions,
+  PopulateEmbeddingsResult,
+} from './memory/brain-retrieval.js';
+export { populateEmbeddings } from './memory/brain-retrieval.js';
 export { migrateClaudeMem } from './memory/claude-mem-migration.js';
 // Memory — engine-compat
 export {
@@ -686,6 +703,10 @@ export type { BuildConfig } from './config/build-config.js';
 export { BUILD_CONFIG } from './config/build-config.js';
 // Init (additional)
 export { initCoreSkills } from './init.js';
+// Memory — auto-extract (additional)
+export { extractFromTranscript } from './memory/auto-extract.js';
+// Memory — brain embedding (additional)
+export { initDefaultProvider } from './memory/brain-embedding.js';
 // Memory — brain row types
 export type {
   BrainAnchor,
@@ -699,9 +720,14 @@ export type {
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
 // Memory (additional)
-export { writeMemoryBridge } from './memory/memory-bridge.js';
+export { generateContextAwareContent, writeMemoryBridge } from './memory/memory-bridge.js';
 export type { SessionMemoryContext } from './memory/session-memory.js';
-export { getSessionMemoryContext, persistSessionMemory } from './memory/session-memory.js';
+export {
+  buildSummarizationPrompt,
+  getSessionMemoryContext,
+  ingestStructuredSummary,
+  persistSessionMemory,
+} from './memory/session-memory.js';
 // Nexus — discoverRelated (exported as nexusDiscoverRelated to avoid name clash with tasks discoverRelated)
 // Nexus — searchAcrossProjects
 export {

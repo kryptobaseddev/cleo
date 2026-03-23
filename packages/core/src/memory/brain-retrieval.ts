@@ -596,11 +596,53 @@ export async function observeBrain(
       });
   }
 
+  // Auto-link observation to the currently focused task when a session is active. (T141)
+  // This is a fire-and-forget side effect — linking failure MUST NOT block the return.
+  if (sourceSessionId) {
+    autoLinkObservationToTask(projectRoot, row.id, accessor).catch(() => {
+      /* Auto-linking is best-effort */
+    });
+  }
+
   return {
     id: row.id,
     type: row.type,
     createdAt: row.createdAt,
   };
+}
+
+/**
+ * Auto-link a newly created observation to the currently focused task.
+ *
+ * Queries the active session via sessionStatus() and reads taskWork.taskId.
+ * If a task is focused, inserts a brain_memory_links row linking the
+ * observation to that task with linkType 'produced_by'.
+ *
+ * All failures are silently swallowed — this is a best-effort side effect.
+ *
+ * @param projectRoot - Project root directory
+ * @param observationId - ID of the newly created observation
+ * @param accessor - BrainDataAccessor to use for the link insert
+ */
+async function autoLinkObservationToTask(
+  projectRoot: string,
+  observationId: string,
+  accessor: Awaited<ReturnType<typeof getBrainAccessor>>,
+): Promise<void> {
+  const { sessionStatus } = await import('../sessions/index.js');
+  const session = await sessionStatus(projectRoot);
+
+  if (!session) return;
+
+  const taskId = session.taskWork?.taskId;
+  if (!taskId) return;
+
+  await accessor.addLink({
+    memoryType: 'observation',
+    memoryId: observationId,
+    taskId,
+    linkType: 'produced_by',
+  });
 }
 
 // ============================================================================
@@ -611,6 +653,29 @@ export async function observeBrain(
 export interface PopulateEmbeddingsResult {
   processed: number;
   skipped: number;
+  errors: number;
+}
+
+/**
+ * Options for the embedding backfill pipeline.
+ *
+ * @example
+ * ```ts
+ * await populateEmbeddings(root, {
+ *   batchSize: 25,
+ *   onProgress: (current, total) => console.log(`${current}/${total}`),
+ * });
+ * ```
+ */
+export interface PopulateEmbeddingsOptions {
+  /** Maximum items processed per batch cycle. Defaults to 50. */
+  batchSize?: number;
+  /**
+   * Progress callback invoked after each observation is attempted.
+   * `current` is the 1-based count of observations attempted so far;
+   * `total` is the full count of observations that need embeddings.
+   */
+  onProgress?: (current: number, total: number) => void;
 }
 
 /**
@@ -620,16 +685,22 @@ export interface PopulateEmbeddingsResult {
  * generates vectors using the registered embedding provider.
  * Processes in batches to avoid memory pressure.
  *
+ * An optional {@link PopulateEmbeddingsOptions.onProgress} callback is called
+ * after each observation is attempted, enabling callers to report progress.
+ *
  * @param projectRoot - Project root directory
- * @param options - Optional batch size configuration
- * @returns Count of processed and skipped observations
+ * @param options - Optional batch size and progress callback
+ * @returns Count of processed, skipped, and errored observations
+ *
+ * @epic T134
+ * @task T142
  */
 export async function populateEmbeddings(
   projectRoot: string,
-  options?: { batchSize?: number },
+  options?: PopulateEmbeddingsOptions,
 ): Promise<PopulateEmbeddingsResult> {
   if (!isEmbeddingAvailable()) {
-    return { processed: 0, skipped: 0 };
+    return { processed: 0, skipped: 0, errors: 0 };
   }
 
   const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
@@ -637,12 +708,14 @@ export async function populateEmbeddings(
   const nativeDb = getBrainNativeDb();
 
   if (!nativeDb) {
-    return { processed: 0, skipped: 0 };
+    return { processed: 0, skipped: 0, errors: 0 };
   }
 
   const batchSize = options?.batchSize ?? 50;
+  const { onProgress } = options ?? {};
   let processed = 0;
   let skipped = 0;
+  let errors = 0;
 
   // Find observations without embeddings
   const rows = typedAll<BrainNarrativeRow>(
@@ -654,6 +727,9 @@ export async function populateEmbeddings(
     ORDER BY o.created_at DESC
   `),
   );
+
+  const total = rows.length;
+  let attempted = 0;
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
@@ -669,10 +745,12 @@ export async function populateEmbeddings(
           skipped++;
         }
       } catch {
-        skipped++;
+        errors++;
       }
+      attempted++;
+      onProgress?.(attempted, total);
     }
   }
 
-  return { processed, skipped };
+  return { processed, skipped, errors };
 }

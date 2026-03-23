@@ -36,5 +36,23 @@
   },
   "defaults": {
     "priority": "medium"
+  },
+
+  "brain": {
+    "autoCapture": true,
+    "captureFiles": false,
+    "captureMcp": false,
+    "embedding": {
+      "enabled": false,
+      "provider": "local"
+    },
+    "memoryBridge": {
+      "autoRefresh": true,
+      "contextAware": false,
+      "maxTokens": 2000
+    },
+    "summarization": {
+      "enabled": false
+    }
   }
 }

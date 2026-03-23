@@ -3,10 +3,15 @@
  *
  * Handlers that capture session lifecycle events to BRAIN via memory.observe.
  * Auto-registers on module load.
+ *
+ * T138: Triggers memory bridge refresh on session start and end.
+ * T139: Regenerates bridge with session scope on start.
+ * T144: Extracts transcript observations on session end.
  */
 
 import { hooks } from '../registry.js';
 import type { OnSessionEndPayload, OnSessionStartPayload } from '../types.js';
+import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -16,6 +21,9 @@ function isMissingBrainSchemaError(err: unknown): boolean {
 
 /**
  * Handle onSessionStart - capture initial session context
+ *
+ * T138: Refresh memory bridge on session start.
+ * T139: Regenerate bridge with session scope context.
  */
 export async function handleSessionStart(
   projectRoot: string,
@@ -34,10 +42,16 @@ export async function handleSessionStart(
   } catch (err) {
     if (!isMissingBrainSchemaError(err)) throw err;
   }
+
+  // T138/T139: Refresh memory bridge after session starts (best-effort)
+  await maybeRefreshMemoryBridge(projectRoot);
 }
 
 /**
  * Handle onSessionEnd - capture session summary
+ *
+ * T138: Refresh memory bridge after session ends.
+ * T144: Extract transcript observations via cross-provider adapter.
  */
 export async function handleSessionEnd(
   projectRoot: string,
@@ -64,6 +78,30 @@ export async function handleSessionEnd(
   } catch {
     // Grading must never block session end
   }
+
+  // T144: Cross-provider transcript extraction (best-effort)
+  try {
+    const { loadConfig } = await import('../../config.js');
+    const config = await loadConfig(projectRoot);
+    if (config.brain?.autoCapture) {
+      const { AdapterManager } = await import('../../adapters/index.js');
+      const manager = AdapterManager.getInstance(projectRoot);
+      const activeAdapter = manager.getActive();
+      const hookProvider = activeAdapter?.hooks;
+      if (hookProvider && typeof hookProvider.getTranscript === 'function') {
+        const transcript = await hookProvider.getTranscript(payload.sessionId, projectRoot);
+        if (transcript) {
+          const { extractFromTranscript } = await import('../../memory/auto-extract.js');
+          await extractFromTranscript(projectRoot, payload.sessionId, transcript);
+        }
+      }
+    }
+  } catch {
+    // Graceful no-op: transcript extraction must never block session end
+  }
+
+  // T138: Refresh memory bridge after session ends (best-effort)
+  await maybeRefreshMemoryBridge(projectRoot);
 }
 
 // Register handlers on module load

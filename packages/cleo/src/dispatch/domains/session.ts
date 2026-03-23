@@ -219,8 +219,12 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'end': {
-          // End the session first
-          const endResult = await sessionEnd(projectRoot, params?.note as string | undefined);
+          // End the session first (T140: pass sessionSummary for structured ingestion)
+          const endResult = await sessionEnd(projectRoot, params?.note as string | undefined, {
+            sessionSummary: params?.sessionSummary as
+              | import('@cleocode/contracts').SessionSummaryInput
+              | undefined,
+          });
 
           // If session ended successfully, compute and persist debrief + handoff data
           if (endResult.success && endResult.data) {

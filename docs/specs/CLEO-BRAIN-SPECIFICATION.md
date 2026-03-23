@@ -1,23 +1,52 @@
 ---
 title: "CLEO BRAIN Specification"
-version: "1.3.0"
+version: "2.0.0"
 status: "approved"
 created: "2026-02-03"
-updated: "2026-03-05"
+updated: "2026-03-23"
 epic: "T2975"
-task: "T3002"
-authors: ["Claude Opus 4.5", "CLEO Development Team"]
+task: "T146"
+authors: ["Claude Sonnet 4.5", "CLEO Development Team"]
 ---
 
 # CLEO BRAIN Specification
 
-**Version**: 1.3.0
+**Version**: 2.0.0
 **Status**: APPROVED
-**Date**: 2026-03-05
-**Epic**: T2975 - CLEO Consolidation Sprint
-**Task**: T3002 - Specification: Define AGENTIC BRAIN Concrete Requirements
-**Implementation**: Phases 1-4 SHIPPED (brain.db schema, 3-layer retrieval, MCP operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation)
-**Remaining**: Phase 5 (claude-mem full retirement)
+**Date**: 2026-03-23
+**Epic**: T134 - Brain Memory Automation
+**Task**: T146 - Specification Update
+**Implementation**: Phases 1-5 SHIPPED (brain.db schema, 3-layer retrieval, MCP operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation, automated capture via lifecycle hooks, local embedding provider, context-aware memory bridge, session summarization, cross-provider transcript extraction, brain maintenance command)
+**Contract Reference**: `packages/contracts/src/config.ts` → `BrainConfig`
+
+---
+
+## Changelog
+
+### v2.0.0 (2026-03-23) — T134 Brain Memory Automation
+
+This update documents the automation layer added by epic T134 (12 tasks, T135-T146):
+
+| Task | Feature | Status |
+|------|---------|--------|
+| T135 | `BrainConfig` contract + config defaults | SHIPPED |
+| T136 | Local embedding provider (all-MiniLM-L6-v2 via @xenova/transformers) | SHIPPED |
+| T137 | Embedding queue with priority scheduling | SHIPPED |
+| T138 | Hook-driven memory bridge refresh (debounced, 30s window) | SHIPPED |
+| T139 | Context-aware memory bridge (scope-filtered hybrid search) | SHIPPED |
+| T140 | Session summarization: dual-mode (prompt builder + structured ingestion) | SHIPPED |
+| T141 | Embedding worker thread | SHIPPED |
+| T142 | Brain maintenance CLI (`cleo brain maintenance`) | SHIPPED |
+| T143 | Brain backfill with progress reporting | SHIPPED |
+| T144 | Cross-provider transcript extraction | SHIPPED |
+| T145 | Brain CLI command group | SHIPPED |
+| T146 | Specification update (this document) | SHIPPED |
+
+**Key design decisions**:
+- Config-gated: all new features default to `false`/disabled, no behavioral change without opt-in
+- Hook-first: refresh/extract logic lives in hook handlers, not in core task/session functions
+- Best-effort everywhere: no T134 feature can throw or block lifecycle events
+- Contract-first: `BrainConfig` in `@cleocode/contracts` is the SSoT for all feature flags
 
 ---
 
@@ -38,7 +67,7 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 | Dimension | What It Means | Current State |
 |-----------|---------------|---------------|
-| **B**ase (Memory) | Persistent knowledge across sessions | SHIPPED: brain.db with decisions, patterns, learnings, observations tables; 3-layer retrieval (search/timeline/fetch); hybrid search (FTS5 + vector + graph); PageIndex graph (nodes/edges); 5,122 observations migrated |
+| **B**ase (Memory) | Persistent knowledge across sessions | SHIPPED: brain.db with decisions, patterns, learnings, observations tables; 3-layer retrieval (search/timeline/fetch); hybrid search (FTS5 + vector + graph); PageIndex graph (nodes/edges); 5,122 observations migrated. T134: automated capture via lifecycle hooks, local embedding (all-MiniLM-L6-v2), context-aware bridge, session summarization, transcript extraction |
 | **R**easoning | Causal inference and temporal analysis | SHIPPED: reason.why (causal trace), reason.similar (FTS5/vector fallback), temporal decay, memory consolidation |
 | **A**gent | Autonomous multi-agent orchestration | No self-healing or learning |
 | **I**ntelligence | Adaptive validation and prediction | No pattern extraction |
@@ -46,6 +75,32 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 **From**: Task manager with anti-hallucination validation (Tier S)
 **To**: Cognitive infrastructure for AI-driven development workflows (Tier M/L)
+
+### 1.0a BrainConfig Reference (T135)
+
+All T134 features are governed by `BrainConfig` in `packages/contracts/src/config.ts`.
+
+```typescript
+interface BrainConfig {
+  autoCapture: boolean;        // Capture lifecycle events → brain.db (default: true)
+  captureFiles: boolean;       // Capture file change events (default: false)
+  captureMcp: boolean;         // Capture MCP tool events (default: false)
+  embedding: {
+    enabled: boolean;          // Enable local embedding model (default: false)
+    provider: 'local' | 'openai';
+  };
+  memoryBridge: {
+    autoRefresh: boolean;      // Auto-refresh memory-bridge.md (default: true)
+    contextAware: boolean;     // Use hybrid search for scoped content (default: false)
+    maxTokens: number;         // Token budget for bridge content (default: 2000)
+  };
+  summarization: {
+    enabled: boolean;          // Build summarization prompt on session end (default: false)
+  };
+}
+```
+
+**Defaults**: All features default to `false`/disabled except `autoCapture: true` and `memoryBridge.autoRefresh: true`. Existing behavior is preserved without config changes.
 
 ### 1.1 Guiding Principles
 

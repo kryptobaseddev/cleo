@@ -36,6 +36,10 @@ export type { AdapterCapabilities } from './capabilities.js';
 // === Configuration Types ===
 export type {
   BackupConfig,
+  BrainConfig,
+  BrainEmbeddingConfig,
+  BrainMemoryBridgeConfig,
+  BrainSummarizationConfig,
   CleoConfig,
   ConfigSource,
   DateFormat,
@@ -49,6 +53,7 @@ export type {
   OutputFormat,
   ResolvedValue,
   SessionConfig,
+  SessionSummaryInput,
   SharingConfig,
   SharingMode,
   SignalDockConfig,

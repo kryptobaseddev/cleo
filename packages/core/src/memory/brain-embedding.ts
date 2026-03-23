@@ -64,3 +64,21 @@ export async function embedText(text: string): Promise<Float32Array | null> {
 export function isEmbeddingAvailable(): boolean {
   return currentProvider?.isAvailable() ?? false;
 }
+
+/**
+ * Initialize the default local embedding provider.
+ *
+ * Loads the LocalEmbeddingProvider dynamically and registers it via
+ * setEmbeddingProvider(). Should be called once at startup when
+ * `brain.embedding.enabled` is true.
+ *
+ * Uses dynamic import to avoid loading the heavy @xenova/transformers
+ * bundle unless embedding is actually requested.
+ *
+ * @task T136 @epic T134
+ */
+export async function initDefaultProvider(): Promise<void> {
+  const { LocalEmbeddingProvider } = await import('./embedding-local.js');
+  const provider = new LocalEmbeddingProvider();
+  setEmbeddingProvider(provider);
+}

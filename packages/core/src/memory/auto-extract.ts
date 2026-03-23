@@ -159,3 +159,43 @@ export async function resolveTaskDetails(projectRoot: string, taskIds: string[])
     await accessor.close();
   }
 }
+
+/** Action words that indicate a meaningful assistant turn worth storing. */
+const ACTION_PATTERNS =
+  /\b(implement|fix|add|create|update|remove|refactor|extract|migrate|resolve|complete|found|learned|discovered)\b/i;
+
+/**
+ * Extract key observations from a provider session transcript and store
+ * them in brain.db as learnings.
+ *
+ * Filters assistant lines that contain action words, stores up to 5 as
+ * learnings with 0.6 confidence. Always best-effort — never throws.
+ *
+ * @param projectRoot - Absolute path to project root.
+ * @param sessionId - The CLEO session ID being processed.
+ * @param transcript - Plain-text provider transcript (user/assistant turns).
+ * @task T144 @epic T134
+ */
+export async function extractFromTranscript(
+  projectRoot: string,
+  sessionId: string,
+  transcript: string,
+): Promise<void> {
+  try {
+    const lines = transcript.split('\n').filter((l) => l.trim().length > 20);
+    const actionLines = lines.filter((l) => ACTION_PATTERNS.test(l)).slice(0, 5);
+    if (actionLines.length === 0) return;
+
+    const { storeLearning } = await import('./learnings.js');
+    for (const line of actionLines) {
+      await storeLearning(projectRoot, {
+        insight: line.trim().slice(0, 250),
+        source: `transcript:${sessionId}`,
+        confidence: 0.6,
+        actionable: false,
+      });
+    }
+  } catch {
+    // Best-effort: must never throw
+  }
+}

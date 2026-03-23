@@ -262,12 +262,8 @@ export async function endSession(
     /* Memory bridge is best-effort */
   });
 
-  // Regenerate .cleo/memory-bridge.md (best-effort, T5240)
-  import('../memory/memory-bridge.js')
-    .then(({ refreshMemoryBridge }) => refreshMemoryBridge(cwd ?? process.cwd()))
-    .catch(() => {
-      /* Memory bridge refresh is best-effort */
-    });
+  // NOTE: Memory bridge refresh is now handled by the onSessionEnd hook
+  // via memory-bridge-refresh.ts (T138). No direct call needed here.
 
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler

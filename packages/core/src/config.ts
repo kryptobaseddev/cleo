@@ -79,6 +79,23 @@ const DEFAULTS: CleoConfig = {
     agentPrefix: 'cleo-',
     privacyTier: 'private',
   },
+  brain: {
+    autoCapture: true,
+    captureFiles: false,
+    captureMcp: false,
+    embedding: {
+      enabled: false,
+      provider: 'local' as const,
+    },
+    memoryBridge: {
+      autoRefresh: true,
+      contextAware: false,
+      maxTokens: 2000,
+    },
+    summarization: {
+      enabled: false,
+    },
+  },
 };
 
 /** Environment variable to config path mapping. */

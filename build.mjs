@@ -40,6 +40,7 @@ const sharedExternals = [
   'js-tiktoken',
   '@cleocode/caamp',
   '@cleocode/lafs-protocol',
+  '@xenova/transformers',
 ];
 
 // ---------------------------------------------------------------------------

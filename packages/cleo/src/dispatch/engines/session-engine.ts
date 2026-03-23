@@ -480,11 +480,13 @@ export async function sessionStart(
  * Note: This function has engine-specific logic for task file focus management
  * and session store management, so it remains in the engine layer.
  * @task T4782
+ * @task T140 @epic T134 - Summarization wiring
  */
 export async function sessionEnd(
   projectRoot: string,
   notes?: string,
-): Promise<EngineResult<{ sessionId: string; ended: boolean }>> {
+  params?: { sessionSummary?: import('@cleocode/contracts').SessionSummaryInput },
+): Promise<EngineResult<{ sessionId: string; ended: boolean; memoryPrompt?: string }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const activeSession = await accessor.getActiveSession();
@@ -526,7 +528,42 @@ export async function sessionEnd(
       await accessor.upsertSingleSession(activeSession);
     }
 
-    return { success: true, data: { sessionId, ended: true } };
+    // T140: Build summarization prompt and ingest structured summary if provided
+    let memoryPrompt: string | undefined;
+    try {
+      const { loadConfig } = await import('@cleocode/core/internal');
+      const config = await loadConfig(projectRoot);
+      if (config.brain?.summarization?.enabled) {
+        // Fetch the debrief if available to build a summarization prompt
+        const sessions = await accessor.loadSessions();
+        const endedSession = sessions.find(
+          (s: import('@cleocode/contracts').Session) => s.id === sessionId,
+        );
+        if (endedSession?.debriefJson) {
+          try {
+            const debrief = JSON.parse(endedSession.debriefJson as string);
+            const { buildSummarizationPrompt } = await import('@cleocode/core/internal');
+            const prompt = buildSummarizationPrompt(sessionId, debrief);
+            if (prompt) memoryPrompt = prompt;
+          } catch {
+            // Best-effort
+          }
+        }
+      }
+
+      // Ingest structured summary if provided by caller (e.g. from CLI --summary flag)
+      if (params?.sessionSummary) {
+        const { ingestStructuredSummary } = await import('@cleocode/core/internal');
+        await ingestStructuredSummary(projectRoot, sessionId, params.sessionSummary);
+      }
+    } catch {
+      // Summarization must never block session end
+    }
+
+    return {
+      success: true,
+      data: { sessionId, ended: true, ...(memoryPrompt && { memoryPrompt }) },
+    };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }

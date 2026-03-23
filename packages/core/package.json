@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.3.69",
+  "version": "2026.3.70",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,6 +33,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs-protocol": "^1.8.0",
     "@cleocode/skills": "workspace:*",
+    "@xenova/transformers": "^2.17.2",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.19-d95b7a4",

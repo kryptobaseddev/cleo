@@ -84,6 +84,12 @@ export type SessionStartResult = SessionOp;
 // session.end
 export interface SessionEndParams {
   notes?: string;
+  /**
+   * Structured session summary for direct ingestion into brain.db.
+   * When provided, CLEO persists key learnings, decisions, patterns, and next actions.
+   * @task T140 @epic T134
+   */
+  sessionSummary?: import('../config.js').SessionSummaryInput;
 }
 export interface SessionEndResult {
   session: SessionOp;
@@ -92,6 +98,12 @@ export interface SessionEndResult {
     tasksCompleted: number;
     tasksCreated: number;
   };
+  /**
+   * A summarization prompt built from this session's debrief data.
+   * Populated when `brain.summarization.enabled` is true.
+   * @task T140 @epic T134
+   */
+  memoryPrompt?: string;
 }
 
 // session.resume

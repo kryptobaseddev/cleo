@@ -268,10 +268,15 @@ export type {
 export { Cleo } from './cleo.js';
 // Hooks
 export { HookRegistry, hooks } from './hooks/registry.js';
+export type {
+  PopulateEmbeddingsOptions,
+  PopulateEmbeddingsResult,
+} from './memory/brain-retrieval.js';
 // Memory
 export {
   fetchBrainEntries,
   observeBrain,
+  populateEmbeddings,
   searchBrainCompact,
   timelineBrain,
 } from './memory/brain-retrieval.js';

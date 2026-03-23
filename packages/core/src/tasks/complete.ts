@@ -278,12 +278,8 @@ export async function completeTask(
     }
   }
 
-  // Regenerate .cleo/memory-bridge.md (best-effort, T5240)
-  import('../memory/memory-bridge.js')
-    .then(({ refreshMemoryBridge }) => refreshMemoryBridge(cwd ?? process.cwd()))
-    .catch(() => {
-      /* Memory bridge refresh is best-effort */
-    });
+  // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
+  // via memory-bridge-refresh.ts (T138). No direct call needed here.
 
   // Auto-extract memory from task completion (best-effort, T-audit)
   import('../memory/auto-extract.js')

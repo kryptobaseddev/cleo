@@ -259,15 +259,114 @@ export async function writeMemoryBridge(
 /**
  * Best-effort refresh: call from session.end, tasks.complete, or memory.observe.
  * Never throws.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param scope - Optional session scope for context-aware generation (T139).
+ * @param currentTaskId - Optional current task ID for scoped context (T139).
  */
-export async function refreshMemoryBridge(projectRoot: string): Promise<void> {
+export async function refreshMemoryBridge(
+  projectRoot: string,
+  scope?: string,
+  currentTaskId?: string,
+): Promise<void> {
   try {
-    await writeMemoryBridge(projectRoot);
+    const { loadConfig } = await import('../config.js');
+    const config = await loadConfig(projectRoot);
+
+    if (config.brain?.memoryBridge?.contextAware && scope) {
+      await generateContextAwareContent(projectRoot, scope, currentTaskId);
+    } else {
+      await writeMemoryBridge(projectRoot);
+    }
   } catch (err) {
     console.error(
       '[CLEO] Memory bridge refresh failed:',
       err instanceof Error ? err.message : String(err),
     );
+  }
+}
+
+/**
+ * Generate context-aware memory bridge content and write to disk.
+ *
+ * When `brain.memoryBridge.contextAware` is true and a scope is available,
+ * uses hybridSearch() to surface memories relevant to the current scope,
+ * then enforces the `brain.memoryBridge.maxTokens` budget.
+ *
+ * Falls back to standard generation if hybrid search is unavailable.
+ * Never throws.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param scope - Session scope string (e.g. 'global', 'epic:T###').
+ * @param currentTaskId - Optional current task ID for narrower scoping.
+ * @task T139 @epic T134
+ */
+export async function generateContextAwareContent(
+  projectRoot: string,
+  scope: string,
+  currentTaskId?: string,
+): Promise<void> {
+  try {
+    const { loadConfig } = await import('../config.js');
+    const config = await loadConfig(projectRoot);
+    const maxTokens = config.brain?.memoryBridge?.maxTokens ?? 2000;
+
+    // Build a search query from scope + currentTaskId
+    const query = currentTaskId ? `${scope} ${currentTaskId}` : scope;
+
+    let contextSections: string[] = [];
+    try {
+      const { hybridSearch } = await import('./brain-search.js');
+      const hits = await hybridSearch(query, projectRoot, { limit: 10 });
+      if (hits && hits.length > 0) {
+        contextSections = hits
+          .slice(0, 5)
+          .map((h) => `- [${h.id}] ${h.title ?? h.text?.slice(0, 120) ?? ''}`);
+      }
+    } catch {
+      // Hybrid search unavailable — fall back to standard generation
+      await writeMemoryBridge(projectRoot);
+      return;
+    }
+
+    // Build content with token budget enforcement (rough estimate: 4 chars/token)
+    const charsPerToken = 4;
+    const budgetChars = maxTokens * charsPerToken;
+
+    const cleoDir = join(projectRoot, '.cleo');
+    const bridgePath = join(cleoDir, 'memory-bridge.md');
+
+    const headerLines = [
+      '# CLEO Memory Bridge',
+      '',
+      `> Auto-generated at ${new Date().toISOString().slice(0, 19)} (context-aware: ${scope})`,
+      '> Do not edit manually. Regenerate with `cleo refresh-memory`.',
+      '',
+    ];
+
+    const contextBlock =
+      contextSections.length > 0 ? ['## Relevant Context', '', ...contextSections, ''] : [];
+
+    // Append standard content but enforce token budget
+    const standardContent = await generateMemoryBridgeContent(projectRoot);
+    const combined = [...headerLines, ...contextBlock].join('\n');
+    const remainingChars = budgetChars - combined.length;
+
+    const finalContent =
+      remainingChars > 200 ? combined + '\n' + standardContent.slice(0, remainingChars) : combined;
+
+    if (!existsSync(cleoDir)) {
+      mkdirSync(cleoDir, { recursive: true });
+    }
+
+    writeFileSync(bridgePath, finalContent, 'utf-8');
+  } catch {
+    // Best-effort — fall through to standard generation
+    try {
+      await writeMemoryBridge(projectRoot);
+    } catch {
+      // Ignore
+    }
   }
 }
 

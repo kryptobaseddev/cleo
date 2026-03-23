@@ -224,6 +224,129 @@ export async function persistSessionMemory(
 }
 
 // ============================================================================
+// buildSummarizationPrompt (T140)
+// ============================================================================
+
+/**
+ * Build a summarization prompt from debrief data.
+ *
+ * Returns a formatted prompt string that guides an LLM to produce a structured
+ * session summary (key learnings, decisions, patterns, next actions). The result
+ * can be passed to an LLM or stored directly as a `memoryPrompt` in the session
+ * end result.
+ *
+ * Returns null when debrief contains no meaningful content to summarize.
+ *
+ * @param sessionId - The session ID to summarize.
+ * @param debrief - Rich debrief data from sessionComputeDebrief().
+ * @task T140 @epic T134
+ */
+export function buildSummarizationPrompt(
+  sessionId: string,
+  debrief: DebriefData | null | undefined,
+): string | null {
+  if (!debrief) return null;
+
+  const tasksCompleted = debrief.handoff?.tasksCompleted ?? [];
+  const decisions = (debrief.decisions ?? []) as DebriefDecision[];
+  const note = debrief.handoff?.note ?? '';
+  const nextSuggested = debrief.handoff?.nextSuggested ?? [];
+
+  if (tasksCompleted.length === 0 && decisions.length === 0 && !note) {
+    return null;
+  }
+
+  const parts: string[] = [
+    `Summarize session ${sessionId} for brain memory storage.`,
+    '',
+    `Tasks completed: ${tasksCompleted.join(', ') || 'none'}`,
+  ];
+
+  if (decisions.length > 0) {
+    parts.push('');
+    parts.push('Decisions made:');
+    for (const d of decisions) {
+      parts.push(`- ${d.decision ?? 'unknown'} (rationale: ${d.rationale ?? 'N/A'})`);
+    }
+  }
+
+  if (note) {
+    parts.push('');
+    parts.push(`Session note: ${note}`);
+  }
+
+  if (nextSuggested.length > 0) {
+    parts.push('');
+    parts.push(`Suggested next: ${nextSuggested.join(', ')}`);
+  }
+
+  parts.push('');
+  parts.push(
+    'Produce a JSON object with keys: keyLearnings (string[]), decisions (string[]), patterns (string[]), nextActions (string[]).',
+  );
+
+  return parts.join('\n');
+}
+
+/**
+ * Ingest a structured session summary directly into brain.db.
+ *
+ * Stores each field as a typed brain observation. Best-effort — never throws.
+ *
+ * @param projectRoot - Absolute path to project root.
+ * @param sessionId - The session ID the summary belongs to.
+ * @param summary - Structured summary with key learnings, decisions, patterns, next actions.
+ * @task T140 @epic T134
+ */
+export async function ingestStructuredSummary(
+  projectRoot: string,
+  sessionId: string,
+  summary: import('@cleocode/contracts').SessionSummaryInput,
+): Promise<void> {
+  try {
+    const { observeBrain } = await import('./brain-retrieval.js');
+
+    // Ingest key learnings
+    for (const learning of summary.keyLearnings) {
+      if (!learning.trim()) continue;
+      await observeBrain(projectRoot, {
+        text: learning,
+        title: learning.slice(0, 120),
+        type: 'discovery',
+        sourceSessionId: sessionId,
+        sourceType: 'agent',
+      });
+    }
+
+    // Ingest decisions
+    for (const decision of summary.decisions) {
+      if (!decision.trim()) continue;
+      await observeBrain(projectRoot, {
+        text: decision,
+        title: decision.slice(0, 120),
+        type: 'decision',
+        sourceSessionId: sessionId,
+        sourceType: 'agent',
+      });
+    }
+
+    // Ingest patterns
+    for (const pattern of summary.patterns) {
+      if (!pattern.trim()) continue;
+      await observeBrain(projectRoot, {
+        text: pattern,
+        title: pattern.slice(0, 120),
+        type: 'discovery',
+        sourceSessionId: sessionId,
+        sourceType: 'agent',
+      });
+    }
+  } catch {
+    // Best-effort: must never throw
+  }
+}
+
+// ============================================================================
 // getSessionMemoryContext
 // ============================================================================
 

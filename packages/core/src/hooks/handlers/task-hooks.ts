@@ -3,10 +3,13 @@
  *
  * Handlers that capture task lifecycle events to BRAIN via memory.observe.
  * Auto-registers on module load.
+ *
+ * T138: Triggers memory bridge refresh after task completion.
  */
 
 import { hooks } from '../registry.js';
 import type { OnToolCompletePayload, OnToolStartPayload } from '../types.js';
+import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -37,6 +40,8 @@ export async function handleToolStart(
 
 /**
  * Handle onToolComplete (maps to task.complete in CLEO)
+ *
+ * T138: Refresh memory bridge after task completion.
  */
 export async function handleToolComplete(
   projectRoot: string,
@@ -54,6 +59,9 @@ export async function handleToolComplete(
   } catch (err) {
     if (!isMissingBrainSchemaError(err)) throw err;
   }
+
+  // T138: Refresh memory bridge after task completes (best-effort)
+  await maybeRefreshMemoryBridge(projectRoot);
 }
 
 // Register handlers
