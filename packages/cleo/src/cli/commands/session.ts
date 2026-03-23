@@ -150,6 +150,28 @@ export function registerSessionCommand(program: Command): void {
     });
 
   session
+    .command('find')
+    .description('Find sessions (lightweight discovery — minimal fields, low context cost)')
+    .option('--status <status>', 'Filter by status (active|ended|orphaned)')
+    .option('--scope <scope>', 'Filter by scope (e.g. "epic:T001" or "global")')
+    .option('--query <query>', 'Fuzzy match on session name or ID')
+    .option('--limit <n>', 'Max results', parseInt)
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'session',
+        'find',
+        {
+          status: opts['status'] as string | undefined,
+          scope: opts['scope'] as string | undefined,
+          query: opts['query'] as string | undefined,
+          limit: opts['limit'] as number | undefined,
+        },
+        { command: 'session', operation: 'session.find' },
+      );
+    });
+
+  session
     .command('list')
     .description('List sessions')
     .option('--status <status>', 'Filter by status (active|ended|orphaned)')

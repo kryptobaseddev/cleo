@@ -273,6 +273,7 @@ export class TasksHandler implements DomainHandler {
             size: params?.size as string | undefined,
             notes: params?.notes as string | undefined,
             files: params?.files as string[] | undefined,
+            dryRun: params?.dryRun as boolean | undefined,
           });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

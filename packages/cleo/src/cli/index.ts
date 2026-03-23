@@ -242,46 +242,65 @@ function shimToCitty(shim: ShimCommand): CommandDef {
     }
   }
 
+  // Build the run function. For parent commands that only have subcommands
+  // (no action of their own), we handle two cases:
+  // 1. A default subcommand is marked (isDefault) → invoke it
+  // 2. No default → show help text
+  // But ONLY when no subcommand was specified — citty calls the parent run()
+  // even when a subcommand is resolved, so we detect this via rawArgs.
+  const hasSubCommands = Object.keys(subCommands).length > 0;
+  const subCommandNames = new Set(
+    shim._subcommands.flatMap((s) => [s._name, ...s._aliases].filter(Boolean)),
+  );
+
+  const runFn = async (context: {
+    args: Record<string, unknown>;
+    rawArgs: string[];
+    cmd: CommandDef;
+  }) => {
+    const { args } = context;
+    // If a subcommand was invoked, citty handles it — don't double-fire.
+    if (hasSubCommands && context.rawArgs.some((a) => subCommandNames.has(a))) {
+      return;
+    }
+
+    if (shim._action) {
+      const positionalValues: unknown[] = [];
+      for (const arg of shim._args) {
+        positionalValues.push(args[arg.name]);
+      }
+
+      const opts: Record<string, unknown> = {};
+      for (const opt of shim._options) {
+        const val = args[opt.longName];
+        if (val !== undefined && val !== false) {
+          if (opt.parseFn && typeof val === 'string') {
+            opts[opt.longName] = opt.parseFn(val);
+          } else {
+            opts[opt.longName] = val;
+          }
+        }
+      }
+
+      await shim._action(...positionalValues, opts, shim);
+    } else if (shim._subcommands.length > 0) {
+      const defaultSub = shim._subcommands.find((s) => s._isDefault);
+      if (defaultSub?._action) {
+        await defaultSub._action({} as Record<string, unknown>, defaultSub);
+      } else {
+        await showUsage(context.cmd);
+      }
+    }
+  };
+
   const cittyDef: CommandDef = defineCommand({
     meta: {
       name: shim._name,
       description: shim._description,
     },
     args: cittyArgs,
-    ...(Object.keys(subCommands).length > 0 ? { subCommands } : {}),
-    async run(context) {
-      const { args } = context;
-      if (shim._action) {
-        const positionalValues: unknown[] = [];
-        for (const arg of shim._args) {
-          positionalValues.push(args[arg.name]);
-        }
-
-        const opts: Record<string, unknown> = {};
-        for (const opt of shim._options) {
-          const val = args[opt.longName];
-          if (val !== undefined && val !== false) {
-            if (opt.parseFn && typeof val === 'string') {
-              opts[opt.longName] = opt.parseFn(val);
-            } else {
-              opts[opt.longName] = val;
-            }
-          }
-        }
-
-        await shim._action(...positionalValues, opts, shim);
-      } else if (shim._subcommands.length > 0) {
-        // Parent command called without a subcommand: run default subcommand action
-        // if one is marked isDefault, otherwise display help.
-        const defaultSub = shim._subcommands.find((s) => s._isDefault);
-        if (defaultSub?._action) {
-          // Invoke the default subcommand's action with no positional args and empty opts
-          await defaultSub._action({} as Record<string, unknown>, defaultSub);
-        } else {
-          await showUsage(context.cmd);
-        }
-      }
-    },
+    ...(hasSubCommands ? { subCommands } : {}),
+    run: runFn as CommandDef['run'],
   });
   return cittyDef;
 }

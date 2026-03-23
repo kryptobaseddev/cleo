@@ -381,8 +381,9 @@ export async function taskCreate(
     acceptance?: string[];
     notes?: string;
     files?: string[];
+    dryRun?: boolean;
   },
-): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean }>> {
+): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreAddTask(
@@ -399,6 +400,7 @@ export async function taskCreate(
         acceptance: params.acceptance,
         notes: params.notes,
         files: params.files,
+        dryRun: params.dryRun,
       },
       projectRoot,
       accessor,
@@ -406,7 +408,11 @@ export async function taskCreate(
 
     return {
       success: true,
-      data: { task: taskToRecord(result.task), duplicate: result.duplicate ?? false },
+      data: {
+        task: taskToRecord(result.task),
+        duplicate: result.duplicate ?? false,
+        dryRun: params.dryRun,
+      },
     };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };

@@ -20,6 +20,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { migrate } from 'drizzle-orm/node-sqlite/migrator';
+import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import * as brainSchema from './brain-schema.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
@@ -116,6 +117,31 @@ function runBrainMigrations(
       nativeDb.exec(
         `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
       );
+    }
+  }
+
+  // Fix #65: Reconcile stale migration journal entries from older CLEO versions.
+  // Same pattern as tasks.db fix in sqlite.ts — see #63 for details.
+  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, 'brain_decisions')) {
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const localHashes = new Set(localMigrations.map((m) => m.hash));
+    const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    const hasOrphanedEntries = dbEntries.some((e) => !localHashes.has(e.hash));
+
+    if (hasOrphanedEntries) {
+      const log = getLogger('brain');
+      log.warn(
+        { orphaned: dbEntries.filter((e) => !localHashes.has(e.hash)).length },
+        'Detected stale migration journal entries from a previous CLEO version. Reconciling brain.db.',
+      );
+      nativeDb.exec('DELETE FROM "__drizzle_migrations"');
+      for (const m of localMigrations) {
+        nativeDb.exec(
+          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${m.hash}', ${m.folderMillis})`,
+        );
+      }
     }
   }
 
