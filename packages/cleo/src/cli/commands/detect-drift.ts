@@ -87,15 +87,15 @@ export function registerDetectDriftCommand(program: Command): void {
 
         // Check: agent injection template
         const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
-        if (existsSync(injPath)) {
-          const safeRead = (path: string): string => {
-            try {
-              return readFileSync(path, 'utf-8');
-            } catch {
-              return '';
-            }
-          };
+        const safeRead = (path: string): string => {
+          try {
+            return readFileSync(path, 'utf-8');
+          } catch {
+            return '';
+          }
+        };
 
+        if (existsSync(injPath)) {
           const content = safeRead(injPath);
           userResult.checks.push({
             name: 'Agent injection',
@@ -192,14 +192,14 @@ export function registerDetectDriftCommand(program: Command): void {
 
           // Extract operations from spec
           const specOpsMatch = specContent.match(/## `([a-z_]+)`/g) || [];
-          const specOps = specOpsMatch.map((m) => m.replace(/## `|`/g, ''));
+          const specOps = specOpsMatch.map((m: string) => m.replace(/## `|`/g, ''));
 
           // Extract operations from gateways
           const queryOpsMatch = queryContent.match(/case '([a-z_]+)':/g) || [];
           const mutateOpsMatch = mutateContent.match(/case '([a-z_]+)':/g) || [];
           const gatewayOps = [
-            ...queryOpsMatch.map((m) => m.replace(/case '|':/g, '')),
-            ...mutateOpsMatch.map((m) => m.replace(/case '|':/g, '')),
+            ...queryOpsMatch.map((m: string) => m.replace(/case '|':/g, '')),
+            ...mutateOpsMatch.map((m: string) => m.replace(/case '|':/g, '')),
           ];
 
           // Find mismatches
