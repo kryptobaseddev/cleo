@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [2026.3.63] - 2026-03-23
+
+### Fixed
+- **brain.db migration (#65, #71)**: Journal reconciliation now correctly applied — was lost in v2026.3.62 due to git stash conflict
+- **--dryRun on cleo add (#66)**: `dryRun` flag now passed through dispatch domain → engine → `addTask()` core — previously silently dropped
+- **backup list side effect (#74)**: Query gateway handler now properly included in build — read-only `listSystemBackups()` prevents snapshot creation
+- **Help text leak regression (#76)**: Parent command `run()` now detects subcommand in `rawArgs` before showing help — prevents `showUsage()` from firing after valid subcommand output
+
+### Added
+- **session find CLI (#75)**: Re-added after loss in v2026.3.62 — dispatches to existing `query:session.find` MCP operation
+
 ## [2026.3.62] - 2026-03-23
 
 ### Fixed
