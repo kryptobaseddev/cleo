@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2026.3.64] - 2026-03-23
+
+### Fixed
+- **Phases crash (#77)**: `paginate()` now guards against undefined/null/empty input arrays
+- **detect-drift false errors (#78)**: Uses `process.cwd()` as project root instead of walking up from the CLI bundle file location
+
 ## [2026.3.63] - 2026-03-23
 
 ### Fixed
