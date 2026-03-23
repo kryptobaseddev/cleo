@@ -31,12 +31,17 @@ const { DatabaseSync } = _require('node:sqlite') as {
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import {
+  createSafetyBackup,
+  ensureColumns,
+  migrateWithRetry,
+  reconcileJournal,
+  tableExists,
+} from './migration-manager.js';
 import { listSqliteBackups } from './sqlite-backup.js';
 import * as schema from './tasks-schema.js';
 
@@ -386,170 +391,46 @@ export function resolveMigrationsFolder(): string {
 /**
  * Check whether a table exists in the SQLite database.
  */
-function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
-  const result = nativeDb
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
-    .get(tableName) as Record<string, unknown> | undefined;
-  return !!result;
-}
+// tableExists, isSqliteBusy, retry constants — delegated to migration-manager.ts (T132)
+
+/** Re-export isSqliteBusy for external consumers. */
+export { isSqliteBusy } from './migration-manager.js';
 
 /**
- * Check if an error is a SQLite BUSY error (database locked by another process).
- * node:sqlite throws native Error with message containing the SQLite error code.
- * @task T5185
+ * Required columns that MUST exist on the tasks table.
+ * Only TEXT columns with no constraints are safe for ALTER TABLE ADD in SQLite.
+ * @see https://github.com/anthropics/cleo/issues/63
  */
-export function isSqliteBusy(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes('sqlite_busy') || msg.includes('database is locked');
-}
+import type { RequiredColumn } from './migration-manager.js';
 
-/** Migration retry constants for SQLITE_BUSY handling (T5185). */
-const MAX_MIGRATION_RETRIES = 5;
-const MIGRATION_RETRY_BASE_DELAY_MS = 100;
-const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
+const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [{ name: 'pipeline_stage', ddl: 'text' }];
 
 /**
  * Run drizzle migrations to create/update tables.
  *
- * Handles three cases:
- * 1. New database — runs all migrations from scratch.
- * 2. Existing database created by legacy createTablesIfNeeded() — bootstraps
- *    the baseline migration as already applied, then runs remaining migrations.
- * 3. Already-migrated database — runs only pending migrations.
- *
- * BEGIN IMMEDIATE acquires a RESERVED lock upfront, preventing concurrent
- * migration runners from racing (T5173). If another process already holds a
- * RESERVED lock, BEGIN IMMEDIATE throws SQLITE_BUSY. This function retries
- * with exponential backoff + jitter to handle concurrent MCP server starts (T5185).
+ * Delegates to shared migration-manager.ts for journal reconciliation,
+ * retry logic, and column safety. See T132 for consolidation rationale.
  *
  * @task T4837 - ADR-012 drizzle-kit migration system
  * @task T5185 - Retry+backoff for SQLITE_BUSY during migrations
+ * @task T132 - Unified migration system
  */
 function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof schema>): void {
   const migrationsFolder = resolveMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleo compat)
+  // Safety backup before any migration work
   if (tableExists(nativeDb, 'tasks') && _dbPath) {
-    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleo.db.bak');
-    if (!existsSync(backupPath)) {
-      try {
-        copyFileSync(_dbPath, backupPath);
-      } catch {
-        /* non-fatal */
-      }
-    }
+    createSafetyBackup(_dbPath);
   }
 
-  // Bootstrap existing databases that predate drizzle migrations (ADR-012 Step D).
-  // These have tables (e.g., 'tasks') but no __drizzle_migrations record.
-  // Mark the baseline migration as already applied so migrate() doesn't
-  // try to re-create existing tables.
-  if (tableExists(nativeDb, 'tasks') && !tableExists(nativeDb, '__drizzle_migrations')) {
-    const migrations = readMigrationFiles({ migrationsFolder });
-    const baseline = migrations[0];
-    if (baseline) {
-      nativeDb.exec(`
-        CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-          id SERIAL PRIMARY KEY,
-          hash text NOT NULL,
-          created_at numeric
-        )
-      `);
-      nativeDb.exec(
-        `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
-      );
-    }
-  }
+  // Bootstrap baseline + reconcile stale journal entries
+  reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'sqlite');
 
-  // Fix #63: Reconcile stale migration journal entries from older CLEO versions.
-  // When the DB has __drizzle_migrations entries whose hashes don't match ANY
-  // local migration file, drizzle's migrate() either throws or tries to re-run
-  // all migrations (causing "table already exists" errors). Fix by clearing stale
-  // entries and marking all local migrations as applied (tables already exist),
-  // then relying on ensureRequiredColumns() to patch any schema gaps.
-  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, 'tasks')) {
-    const localMigrations = readMigrationFiles({ migrationsFolder });
-    const localHashes = new Set(localMigrations.map((m) => m.hash));
-    const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
-      hash: string;
-    }>;
-    const hasOrphanedEntries = dbEntries.some((e) => !localHashes.has(e.hash));
+  // Run pending migrations with SQLITE_BUSY retry
+  migrateWithRetry(db, migrationsFolder);
 
-    if (hasOrphanedEntries) {
-      const log = getLogger('sqlite');
-      log.warn(
-        { orphaned: dbEntries.filter((e) => !localHashes.has(e.hash)).length },
-        'Detected stale migration journal entries from a previous CLEO version. Reconciling.',
-      );
-      // Clear all entries and mark every local migration as applied.
-      // The existing tables were created by the previous version's migrations,
-      // so we skip re-running them. ensureRequiredColumns() fills any schema gaps.
-      nativeDb.exec('DELETE FROM "__drizzle_migrations"');
-      for (const m of localMigrations) {
-        nativeDb.exec(
-          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${m.hash}', ${m.folderMillis})`,
-        );
-      }
-    }
-  }
-
-  // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
-  // The new migrator handles its own transactions. T5185: retry on SQLITE_BUSY.
-  for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
-    try {
-      migrate(db, { migrationsFolder });
-      break;
-    } catch (err) {
-      if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
-        throw err;
-      }
-      const delay = Math.min(
-        MIGRATION_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.5),
-        MIGRATION_RETRY_MAX_DELAY_MS,
-      );
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(delay));
-    }
-  }
-
-  // Fix #63: Defensive column safety net — add any columns the schema expects
-  // but that are missing from the actual table. This catches gaps from stale
-  // migration journals, partial migrations, or version skew.
-  ensureRequiredColumns(nativeDb);
-}
-
-/**
- * Required columns that MUST exist on the tasks table.
- * Maps column name → ALTER TABLE ADD COLUMN DDL suffix.
- * Only TEXT columns with no constraints are safe for ALTER TABLE ADD in SQLite.
- *
- * @see https://github.com/anthropics/cleo/issues/63
- */
-const REQUIRED_TASK_COLUMNS: Array<{ name: string; ddl: string }> = [
-  { name: 'pipeline_stage', ddl: 'text' },
-];
-
-/**
- * Ensure all required columns exist on the tasks table.
- * Uses PRAGMA table_info to inspect the schema and adds any missing columns
- * via ALTER TABLE ADD COLUMN. This is a safety net for databases where
- * Drizzle migrations could not run due to journal corruption or version skew.
- *
- * @see https://github.com/anthropics/cleo/issues/63
- */
-function ensureRequiredColumns(nativeDb: DatabaseSync): void {
-  if (!tableExists(nativeDb, 'tasks')) return;
-
-  const columns = nativeDb.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>;
-  const existingCols = new Set(columns.map((c) => c.name));
-
-  for (const req of REQUIRED_TASK_COLUMNS) {
-    if (!existingCols.has(req.name)) {
-      const log = getLogger('sqlite');
-      log.warn({ column: req.name }, `Adding missing column tasks.${req.name} via ALTER TABLE`);
-      nativeDb.exec(`ALTER TABLE tasks ADD COLUMN ${req.name} ${req.ddl}`);
-    }
-  }
+  // Defensive column safety net
+  ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');
 }
 
 /**

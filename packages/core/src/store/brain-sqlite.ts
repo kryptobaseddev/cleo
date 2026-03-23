@@ -9,21 +9,24 @@
  * @task T5128
  */
 
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openNativeDatabase() in sqlite.ts.
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
-import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import * as brainSchema from './brain-schema.js';
-import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
+import {
+  createSafetyBackup,
+  migrateWithRetry,
+  reconcileJournal,
+  tableExists,
+} from './migration-manager.js';
+import { openNativeDatabase } from './sqlite.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -64,23 +67,16 @@ export function resolveBrainMigrationsFolder(): string {
   return join(pkgRoot, 'migrations', 'drizzle-brain');
 }
 
-/**
- * Check whether a table exists in the SQLite database.
- */
-function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
-  const result = nativeDb
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
-    .get(tableName) as Record<string, unknown> | undefined;
-  return !!result;
-}
+// tableExists — delegated to migration-manager.ts (T132)
 
 /**
  * Run drizzle migrations to create/update brain.db tables.
  *
- * Uses IMMEDIATE transactions to prevent concurrent migration races.
- * Follows the same pattern as sqlite.ts runMigrations().
+ * Delegates to shared migration-manager.ts for journal reconciliation,
+ * retry logic, and safety backups. See T132 for consolidation rationale.
  *
  * @task T5128
+ * @task T132 - Unified migration system
  */
 function runBrainMigrations(
   nativeDb: DatabaseSync,
@@ -88,84 +84,16 @@ function runBrainMigrations(
 ): void {
   const migrationsFolder = resolveBrainMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleo compat)
+  // Safety backup before any migration work
   if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
-    const backupPath = _dbPath.replace(/\.db$/, '-pre-cleo.db.bak');
-    if (!existsSync(backupPath)) {
-      try {
-        copyFileSync(_dbPath, backupPath);
-      } catch {
-        /* non-fatal */
-      }
-    }
+    createSafetyBackup(_dbPath);
   }
 
-  // Bootstrap existing databases that predate drizzle migrations.
-  // Mark baseline migration as already applied if tables exist but
-  // __drizzle_migrations doesn't.
-  if (tableExists(nativeDb, 'brain_decisions') && !tableExists(nativeDb, '__drizzle_migrations')) {
-    const migrations = readMigrationFiles({ migrationsFolder });
-    const baseline = migrations[0];
-    if (baseline) {
-      nativeDb.exec(`
-        CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-          id SERIAL PRIMARY KEY,
-          hash text NOT NULL,
-          created_at numeric
-        )
-      `);
-      nativeDb.exec(
-        `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
-      );
-    }
-  }
+  // Bootstrap baseline + reconcile stale journal entries
+  reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
 
-  // Fix #65: Reconcile stale migration journal entries from older CLEO versions.
-  // Same pattern as tasks.db fix in sqlite.ts — see #63 for details.
-  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, 'brain_decisions')) {
-    const localMigrations = readMigrationFiles({ migrationsFolder });
-    const localHashes = new Set(localMigrations.map((m) => m.hash));
-    const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
-      hash: string;
-    }>;
-    const hasOrphanedEntries = dbEntries.some((e) => !localHashes.has(e.hash));
-
-    if (hasOrphanedEntries) {
-      const log = getLogger('brain');
-      log.warn(
-        { orphaned: dbEntries.filter((e) => !localHashes.has(e.hash)).length },
-        'Detected stale migration journal entries from a previous CLEO version. Reconciling brain.db.',
-      );
-      nativeDb.exec('DELETE FROM "__drizzle_migrations"');
-      for (const m of localMigrations) {
-        nativeDb.exec(
-          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${m.hash}', ${m.folderMillis})`,
-        );
-      }
-    }
-  }
-
-  // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
-  const MAX_RETRIES = 5;
-  const BASE_DELAY_MS = 100;
-  const MAX_DELAY_MS = 2000;
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      migrate(db, { migrationsFolder });
-      return;
-    } catch (err) {
-      if (!isSqliteBusy(err) || attempt === MAX_RETRIES) throw err;
-      lastError = err;
-      const delay = Math.min(
-        BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.5),
-        MAX_DELAY_MS,
-      );
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(delay));
-    }
-  }
-  /* c8 ignore next */
-  throw lastError;
+  // Run pending migrations with SQLITE_BUSY retry
+  migrateWithRetry(db, migrationsFolder);
 }
 
 /**
