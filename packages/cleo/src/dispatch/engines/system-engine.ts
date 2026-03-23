@@ -1602,14 +1602,16 @@ export async function systemSmoke(): Promise<EngineResult<SmokeResult>> {
       const migrationStatus = await getMigrationStatus(
         (await import('@cleocode/core/internal')).getProjectRoot(),
       );
-      const hasPending = migrationStatus.status === 'pending' || migrationStatus.status === 'stale';
+      const hasPending = migrationStatus.migrations.some((m) => !m.applied);
       dbChecks.push({
         domain: 'db',
         operation: 'migrations',
         status: hasPending ? 'fail' : 'pass',
         timeMs: Date.now() - start,
         ...(hasPending
-          ? { error: `Migration status: ${migrationStatus.status}. Run: cleo upgrade` }
+          ? {
+              error: `Unapplied migrations detected (${migrationStatus.from} → ${migrationStatus.to}). Run: cleo upgrade`,
+            }
           : {}),
       });
     } catch (err) {
