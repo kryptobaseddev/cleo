@@ -12,12 +12,14 @@
   },
   "hierarchy": {
     "maxDepth": 3,
-    "maxSiblings": 0
+    "maxSiblings": 0,
+    "requireAcceptanceCriteria": true
   },
   "session": {
     "autoStart": false,
     "multiSession": false,
-    "enforcement": "strict"
+    "enforcement": "strict",
+    "requireNotes": true
   },
   "lifecycle": {
     "mode": "strict"
@@ -25,7 +27,12 @@
   "enforcement": {
     "acceptance": {
       "mode": "block",
-      "requiredForPriorities": ["critical", "high", "medium", "low"],
+      "requiredForPriorities": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
       "minimumCriteria": 3
     },
     "session": {
@@ -37,10 +44,18 @@
   },
   "verification": {
     "enabled": true,
-    "requiredForTypes": ["epic", "task", "subtask"],
+    "requiredForTypes": [
+      "epic",
+      "task",
+      "subtask"
+    ],
     "autoInitialize": true,
     "maxRounds": 5,
-    "requiredGates": ["implemented", "testsPassed", "qaPassed"],
+    "requiredGates": [
+      "implemented",
+      "testsPassed",
+      "qaPassed"
+    ],
     "autoSetImplementedOnComplete": true,
     "requireForParentAutoComplete": true,
     "allowManualOverride": true
