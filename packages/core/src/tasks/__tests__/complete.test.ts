@@ -22,7 +22,10 @@ describe('completeTask', () => {
     // Pin CLEO_DIR so concurrent workers cannot contaminate path resolution
     process.env['CLEO_DIR'] = env.cleoDir;
     await writeConfig({
-      enforcement: { session: { requiredForMutate: false } },
+      enforcement: {
+        session: { requiredForMutate: false },
+        acceptance: { mode: 'off' },
+      },
       lifecycle: { mode: 'off' },
       verification: { enabled: false },
     });
@@ -162,7 +165,10 @@ describe('completeTask', () => {
         type: 'task',
       },
     ]);
-    await writeConfig({ verification: { enabled: true } });
+    await writeConfig({
+      enforcement: { acceptance: { mode: 'off' } },
+      verification: { enabled: true },
+    });
 
     await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
       'missing verification metadata',
@@ -180,9 +186,11 @@ describe('completeTask', () => {
         type: 'task',
       },
     ]);
-    // Remove config.json so verification defaults to disabled (opt-in)
-    const { rm } = await import('node:fs/promises');
-    await rm(join(env.cleoDir, 'config.json'), { force: true });
+    // Write a config that only disables acceptance enforcement but no verification
+    // settings — verifying that verification defaults to disabled (opt-in behavior).
+    await writeConfig({
+      enforcement: { acceptance: { mode: 'off' } },
+    });
 
     const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
     expect(result.task.status).toBe('done');
@@ -199,7 +207,10 @@ describe('completeTask', () => {
         type: 'task',
       },
     ]);
-    await writeConfig({ verification: { enabled: false } });
+    await writeConfig({
+      enforcement: { acceptance: { mode: 'off' } },
+      verification: { enabled: false },
+    });
 
     const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
     expect(result.task.status).toBe('done');
@@ -228,6 +239,7 @@ describe('completeTask', () => {
       },
     ]);
     await writeConfig({
+      enforcement: { acceptance: { mode: 'off' } },
       verification: {
         enabled: true,
         requiredGates: ['implemented', 'testsPassed'],

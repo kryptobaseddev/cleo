@@ -12,7 +12,7 @@
  * @epic T056
  */
 
-import { writeFile } from 'node:fs/promises';
+import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -80,6 +80,9 @@ describe('getLifecycleMode', () => {
   });
 
   it('returns strict by default when no config', async () => {
+    // Remove the config.json written by createTestDb() so getLifecycleMode
+    // sees no project config and falls back to the 'strict' default.
+    await unlink(join(env.cleoDir, 'config.json'));
     const mode = await getLifecycleMode(env.tempDir);
     expect(mode).toBe('strict');
   });

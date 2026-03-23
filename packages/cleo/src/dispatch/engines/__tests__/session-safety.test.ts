@@ -504,11 +504,7 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.total).toBe(0);
       expect(result.data!.filtered).toBe(0);
       expect(result.page).toEqual({
-        mode: 'offset',
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-        total: 0,
+        mode: 'none',
       });
     });
 

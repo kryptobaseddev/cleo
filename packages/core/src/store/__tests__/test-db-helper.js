@@ -7,7 +7,7 @@
  *
  * @task T5244
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetDbState } from '../sqlite.js';
@@ -26,8 +26,20 @@ export async function createTestDb() {
     const tempDir = mkdtempSync(join(tmpdir(), 'cleo-test-'));
     // Reset singleton to avoid cross-test contamination
     resetDbState();
-    const accessor = await createSqliteDataAccessor(tempDir);
+    // Write test config that disables session enforcement and lifecycle enforcement
+    // so unit tests don't require active sessions or pipeline stage validation.
     const cleoDir = join(tempDir, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    const configContent = JSON.stringify({
+        enforcement: {
+            session: { requiredForMutate: false },
+            acceptance: { mode: 'off' },
+        },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: false },
+    });
+    writeFileSync(join(cleoDir, 'config.json'), configContent);
+    const accessor = await createSqliteDataAccessor(tempDir);
     return {
         tempDir,
         cleoDir,

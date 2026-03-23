@@ -187,6 +187,7 @@ describe('AdminHandler', () => {
         'backup',
         'export',
         'map',
+        'smoke',
       ]);
     });
 

@@ -24,7 +24,10 @@ describe('updateTask', () => {
     await writeFile(
       join(env.cleoDir, 'config.json'),
       JSON.stringify({
-        enforcement: { session: { requiredForMutate: false } },
+        enforcement: {
+          session: { requiredForMutate: false },
+          acceptance: { mode: 'off' },
+        },
         lifecycle: { mode: 'off' },
         verification: { enabled: false },
       }),

@@ -48,7 +48,10 @@ export async function createTestDb(): Promise<TestDbEnv> {
   const cleoDir = join(tempDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
   const configContent = JSON.stringify({
-    enforcement: { session: { requiredForMutate: false } },
+    enforcement: {
+      session: { requiredForMutate: false },
+      acceptance: { mode: 'off' },
+    },
     lifecycle: { mode: 'off' },
     verification: { enabled: false },
   });

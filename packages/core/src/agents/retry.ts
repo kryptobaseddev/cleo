@@ -158,32 +158,38 @@ export async function withRetry<T>(
   policy?: Partial<RetryPolicy>,
 ): Promise<RetryResult<T>> {
   const effectivePolicy = createRetryPolicy(policy);
-  const { withRetry: coreRetry } = await import('../lib/retry.js');
   let attemptCount = 0;
-  try {
-    const value = await coreRetry(
-      async () => {
-        attemptCount++;
-        return fn();
-      },
-      {
-        maxAttempts: effectivePolicy.maxRetries + 1,
-        baseDelayMs: effectivePolicy.baseDelayMs,
-        maxDelayMs: effectivePolicy.maxDelayMs,
-        retryableErrors: [(err: unknown) => shouldRetry(err, attemptCount - 1, effectivePolicy)],
-      },
-    );
-    return { success: true, value, attempts: attemptCount, totalDelayMs: 0 };
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    const context = err as Partial<{ totalDelayMs: number }>;
-    return {
-      success: false,
-      error,
-      attempts: attemptCount,
-      totalDelayMs: context.totalDelayMs ?? 0,
-    };
+  let totalDelayMs = 0;
+
+  const maxAttempts = effectivePolicy.maxRetries + 1;
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      attemptCount++;
+      const value = await fn();
+      return { success: true, value, attempts: attemptCount, totalDelayMs };
+    } catch (err) {
+      lastError = err;
+      const isLastAttempt = attempt === maxAttempts - 1;
+      if (isLastAttempt) break;
+
+      if (!shouldRetry(err, attempt, effectivePolicy)) break;
+
+      const delay = calculateDelay(attempt, effectivePolicy);
+      totalDelayMs += delay;
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
   }
+
+  const error = lastError instanceof Error ? lastError : new Error(String(lastError));
+  return {
+    success: false,
+    error,
+    attempts: attemptCount,
+    totalDelayMs,
+  };
 }
 
 // ============================================================================

@@ -1,4 +1,4 @@
-CREATE TABLE `external_task_links` (
+CREATE TABLE IF NOT EXISTS `external_task_links` (
 	`id` text PRIMARY KEY,
 	`task_id` text NOT NULL,
 	`provider_id` text NOT NULL,
@@ -66,19 +66,19 @@ INSERT INTO `__new_warp_chain_instances`(`id`, `chain_id`, `epic_id`, `variables
 DROP TABLE `warp_chain_instances`;--> statement-breakpoint
 ALTER TABLE `__new_warp_chain_instances` RENAME TO `warp_chain_instances`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
-CREATE INDEX `idx_sessions_status` ON `sessions` (`status`);--> statement-breakpoint
-CREATE INDEX `idx_sessions_previous` ON `sessions` (`previous_session_id`);--> statement-breakpoint
-CREATE INDEX `idx_sessions_agent_identifier` ON `sessions` (`agent_identifier`);--> statement-breakpoint
-CREATE INDEX `idx_sessions_started_at` ON `sessions` (`started_at`);--> statement-breakpoint
-CREATE INDEX `idx_warp_instances_chain` ON `warp_chain_instances` (`chain_id`);--> statement-breakpoint
-CREATE INDEX `idx_warp_instances_epic` ON `warp_chain_instances` (`epic_id`);--> statement-breakpoint
-CREATE INDEX `idx_warp_instances_status` ON `warp_chain_instances` (`status`);--> statement-breakpoint
-CREATE INDEX `idx_arch_decisions_amends_id` ON `architecture_decisions` (`amends_id`);--> statement-breakpoint
-CREATE INDEX `idx_audit_log_actor` ON `audit_log` (`actor`);--> statement-breakpoint
-CREATE INDEX `idx_ext_links_task_id` ON `external_task_links` (`task_id`);--> statement-breakpoint
-CREATE INDEX `idx_ext_links_provider_external` ON `external_task_links` (`provider_id`,`external_id`);--> statement-breakpoint
-CREATE INDEX `idx_ext_links_provider_id` ON `external_task_links` (`provider_id`);--> statement-breakpoint
-CREATE INDEX `idx_lifecycle_stages_validated_by` ON `lifecycle_stages` (`validated_by`);--> statement-breakpoint
-CREATE INDEX `idx_task_relations_related_to` ON `task_relations` (`related_to`);--> statement-breakpoint
-CREATE INDEX `idx_tasks_session_id` ON `tasks` (`session_id`);--> statement-breakpoint
-CREATE INDEX `idx_token_usage_gateway` ON `token_usage` (`gateway`);
+CREATE INDEX IF NOT EXISTS `idx_sessions_status` ON `sessions` (`status`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_sessions_previous` ON `sessions` (`previous_session_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_sessions_agent_identifier` ON `sessions` (`agent_identifier`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_sessions_started_at` ON `sessions` (`started_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_warp_instances_chain` ON `warp_chain_instances` (`chain_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_warp_instances_epic` ON `warp_chain_instances` (`epic_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_warp_instances_status` ON `warp_chain_instances` (`status`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_arch_decisions_amends_id` ON `architecture_decisions` (`amends_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_audit_log_actor` ON `audit_log` (`actor`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_ext_links_task_id` ON `external_task_links` (`task_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_ext_links_provider_external` ON `external_task_links` (`provider_id`,`external_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_ext_links_provider_id` ON `external_task_links` (`provider_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_lifecycle_stages_validated_by` ON `lifecycle_stages` (`validated_by`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_task_relations_related_to` ON `task_relations` (`related_to`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_tasks_session_id` ON `tasks` (`session_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_token_usage_gateway` ON `token_usage` (`gateway`);

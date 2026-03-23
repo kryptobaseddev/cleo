@@ -7,7 +7,7 @@
 import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
-import { loadConfig } from '../config.js';
+import { getRawConfigValue, loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -69,7 +69,11 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const acceptanceMode = acceptance?.mode ?? (isTest ? 'off' : 'block');
   const acceptanceRequiredForPriorities =
     acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
-  const verificationEnabled = verificationCfg?.enabled ?? !isTest;
+  // Use getRawConfigValue to read only the project-level config (no DEFAULTS cascade).
+  // This ensures the isTest fallback activates when verification.enabled is not explicitly set.
+  const rawVerificationEnabled = await getRawConfigValue('verification.enabled', cwd);
+  const verificationEnabled =
+    rawVerificationEnabled !== undefined ? (rawVerificationEnabled as boolean) : !isTest;
   const verificationRequiredGates =
     (verificationCfg?.requiredGates ?? []).filter(isVerificationGate).length > 0
       ? (verificationCfg?.requiredGates ?? []).filter(isVerificationGate)
