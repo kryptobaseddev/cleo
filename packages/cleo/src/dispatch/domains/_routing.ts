@@ -1,6 +1,6 @@
 /**
  * Shared parameter-based routing for merged operations.
- * DRY utility -- all 10 domain handlers use this instead of re-implementing action dispatch.
+ * DRY utility -- all domain handlers use this instead of re-implementing action dispatch.
  *
  * @epic T5671
  */

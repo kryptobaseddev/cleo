@@ -1,6 +1,6 @@
 /**
  * Shared base helpers for domain handlers.
- * DRY utility -- extracts the 4 common patterns found in all 10 domain handlers.
+ * DRY utility -- extracts the 4 common patterns found in all domain handlers.
  *
  * All functions are standalone (not a class) to match the function-based helper style.
  * Handlers call these instead of re-implementing wrapEngineResult, errorResponse, etc.

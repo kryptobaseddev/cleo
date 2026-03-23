@@ -1,8 +1,8 @@
 # @cleocode/core Package Specification
 
-**Version**: 3.2.0
+**Version**: 3.3.0
 **Status**: APPROVED
-**Date**: 2026-03-22
+**Date**: 2026-03-23
 **Task**: T5714
 **Epic**: T5701
 
@@ -326,7 +326,7 @@ For tree-shakeable direct imports:
 
 ## 5. Cleo Facade Class
 
-The `Cleo` class provides a project-bound API covering all 10 canonical domains. It is the recommended entry point for external consumers.
+The `Cleo` class provides a project-bound API covering all 12 canonical domains. It is the recommended entry point for external consumers.
 
 ### 5.1 Initialization
 
@@ -343,12 +343,12 @@ const cleo = Cleo.forProject('./my-project');
 
 ### 5.2 Domain APIs
 
-The facade exposes 10 domain getter properties:
+The facade exposes 12 domain getter properties:
 
 | Property | Interface | Methods |
 |----------|-----------|---------|
-| `cleo.tasks` | `TasksAPI` | `add`, `find`, `show`, `list`, `update`, `complete`, `delete`, `archive` |
-| `cleo.sessions` | `SessionsAPI` | `start`, `end`, `status`, `resume`, `list`, `find`, `show`, `suspend`, `briefing`, `handoff`, `gc`, `recordDecision`, `recordAssumption`, `contextDrift`, `decisionLog`, `lastHandoff` |
+| `cleo.tasks` | `TasksAPI` | `add`, `find`, `show`, `list`, `update`, `complete`, `delete`, `archive`, `start`, `stop`, `current` |
+| `cleo.sessions` | `SessionsAPI` | `start` (accepts `startTask?: string`), `end`, `status`, `resume`, `list`, `find`, `show`, `suspend`, `briefing`, `handoff`, `gc`, `recordDecision`, `recordAssumption`, `contextDrift`, `decisionLog`, `lastHandoff` |
 | `cleo.memory` | `MemoryAPI` | `observe`, `find`, `fetch`, `timeline`, `search`, `hybridSearch` |
 | `cleo.orchestration` | `OrchestrationAPI` | `start`, `analyze`, `readyTasks`, `nextTask`, `context`, `dependencyGraph`, `epicStatus`, `progress` |
 | `cleo.lifecycle` | `LifecycleAPI` | `status`, `startStage`, `completeStage`, `skipStage`, `checkGate`, `history`, `resetStage`, `passGate`, `failGate`, `stages` |
@@ -357,8 +357,10 @@ The facade exposes 10 domain getter properties:
 | `cleo.sticky` | `StickyAPI` | `add`, `show`, `list`, `archive`, `purge`, `convert` |
 | `cleo.nexus` | `NexusAPI` | `init`, `register`, `unregister`, `list`, `show`, `sync`, `discover`, `search`, `setPermission`, `sharingStatus` |
 | `cleo.sync` | `SyncAPI` | `reconcile`, `getLinks`, `getTaskLinks`, `removeProviderLinks` |
+| `cleo.agents` | `AgentsAPI` | `register`, `deregister`, `health`, `detectCrashed`, `recordHeartbeat`, `capacity`, `isOverloaded`, `list` |
+| `cleo.intelligence` | `IntelligenceAPI` | `predictImpact`, `blastRadius` |
 
-The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The 10th domain in the canonical Circle of Ten (`check`) maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
+The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The 12th domain in the canonical Circle of Ten (`check`) maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
 
 The `sync` property provides the provider-agnostic task reconciliation API. Consumers implement `ExternalTaskProvider` to normalize their issue tracker's data, then call `cleo.sync.reconcile()` to sync with CLEO as SSoT. External task links are tracked in the `external_task_links` table for bidirectional traceability.
 
@@ -832,6 +834,46 @@ The T038 epic shipped the agent health monitoring, retry utility, registry capac
 
 **Namespace count update**: The public barrel now exports 45 namespaces (up from 43) — `lib` and `reconciliation` were added during this release cycle.
 
+### 15.8 New Features in T123 + Hotfix Batch (v2026.3.60–65)
+
+#### T123 — Bootstrap Injection Chain + CleoOS Facade API Gaps (v2026.3.60)
+
+The T123 epic addressed bootstrap injection reliability and closed four facade API gaps required by CleoOS.
+
+**Bootstrap fixes:**
+
+| Fix | Description |
+|-----|-------------|
+| Legacy template sync | `ensureGlobalTemplatesBootstrap()` now writes to both XDG and legacy `~/.cleo/templates/` paths |
+| CAAMP sanitization | `sanitizeCaampFile()` cleans orphaned fragments before `inject()` |
+| Health check Step 7 | `verifyBootstrapHealth()` validates injection chain after all bootstrap steps |
+| Template version check | `checkGlobalTemplates()` verifies XDG and legacy templates match versions |
+
+**Facade additions (Cleo class):**
+
+| Addition | Interface | Methods |
+|----------|-----------|---------|
+| `sessions.start({ startTask })` | `SessionsAPI` | `startTask?: string` parameter added |
+| `tasks.start/stop/current` | `TasksAPI` | `start(taskId)`, `stop()`, `current()` |
+| `cleo.agents` getter | `AgentsAPI` | `register`, `deregister`, `health`, `detectCrashed`, `recordHeartbeat`, `capacity`, `isOverloaded`, `list` |
+| `cleo.intelligence` getter | `IntelligenceAPI` | `predictImpact`, `blastRadius` |
+
+The facade now exposes **12 domain getter properties** (up from 10).
+
+#### Hotfix Batch (v2026.3.61–65)
+
+Sixteen GitHub issues (#63–#78) resolved across five point releases:
+
+| Fix | Version | Description |
+|-----|---------|-------------|
+| Migration journal reconciliation | v2026.3.61 | `runMigrations()` detects stale `__drizzle_migrations` entries and re-applies |
+| `ensureRequiredColumns()` | v2026.3.61 | PRAGMA table_info safety net after every migration |
+| `dryRun` threading | v2026.3.62 | Flag now passed through dispatch → engine → `addTask()` |
+| `listSystemBackups()` | v2026.3.62 | Read-only backup list (moved from mutate to query gateway) |
+| `session find` CLI | v2026.3.63 | CLI subcommand registered for existing MCP operation |
+| `paginate()` null guard | v2026.3.64 | Handles undefined/null input arrays |
+| `detect-drift` user projects | v2026.3.65 | Distinguishes CLEO source repo from user projects |
+
 ---
 
 ## 16. Build Architecture
@@ -1021,7 +1063,7 @@ await tasks.completeTask({ taskId }, projectDir, accessor);
 
 - `packages/core/src/index.ts` -- public barrel export (~235 lines)
 - `packages/core/src/internal.ts` -- internal barrel export (~622 lines)
-- `packages/core/src/cleo.ts` -- Cleo facade class (10 domain APIs)
+- `packages/core/src/cleo.ts` -- Cleo facade class (12 domain APIs)
 - `packages/core/src/store/data-accessor.ts` -- `DataAccessor` factory functions
 - `packages/contracts/src/index.ts` -- `@cleocode/contracts` public API
 - `packages/contracts/src/data-accessor.ts` -- `DataAccessor` interface definition

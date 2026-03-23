@@ -1,8 +1,8 @@
 # CLEO API Specification
 
-**Version**: 3.2.0
+**Version**: 3.3.0
 **Status**: Canonical Specification
-**Date**: 2026-03-22
+**Date**: 2026-03-23
 **Epic**: T4820 (CLEO Core Architecture)
 
 ---
@@ -346,6 +346,14 @@ cleo reason why <taskId>                   # Causal trace through dependency cha
 cleo reason similar <taskId>              # Find semantically similar BRAIN entries
 cleo reason impact <taskId>               # Show downstream tasks affected by changes
 cleo reason timeline <taskId>             # Show task history and audit trail
+
+# Task work operations (v2026.3.60)
+cleo start T001              # Start working on task (sets focus)
+cleo stop                    # Stop working on current task
+cleo current                 # Show current task work state
+
+# Session find (v2026.3.63)
+cleo session find --status active --limit 5
 ```
 
 ---
@@ -518,6 +526,37 @@ The `lib` namespace is a new public namespace added in this release (exported as
 
 A production usage audit conducted as part of T038 found that zero Nexus operations have been invoked outside of automated tests after 15+ days of availability. All 22 registered Nexus operations are implemented and tested, but no real workflow has exercised cross-project coordination, task discovery, graph traversal, or transfer operations. Nexus has been formally deferred to Phase 3. See `.cleo/agent-outputs/T045-nexus-assessment.md` for the full assessment.
 
+### 15.8 T123 — Bootstrap Injection Chain + CleoOS Facade Gaps (v2026.3.60)
+
+The T123 epic closed four CleoOS facade API gaps and fixed bootstrap injection chain bugs.
+
+**Facade additions:**
+
+- `sessions.start({ startTask })` — bind session + task in a single call
+- `tasks.start(taskId)`, `tasks.stop()`, `tasks.current()` — task work operations on facade
+- `cleo.agents` getter — `AgentsAPI` with 8 methods (register, deregister, health, detectCrashed, recordHeartbeat, capacity, isOverloaded, list)
+- `cleo.intelligence` getter — `IntelligenceAPI` with 2 methods (predictImpact, blastRadius)
+
+The Cleo facade class now exposes **12 domain getter properties** (up from 10).
+
+**Bootstrap fixes:**
+
+- Legacy `~/.cleo/templates/` synced on every install (was XDG-only)
+- `sanitizeCaampFile()` cleans orphaned CAAMP fragments before inject()
+- `verifyBootstrapHealth()` Step 7 validates injection chain after bootstrap
+- `checkGlobalTemplates()` checks version sync between XDG and legacy paths
+
+### 15.9 Hotfix Batch (v2026.3.61–65)
+
+Sixteen GitHub issues (#63–#78) resolved across five point releases. Key fixes:
+
+- Migration journal reconciliation for tasks.db and brain.db (v2026.3.61)
+- `ensureRequiredColumns()` safety net after migrations (v2026.3.61)
+- `dryRun` flag threading through dispatch layer (v2026.3.62)
+- `session find` CLI subcommand (v2026.3.63)
+- `paginate()` null guard (v2026.3.64)
+- `detect-drift` user project detection (v2026.3.65)
+
 ---
 
 ## 9. Document Hierarchy
@@ -531,5 +570,5 @@ CLEO-API.md (Master)
 
 ---
 
-**Version**: 3.2.0
-**Last Updated**: 2026-03-22
+**Version**: 3.3.0
+**Last Updated**: 2026-03-23

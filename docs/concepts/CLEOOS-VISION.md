@@ -1,6 +1,6 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.3.22
+**Version**: 2026.3.65
 **Status**: VISION
 **Date**: 2026-03-22
 
@@ -227,13 +227,19 @@ The kernel is shipped and operational:
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
 - NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
 - LAFS with structured envelopes, MVI progressive disclosure, and RFC 9457 errors
-- Cleo facade class with 10 domain APIs and three consumer patterns
+- Cleo facade class with 12 domain APIs (tasks, sessions, memory, orchestration, lifecycle, release, admin, sticky, nexus, sync, agents, intelligence) and three consumer patterns
 - Config schema audited: ~113 live fields (T101, down from ~283 before vaporware removal)
 - Agent health monitoring, heartbeat protocol, crash detection, and capacity tracking (T038)
 - General-purpose retry utility with exponential backoff in `lib` namespace (T038)
 - Task hardening gates operational: AC enforcement, pipeline stage binding, verification auto-init, epic lifecycle enforcement (T056)
 - Compliance telemetry and strictness presets (T056/T067)
 - Impact prediction for downstream dependency analysis (T038)
+- Cleo facade `agents` getter: register, deregister, health, detectCrashed, recordHeartbeat, capacity, isOverloaded, list (T127)
+- Cleo facade `intelligence` getter: predictImpact, blastRadius (T127)
+- Session+task binding: `sessions.start({ startTask })` for CleoOS workspace integration (T125)
+- Task work on facade: `tasks.start/stop/current` — no direct barrel imports needed (T126)
+- Bootstrap injection chain: legacy template sync, CAAMP sanitization, post-bootstrap health check (T124)
+- Migration resilience: journal reconciliation and `ensureRequiredColumns()` safety net (v2026.3.61)
 
 ### What Is Specified (Runtime, Conduit)
 
