@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [2026.3.62] - 2026-03-23
+
+### Fixed
+- **Migration journal reconciliation (#63, #65)**: `runMigrations()` in tasks.db and brain.db now detects stale `__drizzle_migrations` entries from older CLEO versions (hash mismatch), clears them, and marks local migrations as applied
+- **Defensive column safety net (#63)**: `ensureRequiredColumns()` runs after every migration — uses `PRAGMA table_info` to detect and add missing columns via `ALTER TABLE`
+- **Issue command routing (#64)**: `cleo issue bug/feature/help` calls `addIssue()` from core directly instead of dispatching to removed MCP operations
+- **brain.db migration (#65, #71)**: Same journal reconciliation pattern applied to brain.db — unblocks `memory find`, `observe`, `sticky`, `refresh-memory`, and `reason similar`
+- **--dryRun flag (#66)**: `cleo add --dryRun` now returns preview with `id: T???` before sequence allocation — no DB writes or counter advancement
+- **Labels empty output (#67)**: `labels list` marked as `isDefault` subcommand — bare `cleo labels` now invokes list
+- **Exists routing (#68)**: `cleo exists` calls `getTask()` from core directly instead of unregistered `query:tasks.exists`
+- **Critical-path routing (#69)**: `cleo deps critical-path` calls `depsCriticalPath()` from core directly instead of unregistered `query:orchestrate.critical.path`
+- **Silent empty commands (#70)**: Parent commands without subcommand now show help text via citty `showUsage()` — fixes 21 commands that returned zero output
+- **Sequence padding (#72)**: `nextId` in `showSequence()` uses `padStart(3, '0')` — returns `T012` not `T12`
+- **Stats contradiction (#73)**: `totalCompleted` now uses audit log as SSoT (same source as `completedInPeriod`) for consistent metrics
+- **Backup list side effect (#74)**: Changed `backup list` from `mutate` to `query` gateway with new read-only `listSystemBackups()` function
+
+### Added
+- **`session find` CLI subcommand (#75)**: MCP operation already existed — added CLI registration with `--status`, `--scope`, `--query`, `--limit` options
+- **`repairMissingColumns()`**: New repair function in `cleo upgrade` that reports missing column detection/fix
+
+### Changed
+- **Injection template**: `session find` reference clarified to `cleo session find`
+
 ## [2026.3.60] - 2026-03-22
 
 ### Fixed
