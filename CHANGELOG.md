@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [2026.3.69] - 2026-03-23
+
+### Fixed
+- **npm install**: Use `pnpm publish` to resolve `workspace:*` protocol — `npm publish` leaked workspace references making `npm install -g` fail with EUNSUPPORTEDPROTOCOL
+
 ## [2026.3.68] - 2026-03-23
 
 ### Added
