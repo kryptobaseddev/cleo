@@ -1426,3 +1426,220 @@ export async function systemSequenceRepair(
     return engineError('E_SEQUENCE_REPAIR_FAILED', (err as Error).message);
   }
 }
+
+// ===== Smoke Test (cleo doctor --full) =====
+
+/** Result for a single domain smoke probe. */
+export interface SmokeProbe {
+  domain: string;
+  operation: string;
+  status: 'pass' | 'fail' | 'skip';
+  timeMs: number;
+  error?: string;
+}
+
+/** Aggregate smoke test result. */
+export interface SmokeResult {
+  probes: SmokeProbe[];
+  dbChecks: SmokeProbe[];
+  passed: number;
+  failed: number;
+  skipped: number;
+  totalMs: number;
+}
+
+/**
+ * Smoke-test definitions: one lightweight read-only query per domain.
+ * Each probe exercises the full dispatch pipeline (middleware, handler, engine, core).
+ */
+const SMOKE_PROBES: Array<{ domain: string; operation: string; params?: Record<string, unknown> }> =
+  [
+    { domain: 'admin', operation: 'version' },
+    { domain: 'tasks', operation: 'find', params: { query: '__smoke_probe__', limit: 1 } },
+    { domain: 'session', operation: 'status' },
+    { domain: 'memory', operation: 'find', params: { query: '__smoke_probe__' } },
+    { domain: 'pipeline', operation: 'list' },
+    { domain: 'check', operation: 'schema' },
+    { domain: 'tools', operation: 'list', params: { limit: 1 } },
+    { domain: 'sticky', operation: 'list', params: { limit: 1 } },
+    { domain: 'nexus', operation: 'status' },
+    { domain: 'orchestrate', operation: 'status' },
+  ];
+
+/**
+ * Run operational smoke tests across all domains.
+ *
+ * Dispatches one read-only query per domain through the full CLI dispatch
+ * pipeline and reports pass/fail with timing. Catches crashes (TypeError,
+ * ReferenceError, etc.) not just structured error responses.
+ *
+ * @task T130
+ */
+export async function systemSmoke(): Promise<EngineResult<SmokeResult>> {
+  const { dispatchRaw } = await import('../adapters/cli.js');
+  const totalStart = Date.now();
+  const probes: SmokeProbe[] = [];
+
+  for (const probe of SMOKE_PROBES) {
+    const start = Date.now();
+    try {
+      const response = await dispatchRaw('query', probe.domain, probe.operation, probe.params);
+      const elapsed = Date.now() - start;
+
+      if (response.success) {
+        probes.push({
+          domain: probe.domain,
+          operation: probe.operation,
+          status: 'pass',
+          timeMs: elapsed,
+        });
+      } else {
+        // Structured error responses that are domain-specific (like "no session") are still valid
+        // operational results — the dispatch pipeline worked. Only treat E_INTERNAL / E_NO_HANDLER as failures.
+        const code = response.error?.code ?? '';
+        const isCrash = code === 'E_INTERNAL' || code === 'E_NO_HANDLER';
+        probes.push({
+          domain: probe.domain,
+          operation: probe.operation,
+          status: isCrash ? 'fail' : 'pass',
+          timeMs: elapsed,
+          ...(isCrash ? { error: response.error?.message } : {}),
+        });
+      }
+    } catch (err) {
+      const elapsed = Date.now() - start;
+      probes.push({
+        domain: probe.domain,
+        operation: probe.operation,
+        status: 'fail',
+        timeMs: elapsed,
+        error: err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err),
+      });
+    }
+  }
+
+  // --- DB connectivity and migration state checks ---
+  const dbChecks: SmokeProbe[] = [];
+
+  // tasks.db connectivity + integrity
+  {
+    const start = Date.now();
+    try {
+      const { getDb, getNativeDb } = await import('@cleocode/core/internal');
+      const projectRoot = (await import('@cleocode/core/internal')).getProjectRoot();
+      await getDb(projectRoot);
+      const nativeDb = getNativeDb();
+      if (nativeDb) {
+        const result = nativeDb.prepare('PRAGMA integrity_check').get() as
+          | Record<string, unknown>
+          | undefined;
+        const ok = result?.integrity_check === 'ok';
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: ok ? 'pass' : 'fail',
+          timeMs: Date.now() - start,
+          ...(!ok ? { error: 'SQLite integrity check failed' } : {}),
+        });
+      } else {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'Native DB handle unavailable',
+        });
+      }
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'tasks.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // brain.db connectivity
+  {
+    const start = Date.now();
+    try {
+      const { getBrainDb } = await import('@cleocode/core/internal');
+      const projectRoot = (await import('@cleocode/core/internal')).getProjectRoot();
+      const brainDb = await getBrainDb(projectRoot);
+      if (brainDb) {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'pass',
+          timeMs: Date.now() - start,
+        });
+      } else {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'brain.db not initialized',
+        });
+      }
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'brain.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Migration state validation (detect stale journals)
+  {
+    const start = Date.now();
+    try {
+      const migrationStatus = await getMigrationStatus(
+        (await import('@cleocode/core/internal')).getProjectRoot(),
+      );
+      const hasPending = migrationStatus.status === 'pending' || migrationStatus.status === 'stale';
+      dbChecks.push({
+        domain: 'db',
+        operation: 'migrations',
+        status: hasPending ? 'fail' : 'pass',
+        timeMs: Date.now() - start,
+        ...(hasPending
+          ? { error: `Migration status: ${migrationStatus.status}. Run: cleo upgrade` }
+          : {}),
+      });
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'migrations',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const allProbes = [...probes, ...dbChecks];
+  const totalMs = Date.now() - totalStart;
+  const passed = allProbes.filter((p) => p.status === 'pass').length;
+  const failed = allProbes.filter((p) => p.status === 'fail').length;
+  const skipped = allProbes.filter((p) => p.status === 'skip').length;
+
+  return {
+    success: failed === 0,
+    data: { probes, dbChecks, passed, failed, skipped, totalMs },
+    ...(failed > 0
+      ? {
+          error: {
+            code: 'E_SMOKE_FAILURES',
+            message: `${failed} probe(s) failed smoke test`,
+            exitCode: 1,
+          },
+        }
+      : {}),
+  };
+}

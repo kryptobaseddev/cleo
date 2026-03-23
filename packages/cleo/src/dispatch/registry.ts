@@ -2430,6 +2430,16 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query' as const,
     domain: 'admin',
+    operation: 'smoke',
+    description: 'admin.smoke (query) — operational smoke test: one read-only query per domain',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
     operation: 'map',
     description: 'admin.map (query) — analyze codebase structure, return structured mapping',
     tier: 1,

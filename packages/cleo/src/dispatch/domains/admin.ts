@@ -64,6 +64,7 @@ import {
   systemRuntime,
   systemSafestop,
   systemSequence,
+  systemSmoke,
   systemStats,
 } from '../lib/engine.js';
 import { OPERATIONS } from '../registry.js';
@@ -539,6 +540,11 @@ export class AdminHandler implements DomainHandler {
             focus: params?.focus as string | undefined,
             storeToBrain: false,
           });
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'smoke': {
+          const result = await systemSmoke();
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -1092,6 +1098,7 @@ export class AdminHandler implements DomainHandler {
         'backup',
         'export',
         'map',
+        'smoke',
       ],
       mutate: [
         'init',
