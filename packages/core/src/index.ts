@@ -209,6 +209,7 @@ export {
   getCleoDir,
   getCleoDirAbsolute,
   getCleoHome,
+  getCleoTemplatesTildePath,
   getConfigPath,
   getGlobalConfigPath,
   getProjectRoot,
@@ -227,7 +228,7 @@ export {
 } from './platform.js';
 export type { ProjectInfo } from './project-info.js';
 // Project info
-export { getProjectInfo, getProjectInfoSync } from './project-info.js';
+export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
 // Scaffold
 export {
   ensureCleoStructure,
@@ -250,7 +251,9 @@ export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
 export { bootstrapGlobalCleo } from './bootstrap.js';
 export type {
   AdminAPI,
+  AgentsAPI,
   CleoInitOptions,
+  IntelligenceAPI,
   LifecycleAPI,
   MemoryAPI,
   NexusAPI,

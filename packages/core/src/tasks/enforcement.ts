@@ -36,7 +36,12 @@ export async function createAcceptanceEnforcement(cwd?: string): Promise<Accepta
   const config = await loadConfig(cwd);
   const acceptance = config.enforcement?.acceptance;
   const mode = acceptance?.mode ?? (isTest ? 'off' : 'block');
-  const requiredForPriorities = acceptance?.requiredForPriorities ?? ['critical', 'high', 'medium', 'low'];
+  const requiredForPriorities = acceptance?.requiredForPriorities ?? [
+    'critical',
+    'high',
+    'medium',
+    'low',
+  ];
   const minCriteria = acceptance?.minimumCriteria ?? 3;
   const defaultPriority = 'medium';
 

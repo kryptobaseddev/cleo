@@ -67,9 +67,13 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const acceptance = config.enforcement?.acceptance;
   const verificationCfg = config.verification;
   const acceptanceMode = acceptance?.mode ?? (isTest ? 'off' : 'block');
-  const acceptanceRequiredForPriorities = acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
+  const acceptanceRequiredForPriorities =
+    acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
   const verificationEnabled = verificationCfg?.enabled ?? !isTest;
-  const verificationRequiredGates = (verificationCfg?.requiredGates ?? []).filter(isVerificationGate).length > 0 ? (verificationCfg?.requiredGates ?? []).filter(isVerificationGate) : DEFAULT_VERIFICATION_REQUIRED_GATES;
+  const verificationRequiredGates =
+    (verificationCfg?.requiredGates ?? []).filter(isVerificationGate).length > 0
+      ? (verificationCfg?.requiredGates ?? []).filter(isVerificationGate)
+      : DEFAULT_VERIFICATION_REQUIRED_GATES;
   const verificationMaxRounds = verificationCfg?.maxRounds ?? 5;
   const lifecycleMode = config.lifecycle?.mode ?? (isTest ? 'off' : 'strict');
 

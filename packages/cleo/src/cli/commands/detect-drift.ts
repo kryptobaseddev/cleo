@@ -92,7 +92,10 @@ export function registerDetectDriftCommand(program: Command): void {
           userResult.checks.push({
             name: 'Agent injection',
             status: content.length > 100 ? 'pass' : 'warn',
-            message: content.length > 100 ? 'Agent injection template exists' : 'Template appears incomplete',
+            message:
+              content.length > 100
+                ? 'Agent injection template exists'
+                : 'Template appears incomplete',
             issues: [],
           });
           userResult.summary.passed = content.length > 100 ? 1 : 0;
@@ -107,8 +110,11 @@ export function registerDetectDriftCommand(program: Command): void {
           userResult.summary.warnings = 1;
         }
 
-        userResult.summary.exitCode = userResult.summary.errors > 0 ? 2 : userResult.summary.warnings > 0 ? 1 : 0;
-        userResult.recommendations.push('detect-drift source checks only apply to the CLEO monorepo. Run from the cleo source tree for full analysis.');
+        userResult.summary.exitCode =
+          userResult.summary.errors > 0 ? 2 : userResult.summary.warnings > 0 ? 1 : 0;
+        userResult.recommendations.push(
+          'detect-drift source checks only apply to the CLEO monorepo. Run from the cleo source tree for full analysis.',
+        );
         cliOutput(userResult, { command: 'detect-drift' });
         process.exit(userResult.summary.exitCode);
       }

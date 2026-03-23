@@ -1,9 +1,9 @@
 /**
  * Cleo — standalone facade for @cleocode/core
  *
- * Provides a project-bound API covering all 10 canonical domains:
+ * Provides a project-bound API covering all 12 domain getter properties:
  * tasks, sessions, memory, orchestration, lifecycle, release, admin,
- * check, sticky, and nexus.
+ * sticky, nexus, sync, agents, and intelligence.
  *
  * @example
  * const cleo = await Cleo.init('./my-project');

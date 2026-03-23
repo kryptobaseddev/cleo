@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2026.3.66] - 2026-03-23
+
+### Changed
+- **Config type safety (T128)**: `EnforcementConfig` + `VerificationConfig` interfaces wired into `CleoConfig` — eliminates untyped `getRawConfigValue` dot-path access in enforcement.ts, complete.ts, add.ts
+- **Retry dedup (T129)**: `agents/retry.ts withRetry` delegates to `lib/retry.ts` — single backoff implementation, dead `sleep()` removed
+
+### Fixed
+- **Facade domain count**: Updated from "10 domains" to "12 domain getter properties" (agents + intelligence added in v2026.3.60)
+- **Missing barrel exports**: Added `AgentsAPI`, `IntelligenceAPI`, `getCleoTemplatesTildePath`, `updateProjectName` to public barrel
+
 ## [2026.3.65] - 2026-03-23
 
 ### Fixed
