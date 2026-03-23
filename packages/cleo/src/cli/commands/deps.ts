@@ -1,12 +1,25 @@
 /**
  * CLI deps command for dependency visualization and analysis.
+ *
+ * Fix #69: The critical-path subcommand now calls depsCriticalPath() from core
+ * directly instead of dispatching to query:orchestrate.critical.path, which was
+ * removed from the registry in T5615 (merged into orchestrate.analyze).
+ *
  * @task T4464
  * @epic T4454
  */
 
+import { ExitCode } from '@cleocode/contracts';
+import { depsCriticalPath, resolveProjectRoot } from '@cleocode/core/internal';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
+import { cliOutput } from '../renderers/index.js';
 
+/**
+ * Register the deps command group and its subcommands.
+ *
+ * @param program - Root CLI program instance.
+ */
 export function registerDepsCommand(program: Command): void {
   const deps = program.command('deps').description('Dependency visualization and analysis');
 
@@ -61,15 +74,15 @@ export function registerDepsCommand(program: Command): void {
     .command('critical-path <taskId>')
     .description('Find longest dependency chain from task')
     .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'query',
-        'orchestrate',
-        'critical.path',
-        {
-          taskId,
-        },
-        { command: 'deps', operation: 'tasks.depends' },
-      );
+      const cwd = resolveProjectRoot();
+      try {
+        const result = await depsCriticalPath(taskId, cwd);
+        cliOutput(result, { command: 'deps', operation: 'tasks.criticalPath' });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`critical-path: ${msg}`);
+        process.exit(ExitCode.NOT_FOUND);
+      }
     });
 
   deps
@@ -106,6 +119,11 @@ export function registerDepsCommand(program: Command): void {
     });
 }
 
+/**
+ * Register the tree command.
+ *
+ * @param program - Root CLI program instance.
+ */
 export function registerTreeCommand(program: Command): void {
   program
     .command('tree [rootId]')

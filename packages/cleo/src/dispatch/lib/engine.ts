@@ -199,6 +199,7 @@ export {
   systemHelp,
   systemInjectGenerate,
   systemLabels,
+  systemListBackups,
   systemLog,
   systemMetrics,
   systemMigrate,

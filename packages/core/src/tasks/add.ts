@@ -645,6 +645,72 @@ export async function addTask(
     return { task: duplicate, duplicate: true };
   }
 
+  // Dry run: build a preview task without allocating a sequence ID or writing to the DB.
+  // Must be checked before allocateNextTaskId to avoid advancing the counter on no-op runs.
+  if (options.dryRun) {
+    const previewNow = new Date().toISOString();
+
+    // Resolve pipeline stage for the preview without any DB writes
+    let previewParentForStage: import('./pipeline-stage.js').ResolvedParent | null = null;
+    if (parentId) {
+      const previewParentTask = await dataAccessor.loadSingleTask(parentId);
+      previewParentForStage = previewParentTask
+        ? { pipelineStage: previewParentTask.pipelineStage, type: previewParentTask.type }
+        : null;
+    }
+    const previewPipelineStage = resolveDefaultPipelineStage({
+      explicitStage: options.pipelineStage,
+      taskType: taskType ?? null,
+      parentTask: previewParentForStage,
+    });
+    const previewPosition =
+      options.position !== undefined
+        ? options.position
+        : await dataAccessor.getNextPosition(parentId);
+
+    const previewTask: Task = {
+      id: 'T???',
+      title: options.title,
+      description: options.description,
+      status,
+      priority,
+      type: taskType,
+      parentId: parentId || null,
+      position: previewPosition,
+      positionVersion: 0,
+      size,
+      pipelineStage: previewPipelineStage,
+      createdAt: previewNow,
+      updatedAt: previewNow,
+    };
+    if (phase) previewTask.phase = phase;
+    if (options.labels?.length) previewTask.labels = options.labels.map((l) => l.trim());
+    if (options.files?.length) previewTask.files = options.files.map((f) => f.trim());
+    if (options.acceptance?.length)
+      previewTask.acceptance = options.acceptance.map((a) => a.trim());
+    if (options.depends?.length) previewTask.depends = options.depends.map((d) => d.trim());
+    if (options.notes) {
+      const previewNote = `${new Date()
+        .toISOString()
+        .replace('T', ' ')
+        .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
+      previewTask.notes = [previewNote];
+    }
+    if (status === 'blocked' && options.description) {
+      previewTask.blockedBy = options.description;
+    }
+    if (status === 'done') {
+      previewTask.completedAt = previewNow;
+    }
+    if (taskType !== 'epic') {
+      const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
+      if (verificationEnabledRaw === true) {
+        previewTask.verification = buildDefaultVerification(previewNow);
+      }
+    }
+    return { task: previewTask, dryRun: true };
+  }
+
   const taskId = await allocateNextTaskId(cwd);
 
   const now = new Date().toISOString();
@@ -739,11 +805,6 @@ export async function addTask(
     if (verificationEnabledRaw === true) {
       task.verification = buildDefaultVerification(now);
     }
-  }
-
-  // Dry run
-  if (options.dryRun) {
-    return { task, dryRun: true };
   }
 
   // Wrap all writes in a transaction for TOCTOU safety (T023)

@@ -35,7 +35,7 @@ export function registerBackupCommand(program: Command): void {
     .description('List available backups')
     .action(async () => {
       await dispatchFromCli(
-        'mutate',
+        'query',
         'admin',
         'backup',
         {

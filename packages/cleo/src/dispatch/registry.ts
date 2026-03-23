@@ -2040,6 +2040,16 @@ export const OPERATIONS: OperationDef[] = [
     ],
   },
   {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'backup',
+    description: 'admin.backup (query) — list available backups (read-only)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
     gateway: 'mutate',
     domain: 'admin',
     operation: 'backup',

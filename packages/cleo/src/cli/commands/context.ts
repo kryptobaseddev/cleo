@@ -13,7 +13,7 @@ export function registerContextCommand(program: Command): void {
     .description('Monitor context window usage for agent safeguard system');
 
   context
-    .command('status')
+    .command('status', { isDefault: true })
     .description('Show current context state (default)')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {

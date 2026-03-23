@@ -18,7 +18,7 @@ export function registerPhasesCommand(program: Command): void {
 
   // T5326: Migrated to dispatch
   phases
-    .command('list')
+    .command('list', { isDefault: true })
     .description('List all phases with progress (default)')
     .action(async () => {
       await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phases' });

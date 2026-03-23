@@ -149,8 +149,10 @@ export async function getProjectStats(
       )
       .get();
     archivedCompleted = archivedDoneRow?.c ?? 0;
-    // totalCompleted = currently done (not yet archived) + archived-as-completed
-    totalCompleted = (statusMap['done'] ?? 0) + archivedCompleted;
+    // totalCompleted: use audit log as SSoT (same source as completedInPeriod) to ensure
+    // the two metrics are consistent. DB-based status counts under-count because they miss
+    // tasks that were completed then cancelled, deleted, or archived with a non-default reason.
+    totalCompleted = entries.filter(isComplete).length;
   } catch {
     // fallback to audit_log counts if DB unavailable
     totalCreated = entries.filter(isCreate).length;

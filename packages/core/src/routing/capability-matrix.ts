@@ -472,6 +472,13 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   {
     domain: 'admin',
     operation: 'backup',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
+  {
+    domain: 'admin',
+    operation: 'backup',
     gateway: 'mutate',
     mode: 'native',
     preferredChannel: 'either',

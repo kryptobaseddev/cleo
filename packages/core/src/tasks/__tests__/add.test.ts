@@ -286,7 +286,9 @@ describe('addTask (integration)', () => {
       accessor,
     );
     expect(result.dryRun).toBe(true);
-    expect(result.task.id).toBe('T001');
+    // Dry run does not allocate a real sequence ID — the task is a preview only
+    expect(result.task.id).toBe('T???');
+    expect(result.task.title).toBe('Dry run task');
   });
 
   it('validates parent hierarchy', async () => {

@@ -9,15 +9,17 @@
 import type { Task, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+import { type DataAccessor, getAccessor } from '../store/data-accessor.js';
 
 /**
  * Load all tasks via targeted query.
+ * Creates a fresh accessor from cwd when none is provided.
  * @task T4659
  * @epic T4654
  */
-async function loadAllTasks(_cwd?: string, accessor?: DataAccessor): Promise<Task[]> {
-  const { tasks } = await accessor!.queryTasks({});
+async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Task[]> {
+  const acc = accessor ?? (await getAccessor(cwd));
+  const { tasks } = await acc.queryTasks({});
   return tasks;
 }
 

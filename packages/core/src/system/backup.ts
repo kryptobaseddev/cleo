@@ -3,7 +3,7 @@
  * @task T4783
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -78,6 +78,57 @@ export function createBackup(
   }
 
   return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
+}
+
+/** A single backup entry returned by listSystemBackups. */
+export interface BackupEntry {
+  backupId: string;
+  type: string;
+  timestamp: string;
+  note?: string;
+  files: string[];
+}
+
+/**
+ * List all available system backups (snapshot, safety, migration types).
+ * Reads `.meta.json` sidecar files written by createBackup.
+ * This is a pure read operation — it does not modify any files.
+ * @task T4783
+ */
+export function listSystemBackups(projectRoot: string): BackupEntry[] {
+  const cleoDir = join(projectRoot, '.cleo');
+  const backupTypes = ['snapshot', 'safety', 'migration'];
+  const entries: BackupEntry[] = [];
+
+  for (const btype of backupTypes) {
+    const backupDir = join(cleoDir, 'backups', btype);
+    if (!existsSync(backupDir)) continue;
+    try {
+      const files = readdirSync(backupDir).filter((f) => f.endsWith('.meta.json'));
+      for (const metaFile of files) {
+        try {
+          const raw = readFileSync(join(backupDir, metaFile), 'utf-8');
+          const meta = JSON.parse(raw) as Partial<BackupEntry>;
+          if (meta.backupId && meta.timestamp) {
+            entries.push({
+              backupId: meta.backupId,
+              type: meta.type ?? btype,
+              timestamp: meta.timestamp,
+              note: meta.note,
+              files: meta.files ?? [],
+            });
+          }
+        } catch {
+          // skip malformed meta files
+        }
+      }
+    } catch {
+      // skip unreadable backup directories
+    }
+  }
+
+  // Sort newest first
+  return entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
 /** Restore from a backup. */

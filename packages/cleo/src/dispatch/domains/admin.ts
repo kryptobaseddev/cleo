@@ -57,6 +57,7 @@ import {
   systemFix,
   systemHealth,
   systemInjectGenerate,
+  systemListBackups,
   systemLog,
   systemMigrate,
   systemRestore,
@@ -514,6 +515,18 @@ export class AdminHandler implements DomainHandler {
             success: true,
             data: result,
           };
+        }
+
+        case 'backup': {
+          // Read-only: list available backups. The mutate gateway handles create/restore.
+          const result = systemListBackups(projectRoot);
+          return wrapResult(
+            { success: true, data: { backups: result, count: result.length } },
+            'query',
+            'admin',
+            operation,
+            startTime,
+          );
         }
 
         case 'map': {
@@ -1072,6 +1085,7 @@ export class AdminHandler implements DomainHandler {
         'token',
         'adr.show',
         'adr.find',
+        'backup',
         'export',
         'map',
       ],

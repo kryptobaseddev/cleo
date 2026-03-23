@@ -31,6 +31,7 @@ import {
   getSystemDiagnostics,
   getSystemHealth,
   getSystemMetrics,
+  listSystemBackups,
   type RuntimeDiagnostics,
   repairSequence,
   restoreBackup,
@@ -44,6 +45,7 @@ import type { TaskRecord } from './task-engine.js';
 export type {
   ArchiveStatsResult as ArchiveStatsData,
   AuditResult as AuditData,
+  BackupEntry as BackupEntryData,
   BackupResult as BackupData,
   CleanupResult as CleanupData,
   DiagnosticsResult as DiagnosticsData,
@@ -1106,6 +1108,21 @@ export function systemBackup(
 ): EngineResult<import('@cleocode/core/internal').BackupResult> {
   try {
     const result = createBackup(projectRoot, params);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
+}
+
+/**
+ * List available system backups (read-only).
+ * @task T4783
+ */
+export function systemListBackups(
+  projectRoot: string,
+): EngineResult<import('@cleocode/core/internal').BackupEntry[]> {
+  try {
+    const result = listSystemBackups(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);

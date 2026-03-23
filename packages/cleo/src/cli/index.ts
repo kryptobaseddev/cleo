@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type CommandDef, defineCommand, runMain } from 'citty';
+import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
 
 function getPackageVersion(): string {
@@ -242,14 +242,15 @@ function shimToCitty(shim: ShimCommand): CommandDef {
     }
   }
 
-  return defineCommand({
+  const cittyDef: CommandDef = defineCommand({
     meta: {
       name: shim._name,
       description: shim._description,
     },
     args: cittyArgs,
     ...(Object.keys(subCommands).length > 0 ? { subCommands } : {}),
-    async run({ args }) {
+    async run(context) {
+      const { args } = context;
       if (shim._action) {
         const positionalValues: unknown[] = [];
         for (const arg of shim._args) {
@@ -269,9 +270,20 @@ function shimToCitty(shim: ShimCommand): CommandDef {
         }
 
         await shim._action(...positionalValues, opts, shim);
+      } else if (shim._subcommands.length > 0) {
+        // Parent command called without a subcommand: run default subcommand action
+        // if one is marked isDefault, otherwise display help.
+        const defaultSub = shim._subcommands.find((s) => s._isDefault);
+        if (defaultSub?._action) {
+          // Invoke the default subcommand's action with no positional args and empty opts
+          await defaultSub._action({} as Record<string, unknown>, defaultSub);
+        } else {
+          await showUsage(context.cmd);
+        }
       }
     },
   });
+  return cittyDef;
 }
 
 const subCommands: Record<string, CommandDef> = {};

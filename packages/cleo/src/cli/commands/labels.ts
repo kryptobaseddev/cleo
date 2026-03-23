@@ -18,7 +18,7 @@ export function registerLabelsCommand(program: Command): void {
     .description('List all labels with counts or show tasks with specific label');
 
   labels
-    .command('list')
+    .command('list', { isDefault: true })
     .description('List all labels with task counts (default)')
     .action(async () => {
       await dispatchFromCli('query', 'tasks', 'label.list', {}, { command: 'labels' });

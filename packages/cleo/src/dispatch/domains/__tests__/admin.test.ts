@@ -184,6 +184,7 @@ describe('AdminHandler', () => {
         'token',
         'adr.show',
         'adr.find',
+        'backup',
         'export',
         'map',
       ]);

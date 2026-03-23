@@ -84,8 +84,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('check')).toBe(14);
     });
 
-    it('admin domain should have 17 operations', () => {
-      expect(getQueryOperationCount('admin')).toBe(17);
+    it('admin domain should have 18 operations', () => {
+      expect(getQueryOperationCount('admin')).toBe(18);
     });
   });
 

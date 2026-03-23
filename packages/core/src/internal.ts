@@ -240,6 +240,9 @@ export {
 } from './otel/index.js';
 // Paths (additional)
 export { getAgentOutputsAbsolute, getAgentsHome } from './paths.js';
+// Phases — dependency graph (taskId-scoped critical path; distinct from tasks/graph-ops getCriticalPath)
+export type { CriticalPathResult as DepsCriticalPathResult } from './phases/deps.js';
+export { getCriticalPath as depsCriticalPath } from './phases/deps.js';
 export type { ListPhasesResult } from './phases/index.js';
 // Phases
 export { advancePhase, deletePhase, renamePhase, setPhase, startPhase } from './phases/index.js';
@@ -389,7 +392,7 @@ export {
 export { computeChecksum, readJson } from './store/json.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
-export { createTask } from './store/task-store.js';
+export { createTask, getTask } from './store/task-store.js';
 export {
   auditLog,
   externalTaskLinks,
@@ -415,8 +418,8 @@ export type { ArchiveStatsResult } from './system/archive-stats.js';
 export { getArchiveStats } from './system/archive-stats.js';
 export type { AuditResult } from './system/audit.js';
 export { auditData } from './system/audit.js';
-export type { BackupResult, RestoreResult } from './system/backup.js';
-export { restoreBackup } from './system/backup.js';
+export type { BackupEntry, BackupResult, RestoreResult } from './system/backup.js';
+export { listSystemBackups, restoreBackup } from './system/backup.js';
 export type { CleanupResult } from './system/cleanup.js';
 export { cleanupSystem } from './system/cleanup.js';
 export type { DiagnosticsResult, HealthResult } from './system/health.js';

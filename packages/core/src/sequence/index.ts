@@ -168,7 +168,7 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
     counter: seq.counter,
     lastId: seq.lastId,
     checksum: seq.checksum,
-    nextId: `T${seq.counter + 1}`,
+    nextId: `T${String(seq.counter + 1).padStart(3, '0')}`,
   };
 }
 
