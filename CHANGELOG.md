@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2026.3.65] - 2026-03-23
+
+### Fixed
+- **Phases crash (#77)**: Full null guard in `queryPhase()` — `listData.phases` and `listData.summary` now use `??` fallbacks
+- **detect-drift user projects (#78)**: Detects CLEO source repo vs user projects. User projects get applicable checks only (injection template) instead of CLEO-internal source structure checks
+
 ## [2026.3.64] - 2026-03-23
 
 ### Fixed
