@@ -59,6 +59,11 @@ function makeConfig(hierarchy?: Partial<CleoConfig['hierarchy']>): CleoConfig {
       auditRetentionDays: 90,
       archiveBeforePrune: true,
     },
+    enforcement: {
+      acceptance: { mode: 'off' as const, requiredForPriorities: [], minimumCriteria: 3 },
+      session: { requiredForMutate: false },
+    },
+    verification: { enabled: false, maxRounds: 3, requiredGates: [] },
     sharing: { mode: 'none', commitAllowlist: [], denylist: [] },
   };
 }

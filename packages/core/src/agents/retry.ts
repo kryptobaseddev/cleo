@@ -159,21 +159,28 @@ export async function withRetry<T>(
 ): Promise<RetryResult<T>> {
   const effectivePolicy = createRetryPolicy(policy);
   const { withRetry: coreRetry } = await import('../lib/retry.js');
+  let attemptCount = 0;
   try {
-    const value = await coreRetry(fn, {
-      maxAttempts: effectivePolicy.maxRetries + 1,
-      baseDelayMs: effectivePolicy.baseDelayMs,
-      maxDelayMs: effectivePolicy.maxDelayMs,
-      retryableErrors: [(err: unknown) => shouldRetry(err, 0, effectivePolicy)],
-    });
-    return { success: true, value, attempts: 1, totalDelayMs: 0 };
+    const value = await coreRetry(
+      async () => {
+        attemptCount++;
+        return fn();
+      },
+      {
+        maxAttempts: effectivePolicy.maxRetries + 1,
+        baseDelayMs: effectivePolicy.baseDelayMs,
+        maxDelayMs: effectivePolicy.maxDelayMs,
+        retryableErrors: [(err: unknown) => shouldRetry(err, attemptCount - 1, effectivePolicy)],
+      },
+    );
+    return { success: true, value, attempts: attemptCount, totalDelayMs: 0 };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    const context = err as Partial<{ attempts: number; totalDelayMs: number }>;
+    const context = err as Partial<{ totalDelayMs: number }>;
     return {
       success: false,
       error,
-      attempts: context.attempts ?? effectivePolicy.maxRetries + 1,
+      attempts: attemptCount,
       totalDelayMs: context.totalDelayMs ?? 0,
     };
   }

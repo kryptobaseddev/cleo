@@ -88,6 +88,14 @@ export function registerDetectDriftCommand(program: Command): void {
         // Check: agent injection template
         const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
         if (existsSync(injPath)) {
+          const safeRead = (path: string): string => {
+            try {
+              return readFileSync(path, 'utf-8');
+            } catch {
+              return '';
+            }
+          };
+
           const content = safeRead(injPath);
           userResult.checks.push({
             name: 'Agent injection',
@@ -147,14 +155,6 @@ export function registerDetectDriftCommand(program: Command): void {
         if (status === 'fail') {
           result.summary.errors++;
           result.summary.exitCode = 2;
-        }
-      };
-
-      const safeRead = (path: string): string => {
-        try {
-          return readFileSync(path, 'utf-8');
-        } catch {
-          return '';
         }
       };
 
