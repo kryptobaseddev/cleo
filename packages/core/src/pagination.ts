@@ -69,10 +69,13 @@ export function createPage(input: PaginateInput): LAFSPage {
  * @epic T4663
  */
 export function paginate<T>(
-  items: T[],
+  items: T[] | undefined | null,
   limit?: number,
   offset?: number,
 ): { items: T[]; page: LAFSPage } {
+  if (!items || items.length === 0) {
+    return { items: [], page: { mode: 'none' } as LAFSPageNone };
+  }
   const total = items.length;
 
   if (limit === undefined && offset === undefined) {

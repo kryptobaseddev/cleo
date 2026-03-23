@@ -520,8 +520,12 @@ export class AdminHandler implements DomainHandler {
         case 'backup': {
           // Read-only: list available backups. The mutate gateway handles create/restore.
           const result = systemListBackups(projectRoot);
+          if (!result.success || !result.data) {
+            return wrapResult(result, 'query', 'admin', operation, startTime);
+          }
+          const backups = result.data;
           return wrapResult(
-            { success: true, data: { backups: result, count: result.length } },
+            { success: true, data: { backups, count: backups.length } },
             'query',
             'admin',
             operation,

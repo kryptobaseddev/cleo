@@ -14,14 +14,15 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getErrorMessage } from '@cleocode/contracts';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {
-  const currentFile = fileURLToPath(import.meta.url);
-  let currentDir = dirname(currentFile);
+  // Start from CWD, not the CLI file location. When installed via npm,
+  // the CLI bundle is in node_modules — walking up from there finds the
+  // npm package dir instead of the user's project (#78).
+  let currentDir = process.cwd();
 
   while (currentDir !== '/') {
     if (existsSync(join(currentDir, 'package.json'))) {
