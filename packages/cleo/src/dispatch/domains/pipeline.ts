@@ -660,8 +660,10 @@ export class PipelineHandler implements DomainHandler {
         }
 
         const listData = result.data as ListPhasesResult;
+        const phases = listData.phases ?? [];
+        const total = listData.summary?.total ?? phases.length;
         const { limit, offset } = getListParams(params);
-        const page = paginate(listData.phases, limit, offset);
+        const page = paginate(phases, limit, offset);
 
         return {
           _meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
@@ -669,8 +671,8 @@ export class PipelineHandler implements DomainHandler {
           data: {
             ...listData,
             phases: page.items,
-            total: listData.summary.total,
-            filtered: listData.summary.total,
+            total,
+            filtered: total,
           },
           page: page.page,
         };
