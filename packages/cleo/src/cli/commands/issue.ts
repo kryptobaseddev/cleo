@@ -2,13 +2,16 @@
  * CLI issue command - file bug reports, feature requests, or questions to CLEO GitHub.
  * Supports subcommands: bug, feature, help, diagnostics.
  *
+ * Fix #63: Calls addIssue() from core directly instead of dispatching through
+ * MCP (the tools.issue.add.* operations were removed from the registry in T5615).
+ *
  * @task T4555
  * @epic T4545
  */
 
 import { execFileSync } from 'node:child_process';
-import { BUILD_CONFIG } from '@cleocode/core/internal';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { type AddIssueResult, addIssue, BUILD_CONFIG } from '@cleocode/core/internal';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -82,31 +85,29 @@ export function registerIssueCommand(program: Command): void {
 
 /**
  * Handle issue creation for a subcommand type (bug, feature, help).
- * Routes through dispatch for the mutation, with post-dispatch browser open.
+ * Calls addIssue() from core directly (Fix #63: MCP operations were removed in T5615).
  * @task T4555
  */
 async function handleIssueType(issueType: string, opts: Record<string, unknown>): Promise<void> {
-  const params: Record<string, unknown> = {
-    issueType,
-    title: opts['title'],
-    body: opts['body'],
-    dryRun: !!opts['dryRun'],
-  };
-  if (opts['severity']) params['severity'] = opts['severity'];
-  if (opts['area']) params['area'] = opts['area'];
-
-  const opName = `issue.add.${issueType}` as const;
-  const response = await dispatchRaw('mutate', 'tools', opName, params);
-  if (!response.success) {
-    handleRawError(response, { command: 'issue', operation: `tools.${opName}` });
+  let result: AddIssueResult;
+  try {
+    result = addIssue({
+      issueType,
+      title: opts['title'] as string,
+      body: opts['body'] as string,
+      severity: opts['severity'] as string | undefined,
+      area: opts['area'] as string | undefined,
+      dryRun: !!opts['dryRun'],
+    });
+  } catch (err) {
+    console.error(`Failed to create issue: ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
     return;
   }
 
-  const result = response.data as Record<string, unknown>;
-
   // Handle browser open if requested
-  if (opts['open'] && typeof result['url'] === 'string' && result['url'].startsWith('https://')) {
-    const issueNumber = (result['url'] as string).match(/(\d+)$/)?.[1] ?? 'unknown';
+  if (opts['open'] && typeof result.url === 'string' && result.url.startsWith('https://')) {
+    const issueNumber = result.url.match(/(\d+)$/)?.[1] ?? 'unknown';
     try {
       execFileSync('gh', ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'], {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -116,5 +117,5 @@ async function handleIssueType(issueType: string, opts: Record<string, unknown>)
     }
   }
 
-  cliOutput(result, { command: 'issue', operation: `tools.${opName}` });
+  cliOutput(result, { command: 'issue', operation: `tools.issue.add.${issueType}` });
 }

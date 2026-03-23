@@ -106,6 +106,56 @@ export async function repairMissingCompletedAt(
 }
 
 /**
+ * Detect and add missing required columns on the tasks table.
+ * Uses PRAGMA table_info to check actual schema vs required columns.
+ *
+ * @see https://github.com/anthropics/cleo/issues/63
+ */
+export async function repairMissingColumns(
+  cwd: string | undefined,
+  dryRun: boolean,
+): Promise<RepairAction> {
+  const { getDb } = await import('./store/sqlite.js');
+  const db = await getDb(cwd);
+
+  // getDb() already calls ensureRequiredColumns(), so if we get here
+  // the column should exist. But we still report the action for visibility.
+  const { sql } = await import('drizzle-orm');
+  const columns = db.all<{ name: string }>(sql`PRAGMA table_info(tasks)`);
+  const existingCols = new Set(columns.map((c: { name: string }) => c.name));
+
+  const missingCols = ['pipeline_stage'].filter((c) => !existingCols.has(c));
+
+  if (missingCols.length === 0) {
+    return {
+      action: 'fix_missing_columns',
+      status: 'skipped',
+      details: 'All required columns present on tasks table',
+    };
+  }
+
+  if (dryRun) {
+    return {
+      action: 'fix_missing_columns',
+      status: 'preview',
+      details: `Would add missing column(s): ${missingCols.join(', ')}`,
+    };
+  }
+
+  // Columns should already be added by ensureRequiredColumns() in getDb(),
+  // but apply again defensively.
+  for (const col of missingCols) {
+    db.run(sql.raw(`ALTER TABLE tasks ADD COLUMN ${col} text`));
+  }
+
+  return {
+    action: 'fix_missing_columns',
+    status: 'applied',
+    details: `Added missing column(s): ${missingCols.join(', ')}`,
+  };
+}
+
+/**
  * Run all repair functions.
  * Returns all actions taken (or previewed in dry-run mode).
  */
@@ -113,9 +163,10 @@ export async function runAllRepairs(
   cwd: string | undefined,
   dryRun: boolean,
 ): Promise<RepairAction[]> {
-  const [sizes, completedAt] = await Promise.all([
+  const [sizes, completedAt, columns] = await Promise.all([
     repairMissingSizes(cwd, dryRun),
     repairMissingCompletedAt(cwd, dryRun),
+    repairMissingColumns(cwd, dryRun),
   ]);
-  return [sizes, completedAt];
+  return [sizes, completedAt, columns];
 }

@@ -462,18 +462,48 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
     }
   }
 
+  // Fix #63: Reconcile stale migration journal entries from older CLEO versions.
+  // When the DB has __drizzle_migrations entries whose hashes don't match ANY
+  // local migration file, drizzle's migrate() either throws or tries to re-run
+  // all migrations (causing "table already exists" errors). Fix by clearing stale
+  // entries and marking all local migrations as applied (tables already exist),
+  // then relying on ensureRequiredColumns() to patch any schema gaps.
+  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, 'tasks')) {
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const localHashes = new Set(localMigrations.map((m) => m.hash));
+    const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    const hasOrphanedEntries = dbEntries.some((e) => !localHashes.has(e.hash));
+
+    if (hasOrphanedEntries) {
+      const log = getLogger('sqlite');
+      log.warn(
+        { orphaned: dbEntries.filter((e) => !localHashes.has(e.hash)).length },
+        'Detected stale migration journal entries from a previous CLEO version. Reconciling.',
+      );
+      // Clear all entries and mark every local migration as applied.
+      // The existing tables were created by the previous version's migrations,
+      // so we skip re-running them. ensureRequiredColumns() fills any schema gaps.
+      nativeDb.exec('DELETE FROM "__drizzle_migrations"');
+      for (const m of localMigrations) {
+        nativeDb.exec(
+          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${m.hash}', ${m.folderMillis})`,
+        );
+      }
+    }
+  }
+
   // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
   // The new migrator handles its own transactions. T5185: retry on SQLITE_BUSY.
-  let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
     try {
       migrate(db, { migrationsFolder });
-      return;
+      break;
     } catch (err) {
       if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
         throw err;
       }
-      lastError = err;
       const delay = Math.min(
         MIGRATION_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.5),
         MIGRATION_RETRY_MAX_DELAY_MS,
@@ -481,8 +511,45 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(delay));
     }
   }
-  /* c8 ignore next */
-  throw lastError;
+
+  // Fix #63: Defensive column safety net — add any columns the schema expects
+  // but that are missing from the actual table. This catches gaps from stale
+  // migration journals, partial migrations, or version skew.
+  ensureRequiredColumns(nativeDb);
+}
+
+/**
+ * Required columns that MUST exist on the tasks table.
+ * Maps column name → ALTER TABLE ADD COLUMN DDL suffix.
+ * Only TEXT columns with no constraints are safe for ALTER TABLE ADD in SQLite.
+ *
+ * @see https://github.com/anthropics/cleo/issues/63
+ */
+const REQUIRED_TASK_COLUMNS: Array<{ name: string; ddl: string }> = [
+  { name: 'pipeline_stage', ddl: 'text' },
+];
+
+/**
+ * Ensure all required columns exist on the tasks table.
+ * Uses PRAGMA table_info to inspect the schema and adds any missing columns
+ * via ALTER TABLE ADD COLUMN. This is a safety net for databases where
+ * Drizzle migrations could not run due to journal corruption or version skew.
+ *
+ * @see https://github.com/anthropics/cleo/issues/63
+ */
+function ensureRequiredColumns(nativeDb: DatabaseSync): void {
+  if (!tableExists(nativeDb, 'tasks')) return;
+
+  const columns = nativeDb.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>;
+  const existingCols = new Set(columns.map((c) => c.name));
+
+  for (const req of REQUIRED_TASK_COLUMNS) {
+    if (!existingCols.has(req.name)) {
+      const log = getLogger('sqlite');
+      log.warn({ column: req.name }, `Adding missing column tasks.${req.name} via ALTER TABLE`);
+      nativeDb.exec(`ALTER TABLE tasks ADD COLUMN ${req.name} ${req.ddl}`);
+    }
+  }
 }
 
 /**
