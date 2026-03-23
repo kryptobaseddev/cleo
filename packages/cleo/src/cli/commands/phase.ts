@@ -12,7 +12,10 @@ import type { ShimCommand as Command } from '../commander-shim.js';
  * @task T4464, T5326
  */
 export function registerPhaseCommand(program: Command): void {
-  const phase = program.command('phase').description('Project-level phase lifecycle management');
+  const phase = program
+    .command('phase')
+    .alias('pipeline')
+    .description('Project-level phase lifecycle management');
 
   // T5326: Migrated to dispatch
   phase

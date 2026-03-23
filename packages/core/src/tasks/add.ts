@@ -439,12 +439,16 @@ export async function addTask(
     );
   }
 
-  await requireActiveSession('tasks.add', cwd);
+  // Skip session enforcement for dry-run — no data is written
+  if (!options.dryRun) {
+    await requireActiveSession('tasks.add', cwd);
+  }
 
   // Orphan prevention (T101): non-epic tasks must have a parent in strict mode.
   // Epics are root containers and are exempt. Only enforced in strict lifecycle mode.
+  // Skip for dry-run — no data is written.
   const parentId = options.parentId ?? null;
-  if (!parentId && options.type !== 'epic') {
+  if (!options.dryRun && !parentId && options.type !== 'epic') {
     const lifecycleMode = await getLifecycleMode(cwd);
     if (lifecycleMode === 'strict') {
       throw new CleoError(
@@ -473,26 +477,27 @@ export async function addTask(
   validateSize(size);
   if (options.labels?.length) validateLabels(options.labels);
 
-  // Enforce Acceptance Criteria (general rule: min 3 for all task types)
-  const enforcement = await createAcceptanceEnforcement(cwd);
-  const acValidation = enforcement.validateCreation({
-    acceptance: options.acceptance,
-    priority: priority,
-  });
-  if (!acValidation.valid) {
-    throw new CleoError(acValidation.exitCode ?? ExitCode.VALIDATION_ERROR, acValidation.error!, {
-      fix: acValidation.fix,
+  // Skip enforcement checks for dry-run — no data is written
+  if (!options.dryRun) {
+    // Enforce Acceptance Criteria (general rule: min 3 for all task types)
+    const enforcement = await createAcceptanceEnforcement(cwd);
+    const acValidation = enforcement.validateCreation({
+      acceptance: options.acceptance,
+      priority: priority,
     });
-  }
+    if (!acValidation.valid) {
+      throw new CleoError(acValidation.exitCode ?? ExitCode.VALIDATION_ERROR, acValidation.error!, {
+        fix: acValidation.fix,
+      });
+    }
 
-  // Epic-specific creation enforcement (T062): min 5 AC + non-empty description.
-  // This runs after general AC enforcement so epics face both the general check
-  // (min 3 from enforcement config) AND the stricter epic check (min 5).
-  if (options.type === 'epic') {
-    await validateEpicCreation(
-      { acceptance: options.acceptance, description: options.description },
-      cwd,
-    );
+    // Epic-specific creation enforcement (T062): min 5 AC + non-empty description.
+    if (options.type === 'epic') {
+      await validateEpicCreation(
+        { acceptance: options.acceptance, description: options.description },
+        cwd,
+      );
+    }
   }
 
   // Validate dependency IDs exist using targeted queries
