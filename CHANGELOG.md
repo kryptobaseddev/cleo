@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [2026.3.68] - 2026-03-23
+
+### Added
+- **`cleo check` command group**: `cleo check schema|coherence|task` — domain-prefix CLI access to check operations
+- **`cleo admin` command group**: `cleo admin version|health|stats|runtime|smoke` — domain-prefix CLI access to admin operations
+- **`cleo pipeline` alias**: Routes to existing `phase` command group
+
+### Fixed
+- **`cleo add --dry-run` session bypass**: Dry-run no longer requires active session, orphan prevention, or acceptance criteria — no data is written
+- **Domain-prefix CLI routing**: `cleo check schema`, `cleo pipeline list`, `cleo admin version` now route correctly instead of showing root help
+
 ## [2026.3.67] - 2026-03-23
 
 ### Added
