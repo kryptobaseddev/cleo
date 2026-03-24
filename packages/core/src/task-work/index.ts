@@ -123,10 +123,10 @@ export async function startTask(
     accessor,
   );
 
-  // Dispatch onToolStart hook (best-effort, don't await)
+  // Dispatch PreToolUse hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
-    .dispatch('onToolStart', cwd ?? process.cwd(), {
+    .dispatch('PreToolUse', cwd ?? process.cwd(), {
       timestamp: new Date().toISOString(),
       taskId,
       taskTitle: task.title,
@@ -169,11 +169,11 @@ export async function stopTask(
 
   const now = new Date().toISOString();
 
-  // Dispatch onToolComplete hook (best-effort, don't await)
+  // Dispatch PostToolUse hook (best-effort, don't await)
   if (taskId && task) {
     const { hooks } = await import('../hooks/registry.js');
     hooks
-      .dispatch('onToolComplete', cwd ?? process.cwd(), {
+      .dispatch('PostToolUse', cwd ?? process.cwd(), {
         timestamp: now,
         taskId,
         taskTitle: task.title,

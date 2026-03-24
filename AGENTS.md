@@ -1,7 +1,5 @@
 <!-- CAAMP:START -->
-@~/.agents/AGENTS.md
-@.cleo/project-context.json
-@.cleo/memory-bridge.md
+@AGENTS.md
 <!-- CAAMP:END -->
 
 # CLEO Agent Code Quality Rules (MANDATORY)

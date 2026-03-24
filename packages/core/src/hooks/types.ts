@@ -2,21 +2,41 @@
  * Universal Hooks Core Types - Phase 2B of T5237
  *
  * This module defines the core type system for CLEO's Universal Hooks
- * integration with CAAMP 1.6.0. CLEO builds the hook registry and
- * execution system while CAAMP provides the event definitions.
+ * integration with CAAMP 1.9.1. CLEO builds the hook registry and
+ * execution system while CAAMP provides the canonical event definitions.
  *
  * @module @cleocode/cleo/hooks/types
  */
 
-import type { HookEvent as CAAMPHookEvent } from '@cleocode/caamp';
+import type { CanonicalHookEvent } from '@cleocode/caamp';
+import {
+  buildHookMatrix,
+  CANONICAL_HOOK_EVENTS,
+  HOOK_CATEGORIES,
+  supportsHook,
+  toCanonical,
+  toNative,
+} from '@cleocode/caamp';
 
 // Re-export CAAMP provider query functions for hook capability discovery
 export { getCommonHookEvents, getProvidersByHookEvent } from '@cleocode/caamp';
+export type { CanonicalHookEvent };
+// Re-export CAAMP canonical event constants and normalizer APIs
+export {
+  buildHookMatrix,
+  CANONICAL_HOOK_EVENTS,
+  HOOK_CATEGORIES,
+  supportsHook,
+  toCanonical,
+  toNative,
+};
 
 /**
- * CAAMP-defined hook events supported by provider capability discovery.
+ * CAAMP canonical hook event type.
+ *
+ * This is the normalized 16-event taxonomy from CAAMP 1.9.1.
  */
-export type ProviderHookEvent = CAAMPHookEvent;
+export type ProviderHookEvent = CanonicalHookEvent;
 
 /**
  * CLEO-local coordination events used by the autonomous runtime.
@@ -37,15 +57,15 @@ export type InternalHookEvent = (typeof INTERNAL_HOOK_EVENTS)[number];
 /**
  * Full CLEO hook event union.
  *
- * CAAMP defines provider-facing events; CLEO extends the registry with local
- * coordination events for autonomous execution.
+ * CAAMP defines provider-facing canonical events; CLEO extends the registry
+ * with local coordination events for autonomous execution.
  */
 export type HookEvent = ProviderHookEvent | InternalHookEvent;
 
 const INTERNAL_HOOK_EVENT_SET = new Set<string>(INTERNAL_HOOK_EVENTS);
 
 /**
- * Type guard for CAAMP/provider-discoverable hook events.
+ * Type guard for CAAMP/provider-discoverable canonical hook events.
  */
 export function isProviderHookEvent(event: HookEvent): event is ProviderHookEvent {
   return !INTERNAL_HOOK_EVENT_SET.has(event);
@@ -80,10 +100,10 @@ export interface HookPayload {
 }
 
 /**
- * Payload for onSessionStart hook
+ * Payload for SessionStart hook (canonical: was onSessionStart)
  * Fired when a CLEO session begins
  */
-export interface OnSessionStartPayload extends HookPayload {
+export interface SessionStartPayload extends HookPayload {
   /** Session identifier (required for session events) */
   sessionId: string;
 
@@ -97,11 +117,14 @@ export interface OnSessionStartPayload extends HookPayload {
   agent?: string;
 }
 
+/** @deprecated Use {@link SessionStartPayload} instead. Kept for backward compatibility. */
+export type OnSessionStartPayload = SessionStartPayload;
+
 /**
- * Payload for onSessionEnd hook
+ * Payload for SessionEnd hook (canonical: was onSessionEnd)
  * Fired when a CLEO session ends
  */
-export interface OnSessionEndPayload extends HookPayload {
+export interface SessionEndPayload extends HookPayload {
   /** Session identifier */
   sessionId: string;
 
@@ -112,11 +135,14 @@ export interface OnSessionEndPayload extends HookPayload {
   tasksCompleted: string[];
 }
 
+/** @deprecated Use {@link SessionEndPayload} instead. Kept for backward compatibility. */
+export type OnSessionEndPayload = SessionEndPayload;
+
 /**
- * Payload for onToolStart hook
+ * Payload for PreToolUse hook (canonical: was onToolStart)
  * Fired when a task/tool operation begins
  */
-export interface OnToolStartPayload extends HookPayload {
+export interface PreToolUsePayload extends HookPayload {
   /** Task identifier */
   taskId: string;
 
@@ -125,13 +151,22 @@ export interface OnToolStartPayload extends HookPayload {
 
   /** Optional ID of the previous task if sequential */
   previousTask?: string;
+
+  /** Optional tool name being invoked */
+  toolName?: string;
+
+  /** Optional structured input to the tool */
+  toolInput?: Record<string, unknown>;
 }
 
+/** @deprecated Use {@link PreToolUsePayload} instead. Kept for backward compatibility. */
+export type OnToolStartPayload = PreToolUsePayload;
+
 /**
- * Payload for onToolComplete hook
+ * Payload for PostToolUse hook (canonical: was onToolComplete)
  * Fired when a task/tool operation completes
  */
-export interface OnToolCompletePayload extends HookPayload {
+export interface PostToolUsePayload extends HookPayload {
   /** Task identifier */
   taskId: string;
 
@@ -140,7 +175,13 @@ export interface OnToolCompletePayload extends HookPayload {
 
   /** Final status of the completed task */
   status: 'done' | 'archived' | 'cancelled';
+
+  /** Optional structured result from the tool */
+  toolResult?: Record<string, unknown>;
 }
+
+/** @deprecated Use {@link PostToolUsePayload} instead. Kept for backward compatibility. */
+export type OnToolCompletePayload = PostToolUsePayload;
 
 /**
  * Handler function type for hook events
@@ -182,25 +223,35 @@ export interface HookConfig {
 }
 
 /**
- * Payload for onFileChange hook
- * Fired when a tracked file is written, created, or deleted
+ * Payload for Notification hook (canonical: was onFileChange)
+ * Fired when a tracked file is written, created, or deleted, or for
+ * general-purpose notifications.
  */
-export interface OnFileChangePayload extends HookPayload {
+export interface NotificationPayload extends HookPayload {
   /** Absolute or project-relative path of the changed file */
-  filePath: string;
+  filePath?: string;
 
-  /** Kind of filesystem change */
-  changeType: 'write' | 'create' | 'delete';
+  /** Kind of filesystem change (for file-change notifications) */
+  changeType?: 'write' | 'create' | 'delete';
 
   /** File size in bytes after the change (absent for deletes) */
   sizeBytes?: number;
+
+  /** Optional notification message for non-file notifications */
+  message?: string;
 }
 
+/** @deprecated Use {@link NotificationPayload} instead. Kept for backward compatibility. */
+export type OnFileChangePayload = NotificationPayload & {
+  filePath: string;
+  changeType: 'write' | 'create' | 'delete';
+};
+
 /**
- * Payload for onError hook
+ * Payload for PostToolUseFailure hook (canonical: was onError)
  * Fired when an operation fails with a structured error
  */
-export interface OnErrorPayload extends HookPayload {
+export interface PostToolUseFailurePayload extends HookPayload {
   /** Numeric exit code or string error code */
   errorCode: number | string;
 
@@ -220,11 +271,14 @@ export interface OnErrorPayload extends HookPayload {
   stack?: string;
 }
 
+/** @deprecated Use {@link PostToolUseFailurePayload} instead. Kept for backward compatibility. */
+export type OnErrorPayload = PostToolUseFailurePayload;
+
 /**
- * Payload for onPromptSubmit hook
+ * Payload for PromptSubmit hook (canonical: was onPromptSubmit)
  * Fired when an agent submits a prompt through a gateway
  */
-export interface OnPromptSubmitPayload extends HookPayload {
+export interface PromptSubmitPayload extends HookPayload {
   /** Gateway that received the prompt (query / mutate) */
   gateway: string;
 
@@ -238,11 +292,14 @@ export interface OnPromptSubmitPayload extends HookPayload {
   source?: string;
 }
 
+/** @deprecated Use {@link PromptSubmitPayload} instead. Kept for backward compatibility. */
+export type OnPromptSubmitPayload = PromptSubmitPayload;
+
 /**
- * Payload for onResponseComplete hook
+ * Payload for ResponseComplete hook (canonical: was onResponseComplete)
  * Fired when a gateway operation finishes (success or failure)
  */
-export interface OnResponseCompletePayload extends HookPayload {
+export interface ResponseCompletePayload extends HookPayload {
   /** Gateway that handled the operation */
   gateway: string;
 
@@ -260,6 +317,84 @@ export interface OnResponseCompletePayload extends HookPayload {
 
   /** Error code if the operation failed */
   errorCode?: string;
+}
+
+/** @deprecated Use {@link ResponseCompletePayload} instead. Kept for backward compatibility. */
+export type OnResponseCompletePayload = ResponseCompletePayload;
+
+/**
+ * Payload for SubagentStart hook
+ * Fired when a subagent process is launched
+ */
+export interface SubagentStartPayload extends HookPayload {
+  /** Subagent or worker identifier */
+  agentId: string;
+
+  /** Subagent role or archetype */
+  role?: string;
+
+  /** Task assigned to the subagent */
+  taskId?: string;
+}
+
+/**
+ * Payload for SubagentStop hook
+ * Fired when a subagent process completes
+ */
+export interface SubagentStopPayload extends HookPayload {
+  /** Subagent or worker identifier */
+  agentId: string;
+
+  /** Completion status */
+  status?: 'complete' | 'partial' | 'blocked' | 'failed';
+
+  /** Task that was completed */
+  taskId?: string;
+
+  /** Optional summary reference */
+  summary?: string;
+}
+
+/**
+ * Payload for PreCompact hook
+ * Fired before context compaction begins
+ */
+export interface PreCompactPayload extends HookPayload {
+  /** Estimated token count before compaction */
+  tokensBefore?: number;
+
+  /** Reason for compaction */
+  reason?: string;
+}
+
+/**
+ * Payload for PostCompact hook
+ * Fired after context compaction completes
+ */
+export interface PostCompactPayload extends HookPayload {
+  /** Token count before compaction */
+  tokensBefore?: number;
+
+  /** Token count after compaction */
+  tokensAfter?: number;
+
+  /** Whether compaction succeeded */
+  success: boolean;
+}
+
+/**
+ * Payload for ConfigChange hook
+ * Fired when configuration is updated
+ */
+export interface ConfigChangePayload extends HookPayload {
+  /** Configuration key that changed */
+  key: string;
+
+  /** Previous value */
+  previousValue?: unknown;
+
+  /** New value */
+  newValue?: unknown;
 }
 
 /**
@@ -353,19 +488,20 @@ export interface OnPatrolPayload extends HookPayload {
 }
 
 /**
- * Mapping from CLEO internal lifecycle events to CAAMP hook events
- * This is where CLEO connects its lifecycle to CAAMP's event definitions
+ * Mapping from CLEO internal lifecycle events to CAAMP canonical hook event names.
+ *
+ * Updated for CAAMP 1.9.1 canonical taxonomy.
  */
 export const CLEO_TO_CAAMP_HOOK_MAP = {
-  'session.start': 'onSessionStart',
-  'session.end': 'onSessionEnd',
-  'task.start': 'onToolStart',
-  'task.complete': 'onToolComplete',
-  'file.change': 'onFileChange',
-  'system.error': 'onError',
-  'prompt.submit': 'onPromptSubmit',
-  'response.complete': 'onResponseComplete',
-} as const;
+  'session.start': 'SessionStart',
+  'session.end': 'SessionEnd',
+  'task.start': 'PreToolUse',
+  'task.complete': 'PostToolUse',
+  'file.change': 'Notification',
+  'system.error': 'PostToolUseFailure',
+  'prompt.submit': 'PromptSubmit',
+  'response.complete': 'ResponseComplete',
+} as const satisfies Record<string, CanonicalHookEvent>;
 
 /**
  * Internal CLEO lifecycle events that drive autonomous coordination.

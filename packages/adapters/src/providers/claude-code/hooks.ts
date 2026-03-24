@@ -1,9 +1,9 @@
 /**
  * Claude Code Hook Provider
  *
- * Maps Claude Code's native hook events to CAAMP hook events.
+ * Maps Claude Code's native hook events to CAAMP canonical hook events.
  * Claude Code uses: SessionStart, PostToolUse, UserPromptSubmit, Stop
- * CAAMP defines: onSessionStart, onToolComplete, onPromptSubmit, onSessionEnd
+ * CAAMP canonical: SessionStart, PostToolUse, PromptSubmit, SessionEnd
  *
  * @task T5240
  * @task T144
@@ -15,13 +15,18 @@ import { join } from 'node:path';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
 /**
- * Mapping from Claude Code native event names to CAAMP event names.
+ * Mapping from Claude Code native event names to CAAMP canonical event names.
  */
 const CLAUDE_CODE_EVENT_MAP: Record<string, string> = {
-  SessionStart: 'onSessionStart',
-  PostToolUse: 'onToolComplete',
-  UserPromptSubmit: 'onPromptSubmit',
-  Stop: 'onSessionEnd',
+  SessionStart: 'SessionStart',
+  PostToolUse: 'PostToolUse',
+  UserPromptSubmit: 'PromptSubmit',
+  Stop: 'SessionEnd',
+  PreToolUse: 'PreToolUse',
+  PostToolUseFailure: 'PostToolUseFailure',
+  Notification: 'Notification',
+  SubagentStart: 'SubagentStart',
+  SubagentStop: 'SubagentStop',
 };
 
 /**

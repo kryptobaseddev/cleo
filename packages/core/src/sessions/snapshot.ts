@@ -209,7 +209,9 @@ export async function serializeSession(
           status: task.status,
           priority: task.priority ?? 'medium',
           description: desc.length > maxDescLen ? desc.slice(0, maxDescLen) + '...' : desc,
-          acceptance: Array.isArray(task.acceptance) ? task.acceptance.join('\n') : (task.acceptance ?? undefined),
+          acceptance: Array.isArray(task.acceptance)
+            ? task.acceptance.join('\n')
+            : (task.acceptance ?? undefined),
         };
       }
     } catch {
@@ -324,7 +326,7 @@ export async function restoreSession(
   // Dispatch hook (best-effort)
   try {
     const { hooks } = await import('../hooks/registry.js');
-    await hooks.dispatch('onSessionStart', projectRoot, {
+    await hooks.dispatch('SessionStart', projectRoot, {
       timestamp: new Date().toISOString(),
       sessionId: restoredSession.id,
       name: restoredSession.name,

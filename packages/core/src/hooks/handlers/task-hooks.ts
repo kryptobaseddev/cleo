@@ -8,7 +8,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnToolCompletePayload, OnToolStartPayload } from '../types.js';
+import type { PostToolUsePayload, PreToolUsePayload } from '../types.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
@@ -18,11 +18,11 @@ function isMissingBrainSchemaError(err: unknown): boolean {
 }
 
 /**
- * Handle onToolStart (maps to task.start in CLEO)
+ * Handle PreToolUse (maps to task.start in CLEO, canonical: was onToolStart)
  */
 export async function handleToolStart(
   projectRoot: string,
-  payload: OnToolStartPayload,
+  payload: PreToolUsePayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -39,13 +39,13 @@ export async function handleToolStart(
 }
 
 /**
- * Handle onToolComplete (maps to task.complete in CLEO)
+ * Handle PostToolUse (maps to task.complete in CLEO, canonical: was onToolComplete)
  *
  * T138: Refresh memory bridge after task completion.
  */
 export async function handleToolComplete(
   projectRoot: string,
-  payload: OnToolCompletePayload,
+  payload: PostToolUsePayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -67,14 +67,14 @@ export async function handleToolComplete(
 // Register handlers
 hooks.register({
   id: 'brain-tool-start',
-  event: 'onToolStart',
+  event: 'PreToolUse',
   handler: handleToolStart,
   priority: 100,
 });
 
 hooks.register({
   id: 'brain-tool-complete',
-  event: 'onToolComplete',
+  event: 'PostToolUse',
   handler: handleToolComplete,
   priority: 100,
 });

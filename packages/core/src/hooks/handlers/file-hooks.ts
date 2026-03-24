@@ -12,7 +12,7 @@
 
 import { isAbsolute, relative } from 'node:path';
 import { hooks } from '../registry.js';
-import type { OnFileChangePayload } from '../types.js';
+import type { NotificationPayload } from '../types.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -65,7 +65,7 @@ async function isFileCaptureEnabled(projectRoot: string): Promise<boolean> {
 }
 
 /**
- * Handle onFileChange - capture file changes to BRAIN
+ * Handle Notification (file-change variant) - capture file changes to BRAIN
  *
  * Gated behind brain.captureFiles config or CLEO_BRAIN_CAPTURE_FILES env var.
  * Env var takes precedence over config for backward compatibility.
@@ -75,8 +75,10 @@ async function isFileCaptureEnabled(projectRoot: string): Promise<boolean> {
  */
 export async function handleFileChange(
   projectRoot: string,
-  payload: OnFileChangePayload,
+  payload: NotificationPayload,
 ): Promise<void> {
+  // Only handle file-change notifications
+  if (!payload.filePath || !payload.changeType) return;
   // Opt-in gate: disabled by default to prevent observation noise
   if (!(await isFileCaptureEnabled(projectRoot))) return;
 
@@ -111,7 +113,7 @@ export async function handleFileChange(
 // Register handler on module load
 hooks.register({
   id: 'brain-file-change',
-  event: 'onFileChange',
+  event: 'Notification',
   handler: handleFileChange,
   priority: 100,
 });

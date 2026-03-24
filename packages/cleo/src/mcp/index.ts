@@ -306,9 +306,9 @@ async function main(): Promise<void> {
           }
         }
 
-        // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+        // Dispatch PromptSubmit hook (best-effort, fire-and-forget)
         hooks
-          .dispatch('onPromptSubmit', process.cwd(), {
+          .dispatch('PromptSubmit', process.cwd(), {
             timestamp: new Date().toISOString(),
             gateway: name,
             domain,
@@ -323,9 +323,9 @@ async function main(): Promise<void> {
         const dispatchStart = Date.now();
         let result = await handleMcpToolCall(name, domain, operation, params);
 
-        // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+        // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
         hooks
-          .dispatch('onResponseComplete', process.cwd(), {
+          .dispatch('ResponseComplete', process.cwd(), {
             timestamp: new Date().toISOString(),
             gateway: name,
             domain,
@@ -406,9 +406,9 @@ async function main(): Promise<void> {
 
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Dispatch onError hook (best-effort, fire-and-forget)
+        // Dispatch PostToolUseFailure hook (best-effort, fire-and-forget)
         hooks
-          .dispatch('onError', process.cwd(), {
+          .dispatch('PostToolUseFailure', process.cwd(), {
             timestamp: new Date().toISOString(),
             errorCode: 'E_INTERNAL_ERROR',
             message: errorMessage,

@@ -7,17 +7,20 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnErrorPayload } from '../types.js';
+import type { PostToolUseFailurePayload } from '../types.js';
 
 /**
- * Handle onError - capture operation errors to BRAIN
+ * Handle PostToolUseFailure - capture operation errors to BRAIN
  *
  * Includes infinite-loop guard: if the payload has _fromHook marker,
- * the handler skips to prevent onError -> observeBrain -> onError loops.
+ * the handler skips to prevent PostToolUseFailure -> observeBrain -> PostToolUseFailure loops.
  * Additionally, ALL observeBrain errors are silently suppressed to prevent
  * re-entrant hook firing.
  */
-export async function handleError(projectRoot: string, payload: OnErrorPayload): Promise<void> {
+export async function handleError(
+  projectRoot: string,
+  payload: PostToolUseFailurePayload,
+): Promise<void> {
   // Infinite-loop guard: skip if this error originated from a hook
   if (payload.metadata?.['_fromHook']) return;
 
@@ -42,7 +45,7 @@ export async function handleError(projectRoot: string, payload: OnErrorPayload):
 // Register handler on module load
 hooks.register({
   id: 'brain-error',
-  event: 'onError',
+  event: 'PostToolUseFailure',
   handler: handleError,
   priority: 100,
 });

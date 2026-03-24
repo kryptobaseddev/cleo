@@ -1,16 +1,16 @@
 /**
  * OpenCode Hook Provider
  *
- * Maps OpenCode's native hook events to CAAMP hook events.
- * OpenCode supports 6 of 8 CAAMP events through its agent/hook system.
+ * Maps OpenCode's native hook events to CAAMP canonical hook events.
+ * OpenCode supports 6 of the canonical events through its agent/hook system.
  *
  * OpenCode event mapping:
- * - session.start     -> onSessionStart
- * - session.end       -> onSessionEnd
- * - tool.start        -> onToolStart
- * - tool.complete     -> onToolComplete
- * - error             -> onError
- * - prompt.submit     -> onPromptSubmit
+ * - session.start     -> SessionStart
+ * - session.end       -> SessionEnd
+ * - tool.start        -> PreToolUse
+ * - tool.complete     -> PostToolUse
+ * - error             -> PostToolUseFailure
+ * - prompt.submit     -> PromptSubmit
  *
  * @task T5240
  */
@@ -18,18 +18,18 @@
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
 /**
- * Mapping from OpenCode native event names to CAAMP event names.
+ * Mapping from OpenCode native event names to CAAMP canonical event names.
  *
  * OpenCode uses dot-delimited event names (e.g. "session.start")
- * while CAAMP uses camelCase (e.g. "onSessionStart").
+ * while CAAMP canonical names are PascalCase (e.g. "SessionStart").
  */
 const OPENCODE_EVENT_MAP: Record<string, string> = {
-  'session.start': 'onSessionStart',
-  'session.end': 'onSessionEnd',
-  'tool.start': 'onToolStart',
-  'tool.complete': 'onToolComplete',
-  error: 'onError',
-  'prompt.submit': 'onPromptSubmit',
+  'session.start': 'SessionStart',
+  'session.end': 'SessionEnd',
+  'tool.start': 'PreToolUse',
+  'tool.complete': 'PostToolUse',
+  error: 'PostToolUseFailure',
+  'prompt.submit': 'PromptSubmit',
 };
 
 /**

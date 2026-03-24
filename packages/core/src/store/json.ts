@@ -100,10 +100,10 @@ export async function saveJson(
     // Atomic write
     await atomicWriteJson(filePath, data, { indent: options?.indent });
 
-    // Dispatch onFileChange hook (best-effort, fire-and-forget)
+    // Dispatch Notification hook (best-effort, fire-and-forget)
     import('../hooks/registry.js')
       .then(({ hooks: h }) =>
-        h.dispatch('onFileChange', process.cwd(), {
+        h.dispatch('Notification', process.cwd(), {
           timestamp: new Date().toISOString(),
           filePath,
           changeType: 'write' as const,

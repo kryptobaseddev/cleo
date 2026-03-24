@@ -17,7 +17,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnPromptSubmitPayload, OnResponseCompletePayload } from '../types.js';
+import type { PromptSubmitPayload, ResponseCompletePayload } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -60,9 +60,9 @@ async function isWorkCaptureEnabled(projectRoot: string): Promise<boolean> {
  * Mutations that represent novel work not already captured by lifecycle hooks.
  *
  * Excluded (already captured elsewhere):
- *   - tasks.complete  → task-hooks.ts (onToolComplete)
- *   - session.start   → session-hooks.ts (onSessionStart)
- *   - session.end     → session-hooks.ts (onSessionEnd)
+ *   - tasks.complete  → task-hooks.ts (PostToolUse)
+ *   - session.start   → session-hooks.ts (SessionStart)
+ *   - session.end     → session-hooks.ts (SessionEnd)
  *   - memory.brain.observe → observeBrain itself writes to brain; self-loop
  *
  * All query gateway operations are excluded by the gateway check before
@@ -100,17 +100,17 @@ function shouldCapture(gateway: string, domain: string, operation: string): bool
 // ---------------------------------------------------------------------------
 
 /**
- * Handle onPromptSubmit — log incoming mutation intents to BRAIN.
+ * Handle PromptSubmit — log incoming mutation intents to BRAIN.
  *
  * Only fires for mutate operations in CAPTURE_OPERATIONS.
  * Gated behind brain.captureWork config (or CLEO_BRAIN_CAPTURE_WORK env).
  *
  * @param projectRoot - Absolute path to the project root
- * @param payload     - onPromptSubmit event payload
+ * @param payload     - PromptSubmit event payload
  */
 export async function handleWorkPromptSubmit(
   projectRoot: string,
-  payload: OnPromptSubmitPayload,
+  payload: PromptSubmitPayload,
 ): Promise<void> {
   if (!shouldCapture(payload.gateway, payload.domain, payload.operation)) return;
   if (!(await isWorkCaptureEnabled(projectRoot))) return;
@@ -130,18 +130,18 @@ export async function handleWorkPromptSubmit(
 }
 
 /**
- * Handle onResponseComplete — capture completed mutations to BRAIN.
+ * Handle ResponseComplete — capture completed mutations to BRAIN.
  *
  * Only fires for successful mutate operations in CAPTURE_OPERATIONS.
  * Failures are skipped — the intent was already captured by handleWorkPromptSubmit.
  * Gated behind brain.captureWork config (or CLEO_BRAIN_CAPTURE_WORK env).
  *
  * @param projectRoot - Absolute path to the project root
- * @param payload     - onResponseComplete event payload
+ * @param payload     - ResponseComplete event payload
  */
 export async function handleWorkResponseComplete(
   projectRoot: string,
-  payload: OnResponseCompletePayload,
+  payload: ResponseCompletePayload,
 ): Promise<void> {
   if (!shouldCapture(payload.gateway, payload.domain, payload.operation)) return;
   // Only capture successful completions — failures are noise
@@ -171,14 +171,14 @@ export async function handleWorkResponseComplete(
 // handlers always run first.
 hooks.register({
   id: 'work-capture-prompt-submit',
-  event: 'onPromptSubmit',
+  event: 'PromptSubmit',
   handler: handleWorkPromptSubmit,
   priority: 90,
 });
 
 hooks.register({
   id: 'work-capture-response-complete',
-  event: 'onResponseComplete',
+  event: 'ResponseComplete',
   handler: handleWorkResponseComplete,
   priority: 90,
 });

@@ -144,9 +144,9 @@ export async function dispatchFromCli(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+  // Dispatch PromptSubmit hook (best-effort, fire-and-forget)
   hooks
-    .dispatch('onPromptSubmit', projectRoot, {
+    .dispatch('PromptSubmit', projectRoot, {
       timestamp: new Date().toISOString(),
       gateway,
       domain,
@@ -166,9 +166,9 @@ export async function dispatchFromCli(
     requestId: randomUUID(),
   });
 
-  // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+  // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
   hooks
-    .dispatch('onResponseComplete', projectRoot, {
+    .dispatch('ResponseComplete', projectRoot, {
       timestamp: new Date().toISOString(),
       gateway,
       domain,
@@ -253,9 +253,9 @@ export async function dispatchRaw(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+  // Dispatch PromptSubmit hook (best-effort, fire-and-forget)
   hooks
-    .dispatch('onPromptSubmit', projectRoot, {
+    .dispatch('PromptSubmit', projectRoot, {
       timestamp: new Date().toISOString(),
       gateway,
       domain,
@@ -275,9 +275,9 @@ export async function dispatchRaw(
     requestId: randomUUID(),
   });
 
-  // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+  // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
   hooks
-    .dispatch('onResponseComplete', projectRoot, {
+    .dispatch('ResponseComplete', projectRoot, {
       timestamp: new Date().toISOString(),
       gateway,
       domain,

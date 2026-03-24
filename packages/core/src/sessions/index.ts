@@ -170,10 +170,10 @@ export async function startSession(
       });
   }
 
-  // Dispatch onSessionStart hook (best-effort, don't await)
+  // Dispatch SessionStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
-    .dispatch('onSessionStart', cwd ?? process.cwd(), {
+    .dispatch('SessionStart', cwd ?? process.cwd(), {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
       name: options.name,
@@ -233,10 +233,10 @@ export async function endSession(
 
   const duration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
 
-  // Dispatch onSessionEnd hook (best-effort, don't await)
+  // Dispatch SessionEnd hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
-    .dispatch('onSessionEnd', cwd ?? process.cwd(), {
+    .dispatch('SessionEnd', cwd ?? process.cwd(), {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
       duration,

@@ -38,12 +38,12 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     supportedHookEvents: [
-      'onSessionStart',
-      'onSessionEnd',
-      'onToolStart',
-      'onToolComplete',
-      'onError',
-      'onPromptSubmit',
+      'SessionStart',
+      'SessionEnd',
+      'PreToolUse',
+      'PostToolUse',
+      'PostToolUseFailure',
+      'PromptSubmit',
     ],
     supportsSpawn: true,
     supportsInstall: true,

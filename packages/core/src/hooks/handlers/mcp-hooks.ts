@@ -10,7 +10,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnPromptSubmitPayload, OnResponseCompletePayload } from '../types.js';
+import type { PromptSubmitPayload, ResponseCompletePayload } from '../types.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -42,14 +42,14 @@ async function isBrainCaptureEnabled(projectRoot: string): Promise<boolean> {
 }
 
 /**
- * Handle onPromptSubmit - optionally capture ALL gateway prompt events to BRAIN.
+ * Handle PromptSubmit - optionally capture ALL gateway prompt events to BRAIN.
  *
  * No-op by default. Enable via brain.captureMcp config or CLEO_BRAIN_CAPTURE_MCP env.
  * For selective mutation-only capture, use work-capture-hooks.ts instead.
  */
 export async function handlePromptSubmit(
   projectRoot: string,
-  payload: OnPromptSubmitPayload,
+  payload: PromptSubmitPayload,
 ): Promise<void> {
   if (!(await isBrainCaptureEnabled(projectRoot))) return;
 
@@ -68,14 +68,14 @@ export async function handlePromptSubmit(
 }
 
 /**
- * Handle onResponseComplete - optionally capture ALL gateway response events to BRAIN.
+ * Handle ResponseComplete - optionally capture ALL gateway response events to BRAIN.
  *
  * No-op by default. Enable via brain.captureMcp config or CLEO_BRAIN_CAPTURE_MCP env.
  * For selective mutation-only capture, use work-capture-hooks.ts instead.
  */
 export async function handleResponseComplete(
   projectRoot: string,
-  payload: OnResponseCompletePayload,
+  payload: ResponseCompletePayload,
 ): Promise<void> {
   if (!(await isBrainCaptureEnabled(projectRoot))) return;
 
@@ -96,14 +96,14 @@ export async function handleResponseComplete(
 // Register handlers on module load
 hooks.register({
   id: 'brain-prompt-submit',
-  event: 'onPromptSubmit',
+  event: 'PromptSubmit',
   handler: handlePromptSubmit,
   priority: 100,
 });
 
 hooks.register({
   id: 'brain-response-complete',
-  event: 'onResponseComplete',
+  event: 'ResponseComplete',
   handler: handleResponseComplete,
   priority: 100,
 });

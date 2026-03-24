@@ -43,11 +43,11 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     supportedHookEvents: [
-      'onSessionStart',
-      'onSessionEnd',
-      'onToolStart',
-      'onToolComplete',
-      'onError',
+      'SessionStart',
+      'SessionEnd',
+      'PreToolUse',
+      'PostToolUse',
+      'PostToolUseFailure',
     ],
     supportsSpawn: true,
     supportsInstall: true,

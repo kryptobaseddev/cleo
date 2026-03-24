@@ -10,7 +10,7 @@
  */
 
 import { hooks } from '../registry.js';
-import type { OnSessionEndPayload, OnSessionStartPayload } from '../types.js';
+import type { SessionEndPayload, SessionStartPayload } from '../types.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
@@ -20,14 +20,14 @@ function isMissingBrainSchemaError(err: unknown): boolean {
 }
 
 /**
- * Handle onSessionStart - capture initial session context
+ * Handle SessionStart - capture initial session context
  *
  * T138: Refresh memory bridge on session start.
  * T139: Regenerate bridge with session scope context.
  */
 export async function handleSessionStart(
   projectRoot: string,
-  payload: OnSessionStartPayload,
+  payload: SessionStartPayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -48,14 +48,14 @@ export async function handleSessionStart(
 }
 
 /**
- * Handle onSessionEnd - capture session summary
+ * Handle SessionEnd - capture session summary
  *
  * T138: Refresh memory bridge after session ends.
  * T144: Extract transcript observations via cross-provider adapter.
  */
 export async function handleSessionEnd(
   projectRoot: string,
-  payload: OnSessionEndPayload,
+  payload: SessionEndPayload,
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
@@ -107,14 +107,14 @@ export async function handleSessionEnd(
 // Register handlers on module load
 hooks.register({
   id: 'brain-session-start',
-  event: 'onSessionStart',
+  event: 'SessionStart',
   handler: handleSessionStart,
   priority: 100,
 });
 
 hooks.register({
   id: 'brain-session-end',
-  event: 'onSessionEnd',
+  event: 'SessionEnd',
   handler: handleSessionEnd,
   priority: 100,
 });
