@@ -33,6 +33,17 @@ export type {
   SupersededEntry,
 } from './brain.js';
 export type { AdapterCapabilities } from './capabilities.js';
+// === Conduit Protocol (agent-to-agent communication) ===
+export type {
+  Conduit,
+  ConduitConfig,
+  ConduitMessage,
+  ConduitSendOptions,
+  ConduitSendResult,
+  ConduitState,
+  ConduitStateChange,
+  ConduitUnsubscribe,
+} from './conduit.js';
 // === Configuration Types ===
 export type {
   BackupConfig,
