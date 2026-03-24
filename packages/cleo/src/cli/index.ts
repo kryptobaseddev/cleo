@@ -11,6 +11,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
+import { setFieldContext, resolveFieldContext } from './field-context.js';
+import { setFormatContext } from './format-context.js';
+import { resolveFormat } from './middleware/output-format.js';
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
@@ -325,6 +328,47 @@ for (const shim of rootShim._subcommands) {
   subCommands[shim._name] = shimToCitty(shim);
   for (const alias of shim._aliases) {
     subCommands[alias] = shimToCitty(shim);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Global flag resolution (replaces Commander.js preAction hook)
+//
+// LAFS format flags (--human, --json, --quiet) and field flags (--field,
+// --fields, --mvi) must be resolved BEFORE any command runs so that
+// cliOutput() and dispatchFromCli() can read the correct context.
+// This was previously done in a Commander.js preAction hook that was lost
+// during the citty migration — restoring it here fixes --human, --quiet, etc.
+// ---------------------------------------------------------------------------
+{
+  const argv = process.argv.slice(2);
+
+  // Parse global format + field flags from argv
+  const rawOpts: Record<string, unknown> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--json') rawOpts['json'] = true;
+    else if (arg === '--human') rawOpts['human'] = true;
+    else if (arg === '--quiet') rawOpts['quiet'] = true;
+    else if (arg === '--field' && i + 1 < argv.length) rawOpts['field'] = argv[++i];
+    else if (arg === '--fields' && i + 1 < argv.length) rawOpts['fields'] = argv[++i];
+    else if (arg === '--mvi' && i + 1 < argv.length) rawOpts['mvi'] = argv[++i];
+  }
+
+  // Resolve and set format context (JSON/human/quiet)
+  const formatResolution = resolveFormat(rawOpts);
+  setFormatContext(formatResolution);
+
+  // Resolve and set field extraction context (--field, --fields, --mvi)
+  const fieldResolution = resolveFieldContext(rawOpts);
+  setFieldContext(fieldResolution);
+
+  // Handle -V as alias for --version (citty handles --version but not -V)
+  // Must come after format context is set so output respects --json/--human
+  if (argv[0] === '-V') {
+    const { cliOutput } = await import('./renderers/index.js');
+    cliOutput({ version: CLI_VERSION }, { command: 'version' });
+    process.exit(0);
   }
 }
 
