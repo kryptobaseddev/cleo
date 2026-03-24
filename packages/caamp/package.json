@@ -1,0 +1,91 @@
+{
+  "name": "@cleocode/caamp",
+  "version": "2026.3.74",
+  "description": "Central AI Agent Managed Packages - unified provider registry and package manager for AI coding agents",
+  "type": "module",
+  "bin": {
+    "caamp": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "providers",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint src tests",
+    "lint:fix": "biome lint --write src tests",
+    "docs:api": "typedoc",
+    "docs:api:check": "typedoc --emit none",
+    "research": "tsx scripts/provider-research.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "mcp",
+    "skills",
+    "cli",
+    "claude",
+    "cursor",
+    "windsurf",
+    "codex",
+    "gemini"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/caamp"
+  },
+  "homepage": "https://github.com/kryptobaseddev/cleo/tree/main/packages/caamp#readme",
+  "bugs": {
+    "url": "https://github.com/kryptobaseddev/cleo/issues"
+  },
+  "dependencies": {
+    "@cleocode/lafs": "workspace:*",
+    "@iarna/toml": "^2.2.5",
+    "commander": "^14.0.0",
+    "env-paths": "^4.0.0",
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.0",
+    "jsonc-parser": "^3.3.1",
+    "picocolors": "^1.1.1",
+    "simple-git": "3.33.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.8",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "25.5.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.21.0",
+    "typedoc": "0.28.17",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "overrides": {
+    "minimatch": ">=10.2.1"
+  }
+}

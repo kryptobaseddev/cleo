@@ -100,7 +100,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for pkg in packages/contracts packages/core packages/lafs packages/adapters packages/cleo packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/adapters packages/cleo packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -118,6 +118,7 @@ jobs:
         run: |
           declare -a required_artifacts=(
             "packages/contracts/dist/index.js"
+            "packages/caamp/dist/index.js"
             "packages/lafs/dist/src/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
@@ -175,6 +176,13 @@ jobs:
           cp -r packages/lafs/dist packages/lafs/package.json "$STAGING/packages/lafs/"
           for extra in schemas lafs.md README.md LICENSE; do
             [[ -e "packages/lafs/$extra" ]] && cp -r "packages/lafs/$extra" "$STAGING/packages/lafs/" || true
+          done
+
+          # CAAMP package
+          mkdir -p "$STAGING/packages/caamp"
+          cp -r packages/caamp/dist packages/caamp/package.json "$STAGING/packages/caamp/"
+          for extra in providers README.md LICENSE; do
+            [[ -e "packages/caamp/$extra" ]] && cp -r "packages/caamp/$extra" "$STAGING/packages/caamp/" || true
           done
 
           # Adapters package
@@ -290,6 +298,7 @@ jobs:
 
           publish_pkg contracts
           publish_pkg lafs
+          publish_pkg caamp
           publish_pkg core
           publish_pkg adapters
           publish_pkg agents

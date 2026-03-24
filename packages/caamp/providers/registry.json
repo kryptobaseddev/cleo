@@ -1,0 +1,1676 @@
+{
+  "version": "1.1.0",
+  "lastUpdated": "2026-03-24",
+  "providers": {
+    "claude-code": {
+      "id": "claude-code",
+      "toolName": "Claude Code",
+      "vendor": "Anthropic",
+      "agentFlag": "claude-code",
+      "aliases": [
+        "claude"
+      ],
+      "pathGlobal": "$HOME/.claude",
+      "pathProject": ".claude",
+      "instructFile": "CLAUDE.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.claude.json",
+      "configPathProject": ".mcp.json",
+      "pathSkills": "$HOME/.claude/skills",
+      "pathProjectSkills": ".claude/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "claude",
+        "directories": [
+          "$HOME/.claude"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "high",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "hooks": {
+          "supported": [
+            "SessionStart",
+            "SessionEnd",
+            "UserPromptSubmit",
+            "Stop",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "PermissionRequest",
+            "SubagentStart",
+            "SubagentStop",
+            "PreCompact",
+            "PostCompact",
+            "Notification",
+            "ConfigChange",
+            "StopFailure",
+            "TeammateIdle",
+            "TaskCompleted",
+            "InstructionsLoaded",
+            "WorktreeCreate",
+            "WorktreeRemove",
+            "Elicitation",
+            "ElicitationResult"
+          ],
+          "hookConfigPath": "$HOME/.claude/settings.json",
+          "hookFormat": "json"
+        },
+        "spawn": {
+          "supportsSubagents": true,
+          "supportsProgrammaticSpawn": true,
+          "supportsInterAgentComms": true,
+          "supportsParallelSpawn": true,
+          "spawnMechanism": "native"
+        }
+      }
+    },
+    "cursor": {
+      "id": "cursor",
+      "toolName": "Cursor",
+      "vendor": "Anysphere",
+      "agentFlag": "cursor",
+      "aliases": [],
+      "pathGlobal": "$HOME/.cursor",
+      "pathProject": ".cursor",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.cursor/mcp.json",
+      "configPathProject": ".cursor/mcp.json",
+      "pathSkills": "$HOME/.cursor/skills",
+      "pathProjectSkills": ".cursor/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "cursor",
+        "directories": [
+          "$HOME/.cursor"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "high",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "vendor-global-agents-project",
+          "agentsGlobalPath": null,
+          "agentsProjectPath": ".agents/skills"
+        },
+        "hooks": {
+          "supported": [
+            "sessionStart",
+            "sessionEnd",
+            "beforeSubmitPrompt",
+            "stop",
+            "preToolUse",
+            "postToolUse",
+            "postToolUseFailure",
+            "subagentStart",
+            "subagentStop",
+            "preCompact",
+            "beforeShellExecution",
+            "afterShellExecution",
+            "beforeMCPExecution",
+            "afterMCPExecution",
+            "beforeReadFile",
+            "afterFileEdit",
+            "afterAgentResponse",
+            "afterAgentThought",
+            "beforeTabFileRead",
+            "afterTabFileEdit"
+          ],
+          "hookConfigPath": ".cursor/hooks.json",
+          "hookFormat": "json"
+        }
+      }
+    },
+    "windsurf": {
+      "id": "windsurf",
+      "toolName": "Windsurf",
+      "vendor": "Codeium",
+      "agentFlag": "windsurf",
+      "aliases": [
+        "codeium"
+      ],
+      "pathGlobal": "$HOME/.codeium/windsurf",
+      "pathProject": ".windsurf",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.codeium/windsurf/mcp_config.json",
+      "configPathProject": ".windsurf/mcp.json",
+      "pathSkills": "$HOME/.codeium/windsurf/skills",
+      "pathProjectSkills": ".windsurf/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "windsurf",
+        "directories": [
+          "$HOME/.codeium/windsurf"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "high",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "codex": {
+      "id": "codex",
+      "toolName": "Codex CLI",
+      "vendor": "OpenAI",
+      "agentFlag": "codex",
+      "aliases": [
+        "openai-codex"
+      ],
+      "pathGlobal": "$HOME/.codex",
+      "pathProject": ".codex",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcp_servers",
+      "configFormat": "toml",
+      "configPathGlobal": "$HOME/.codex/config.toml",
+      "configPathProject": ".codex/config.toml",
+      "pathSkills": "$HOME/.codex/skills",
+      "pathProjectSkills": ".codex/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "codex",
+        "directories": [
+          "$HOME/.codex"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "agents-canonical",
+          "agentsGlobalPath": "$HOME/.agents/skills",
+          "agentsProjectPath": ".agents/skills"
+        },
+        "hooks": {
+          "supported": [
+            "SessionStart",
+            "Stop",
+            "UserPromptSubmit"
+          ],
+          "hookConfigPath": ".codex/hooks.json",
+          "hookFormat": "json"
+        },
+        "spawn": {
+          "supportsSubagents": true,
+          "supportsProgrammaticSpawn": true,
+          "supportsInterAgentComms": false,
+          "supportsParallelSpawn": true,
+          "spawnMechanism": "cli"
+        }
+      }
+    },
+    "gemini-cli": {
+      "id": "gemini-cli",
+      "toolName": "Gemini CLI",
+      "vendor": "Google",
+      "agentFlag": "gemini-cli",
+      "aliases": [
+        "gemini"
+      ],
+      "pathGlobal": "$HOME/.gemini",
+      "pathProject": ".gemini",
+      "instructFile": "GEMINI.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.gemini/settings.json",
+      "configPathProject": ".gemini/settings.json",
+      "pathSkills": "$HOME/.gemini/skills",
+      "pathProjectSkills": ".gemini/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "gemini",
+        "directories": [
+          "$HOME/.gemini"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "agents-first",
+          "agentsGlobalPath": "$HOME/.agents/skills",
+          "agentsProjectPath": ".agents/skills"
+        },
+        "hooks": {
+          "supported": [
+            "SessionStart",
+            "SessionEnd",
+            "BeforeAgent",
+            "AfterAgent",
+            "BeforeModel",
+            "AfterModel",
+            "BeforeToolSelection",
+            "BeforeTool",
+            "AfterTool",
+            "PreCompress",
+            "Notification"
+          ],
+          "hookConfigPath": "$HOME/.gemini/settings.json",
+          "hookFormat": "json"
+        },
+        "spawn": {
+          "supportsSubagents": true,
+          "supportsProgrammaticSpawn": true,
+          "supportsInterAgentComms": false,
+          "supportsParallelSpawn": false,
+          "spawnMechanism": "cli"
+        }
+      }
+    },
+    "github-copilot": {
+      "id": "github-copilot",
+      "toolName": "GitHub Copilot",
+      "vendor": "GitHub",
+      "agentFlag": "github-copilot",
+      "aliases": [
+        "copilot"
+      ],
+      "pathGlobal": "$HOME/.github",
+      "pathProject": ".github",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.github/copilot/mcp.json",
+      "configPathProject": ".github/copilot/mcp.json",
+      "pathSkills": "$HOME/.github/skills",
+      "pathProjectSkills": ".github/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.github"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "agents-supported",
+          "agentsGlobalPath": "$HOME/.agents/skills",
+          "agentsProjectPath": ".agents/skills"
+        }
+      }
+    },
+    "opencode": {
+      "id": "opencode",
+      "toolName": "OpenCode",
+      "vendor": "OpenCode",
+      "agentFlag": "opencode",
+      "aliases": [],
+      "pathGlobal": "$CONFIG/opencode",
+      "pathProject": ".opencode",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcp",
+      "configFormat": "json",
+      "configPathGlobal": "$CONFIG/opencode/opencode.json",
+      "configPathProject": "opencode.json",
+      "pathSkills": "$CONFIG/opencode/skills",
+      "pathProjectSkills": ".opencode/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "opencode"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "agents-supported",
+          "agentsGlobalPath": "$HOME/.agents/skills",
+          "agentsProjectPath": ".agents/skills"
+        },
+        "hooks": {
+          "supported": [
+            "tool.execute.before",
+            "tool.execute.after",
+            "chat.message",
+            "chat.params",
+            "chat.headers",
+            "permission.ask",
+            "command.execute.before",
+            "shell.env",
+            "tool.definition",
+            "experimental.session.compacting",
+            "experimental.chat.messages.transform",
+            "experimental.chat.system.transform",
+            "experimental.text.complete"
+          ],
+          "hookConfigPath": ".opencode/plugins/",
+          "hookFormat": "javascript"
+        },
+        "spawn": {
+          "supportsSubagents": true,
+          "supportsProgrammaticSpawn": true,
+          "supportsInterAgentComms": true,
+          "supportsParallelSpawn": true,
+          "spawnMechanism": "native"
+        }
+      }
+    },
+    "cline": {
+      "id": "cline",
+      "toolName": "Cline",
+      "vendor": "Cline",
+      "agentFlag": "cline",
+      "aliases": [],
+      "pathGlobal": "$HOME/.cline",
+      "pathProject": ".cline",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.cline/mcp_settings.json",
+      "configPathProject": ".cline/mcp_settings.json",
+      "pathSkills": "$HOME/.cline/skills",
+      "pathProjectSkills": ".cline/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.cline"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "kimi": {
+      "id": "kimi",
+      "toolName": "Kimi Coding",
+      "vendor": "Moonshot AI",
+      "agentFlag": "kimi",
+      "aliases": [
+        "kimi-coding"
+      ],
+      "pathGlobal": "$HOME/.kimi",
+      "pathProject": ".kimi",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.kimi/mcp.json",
+      "configPathProject": ".kimi/mcp.json",
+      "pathSkills": "$HOME/.kimi/skills",
+      "pathProjectSkills": ".kimi/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "kimi",
+        "directories": [
+          "$HOME/.kimi"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "vendor-only",
+          "agentsGlobalPath": null,
+          "agentsProjectPath": null
+        },
+        "spawn": {
+          "supportsSubagents": false,
+          "supportsProgrammaticSpawn": false,
+          "supportsInterAgentComms": false,
+          "supportsParallelSpawn": false,
+          "spawnMechanism": null
+        }
+      }
+    },
+    "vscode": {
+      "id": "vscode",
+      "toolName": "VS Code",
+      "vendor": "Microsoft",
+      "agentFlag": "vscode",
+      "aliases": [
+        "code"
+      ],
+      "pathGlobal": "$VSCODE_CONFIG",
+      "pathProject": ".vscode",
+      "instructFile": "AGENTS.md",
+      "configKey": "servers",
+      "configFormat": "json",
+      "configPathGlobal": "$VSCODE_CONFIG/mcp.json",
+      "configPathProject": ".vscode/mcp.json",
+      "pathSkills": "$VSCODE_CONFIG/skills",
+      "pathProjectSkills": ".vscode/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "code",
+        "directories": [
+          "$HOME/.vscode"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "zed": {
+      "id": "zed",
+      "toolName": "Zed",
+      "vendor": "Zed Industries",
+      "agentFlag": "zed",
+      "aliases": [],
+      "pathGlobal": "$ZED_CONFIG",
+      "pathProject": ".zed",
+      "instructFile": "AGENTS.md",
+      "configKey": "context_servers",
+      "configFormat": "jsonc",
+      "configPathGlobal": "$ZED_CONFIG/settings.json",
+      "configPathProject": ".zed/settings.json",
+      "pathSkills": "$ZED_CONFIG/skills",
+      "pathProjectSkills": ".zed/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory",
+          "appBundle"
+        ],
+        "binary": "zed",
+        "appBundle": "Zed.app",
+        "directories": [
+          "$HOME/.config/zed"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "claude-desktop": {
+      "id": "claude-desktop",
+      "toolName": "Claude Desktop",
+      "vendor": "Anthropic",
+      "agentFlag": "claude-desktop",
+      "aliases": [],
+      "pathGlobal": "$CLAUDE_DESKTOP_CONFIG",
+      "pathProject": "",
+      "instructFile": "CLAUDE.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$CLAUDE_DESKTOP_CONFIG/claude_desktop_config.json",
+      "configPathProject": null,
+      "pathSkills": "",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": [
+          "appBundle",
+          "directory"
+        ],
+        "appBundle": "Claude.app",
+        "directories": [
+          "$CLAUDE_DESKTOP_CONFIG"
+        ]
+      },
+      "supportedTransports": [
+        "stdio"
+      ],
+      "supportsHeaders": false,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "roo": {
+      "id": "roo",
+      "toolName": "Roo Code",
+      "vendor": "Roo Code",
+      "agentFlag": "roo",
+      "aliases": [
+        "roo-code",
+        "roo-cline"
+      ],
+      "pathGlobal": "$HOME/.roo",
+      "pathProject": ".roo",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.roo/mcp_settings.json",
+      "configPathProject": ".roo/mcp_settings.json",
+      "pathSkills": "$HOME/.roo/skills",
+      "pathProjectSkills": ".roo/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.roo"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "continue": {
+      "id": "continue",
+      "toolName": "Continue",
+      "vendor": "Continue",
+      "agentFlag": "continue",
+      "aliases": [],
+      "pathGlobal": "$HOME/.continue",
+      "pathProject": ".continue",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.continue/config.json",
+      "configPathProject": ".continue/config.json",
+      "pathSkills": "$HOME/.continue/skills",
+      "pathProjectSkills": ".continue/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.continue"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "goose": {
+      "id": "goose",
+      "toolName": "Goose",
+      "vendor": "Block",
+      "agentFlag": "goose",
+      "aliases": [],
+      "pathGlobal": "$CONFIG/goose",
+      "pathProject": "",
+      "instructFile": "AGENTS.md",
+      "configKey": "extensions",
+      "configFormat": "yaml",
+      "configPathGlobal": "$CONFIG/goose/config.yaml",
+      "configPathProject": null,
+      "pathSkills": "$CONFIG/goose/skills",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "goose"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": false,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "antigravity": {
+      "id": "antigravity",
+      "toolName": "Antigravity",
+      "vendor": "Antigravity",
+      "agentFlag": "antigravity",
+      "aliases": [],
+      "pathGlobal": "$HOME/.antigravity",
+      "pathProject": ".agent",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.antigravity/mcp.json",
+      "configPathProject": ".agent/mcp.json",
+      "pathSkills": "$HOME/.antigravity/skills",
+      "pathProjectSkills": ".agent/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.antigravity"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "vendor-global-agents-project",
+          "agentsGlobalPath": null,
+          "agentsProjectPath": ".agents/skills"
+        }
+      }
+    },
+    "kiro-cli": {
+      "id": "kiro-cli",
+      "toolName": "Kiro",
+      "vendor": "Amazon",
+      "agentFlag": "kiro",
+      "aliases": [
+        "kiro"
+      ],
+      "pathGlobal": "$HOME/.kiro",
+      "pathProject": ".kiro",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.kiro/mcp.json",
+      "configPathProject": ".kiro/mcp.json",
+      "pathSkills": "$HOME/.kiro/skills",
+      "pathProjectSkills": ".kiro/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "kiro",
+        "directories": [
+          "$HOME/.kiro"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "amp": {
+      "id": "amp",
+      "toolName": "Amp",
+      "vendor": "Sourcegraph",
+      "agentFlag": "amp",
+      "aliases": [],
+      "pathGlobal": "$CONFIG/amp",
+      "pathProject": ".amp",
+      "instructFile": "AGENTS.md",
+      "configKey": "amp.mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$CONFIG/amp/settings.json",
+      "configPathProject": ".amp/settings.json",
+      "pathSkills": "$CONFIG/amp/skills",
+      "pathProjectSkills": ".amp/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "amp"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "trae": {
+      "id": "trae",
+      "toolName": "Trae",
+      "vendor": "ByteDance",
+      "agentFlag": "trae",
+      "aliases": [],
+      "pathGlobal": "$HOME/.trae",
+      "pathProject": ".trae",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.trae/mcp.json",
+      "configPathProject": ".trae/mcp.json",
+      "pathSkills": "$HOME/.trae/skills",
+      "pathProjectSkills": ".trae/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "trae",
+        "directories": [
+          "$HOME/.trae"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "aide": {
+      "id": "aide",
+      "toolName": "Aide",
+      "vendor": "Aide",
+      "agentFlag": "aide",
+      "aliases": [],
+      "pathGlobal": "$HOME/.aide",
+      "pathProject": ".aide",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.aide/mcp.json",
+      "configPathProject": ".aide/mcp.json",
+      "pathSkills": "$HOME/.aide/skills",
+      "pathProjectSkills": ".aide/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "aide",
+        "directories": [
+          "$HOME/.aide"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "pear-ai": {
+      "id": "pear-ai",
+      "toolName": "Pear AI",
+      "vendor": "Pear AI",
+      "agentFlag": "pear-ai",
+      "aliases": [
+        "pear"
+      ],
+      "pathGlobal": "$HOME/.pear",
+      "pathProject": ".pear",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.pear/mcp.json",
+      "configPathProject": ".pear/mcp.json",
+      "pathSkills": "$HOME/.pear/skills",
+      "pathProjectSkills": ".pear/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "pearai",
+        "directories": [
+          "$HOME/.pear"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "void-ai": {
+      "id": "void-ai",
+      "toolName": "Void AI",
+      "vendor": "Void",
+      "agentFlag": "void",
+      "aliases": [
+        "void"
+      ],
+      "pathGlobal": "$HOME/.void",
+      "pathProject": ".void",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.void/mcp.json",
+      "configPathProject": ".void/mcp.json",
+      "pathSkills": "$HOME/.void/skills",
+      "pathProjectSkills": ".void/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.void"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "cody": {
+      "id": "cody",
+      "toolName": "Sourcegraph Cody",
+      "vendor": "Sourcegraph",
+      "agentFlag": "cody",
+      "aliases": [
+        "sourcegraph-cody"
+      ],
+      "pathGlobal": "$HOME/.cody",
+      "pathProject": ".cody",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.cody/mcp.json",
+      "configPathProject": ".cody/mcp.json",
+      "pathSkills": "$HOME/.cody/skills",
+      "pathProjectSkills": ".cody/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.cody"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "kilo-code": {
+      "id": "kilo-code",
+      "toolName": "Kilo Code",
+      "vendor": "Kilo Code",
+      "agentFlag": "kilo-code",
+      "aliases": [
+        "kilo"
+      ],
+      "pathGlobal": "$HOME/.kilo-code",
+      "pathProject": ".kilo-code",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.kilo-code/mcp_settings.json",
+      "configPathProject": ".kilo-code/mcp_settings.json",
+      "pathSkills": "$HOME/.kilo-code/skills",
+      "pathProjectSkills": ".kilo-code/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.kilo-code"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "qwen-code": {
+      "id": "qwen-code",
+      "toolName": "Qwen Code",
+      "vendor": "Alibaba",
+      "agentFlag": "qwen-code",
+      "aliases": [
+        "qwen"
+      ],
+      "pathGlobal": "$HOME/.qwen-code",
+      "pathProject": ".qwen-code",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.qwen-code/mcp.json",
+      "configPathProject": ".qwen-code/mcp.json",
+      "pathSkills": "$HOME/.qwen-code/skills",
+      "pathProjectSkills": ".qwen-code/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "qwen-code"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "openhands": {
+      "id": "openhands",
+      "toolName": "OpenHands",
+      "vendor": "All Hands AI",
+      "agentFlag": "openhands",
+      "aliases": [],
+      "pathGlobal": "$HOME/.openhands",
+      "pathProject": ".openhands",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.openhands/mcp.json",
+      "configPathProject": ".openhands/mcp.json",
+      "pathSkills": "$HOME/.openhands/skills",
+      "pathProjectSkills": ".openhands/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "openhands",
+        "directories": [
+          "$HOME/.openhands"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "codebuddy": {
+      "id": "codebuddy",
+      "toolName": "CodeBuddy",
+      "vendor": "CodeBuddy",
+      "agentFlag": "codebuddy",
+      "aliases": [],
+      "pathGlobal": "$HOME/.codebuddy",
+      "pathProject": ".codebuddy",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.codebuddy/mcp.json",
+      "configPathProject": ".codebuddy/mcp.json",
+      "pathSkills": "$HOME/.codebuddy/skills",
+      "pathProjectSkills": ".codebuddy/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.codebuddy"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "codestory": {
+      "id": "codestory",
+      "toolName": "CodeStory",
+      "vendor": "CodeStory",
+      "agentFlag": "codestory",
+      "aliases": [],
+      "pathGlobal": "$HOME/.codestory",
+      "pathProject": ".codestory",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.codestory/mcp.json",
+      "configPathProject": ".codestory/mcp.json",
+      "pathSkills": "$HOME/.codestory/skills",
+      "pathProjectSkills": ".codestory/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.codestory"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "beta",
+      "agentSkillsCompatible": true
+    },
+    "aider": {
+      "id": "aider",
+      "toolName": "Aider",
+      "vendor": "Aider",
+      "agentFlag": "aider",
+      "aliases": [],
+      "pathGlobal": "$HOME/.aider",
+      "pathProject": ".aider",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.aider/mcp.json",
+      "configPathProject": ".aider/mcp.json",
+      "pathSkills": "$HOME/.aider/skills",
+      "pathProjectSkills": ".aider/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "aider"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": false,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "amazon-q": {
+      "id": "amazon-q",
+      "toolName": "Amazon Q Developer",
+      "vendor": "Amazon",
+      "agentFlag": "amazon-q",
+      "aliases": [
+        "q",
+        "amazon-q-developer"
+      ],
+      "pathGlobal": "$HOME/.aws/amazonq",
+      "pathProject": ".amazonq",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.aws/amazonq/mcp.json",
+      "configPathProject": ".amazonq/mcp.json",
+      "pathSkills": "$HOME/.aws/amazonq/skills",
+      "pathProjectSkills": ".amazonq/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "q",
+        "directories": [
+          "$HOME/.aws/amazonq"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "tabnine": {
+      "id": "tabnine",
+      "toolName": "Tabnine",
+      "vendor": "Tabnine",
+      "agentFlag": "tabnine",
+      "aliases": [],
+      "pathGlobal": "$HOME/.tabnine",
+      "pathProject": ".tabnine",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.tabnine/mcp_servers.json",
+      "configPathProject": ".tabnine/mcp_servers.json",
+      "pathSkills": "$HOME/.tabnine/skills",
+      "pathProjectSkills": ".tabnine/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.tabnine"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "augment": {
+      "id": "augment",
+      "toolName": "Augment Code",
+      "vendor": "Augment",
+      "agentFlag": "augment",
+      "aliases": [
+        "augment-code"
+      ],
+      "pathGlobal": "$HOME/.augment",
+      "pathProject": ".augment",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.augment/mcp.json",
+      "configPathProject": ".augment/mcp.json",
+      "pathSkills": "$HOME/.augment/commands",
+      "pathProjectSkills": ".augment/commands",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.augment"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "devin": {
+      "id": "devin",
+      "toolName": "Devin",
+      "vendor": "Cognition",
+      "agentFlag": "devin",
+      "aliases": [],
+      "pathGlobal": "",
+      "pathProject": "",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "",
+      "configPathProject": null,
+      "pathSkills": "",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": []
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "mentat": {
+      "id": "mentat",
+      "toolName": "Mentat",
+      "vendor": "AbanteAI",
+      "agentFlag": "mentat",
+      "aliases": [],
+      "pathGlobal": "$HOME/.mentat",
+      "pathProject": ".mentat",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.mentat/mcp.json",
+      "configPathProject": ".mentat/mcp.json",
+      "pathSkills": "$HOME/.mentat/skills",
+      "pathProjectSkills": ".mentat/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "mentat"
+      },
+      "supportedTransports": [
+        "stdio"
+      ],
+      "supportsHeaders": false,
+      "priority": "low",
+      "status": "planned",
+      "agentSkillsCompatible": false
+    },
+    "blackbox-ai": {
+      "id": "blackbox-ai",
+      "toolName": "Blackbox AI",
+      "vendor": "Blackbox",
+      "agentFlag": "blackbox-ai",
+      "aliases": [
+        "blackbox"
+      ],
+      "pathGlobal": "$HOME/.blackbox",
+      "pathProject": ".blackbox",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.blackbox/mcp.json",
+      "configPathProject": ".blackbox/mcp.json",
+      "pathSkills": "$HOME/.blackbox/skills",
+      "pathProjectSkills": ".blackbox/skills",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "blackbox",
+        "directories": [
+          "$HOME/.blackbox"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "planned",
+      "agentSkillsCompatible": false
+    },
+    "sourcery": {
+      "id": "sourcery",
+      "toolName": "Sourcery",
+      "vendor": "Sourcery",
+      "agentFlag": "sourcery",
+      "aliases": [],
+      "pathGlobal": "$HOME/.config/sourcery",
+      "pathProject": ".sourcery",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.config/sourcery/mcp.json",
+      "configPathProject": ".sourcery/mcp.json",
+      "pathSkills": "$HOME/.config/sourcery/skills",
+      "pathProjectSkills": ".sourcery/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "sourcery"
+      },
+      "supportedTransports": [
+        "stdio"
+      ],
+      "supportsHeaders": false,
+      "priority": "low",
+      "status": "planned",
+      "agentSkillsCompatible": false
+    },
+    "replit-agent": {
+      "id": "replit-agent",
+      "toolName": "Replit Agent",
+      "vendor": "Replit",
+      "agentFlag": "replit-agent",
+      "aliases": [
+        "replit"
+      ],
+      "pathGlobal": "",
+      "pathProject": ".replit",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "",
+      "configPathProject": null,
+      "pathSkills": "",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": []
+      },
+      "supportedTransports": [
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "jetbrains-ai": {
+      "id": "jetbrains-ai",
+      "toolName": "JetBrains AI Assistant",
+      "vendor": "JetBrains",
+      "agentFlag": "jetbrains-ai",
+      "aliases": [
+        "jetbrains"
+      ],
+      "pathGlobal": "$HOME/.jetbrains",
+      "pathProject": ".idea",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.jetbrains/mcp.json",
+      "configPathProject": ".idea/mcp.json",
+      "pathSkills": "$HOME/.jetbrains/skills",
+      "pathProjectSkills": ".idea/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.jetbrains"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "codegen": {
+      "id": "codegen",
+      "toolName": "Codegen",
+      "vendor": "Codegen",
+      "agentFlag": "codegen",
+      "aliases": [],
+      "pathGlobal": "$HOME/.codegen",
+      "pathProject": ".codegen",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.codegen/mcp.json",
+      "configPathProject": ".codegen/mcp.json",
+      "pathSkills": "$HOME/.codegen/skills",
+      "pathProjectSkills": ".codegen/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.codegen"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "planned",
+      "agentSkillsCompatible": false
+    },
+    "double": {
+      "id": "double",
+      "toolName": "Double",
+      "vendor": "Double",
+      "agentFlag": "double",
+      "aliases": [],
+      "pathGlobal": "$HOME/.double",
+      "pathProject": ".double",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.double/mcp.json",
+      "configPathProject": ".double/mcp.json",
+      "pathSkills": "$HOME/.double/skills",
+      "pathProjectSkills": ".double/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.double"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "planned",
+      "agentSkillsCompatible": false
+    },
+    "copilot-cli": {
+      "id": "copilot-cli",
+      "toolName": "GitHub Copilot CLI",
+      "vendor": "GitHub",
+      "agentFlag": "copilot-cli",
+      "aliases": [
+        "ghcopilot"
+      ],
+      "pathGlobal": "$HOME/.copilot",
+      "pathProject": "",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.copilot/mcp-config.json",
+      "configPathProject": null,
+      "pathSkills": "$HOME/.copilot/skills",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": [
+          "binary",
+          "directory"
+        ],
+        "binary": "copilot",
+        "directories": [
+          "$HOME/.copilot"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "swe-agent": {
+      "id": "swe-agent",
+      "toolName": "SWE-Agent",
+      "vendor": "Princeton NLP",
+      "agentFlag": "swe-agent",
+      "aliases": [
+        "sweagent"
+      ],
+      "pathGlobal": "$HOME/.swe-agent",
+      "pathProject": "",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "yaml",
+      "configPathGlobal": "$HOME/.swe-agent/config.yaml",
+      "configPathProject": null,
+      "pathSkills": "",
+      "pathProjectSkills": "",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "sweagent"
+      },
+      "supportedTransports": [
+        "stdio"
+      ],
+      "supportsHeaders": false,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": false
+    },
+    "forge": {
+      "id": "forge",
+      "toolName": "Forge",
+      "vendor": "Antinomy",
+      "agentFlag": "forge",
+      "aliases": [
+        "forge-code"
+      ],
+      "pathGlobal": "$HOME/.forge",
+      "pathProject": ".forge",
+      "instructFile": "AGENTS.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.forge/mcp.json",
+      "configPathProject": ".mcp.json",
+      "pathSkills": "$HOME/.forge/skills",
+      "pathProjectSkills": ".forge/skills",
+      "detection": {
+        "methods": [
+          "binary"
+        ],
+        "binary": "forge"
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    },
+    "gemini-code-assist": {
+      "id": "gemini-code-assist",
+      "toolName": "Gemini Code Assist",
+      "vendor": "Google",
+      "agentFlag": "gemini-code-assist",
+      "aliases": [
+        "gca"
+      ],
+      "pathGlobal": "$HOME/.gemini",
+      "pathProject": ".gemini",
+      "instructFile": "GEMINI.md",
+      "configKey": "mcpServers",
+      "configFormat": "json",
+      "configPathGlobal": "$HOME/.gemini/settings.json",
+      "configPathProject": ".gemini/settings.json",
+      "pathSkills": "$HOME/.gemini/skills",
+      "pathProjectSkills": ".gemini/skills",
+      "detection": {
+        "methods": [
+          "directory"
+        ],
+        "directories": [
+          "$HOME/.gemini"
+        ]
+      },
+      "supportedTransports": [
+        "stdio",
+        "sse",
+        "http"
+      ],
+      "supportsHeaders": true,
+      "priority": "low",
+      "status": "active",
+      "agentSkillsCompatible": true
+    }
+  }
+}

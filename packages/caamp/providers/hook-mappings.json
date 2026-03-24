@@ -1,0 +1,302 @@
+{
+  "$schema": "./hook-mappings.schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2026-03-24",
+  "description": "CAAMP canonical hook event mappings to provider-native event names",
+  "canonicalEvents": {
+    "SessionStart": {
+      "category": "session",
+      "description": "Session begins, resumes, or is cleared",
+      "canBlock": false
+    },
+    "SessionEnd": {
+      "category": "session",
+      "description": "Session terminates or exits",
+      "canBlock": false
+    },
+    "PromptSubmit": {
+      "category": "prompt",
+      "description": "User submits a prompt, before agent processes it",
+      "canBlock": true
+    },
+    "ResponseComplete": {
+      "category": "prompt",
+      "description": "Agent finishes responding to a turn",
+      "canBlock": false
+    },
+    "PreToolUse": {
+      "category": "tool",
+      "description": "Before a tool call executes (can block/modify)",
+      "canBlock": true
+    },
+    "PostToolUse": {
+      "category": "tool",
+      "description": "After a tool call succeeds",
+      "canBlock": false
+    },
+    "PostToolUseFailure": {
+      "category": "tool",
+      "description": "After a tool call fails or times out",
+      "canBlock": false
+    },
+    "PermissionRequest": {
+      "category": "tool",
+      "description": "Permission dialog appears for a tool action",
+      "canBlock": true
+    },
+    "SubagentStart": {
+      "category": "agent",
+      "description": "A subagent is spawned",
+      "canBlock": true
+    },
+    "SubagentStop": {
+      "category": "agent",
+      "description": "A subagent finishes execution",
+      "canBlock": false
+    },
+    "PreModel": {
+      "category": "agent",
+      "description": "Before sending a request to the LLM",
+      "canBlock": true
+    },
+    "PostModel": {
+      "category": "agent",
+      "description": "After receiving an LLM response",
+      "canBlock": false
+    },
+    "PreCompact": {
+      "category": "context",
+      "description": "Before context window compaction",
+      "canBlock": false
+    },
+    "PostCompact": {
+      "category": "context",
+      "description": "After context window compaction completes",
+      "canBlock": false
+    },
+    "Notification": {
+      "category": "context",
+      "description": "System notification or alert is emitted",
+      "canBlock": false
+    },
+    "ConfigChange": {
+      "category": "context",
+      "description": "Configuration file changes during a session",
+      "canBlock": false
+    }
+  },
+  "providerMappings": {
+    "claude-code": {
+      "hookSystem": "config",
+      "hookConfigPath": "$HOME/.claude/settings.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command", "http", "prompt", "agent"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "SessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "UserPromptSubmit", "supported": true },
+        "ResponseComplete": { "nativeName": "Stop", "supported": true },
+        "PreToolUse": { "nativeName": "PreToolUse", "supported": true },
+        "PostToolUse": { "nativeName": "PostToolUse", "supported": true },
+        "PostToolUseFailure": { "nativeName": "PostToolUseFailure", "supported": true },
+        "PermissionRequest": { "nativeName": "PermissionRequest", "supported": true },
+        "SubagentStart": { "nativeName": "SubagentStart", "supported": true },
+        "SubagentStop": { "nativeName": "SubagentStop", "supported": true },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "PreCompact", "supported": true },
+        "PostCompact": { "nativeName": "PostCompact", "supported": true },
+        "Notification": { "nativeName": "Notification", "supported": true },
+        "ConfigChange": { "nativeName": "ConfigChange", "supported": true }
+      },
+      "providerOnlyEvents": [
+        "StopFailure",
+        "TeammateIdle",
+        "TaskCompleted",
+        "InstructionsLoaded",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "Elicitation",
+        "ElicitationResult"
+      ]
+    },
+    "cursor": {
+      "hookSystem": "config",
+      "hookConfigPath": ".cursor/hooks.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command", "prompt"],
+      "experimental": true,
+      "mappings": {
+        "SessionStart": { "nativeName": "sessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "sessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "beforeSubmitPrompt", "supported": true },
+        "ResponseComplete": { "nativeName": "stop", "supported": true },
+        "PreToolUse": { "nativeName": "preToolUse", "supported": true },
+        "PostToolUse": { "nativeName": "postToolUse", "supported": true },
+        "PostToolUseFailure": { "nativeName": "postToolUseFailure", "supported": true },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": "subagentStart", "supported": true },
+        "SubagentStop": { "nativeName": "subagentStop", "supported": true },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "preCompact", "supported": true },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "beforeShellExecution",
+        "afterShellExecution",
+        "beforeMCPExecution",
+        "afterMCPExecution",
+        "beforeReadFile",
+        "afterFileEdit",
+        "afterAgentResponse",
+        "afterAgentThought",
+        "beforeTabFileRead",
+        "afterTabFileEdit"
+      ]
+    },
+    "gemini-cli": {
+      "hookSystem": "config",
+      "hookConfigPath": "$HOME/.gemini/settings.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "SessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "BeforeAgent", "supported": true },
+        "ResponseComplete": { "nativeName": "AfterAgent", "supported": true },
+        "PreToolUse": { "nativeName": "BeforeTool", "supported": true },
+        "PostToolUse": { "nativeName": "AfterTool", "supported": true },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": "BeforeModel", "supported": true },
+        "PostModel": { "nativeName": "AfterModel", "supported": true },
+        "PreCompact": { "nativeName": "PreCompress", "supported": true },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": "Notification", "supported": true },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "BeforeToolSelection"
+      ]
+    },
+    "codex": {
+      "hookSystem": "config",
+      "hookConfigPath": ".codex/hooks.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command"],
+      "experimental": true,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": "UserPromptSubmit", "supported": true },
+        "ResponseComplete": { "nativeName": "Stop", "supported": true },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    },
+    "opencode": {
+      "hookSystem": "plugin",
+      "hookConfigPath": ".opencode/plugins/",
+      "hookFormat": "javascript",
+      "handlerTypes": ["plugin"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "event:session.created", "supported": true, "notes": "Via bus event subscriber" },
+        "SessionEnd": { "nativeName": "event:session.deleted", "supported": true, "notes": "Via bus event subscriber" },
+        "PromptSubmit": { "nativeName": "chat.message", "supported": true },
+        "ResponseComplete": { "nativeName": "event:session.idle", "supported": true, "notes": "Via bus event subscriber" },
+        "PreToolUse": { "nativeName": "tool.execute.before", "supported": true },
+        "PostToolUse": { "nativeName": "tool.execute.after", "supported": true },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": "permission.ask", "supported": true },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": "chat.params", "supported": true, "notes": "Modify LLM params before request" },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "experimental.session.compacting", "supported": true },
+        "PostCompact": { "nativeName": "event:session.compacted", "supported": true, "notes": "Via bus event subscriber" },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "chat.headers",
+        "shell.env",
+        "tool.definition",
+        "command.execute.before",
+        "experimental.chat.messages.transform",
+        "experimental.chat.system.transform",
+        "experimental.text.complete"
+      ]
+    },
+    "kimi": {
+      "hookSystem": "none",
+      "hookConfigPath": null,
+      "hookFormat": null,
+      "handlerTypes": [],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": null, "supported": false },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": null, "supported": false },
+        "ResponseComplete": { "nativeName": null, "supported": false },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    },
+    "antigravity": {
+      "hookSystem": "none",
+      "hookConfigPath": null,
+      "hookFormat": null,
+      "handlerTypes": [],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": null, "supported": false },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": null, "supported": false },
+        "ResponseComplete": { "nativeName": null, "supported": false },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "out": "docs/api",
+  "name": "CAAMP API Reference",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/kryptobaseddev/caamp",
+    "npm": "https://www.npmjs.com/package/@cleocode/caamp"
+  },
+  "plugin": [],
+  "sort": ["source-order"],
+  "kindSortOrder": ["Function", "Class", "Interface", "TypeAlias"],
+  "categorizeByGroup": true,
+  "searchInComments": true
+}

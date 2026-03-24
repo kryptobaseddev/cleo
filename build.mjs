@@ -155,6 +155,14 @@ async function build() {
   await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
   console.log('  -> packages/lafs/dist/');
 
+  console.log('Building @cleocode/caamp...');
+  execFileSync('pnpm', ['--filter', '@cleocode/caamp', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
+  console.log('  -> packages/caamp/dist/');
+
   // Build contracts first (tsc, not esbuild — types-only package)
   console.log('Building @cleocode/contracts...');
   execFileSync('pnpm', ['--filter', '@cleocode/contracts', 'run', 'build'], {

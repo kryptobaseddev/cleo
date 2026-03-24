@@ -29,7 +29,7 @@
   "dependencies": {
     "@cleocode/adapters": "workspace:*",
     "@cleocode/agents": "workspace:*",
-    "@cleocode/caamp": "^1.9.1",
+    "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/skills": "workspace:*",
