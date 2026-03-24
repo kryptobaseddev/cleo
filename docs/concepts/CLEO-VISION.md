@@ -211,18 +211,18 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 | Tier | Technology | Status | Capability |
 |------|-----------|--------|------------|
 | **S** | `brain.db` + FTS5 | Shipped | Full-text keyword search across decisions, patterns, learnings, observations |
-| **M** | `brain.db` + SQLite-vec | In Progress (T5157) | Vector embeddings for semantic similarity search |
+| **M** | `brain.db` + local embeddings | Shipped (v2026.3.70) | Vector embeddings via all-MiniLM-L6-v2 (@xenova/transformers), hybrid search combining FTS5 + vector + graph weights |
 | **L** | `brain.db` + PageIndex + Graph | Planned (T5160) | Graph-based traversal and cross-reference discovery via NEXUS |
 
-> **Current state (2026-03-02)**: BRAIN memory is in `brain.db` (SQLite) with 5 tables, FTS5 search, 3-layer retrieval API, and 5,122 observations migrated from claude-mem. The JSONL file era is over.
+> **Current state (2026-03-24)**: BRAIN memory is in `brain.db` (SQLite) with 7 tables (5 core cognitive + brain_embeddings + brain_memory_links), FTS5 search, vector similarity via all-MiniLM-L6-v2, hybrid search (FTS5 + vector + graph weights), 3-layer retrieval API, session summarization, memory bridge automation, and embedding backfill. Shipped in v2026.3.70-72.
 
 ### Current State vs Target
 
 **Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 209 MCP operations (119 query + 90 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
 
-**In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
+**In Progress**: PageIndex graph tables (T5160), NEXUS MCP wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
 
-**Planned**: Vector embeddings pipeline (T5158-T5159), reasoning engine (T5162-T5163), memory consolidation (T5166), temporal decay (T5167), full claude-mem plugin retirement
+**Planned**: Reasoning engine (T5162-T5163), active memory circulation (Living BRAIN), full knowledge graph with temporal reasoning
 
 ---
 
@@ -533,8 +533,8 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), 209 operations across 10 domains -- the agent interface
-- **CLI (Backup)**: 86 commands via Commander.js -- the human interface
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), 209+ operations across 13 domains -- the agent interface
+- **CLI (Backup)**: 100+ commands via citty -- the human interface
 - **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. Both MCP and CLI delegate here. Consumers can install it independently.
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
 

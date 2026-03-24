@@ -1,8 +1,8 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.3.65
+**Version**: 2026.3.72
 **Status**: VISION
-**Date**: 2026-03-22
+**Date**: 2026-03-24
 
 ---
 
@@ -223,7 +223,7 @@ Each layer depends only on the layers below it. The kernel never reaches up into
 
 The kernel is shipped and operational:
 
-- `@cleocode/core` v2.0.0 -- standalone business logic kernel with 45 domain modules
+- `@cleocode/core` v2026.3.72 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor)
 - `@cleocode/cleo` -- full CLI + MCP product (221 operations across 10 dispatch domains)
@@ -231,7 +231,7 @@ The kernel is shipped and operational:
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
 - NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
 - LAFS with structured envelopes, MVI progressive disclosure, and RFC 9457 errors
-- Cleo facade class with 12 domain APIs (tasks, sessions, memory, orchestration, lifecycle, release, admin, sticky, nexus, sync, agents, intelligence) and three consumer patterns
+- Cleo facade class with 13 domain APIs (tasks, sessions, memory, orchestration, lifecycle, release, admin, sticky, nexus, sync, agents, intelligence) and three consumer patterns. All facade interfaces published in @cleocode/contracts (v2026.3.71+).
 - Config schema audited: ~113 live fields (T101, down from ~283 before vaporware removal)
 - Agent health monitoring, heartbeat protocol, crash detection, and capacity tracking (T038)
 - General-purpose retry utility with exponential backoff in `lib` namespace (T038)
@@ -245,6 +245,8 @@ The kernel is shipped and operational:
 - Bootstrap injection chain: legacy template sync, CAAMP sanitization, post-bootstrap health check (T124)
 - Migration resilience: journal reconciliation and `ensureRequiredColumns()` safety net (v2026.3.61)
 - Brain Memory Automation (T134 epic, v2026.3.70): `BrainConfig` typed section, local embedding via `@xenova/transformers` all-MiniLM-L6-v2, async embedding queue, lifecycle-driven bridge refresh with debounce, context-aware bridge generation, session summarization (dual-mode), auto-link observations to focused task, embedding backfill CLI (`cleo backfill --embeddings`), brain maintenance command (`cleo brain maintenance`), cross-provider transcript extraction via adapter hook, updated injection templates and CLEO-BRAIN-SPECIFICATION.md v2.0.0
+- Facade API Interfaces in Contracts (v2026.3.71): All 13 facade interfaces + 20 supporting types moved to `@cleocode/contracts`. CleoOS imports types from contracts, not core — clean dependency boundary.
+- Session Serialize/Restore (v2026.3.72): `sessions.serialize()` captures full session state snapshot (session, handoff, decisions, brain observations, active task context). `sessions.restore()` hydrates from snapshot with agent handoff tracking, scope conflict detection, and hook dispatch. Foundation for CleoOS Phase 3 agent session persistence.
 
 ### What Is Specified (Runtime, Conduit)
 
