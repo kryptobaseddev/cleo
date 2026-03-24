@@ -464,7 +464,7 @@ NEXUS leverages graph structures built into each project's `tasks.db` and `brain
 
 ## Anti-Hallucination Protocol
 
-Every operation undergoes **four-layer validation**:
+Every MCP mutate operation undergoes **four-layer validation** (CLI operations rely on domain-specific validation within core modules):
 
 ### Layer 1: Schema -- JSON Schema Enforcement
 
@@ -520,7 +520,7 @@ When you use CLEO with any AI coding tool, you establish a formal contract:
 - **Numeric Exit Codes** -- All errors have numeric exit codes for programmatic branching (0-99 standard, 100+ special conditions)
 - **Validation First** -- All operations validate first, fail fast on invalid input -- four-layer anti-hallucination
 - **Persistent Memory** -- All project state is persisted in SQLite (`tasks.db` for work and sessions; `brain.db` for dedicated memory) as the single source of truth per project
-- **Immutable Audit Trail** -- All changes are logged in an append-only audit log with provenance tags
+- **Append-Only Audit Trail** -- All changes are logged in an append-only audit log with provenance tags and configurable retention
 - **Atomic Writes** -- All writes are atomic with automatic backup and rollback -- no partial corruption
 - **Lifecycle Governance** -- Significant work follows the RCASD-IVTR+C pipeline with gate enforcement
 - **Canonical Completion Path** -- Task completion is enforced through `tasks.complete` semantics (dependencies, acceptance policy, verification gates, lifecycle-aware failure codes). `tasks.update status=done` MUST route through the same completion checks
