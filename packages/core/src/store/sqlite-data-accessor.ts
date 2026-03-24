@@ -874,6 +874,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const meta = await getMetaValue<{ schemaVersion?: string }>(cwd, 'file_meta');
       return meta?.schemaVersion ?? null;
     },
+
+    // ---- Agent instances ----
+
+    async listAgentInstances(filters) {
+      const { listAgentInstances: listAgents } = await import('../agents/registry.js');
+      // Cast generic string filters to the specific union types expected by the agents module
+      return listAgents(filters as Parameters<typeof listAgents>[0], cwd);
+    },
+
+    async getAgentInstance(agentId) {
+      const { getAgentInstance: getAgent } = await import('../agents/registry.js');
+      return getAgent(agentId, cwd);
+    },
   };
 
   return accessor;

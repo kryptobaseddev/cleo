@@ -303,6 +303,19 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.removeSingleSession(sessionId);
   }
 
+  // ---- Agent instances ----
+
+  async listAgentInstances(filters?: {
+    status?: string | string[];
+    agentType?: string | string[];
+  }) {
+    return this.inner.listAgentInstances(filters);
+  }
+
+  async getAgentInstance(agentId: string) {
+    return this.inner.getAgentInstance(agentId);
+  }
+
   // ---- Lifecycle ----
 
   async close(): Promise<void> {

@@ -487,8 +487,8 @@ export async function workspaceAgents(): Promise<WorkspaceAgent[]> {
 
   for (const project of projects) {
     try {
-      const { listAgentInstances } = await import('../agents/registry.js');
-      const instances = await listAgentInstances(undefined, project.path);
+      const acc = await getAccessor(project.path);
+      const instances = await acc.listAgentInstances();
       for (const inst of instances) {
         agents.push({
           agentId: inst.id,

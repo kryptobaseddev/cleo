@@ -76,6 +76,7 @@ export type {
   ArchiveFields,
   ArchiveFile,
   DataAccessor,
+  DataAccessorAgentInstance,
   QueryTasksResult,
   TaskFieldUpdates,
   TaskQueryFilters,

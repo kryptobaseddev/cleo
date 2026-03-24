@@ -17,6 +17,26 @@ import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
 import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from './task.js';
 
+/**
+ * Agent instance row shape for DataAccessor methods.
+ * Mirrors the agent_instances Drizzle table in core but avoids Drizzle dependency.
+ */
+export interface DataAccessorAgentInstance {
+  id: string;
+  agentType: string;
+  status: string;
+  sessionId: string | null;
+  taskId: string | null;
+  startedAt: string;
+  lastHeartbeat: string;
+  stoppedAt: string | null;
+  errorCount: number;
+  totalTasksCompleted: number;
+  capacity: string;
+  metadataJson: string | null;
+  parentAgentId: string | null;
+}
+
 /** Archive-specific fields for task upsert. */
 export interface ArchiveFields {
   archivedAt?: string;
@@ -227,6 +247,17 @@ export interface DataAccessor {
 
   /** Remove a single session by ID. */
   removeSingleSession(sessionId: string): Promise<void>;
+
+  // ---- Agent instances ----
+
+  /** List agent instances with optional filters. Returns rows from agent_instances table. */
+  listAgentInstances(filters?: {
+    status?: string | string[];
+    agentType?: string | string[];
+  }): Promise<DataAccessorAgentInstance[]>;
+
+  /** Get a single agent instance by ID. Returns null if not found. */
+  getAgentInstance(agentId: string): Promise<DataAccessorAgentInstance | null>;
 }
 
 // Factory functions (createDataAccessor, getAccessor) live in @cleocode/core,
