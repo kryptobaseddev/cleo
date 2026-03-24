@@ -129,6 +129,8 @@ import {
   startSession,
   suspendSession,
 } from './sessions/index.js';
+// Session snapshots (Phase 3: persistence)
+import { restoreSession, serializeSession } from './sessions/snapshot.js';
 // Sticky
 import {
   addSticky,
@@ -289,6 +291,16 @@ export class Cleo {
       contextDrift: (p) => getContextDrift(root, p),
       decisionLog: (p) => getDecisionLog(root, { sessionId: p?.sessionId, taskId: p?.taskId }),
       lastHandoff: (scope) => getLastHandoff(root, scope),
+      serialize: (p) =>
+        serializeSession(root, {
+          sessionId: p?.sessionId,
+          maxObservations: p?.maxObservations,
+        }),
+      restore: (snapshot, p) =>
+        restoreSession(root, snapshot as import('./sessions/snapshot.js').SessionSnapshot, {
+          agent: p?.agent,
+          activate: p?.activate,
+        }),
     };
   }
 

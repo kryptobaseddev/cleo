@@ -299,6 +299,16 @@ export {
   sessionStatus,
   startSession,
 } from './sessions/index.js';
+export type {
+  RestoreOptions,
+  SerializeOptions,
+  SessionSnapshot,
+  SnapshotDecision,
+  SnapshotObservation,
+  SnapshotTaskContext,
+} from './sessions/snapshot.js';
+// Session snapshots (Phase 3: persistence)
+export { restoreSession, serializeSession } from './sessions/snapshot.js';
 export { getMigrationStatus as getSystemMigrationStatus } from './system/migrate.js';
 export { checkStorageMigration } from './system/storage-preflight.js';
 // Task work

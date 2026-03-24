@@ -369,6 +369,10 @@ export interface SessionsAPI {
   decisionLog(params?: { sessionId?: string; taskId?: string }): Promise<unknown>;
   /** Get last handoff for a scope. */
   lastHandoff(scope?: { type: string; epicId?: string }): Promise<unknown>;
+  /** Serialize a session into a complete snapshot for persistence. */
+  serialize(params?: { sessionId?: string; maxObservations?: number }): Promise<unknown>;
+  /** Restore a session from a previously serialized snapshot. */
+  restore(snapshot: unknown, params?: { agent?: string; activate?: boolean }): Promise<unknown>;
 }
 
 /** Memory/Brain domain API. */
