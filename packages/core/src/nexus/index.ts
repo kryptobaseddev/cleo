@@ -112,3 +112,18 @@ export type {
   TransferResult,
   TransferScope,
 } from './transfer-types.js';
+export type {
+  ParsedDirective,
+  ProjectACL,
+  RouteResult,
+  WorkspaceAgent,
+  WorkspaceProjectSummary,
+  WorkspaceStatus,
+} from './workspace.js';
+// Workspace - cross-project orchestration (ORCH-PLAN Phase B)
+export {
+  parseDirective,
+  routeDirective,
+  workspaceAgents,
+  workspaceStatus,
+} from './workspace.js';

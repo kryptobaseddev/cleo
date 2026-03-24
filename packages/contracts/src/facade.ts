@@ -9,6 +9,7 @@
  * @module facade
  */
 
+import type { ConduitMessage } from './conduit.js';
 import type {
   DataAccessor,
   ExternalTask,
@@ -519,6 +520,12 @@ export interface NexusAPI {
   setPermission(params: { name: string; level: 'read' | 'write' | 'execute' }): Promise<unknown>;
   /** Get sharing status. */
   sharingStatus(): Promise<unknown>;
+  /** Route a Conduit directive message to the correct project (ORCH-PLAN B.2). */
+  route(message: ConduitMessage): Promise<unknown>;
+  /** Get aggregated task status across all registered projects (ORCH-PLAN B.3). */
+  workspaceStatus(): Promise<unknown>;
+  /** Get all agents registered across all projects (ORCH-PLAN B.4). */
+  workspaceAgents(): Promise<unknown>;
 }
 
 /** Task reconciliation / sync domain API. */

@@ -81,6 +81,13 @@ import {
   nexusUnregister,
 } from './nexus/registry.js';
 import { getSharingStatus } from './nexus/sharing/index.js';
+// Nexus workspace (ORCH-PLAN Phase B)
+import {
+  parseDirective,
+  routeDirective,
+  workspaceAgents,
+  workspaceStatus,
+} from './nexus/workspace.js';
 // Orchestration
 import {
   analyzeEpic,
@@ -427,6 +434,13 @@ export class Cleo {
       search: (p) => searchAcrossProjects(p.pattern, p.project, p.limit),
       setPermission: (p) => setPermission(p.name, p.level),
       sharingStatus: () => getSharingStatus(),
+      route: (message) => {
+        const directive = parseDirective(message);
+        if (!directive) return Promise.resolve([]);
+        return routeDirective(directive);
+      },
+      workspaceStatus: () => workspaceStatus(),
+      workspaceAgents: () => workspaceAgents(),
     };
   }
 
