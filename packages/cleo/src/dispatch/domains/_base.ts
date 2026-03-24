@@ -19,7 +19,7 @@ import { dispatchMeta } from './_meta.js';
 export interface EngineResult {
   success: boolean;
   data?: unknown;
-  page?: import('@cleocode/lafs-protocol').LAFSPage;
+  page?: import('@cleocode/lafs').LAFSPage;
   error?: {
     code: string;
     message: string;

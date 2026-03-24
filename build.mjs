@@ -39,7 +39,7 @@ const sharedExternals = [
   'zod',
   'js-tiktoken',
   '@cleocode/caamp',
-  '@cleocode/lafs-protocol',
+  '@cleocode/lafs',
   '@xenova/transformers',
 ];
 
@@ -56,7 +56,7 @@ function workspacePlugin(name, inlineMap) {
       build.onResolve({ filter: /^@cleocode\// }, (args) => {
         const mapped = inlineMap[args.path];
         if (mapped) return { path: mapped };
-        // Unmapped @cleocode/* → external (e.g. @cleocode/caamp, @cleocode/lafs-protocol)
+        // Unmapped @cleocode/* → external (e.g. @cleocode/caamp, @cleocode/lafs)
         return { path: args.path, external: true };
       });
 
@@ -146,9 +146,17 @@ const adaptersBuildOptions = {
 // ---------------------------------------------------------------------------
 
 async function build() {
+  console.log('Building @cleocode/lafs...');
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('pnpm', ['--filter', '@cleocode/lafs', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
+  console.log('  -> packages/lafs/dist/');
+
   // Build contracts first (tsc, not esbuild — types-only package)
   console.log('Building @cleocode/contracts...');
-  const { execFileSync } = await import('node:child_process');
   execFileSync('pnpm', ['--filter', '@cleocode/contracts', 'run', 'build'], {
     stdio: 'inherit',
     cwd: __dirname,

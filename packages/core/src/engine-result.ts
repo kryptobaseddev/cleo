@@ -9,7 +9,7 @@
  * @epic T5701
  */
 
-import type { LAFSPage } from '@cleocode/lafs-protocol';
+import type { LAFSPage } from '@cleocode/lafs';
 
 /**
  * Canonical EngineResult type used by all engines and core engine-compat modules.

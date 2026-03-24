@@ -1,0 +1,28 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-03-15T00:00:00Z",
+    "operation": "admin.delete",
+    "requestId": "req_escalate_01",
+    "transport": "sdk",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 5
+  },
+  "success": false,
+  "result": null,
+  "error": {
+    "code": "E_INTERNAL_UNEXPECTED",
+    "message": "An unexpected internal error occurred. This requires operator investigation.",
+    "category": "INTERNAL",
+    "retryable": false,
+    "retryAfterMs": null,
+    "details": {},
+    "agentAction": "escalate",
+    "escalationRequired": true,
+    "suggestedAction": "Report this error with the requestId to the system operator.",
+    "docUrl": "https://lafs.dev/docs/errors/internal-unexpected"
+  }
+}

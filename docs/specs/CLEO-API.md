@@ -365,7 +365,7 @@ cleo session find --status active --limit 5
 | **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)**                         | Exists          | Cross-project API (builds on CLEO-API) |
 | **[CLEO-OPERATION-CONSTITUTION.md](./CLEO-OPERATION-CONSTITUTION.md)**| Exists          | Canonical operation registry (see registry for live count) |
 | **[VERB-STANDARDS.md](./VERB-STANDARDS.md)**                          | Exists          | Canonical verb definitions             |
-| **[LAFS Protocol](https://github.com/kryptobaseddev/lafs-protocol)** | External        | LLM-Agent-First Specification          |
+| **[LAFS Protocol](https://github.com/kryptobaseddev/lafs)** | External        | LLM-Agent-First Specification          |
 | CLEO-WEB-API.md                                                       | **PLANNED**     | HTTP adapter specification (not yet written) |
 | CLEO-ARCHITECTURE.md                                                  | **PLANNED**     | System architecture (not yet written)  |
 

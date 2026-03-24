@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "codes": [
+    {
+      "code": "E_FORMAT_CONFLICT",
+      "category": "CONTRACT",
+      "description": "Mutually exclusive format flags requested",
+      "retryable": false,
+      "httpStatus": 400,
+      "grpcStatus": "INVALID_ARGUMENT",
+      "cliExit": 2,
+      "agentAction": "stop",
+      "typeUri": "https://lafs.dev/errors/v1/format-conflict",
+      "docUrl": "https://lafs.dev/docs/errors/format-conflict"
+    },
+    {
+      "code": "E_VALIDATION_SCHEMA",
+      "category": "VALIDATION",
+      "description": "Input failed schema validation",
+      "retryable": false,
+      "httpStatus": 400,
+      "grpcStatus": "INVALID_ARGUMENT",
+      "cliExit": 2,
+      "agentAction": "retry_modified",
+      "typeUri": "https://lafs.dev/errors/v1/validation-schema",
+      "docUrl": "https://lafs.dev/docs/errors/validation-schema"
+    },
+    {
+      "code": "E_NOT_FOUND_RESOURCE",
+      "category": "NOT_FOUND",
+      "description": "Referenced resource was not found",
+      "retryable": false,
+      "httpStatus": 404,
+      "grpcStatus": "NOT_FOUND",
+      "cliExit": 4,
+      "agentAction": "stop",
+      "typeUri": "https://lafs.dev/errors/v1/not-found-resource",
+      "docUrl": "https://lafs.dev/docs/errors/not-found-resource"
+    },
+    {
+      "code": "E_CONFLICT_VERSION",
+      "category": "CONFLICT",
+      "description": "Version or concurrency conflict",
+      "retryable": true,
+      "httpStatus": 409,
+      "grpcStatus": "ABORTED",
+      "cliExit": 7,
+      "agentAction": "refresh_context",
+      "typeUri": "https://lafs.dev/errors/v1/conflict-version",
+      "docUrl": "https://lafs.dev/docs/errors/conflict-version"
+    },
+    {
+      "code": "E_RATE_LIMITED",
+      "category": "RATE_LIMIT",
+      "description": "Rate limit exceeded",
+      "retryable": true,
+      "httpStatus": 429,
+      "grpcStatus": "RESOURCE_EXHAUSTED",
+      "cliExit": 8,
+      "agentAction": "wait",
+      "typeUri": "https://lafs.dev/errors/v1/rate-limited",
+      "docUrl": "https://lafs.dev/docs/errors/rate-limited"
+    },
+    {
+      "code": "E_TRANSIENT_UPSTREAM",
+      "category": "TRANSIENT",
+      "description": "Upstream dependency temporary failure",
+      "retryable": true,
+      "httpStatus": 503,
+      "grpcStatus": "UNAVAILABLE",
+      "cliExit": 9,
+      "agentAction": "retry",
+      "typeUri": "https://lafs.dev/errors/v1/transient-upstream",
+      "docUrl": "https://lafs.dev/docs/errors/transient-upstream"
+    },
+    {
+      "code": "E_INTERNAL_UNEXPECTED",
+      "category": "INTERNAL",
+      "description": "Unexpected internal failure",
+      "retryable": false,
+      "httpStatus": 500,
+      "grpcStatus": "INTERNAL",
+      "cliExit": 1,
+      "agentAction": "escalate",
+      "typeUri": "https://lafs.dev/errors/v1/internal-unexpected",
+      "docUrl": "https://lafs.dev/docs/errors/internal-unexpected"
+    },
+    {
+      "code": "E_CONTEXT_MISSING",
+      "category": "CONTRACT",
+      "description": "Required context ledger fields are missing",
+      "retryable": false,
+      "httpStatus": 400,
+      "grpcStatus": "FAILED_PRECONDITION",
+      "cliExit": 6,
+      "agentAction": "retry_modified",
+      "typeUri": "https://lafs.dev/errors/v1/context-missing",
+      "docUrl": "https://lafs.dev/docs/errors/context-missing"
+    },
+    {
+      "code": "E_CONTEXT_STALE",
+      "category": "CONFLICT",
+      "description": "Context ledger or references are stale",
+      "retryable": true,
+      "httpStatus": 409,
+      "grpcStatus": "ABORTED",
+      "cliExit": 7,
+      "agentAction": "refresh_context",
+      "typeUri": "https://lafs.dev/errors/v1/context-stale",
+      "docUrl": "https://lafs.dev/docs/errors/context-stale"
+    },
+    {
+      "code": "E_MIGRATION_UNSUPPORTED_VERSION",
+      "category": "MIGRATION",
+      "description": "Requested protocol/schema version unsupported",
+      "retryable": false,
+      "httpStatus": 426,
+      "grpcStatus": "FAILED_PRECONDITION",
+      "cliExit": 10,
+      "agentAction": "stop",
+      "typeUri": "https://lafs.dev/errors/v1/migration-unsupported-version",
+      "docUrl": "https://lafs.dev/docs/errors/migration-unsupported-version"
+    },
+    {
+      "code": "E_DISCLOSURE_UNKNOWN_FIELD",
+      "category": "VALIDATION",
+      "description": "Unrecognized expansion field in _expand parameter",
+      "retryable": false,
+      "httpStatus": 400,
+      "grpcStatus": "INVALID_ARGUMENT",
+      "cliExit": 2,
+      "agentAction": "retry_modified",
+      "typeUri": "https://lafs.dev/errors/v1/disclosure-unknown-field",
+      "docUrl": "https://lafs.dev/docs/errors/disclosure-unknown-field"
+    },
+    {
+      "code": "E_MVI_BUDGET_EXCEEDED",
+      "category": "VALIDATION",
+      "description": "Response exceeds declared MVI budget (token, byte, or item limit)",
+      "retryable": false,
+      "httpStatus": 413,
+      "grpcStatus": "RESOURCE_EXHAUSTED",
+      "cliExit": 2,
+      "agentAction": "retry_modified",
+      "typeUri": "https://lafs.dev/errors/v1/mvi-budget-exceeded",
+      "docUrl": "https://lafs.dev/docs/errors/mvi-budget-exceeded"
+    },
+    {
+      "code": "E_FIELD_CONFLICT",
+      "category": "CONTRACT",
+      "description": "Mutually exclusive field selection modes (single-field extraction and multi-field filtering cannot be combined)",
+      "retryable": false,
+      "httpStatus": 400,
+      "grpcStatus": "INVALID_ARGUMENT",
+      "cliExit": 2,
+      "agentAction": "stop",
+      "typeUri": "https://lafs.dev/errors/v1/field-conflict",
+      "docUrl": "https://lafs.dev/docs/errors/field-conflict"
+    }
+  ]
+}

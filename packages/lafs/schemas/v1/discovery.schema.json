@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lafs.dev/schemas/v1/discovery.schema.json",
+  "title": "LAFS Discovery Document",
+  "description": "Schema for LAFS agent discovery documents served at /.well-known/lafs.json",
+  "type": "object",
+  "required": [
+    "$schema",
+    "lafs_version",
+    "service",
+    "capabilities",
+    "endpoints"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the schema this document conforms to"
+    },
+    "lafs_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "LAFS protocol version (semantic versioning)"
+    },
+    "service": {
+      "type": "object",
+      "description": "Service identification and metadata",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Unique service name (kebab-case recommended)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Service version (semantic versioning)"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable service description"
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "List of LAFS capabilities this service provides",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "operations"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Capability identifier (kebab-case recommended)"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Capability version (semantic versioning)"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Human-readable capability description"
+          },
+          "operations": {
+            "type": "array",
+            "description": "List of operations this capability supports",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          },
+          "optional": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this capability is optional for clients"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "description": "URL endpoints for LAFS operations",
+      "required": [
+        "envelope",
+        "discovery"
+      ],
+      "properties": {
+        "envelope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "URL for envelope submission (POST)"
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "URL for context ledger operations"
+        },
+        "discovery": {
+          "type": "string",
+          "minLength": 1,
+          "description": "URL of this discovery document"
+        }
+      },
+      "additionalProperties": false
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Extension fields for vendor-specific metadata",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

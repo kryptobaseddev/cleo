@@ -543,7 +543,7 @@ cleo commands
 - `@cleocode/core` - Business logic
 - `@cleocode/contracts` - Type definitions
 - `@cleocode/caamp` - Context-aware memory
-- `@cleocode/lafs-protocol` - Feedback schema
+- `@cleocode/lafs` - Feedback schema
 - `@modelcontextprotocol/sdk` - MCP protocol
 - `drizzle-orm` - Database ORM
 - `citty` - CLI framework

@@ -21,7 +21,7 @@
     "@cleocode/caamp": "^1.9.1",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
-    "@cleocode/lafs-protocol": "^1.8.0",
+    "@cleocode/lafs": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "citty": "^0.2.1"
   },

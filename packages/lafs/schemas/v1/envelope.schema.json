@@ -1,0 +1,306 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "title": "LAFS Envelope v1",
+  "type": "object",
+  "required": [
+    "$schema",
+    "_meta",
+    "success",
+    "result"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://lafs.dev/schemas/v1/envelope.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "specVersion",
+        "schemaVersion",
+        "timestamp",
+        "operation",
+        "requestId",
+        "transport",
+        "strict",
+        "mvi",
+        "contextVersion"
+      ],
+      "properties": {
+        "specVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["cli", "http", "grpc", "sdk"]
+        },
+        "strict": {
+          "type": "boolean"
+        },
+        "mvi": {
+          "type": "string",
+          "enum": ["minimal", "standard", "full", "custom"],
+          "description": "Disclosure level: minimal (MVI only), standard (common fields), full (all fields), custom (per _fields parameter)"
+        },
+        "contextVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Session identifier for correlating multi-step agent workflows"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "description": "Warning identifier (e.g., DEPRECATED_FIELD)" },
+              "message": { "type": "string", "description": "Human-readable warning" },
+              "deprecated": { "type": "string", "description": "The deprecated feature or field name" },
+              "replacement": { "type": "string", "description": "Suggested replacement, if any" },
+              "removeBy": { "type": "string", "description": "Version when the deprecated feature will be removed" }
+            },
+            "required": ["code", "message"]
+          },
+          "description": "Non-fatal advisory warnings (deprecations, migration hints)"
+        }
+      }
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "result": {
+      "type": ["object", "array", "null"]
+    },
+    "error": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "required": [
+        "code",
+        "message",
+        "category",
+        "retryable",
+        "retryAfterMs",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E_[A-Z0-9]+_[A-Z0-9_]+$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "VALIDATION",
+            "AUTH",
+            "PERMISSION",
+            "NOT_FOUND",
+            "CONFLICT",
+            "RATE_LIMIT",
+            "TRANSIENT",
+            "INTERNAL",
+            "CONTRACT",
+            "MIGRATION"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "retryAfterMs": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "details": {
+          "type": "object"
+        },
+        "agentAction": {
+          "type": "string",
+          "enum": ["retry", "retry_modified", "escalate", "stop", "wait", "refresh_context", "authenticate"],
+          "description": "Machine-actionable instruction for the consuming agent"
+        },
+        "escalationRequired": {
+          "type": "boolean",
+          "description": "Whether human/owner intervention is required"
+        },
+        "suggestedAction": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Brief actionable instruction for error recovery"
+        },
+        "docUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Documentation URL for this error type"
+        }
+      }
+    },
+    "page": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["offset", "cursor", "none"]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nextCursor": {
+          "type": ["string", "null"],
+          "maxLength": 2048
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "total": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": { "mode": { "const": "cursor" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "required": ["mode", "nextCursor", "hasMore"],
+            "properties": {
+              "mode": true,
+              "nextCursor": true,
+              "hasMore": true,
+              "limit": true,
+              "total": true
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "mode": { "const": "offset" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "required": ["mode", "limit", "offset", "hasMore"],
+            "properties": {
+              "mode": true,
+              "limit": true,
+              "offset": true,
+              "hasMore": true,
+              "total": true
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "mode": { "const": "none" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "required": ["mode"],
+            "properties": {
+              "mode": true
+            }
+          }
+        }
+      ]
+    },
+    "_extensions": {
+      "type": "object",
+      "description": "Vendor extensions. Keys SHOULD use x- prefix (e.g., x-myvendor-trace-id).",
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "success": { "const": true }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "success": { "const": false }
+        }
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "_meta": {
+            "type": "object",
+            "properties": {
+              "strict": { "const": true }
+            }
+          }
+        }
+      },
+      "then": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": true,
+          "_meta": true,
+          "success": true,
+          "result": true,
+          "error": true,
+          "page": true,
+          "_extensions": true
+        }
+      },
+      "else": {
+        "additionalProperties": true
+      }
+    }
+  ]
+}

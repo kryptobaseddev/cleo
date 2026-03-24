@@ -1,0 +1,26 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-25T00:00:00Z",
+    "operation": "orders.update",
+    "requestId": "req_ctx_valid",
+    "transport": "http",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 2
+  },
+  "success": true,
+  "result": {
+    "updated": true
+  },
+  "_extensions": {
+    "contextLedger": {
+      "required": true,
+      "version": 2,
+      "previousVersion": 1,
+      "removedConstraints": []
+    }
+  }
+}

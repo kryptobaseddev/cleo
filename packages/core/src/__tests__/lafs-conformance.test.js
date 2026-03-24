@@ -1,7 +1,7 @@
 /**
  * LAFS conformance testing - verifies all command outputs produce valid LAFS envelopes.
  *
- * Uses @cleocode/lafs-protocol's validateEnvelope() and runEnvelopeConformance()
+ * Uses @cleocode/lafs's validateEnvelope() and runEnvelopeConformance()
  * for canonical validation instead of hand-rolled checks.
  *
  * @task T4672
@@ -14,7 +14,7 @@
  * @task T4702
  * @epic T4663
  */
-import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs-protocol';
+import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';

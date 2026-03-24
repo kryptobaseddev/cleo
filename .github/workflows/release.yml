@@ -100,7 +100,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for pkg in packages/contracts packages/core packages/adapters packages/cleo packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/lafs packages/adapters packages/cleo packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -118,6 +118,7 @@ jobs:
         run: |
           declare -a required_artifacts=(
             "packages/contracts/dist/index.js"
+            "packages/lafs/dist/src/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
             "packages/cleo/dist/mcp/index.js"
@@ -168,6 +169,13 @@ jobs:
           # Contracts package (type-only interfaces)
           mkdir -p "$STAGING/packages/contracts"
           cp -r packages/contracts/dist packages/contracts/package.json "$STAGING/packages/contracts/"
+
+          # LAFS package
+          mkdir -p "$STAGING/packages/lafs"
+          cp -r packages/lafs/dist packages/lafs/package.json "$STAGING/packages/lafs/"
+          for extra in schemas lafs.md README.md LICENSE; do
+            [[ -e "packages/lafs/$extra" ]] && cp -r "packages/lafs/$extra" "$STAGING/packages/lafs/" || true
+          done
 
           # Adapters package
           if [[ -d packages/adapters/dist ]]; then
@@ -281,6 +289,7 @@ jobs:
           }
 
           publish_pkg contracts
+          publish_pkg lafs
           publish_pkg core
           publish_pkg adapters
           publish_pkg agents

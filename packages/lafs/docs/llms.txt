@@ -1,0 +1,44 @@
+# LAFS Documentation Index for LLM Agents
+
+## Canonical entry points (use these first)
+
+- `README.md` - Package overview and supported exports
+- `docs/README.md` - Documentation landing page
+- `docs/getting-started/quickstart.md` - Minimal working TypeScript path
+- `docs/guides/llm-agent-guide.md` - Agent parsing + compliance patterns
+- `docs/guides/schema-extension.md` - How to add custom message/result validation
+- `docs/guides/compliance-pipeline.md` - Outgoing compliance middleware pattern
+
+## Normative and code-truth sources
+
+- `schemas/v1/envelope.schema.json` - Canonical JSON Schema
+- `schemas/v1/error-registry.json` - Registered error codes
+- `schemas/v1/conformance-profiles.json` - Machine-readable Core/Standard/Complete profiles
+- `src/envelope.ts` - Envelope construction and parsing helpers
+- `src/compliance.ts` - First-class compliance and middleware APIs
+- `src/validateEnvelope.ts` - Runtime schema validator behavior
+- `src/conformance.ts` - Conformance check semantics
+- `src/flagSemantics.ts` - JSON/human format resolution and conflict error
+- `src/mcpAdapter.ts` - MCP result wrapping behavior
+- `src/index.ts` - Actual package export surface
+
+## Questions this doc set answers directly
+
+1. Extend validation for custom message types/fields:
+   - `docs/guides/schema-extension.md`
+2. Integrate validation into LLM generation pipeline:
+   - `docs/guides/compliance-pipeline.md`
+3. Enforce default mandatory JSON formatting policy:
+   - `docs/guides/llm-agent-guide.md`
+   - `src/flagSemantics.ts`
+
+## Core envelope APIs
+
+- `createEnvelope(input)`
+- `parseLafsResponse(input, options?)`
+- `LafsError`
+- `validateEnvelope(input)`
+- `runEnvelopeConformance(envelope)`
+- `enforceCompliance(input, options?)`
+- `assertCompliance(input, options?)`
+- `withCompliance(producer, options?)`

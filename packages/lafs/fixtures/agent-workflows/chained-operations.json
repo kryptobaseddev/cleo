@@ -1,0 +1,331 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_testScenario": {
+    "name": "Chained Operations",
+    "description": "Agent performs multi-step data analysis: fetch raw data → apply filters → aggregate results → generate insights → format report. Shows context accumulating constraints and state transitions.",
+    "agentObjective": "Analyze Q1 sales data to identify top-performing products and regional trends",
+    "ledgerId": "ctx_analytics_chain_001",
+    "expectedBehavior": [
+      "Context version increments from 0 to 5 across workflow",
+      "Constraints accumulate in context (date range, regions, min revenue)",
+      "Each operation adds new entries to ledger",
+      "Final report references all accumulated context",
+      "Ledger shows complete audit trail of transformations"
+    ]
+  },
+  "ledger": {
+    "ledgerId": "ctx_analytics_chain_001",
+    "version": 5,
+    "createdAt": "2026-02-16T10:00:00Z",
+    "updatedAt": "2026-02-16T10:02:30Z",
+    "checksum": "sha256:x9y8z7w6v5u4...",
+    "maxEntries": 100,
+    "entries": [
+      {
+        "entryId": "ent_analytics_001",
+        "version": 1,
+        "timestamp": "2026-02-16T10:00:05Z",
+        "operation": "data.fetch",
+        "requestId": "req_data_fetch_001",
+        "contextDelta": {
+          "objective": "Analyze Q1 sales performance",
+          "dataSource": {
+            "type": "sales_api",
+            "endpoint": "/v1/sales/q1-2026",
+            "authentication": "bearer_token"
+          },
+          "constraints": [
+            { "type": "date_range", "field": "saleDate", "from": "2026-01-01", "to": "2026-03-31" }
+          ],
+          "state": { "phase": "fetching", "recordsFetched": 0 }
+        }
+      },
+      {
+        "entryId": "ent_analytics_002",
+        "version": 2,
+        "timestamp": "2026-02-16T10:00:45Z",
+        "operation": "data.filter",
+        "requestId": "req_data_filter_001",
+        "contextDelta": {
+          "constraints": [
+            { "type": "date_range", "field": "saleDate", "from": "2026-01-01", "to": "2026-03-31" },
+            { "type": "min_value", "field": "revenue", "value": 1000 },
+            { "type": "region", "values": ["US-West", "US-East", "EU-Central"] }
+          ],
+          "intermediate": {
+            "totalRecords": 15420,
+            "filteredRecords": 8934,
+            "filterEfficiency": "57.9%"
+          },
+          "state": { "phase": "filtering", "recordsFiltered": 8934 }
+        }
+      },
+      {
+        "entryId": "ent_analytics_003",
+        "version": 3,
+        "timestamp": "2026-02-16T10:01:30Z",
+        "operation": "data.aggregate",
+        "requestId": "req_data_aggregate_001",
+        "contextDelta": {
+          "aggregations": [
+            { "type": "sum", "field": "revenue", "alias": "totalRevenue" },
+            { "type": "count", "field": "productId", "alias": "totalTransactions" },
+            { "type": "group_by", "field": "region" },
+            { "type": "group_by", "field": "productCategory" }
+          ],
+          "intermediate": {
+            "aggregations": {
+              "totalRevenue": 2847500.50,
+              "totalTransactions": 8934,
+              "avgOrderValue": 318.72
+            }
+          },
+          "state": { "phase": "aggregating", "aggregationGroups": 12 }
+        }
+      },
+      {
+        "entryId": "ent_analytics_004",
+        "version": 4,
+        "timestamp": "2026-02-16T10:02:00Z",
+        "operation": "insight.generate",
+        "requestId": "req_insight_generate_001",
+        "contextDelta": {
+          "insights": [
+            { "type": "top_performer", "category": "Electronics", "revenue": 892500, "growth": "+23%" },
+            { "type": "top_performer", "category": "Home & Garden", "revenue": 654000, "growth": "+15%" },
+            { "type": "trend", "description": "EU-Central region showing 34% growth vs Q4 2025" },
+            { "type": "anomaly", "description": "US-West revenue dropped 8% in March" }
+          ],
+          "state": { "phase": "analyzing", "insightsGenerated": 4 }
+        }
+      },
+      {
+        "entryId": "ent_analytics_005",
+        "version": 5,
+        "timestamp": "2026-02-16T10:02:30Z",
+        "operation": "report.format",
+        "requestId": "req_report_format_001",
+        "contextDelta": {
+          "report": {
+            "title": "Q1 2026 Sales Analysis Report",
+            "summary": "Total revenue $2.85M across 8,934 transactions. Top category: Electronics ($892K, +23%)",
+            "format": "executive_summary",
+            "sections": ["executive_summary", "regional_breakdown", "top_products", "recommendations"]
+          },
+          "state": { "phase": "complete", "reportGenerated": true }
+        }
+      }
+    ]
+  },
+  "envelopes": [
+    {
+      "_description": "Step 1: Fetch raw sales data from API",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T10:00:05Z",
+          "operation": "data.fetch",
+          "requestId": "req_data_fetch_001",
+          "transport": "http",
+          "strict": true,
+          "mvi": "full",
+          "contextVersion": 1
+        },
+        "success": true,
+        "result": {
+          "dataSource": "sales_api",
+          "recordsFetched": 15420,
+          "dateRange": { "from": "2026-01-01", "to": "2026-03-31" },
+          "fields": ["saleId", "productId", "productCategory", "region", "revenue", "saleDate"],
+          "sizeBytes": 2847360
+        },
+        "page": {
+          "mode": "offset",
+          "limit": 1000,
+          "offset": 0,
+          "hasMore": false,
+          "total": 15420
+        }
+      }
+    },
+    {
+      "_description": "Step 2: Apply filters to narrow dataset",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T10:00:45Z",
+          "operation": "data.filter",
+          "requestId": "req_data_filter_001",
+          "transport": "sdk",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 2
+        },
+        "success": true,
+        "result": {
+          "filtersApplied": [
+            { "field": "revenue", "operator": "gte", "value": 1000 },
+            { "field": "region", "operator": "in", "values": ["US-West", "US-East", "EU-Central"] }
+          ],
+          "summary": {
+            "inputRecords": 15420,
+            "outputRecords": 8934,
+            "filteredOut": 6486,
+            "efficiency": "57.9%"
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 3: Aggregate filtered data by region and category",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T10:01:30Z",
+          "operation": "data.aggregate",
+          "requestId": "req_data_aggregate_001",
+          "transport": "sdk",
+          "strict": true,
+          "mvi": "full",
+          "contextVersion": 3
+        },
+        "success": true,
+        "result": {
+          "aggregations": {
+            "totalRevenue": 2847500.50,
+            "totalTransactions": 8934,
+            "avgOrderValue": 318.72
+          },
+          "byRegion": [
+            { "region": "US-West", "revenue": 923400.25, "transactions": 3124, "share": "32.4%" },
+            { "region": "US-East", "revenue": 1054200.75, "transactions": 3456, "share": "37.0%" },
+            { "region": "EU-Central", "revenue": 869899.50, "transactions": 2354, "share": "30.5%" }
+          ],
+          "byCategory": [
+            { "category": "Electronics", "revenue": 892500.00, "growth": "+23%" },
+            { "category": "Home & Garden", "revenue": 654000.00, "growth": "+15%" },
+            { "category": "Sports", "revenue": 432000.50, "growth": "+8%" },
+            { "category": "Clothing", "revenue": 868000.00, "growth": "-2%" }
+          ]
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 4: Generate insights from aggregated data",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T10:02:00Z",
+          "operation": "insight.generate",
+          "requestId": "req_insight_generate_001",
+          "transport": "sdk",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 4
+        },
+        "success": true,
+        "result": {
+          "insights": [
+            {
+              "type": "top_performer",
+              "title": "Electronics Leading Growth",
+              "description": "Electronics category generated $892.5K revenue with 23% growth",
+              "confidence": 0.94,
+              "recommendation": "Increase Electronics inventory for Q2"
+            },
+            {
+              "type": "regional_trend",
+              "title": "EU Market Expansion",
+              "description": "EU-Central region showing 34% growth vs Q4 2025",
+              "confidence": 0.89,
+              "recommendation": "Expand EU marketing budget"
+            },
+            {
+              "type": "anomaly",
+              "title": "US-West Decline",
+              "description": "US-West revenue dropped 8% in March, diverging from other regions",
+              "confidence": 0.91,
+              "recommendation": "Investigate West Coast supply chain issues"
+            }
+          ],
+          "generatedAt": "2026-02-16T10:02:00Z"
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 5: Format final executive report",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T10:02:30Z",
+          "operation": "report.format",
+          "requestId": "req_report_format_001",
+          "transport": "http",
+          "strict": true,
+          "mvi": "minimal",
+          "contextVersion": 5
+        },
+        "success": true,
+        "result": {
+          "report": {
+            "title": "Q1 2026 Sales Analysis Report",
+            "generatedAt": "2026-02-16T10:02:30Z",
+            "executiveSummary": "Q1 2026 delivered $2.85M in revenue across 8,934 transactions (avg $318.72). Electronics led growth at +23%, while EU-Central region expanded +34%. Action required on US-West decline (-8% in March).",
+            "keyMetrics": {
+              "totalRevenue": "$2.85M",
+              "totalTransactions": 8934,
+              "topRegion": "US-East (37.0%)",
+              "topCategory": "Electronics ($892K)",
+              "fastestGrowing": "EU-Central (+34%)"
+            },
+            "recommendations": [
+              "Increase Electronics inventory for Q2",
+              "Expand EU marketing budget",
+              "Investigate US-West supply chain issues"
+            ]
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    }
+  ],
+  "validationTests": {
+    "validVariants": [
+      {
+        "name": "Complete workflow",
+        "description": "All 5 steps executed successfully with context accumulation"
+      },
+      {
+        "name": "Partial workflow",
+        "description": "Workflow stopped at insight generation (valid intermediate state)"
+      }
+    ],
+    "invalidVariants": [
+      {
+        "name": "Skipped step",
+        "description": "Missing filter step - aggregating unfiltered data",
+        "modification": "Remove version 2 (filter) envelope",
+        "expectedFailure": "WORKFLOW_INCOMPLETE"
+      },
+      {
+        "name": "Constraint loss",
+        "description": "Constraints not preserved in later steps",
+        "modification": "Remove constraints from version 3+ contextDelta",
+        "expectedFailure": "CONTEXT_PRESERVATION_ERROR"
+      }
+    ]
+  }
+}

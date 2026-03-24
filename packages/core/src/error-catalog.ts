@@ -10,7 +10,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
+import type { LAFSErrorCategory } from '@cleocode/lafs';
 
 /**
  * A single entry in the unified error catalog.

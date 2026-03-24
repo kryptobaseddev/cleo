@@ -6,7 +6,7 @@
  * dispatchFromCli() to apply field filtering and MVI control universally
  * across all commands.
  *
- * Delegates to @cleocode/lafs-protocol v1.5.0 resolveFieldExtraction()
+ * Delegates to @cleocode/lafs v1.5.0 resolveFieldExtraction()
  * for canonical conflict detection, flag parsing, and type resolution.
  * Mirrors the format-context.ts pattern for --json/--human/--quiet.
  *
@@ -18,7 +18,7 @@ import {
   type FieldExtractionInput,
   type FieldExtractionResolution,
   resolveFieldExtraction,
-} from '@cleocode/lafs-protocol';
+} from '@cleocode/lafs';
 
 export type { FieldExtractionResolution as FieldContext };
 

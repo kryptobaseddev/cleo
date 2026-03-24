@@ -1,0 +1,26 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-13T00:00:00Z",
+    "operation": "example.listCursor",
+    "requestId": "req_cursor_01",
+    "transport": "http",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 1
+  },
+  "success": true,
+  "result": {
+    "items": [
+      { "id": "c1", "title": "Cursor Item 1" },
+      { "id": "c2", "title": "Cursor Item 2" }
+    ]
+  },
+  "page": {
+    "mode": "cursor",
+    "nextCursor": "eyJpZCI6ImMyIn0=",
+    "hasMore": true
+  }
+}

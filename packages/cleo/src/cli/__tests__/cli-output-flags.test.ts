@@ -27,7 +27,7 @@ vi.mock('../field-context.js', () => ({
   resolveFieldContext: vi.fn(),
 }));
 
-import type { FieldExtractionResolution, FlagResolution } from '@cleocode/lafs-protocol';
+import type { FieldExtractionResolution, FlagResolution } from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
 import { cliOutput } from '../renderers/index.js';

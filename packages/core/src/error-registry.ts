@@ -13,7 +13,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import type { LAFSErrorCategory } from '@cleocode/lafs-protocol';
+import type { LAFSErrorCategory } from '@cleocode/lafs';
 
 /**
  * Entry in the CLEO-to-LAFS error registry.

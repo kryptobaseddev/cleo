@@ -5,7 +5,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
-import type { LAFSPage } from '@cleocode/lafs-protocol';
+import type { LAFSPage } from '@cleocode/lafs';
 import { paginate } from '../pagination.js';
 import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 

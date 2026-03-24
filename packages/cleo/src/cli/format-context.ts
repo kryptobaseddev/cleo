@@ -8,7 +8,7 @@
  * @epic T4663
  */
 
-import type { FlagResolution } from '@cleocode/lafs-protocol';
+import type { FlagResolution } from '@cleocode/lafs';
 
 /**
  * Current resolved format for this CLI invocation.

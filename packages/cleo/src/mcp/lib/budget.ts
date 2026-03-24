@@ -8,8 +8,8 @@
  * @epic T4663
  */
 
-import type { BudgetEnforcementResult, LAFSEnvelope } from '@cleocode/lafs-protocol';
-import { applyBudgetEnforcement, checkBudget } from '@cleocode/lafs-protocol';
+import type { BudgetEnforcementResult, LAFSEnvelope } from '@cleocode/lafs';
+import { applyBudgetEnforcement, checkBudget } from '@cleocode/lafs';
 
 /**
  * Default token budget when no explicit budget is provided.

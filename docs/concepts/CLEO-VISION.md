@@ -228,7 +228,7 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ## LAFS: The Agent Communication Contract
 
-[LAFS](https://github.com/kryptobaseddev/lafs-protocol) (LLM-Agent-First Specification) is the protocol that makes CLEO truly provider-neutral. It defines the contract between any AI agent and CLEO's tools.
+[LAFS](https://github.com/kryptobaseddev/lafs) (LLM-Agent-First Specification) is the protocol that makes CLEO truly provider-neutral. It defines the contract between any AI agent and CLEO's tools.
 
 ### Why LAFS Matters
 

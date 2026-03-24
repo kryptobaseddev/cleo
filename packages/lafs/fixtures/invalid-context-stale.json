@@ -1,0 +1,33 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-25T00:00:00Z",
+    "operation": "orders.update",
+    "requestId": "req_ctx_stale",
+    "transport": "http",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 3
+  },
+  "success": false,
+  "result": null,
+  "error": {
+    "code": "E_CONTEXT_STALE",
+    "message": "context is stale",
+    "category": "CONFLICT",
+    "retryable": true,
+    "retryAfterMs": 250,
+    "details": {}
+  },
+  "_extensions": {
+    "contextLedger": {
+      "required": true,
+      "stale": true,
+      "version": 3,
+      "previousVersion": 4,
+      "removedConstraints": []
+    }
+  }
+}

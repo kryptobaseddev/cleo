@@ -169,7 +169,7 @@ export interface DispatchRequest {
   /** LAFS field selection: filter response data to these fields only. */
   _fields?: string[];
   /** LAFS envelope verbosity. Defaults to 'standard'. 'custom' is server-set via _fields. */
-  _mvi?: import('@cleocode/lafs-protocol').MVILevel;
+  _mvi?: import('@cleocode/lafs').MVILevel;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ export interface DispatchResponse {
   };
   success: boolean;
   data?: unknown;
-  page?: import('@cleocode/lafs-protocol').LAFSPage;
+  page?: import('@cleocode/lafs').LAFSPage;
   partial?: boolean;
   error?: DispatchError;
 }

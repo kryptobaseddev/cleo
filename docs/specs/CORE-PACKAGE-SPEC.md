@@ -70,7 +70,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
     "@cleocode/agents": "workspace:*",
     "@cleocode/caamp": "^1.9.1",
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/lafs-protocol": "^1.8.0",
+    "@cleocode/lafs": "^1.8.0",
     "@cleocode/skills": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
@@ -553,7 +553,7 @@ The following are internal implementation details, not part of the public contra
 | `@cleocode/agents` | `workspace:*` | Agent protocol templates |
 | `@cleocode/caamp` | `^1.9.1` | Provider capability API, spawn coordination, idempotent injection, 16-event canonical hook taxonomy |
 | `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
-| `@cleocode/lafs-protocol` | `^1.8.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
+| `@cleocode/lafs` | `^1.8.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
 | `@cleocode/skills` | `workspace:*` | Skill definitions |
 | `ajv` | `^8.18.0` | JSON Schema validation |
 | `ajv-formats` | `^3.0.1` | AJV format validators (date-time, uri, etc.) |
@@ -580,7 +580,7 @@ The following are internal implementation details, not part of the public contra
 - `drizzle-orm` is at a beta version (`1.0.0-beta.18-*`) and must be pinned to the exact build hash used by `@cleocode/cleo`. Pre-release semver ranges (`^`) do not work correctly -- always pin to the exact version.
 - SQLite is provided by Node.js built-in `node:sqlite` (requires Node 24+) via `drizzle-orm/node-sqlite`. This is zero-dependency -- no `sql.js` or `better-sqlite3` needed. It is used internally by `lifecycle`, `memory` (brain.db), and `nexus` modules. Consumers that only use task/session modules do not trigger SQLite connections unless they call those specific modules.
 - `@cleocode/contracts` exports zero runtime code. It is safe to tree-shake entirely.
-- `@cleocode/lafs-protocol` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `packages/core/src/output.ts`.
+- `@cleocode/lafs` provides the `LAFSMeta`, `LAFSPage`, and `Warning` types consumed by `packages/core/src/output.ts`.
 - `zod` is used for drizzle-orm Zod validation schemas (`createInsertSchema`/`createSelectSchema` from `drizzle-orm/zod`).
 - `js-tiktoken` provides fast WASM-based token counting for context window drift monitoring and token budget management.
 
@@ -682,7 +682,7 @@ SignalDock is used internally by the `spawn` and `orchestration` modules. Extern
 
 ## 14. LAFS Response Envelope
 
-All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs-protocol`.
+All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs`.
 
 ### 14.1 Envelope Variants
 

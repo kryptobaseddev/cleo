@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
-import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs-protocol';
+import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
 import { getCurrentSessionId } from './sessions/context-alert.js';
 
@@ -66,7 +66,7 @@ export interface FormatOptions {
   page?: LAFSPage;
   extensions?: Record<string, unknown>;
   /** MVI level to embed in the envelope _meta. Defaults to 'standard'. @task T4957 */
-  mvi?: import('@cleocode/lafs-protocol').MVILevel;
+  mvi?: import('@cleocode/lafs').MVILevel;
 }
 
 /**
@@ -79,7 +79,7 @@ export interface FormatOptions {
  */
 function createCliMeta(
   operation: string,
-  mvi: import('@cleocode/lafs-protocol').MVILevel = 'standard',
+  mvi: import('@cleocode/lafs').MVILevel = 'standard',
 ): LAFSMeta {
   const warnings = drainWarnings();
   const meta: LAFSMeta = {

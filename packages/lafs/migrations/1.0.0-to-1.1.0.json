@@ -1,0 +1,12 @@
+{
+  "from": "1.0.0",
+  "to": "1.1.0",
+  "breaking": false,
+  "changes": [
+    {
+      "type": "add_optional_field",
+      "path": "_meta.warnings",
+      "description": "Optional warnings array for deprecation and policy notices"
+    }
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_testScenario": {
+    "name": "Error Recovery",
+    "description": "Agent encounters E_MVI_BUDGET_EXCEEDED error, retries with adjusted budget after backoff, and succeeds. Demonstrates error handling with context preservation through failures.",
+    "agentObjective": "Generate comprehensive product documentation with large dataset",
+    "ledgerId": "ctx_error_recovery_001",
+    "expectedBehavior": [
+      "Initial request fails with E_MVI_BUDGET_EXCEEDED",
+      "Context preserved through error (version does not increment on error)",
+      "Retry includes adjusted mvi budget and backoff",
+      "Success envelope shows contextVersion progression",
+      "Ledger shows error entry with retry state"
+    ]
+  },
+  "ledger": {
+    "ledgerId": "ctx_error_recovery_001",
+    "version": 2,
+    "createdAt": "2026-02-16T11:00:00Z",
+    "updatedAt": "2026-02-16T11:00:45Z",
+    "checksum": "sha256:r5s6t7u8v9w0...",
+    "maxEntries": 100,
+    "entries": [
+      {
+        "entryId": "ent_doc_001",
+        "version": 1,
+        "timestamp": "2026-02-16T11:00:05Z",
+        "operation": "doc.generate",
+        "requestId": "req_doc_gen_001",
+        "contextDelta": {
+          "objective": "Generate comprehensive API documentation",
+          "parameters": {
+            "productId": "prod_api_gateway",
+            "includeExamples": true,
+            "includeSchemas": true,
+            "maxTokens": 8000,
+            "mvi": "full"
+          },
+          "state": { "phase": "generating", "attempt": 1 }
+        }
+      },
+      {
+        "entryId": "ent_doc_error_001",
+        "version": 1,
+        "timestamp": "2026-02-16T11:00:08Z",
+        "operation": "doc.generate",
+        "requestId": "req_doc_gen_001",
+        "contextDelta": {
+          "error": {
+            "code": "E_MVI_BUDGET_EXCEEDED",
+            "message": "Response exceeds declared MVI budget",
+            "attempt": 1,
+            "budgetRequested": 8000,
+            "budgetRequired": 12450
+          },
+          "retry": {
+            "planned": true,
+            "backoffMs": 1000,
+            "strategy": "reduce_mvi_and_chunk"
+          },
+          "state": { "phase": "error_recovery", "attempt": 1, "status": "failed" }
+        }
+      },
+      {
+        "entryId": "ent_doc_retry_001",
+        "version": 2,
+        "timestamp": "2026-02-16T11:00:12Z",
+        "operation": "doc.generate",
+        "requestId": "req_doc_gen_002",
+        "contextDelta": {
+          "objective": "Generate comprehensive API documentation",
+          "parameters": {
+            "productId": "prod_api_gateway",
+            "includeExamples": true,
+            "includeSchemas": false,
+            "maxTokens": 6000,
+            "mvi": "standard",
+            "chunkStrategy": "endpoints_first"
+          },
+          "retry": {
+            "attempt": 2,
+            "backoffAppliedMs": 1000,
+            "strategy": "reduce_mvi_and_chunk"
+          },
+          "state": { "phase": "retrying", "attempt": 2 }
+        }
+      },
+      {
+        "entryId": "ent_doc_success_001",
+        "version": 2,
+        "timestamp": "2026-02-16T11:00:45Z",
+        "operation": "doc.generate",
+        "requestId": "req_doc_gen_002",
+        "contextDelta": {
+          "result": {
+            "documentId": "doc_api_gateway_v1",
+            "sectionsGenerated": ["overview", "authentication", "endpoints", "examples"],
+            "tokensUsed": 4850,
+            "chunksRemaining": 2
+          },
+          "state": { "phase": "complete", "attempt": 2, "status": "success" }
+        }
+      }
+    ]
+  },
+  "envelopes": [
+    {
+      "_description": "Step 1: Initial request with full disclosure (WILL FAIL)",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T11:00:05Z",
+          "operation": "doc.generate",
+          "requestId": "req_doc_gen_001",
+          "transport": "http",
+          "strict": true,
+          "mvi": "full",
+          "contextVersion": 1
+        },
+        "success": false,
+        "result": null,
+        "error": {
+          "code": "E_MVI_BUDGET_EXCEEDED",
+          "message": "Response exceeds declared MVI budget (token limit). Requested: 8000 tokens, Required: 12450 tokens",
+          "category": "VALIDATION",
+          "retryable": false,
+          "retryAfterMs": null,
+          "details": {
+            "budgetType": "token",
+            "requested": 8000,
+            "required": 12450,
+            "exceededBy": 4450,
+            "suggestions": [
+              "Reduce MVI level (try 'standard' or 'minimal')",
+              "Use pagination/chunking for large documents",
+              "Request specific sections instead of full document"
+            ],
+            "maxSupportedTokens": {
+              "minimal": 2000,
+              "standard": 6000,
+              "full": 10000
+            }
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 2: Retry with reduced MVI and chunked approach",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T11:00:12Z",
+          "operation": "doc.generate",
+          "requestId": "req_doc_gen_002",
+          "transport": "http",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 1,
+          "warnings": [
+            {
+              "code": "RETRY_ATTEMPT",
+              "message": "This is a retry after E_MVI_BUDGET_EXCEEDED error",
+              "attempt": 2
+            }
+          ]
+        },
+        "success": true,
+        "result": {
+          "partial": true,
+          "document": {
+            "id": "doc_api_gateway_v1",
+            "product": "API Gateway",
+            "version": "2.1.0",
+            "generatedAt": "2026-02-16T11:00:12Z",
+            "chunkInfo": {
+              "currentChunk": 1,
+              "totalChunks": 3,
+              "strategy": "endpoints_first"
+            },
+            "content": {
+              "overview": "The API Gateway provides a unified entry point for all microservices...",
+              "authentication": {
+                "type": "OAuth 2.0",
+                "endpoints": ["/auth/token", "/auth/refresh"],
+                "scopes": ["read", "write", "admin"]
+              },
+              "endpoints": [
+                { "path": "/v1/users", "methods": ["GET", "POST"], "description": "User management" },
+                { "path": "/v1/orders", "methods": ["GET", "POST", "PUT"], "description": "Order operations" }
+              ]
+            }
+          },
+          "tokensUsed": 4850,
+          "remainingBudget": 1150
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 3: Request chunk 2 with adjusted context",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T11:00:28Z",
+          "operation": "doc.generate.chunk",
+          "requestId": "req_doc_gen_003",
+          "transport": "http",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 2
+        },
+        "success": true,
+        "result": {
+          "partial": true,
+          "document": {
+            "id": "doc_api_gateway_v1",
+            "chunkInfo": {
+              "currentChunk": 2,
+              "totalChunks": 3,
+              "strategy": "endpoints_first"
+            },
+            "content": {
+              "endpoints": [
+                { "path": "/v1/products", "methods": ["GET", "POST", "DELETE"], "description": "Product catalog" },
+                { "path": "/v1/inventory", "methods": ["GET", "PUT"], "description": "Inventory management" }
+              ],
+              "examples": {
+                "authentication": "curl -X POST https://api.example.com/auth/token...",
+                "userCreation": "curl -X POST https://api.example.com/v1/users..."
+              }
+            }
+          },
+          "tokensUsed": 3200,
+          "remainingBudget": 2800
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 4: Request final chunk - workflow complete",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T11:00:45Z",
+          "operation": "doc.generate.chunk",
+          "requestId": "req_doc_gen_004",
+          "transport": "http",
+          "strict": true,
+          "mvi": "minimal",
+          "contextVersion": 2
+        },
+        "success": true,
+        "result": {
+          "partial": false,
+          "documentComplete": true,
+          "document": {
+            "id": "doc_api_gateway_v1",
+            "chunkInfo": {
+              "currentChunk": 3,
+              "totalChunks": 3,
+              "allChunksComplete": true
+            },
+            "content": {
+              "errorHandling": {
+                "statusCodes": ["400 - Bad Request", "401 - Unauthorized", "429 - Rate Limited", "500 - Internal Error"],
+                "retryPolicy": "Exponential backoff with jitter",
+                "contact": "support@example.com"
+              },
+              "rateLimits": {
+                "tier1": "100 requests/minute",
+                "tier2": "1000 requests/minute",
+                "tier3": "Unlimited"
+              }
+            }
+          },
+          "summary": {
+            "totalChunks": 3,
+            "totalTokensUsed": 8050,
+            "generationTimeMs": 40000,
+            "retryOccurred": true,
+            "finalStatus": "complete"
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    }
+  ],
+  "validationTests": {
+    "validVariants": [
+      {
+        "name": "Error recovery success",
+        "description": "Agent retries after E_MVI_BUDGET_EXCEEDED and completes workflow"
+      },
+      {
+        "name": "Multi-retry recovery",
+        "description": "Agent retries multiple times with progressively smaller MVI levels"
+      }
+    ],
+    "invalidVariants": [
+      {
+        "name": "Context version advance on error",
+        "description": "Error response incorrectly advances contextVersion",
+        "modification": "Set error envelope _meta.contextVersion to 2",
+        "expectedFailure": "E_CONTEXT_STALE"
+      },
+      {
+        "name": "Missing error details",
+        "description": "Error response lacks budget details needed for retry",
+        "modification": "Remove error.details.budget information",
+        "expectedFailure": "E_CONTEXT_MISSING"
+      },
+      {
+        "name": "Invalid retry sequence",
+        "description": "Retry request doesn't reference original error",
+        "modification": "Remove retry metadata from second envelope",
+        "expectedFailure": "WORKFLOW_TRACE_ERROR"
+      }
+    ]
+  }
+}

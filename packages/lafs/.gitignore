@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.cleo/.cache/
+.cleo/*.lock
+.cleo/**/*.lock
+clawmsgr-*.json
+clawmsgr-agent.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/

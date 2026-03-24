@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "tiers": {
+    "core": [
+      "envelope_schema_valid",
+      "envelope_invariants",
+      "error_code_registered"
+    ],
+    "standard": [
+      "envelope_schema_valid",
+      "envelope_invariants",
+      "error_code_registered",
+      "agent_action_valid",
+      "error_registry_agent_action",
+      "transport_mapping_consistent",
+      "meta_mvi_present",
+      "meta_strict_present",
+      "strict_mode_behavior",
+      "pagination_mode_consistent",
+      "strict_mode_enforced"
+    ],
+    "complete": [
+      "envelope_schema_valid",
+      "envelope_invariants",
+      "error_code_registered",
+      "agent_action_valid",
+      "error_registry_agent_action",
+      "transport_mapping_consistent",
+      "context_mutation_failure",
+      "context_preservation_valid",
+      "meta_mvi_present",
+      "meta_strict_present",
+      "strict_mode_behavior",
+      "pagination_mode_consistent",
+      "strict_mode_enforced"
+    ]
+  }
+}

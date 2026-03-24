@@ -4,14 +4,14 @@
  * Implements LAFS _fields parameter (field selection) and _mvi envelope verbosity.
  * Extracts _fields and _mvi from params (for MCP agents that pass them as params),
  * stores them on the request, and post-processes the response via the canonical
- * SDK utilities from @cleocode/lafs-protocol v1.5.0.
+ * SDK utilities from @cleocode/lafs v1.5.0.
  *
  * @epic T4820
  * @task T4979
  */
 
-import type { LAFSEnvelope } from '@cleocode/lafs-protocol';
-import { isMVILevel, applyFieldFilter as sdkApplyFieldFilter } from '@cleocode/lafs-protocol';
+import type { LAFSEnvelope } from '@cleocode/lafs';
+import { isMVILevel, applyFieldFilter as sdkApplyFieldFilter } from '@cleocode/lafs';
 import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**

@@ -8,7 +8,7 @@
  * @epic T4663
  */
 
-import type { LAFSPage, LAFSPageNone, LAFSPageOffset } from '@cleocode/lafs-protocol';
+import type { LAFSPage, LAFSPageNone, LAFSPageOffset } from '@cleocode/lafs';
 
 /**
  * Input parameters for paginating a result set.

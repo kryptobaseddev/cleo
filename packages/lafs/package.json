@@ -1,0 +1,88 @@
+{
+  "name": "@cleocode/lafs",
+  "version": "2026.3.74",
+  "private": false,
+  "type": "module",
+  "description": "LLM-Agent-First Specification schemas and conformance tooling",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
+    },
+    "./discovery": {
+      "import": "./dist/src/discovery.js",
+      "types": "./dist/src/discovery.d.ts"
+    },
+    "./a2a": {
+      "import": "./dist/src/a2a/index.js",
+      "types": "./dist/src/a2a/index.d.ts"
+    },
+    "./a2a/bindings": {
+      "import": "./dist/src/a2a/bindings/index.js",
+      "types": "./dist/src/a2a/bindings/index.d.ts"
+    },
+    "./schemas/v1/envelope.schema.json": "./schemas/v1/envelope.schema.json",
+    "./schemas/v1/error-registry.json": "./schemas/v1/error-registry.json",
+    "./schemas/v1/context-ledger.schema.json": "./schemas/v1/context-ledger.schema.json",
+    "./schemas/v1/discovery.schema.json": "./schemas/v1/discovery.schema.json",
+    "./schemas/v1/conformance-profiles.json": "./schemas/v1/conformance-profiles.json"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "lafs.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/lafs"
+  },
+  "homepage": "https://codluv.gitbook.io/lafs/",
+  "bugs": {
+    "url": "https://github.com/kryptobaseddev/cleo/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "lafs-conformance": "dist/src/cli.js"
+  },
+  "scripts": {
+    "version": "node scripts/sync-version.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "conformance": "tsx src/cli.ts"
+  },
+  "keywords": [
+    "lafs",
+    "llm",
+    "agent",
+    "protocol",
+    "schema",
+    "conformance"
+  ],
+  "author": "CLEO Code <hello@cleo.co> (https://cleo.co)",
+  "license": "MIT",
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.3.0",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.2.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^0.3.10",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "express": "^5.2.1"
+  }
+}

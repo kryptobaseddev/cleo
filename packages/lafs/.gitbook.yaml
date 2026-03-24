@@ -1,0 +1,19 @@
+root: ./docs/
+structure:
+  readme: README.md
+  summary: SUMMARY.md
+
+destinations:
+  - name: gitbook
+    branch: main
+
+defaults:
+  colors:
+    primary: "#4A90D9"
+    background: "#FAFAFA"
+  favicon: ./assets/favicon.ico
+  logo: ./assets/logo.png
+  darkMode: true
+
+title: LAFS Protocol Documentation
+description: LLM-Agent-First Specification - Response envelope contracts for AI agent systems

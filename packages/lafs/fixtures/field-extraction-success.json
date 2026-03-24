@@ -1,0 +1,22 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-26T00:00:00Z",
+    "operation": "tasks.show",
+    "requestId": "req_field_01",
+    "transport": "sdk",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 0
+  },
+  "success": true,
+  "result": {
+    "id": "T001",
+    "title": "Example Task",
+    "status": "active",
+    "description": "A verbose description",
+    "tags": ["a", "b"]
+  }
+}

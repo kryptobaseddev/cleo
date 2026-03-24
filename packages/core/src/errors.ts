@@ -8,7 +8,7 @@
  */
 
 import { ExitCode, getExitCodeName, isRecoverableCode } from '@cleocode/contracts';
-import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs-protocol';
+import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs';
 import { getErrorDefinition } from './error-catalog.js';
 
 /**

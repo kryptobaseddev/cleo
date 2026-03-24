@@ -6,7 +6,7 @@
  * every domain handler.
  *
  * Uses the canonical GatewayMeta type from src/types/lafs.ts (which
- * extends LAFSMeta from @cleocode/lafs-protocol) to ensure LAFS v1.2.3
+ * extends LAFSMeta from @cleocode/lafs) to ensure LAFS v1.2.3
  * conformance.  Transport is 'sdk' per LAFS spec (MCP uses the SDK transport).
  *
  * @epic T4663

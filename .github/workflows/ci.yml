@@ -145,6 +145,10 @@ jobs:
         shell: bash
         run: |
           test -f packages/core/dist/index.js || (echo "packages/core/dist/index.js missing" && exit 1)
+      - name: Verify lafs dist exists
+        shell: bash
+        run: |
+          test -f packages/lafs/dist/src/index.js || (echo "packages/lafs/dist/src/index.js missing" && exit 1)
       - name: Verify CLI binary
         shell: bash
         run: node packages/cleo/dist/cli/index.js version

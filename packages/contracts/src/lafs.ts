@@ -2,7 +2,7 @@
  * LAFS (LLM-Agent-First Schema) unified envelope types.
  *
  * Defines canonical LAFS types inline (contracts has ZERO external dependencies).
- * In the main CLEO codebase these are re-exported from @cleocode/lafs-protocol;
+ * In the main CLEO codebase these are re-exported from @cleocode/lafs;
  * here they are defined as plain interfaces for maximum portability.
  *
  * @epic T4654
@@ -10,7 +10,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Canonical LAFS types (inlined from @cleocode/lafs-protocol)
+// Canonical LAFS types (inlined from @cleocode/lafs)
 // ---------------------------------------------------------------------------
 
 /** LAFS error category. */

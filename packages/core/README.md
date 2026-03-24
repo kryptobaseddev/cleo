@@ -565,7 +565,7 @@ async function buildKnowledge() {
 
 - `@cleocode/contracts` - Type definitions
 - `@cleocode/caamp` - Context-aware agent memory protocol
-- `@cleocode/lafs-protocol` - Language-agnostic feedback schema
+- `@cleocode/lafs` - Language-agnostic feedback schema
 - `drizzle-orm` - Database ORM
 - `zod` - Schema validation
 - `pino` - Logging
