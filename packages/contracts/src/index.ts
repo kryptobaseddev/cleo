@@ -90,6 +90,42 @@ export {
   isRecoverableCode,
   isSuccessCode,
 } from './exit-codes.js';
+export type {
+  AdminAPI,
+  AgentCapacity,
+  AgentHealthStatus,
+  AgentInstanceRow,
+  AgentInstanceStatus,
+  AgentsAPI,
+  AgentType,
+  BlastRadius,
+  BlastRadiusSeverity,
+  BrainObservationType,
+  CleoInitOptions,
+  DuplicateStrategy,
+  HybridSearchOptions,
+  ImpactedTask,
+  ImpactReport,
+  ImportParams,
+  IntelligenceAPI,
+  LifecycleAPI,
+  MemoryAPI,
+  NexusAPI,
+  OrchestrationAPI,
+  RegisterAgentOptions,
+  ReleaseAPI,
+  SessionsAPI,
+  StickyAPI,
+  SyncAPI,
+  TaskStartResult,
+  TasksAPI,
+} from './facade.js';
+// === Facade API Interfaces ===
+export {
+  AGENT_INSTANCE_STATUSES,
+  AGENT_TYPES,
+  BRAIN_OBSERVATION_TYPES,
+} from './facade.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
 export type {

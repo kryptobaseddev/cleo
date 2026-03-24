@@ -16,26 +16,26 @@
 
 import path from 'node:path';
 import type {
+  AdminAPI,
+  AgentsAPI,
+  CleoInitOptions,
   DataAccessor,
-  ExternalTask,
-  ExternalTaskLink,
-  ReconcileOptions,
-  ReconcileResult,
-  Task,
-  TaskPriority,
-  TaskSize,
-  TaskStatus,
-  TaskType,
+  IntelligenceAPI,
+  LifecycleAPI,
+  MemoryAPI,
+  NexusAPI,
+  OrchestrationAPI,
+  ReleaseAPI,
+  SessionsAPI,
+  StickyAPI,
+  SyncAPI,
+  TasksAPI,
 } from '@cleocode/contracts';
 // Admin
 import { exportTasks } from './admin/export.js';
-import type { ImportParams } from './admin/import.js';
 import { importTasks } from './admin/import.js';
 // Agents
 import {
-  type AgentCapacity,
-  type AgentHealthStatus,
-  type AgentInstanceRow,
   checkAgentHealth,
   deregisterAgent,
   detectCrashedAgents,
@@ -43,16 +43,10 @@ import {
   heartbeat,
   isOverloaded,
   listAgentInstances,
-  type RegisterAgentOptions,
   registerAgent,
 } from './agents/index.js';
 // Intelligence
-import {
-  type BlastRadius,
-  calculateBlastRadius,
-  type ImpactReport,
-  predictImpact,
-} from './intelligence/index.js';
+import { calculateBlastRadius, predictImpact } from './intelligence/index.js';
 // Lifecycle
 import {
   checkGate,
@@ -66,7 +60,6 @@ import {
   skipStage,
   startStage,
 } from './lifecycle/index.js';
-import type { BrainObservationType } from './memory/brain-retrieval.js';
 // Memory
 import {
   fetchBrainEntries,
@@ -74,7 +67,6 @@ import {
   searchBrainCompact,
   timelineBrain,
 } from './memory/brain-retrieval.js';
-import type { HybridSearchOptions } from './memory/brain-search.js';
 import { hybridSearch, searchBrain } from './memory/brain-search.js';
 // Nexus
 import { discoverRelated, searchAcrossProjects } from './nexus/discover.js';
@@ -162,237 +154,24 @@ import { showTask } from './tasks/show.js';
 import { updateTask } from './tasks/update.js';
 
 // ============================================================================
-// Domain API interfaces
+// Domain API interfaces — re-exported from @cleocode/contracts/facade
 // ============================================================================
 
-export interface TasksAPI {
-  add(params: {
-    title: string;
-    description: string;
-    parent?: string;
-    priority?: TaskPriority;
-    type?: TaskType;
-    size?: TaskSize;
-    phase?: string;
-    labels?: string[];
-    depends?: string[];
-    notes?: string;
-  }): Promise<unknown>;
-  find(params: {
-    query?: string;
-    id?: string;
-    status?: TaskStatus;
-    limit?: number;
-  }): Promise<unknown>;
-  show(taskId: string): Promise<unknown>;
-  list(params?: {
-    status?: TaskStatus;
-    priority?: TaskPriority;
-    parentId?: string;
-    phase?: string;
-    limit?: number;
-  }): Promise<unknown>;
-  update(params: {
-    taskId: string;
-    title?: string;
-    status?: TaskStatus;
-    priority?: TaskPriority;
-    description?: string;
-    notes?: string;
-  }): Promise<unknown>;
-  complete(params: { taskId: string; notes?: string }): Promise<unknown>;
-  delete(params: { taskId: string; force?: boolean }): Promise<unknown>;
-  archive(params?: { before?: string; taskIds?: string[]; dryRun?: boolean }): Promise<unknown>;
-  /** Start working on a specific task (sets focus). */
-  start(taskId: string): Promise<unknown>;
-  /** Stop working on the current task (clears focus). */
-  stop(): Promise<{ previousTask: string | null }>;
-  /** Get the current task work state. */
-  current(): Promise<unknown>;
-}
-
-export interface SessionsAPI {
-  start(params: {
-    name: string;
-    scope: string;
-    agent?: string;
-    startTask?: string;
-  }): Promise<unknown>;
-  end(params?: { note?: string }): Promise<unknown>;
-  status(): Promise<unknown>;
-  resume(sessionId: string): Promise<unknown>;
-  list(params?: { status?: string; limit?: number }): Promise<unknown>;
-  find(params?: {
-    status?: string;
-    scope?: string;
-    query?: string;
-    limit?: number;
-  }): Promise<unknown>;
-  show(sessionId: string): Promise<unknown>;
-  suspend(sessionId: string, reason?: string): Promise<unknown>;
-  briefing(params?: { maxNextTasks?: number; scope?: string }): Promise<unknown>;
-  handoff(sessionId: string, options?: { note?: string; nextAction?: string }): Promise<unknown>;
-  gc(maxAgeHours?: number): Promise<unknown>;
-  recordDecision(params: {
-    sessionId: string;
-    taskId: string;
-    decision: string;
-    rationale: string;
-    alternatives?: string[];
-  }): Promise<unknown>;
-  recordAssumption(params: {
-    assumption: string;
-    confidence: 'high' | 'medium' | 'low';
-    sessionId?: string;
-    taskId?: string;
-  }): Promise<unknown>;
-  contextDrift(params?: { sessionId?: string }): Promise<unknown>;
-  decisionLog(params?: { sessionId?: string; taskId?: string }): Promise<unknown>;
-  lastHandoff(scope?: { type: string; epicId?: string }): Promise<unknown>;
-}
-
-export interface MemoryAPI {
-  observe(params: { text: string; title?: string; type?: BrainObservationType }): Promise<unknown>;
-  find(params: {
-    query: string;
-    limit?: number;
-    tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
-  }): Promise<unknown>;
-  fetch(params: { ids: string[] }): Promise<unknown>;
-  timeline(params: { anchor: string; depthBefore?: number; depthAfter?: number }): Promise<unknown>;
-  search(query: string, options?: { limit?: number }): Promise<unknown>;
-  hybridSearch(query: string, options?: HybridSearchOptions): Promise<unknown>;
-}
-
-export interface OrchestrationAPI {
-  start(epicId: string): Promise<unknown>;
-  analyze(epicId: string): Promise<unknown>;
-  readyTasks(epicId: string): Promise<unknown>;
-  nextTask(epicId: string): Promise<unknown>;
-  context(epicId: string): Promise<unknown>;
-  dependencyGraph(tasks: Task[]): unknown;
-  epicStatus(epicId: string, title: string, children: Task[]): unknown;
-  progress(tasks: Task[]): unknown;
-}
-
-export interface LifecycleAPI {
-  status(epicId: string): Promise<unknown>;
-  startStage(epicId: string, stage: string): Promise<unknown>;
-  completeStage(epicId: string, stage: string, artifacts?: string[]): Promise<unknown>;
-  skipStage(epicId: string, stage: string, reason: string): Promise<unknown>;
-  checkGate(epicId: string, targetStage: string): Promise<unknown>;
-  history(epicId: string): Promise<unknown>;
-  resetStage(epicId: string, stage: string, reason: string): Promise<unknown>;
-  passGate(epicId: string, gateName: string, agent?: string): Promise<unknown>;
-  failGate(epicId: string, gateName: string, reason?: string): Promise<unknown>;
-  stages: readonly string[];
-}
-
-export interface ReleaseAPI {
-  prepare(params: { version: string; tasks?: string[]; notes?: string }): Promise<unknown>;
-  commit(params: { version: string }): Promise<unknown>;
-  tag(params: { version: string }): Promise<unknown>;
-  push(params: { version: string; remote?: string; explicitPush?: boolean }): Promise<unknown>;
-  rollback(params: { version: string; reason?: string }): Promise<unknown>;
-  calculateVersion(current: string, bumpType: string): string;
-  bumpVersion(): Promise<unknown>;
-}
-
-export interface AdminAPI {
-  export(params?: Record<string, unknown>): Promise<unknown>;
-  import(params: Omit<ImportParams, 'cwd'>): Promise<unknown>;
-}
-
-export interface StickyAPI {
-  add(params: {
-    content: string;
-    tags?: string[];
-    priority?: string;
-    color?: string;
-  }): Promise<unknown>;
-  show(stickyId: string): Promise<unknown>;
-  list(params?: {
-    status?: string;
-    color?: string;
-    priority?: string;
-    limit?: number;
-  }): Promise<unknown>;
-  archive(stickyId: string): Promise<unknown>;
-  purge(stickyId: string): Promise<unknown>;
-  convert(params: {
-    stickyId: string;
-    targetType: 'task' | 'memory' | 'task_note' | 'session_note';
-    title?: string;
-    memoryType?: string;
-    taskId?: string;
-  }): Promise<unknown>;
-}
-
-export interface NexusAPI {
-  init(): Promise<unknown>;
-  register(params: { path: string; name?: string; permissions?: string }): Promise<unknown>;
-  unregister(params: { name: string }): Promise<unknown>;
-  list(): Promise<unknown>;
-  show(params: { name: string }): Promise<unknown>;
-  sync(params?: { name?: string }): Promise<unknown>;
-  discover(params: { query: string; method?: string; limit?: number }): Promise<unknown>;
-  search(params: { pattern: string; project?: string; limit?: number }): Promise<unknown>;
-  setPermission(params: { name: string; level: 'read' | 'write' | 'execute' }): Promise<unknown>;
-  sharingStatus(): Promise<unknown>;
-}
-
-export interface SyncAPI {
-  /** Reconcile external tasks with CLEO as SSoT. */
-  reconcile(params: {
-    externalTasks: ExternalTask[];
-    providerId: string;
-    dryRun?: boolean;
-    conflictPolicy?: ReconcileOptions['conflictPolicy'];
-    defaultPhase?: string;
-    defaultLabels?: string[];
-  }): Promise<ReconcileResult>;
-  /** Get all external task links for a provider. */
-  getLinks(providerId: string): Promise<ExternalTaskLink[]>;
-  /** Get all external task links for a CLEO task. */
-  getTaskLinks(taskId: string): Promise<ExternalTaskLink[]>;
-  /** Remove all external task links for a provider. */
-  removeProviderLinks(providerId: string): Promise<number>;
-}
-
-export interface AgentsAPI {
-  /** Register a new agent instance. */
-  register(options: RegisterAgentOptions): Promise<AgentInstanceRow>;
-  /** Deregister an agent instance. */
-  deregister(agentId: string): Promise<AgentInstanceRow | null>;
-  /** Get health status for a specific agent. */
-  health(agentId: string): Promise<AgentHealthStatus | null>;
-  /** Detect agents that have crashed (missed heartbeats). */
-  detectCrashed(thresholdMs?: number): Promise<AgentInstanceRow[]>;
-  /** Record a heartbeat for an agent. */
-  recordHeartbeat(agentId: string): Promise<unknown>;
-  /** Get capacity info for an agent. */
-  capacity(agentId: string): Promise<AgentCapacity | null>;
-  /** Check if system is overloaded (available capacity below threshold). */
-  isOverloaded(threshold?: number): Promise<boolean>;
-  /** List all agent instances with optional filters. */
-  list(params?: { status?: string; agentType?: string }): Promise<AgentInstanceRow[]>;
-}
-
-export interface IntelligenceAPI {
-  /** Predict impact of a change description on related tasks. */
-  predictImpact(change: string): Promise<ImpactReport>;
-  /** Calculate blast radius for a task change. */
-  blastRadius(taskId: string): Promise<BlastRadius>;
-}
-
-// ============================================================================
-// Init options
-// ============================================================================
-
-export interface CleoInitOptions {
-  store?: DataAccessor;
-  caamp?: boolean;
-}
+export type {
+  AdminAPI,
+  AgentsAPI,
+  CleoInitOptions,
+  IntelligenceAPI,
+  LifecycleAPI,
+  MemoryAPI,
+  NexusAPI,
+  OrchestrationAPI,
+  ReleaseAPI,
+  SessionsAPI,
+  StickyAPI,
+  SyncAPI,
+  TasksAPI,
+} from '@cleocode/contracts';
 
 // ============================================================================
 // Cleo facade class
