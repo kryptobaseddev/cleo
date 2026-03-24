@@ -56,6 +56,7 @@ import {
   systemDoctor,
   systemFix,
   systemHealth,
+  systemHooksMatrix,
   systemInjectGenerate,
   systemListBackups,
   systemLog,
@@ -545,6 +546,14 @@ export class AdminHandler implements DomainHandler {
 
         case 'smoke': {
           const result = await systemSmoke();
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'hooks.matrix': {
+          const result = await systemHooksMatrix({
+            providerIds: params?.providerIds as string[] | undefined,
+            detectProvider: params?.detectProvider !== false,
+          });
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -1099,6 +1108,7 @@ export class AdminHandler implements DomainHandler {
         'export',
         'map',
         'smoke',
+        'hooks.matrix',
       ],
       mutate: [
         'init',

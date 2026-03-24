@@ -188,6 +188,7 @@ describe('AdminHandler', () => {
         'export',
         'map',
         'smoke',
+        'hooks.matrix',
       ]);
     });
 

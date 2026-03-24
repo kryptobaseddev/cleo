@@ -84,6 +84,9 @@ importers:
 
   packages/adapters:
     dependencies:
+      '@cleocode/caamp':
+        specifier: ^1.9.1
+        version: 1.9.1
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts

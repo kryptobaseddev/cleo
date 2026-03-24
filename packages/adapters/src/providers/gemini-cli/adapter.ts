@@ -1,14 +1,16 @@
 /**
- * OpenCode Adapter
+ * Gemini CLI Adapter
  *
- * Main CLEOProviderAdapter implementation for OpenCode AI coding assistant.
- * Provides spawn, hooks, and install capabilities for CLEO integration.
+ * Main CLEOProviderAdapter implementation for Google Gemini CLI.
+ * Provides hooks and install capabilities for CLEO integration.
  *
- * @task T5240
+ * @task T161
+ * @epic T134
  */
 
 import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -16,74 +18,67 @@ import type {
   AdapterHealthStatus,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
-import { OpenCodeHookProvider } from './hooks.js';
-import { OpenCodeInstallProvider } from './install.js';
-import { OpenCodeSpawnProvider } from './spawn.js';
+import { GeminiCliHookProvider } from './hooks.js';
+import { GeminiCliInstallProvider } from './install.js';
 
 const execAsync = promisify(exec);
 
 /**
- * CLEO provider adapter for OpenCode AI coding assistant.
+ * CLEO provider adapter for Google Gemini CLI.
  *
- * Bridges CLEO's adapter system with OpenCode's native capabilities:
- * - Hooks: Maps OpenCode events (session.start, tool.complete, etc.) to CAAMP events
- * - Spawn: Launches subagent processes via the `opencode` CLI
- * - Install: Registers MCP server in .opencode/config.json and ensures AGENTS.md references
+ * Bridges CLEO's adapter system with Gemini CLI's native capabilities:
+ * - Hooks: Maps Gemini CLI events (SessionStart, PreToolUse, etc.) to CAAMP events
+ * - Install: Registers MCP server in ~/.gemini/settings.json and ensures AGENTS.md references
+ *
+ * @task T161
+ * @epic T134
  */
-export class OpenCodeAdapter implements CLEOProviderAdapter {
-  readonly id = 'opencode';
-  readonly name = 'OpenCode';
+export class GeminiCliAdapter implements CLEOProviderAdapter {
+  readonly id = 'gemini-cli';
+  readonly name = 'Gemini CLI';
   readonly version = '1.0.0';
 
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
-    // 10/16 canonical events — derived from getProviderHookProfile('opencode') in CAAMP 1.9.1.
-    // PostToolUseFailure, SubagentStart, SubagentStop, Notification, ConfigChange are
-    // not supported by OpenCode's plugin system.
     supportedHookEvents: [
       'SessionStart',
       'SessionEnd',
-      'PromptSubmit',
-      'ResponseComplete',
-      'PreToolUse',
-      'PostToolUse',
-      'PermissionRequest',
-      'PreModel',
-      'PreCompact',
-      'PostCompact',
+      'BeforeAgent',
+      'AfterAgent',
+      'BeforeTool',
+      'AfterTool',
+      'BeforeModel',
+      'AfterModel',
+      'PreCompress',
+      'Notification',
     ],
-    supportsSpawn: true,
+    supportsSpawn: false,
     supportsInstall: true,
     supportsMcp: true,
-    supportsInstructionFiles: true,
-    instructionFilePattern: 'AGENTS.md',
+    supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,
-    supportsProviderPaths: true,
+    supportsProviderPaths: false,
     supportsTransport: false,
     supportsTaskSync: false,
   };
 
-  hooks: OpenCodeHookProvider;
-  spawn: OpenCodeSpawnProvider;
-  install: OpenCodeInstallProvider;
+  hooks: GeminiCliHookProvider;
+  install: GeminiCliInstallProvider;
 
   private projectDir: string | null = null;
   private initialized = false;
 
   constructor() {
-    this.hooks = new OpenCodeHookProvider();
-    this.spawn = new OpenCodeSpawnProvider();
-    this.install = new OpenCodeInstallProvider();
+    this.hooks = new GeminiCliHookProvider();
+    this.install = new GeminiCliInstallProvider();
   }
 
   /**
    * Initialize the adapter for a given project directory.
    *
-   * Validates the environment by checking for the OpenCode CLI
-   * and OpenCode configuration directory.
-   *
    * @param projectDir - Root directory of the project
+   * @task T161
    */
   async initialize(projectDir: string): Promise<void> {
     this.projectDir = projectDir;
@@ -94,6 +89,7 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
    * Dispose the adapter and clean up resources.
    *
    * Unregisters hooks and releases any tracked state.
+   * @task T161
    */
   async dispose(): Promise<void> {
     if (this.hooks.isRegistered()) {
@@ -104,14 +100,15 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
   }
 
   /**
-   * Run a health check to verify OpenCode is accessible.
+   * Run a health check to verify Gemini CLI is accessible.
    *
    * Checks:
    * 1. Adapter has been initialized
-   * 2. OpenCode CLI is available in PATH
-   * 3. .opencode/ configuration directory exists in the project
+   * 2. Gemini CLI binary is available in PATH
+   * 3. ~/.gemini/ configuration directory exists
    *
    * @returns Health status with details about each check
+   * @task T161
    */
   async healthCheck(): Promise<AdapterHealthStatus> {
     const details: Record<string, unknown> = {};
@@ -124,26 +121,20 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
       };
     }
 
-    // Check OpenCode CLI availability
+    // Check Gemini CLI availability
     let cliAvailable = false;
     try {
-      const { stdout } = await execAsync('which opencode');
+      const { stdout } = await execAsync('which gemini');
       cliAvailable = stdout.trim().length > 0;
       details.cliPath = stdout.trim();
     } catch {
       details.cliAvailable = false;
     }
 
-    // Check for OpenCode config directory in the project
-    if (this.projectDir) {
-      const openCodeConfigDir = join(this.projectDir, '.opencode');
-      const configExists = existsSync(openCodeConfigDir);
-      details.configDirExists = configExists;
-    }
-
-    // Check for OPENCODE_VERSION env var
-    const versionEnvSet = process.env.OPENCODE_VERSION !== undefined;
-    details.versionEnvSet = versionEnvSet;
+    // Check for Gemini CLI config directory
+    const geminiConfigDir = join(homedir(), '.gemini');
+    const configExists = existsSync(geminiConfigDir);
+    details.configDirExists = configExists;
 
     // Healthy if CLI is available (primary requirement)
     const healthy = cliAvailable;
@@ -158,6 +149,7 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
 
   /**
    * Check whether the adapter has been initialized.
+   * @task T161
    */
   isInitialized(): boolean {
     return this.initialized;
@@ -165,6 +157,7 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
 
   /**
    * Get the project directory this adapter was initialized with.
+   * @task T161
    */
   getProjectDir(): string | null {
     return this.projectDir;

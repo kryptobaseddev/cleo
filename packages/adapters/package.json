@@ -16,6 +16,7 @@
     "build:check": "tsc --noEmit"
   },
   "dependencies": {
+    "@cleocode/caamp": "^1.9.1",
     "@cleocode/contracts": "workspace:*"
   },
   "license": "MIT",

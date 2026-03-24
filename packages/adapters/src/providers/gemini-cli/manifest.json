@@ -1,0 +1,35 @@
+{
+  "id": "gemini-cli",
+  "name": "Gemini CLI Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Google Gemini CLI",
+  "provider": "gemini-cli",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": true,
+    "supportedHookEvents": [
+      "SessionStart",
+      "SessionEnd",
+      "BeforeAgent",
+      "AfterAgent",
+      "BeforeTool",
+      "AfterTool",
+      "BeforeModel",
+      "AfterModel",
+      "PreCompress",
+      "Notification"
+    ],
+    "supportsSpawn": false,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": false,
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": false,
+    "supportsTransport": false
+  },
+  "detectionPatterns": [
+    { "type": "cli", "pattern": "gemini", "description": "Gemini CLI binary available in PATH" },
+    { "type": "directory", "pattern": "~/.gemini", "description": "Gemini CLI config directory" }
+  ]
+}

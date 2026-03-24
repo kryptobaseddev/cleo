@@ -42,12 +42,23 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
 
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
+    // 14/16 canonical events — derived from getProviderHookProfile('claude-code') in CAAMP 1.9.1.
+    // PreModel and PostModel are not supported by Claude Code.
     supportedHookEvents: [
       'SessionStart',
       'SessionEnd',
+      'PromptSubmit',
+      'ResponseComplete',
       'PreToolUse',
       'PostToolUse',
       'PostToolUseFailure',
+      'PermissionRequest',
+      'SubagentStart',
+      'SubagentStop',
+      'PreCompact',
+      'PostCompact',
+      'Notification',
+      'ConfigChange',
     ],
     supportsSpawn: true,
     supportsInstall: true,

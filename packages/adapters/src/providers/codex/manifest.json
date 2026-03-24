@@ -1,0 +1,28 @@
+{
+  "id": "codex",
+  "name": "Codex Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for OpenAI Codex CLI",
+  "provider": "codex",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": true,
+    "supportedHookEvents": [
+      "SessionStart",
+      "UserPromptSubmit",
+      "Stop"
+    ],
+    "supportsSpawn": false,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": false,
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": false,
+    "supportsTransport": false
+  },
+  "detectionPatterns": [
+    { "type": "cli", "pattern": "codex", "description": "Codex CLI binary available in PATH" },
+    { "type": "directory", "pattern": "~/.codex", "description": "Codex CLI config directory" }
+  ]
+}

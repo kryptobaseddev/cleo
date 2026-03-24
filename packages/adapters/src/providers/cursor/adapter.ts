@@ -33,8 +33,22 @@ export class CursorAdapter implements CLEOProviderAdapter {
   readonly version = '1.0.0';
 
   capabilities: AdapterCapabilities = {
-    supportsHooks: false,
-    supportedHookEvents: [],
+    supportsHooks: true,
+    // 10/16 canonical events — derived from getProviderHookProfile('cursor') in CAAMP 1.9.1.
+    // PermissionRequest, PreModel, PostModel, PostCompact, Notification, ConfigChange are
+    // not supported by Cursor's hook system.
+    supportedHookEvents: [
+      'SessionStart',
+      'SessionEnd',
+      'PromptSubmit',
+      'ResponseComplete',
+      'PreToolUse',
+      'PostToolUse',
+      'PostToolUseFailure',
+      'SubagentStart',
+      'SubagentStop',
+      'PreCompact',
+    ],
     supportsSpawn: false,
     supportsInstall: true,
     supportsMcp: true,

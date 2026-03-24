@@ -1,0 +1,24 @@
+{
+  "id": "kimi",
+  "name": "Kimi Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Moonshot AI Kimi",
+  "provider": "kimi",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": false,
+    "supportedHookEvents": [],
+    "supportsSpawn": false,
+    "supportsInstall": true,
+    "supportsMcp": true,
+    "supportsInstructionFiles": false,
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": false,
+    "supportsTransport": false
+  },
+  "detectionPatterns": [
+    { "type": "cli", "pattern": "kimi", "description": "Kimi CLI binary available in PATH" },
+    { "type": "directory", "pattern": "~/.kimi", "description": "Kimi config directory" }
+  ]
+}

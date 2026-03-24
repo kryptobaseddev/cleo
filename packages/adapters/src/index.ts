@@ -21,11 +21,29 @@ export {
   getStatuslineConfig,
 } from './providers/claude-code/index.js';
 export {
+  CodexAdapter,
+  CodexHookProvider,
+  CodexInstallProvider,
+  createAdapter as createCodexAdapter,
+} from './providers/codex/index.js';
+export {
   CursorAdapter,
   CursorHookProvider,
   CursorInstallProvider,
   createAdapter as createCursorAdapter,
 } from './providers/cursor/index.js';
+export {
+  createAdapter as createGeminiCliAdapter,
+  GeminiCliAdapter,
+  GeminiCliHookProvider,
+  GeminiCliInstallProvider,
+} from './providers/gemini-cli/index.js';
+export {
+  createAdapter as createKimiAdapter,
+  KimiAdapter,
+  KimiHookProvider,
+  KimiInstallProvider,
+} from './providers/kimi/index.js';
 export {
   createAdapter as createOpenCodeAdapter,
   OpenCodeAdapter,

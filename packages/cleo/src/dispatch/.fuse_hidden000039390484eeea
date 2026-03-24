@@ -2440,31 +2440,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query' as const,
     domain: 'admin',
-    operation: 'hooks.matrix',
-    description:
-      'admin.hooks.matrix (query) — cross-provider hook support matrix using CAAMP canonical taxonomy',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [
-      {
-        name: 'providerIds',
-        type: 'string',
-        required: false,
-        description: 'Limit matrix to specific provider IDs (default: all mapped providers)',
-      },
-      {
-        name: 'detectProvider',
-        type: 'boolean',
-        required: false,
-        description: 'Detect current runtime provider (default: true)',
-      },
-    ],
-  },
-  {
-    gateway: 'query' as const,
-    domain: 'admin',
     operation: 'map',
     description: 'admin.map (query) — analyze codebase structure, return structured mapping',
     tier: 1,

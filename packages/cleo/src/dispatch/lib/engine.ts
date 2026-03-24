@@ -31,6 +31,14 @@ export {
   configSet,
   configSetPreset,
 } from '../engines/config-engine.js';
+// Hooks engine (T167)
+export {
+  type HookMatrixResult,
+  type ProviderMatrixEntry,
+  queryCommonHooks,
+  queryHookProviders,
+  systemHooksMatrix,
+} from '../engines/hooks-engine.js';
 // Init engine
 export {
   ensureInitialized,
