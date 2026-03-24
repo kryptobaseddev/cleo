@@ -1,27 +1,52 @@
 ---
 title: "CLEO BRAIN Specification"
-version: "2.0.0"
+version: "2.1.0"
 status: "approved"
 created: "2026-02-03"
-updated: "2026-03-23"
+updated: "2026-03-24"
 epic: "T2975"
-task: "T146"
+task: "T169"
 authors: ["Claude Sonnet 4.5", "CLEO Development Team"]
 ---
 
 # CLEO BRAIN Specification
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: APPROVED
-**Date**: 2026-03-23
-**Epic**: T134 - Brain Memory Automation
-**Task**: T146 - Specification Update
+**Date**: 2026-03-24
+**Epic**: T158 - CAAMP 1.9.1 Hook Normalizer Integration
+**Task**: T169 - Specification Update
 **Implementation**: Phases 1-5 SHIPPED (brain.db schema, 3-layer retrieval, MCP operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation, automated capture via lifecycle hooks, local embedding provider, context-aware memory bridge, session summarization, cross-provider transcript extraction, brain maintenance command)
 **Contract Reference**: `packages/contracts/src/config.ts` → `BrainConfig`
 
 ---
 
 ## Changelog
+
+### v2.1.0 (2026-03-24) — T158 CAAMP 1.9.1 Hook Normalizer Integration
+
+This update documents the canonical hook taxonomy integration and brain automation handlers added by the T158 epic:
+
+| Task | Feature | Status |
+|------|---------|--------|
+| T159 | CAAMP ^1.9.1 upgrade — 16-event canonical taxonomy | SHIPPED |
+| T160 | Hook types migrated to canonical names with backward compat | SHIPPED |
+| T161 | Gemini CLI adapter: 10/16 hooks, getTranscript, install | SHIPPED |
+| T162 | Codex adapter: 3/16 hooks, getTranscript, install | SHIPPED |
+| T163 | Kimi adapter: install-only, no native hooks | SHIPPED |
+| T164 | Claude Code (9→14 hooks) + OpenCode (6→10 hooks) via normalizer | SHIPPED |
+| T165 | Cursor adapter: 0→10 hooks, fully implemented | SHIPPED |
+| T166 | Brain automation handlers for SubagentStart/Stop, PreCompact | SHIPPED |
+| T167 | `cleo doctor --hooks` provider hook matrix diagnostic | SHIPPED |
+| T168 | E2E hook automation tests | SHIPPED |
+
+**Key design decisions**:
+- Canonical taxonomy owned by CAAMP — adapters declare support via manifest; normalizer handles translation
+- Brain handlers are hook-first: observation logic lives in hook handlers, not in core session/task functions
+- Best-effort everywhere: T166 handlers cannot throw or block lifecycle events
+- All six adapters use the same CAAMP `HookNormalizer` API for consistent provider-neutral dispatch
+
+---
 
 ### v2.0.0 (2026-03-23) — T134 Brain Memory Automation
 
@@ -102,6 +127,22 @@ interface BrainConfig {
 
 **Defaults**: All features default to `false`/disabled except `autoCapture: true` and `memoryBridge.autoRefresh: true`. Existing behavior is preserved without config changes.
 
+### 1.0b Canonical Hook Taxonomy Integration (T158)
+
+CAAMP 1.9.1 introduces a 16-event canonical hook taxonomy. The BRAIN automation layer integrates with this taxonomy to capture observations from provider hook events in a provider-neutral way.
+
+**Events that trigger brain observations** (governed by `brain.autoCapture`):
+
+| Canonical Event | When Fired | Brain Observation |
+|-----------------|-----------|------------------|
+| `SubagentStart` | Subagent spawned by orchestrator | Capture spawn context: task ID, agent type, session |
+| `SubagentStop` | Subagent completed or terminated | Capture outcome: success/failure, task result summary |
+| `PreCompact` | Provider is about to compact context window | Capture session state snapshot before compaction |
+
+**Provider-neutral dispatch**: All six adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi) register hooks using CAAMP canonical event names. The CAAMP `HookNormalizer` translates provider-specific event formats to canonical form before dispatching to BRAIN handlers.
+
+**Reference**: CAAMP ^1.9.1 release notes, `docs/specs/CAAMP-INTEGRATION-SPEC.md`
+
 ### 1.1 Guiding Principles
 
 1. **Memory First**: Persistent knowledge before advanced reasoning
@@ -163,6 +204,13 @@ interface BrainConfig {
 - `memory.reason.similar` — semantic similarity via vector search with FTS5 fallback
 - Temporal decay — exponential confidence reduction for stale learnings (`brain-lifecycle.ts`)
 - Memory consolidation — keyword-overlap clustering of old observations into summaries
+
+**SHIPPED in T158** (CAAMP 1.9.1 Hook Normalizer Integration):
+- 16-event canonical hook taxonomy via CAAMP ^1.9.1 — all adapters dispatch using provider-neutral event names
+- Brain automation handlers for `SubagentStart`, `SubagentStop`, and `PreCompact` events (T166)
+- Three new provider adapters (Gemini CLI, Codex, Kimi) and three upgraded adapters (Claude Code, OpenCode, Cursor) — total adapter coverage: 6 providers
+- `cleo doctor --hooks` diagnostic shows hook coverage per detected adapter (T167)
+- `admin.hooks.matrix` query operation (tier 1) returns full provider-hook coverage matrix (T167)
 
 **Remaining gaps**:
 - Knowledge graph with version chains (deferred)

@@ -1,8 +1,8 @@
 # @cleocode/core Package Specification
 
-**Version**: 3.3.0
+**Version**: 3.4.0
 **Status**: APPROVED
-**Date**: 2026-03-23
+**Date**: 2026-03-24
 **Task**: T5714
 **Epic**: T5701
 
@@ -68,7 +68,7 @@ This specification defines the public contract for `@cleocode/core`, the standal
   "dependencies": {
     "@cleocode/adapters": "workspace:*",
     "@cleocode/agents": "workspace:*",
-    "@cleocode/caamp": "^1.8.1",
+    "@cleocode/caamp": "^1.9.1",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs-protocol": "^1.8.0",
     "@cleocode/skills": "workspace:*",
@@ -551,7 +551,7 @@ The following are internal implementation details, not part of the public contra
 |---------|---------|---------|
 | `@cleocode/adapters` | `workspace:*` | Provider adapter runtime |
 | `@cleocode/agents` | `workspace:*` | Agent protocol templates |
-| `@cleocode/caamp` | `^1.8.1` | Provider capability API, spawn coordination, idempotent injection |
+| `@cleocode/caamp` | `^1.9.1` | Provider capability API, spawn coordination, idempotent injection, 16-event canonical hook taxonomy |
 | `@cleocode/contracts` | `workspace:*` | Type-only adapter interfaces, `ExitCode` enum, config types |
 | `@cleocode/lafs-protocol` | `^1.8.0` | LAFS envelope types, `LAFSMeta`, `Warning` |
 | `@cleocode/skills` | `workspace:*` | Skill definitions |
@@ -617,7 +617,18 @@ Provider adapters are consolidated into a single `@cleocode/adapters` package:
 
 | Package | Purpose |
 |---------|---------|
-| `@cleocode/adapters` | Unified provider adapters for Claude Code, OpenCode, Cursor |
+| `@cleocode/adapters` | Unified provider adapters for Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi |
+
+**Shipped adapters** (T158 CAAMP 1.9.1 integration):
+
+| Adapter | Hooks | getTranscript | install | Status |
+|---------|-------|--------------|---------|--------|
+| **claude-code** | 14/16 | Yes | Yes | Upgraded via CAAMP normalizer (T164) |
+| **opencode** | 10/16 | Yes | Yes | Upgraded via CAAMP normalizer (T164) |
+| **cursor** | 10/16 | No | Yes | Fully implemented via normalizer (T165) |
+| **gemini-cli** | 10/16 | Yes | Yes | New adapter (T161) |
+| **codex** | 3/16 | Yes | Yes | New adapter (T162) |
+| **kimi** | 0/16 | No | Yes | New install-only adapter (T163) |
 
 The adapter system uses manifest-based discovery:
 
@@ -944,6 +955,60 @@ Updated brain specification to v2.0.0 reflecting the full automation layer: embe
 | Package | Version | Load Strategy |
 |---------|---------|---------------|
 | `@xenova/transformers` | `^2.17.2` | Dynamic import (only when `brain.embedding.enabled: true`) |
+
+### 15.10 New Features in T158 CAAMP 1.9.1 Integration (v2026.3.next)
+
+The T158 epic upgrades CAAMP to ^1.9.1, migrates hook types to the canonical 16-event taxonomy, ships three new provider adapters, upgrades five existing adapters via the CAAMP normalizer, adds brain automation handlers for hook events, and introduces a hook matrix diagnostic command.
+
+#### Updated Runtime Dependency
+
+| Package | Before | After | Notes |
+|---------|--------|-------|-------|
+| `@cleocode/caamp` | `^1.8.1` | `^1.9.1` | Adds 16-event canonical hook taxonomy, `HookNormalizer` API, and backward-compat aliases (T159) |
+
+#### Hook Type Migration (T160)
+
+All adapter hook registrations migrated from provider-specific event names to canonical names defined by CAAMP 1.9.1. Backward-compatible aliases ensure existing hook handlers continue to fire during the transition period.
+
+#### New Adapters (T161–T163)
+
+| Adapter | Source | Hooks | getTranscript | install |
+|---------|--------|-------|--------------|---------|
+| `gemini-cli` | `packages/adapters/src/gemini-cli/` | 10/16 | Yes | Yes |
+| `codex` | `packages/adapters/src/codex/` | 3/16 | Yes | Yes |
+| `kimi` | `packages/adapters/src/kimi/` | 0/16 | No | Yes |
+
+#### Upgraded Adapters (T164–T165)
+
+| Adapter | Hooks Before | Hooks After | Notes |
+|---------|-------------|-------------|-------|
+| `claude-code` | 9 | 14 | CAAMP normalizer bridges 5 new canonical events |
+| `opencode` | 6 | 10 | CAAMP normalizer bridges 4 new canonical events |
+| `cursor` | 0 | 10 | Fully implemented via normalizer |
+
+#### Brain Automation Handlers (T166)
+
+Three canonical hook events now trigger automatic brain observations:
+
+| Hook Event | Brain Action | Config Gate |
+|------------|-------------|-------------|
+| `SubagentStart` | Observe subagent spawn with task context | `brain.autoCapture` |
+| `SubagentStop` | Observe subagent completion with outcome | `brain.autoCapture` |
+| `PreCompact` | Observe session state snapshot before context compaction | `brain.autoCapture` |
+
+All handlers are best-effort and cannot block lifecycle events.
+
+#### New CLI Command (T167)
+
+| Command | Purpose |
+|---------|---------|
+| `cleo doctor --hooks` | Provider hook matrix diagnostic — lists all adapters with their supported canonical hook events |
+
+#### New Dispatch Operation (T167)
+
+| Gateway | Domain | Operation | Tier | Purpose |
+|---------|--------|-----------|------|---------|
+| `query` | `admin` | `hooks.matrix` | 1 | Provider hook coverage report |
 
 ---
 

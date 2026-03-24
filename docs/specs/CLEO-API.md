@@ -1,8 +1,8 @@
 # CLEO API Specification
 
-**Version**: 3.3.0
+**Version**: 3.4.0
 **Status**: Canonical Specification
-**Date**: 2026-03-23
+**Date**: 2026-03-24
 **Epic**: T4820 (CLEO Core Architecture)
 
 ---
@@ -622,6 +622,71 @@ The `brain` section is now a first-class typed config block in `CleoConfig`:
 
 ---
 
+## 15.11 T158 — CAAMP 1.9.1 Hook Normalizer Integration (v2026.3.next)
+
+The T158 epic integrates CAAMP ^1.9.1 and its 16-event canonical hook taxonomy, ships three new provider adapters, upgrades five existing adapters via the normalizer, adds brain automation handlers for hook events, and introduces a diagnostic command for the provider hook matrix.
+
+### New CLI Commands (T158)
+
+| Command | Purpose |
+|---------|---------|
+| `cleo doctor --hooks` | Provider hook matrix diagnostic — shows which hooks each detected adapter supports (T167) |
+
+### New Dispatch Operations (T158)
+
+| Gateway | Domain | Operation | Tier | Purpose |
+|---------|--------|-----------|------|---------|
+| `query` | `admin` | `hooks.matrix` | 1 | Provider hook matrix — lists all adapters with their supported hook events |
+
+### New Provider Adapters (T158)
+
+| Adapter | Hooks | getTranscript | install | Notes |
+|---------|-------|--------------|---------|-------|
+| **gemini-cli** | 10/16 hooks | Yes | Yes | Full adapter via CAAMP normalizer (T161) |
+| **codex** | 3/16 hooks | Yes | Yes | Partial adapter via CAAMP normalizer (T162) |
+| **kimi** | 0/16 hooks | No | Yes | Install-only adapter, no native hooks (T163) |
+
+### Upgraded Adapters (T158)
+
+| Adapter | Before | After | Method |
+|---------|--------|-------|--------|
+| **claude-code** | 9 hooks | 14 hooks | CAAMP normalizer (T164) |
+| **opencode** | 6 hooks | 10 hooks | CAAMP normalizer (T164) |
+| **cursor** | 0 hooks | 10 hooks | Fully implemented via normalizer (T165) |
+
+### Canonical Hook Taxonomy (CAAMP ^1.9.1)
+
+CAAMP 1.9.1 introduces a 16-event canonical taxonomy that normalizes provider-specific hook event names across all adapters:
+
+| Canonical Event | Previous Name (if different) | Notes |
+|-----------------|------------------------------|-------|
+| `SubagentStart` | `subagentStart` | Camel-case canonical form |
+| `SubagentStop` | `subagentStop` | Camel-case canonical form |
+| `PreCompact` | `preCompact` | Camel-case canonical form |
+| (13 additional events) | — | Full taxonomy in CAAMP 1.9.1 release notes |
+
+All adapter hook registrations MUST use canonical event names. CAAMP provides backward-compatible aliases for renamed events.
+
+### Brain Automation Handlers (T166)
+
+Three hook events now trigger automatic brain observations:
+
+| Hook Event | Brain Action |
+|------------|-------------|
+| `SubagentStart` | Observe subagent spawn with task context |
+| `SubagentStop` | Observe subagent completion with outcome |
+| `PreCompact` | Observe session state snapshot before context compaction |
+
+These handlers respect `brain.autoCapture` config flag and are best-effort (no blocking on failure).
+
+### New Dependency
+
+| Package | Version | Change |
+|---------|---------|--------|
+| `@cleocode/caamp` | `^1.9.1` | Upgraded from `^1.8.1` — adds 16-event canonical taxonomy and `HookNormalizer` |
+
+---
+
 ## 9. Document Hierarchy
 
 ```
@@ -633,5 +698,5 @@ CLEO-API.md (Master)
 
 ---
 
-**Version**: 3.3.0
-**Last Updated**: 2026-03-23
+**Version**: 3.4.0
+**Last Updated**: 2026-03-24

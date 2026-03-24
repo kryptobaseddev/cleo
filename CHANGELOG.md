@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added (T158 CAAMP 1.9.1 Integration)
+- CAAMP ^1.9.1 with 16-event canonical hook taxonomy (T159)
+- Hook types migrated to canonical names with backward compat (T160)
+- Gemini CLI adapter: 10/16 hooks, getTranscript, install (T161)
+- Codex adapter: 3/16 hooks, getTranscript, install (T162)
+- Kimi adapter: install-only, no native hooks (T163)
+- Claude Code adapter: 9→14 hooks via CAAMP normalizer (T164)
+- OpenCode adapter: 6→10 hooks via CAAMP normalizer (T164)
+- Cursor adapter: 0→10 hooks, fully implemented (T165)
+- Brain automation handlers for SubagentStart/Stop, PreCompact (T166)
+- `cleo doctor --hooks` provider hook matrix diagnostic (T167)
+- E2E hook automation tests (T168)
+
 ## [2026.3.70] — 2026-03-23
 
 ### Added

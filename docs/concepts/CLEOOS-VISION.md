@@ -1,6 +1,6 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.3.72
+**Version**: 2026.3.next
 **Status**: VISION
 **Date**: 2026-03-24
 
@@ -116,9 +116,12 @@ Conduit is a runtime form, not a new domain. Its state surfaces through `orchest
 
 CleoOS is provider-neutral by design. The adapter system in `@cleocode/adapters` provides a bridge to every major AI coding tool:
 
-- **Claude Code** -- Full adapter (hooks + spawn + install)
-- **OpenCode** -- Full adapter (hooks + spawn + install)
-- **Cursor** -- Minimal adapter (install only)
+- **Claude Code** -- Full adapter (14 hooks + spawn + install) — upgraded via CAAMP 1.9.1 normalizer (T164)
+- **OpenCode** -- Full adapter (10 hooks + spawn + install) — upgraded via CAAMP 1.9.1 normalizer (T164)
+- **Cursor** -- Full adapter (10 hooks + install) — fully implemented via normalizer (T165)
+- **Gemini CLI** -- Full adapter (10 hooks + getTranscript + install) — new in T158 (T161)
+- **Codex** -- Partial adapter (3 hooks + getTranscript + install) — new in T158 (T162)
+- **Kimi** -- Minimal adapter (install only) — new in T158 (T163)
 - **Future providers** -- Any tool that can speak MCP or implement the `CLEOProviderAdapter` interface
 
 Discovery is manifest-based: each adapter declares detection patterns (environment variables, files, CLI availability), and the `AdapterManager` in core automatically activates the matching adapter at startup.
@@ -225,7 +228,7 @@ The kernel is shipped and operational:
 
 - `@cleocode/core` v2026.3.72 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
-- `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor)
+- `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
 - `@cleocode/cleo` -- full CLI + MCP product (221 operations across 10 dispatch domains)
 - BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)

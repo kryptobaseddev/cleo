@@ -1,16 +1,26 @@
 /**
  * MCP Prompt/Response Hook Handlers - Wave 2 of T5237
  *
- * Handlers for onPromptSubmit and onResponseComplete events that capture
- * ALL gateway operations (read and write) to BRAIN.
+ * Handlers for onPromptSubmit, onResponseComplete, and system Notification
+ * events that capture ALL gateway operations (read and write) to BRAIN.
  * By default, NO brain capture (too noisy). Enable via:
  *   - Config: brain.captureMcp = true  (checked first)
  *   - Env:    CLEO_BRAIN_CAPTURE_MCP=true  (overrides config)
  * Auto-registers on module load.
+ *
+ * Note: File-change Notification events (those with filePath + changeType) are
+ * handled by file-hooks.ts. This module handles message-bearing system
+ * notifications (Notification payloads with a message field).
+ *
+ * @task T166
  */
 
 import { hooks } from '../registry.js';
-import type { PromptSubmitPayload, ResponseCompletePayload } from '../types.js';
+import type {
+  NotificationPayload,
+  PromptSubmitPayload,
+  ResponseCompletePayload,
+} from '../types.js';
 
 function isMissingBrainSchemaError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -93,6 +103,53 @@ export async function handleResponseComplete(
   }
 }
 
+/**
+ * Handle Notification — capture system notifications as BRAIN observations.
+ *
+ * Only fires for Notification payloads that carry a message field (i.e. system
+ * notifications). File-change notifications (filePath + changeType) are
+ * handled exclusively by file-hooks.ts and are skipped here to avoid
+ * double-capture.
+ *
+ * Gated behind brain.autoCapture config. Never throws.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param payload     - Notification event payload.
+ *
+ * @task T166
+ */
+export async function handleSystemNotification(
+  projectRoot: string,
+  payload: NotificationPayload,
+): Promise<void> {
+  // File-change notifications are handled by file-hooks.ts
+  if (payload.filePath || payload.changeType) return;
+  // Only handle message-bearing system notifications
+  if (!payload.message) return;
+
+  try {
+    const { loadConfig } = await import('../../config.js');
+    const config = await loadConfig(projectRoot);
+    if (!config.brain?.autoCapture) return;
+  } catch {
+    return;
+  }
+
+  const { observeBrain } = await import('../../memory/brain-retrieval.js');
+
+  try {
+    await observeBrain(projectRoot, {
+      text: `System notification: ${payload.message}`,
+      title: `Notification: ${payload.message.slice(0, 60)}`,
+      type: 'discovery',
+      sourceSessionId: payload.sessionId,
+      sourceType: 'agent',
+    });
+  } catch (err) {
+    if (!isMissingBrainSchemaError(err)) throw err;
+  }
+}
+
 // Register handlers on module load
 hooks.register({
   id: 'brain-prompt-submit',
@@ -106,4 +163,12 @@ hooks.register({
   event: 'ResponseComplete',
   handler: handleResponseComplete,
   priority: 100,
+});
+
+// Lower priority (90) so file-hooks.ts (100) runs first for Notification events
+hooks.register({
+  id: 'brain-system-notification',
+  event: 'Notification',
+  handler: handleSystemNotification,
+  priority: 90,
 });
