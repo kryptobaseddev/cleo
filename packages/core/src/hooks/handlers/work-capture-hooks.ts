@@ -18,16 +18,7 @@
 
 import { hooks } from '../registry.js';
 import type { PromptSubmitPayload, ResponseCompletePayload } from '../types.js';
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
+import { isMissingBrainSchemaError } from './handler-helpers.js';
 
 /**
  * Check whether active-work capture is enabled.

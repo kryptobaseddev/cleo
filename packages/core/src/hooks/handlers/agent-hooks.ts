@@ -17,36 +17,7 @@
 
 import { hooks } from '../registry.js';
 import type { SubagentStartPayload, SubagentStopPayload } from '../types.js';
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
-
-/**
- * Check whether brain auto-capture is enabled.
- *
- * Resolution order (first truthy wins):
- *   1. brain.autoCapture project config value (via loadConfig cascade)
- *
- * Defaults to false when config is unreadable.
- *
- * @param projectRoot - Absolute path to the project root directory.
- */
-async function isAutoCaptureEnabled(projectRoot: string): Promise<boolean> {
-  try {
-    const { loadConfig } = await import('../../config.js');
-    const config = await loadConfig(projectRoot);
-    return config.brain?.autoCapture ?? false;
-  } catch {
-    return false;
-  }
-}
+import { isAutoCaptureEnabled, isMissingBrainSchemaError } from './handler-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Handlers

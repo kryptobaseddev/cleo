@@ -13,12 +13,7 @@
 import { isAbsolute, relative } from 'node:path';
 import { hooks } from '../registry.js';
 import type { NotificationPayload } from '../types.js';
-
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
+import { isMissingBrainSchemaError } from './handler-helpers.js';
 
 /** 5-second dedup map: filePath -> last dispatch timestamp */
 const recentWrites = new Map<string, number>();

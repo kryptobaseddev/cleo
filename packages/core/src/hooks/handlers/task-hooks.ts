@@ -9,13 +9,8 @@
 
 import { hooks } from '../registry.js';
 import type { PostToolUsePayload, PreToolUsePayload } from '../types.js';
+import { isMissingBrainSchemaError } from './handler-helpers.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
-
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
 
 /**
  * Handle PreToolUse (maps to task.start in CLEO, canonical: was onToolStart)

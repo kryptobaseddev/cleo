@@ -13,9 +13,10 @@
  * @epic T134
  */
 
-import { readdir, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AdapterHookProvider } from '@cleocode/contracts';
+import { readLatestTranscript } from '../shared/transcript-reader.js';
 
 /**
  * Mapping from Codex CLI native event names to CAAMP canonical event names.
@@ -100,8 +101,8 @@ export class CodexHookProvider implements AdapterHookProvider {
   /**
    * Extract a plain-text transcript from Codex CLI session data.
    *
-   * Reads the most recent session file under ~/.codex/ and extracts
-   * turn text into a flat string for brain observation extraction.
+   * Reads the most recent JSON/JSONL session file under `~/.codex/`
+   * and returns its turns as a flat string for brain observation extraction.
    *
    * Returns null when no session data is found or on any read error.
    *
@@ -110,54 +111,6 @@ export class CodexHookProvider implements AdapterHookProvider {
    * @task T162 @epic T134
    */
   async getTranscript(_sessionId: string, _projectDir: string): Promise<string | null> {
-    try {
-      const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '/root';
-      const codexDir = join(homeDir, '.codex');
-
-      let allFiles: string[] = [];
-      try {
-        const entries = await readdir(codexDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isFile()) continue;
-          const name = entry.name;
-          if (name.endsWith('.json') || name.endsWith('.jsonl')) {
-            allFiles.push(join(codexDir, name));
-          }
-        }
-      } catch {
-        return null;
-      }
-
-      if (allFiles.length === 0) return null;
-
-      // Sort descending by filename (timestamps in filenames sort naturally)
-      allFiles = allFiles.sort((a, b) => b.localeCompare(a));
-      const mostRecent = allFiles[0];
-      if (!mostRecent) return null;
-
-      const raw = await readFile(mostRecent, 'utf-8');
-      const turns: string[] = [];
-
-      // Support both JSONL (one JSON per line) and JSON array formats
-      const lines = raw.split('\n').filter((l) => l.trim());
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line) as Record<string, unknown>;
-          const role = entry.role as string | undefined;
-          const content = entry.content;
-          if (role === 'assistant' && typeof content === 'string') {
-            turns.push(`assistant: ${content}`);
-          } else if (role === 'user' && typeof content === 'string') {
-            turns.push(`user: ${content}`);
-          }
-        } catch {
-          // Skip malformed lines
-        }
-      }
-
-      return turns.length > 0 ? turns.join('\n') : null;
-    } catch {
-      return null;
-    }
+    return readLatestTranscript(join(homedir(), '.codex'));
   }
 }

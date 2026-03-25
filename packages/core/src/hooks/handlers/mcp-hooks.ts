@@ -21,12 +21,7 @@ import type {
   PromptSubmitPayload,
   ResponseCompletePayload,
 } from '../types.js';
-
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
+import { isAutoCaptureEnabled, isMissingBrainSchemaError } from './handler-helpers.js';
 
 /**
  * Check whether MCP-level brain capture is enabled.
@@ -126,14 +121,7 @@ export async function handleSystemNotification(
   if (payload.filePath || payload.changeType) return;
   // Only handle message-bearing system notifications
   if (!payload.message) return;
-
-  try {
-    const { loadConfig } = await import('../../config.js');
-    const config = await loadConfig(projectRoot);
-    if (!config.brain?.autoCapture) return;
-  } catch {
-    return;
-  }
+  if (!(await isAutoCaptureEnabled(projectRoot))) return;
 
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 

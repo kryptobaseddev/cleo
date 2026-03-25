@@ -10,12 +10,21 @@ import { hooks } from '../registry.js';
 import type { PostToolUseFailurePayload } from '../types.js';
 
 /**
- * Handle PostToolUseFailure - capture operation errors to BRAIN
+ * Handle PostToolUseFailure — capture operation errors to BRAIN.
  *
- * Includes infinite-loop guard: if the payload has _fromHook marker,
- * the handler skips to prevent PostToolUseFailure -> observeBrain -> PostToolUseFailure loops.
- * Additionally, ALL observeBrain errors are silently suppressed to prevent
- * re-entrant hook firing.
+ * Includes an infinite-loop guard: if the payload carries a `_fromHook`
+ * metadata marker the handler skips immediately to prevent the cycle
+ * `PostToolUseFailure → observeBrain → PostToolUseFailure`. All
+ * `observeBrain` errors are also silently suppressed for the same reason.
+ *
+ * Never throws. All brain-write errors are swallowed so error hooks
+ * never block the original error path.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param payload     - PostToolUseFailure event payload.
+ *
+ * @task T166
+ * @epic T134
  */
 export async function handleError(
   projectRoot: string,
