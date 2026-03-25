@@ -7,7 +7,7 @@
  * @task T4645
  * @epic T4638
  */
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,6 +27,13 @@ describe('SQLite task-store', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'cleo-taskstore-'));
         const cleoDir = join(tempDir, '.cleo');
         process.env['CLEO_DIR'] = cleoDir;
+        // Create .cleo dir and write test config so enforcement checks don't block
+        await mkdir(cleoDir, { recursive: true });
+        await writeFile(join(cleoDir, 'config.json'), JSON.stringify({
+            enforcement: { session: { requiredForMutate: false } },
+            lifecycle: { mode: 'off' },
+            verification: { enabled: false },
+        }));
         // Reset singleton
         const { closeDb } = await import('../sqlite.js');
         closeDb();
@@ -75,6 +82,16 @@ describe('SQLite task-store', () => {
         });
         it('creates task with provenance', async () => {
             const { createTask, getTask } = await import('../task-store.js');
+            // Insert FK parent session before creating a task that references it
+            const { createSession } = await import('../session-store.js');
+            await createSession({
+                id: 'sess-001',
+                name: 'Test session',
+                status: 'active',
+                scope: { type: 'global' },
+                taskWork: { taskId: null, setAt: null },
+                startedAt: new Date().toISOString(),
+            });
             const task = makeTask({
                 id: 'T003',
                 provenance: {

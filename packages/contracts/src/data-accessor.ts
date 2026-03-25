@@ -259,6 +259,30 @@ export interface DataAccessor {
 
   /** Get a single agent instance by ID. Returns null if not found. */
   getAgentInstance(agentId: string): Promise<DataAccessorAgentInstance | null>;
+
+  // ---- Agent task claiming ----
+
+  /**
+   * Atomically claim a task for an agent.
+   *
+   * Uses `UPDATE ... WHERE assignee IS NULL OR assignee = agentId` to prevent
+   * race conditions. Throws if the task is already claimed by a different agent.
+   *
+   * @param taskId - ID of the task to claim.
+   * @param agentId - Agent identifier claiming the task.
+   * @throws {Error} When the task is not found or is already claimed by another agent.
+   */
+  claimTask(taskId: string, agentId: string): Promise<void>;
+
+  /**
+   * Release a claimed task, clearing its assignee.
+   *
+   * No-op if the task is not currently claimed.
+   *
+   * @param taskId - ID of the task to unclaim.
+   * @throws {Error} When the task is not found.
+   */
+  unclaimTask(taskId: string): Promise<void>;
 }
 
 // Factory functions (createDataAccessor, getAccessor) live in @cleocode/core,

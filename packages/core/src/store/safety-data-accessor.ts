@@ -316,6 +316,16 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.getAgentInstance(agentId);
   }
 
+  // ---- Agent task claiming ----
+
+  async claimTask(taskId: string, agentId: string): Promise<void> {
+    return this.inner.claimTask(taskId, agentId);
+  }
+
+  async unclaimTask(taskId: string): Promise<void> {
+    return this.inner.unclaimTask(taskId);
+  }
+
   // ---- Lifecycle ----
 
   async close(): Promise<void> {

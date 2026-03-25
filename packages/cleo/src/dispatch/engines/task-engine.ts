@@ -1501,3 +1501,49 @@ export async function taskSyncLinksRemove(
     return engineError('E_INTERNAL', message);
   }
 }
+
+/**
+ * Atomically claim a task for an agent.
+ *
+ * Fails if the task is already claimed by a different agent.
+ * No-op if the task is already claimed by the same agent (idempotent).
+ */
+export async function taskClaim(
+  projectRoot: string,
+  taskId: string,
+  agentId: string,
+): Promise<EngineResult<{ taskId: string; agentId: string }>> {
+  try {
+    if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
+    if (!agentId) return engineError('E_INVALID_INPUT', 'agentId is required');
+    const acc = await getAccessor(projectRoot);
+    await acc.claimTask(taskId, agentId);
+    return { success: true, data: { taskId, agentId } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
+    if (message.includes('already claimed')) return engineError('E_CONFLICT', message);
+    return engineError('E_INTERNAL', message);
+  }
+}
+
+/**
+ * Release an agent's claim on a task, setting assignee to null.
+ *
+ * No-op if the task is not currently claimed.
+ */
+export async function taskUnclaim(
+  projectRoot: string,
+  taskId: string,
+): Promise<EngineResult<{ taskId: string }>> {
+  try {
+    if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
+    const acc = await getAccessor(projectRoot);
+    await acc.unclaimTask(taskId);
+    return { success: true, data: { taskId } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
+    return engineError('E_INTERNAL', message);
+  }
+}

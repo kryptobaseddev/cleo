@@ -39,7 +39,19 @@ export async function createTestDb() {
         verification: { enabled: false },
     });
     writeFileSync(join(cleoDir, 'config.json'), configContent);
+    // Verify write succeeded
+    const { readdirSync } = await import('node:fs');
+    const contents = readdirSync(cleoDir);
+    if (!contents.includes('config.json')) {
+        throw new Error(`createTestDb: config.json not found in ${cleoDir} after write (contents: ${JSON.stringify(contents)})`);
+    }
     const accessor = await createSqliteDataAccessor(tempDir);
+    // Verify config.json still exists after DB initialization
+    const { readdirSync: readdirSync2 } = await import('node:fs');
+    const contentsAfterDb = readdirSync2(cleoDir);
+    if (!contentsAfterDb.includes('config.json')) {
+        throw new Error(`createTestDb: config.json DELETED by createSqliteDataAccessor! ${cleoDir}: ${JSON.stringify(contentsAfterDb)}`);
+    }
     return {
         tempDir,
         cleoDir,

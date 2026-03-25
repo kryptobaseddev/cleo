@@ -144,6 +144,7 @@ describe('AdminHandler', () => {
                 'version',
                 'health',
                 'config.show',
+                'config.presets',
                 'stats',
                 'context',
                 'runtime',
@@ -155,8 +156,11 @@ describe('AdminHandler', () => {
                 'token',
                 'adr.show',
                 'adr.find',
+                'backup',
                 'export',
                 'map',
+                'smoke',
+                'hooks.matrix',
             ]);
         });
         it('should list all mutate operations', () => {
@@ -164,6 +168,7 @@ describe('AdminHandler', () => {
             expect(ops.mutate).toEqual([
                 'init',
                 'config.set',
+                'config.set-preset',
                 'backup',
                 'migrate',
                 'cleanup',

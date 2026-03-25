@@ -888,6 +888,61 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const { getAgentInstance: getAgent } = await import('../agents/registry.js');
       return getAgent(agentId, cwd);
     },
+
+    // ---- Agent task claiming ----
+
+    async claimTask(taskId: string, agentId: string): Promise<void> {
+      const nativeDb = getNativeTasksDb();
+      if (!nativeDb) {
+        throw new Error('Native database not initialized');
+      }
+
+      // Verify the task exists first
+      const existsRow = nativeDb.prepare('SELECT assignee FROM tasks WHERE id = ?').get(taskId) as
+        | { assignee: string | null }
+        | undefined;
+      if (!existsRow) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
+      // Atomic claim: only succeeds if assignee IS NULL or already claimed by this agent.
+      // This prevents race conditions between concurrent agents.
+      const result = nativeDb
+        .prepare(
+          'UPDATE tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
+        )
+        .run(agentId, new Date().toISOString(), taskId, agentId) as { changes: number };
+
+      if (result.changes === 0) {
+        // Row was not updated — task is claimed by a different agent
+        const currentRow = nativeDb
+          .prepare('SELECT assignee FROM tasks WHERE id = ?')
+          .get(taskId) as { assignee: string | null } | undefined;
+        throw new Error(
+          `Task ${taskId} is already claimed by agent: ${currentRow?.assignee ?? 'unknown'}`,
+        );
+      }
+    },
+
+    async unclaimTask(taskId: string): Promise<void> {
+      const nativeDb = getNativeTasksDb();
+      if (!nativeDb) {
+        throw new Error('Native database not initialized');
+      }
+
+      // Verify the task exists
+      const existsRow = nativeDb.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId) as
+        | { id: string }
+        | undefined;
+      if (!existsRow) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
+      // Clear the assignee — no-op if already null
+      nativeDb
+        .prepare('UPDATE tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), taskId);
+    },
   };
 
   return accessor;

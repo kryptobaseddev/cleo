@@ -20,6 +20,7 @@ import {
   taskArchive,
   taskBlockers,
   taskCancel,
+  taskClaim,
   taskComplete,
   taskComplexityEstimate,
   taskCreate,
@@ -50,6 +51,7 @@ import {
   taskSyncReconcile,
   taskTree,
   taskUnarchive,
+  taskUnclaim,
   taskUpdate,
   taskWorkHistory,
 } from '../lib/engine.js';
@@ -428,6 +430,49 @@ export class TasksHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
+        case 'claim': {
+          const taskId = params?.taskId as string;
+          const agentId = params?.agentId as string;
+          if (!taskId) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+          if (!agentId) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'agentId is required',
+              startTime,
+            );
+          }
+          const result = await taskClaim(projectRoot, taskId, agentId);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
+        case 'unclaim': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+          const result = await taskUnclaim(projectRoot, taskId);
+          return wrapResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'tasks', operation, startTime);
       }
@@ -479,6 +524,8 @@ export class TasksHandler implements DomainHandler {
         'stop',
         'sync.reconcile',
         'sync.links.remove',
+        'claim',
+        'unclaim',
       ],
     };
   }

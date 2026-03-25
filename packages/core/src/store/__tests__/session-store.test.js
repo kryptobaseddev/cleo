@@ -7,7 +7,7 @@
  * @task T4645
  * @epic T4638
  */
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,13 @@ describe('SQLite session-store', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'cleo-sessstore-'));
         const cleoDir = join(tempDir, '.cleo');
         process.env['CLEO_DIR'] = cleoDir;
+        // Create .cleo dir and write test config so enforcement checks don't block
+        await mkdir(cleoDir, { recursive: true });
+        await writeFile(join(cleoDir, 'config.json'), JSON.stringify({
+            enforcement: { session: { requiredForMutate: false } },
+            lifecycle: { mode: 'off' },
+            verification: { enabled: false },
+        }));
         const { closeDb } = await import('../sqlite.js');
         closeDb();
     });
@@ -72,6 +79,19 @@ describe('SQLite session-store', () => {
         });
         it('preserves taskWork state', async () => {
             const { createSession, getSession } = await import('../session-store.js');
+            // Insert FK parent task before creating session with currentTask reference
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values({
+                id: 'T001',
+                title: 'Task T001',
+                status: 'pending',
+                priority: 'medium',
+                createdAt: new Date().toISOString(),
+            })
+                .run();
             const now = new Date().toISOString();
             const session = makeSession({
                 id: 'sess-003',
@@ -214,6 +234,20 @@ describe('SQLite session-store', () => {
     describe('startTask', () => {
         it('starts work on a task', async () => {
             const { createSession, startTask, getCurrentTask } = await import('../session-store.js');
+            // Insert FK parent task: task_work_history.task_id -> tasks.id CASCADE
+            //                    and sessions.current_task -> tasks.id SET NULL.
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values({
+                id: 'T001',
+                title: 'Task T001',
+                status: 'pending',
+                priority: 'medium',
+                createdAt: new Date().toISOString(),
+            })
+                .run();
             await createSession(makeSession({ id: 'sess-001' }));
             await startTask('sess-001', 'T001');
             const current = await getCurrentTask('sess-001');
@@ -222,6 +256,28 @@ describe('SQLite session-store', () => {
         });
         it('updates current task when set again', async () => {
             const { createSession, startTask, getCurrentTask } = await import('../session-store.js');
+            // Insert FK parent tasks before calling startTask.
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values([
+                {
+                    id: 'T001',
+                    title: 'Task T001',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'T002',
+                    title: 'Task T002',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+            ])
+                .run();
             await createSession(makeSession({ id: 'sess-001' }));
             await startTask('sess-001', 'T001');
             await startTask('sess-001', 'T002');
@@ -246,6 +302,19 @@ describe('SQLite session-store', () => {
     describe('stopTask', () => {
         it('stops the current task', async () => {
             const { createSession, startTask, stopTask, getCurrentTask } = await import('../session-store.js');
+            // Insert FK parent task before calling startTask.
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values({
+                id: 'T001',
+                title: 'Task T001',
+                status: 'pending',
+                priority: 'medium',
+                createdAt: new Date().toISOString(),
+            })
+                .run();
             await createSession(makeSession({ id: 'sess-001' }));
             await startTask('sess-001', 'T001');
             await stopTask('sess-001');
@@ -256,6 +325,35 @@ describe('SQLite session-store', () => {
     describe('workHistory', () => {
         it('records task work changes in history', async () => {
             const { createSession, startTask, workHistory } = await import('../session-store.js');
+            // Insert FK parent tasks before calling startTask
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values([
+                {
+                    id: 'T001',
+                    title: 'Task T001',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'T002',
+                    title: 'Task T002',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'T003',
+                    title: 'Task T003',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+            ])
+                .run();
             await createSession(makeSession({ id: 'sess-001' }));
             await startTask('sess-001', 'T001');
             await startTask('sess-001', 'T002');
@@ -268,6 +366,35 @@ describe('SQLite session-store', () => {
         });
         it('respects limit parameter', async () => {
             const { createSession, startTask, workHistory } = await import('../session-store.js');
+            // Insert FK parent tasks before calling startTask
+            const { getDb } = await import('../sqlite.js');
+            const { tasks: tasksTable } = await import('../tasks-schema.js');
+            const db = await getDb();
+            db.insert(tasksTable)
+                .values([
+                {
+                    id: 'T001',
+                    title: 'Task T001',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'T002',
+                    title: 'Task T002',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'T003',
+                    title: 'Task T003',
+                    status: 'pending',
+                    priority: 'medium',
+                    createdAt: new Date().toISOString(),
+                },
+            ])
+                .run();
             await createSession(makeSession({ id: 'sess-001' }));
             await startTask('sess-001', 'T001');
             await startTask('sess-001', 'T002');

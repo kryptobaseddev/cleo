@@ -403,7 +403,10 @@ export { isSqliteBusy } from './migration-manager.js';
  */
 import type { RequiredColumn } from './migration-manager.js';
 
-const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [{ name: 'pipeline_stage', ddl: 'text' }];
+const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [
+  { name: 'pipeline_stage', ddl: 'text' },
+  { name: 'assignee', ddl: 'text' },
+];
 
 /**
  * Required columns that MUST exist on the sessions table before the

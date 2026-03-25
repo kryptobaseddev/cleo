@@ -235,6 +235,7 @@ export {
   taskBatchValidate,
   taskBlockers,
   taskCancel,
+  taskClaim,
   taskComplete,
   taskComplexityEstimate,
   taskCreate,
@@ -270,6 +271,7 @@ export {
   taskSyncReconcile,
   taskTree,
   taskUnarchive,
+  taskUnclaim,
   taskUpdate,
 } from '../engines/task-engine.js';
 // Template parser engine
