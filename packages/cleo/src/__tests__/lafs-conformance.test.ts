@@ -24,7 +24,29 @@ import {
   isCleoRegisteredCode,
 } from '../../../core/src/error-registry.js';
 import { CleoError } from '../../../core/src/errors.js';
-import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
+import {
+  formatSuccess as _formatSuccess,
+  type FormatOptions,
+  formatError,
+  pushWarning,
+} from '../../../core/src/output.js';
+
+/**
+ * Wrapper that forces mvi='full' for conformance tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess<T>(
+  data: T,
+  message?: string,
+  operationOrOpts?: string | FormatOptions,
+): string {
+  const opts: FormatOptions =
+    typeof operationOrOpts === 'string'
+      ? { operation: operationOrOpts, mvi: 'full' }
+      : { mvi: 'full', ...(operationOrOpts ?? {}) };
+  return _formatSuccess(data, message, opts);
+}
+
 import { createPage, paginate } from '../../../core/src/pagination.js';
 import {
   createTestDb,
@@ -256,7 +278,7 @@ describe('MCP Gateway Meta', () => {
     expect(meta.requestId).toBeDefined();
     expect(meta.transport).toBe('sdk');
     expect(meta.strict).toBe(true);
-    expect(meta.mvi).toBe('standard');
+    expect(meta.mvi).toBe('minimal');
     expect(meta.contextVersion).toBe(1);
   });
 

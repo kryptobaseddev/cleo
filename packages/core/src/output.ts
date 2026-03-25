@@ -79,7 +79,7 @@ export interface FormatOptions {
  */
 function createCliMeta(
   operation: string,
-  mvi: import('@cleocode/lafs').MVILevel = 'standard',
+  mvi: import('@cleocode/lafs').MVILevel = 'minimal',
 ): LAFSMeta {
   const warnings = drainWarnings();
   const meta: LAFSMeta = {
@@ -121,20 +121,53 @@ export function formatSuccess<T>(
   const opts: FormatOptions =
     typeof operationOrOpts === 'string' ? { operation: operationOrOpts } : (operationOrOpts ?? {});
 
-  const envelope: Record<string, unknown> = {
+  // Determine MVI level: default is 'minimal' (agent-optimized).
+  // Only --human flag or explicit mvi='full'/'standard' overrides.
+  const mviLevel = opts.mvi ?? 'minimal';
+
+  const meta = createCliMeta(opts.operation ?? 'cli.output', mviLevel);
+  const fullEnvelope: Record<string, unknown> = {
     $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: createCliMeta(opts.operation ?? 'cli.output', opts.mvi),
+    _meta: meta,
     success: true as const,
     result: data as Record<string, unknown> | Record<string, unknown>[] | null,
     ...(message && { message }),
+    ...(opts.page && { page: opts.page }),
+    ...(opts.extensions &&
+      Object.keys(opts.extensions).length > 0 && { _extensions: opts.extensions }),
   };
-  if (opts.page) {
-    envelope['page'] = opts.page;
+
+  // For 'full' level, skip projection — return the complete envelope as-is.
+  // This is the backward-compatible path used by --human and conformance tests.
+  if (mviLevel === 'full') {
+    return JSON.stringify(fullEnvelope);
   }
-  if (opts.extensions && Object.keys(opts.extensions).length > 0) {
-    envelope['_extensions'] = opts.extensions;
+
+  // Apply MVI projection — strips envelope to the declared level.
+  // 'minimal': { success, result, _meta: { requestId, contextVersion } }
+  // 'standard': + $schema, timestamp, operation, mvi
+  if (mviLevel === 'minimal') {
+    // Inline minimal projection — avoids dynamic import overhead.
+    // Matches projectMetaMinimal() from @cleocode/lafs/mviProjection.ts
+    const minimalMeta: Record<string, unknown> = {
+      op: meta.operation,
+      rid: meta.requestId,
+    };
+    if (meta.sessionId) minimalMeta.sid = meta.sessionId;
+    if (meta.warnings?.length) minimalMeta.w = meta.warnings;
+
+    const minimal: Record<string, unknown> = {
+      ok: true,
+      r: data,
+      _m: minimalMeta,
+    };
+    if (message) minimal.msg = message;
+    if (opts.page) minimal.p = opts.page;
+    return JSON.stringify(minimal);
   }
-  return JSON.stringify(envelope);
+
+  // 'standard' level — use the full envelope structure (current behavior)
+  return JSON.stringify(fullEnvelope);
 }
 
 /**

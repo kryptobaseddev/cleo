@@ -1,0 +1,17 @@
+{
+  "name": "@cleocode/cant",
+  "version": "2026.3.75",
+  "description": "CANT protocol parser and interpreter for CLEO",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/lafs": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

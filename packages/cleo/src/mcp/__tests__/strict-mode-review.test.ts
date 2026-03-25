@@ -12,7 +12,29 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError, formatSuccess } from '@cleocode/core';
+import {
+  formatSuccess as _formatSuccess,
+  CleoError,
+  type FormatOptions,
+  formatError,
+} from '@cleocode/core';
+
+/**
+ * Wrapper that forces mvi='full' for strict mode review tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess<T>(
+  data: T,
+  message?: string,
+  operationOrOpts?: string | FormatOptions,
+): string {
+  const opts: FormatOptions =
+    typeof operationOrOpts === 'string'
+      ? { operation: operationOrOpts, mvi: 'full' }
+      : { mvi: 'full', ...(operationOrOpts ?? {}) };
+  return _formatSuccess(data, message, opts);
+}
+
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, DEFAULT_PROTOCOL_VALIDATION } from '../lib/defaults.js';
 import { createGatewayMeta } from '../lib/gateway-meta.js';
