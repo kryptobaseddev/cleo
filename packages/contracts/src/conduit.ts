@@ -1,7 +1,10 @@
 /**
  * Conduit Protocol — Agent-to-agent communication interface.
  *
- * SignalDock implements this interface. CleoOS consumes it.
+ * This is a CLIENT-SIDE interface. Implementations call a messaging
+ * backend (SignalDock REST API, local napi-rs, etc.). SignalDock is
+ * the canonical backend; it does NOT implement this TypeScript interface.
+ *
  * CLEO Core defines the contract in @cleocode/contracts.
  *
  * This is the canonical TypeScript interface for the Conduit Protocol
