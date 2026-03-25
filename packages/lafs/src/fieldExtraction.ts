@@ -49,7 +49,7 @@ export function resolveFieldExtraction(
 
   // 'custom' is server-set (§9.1) — not a client-requestable level
   const validMvi = isMVILevel(input.mviFlag) && input.mviFlag !== 'custom';
-  const mvi: MVILevel = validMvi ? input.mviFlag as MVILevel : 'standard';
+  const mvi: MVILevel = validMvi ? input.mviFlag as MVILevel : 'minimal';
   const mviSource: FieldExtractionResolution['mviSource'] = validMvi ? 'flag' : 'default';
 
   const hasFields = (fields?.length ?? 0) > 0;
