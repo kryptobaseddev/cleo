@@ -1,0 +1,1 @@
+{"version":3,"file":"parse.js","sourceRoot":"","sources":["parse.ts"],"names":[],"mappings":";;AAEA,4CASC;AAVD,8DAA8D;AAC9D,SAAgB,gBAAgB,CAAC,OAAe;IAC5C,OAAO;QACH,cAAc,EAAE,eAAe;QAC/B,SAAS,EAAE,EAAE;QACb,SAAS,EAAE,EAAE;QACb,IAAI,EAAE,EAAE;QACR,UAAU,EAAE,EAAE;QACd,IAAI,EAAE,OAAO;KAChB,CAAC;AACN,CAAC"}

@@ -1,17 +1,33 @@
 {
   "name": "@cleocode/cant",
   "version": "2026.3.75",
-  "description": "CANT protocol parser and interpreter for CLEO",
+  "description": "CANT protocol parser and interpreter for CLEO - wraps cant-core WASM",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "wasm/"
+  ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "build:wasm": "cd ../../crates/cant-core && wasm-pack build --target web --features wasm --out-dir ../../packages/cant/wasm",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.0.0"
-  }
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "cleo",
+    "cant",
+    "agent",
+    "parser",
+    "wasm"
+  ],
+  "license": "MIT"
 }

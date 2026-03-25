@@ -1,0 +1,17 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "Integration tests for the CLEO Rust crate ecosystem"
+publish = false
+
+[dependencies]
+lafs-core = { path = "../lafs-core" }
+conduit-core = { path = "../conduit-core" }
+cant-core = { path = "../cant-core" }
+signaldock-core = { path = "../signaldock-core" }
+serde_json = "1.0"
+
+[lints]
+workspace = true
