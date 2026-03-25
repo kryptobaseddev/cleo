@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.88"
 description = "Canonical CANT grammar parser for CLEO ecosystem"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 nom = "7.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -15,7 +18,7 @@ js-sys = { version = "0.3", optional = true }
 
 [features]
 default = []
-wasm = ["wasm-bindgen", "js-sys"]
+wasm = ["wasm-bindgen", "js-sys", "conduit-core/wasm"]
 
 [lints.rustdoc]
 broken_intra_doc_links = "warn"
