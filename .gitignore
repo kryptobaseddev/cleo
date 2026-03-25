@@ -18,3 +18,9 @@ coverage/
 /drizzle/*.config.d.ts.map
 /drizzle/*.config.js.map
 clawmsgr-agent.json
+clawmsgr-*.json
+clawmsgr-*.json
+clawmsgr-*.json
+
+# Rust build artifacts
+target/

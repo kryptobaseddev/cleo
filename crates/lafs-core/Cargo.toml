@@ -1,0 +1,27 @@
+[package]
+name = "lafs-core"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "Canonical LAFS envelope types and validation for CLEO ecosystem"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen"]
+
+[lints]
+workspace = true
+
+# WASM build configuration
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4", "--enable-mutable-globals"]
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = false

@@ -7,7 +7,11 @@ export default defineConfig({
   },
   format: ["esm"],
   target: "node20",
-  dts: true,
+  dts: {
+    compilerOptions: {
+      composite: false,
+    },
+  },
   clean: true,
   splitting: true,
   sourcemap: true,

@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/cant-core",
+    "crates/conduit-core",
+    "crates/lafs-core",
+    "crates/signaldock-core"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+rust-version = "1.88"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+invalid_html_tags = "deny"
+missing_crate_level_docs = "warn"
+bare_urls = "warn"
+redundant_explicit_links = "warn"
+unescaped_backticks = "warn"
+private_intra_doc_links = "warn"
+
+[workspace.lints.clippy]
+missing_safety_doc = "deny"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+empty_docs = "warn"
+doc_markdown = "warn"
+needless_doctest_main = "warn"
+suspicious_doc_comments = "warn"
+too_long_first_doc_paragraph = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
+
+[package]
+name = "cleocode-workspace"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
