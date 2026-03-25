@@ -1,0 +1,16 @@
+{
+  "name": "lafs-core",
+  "type": "module",
+  "description": "Canonical LAFS envelope types and validation for CLEO ecosystem",
+  "version": "0.1.0",
+  "files": [
+    "lafs_core_bg.wasm",
+    "lafs_core.js",
+    "lafs_core.d.ts"
+  ],
+  "main": "lafs_core.js",
+  "types": "lafs_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

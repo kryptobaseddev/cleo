@@ -330,3 +330,6 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
+
+// === WASM SDK (Rust crate bindings) ===
+export * as wasm from './wasm/index.js';
