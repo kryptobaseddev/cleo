@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { Session, SessionScope } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -185,6 +186,9 @@ export async function startSession(
       /* Hooks are best-effort */
     });
 
+  // Attach _next progressive disclosure directives
+  Object.assign(session, { _next: sessionStartNext() });
+
   return session;
 }
 
@@ -356,6 +360,11 @@ export async function listSessions(
 
   if (options.limit) {
     sessions = sessions.slice(0, options.limit);
+  }
+
+  // Attach _next progressive disclosure directives to each session
+  for (const s of sessions) {
+    Object.assign(s, { _next: sessionListItemNext(s.id) });
   }
 
   return sessions;

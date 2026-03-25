@@ -9,6 +9,8 @@
  */
 
 import type { Session, SessionScope } from '@cleocode/contracts';
+import type { NextDirectives } from '../mvi-helpers.js';
+import { sessionListItemNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 
 /** Minimal session record returned by findSessions(). */
@@ -18,6 +20,8 @@ export interface MinimalSessionRecord {
   status: string;
   startedAt: string;
   scope: SessionScope;
+  /** Progressive disclosure directives for follow-up operations. */
+  _next?: NextDirectives;
 }
 
 /** Parameters for findSessions(). */
@@ -82,7 +86,7 @@ export async function findSessions(
   return sessions.map(toMinimal);
 }
 
-/** Project a full Session to a MinimalSessionRecord. */
+/** Project a full Session to a MinimalSessionRecord with _next directives. */
 function toMinimal(s: Session): MinimalSessionRecord {
   return {
     id: s.id,
@@ -90,5 +94,6 @@ function toMinimal(s: Session): MinimalSessionRecord {
     status: s.status,
     startedAt: s.startedAt,
     scope: s.scope,
+    _next: sessionListItemNext(s.id),
   };
 }

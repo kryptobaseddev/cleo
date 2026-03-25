@@ -6,6 +6,8 @@
 
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
+import type { NextDirectives } from '../mvi-helpers.js';
+import { taskListItemNext } from '../mvi-helpers.js';
 import { paginate } from '../pagination.js';
 import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 
@@ -19,9 +21,11 @@ export interface CompactTask {
   priority: string;
   type?: string;
   parentId?: string | null;
+  /** Progressive disclosure directives for follow-up operations. */
+  _next?: NextDirectives;
 }
 
-/** Convert a full Task to compact representation. */
+/** Convert a full Task to compact representation with _next directives. */
 export function toCompact(task: Task): CompactTask {
   return {
     id: task.id,
@@ -30,6 +34,7 @@ export function toCompact(task: Task): CompactTask {
     priority: task.priority,
     type: task.type,
     parentId: task.parentId,
+    _next: taskListItemNext(task.id),
   };
 }
 
@@ -107,8 +112,14 @@ export async function listTasks(
         }
       : undefined;
 
+  // Enrich each task with _next progressive disclosure directives
+  const enrichedTasks = tasks.map((t) => ({
+    ...t,
+    _next: taskListItemNext(t.id),
+  }));
+
   return {
-    tasks,
+    tasks: enrichedTasks,
     total,
     filtered: filteredCount,
     page,

@@ -17,6 +17,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { NextDirectives } from '../mvi-helpers.js';
+import { memoryFindHitNext } from '../mvi-helpers.js';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
@@ -43,6 +45,8 @@ export interface BrainCompactHit {
   title: string;
   date: string;
   relevance?: number;
+  /** Progressive disclosure directives for follow-up operations. */
+  _next?: NextDirectives;
 }
 
 /** Parameters for searchBrainCompact. */
@@ -206,6 +210,11 @@ export async function searchBrainCompact(
   }
   if (dateEnd) {
     results = results.filter((r) => r.date <= dateEnd);
+  }
+
+  // Enrich each hit with _next progressive disclosure directives
+  for (const hit of results) {
+    hit._next = memoryFindHitNext(hit.id);
   }
 
   return {

@@ -289,6 +289,15 @@ export {
   runAllMigrations,
   runMigration,
 } from './migration/index.js';
+// MVI progressive disclosure helpers
+export type { NextDirectives } from './mvi-helpers.js';
+export {
+  memoryFindHitNext,
+  sessionListItemNext,
+  sessionStartNext,
+  taskListItemNext,
+  taskShowNext,
+} from './mvi-helpers.js';
 // Reconciliation
 export { reconcile } from './reconciliation/index.js';
 // Sessions

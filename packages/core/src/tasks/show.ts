@@ -7,6 +7,8 @@
 import type { Task, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { NextDirectives } from '../mvi-helpers.js';
+import { taskShowNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -18,6 +20,8 @@ export interface TaskDetail extends Task {
   dependents?: string[];
   hierarchyPath?: string[];
   isArchived?: boolean;
+  /** Progressive disclosure directives for follow-up operations. */
+  _next?: NextDirectives;
 }
 
 /**
@@ -103,6 +107,8 @@ export async function showTask(
       detail.hierarchyPath = [...ancestors.map((t) => t.id), taskId];
     }
   }
+
+  detail._next = taskShowNext(taskId);
 
   return detail;
 }

@@ -7,6 +7,8 @@
 import type { Task, TaskQueryFilters, TaskStatus } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import type { NextDirectives } from '../mvi-helpers.js';
+import { taskListItemNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -19,6 +21,8 @@ export interface FindResult {
   type?: string;
   parentId?: string | null;
   score: number;
+  /** Progressive disclosure directives for follow-up operations. */
+  _next?: NextDirectives;
 }
 
 /** Options for finding tasks. */
@@ -191,8 +195,14 @@ export async function findTasks(
   const offset = options.offset ?? 0;
   results = results.slice(offset, offset + limit);
 
+  // Enrich each result with _next progressive disclosure directives
+  const enrichedResults = results.map((r) => ({
+    ...r,
+    _next: taskListItemNext(r.id),
+  }));
+
   return {
-    results,
+    results: enrichedResults,
     total,
     query: queryStr,
     searchType,
