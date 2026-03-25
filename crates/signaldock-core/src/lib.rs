@@ -25,3 +25,6 @@ pub use connection::{Connection, ConnectionStatus, NewConnection};
 pub use conversation::{Conversation, ConversationVisibility, NewConversation};
 pub use message::{ContentType, DeliveryEvent, Message, MessageStatus, NewMessage};
 pub use user::User;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
