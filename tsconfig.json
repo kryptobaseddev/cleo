@@ -19,6 +19,8 @@
   },
   "references": [
     { "path": "./packages/contracts" },
+    { "path": "./packages/lafs" },
+    { "path": "./packages/caamp" },
     { "path": "./packages/core" },
     { "path": "./packages/adapters" },
     { "path": "./packages/cleo" }
