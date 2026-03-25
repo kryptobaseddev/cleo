@@ -99,6 +99,7 @@ export async function updateTask(
     updateRow.cancellationReason = updates.cancellationReason;
   if (updates.verification !== undefined)
     updateRow.verificationJson = JSON.stringify(updates.verification);
+  if (updates.assignee !== undefined) updateRow.assignee = updates.assignee;
 
   db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run();
 

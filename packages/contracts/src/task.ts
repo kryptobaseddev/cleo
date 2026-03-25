@@ -214,6 +214,9 @@ export interface Task {
    * @task T060
    */
   pipelineStage?: string | null;
+
+  /** Agent ID that has claimed/is assigned to this task. Null when unclaimed. */
+  assignee?: string | null;
 }
 
 // ---------------------------------------------------------------------------

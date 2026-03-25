@@ -196,6 +196,8 @@ export const tasks = sqliteTable(
     // Not referencing lifecycle_stages.id so that stage binding works without
     // requiring a lifecycle pipeline record for every task.
     pipelineStage: text('pipeline_stage'),
+    /** Agent ID that has claimed/is assigned to this task. */
+    assignee: text('assignee'),
   },
   (table) => [
     index('idx_tasks_status').on(table.status),
@@ -205,6 +207,7 @@ export const tasks = sqliteTable(
     index('idx_tasks_priority').on(table.priority),
     index('idx_tasks_session_id').on(table.sessionId),
     index('idx_tasks_pipeline_stage').on(table.pipelineStage),
+    index('idx_tasks_assignee').on(table.assignee),
     // T033 composite indexes
     index('idx_tasks_parent_status').on(table.parentId, table.status),
     index('idx_tasks_status_priority').on(table.status, table.priority),

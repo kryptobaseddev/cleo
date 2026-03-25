@@ -103,6 +103,7 @@ export interface TaskFieldUpdates {
   modifiedBy?: string | null;
   sessionId?: string | null;
   updatedAt?: string | null;
+  assignee?: string | null;
 }
 
 /**

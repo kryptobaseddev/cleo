@@ -113,6 +113,11 @@ export async function startTask(
 
   await acc.setMetaValue('focus_state', focus);
 
+  // Set assignee on the task (claim semantics)
+  if (!task.assignee) {
+    await acc.updateTaskFields(taskId, { assignee: process.env['CLEO_AGENT_ID'] ?? 'local' });
+  }
+
   await logOperation(
     'task_start',
     taskId,

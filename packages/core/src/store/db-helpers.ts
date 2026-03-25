@@ -79,6 +79,7 @@ export async function upsertTask(
     sessionId: row.sessionId,
     // T060: pipeline stage name (RCASD-IVTR+C)
     pipelineStage: row.pipelineStage ?? null,
+    assignee: row.assignee ?? null,
     // Always include archive metadata so unarchive clears stale values (T5034)
     archivedAt: archiveFields?.archivedAt ?? null,
     archiveReason: archiveFields?.archiveReason ?? null,

@@ -57,6 +57,7 @@ export function rowToTask(row: TaskRow): Task {
           }
         : undefined,
     pipelineStage: row.pipelineStage ?? undefined,
+    assignee: row.assignee ?? undefined,
   };
 }
 
@@ -92,6 +93,7 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     modifiedBy: task.provenance?.modifiedBy ?? null,
     sessionId: task.provenance?.sessionId ?? null,
     pipelineStage: task.pipelineStage ?? null,
+    assignee: task.assignee ?? null,
   };
 }
 
