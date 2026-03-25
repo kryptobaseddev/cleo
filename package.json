@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
+    "@changesets/cli": "^2.30.0",
     "@codluv/versionguard": "0.2.0",
     "@forge-ts/cli": "^0.19.5",
     "@forge-ts/core": "^0.6.6",
