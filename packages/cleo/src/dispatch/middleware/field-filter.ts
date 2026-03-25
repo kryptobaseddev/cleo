@@ -59,7 +59,7 @@ export function createFieldFilter(): Middleware {
           requestId: response._meta.requestId,
           transport: 'sdk',
           strict: true,
-          mvi: 'standard',
+          mvi: 'minimal',
           contextVersion: 0,
         },
         success: true,

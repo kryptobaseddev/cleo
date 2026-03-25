@@ -361,6 +361,11 @@ for (const shim of rootShim._subcommands) {
 
   // Resolve and set field extraction context (--field, --fields, --mvi)
   const fieldResolution = resolveFieldContext(rawOpts);
+  // Per owner directive: agent-first MVI. Default to 'minimal' unless user
+  // explicitly passed --mvi standard/full (mviSource === 'flag').
+  if (fieldResolution.mviSource === 'default') {
+    fieldResolution.mvi = 'minimal';
+  }
   setFieldContext(fieldResolution);
 
   // Handle -V as alias for --version (citty handles --version but not -V)

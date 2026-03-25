@@ -23,7 +23,7 @@ import {
 export type { FieldExtractionResolution as FieldContext };
 
 let currentContext: FieldExtractionResolution = {
-  mvi: 'standard',
+  mvi: 'minimal',
   mviSource: 'default',
   expectsCustomMvi: false,
 };

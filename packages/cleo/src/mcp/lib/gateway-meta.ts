@@ -54,7 +54,7 @@ export function createGatewayMeta(
     requestId: randomUUID(),
     transport: 'sdk',
     strict: true,
-    mvi: 'standard',
+    mvi: 'minimal',
     contextVersion: 1,
     ...(sessionId && { sessionId }),
     // CLEO gateway extensions
