@@ -5,34 +5,21 @@
  * tier-based targeting, conflict-aware installs, and rollback-capable batches.
  */
 
-import { existsSync, lstatSync } from "node:fs";
-import {
-  cp,
-  mkdir,
-  readFile,
-  readlink,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
-import type {
-  ConfigFormat,
-  McpServerConfig,
-  Provider,
-  ProviderPriority,
-} from "../../types.js";
-import { injectAll } from "../instructions/injector.js";
-import { groupByInstructFile } from "../instructions/templates.js";
-import { type InstallResult, installMcpServer } from "../mcp/installer.js";
-import { listMcpServers, resolveConfigPath } from "../mcp/reader.js";
-import { getTransform } from "../mcp/transforms.js";
-import { CANONICAL_SKILLS_DIR } from "../paths/agents.js";
-import { getInstalledProviders } from "../registry/detection.js";
-import { installSkill, removeSkill } from "../skills/installer.js";
+import { existsSync, lstatSync } from 'node:fs';
+import { cp, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import type { ConfigFormat, McpServerConfig, Provider, ProviderPriority } from '../../types.js';
+import { injectAll } from '../instructions/injector.js';
+import { groupByInstructFile } from '../instructions/templates.js';
+import { type InstallResult, installMcpServer } from '../mcp/installer.js';
+import { listMcpServers, resolveConfigPath } from '../mcp/reader.js';
+import { getTransform } from '../mcp/transforms.js';
+import { CANONICAL_SKILLS_DIR } from '../paths/agents.js';
+import { getInstalledProviders } from '../registry/detection.js';
+import { installSkill, removeSkill } from '../skills/installer.js';
 
-type Scope = "project" | "global";
+type Scope = 'project' | 'global';
 
 const PRIORITY_ORDER: Record<ProviderPriority, number> = {
   high: 0,
@@ -62,7 +49,7 @@ const PRIORITY_ORDER: Record<ProviderPriority, number> = {
  */
 export function selectProvidersByMinimumPriority(
   providers: Provider[],
-  minimumPriority: ProviderPriority = "low",
+  minimumPriority: ProviderPriority = 'low',
 ): Provider[] {
   const maxRank = PRIORITY_ORDER[minimumPriority];
 
@@ -158,7 +145,7 @@ export interface BatchInstallResult {
 
 interface SkillPathSnapshot {
   linkPath: string;
-  state: "missing" | "symlink" | "directory" | "file";
+  state: 'missing' | 'symlink' | 'directory' | 'file';
   symlinkTarget?: string;
   backupPath?: string;
 }
@@ -184,9 +171,7 @@ function resolveSkillLinkPath(
   isGlobal: boolean,
   projectDir: string,
 ): string {
-  const skillDir = isGlobal
-    ? provider.pathSkills
-    : join(projectDir, provider.pathProjectSkills);
+  const skillDir = isGlobal ? provider.pathSkills : join(projectDir, provider.pathProjectSkills);
   return join(skillDir, skillName);
 }
 
@@ -199,7 +184,7 @@ async function snapshotConfigs(paths: string[]): Promise<Map<string, string | nu
       snapshots.set(path, null);
       continue;
     }
-    snapshots.set(path, await readFile(path, "utf-8"));
+    snapshots.set(path, await readFile(path, 'utf-8'));
   }
 
   return snapshots;
@@ -213,7 +198,7 @@ async function restoreConfigSnapshots(snapshots: Map<string, string | null>): Pr
     }
 
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, content, "utf-8");
+    await writeFile(path, content, 'utf-8');
   }
 }
 
@@ -227,7 +212,7 @@ async function snapshotSkillState(
   const isGlobal = operation.isGlobal ?? true;
   const canonicalPath = join(CANONICAL_SKILLS_DIR, skillName);
   const canonicalExisted = existsSync(canonicalPath);
-  const canonicalBackupPath = join(backupRoot, "canonical", skillName);
+  const canonicalBackupPath = join(backupRoot, 'canonical', skillName);
 
   if (canonicalExisted) {
     await mkdir(dirname(canonicalBackupPath), { recursive: true });
@@ -239,7 +224,7 @@ async function snapshotSkillState(
     const linkPath = resolveSkillLinkPath(provider, skillName, isGlobal, projectDir);
 
     if (!existsSync(linkPath)) {
-      pathSnapshots.push({ linkPath, state: "missing" });
+      pathSnapshots.push({ linkPath, state: 'missing' });
       continue;
     }
 
@@ -248,23 +233,23 @@ async function snapshotSkillState(
     if (stat.isSymbolicLink()) {
       pathSnapshots.push({
         linkPath,
-        state: "symlink",
+        state: 'symlink',
         symlinkTarget: await readlink(linkPath),
       });
       continue;
     }
 
-    const backupPath = join(backupRoot, "links", provider.id, `${skillName}-${basename(linkPath)}`);
+    const backupPath = join(backupRoot, 'links', provider.id, `${skillName}-${basename(linkPath)}`);
     await mkdir(dirname(backupPath), { recursive: true });
 
     if (stat.isDirectory()) {
       await cp(linkPath, backupPath, { recursive: true });
-      pathSnapshots.push({ linkPath, state: "directory", backupPath });
+      pathSnapshots.push({ linkPath, state: 'directory', backupPath });
       continue;
     }
 
     await cp(linkPath, backupPath);
-    pathSnapshots.push({ linkPath, state: "file", backupPath });
+    pathSnapshots.push({ linkPath, state: 'file', backupPath });
   }
 
   return {
@@ -282,7 +267,11 @@ async function restoreSkillSnapshot(snapshot: SkillSnapshot): Promise<void> {
     await rm(snapshot.canonicalPath, { recursive: true, force: true });
   }
 
-  if (snapshot.canonicalExisted && snapshot.canonicalBackupPath && existsSync(snapshot.canonicalBackupPath)) {
+  if (
+    snapshot.canonicalExisted &&
+    snapshot.canonicalBackupPath &&
+    existsSync(snapshot.canonicalBackupPath)
+  ) {
     await mkdir(dirname(snapshot.canonicalPath), { recursive: true });
     await cp(snapshot.canonicalBackupPath, snapshot.canonicalPath, { recursive: true });
   }
@@ -290,18 +279,21 @@ async function restoreSkillSnapshot(snapshot: SkillSnapshot): Promise<void> {
   for (const pathSnapshot of snapshot.pathSnapshots) {
     await rm(pathSnapshot.linkPath, { recursive: true, force: true });
 
-    if (pathSnapshot.state === "missing") continue;
+    if (pathSnapshot.state === 'missing') continue;
 
     await mkdir(dirname(pathSnapshot.linkPath), { recursive: true });
 
-    if (pathSnapshot.state === "symlink" && pathSnapshot.symlinkTarget) {
-      const linkType = process.platform === "win32" ? "junction" : "dir";
+    if (pathSnapshot.state === 'symlink' && pathSnapshot.symlinkTarget) {
+      const linkType = process.platform === 'win32' ? 'junction' : 'dir';
       await symlink(pathSnapshot.symlinkTarget, pathSnapshot.linkPath, linkType);
       continue;
     }
 
-    if ((pathSnapshot.state === "directory" || pathSnapshot.state === "file") && pathSnapshot.backupPath) {
-      if (pathSnapshot.state === "directory") {
+    if (
+      (pathSnapshot.state === 'directory' || pathSnapshot.state === 'file') &&
+      pathSnapshot.backupPath
+    ) {
+      if (pathSnapshot.state === 'directory') {
         await cp(pathSnapshot.backupPath, pathSnapshot.linkPath, { recursive: true });
       } else {
         await cp(pathSnapshot.backupPath, pathSnapshot.linkPath);
@@ -340,7 +332,7 @@ export async function installBatchWithRollback(
   options: BatchInstallOptions,
 ): Promise<BatchInstallResult> {
   const projectDir = options.projectDir ?? process.cwd();
-  const minimumPriority = options.minimumPriority ?? "low";
+  const minimumPriority = options.minimumPriority ?? 'low';
   const mcpOps = options.mcp ?? [];
   const skillOps = options.skills ?? [];
   const baseProviders = options.providers ?? getInstalledProviders();
@@ -349,7 +341,7 @@ export async function installBatchWithRollback(
   const configPaths = providers.flatMap((provider) => {
     const paths: string[] = [];
     for (const operation of mcpOps) {
-      const path = resolveConfigPath(provider, operation.scope ?? "project", projectDir);
+      const path = resolveConfigPath(provider, operation.scope ?? 'project', projectDir);
       if (path) paths.push(path);
     }
     return paths;
@@ -373,7 +365,7 @@ export async function installBatchWithRollback(
 
   try {
     for (const operation of mcpOps) {
-      const scope = operation.scope ?? "project";
+      const scope = operation.scope ?? 'project';
       for (const provider of providers) {
         const result = await installMcpServer(
           provider,
@@ -400,7 +392,9 @@ export async function installBatchWithRollback(
         projectDir,
       );
 
-      const linkedProviders = providers.filter((provider) => result.linkedAgents.includes(provider.id));
+      const linkedProviders = providers.filter((provider) =>
+        result.linkedAgents.includes(provider.id),
+      );
       appliedSkills.push({
         skillName: operation.skillName,
         isGlobal,
@@ -408,7 +402,7 @@ export async function installBatchWithRollback(
       });
 
       if (result.errors.length > 0) {
-        throw new Error(result.errors.join("; "));
+        throw new Error(result.errors.join('; '));
       }
 
       skillsApplied += 1;
@@ -473,7 +467,7 @@ export async function installBatchWithRollback(
  *
  * @public
  */
-export type ConflictPolicy = "fail" | "skip" | "overwrite";
+export type ConflictPolicy = 'fail' | 'skip' | 'overwrite';
 
 /**
  * Conflict code identifying the type of MCP configuration conflict.
@@ -484,10 +478,7 @@ export type ConflictPolicy = "fail" | "skip" | "overwrite";
  *
  * @public
  */
-export type McpConflictCode =
-  | "unsupported-transport"
-  | "unsupported-headers"
-  | "existing-mismatch";
+export type McpConflictCode = 'unsupported-transport' | 'unsupported-headers' | 'existing-mismatch';
 
 /**
  * Describes a conflict detected during MCP installation preflight.
@@ -536,13 +527,13 @@ export interface McpPlanApplyResult {
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
+    return `[${value.map(stableStringify).join(',')}]`;
   }
 
-  if (value && typeof value === "object") {
+  if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
   }
 
   return JSON.stringify(value);
@@ -581,14 +572,14 @@ export async function detectMcpConfigConflicts(
 
   for (const provider of providers) {
     for (const operation of operations) {
-      const scope = operation.scope ?? "project";
+      const scope = operation.scope ?? 'project';
 
       if (operation.config.type && !provider.supportedTransports.includes(operation.config.type)) {
         conflicts.push({
           providerId: provider.id,
           serverName: operation.serverName,
           scope,
-          code: "unsupported-transport",
+          code: 'unsupported-transport',
           message: `${provider.id} does not support transport ${operation.config.type}`,
         });
       }
@@ -598,7 +589,7 @@ export async function detectMcpConfigConflicts(
           providerId: provider.id,
           serverName: operation.serverName,
           scope,
-          code: "unsupported-headers",
+          code: 'unsupported-headers',
           message: `${provider.id} does not support header configuration`,
         });
       }
@@ -617,7 +608,7 @@ export async function detectMcpConfigConflicts(
           providerId: provider.id,
           serverName: operation.serverName,
           scope,
-          code: "existing-mismatch",
+          code: 'existing-mismatch',
           message: `${provider.id} has existing config mismatch for ${operation.serverName}`,
         });
       }
@@ -653,30 +644,34 @@ export async function detectMcpConfigConflicts(
 export async function applyMcpInstallWithPolicy(
   providers: Provider[],
   operations: McpBatchOperation[],
-  policy: ConflictPolicy = "fail",
+  policy: ConflictPolicy = 'fail',
   projectDir = process.cwd(),
 ): Promise<McpPlanApplyResult> {
   const conflicts = await detectMcpConfigConflicts(providers, operations, projectDir);
-  const conflictKey = (providerId: string, serverName: string, scope: Scope) => `${providerId}::${serverName}::${scope}`;
+  const conflictKey = (providerId: string, serverName: string, scope: Scope) =>
+    `${providerId}::${serverName}::${scope}`;
   const conflictMap = new Map<string, McpConflict>();
   for (const conflict of conflicts) {
-    conflictMap.set(conflictKey(conflict.providerId, conflict.serverName, conflict.scope), conflict);
+    conflictMap.set(
+      conflictKey(conflict.providerId, conflict.serverName, conflict.scope),
+      conflict,
+    );
   }
 
-  if (policy === "fail" && conflicts.length > 0) {
+  if (policy === 'fail' && conflicts.length > 0) {
     return { conflicts, applied: [], skipped: [] };
   }
 
   const applied: InstallResult[] = [];
-  const skipped: McpPlanApplyResult["skipped"] = [];
+  const skipped: McpPlanApplyResult['skipped'] = [];
 
   for (const provider of providers) {
     for (const operation of operations) {
-      const scope = operation.scope ?? "project";
+      const scope = operation.scope ?? 'project';
       const key = conflictKey(provider.id, operation.serverName, scope);
       const conflict = conflictMap.get(key);
 
-      if (policy === "skip" && conflict) {
+      if (policy === 'skip' && conflict) {
         skipped.push({
           providerId: provider.id,
           serverName: operation.serverName,
@@ -717,7 +712,7 @@ export interface InstructionUpdateSummary {
   /** Detailed action log per instruction file. */
   actions: Array<{
     file: string;
-    action: "created" | "added" | "consolidated" | "updated" | "intact";
+    action: 'created' | 'added' | 'consolidated' | 'updated' | 'intact';
     providers: string[];
     configFormats: ConfigFormat[];
   }>;
@@ -753,7 +748,7 @@ export interface InstructionUpdateSummary {
 export async function updateInstructionsSingleOperation(
   providers: Provider[],
   content: string,
-  scope: Scope = "project",
+  scope: Scope = 'project',
   projectDir = process.cwd(),
 ): Promise<InstructionUpdateSummary> {
   const actions = await injectAll(providers, projectDir, scope, content);
@@ -767,9 +762,10 @@ export async function updateInstructionsSingleOperation(
 
   for (const [filePath, action] of actions.entries()) {
     const providersForFile = providers.filter((provider) => {
-      const expectedPath = scope === "global"
-        ? join(provider.pathGlobal, provider.instructFile)
-        : join(projectDir, provider.instructFile);
+      const expectedPath =
+        scope === 'global'
+          ? join(provider.pathGlobal, provider.instructFile)
+          : join(projectDir, provider.instructFile);
       return expectedPath === filePath;
     });
 
@@ -832,8 +828,8 @@ export interface DualScopeConfigureResult {
   };
   /** Instruction injection results for each scope, if applicable. */
   instructions: {
-    global?: Map<string, "created" | "added" | "consolidated" | "updated" | "intact">;
-    project?: Map<string, "created" | "added" | "consolidated" | "updated" | "intact">;
+    global?: Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>;
+    project?: Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>;
   };
 }
 
@@ -870,45 +866,69 @@ export async function configureProviderGlobalAndProject(
 
   const globalResults: InstallResult[] = [];
   for (const operation of globalOps) {
-    globalResults.push(await installMcpServer(
-      provider,
-      operation.serverName,
-      operation.config,
-      "global",
-      projectDir,
-    ));
+    globalResults.push(
+      await installMcpServer(
+        provider,
+        operation.serverName,
+        operation.config,
+        'global',
+        projectDir,
+      ),
+    );
   }
 
   const projectResults: InstallResult[] = [];
   for (const operation of projectOps) {
-    projectResults.push(await installMcpServer(
-      provider,
-      operation.serverName,
-      operation.config,
-      "project",
-      projectDir,
-    ));
+    projectResults.push(
+      await installMcpServer(
+        provider,
+        operation.serverName,
+        operation.config,
+        'project',
+        projectDir,
+      ),
+    );
   }
 
-  const instructionResults: DualScopeConfigureResult["instructions"] = {};
+  const instructionResults: DualScopeConfigureResult['instructions'] = {};
   const instructionContent = options.instructionContent;
-  if (typeof instructionContent === "string") {
-    instructionResults.global = await injectAll([provider], projectDir, "global", instructionContent);
-    instructionResults.project = await injectAll([provider], projectDir, "project", instructionContent);
+  if (typeof instructionContent === 'string') {
+    instructionResults.global = await injectAll(
+      [provider],
+      projectDir,
+      'global',
+      instructionContent,
+    );
+    instructionResults.project = await injectAll(
+      [provider],
+      projectDir,
+      'project',
+      instructionContent,
+    );
   } else if (instructionContent) {
     if (instructionContent.global) {
-      instructionResults.global = await injectAll([provider], projectDir, "global", instructionContent.global);
+      instructionResults.global = await injectAll(
+        [provider],
+        projectDir,
+        'global',
+        instructionContent.global,
+      );
     }
     if (instructionContent.project) {
-      instructionResults.project = await injectAll([provider], projectDir, "project", instructionContent.project);
+      instructionResults.project = await injectAll(
+        [provider],
+        projectDir,
+        'project',
+        instructionContent.project,
+      );
     }
   }
 
   return {
     providerId: provider.id,
     configPaths: {
-      global: resolveConfigPath(provider, "global", projectDir),
-      project: resolveConfigPath(provider, "project", projectDir),
+      global: resolveConfigPath(provider, 'global', projectDir),
+      project: resolveConfigPath(provider, 'project', projectDir),
     },
     mcp: {
       global: globalResults,

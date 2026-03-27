@@ -5,7 +5,7 @@
  * CLEO will consume this interface to build provider-specific adapters.
  */
 
-import type { Provider } from "../../types.js";
+import type { Provider } from '../../types.js';
 
 /**
  * Options for spawning a subagent.
@@ -34,7 +34,7 @@ export interface SpawnResult {
   /** Unique identifier for the spawned agent instance. */
   instanceId: string;
   /** Current status of the spawned agent. */
-  status: "running" | "completed" | "failed";
+  status: 'running' | 'completed' | 'failed';
   /** Output produced by the spawned agent. @defaultValue undefined */
   output?: string;
 }

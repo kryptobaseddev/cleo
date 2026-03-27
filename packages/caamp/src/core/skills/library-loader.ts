@@ -6,18 +6,18 @@
  * 2. buildLibraryFromFiles() - for plain directories with the right file structure
  */
 
-import { createRequire } from "node:module";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { basename, dirname, join } from 'node:path';
 import type {
   SkillLibrary,
+  SkillLibraryDispatchMatrix,
   SkillLibraryEntry,
   SkillLibraryManifest,
   SkillLibraryProfile,
-  SkillLibraryDispatchMatrix,
-  SkillLibraryValidationResult,
   SkillLibraryValidationIssue,
-} from "./skill-library.js";
+  SkillLibraryValidationResult,
+} from './skill-library.js';
 
 const require = createRequire(import.meta.url);
 
@@ -53,27 +53,40 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
 
   // Validate required properties
   const requiredMethods = [
-    "listSkills", "getSkill", "getSkillPath", "getSkillDir", "readSkillContent",
-    "getCoreSkills", "getSkillsByCategory", "getSkillDependencies", "resolveDependencyTree",
-    "listProfiles", "getProfile", "resolveProfile",
-    "listSharedResources", "getSharedResourcePath", "readSharedResource",
-    "listProtocols", "getProtocolPath", "readProtocol",
-    "validateSkillFrontmatter", "validateAll", "getDispatchMatrix",
+    'listSkills',
+    'getSkill',
+    'getSkillPath',
+    'getSkillDir',
+    'readSkillContent',
+    'getCoreSkills',
+    'getSkillsByCategory',
+    'getSkillDependencies',
+    'resolveDependencyTree',
+    'listProfiles',
+    'getProfile',
+    'resolveProfile',
+    'listSharedResources',
+    'getSharedResourcePath',
+    'readSharedResource',
+    'listProtocols',
+    'getProtocolPath',
+    'readProtocol',
+    'validateSkillFrontmatter',
+    'validateAll',
+    'getDispatchMatrix',
   ];
 
   for (const method of requiredMethods) {
-    if (typeof mod[method] !== "function") {
-      throw new Error(
-        `Skill library at ${root} does not implement required method: ${method}`,
-      );
+    if (typeof mod[method] !== 'function') {
+      throw new Error(`Skill library at ${root} does not implement required method: ${method}`);
     }
   }
 
-  if (!mod.version || typeof mod.version !== "string") {
+  if (!mod.version || typeof mod.version !== 'string') {
     throw new Error(`Skill library at ${root} is missing 'version' property`);
   }
 
-  if (!mod.libraryRoot || typeof mod.libraryRoot !== "string") {
+  if (!mod.libraryRoot || typeof mod.libraryRoot !== 'string') {
     throw new Error(`Skill library at ${root} is missing 'libraryRoot' property`);
   }
 
@@ -106,23 +119,23 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
  * @public
  */
 export function buildLibraryFromFiles(root: string): SkillLibrary {
-  const catalogPath = join(root, "skills.json");
+  const catalogPath = join(root, 'skills.json');
   if (!existsSync(catalogPath)) {
     throw new Error(`No skills.json found at ${root}`);
   }
 
-  const catalogData = JSON.parse(readFileSync(catalogPath, "utf-8"));
+  const catalogData = JSON.parse(readFileSync(catalogPath, 'utf-8'));
   const entries: SkillLibraryEntry[] = catalogData.skills ?? [];
-  const version: string = catalogData.version ?? "0.0.0";
+  const version: string = catalogData.version ?? '0.0.0';
 
   // Load manifest
-  const manifestPath = join(root, "skills", "manifest.json");
+  const manifestPath = join(root, 'skills', 'manifest.json');
   let manifest: SkillLibraryManifest;
   if (existsSync(manifestPath)) {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
   } else {
     manifest = {
-      $schema: "",
+      $schema: '',
       _meta: {},
       dispatch_matrix: { by_task_type: {}, by_keyword: {}, by_protocol: {} },
       skills: [],
@@ -130,14 +143,14 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
   }
 
   // Load profiles
-  const profilesDir = join(root, "profiles");
+  const profilesDir = join(root, 'profiles');
   const profiles = new Map<string, SkillLibraryProfile>();
   if (existsSync(profilesDir)) {
     for (const file of readdirSync(profilesDir)) {
-      if (!file.endsWith(".json")) continue;
+      if (!file.endsWith('.json')) continue;
       try {
         const profile: SkillLibraryProfile = JSON.parse(
-          readFileSync(join(profilesDir, file), "utf-8"),
+          readFileSync(join(profilesDir, file), 'utf-8'),
         );
         profiles.set(profile.name, profile);
       } catch {
@@ -159,7 +172,7 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
     if (entry) {
       return dirname(join(root, entry.path));
     }
-    return join(root, "skills", name);
+    return join(root, 'skills', name);
   }
 
   function resolveDeps(names: string[], visited = new Set<string>()): string[] {
@@ -197,8 +210,8 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
   function discoverFiles(dir: string, ext: string): string[] {
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
-      .filter(f => f.endsWith(ext))
-      .map(f => basename(f, ext));
+      .filter((f) => f.endsWith(ext))
+      .map((f) => basename(f, ext));
   }
 
   // ── Build the library object ──────────────────────────────────────
@@ -210,7 +223,7 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
     manifest,
 
     listSkills(): string[] {
-      return entries.map(e => e.name);
+      return entries.map((e) => e.name);
     },
 
     getSkill(name: string): SkillLibraryEntry | undefined {
@@ -222,7 +235,7 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
       if (entry) {
         return join(root, entry.path);
       }
-      return join(root, "skills", name, "SKILL.md");
+      return join(root, 'skills', name, 'SKILL.md');
     },
 
     getSkillDir,
@@ -232,15 +245,15 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
       if (!existsSync(skillPath)) {
         throw new Error(`Skill content not found: ${skillPath}`);
       }
-      return readFileSync(skillPath, "utf-8");
+      return readFileSync(skillPath, 'utf-8');
     },
 
     getCoreSkills(): SkillLibraryEntry[] {
-      return entries.filter(e => e.core);
+      return entries.filter((e) => e.core);
     },
 
-    getSkillsByCategory(category: SkillLibraryEntry["category"]): SkillLibraryEntry[] {
-      return entries.filter(e => e.category === category);
+    getSkillsByCategory(category: SkillLibraryEntry['category']): SkillLibraryEntry[] {
+      return entries.filter((e) => e.category === category);
     },
 
     getSkillDependencies(name: string): string[] {
@@ -264,39 +277,39 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
     },
 
     listSharedResources(): string[] {
-      return discoverFiles(join(root, "skills", "_shared"), ".md");
+      return discoverFiles(join(root, 'skills', '_shared'), '.md');
     },
 
     getSharedResourcePath(name: string): string | undefined {
-      const resourcePath = join(root, "skills", "_shared", `${name}.md`);
+      const resourcePath = join(root, 'skills', '_shared', `${name}.md`);
       return existsSync(resourcePath) ? resourcePath : undefined;
     },
 
     readSharedResource(name: string): string | undefined {
       const resourcePath = library.getSharedResourcePath(name);
       if (!resourcePath) return undefined;
-      return readFileSync(resourcePath, "utf-8");
+      return readFileSync(resourcePath, 'utf-8');
     },
 
     listProtocols(): string[] {
       // Check root protocols/ first (ct-skills layout), fall back to skills/protocols/
-      const rootProtocols = discoverFiles(join(root, "protocols"), ".md");
+      const rootProtocols = discoverFiles(join(root, 'protocols'), '.md');
       if (rootProtocols.length > 0) return rootProtocols;
-      return discoverFiles(join(root, "skills", "protocols"), ".md");
+      return discoverFiles(join(root, 'skills', 'protocols'), '.md');
     },
 
     getProtocolPath(name: string): string | undefined {
       // Check root protocols/ first, fall back to skills/protocols/
-      const rootPath = join(root, "protocols", `${name}.md`);
+      const rootPath = join(root, 'protocols', `${name}.md`);
       if (existsSync(rootPath)) return rootPath;
-      const skillsPath = join(root, "skills", "protocols", `${name}.md`);
+      const skillsPath = join(root, 'skills', 'protocols', `${name}.md`);
       return existsSync(skillsPath) ? skillsPath : undefined;
     },
 
     readProtocol(name: string): string | undefined {
       const protocolPath = library.getProtocolPath(name);
       if (!protocolPath) return undefined;
-      return readFileSync(protocolPath, "utf-8");
+      return readFileSync(protocolPath, 'utf-8');
     },
 
     validateSkillFrontmatter(name: string): SkillLibraryValidationResult {
@@ -304,30 +317,34 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
       if (!entry) {
         return {
           valid: false,
-          issues: [{ level: "error", field: "name", message: `Skill not found: ${name}` }],
+          issues: [{ level: 'error', field: 'name', message: `Skill not found: ${name}` }],
         };
       }
 
       const issues: SkillLibraryValidationIssue[] = [];
 
       if (!entry.name) {
-        issues.push({ level: "error", field: "name", message: "Missing name" });
+        issues.push({ level: 'error', field: 'name', message: 'Missing name' });
       }
       if (!entry.description) {
-        issues.push({ level: "error", field: "description", message: "Missing description" });
+        issues.push({ level: 'error', field: 'description', message: 'Missing description' });
       }
       if (!entry.version) {
-        issues.push({ level: "warn", field: "version", message: "Missing version" });
+        issues.push({ level: 'warn', field: 'version', message: 'Missing version' });
       }
 
       // Check SKILL.md exists
       const skillPath = join(root, entry.path);
       if (!existsSync(skillPath)) {
-        issues.push({ level: "error", field: "path", message: `SKILL.md not found at ${entry.path}` });
+        issues.push({
+          level: 'error',
+          field: 'path',
+          message: `SKILL.md not found at ${entry.path}`,
+        });
       }
 
       return {
-        valid: !issues.some(i => i.level === "error"),
+        valid: !issues.some((i) => i.level === 'error'),
         issues,
       };
     },

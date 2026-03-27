@@ -5,14 +5,14 @@
  * and enforces ct-* prefix priority for CAAMP-shipped skills.
  */
 
-import { existsSync, lstatSync, readlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
-import type { LockEntry, Provider } from "../../types.js";
-import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from "../paths/standard.js";
-import { readLockFile, updateLockFile } from "../lock-utils.js";
+import { existsSync, lstatSync, readlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import type { LockEntry, Provider } from '../../types.js';
+import { readLockFile } from '../lock-utils.js';
+import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from '../paths/standard.js';
 
 /** CAAMP-reserved skill prefix. Skills with this prefix are owned by CAAMP. */
-const CAAMP_SKILL_PREFIX = "ct-";
+const CAAMP_SKILL_PREFIX = 'ct-';
 
 /**
  * Status of a single skill's integrity check.
@@ -20,12 +20,12 @@ const CAAMP_SKILL_PREFIX = "ct-";
  * @public
  */
 export type SkillIntegrityStatus =
-  | "intact"
-  | "broken-symlink"
-  | "missing-canonical"
-  | "missing-link"
-  | "not-tracked"
-  | "tampered";
+  | 'intact'
+  | 'broken-symlink'
+  | 'missing-canonical'
+  | 'missing-link'
+  | 'not-tracked'
+  | 'tampered';
 
 /**
  * Result of checking a single skill's integrity.
@@ -104,7 +104,7 @@ export function isCaampOwnedSkill(skillName: string): boolean {
 export async function checkSkillIntegrity(
   skillName: string,
   providers: Provider[],
-  scope: "global" | "project" = "global",
+  scope: 'global' | 'project' = 'global',
   projectDir?: string,
 ): Promise<SkillIntegrityResult> {
   const lock = await readLockFile();
@@ -116,12 +116,12 @@ export async function checkSkillIntegrity(
     const canonicalPath = join(getCanonicalSkillsDir(), skillName);
     return {
       name: skillName,
-      status: "not-tracked",
+      status: 'not-tracked',
       canonicalExists: existsSync(canonicalPath),
       canonicalPath: null,
       linkStatuses: [],
       isCaampOwned,
-      issue: "Skill is not tracked in the CAAMP lock file",
+      issue: 'Skill is not tracked in the CAAMP lock file',
     };
   }
 
@@ -129,7 +129,7 @@ export async function checkSkillIntegrity(
   const canonicalExists = existsSync(canonicalPath);
 
   // Check symlinks for each provider
-  const linkStatuses: SkillIntegrityResult["linkStatuses"] = [];
+  const linkStatuses: SkillIntegrityResult['linkStatuses'] = [];
 
   for (const provider of providers) {
     const targetDirs = resolveProviderSkillsDirs(provider, scope, projectDir);
@@ -168,7 +168,7 @@ export async function checkSkillIntegrity(
   if (!canonicalExists) {
     return {
       name: skillName,
-      status: "missing-canonical",
+      status: 'missing-canonical',
       canonicalExists,
       canonicalPath,
       linkStatuses,
@@ -183,7 +183,7 @@ export async function checkSkillIntegrity(
   if (tamperedLinks.length > 0) {
     return {
       name: skillName,
-      status: "tampered",
+      status: 'tampered',
       canonicalExists,
       canonicalPath,
       linkStatuses,
@@ -195,7 +195,7 @@ export async function checkSkillIntegrity(
   if (brokenLinks.length > 0) {
     return {
       name: skillName,
-      status: "broken-symlink",
+      status: 'broken-symlink',
       canonicalExists,
       canonicalPath,
       linkStatuses,
@@ -206,7 +206,7 @@ export async function checkSkillIntegrity(
 
   return {
     name: skillName,
-    status: "intact",
+    status: 'intact',
     canonicalExists,
     canonicalPath,
     linkStatuses,
@@ -238,7 +238,7 @@ export async function checkSkillIntegrity(
  */
 export async function checkAllSkillIntegrity(
   providers: Provider[],
-  scope: "global" | "project" = "global",
+  scope: 'global' | 'project' = 'global',
   projectDir?: string,
 ): Promise<Map<string, SkillIntegrityResult>> {
   const lock = await readLockFile();
@@ -286,7 +286,7 @@ export function shouldOverrideSkill(
   // For ct-* skills, CAAMP package source always wins
   if (isCaampOwnedSkill(skillName)) {
     // If incoming is from CAAMP package (library source), it always wins
-    if (existingEntry.sourceType === "library") return true;
+    if (existingEntry.sourceType === 'library') return true;
     // If existing is from CAAMP but incoming is user, CAAMP wins (block user)
     return true;
   }
@@ -321,31 +321,31 @@ export function shouldOverrideSkill(
 export async function validateInstructionIntegrity(
   providers: Provider[],
   projectDir: string,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   expectedContent?: string,
 ): Promise<Array<{ file: string; providerId: string; issue: string }>> {
-  const { checkAllInjections } = await import("../instructions/injector.js");
+  const { checkAllInjections } = await import('../instructions/injector.js');
   const results = await checkAllInjections(providers, projectDir, scope, expectedContent);
   const issues: Array<{ file: string; providerId: string; issue: string }> = [];
 
   for (const result of results) {
-    if (result.status === "missing") {
+    if (result.status === 'missing') {
       issues.push({
         file: result.file,
         providerId: result.provider,
-        issue: "Instruction file does not exist",
+        issue: 'Instruction file does not exist',
       });
-    } else if (result.status === "none") {
+    } else if (result.status === 'none') {
       issues.push({
         file: result.file,
         providerId: result.provider,
-        issue: "No CAAMP injection block found",
+        issue: 'No CAAMP injection block found',
       });
-    } else if (result.status === "outdated") {
+    } else if (result.status === 'outdated') {
       issues.push({
         file: result.file,
         providerId: result.provider,
-        issue: "CAAMP injection block is outdated",
+        issue: 'CAAMP injection block is outdated',
       });
     }
   }

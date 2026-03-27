@@ -8,17 +8,17 @@
  * All public functions delegate to the registered SkillLibrary instance.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { buildLibraryFromFiles, loadLibraryFromModule } from "./library-loader.js";
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { buildLibraryFromFiles, loadLibraryFromModule } from './library-loader.js';
 import type {
   SkillLibrary,
+  SkillLibraryDispatchMatrix,
   SkillLibraryEntry,
   SkillLibraryManifest,
   SkillLibraryProfile,
-  SkillLibraryDispatchMatrix,
   SkillLibraryValidationResult,
-} from "./skill-library.js";
+} from './skill-library.js';
 
 // ── Registry ────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ export function registerSkillLibrary(library: SkillLibrary): void {
  */
 export function registerSkillLibraryFromPath(root: string): void {
   // Try module-based loading first (has index.js)
-  const indexPath = join(root, "index.js");
+  const indexPath = join(root, 'index.js');
   if (existsSync(indexPath)) {
     _library = loadLibraryFromModule(root);
     return;
@@ -107,14 +107,14 @@ export function clearRegisteredLibrary(): void {
  */
 function discoverLibrary(): SkillLibrary | null {
   // 1. Environment variable
-  const envPath = process.env["CAAMP_SKILL_LIBRARY"];
+  const envPath = process.env['CAAMP_SKILL_LIBRARY'];
   if (envPath && existsSync(envPath)) {
     try {
-      const indexPath = join(envPath, "index.js");
+      const indexPath = join(envPath, 'index.js');
       if (existsSync(indexPath)) {
         return loadLibraryFromModule(envPath);
       }
-      if (existsSync(join(envPath, "skills.json"))) {
+      if (existsSync(join(envPath, 'skills.json'))) {
         return buildLibraryFromFiles(envPath);
       }
     } catch {
@@ -137,8 +137,8 @@ function getLibrary(): SkillLibrary {
 
   if (!_library) {
     throw new Error(
-      "No skill library registered. Register one with registerSkillLibraryFromPath() " +
-      "or set the CAAMP_SKILL_LIBRARY environment variable.",
+      'No skill library registered. Register one with registerSkillLibraryFromPath() ' +
+        'or set the CAAMP_SKILL_LIBRARY environment variable.',
     );
   }
 
@@ -367,7 +367,7 @@ export function getCoreSkills(): SkillLibraryEntry[] {
  *
  * @public
  */
-export function getSkillsByCategory(category: SkillLibraryEntry["category"]): SkillLibraryEntry[] {
+export function getSkillsByCategory(category: SkillLibraryEntry['category']): SkillLibraryEntry[] {
   return getLibrary().getSkillsByCategory(category);
 }
 

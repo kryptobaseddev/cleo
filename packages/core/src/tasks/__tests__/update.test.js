@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../store/sqlite.js';
 import { updateTask } from '../update.js';
 describe('updateTask', () => {
     let env;
@@ -14,9 +15,20 @@ describe('updateTask', () => {
     beforeEach(async () => {
         env = await createTestDb();
         accessor = env.accessor;
-        await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ verification: { enabled: false } }));
+        // Pin CLEO_DIR so concurrent workers cannot contaminate path resolution
+        process.env['CLEO_DIR'] = env.cleoDir;
+        await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+            enforcement: {
+                session: { requiredForMutate: false },
+                acceptance: { mode: 'off' },
+            },
+            lifecycle: { mode: 'off' },
+            verification: { enabled: false },
+        }));
     });
     afterEach(async () => {
+        delete process.env['CLEO_DIR'];
+        resetDbState();
         await env.cleanup();
     });
     it('updates task title', async () => {
@@ -170,7 +182,12 @@ describe('updateTask', () => {
                     createdAt: new Date().toISOString(),
                 },
             ]);
-            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+                enforcement: { session: { requiredForMutate: false } },
+                lifecycle: { mode: 'off' },
+                verification: { enabled: false },
+                hierarchy: { maxDepth: 3, maxSiblings: 20 },
+            }));
             const result = await updateTask({ taskId: 'T002', parentId: 'T001' }, env.tempDir, accessor);
             expect(result.task.parentId).toBe('T001');
             expect(result.changes).toContain('parentId');
@@ -195,7 +212,12 @@ describe('updateTask', () => {
                     createdAt: new Date().toISOString(),
                 },
             ]);
-            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+                enforcement: { session: { requiredForMutate: false } },
+                lifecycle: { mode: 'off' },
+                verification: { enabled: false },
+                hierarchy: { maxDepth: 3, maxSiblings: 20 },
+            }));
             const result = await updateTask({ taskId: 'T002', parentId: null }, env.tempDir, accessor);
             expect(result.task.parentId).toBeNull();
             expect(result.changes).toContain('parentId');
@@ -220,7 +242,12 @@ describe('updateTask', () => {
                     createdAt: new Date().toISOString(),
                 },
             ]);
-            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+                enforcement: { session: { requiredForMutate: false } },
+                lifecycle: { mode: 'off' },
+                verification: { enabled: false },
+                hierarchy: { maxDepth: 3, maxSiblings: 20 },
+            }));
             const result = await updateTask({ taskId: 'T002', parentId: '' }, env.tempDir, accessor);
             expect(result.task.parentId).toBeNull();
             expect(result.changes).toContain('parentId');
@@ -245,7 +272,12 @@ describe('updateTask', () => {
                     createdAt: new Date().toISOString(),
                 },
             ]);
-            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+                enforcement: { session: { requiredForMutate: false } },
+                lifecycle: { mode: 'off' },
+                verification: { enabled: false },
+                hierarchy: { maxDepth: 3, maxSiblings: 20 },
+            }));
             await expect(updateTask({ taskId: 'T002', parentId: 'T001' }, env.tempDir, accessor)).rejects.toThrow('No changes');
         });
         it('can set parent and other fields simultaneously', async () => {
@@ -267,7 +299,12 @@ describe('updateTask', () => {
                     createdAt: new Date().toISOString(),
                 },
             ]);
-            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+            await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify({
+                enforcement: { session: { requiredForMutate: false } },
+                lifecycle: { mode: 'off' },
+                verification: { enabled: false },
+                hierarchy: { maxDepth: 3, maxSiblings: 20 },
+            }));
             const result = await updateTask({
                 taskId: 'T002',
                 parentId: 'T001',

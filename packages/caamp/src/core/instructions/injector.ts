@@ -5,15 +5,15 @@
  * (CLAUDE.md, AGENTS.md, GEMINI.md).
  */
 
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import type { InjectionCheckResult, InjectionStatus, Provider } from "../../types.js";
-import { getProvider } from "../registry/providers.js";
-import { buildInjectionContent, type InjectionTemplate } from "./templates.js";
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
+import { getProvider } from '../registry/providers.js';
+import { buildInjectionContent, type InjectionTemplate } from './templates.js';
 
-const MARKER_START = "<!-- CAAMP:START -->";
-const MARKER_END = "<!-- CAAMP:END -->";
+const MARKER_START = '<!-- CAAMP:START -->';
+const MARKER_END = '<!-- CAAMP:END -->';
 const MARKER_PATTERN = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/g;
 const MARKER_PATTERN_SINGLE = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/;
 
@@ -47,21 +47,21 @@ export async function checkInjection(
   filePath: string,
   expectedContent?: string,
 ): Promise<InjectionStatus> {
-  if (!existsSync(filePath)) return "missing";
+  if (!existsSync(filePath)) return 'missing';
 
-  const content = await readFile(filePath, "utf-8");
+  const content = await readFile(filePath, 'utf-8');
 
-  if (!MARKER_PATTERN_SINGLE.test(content)) return "none";
+  if (!MARKER_PATTERN_SINGLE.test(content)) return 'none';
 
   if (expectedContent) {
     const blockContent = extractBlock(content);
     if (blockContent && blockContent.trim() === expectedContent.trim()) {
-      return "current";
+      return 'current';
     }
-    return "outdated";
+    return 'outdated';
   }
 
-  return "current";
+  return 'current';
 }
 
 /** Extract the content between CAAMP markers */
@@ -69,10 +69,7 @@ function extractBlock(content: string): string | null {
   const match = content.match(MARKER_PATTERN_SINGLE);
   if (!match) return null;
 
-  return match[0]
-    .replace(MARKER_START, "")
-    .replace(MARKER_END, "")
-    .trim();
+  return match[0].replace(MARKER_START, '').replace(MARKER_END, '').trim();
 }
 
 /** Build the injection block */
@@ -112,7 +109,7 @@ function buildBlock(content: string): string {
 export async function inject(
   filePath: string,
   content: string,
-): Promise<"created" | "added" | "consolidated" | "updated" | "intact"> {
+): Promise<'created' | 'added' | 'consolidated' | 'updated' | 'intact'> {
   const block = buildBlock(content);
 
   // Ensure parent directory exists
@@ -120,11 +117,11 @@ export async function inject(
 
   if (!existsSync(filePath)) {
     // Create new file with injection block
-    await writeFile(filePath, `${block}\n`, "utf-8");
-    return "created";
+    await writeFile(filePath, `${block}\n`, 'utf-8');
+    return 'created';
   }
 
-  const existing = await readFile(filePath, "utf-8");
+  const existing = await readFile(filePath, 'utf-8');
 
   // Find all CAAMP blocks in the file
   const matches = existing.match(MARKER_PATTERN);
@@ -134,34 +131,32 @@ export async function inject(
     if (matches.length > 1) {
       // Consolidate all blocks into a single clean block
       const updated = existing
-        .replace(MARKER_PATTERN, "")
-        .replace(/^\n{2,}/, "\n")
+        .replace(MARKER_PATTERN, '')
+        .replace(/^\n{2,}/, '\n')
         .trim();
-      
+
       // Write the clean content with a single block
-      const finalContent = updated 
-        ? `${block}\n\n${updated}`
-        : `${block}\n`;
-      await writeFile(filePath, finalContent, "utf-8");
-      return "consolidated";
+      const finalContent = updated ? `${block}\n\n${updated}` : `${block}\n`;
+      await writeFile(filePath, finalContent, 'utf-8');
+      return 'consolidated';
     }
 
     // Check if existing content already matches (idempotency)
     const existingBlock = extractBlock(existing);
     if (existingBlock !== null && existingBlock.trim() === content.trim()) {
-      return "intact";
+      return 'intact';
     }
 
     // Replace existing block with new content
     const updated = existing.replace(MARKER_PATTERN_SINGLE, block);
-    await writeFile(filePath, updated, "utf-8");
-    return "updated";
+    await writeFile(filePath, updated, 'utf-8');
+    return 'updated';
   }
 
   // Prepend block to existing content
   const updated = `${block}\n\n${existing}`;
-  await writeFile(filePath, updated, "utf-8");
-  return "added";
+  await writeFile(filePath, updated, 'utf-8');
+  return 'added';
 }
 
 /**
@@ -186,20 +181,20 @@ export async function inject(
 export async function removeInjection(filePath: string): Promise<boolean> {
   if (!existsSync(filePath)) return false;
 
-  const content = await readFile(filePath, "utf-8");
+  const content = await readFile(filePath, 'utf-8');
   if (!MARKER_PATTERN.test(content)) return false;
 
   const cleaned = content
-    .replace(MARKER_PATTERN, "")
-    .replace(/^\n{2,}/, "\n")
+    .replace(MARKER_PATTERN, '')
+    .replace(/^\n{2,}/, '\n')
     .trim();
 
   if (!cleaned) {
     // File would be empty - remove it entirely
-    const { rm } = await import("node:fs/promises");
+    const { rm } = await import('node:fs/promises');
     await rm(filePath);
   } else {
-    await writeFile(filePath, `${cleaned}\n`, "utf-8");
+    await writeFile(filePath, `${cleaned}\n`, 'utf-8');
   }
 
   return true;
@@ -232,16 +227,17 @@ export async function removeInjection(filePath: string): Promise<boolean> {
 export async function checkAllInjections(
   providers: Provider[],
   projectDir: string,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   expectedContent?: string,
 ): Promise<InjectionCheckResult[]> {
   const results: InjectionCheckResult[] = [];
   const checked = new Set<string>();
 
   for (const provider of providers) {
-    const filePath = scope === "global"
-      ? join(provider.pathGlobal, provider.instructFile)
-      : join(projectDir, provider.instructFile);
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
 
     // Skip duplicates (multiple providers share same instruction file)
     if (checked.has(filePath)) continue;
@@ -288,16 +284,17 @@ export async function checkAllInjections(
 export async function injectAll(
   providers: Provider[],
   projectDir: string,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   content: string,
-): Promise<Map<string, "created" | "added" | "consolidated" | "updated" | "intact">> {
-  const results = new Map<string, "created" | "added" | "consolidated" | "updated" | "intact">();
+): Promise<Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>> {
+  const results = new Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>();
   const injected = new Set<string>();
 
   for (const provider of providers) {
-    const filePath = scope === "global"
-      ? join(provider.pathGlobal, provider.instructFile)
-      : join(projectDir, provider.instructFile);
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
 
     // Skip duplicates
     if (injected.has(filePath)) continue;
@@ -323,7 +320,7 @@ export interface EnsureProviderInstructionFileOptions {
   /** Optional inline content blocks. @defaultValue `undefined` */
   content?: string[];
   /** Whether this is a global or project-level file. @defaultValue `"project"` */
-  scope?: "project" | "global";
+  scope?: 'project' | 'global';
 }
 
 /**
@@ -337,7 +334,7 @@ export interface EnsureProviderInstructionFileResult {
   /** Instruction file name from the provider registry. */
   instructFile: string;
   /** Action taken. */
-  action: "created" | "added" | "consolidated" | "updated" | "intact";
+  action: 'created' | 'added' | 'consolidated' | 'updated' | 'intact';
   /** Provider ID. */
   providerId: string;
 }
@@ -382,10 +379,11 @@ export async function ensureProviderInstructionFile(
     throw new Error(`Unknown provider: "${providerId}". Check CAAMP provider registry.`);
   }
 
-  const scope = options.scope ?? "project";
-  const filePath = scope === "global"
-    ? join(provider.pathGlobal, provider.instructFile)
-    : join(projectDir, provider.instructFile);
+  const scope = options.scope ?? 'project';
+  const filePath =
+    scope === 'global'
+      ? join(provider.pathGlobal, provider.instructFile)
+      : join(projectDir, provider.instructFile);
 
   const template: InjectionTemplate = {
     references: options.references,
@@ -444,10 +442,11 @@ export async function ensureAllProviderInstructionFiles(
       throw new Error(`Unknown provider: "${providerId}". Check CAAMP provider registry.`);
     }
 
-    const scope = options.scope ?? "project";
-    const filePath = scope === "global"
-      ? join(provider.pathGlobal, provider.instructFile)
-      : join(projectDir, provider.instructFile);
+    const scope = options.scope ?? 'project';
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
 
     // Skip duplicates (multiple providers may share the same instruction file)
     if (processed.has(filePath)) continue;

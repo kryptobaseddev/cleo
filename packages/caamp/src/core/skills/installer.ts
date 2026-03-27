@@ -5,12 +5,11 @@
  * and symlinked to each target agent's skills directory.
  */
 
-import { existsSync, lstatSync } from "node:fs";
-import { cp, mkdir, rm, symlink } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
-import type { ParsedSource, Provider, SkillMetadata } from "../../types.js";
-import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from "../paths/standard.js";
-import { discoverSkill } from "./discovery.js";
+import { existsSync, lstatSync } from 'node:fs';
+import { cp, mkdir, rm, symlink } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { Provider } from '../../types.js';
+import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from '../paths/standard.js';
 
 /**
  * Result of installing a skill to the canonical location and linking to agents.
@@ -64,10 +63,7 @@ async function ensureCanonicalDir(): Promise<void> {
  *
  * @public
  */
-export async function installToCanonical(
-  sourcePath: string,
-  skillName: string,
-): Promise<string> {
+export async function installToCanonical(sourcePath: string, skillName: string): Promise<string> {
   await ensureCanonicalDir();
 
   const targetDir = join(getCanonicalSkillsDir(), skillName);
@@ -79,7 +75,7 @@ export async function installToCanonical(
     await cp(sourcePath, targetDir, { recursive: true });
   } catch (err: unknown) {
     // Handle race condition: another concurrent install may have created the dir
-    if (err && typeof err === "object" && "code" in err && err.code === "EEXIST") {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'EEXIST') {
       await rm(targetDir, { recursive: true, force: true });
       await cp(sourcePath, targetDir, { recursive: true });
     } else {
@@ -98,7 +94,7 @@ async function linkToAgent(
   isGlobal: boolean,
   projectDir?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const scope = isGlobal ? "global" : "project";
+  const scope = isGlobal ? 'global' : 'project';
   const targetDirs = resolveProviderSkillsDirs(provider, scope, projectDir);
 
   if (targetDirs.length === 0) {
@@ -127,7 +123,7 @@ async function linkToAgent(
       }
 
       // Create symlink (junction on Windows for compat)
-      const symlinkType = process.platform === "win32" ? "junction" : "dir";
+      const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
       try {
         await symlink(canonicalPath, linkPath, symlinkType);
       } catch {
@@ -146,7 +142,7 @@ async function linkToAgent(
   }
   return {
     success: false,
-    error: errors.join("; ") || `Provider ${provider.id} has no skills directory`,
+    error: errors.join('; ') || `Provider ${provider.id} has no skills directory`,
   };
 }
 
@@ -238,7 +234,7 @@ export async function removeSkill(
 
   // Remove symlinks from each agent (all precedence-aware paths)
   for (const provider of providers) {
-    const scope = isGlobal ? "global" : "project";
+    const scope = isGlobal ? 'global' : 'project';
     const targetDirs = resolveProviderSkillsDirs(provider, scope, projectDir);
     let providerRemoved = false;
 
@@ -294,9 +290,7 @@ export async function removeSkill(
 export async function listCanonicalSkills(): Promise<string[]> {
   if (!existsSync(getCanonicalSkillsDir())) return [];
 
-  const { readdir } = await import("node:fs/promises");
+  const { readdir } = await import('node:fs/promises');
   const entries = await readdir(getCanonicalSkillsDir(), { withFileTypes: true });
-  return entries
-    .filter((e) => e.isDirectory() || e.isSymbolicLink())
-    .map((e) => e.name);
+  return entries.filter((e) => e.isDirectory() || e.isSymbolicLink()).map((e) => e.name);
 }

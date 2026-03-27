@@ -89,7 +89,7 @@ export interface JsonRpcErrorResponse {
 export function createJsonRpcRequest(
   id: string | number,
   method: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
 ): JsonRpcRequest {
   return {
     jsonrpc: '2.0',
@@ -102,7 +102,7 @@ export function createJsonRpcRequest(
 /** Create a JSON-RPC 2.0 success response */
 export function createJsonRpcResponse(
   id: string | number | null,
-  result: unknown
+  result: unknown,
 ): JsonRpcResponse {
   return {
     jsonrpc: '2.0',
@@ -116,7 +116,7 @@ export function createJsonRpcErrorResponse(
   id: string | number | null,
   code: number,
   message: string,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
 ): JsonRpcErrorResponse {
   return {
     jsonrpc: '2.0',
@@ -134,7 +134,7 @@ export function createA2AErrorResponse(
   id: string | number | null,
   errorType: A2AErrorType,
   message: string,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
 ): JsonRpcErrorResponse {
   return createJsonRpcErrorResponse(id, JSONRPC_A2A_ERROR_CODES[errorType], message, data);
 }
@@ -169,7 +169,10 @@ export function validateJsonRpcRequest(input: unknown): { valid: boolean; errors
     errors.push(`Unknown method: ${obj['method']}`);
   }
 
-  if (obj['params'] !== undefined && (typeof obj['params'] !== 'object' || obj['params'] === null)) {
+  if (
+    obj['params'] !== undefined &&
+    (typeof obj['params'] !== 'object' || obj['params'] === null)
+  ) {
     errors.push('params must be an object when provided');
   }
 

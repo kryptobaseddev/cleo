@@ -1,0 +1,22 @@
+[package]
+name = "signaldock-protocol"
+version = "0.1.0"
+edition = "2024"
+description = "Thin re-export layer over canonical cleocode crates + server-specific error types"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+# SSoT crates from cleocode/crates/ (git deps)
+cant-core = { workspace = true }
+lafs-core = { workspace = true }
+conduit-core = { workspace = true }
+signaldock-core = { workspace = true }
+
+[lints]
+workspace = true

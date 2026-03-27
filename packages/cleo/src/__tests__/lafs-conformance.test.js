@@ -19,7 +19,17 @@ import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getCleoErrorRegistry, getRegistryEntry, isCleoRegisteredCode, } from '../../../core/src/error-registry.js';
 import { CleoError } from '../../../core/src/errors.js';
-import { formatError, formatSuccess, pushWarning } from '../../../core/src/output.js';
+import { formatSuccess as _formatSuccess, formatError, pushWarning, } from '../../../core/src/output.js';
+/**
+ * Wrapper that forces mvi='full' for conformance tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess(data, message, operationOrOpts) {
+    const opts = typeof operationOrOpts === 'string'
+        ? { operation: operationOrOpts, mvi: 'full' }
+        : { mvi: 'full', ...(operationOrOpts ?? {}) };
+    return _formatSuccess(data, message, opts);
+}
 import { createPage, paginate } from '../../../core/src/pagination.js';
 import { createTestDb, makeTasks, } from '../../../core/src/store/__tests__/test-db-helper.js';
 import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
@@ -224,7 +234,7 @@ describe('MCP Gateway Meta', () => {
         expect(meta.requestId).toBeDefined();
         expect(meta.transport).toBe('sdk');
         expect(meta.strict).toBe(true);
-        expect(meta.mvi).toBe('standard');
+        expect(meta.mvi).toBe('minimal');
         expect(meta.contextVersion).toBe(1);
     });
     it('createGatewayMeta includes CLEO gateway extensions', () => {

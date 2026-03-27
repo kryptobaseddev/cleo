@@ -10,7 +10,7 @@ import type {
   PushNotificationConfig,
   TaskArtifactUpdateEvent,
   TaskStatusUpdateEvent,
-} from "@a2a-js/sdk";
+} from '@a2a-js/sdk';
 
 export type TaskStreamEvent = TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
 
@@ -24,7 +24,7 @@ function resolveTaskId(event: TaskStreamEvent): string {
 
   const taskId = candidate.taskId ?? candidate.task?.id;
   if (!taskId) {
-    throw new Error("Task stream event is missing task identifier");
+    throw new Error('Task stream event is missing task identifier');
   }
   return taskId;
 }
@@ -200,8 +200,8 @@ export class PushNotificationDispatcher {
   constructor(
     private readonly store: PushNotificationConfigStore,
     private readonly transport: PushTransport = async (input, init) => {
-      if (typeof fetch !== "function") {
-        throw new Error("Global fetch is not available for push dispatch");
+      if (typeof fetch !== 'function') {
+        throw new Error('Global fetch is not available for push dispatch');
       }
       return fetch(input, init);
     },
@@ -228,7 +228,7 @@ export class PushNotificationDispatcher {
         return {
           configId,
           ok: false,
-          error: "Push notification config is missing url",
+          error: 'Push notification config is missing url',
         } satisfies PushNotificationDeliveryResult;
       }
 
@@ -236,7 +236,7 @@ export class PushNotificationDispatcher {
 
       try {
         const response = await this.transport(config.url, {
-          method: "POST",
+          method: 'POST',
           headers,
           body: JSON.stringify(payload),
         });
@@ -261,11 +261,11 @@ export class PushNotificationDispatcher {
 
   private buildHeaders(config: PushNotificationConfig): Record<string, string> {
     const headers: Record<string, string> = {
-      "content-type": "application/json",
+      'content-type': 'application/json',
     };
 
     if (config.token) {
-      headers["x-a2a-task-token"] = config.token;
+      headers['x-a2a-task-token'] = config.token;
     }
 
     const scheme = config.authentication?.schemes?.[0];
@@ -289,7 +289,7 @@ export class TaskArtifactAssembler {
 
   applyUpdate(event: TaskArtifactUpdateEvent): Artifact {
     if (!event.artifact?.artifactId) {
-      throw new Error("Task artifact update is missing artifactId");
+      throw new Error('Task artifact update is missing artifactId');
     }
 
     const taskId = resolveTaskId(event);
@@ -315,10 +315,7 @@ export class TaskArtifactAssembler {
     return [...(this.artifacts.get(taskId)?.values() ?? [])];
   }
 
-  private mergeArtifact(
-    prior: Artifact | undefined,
-    event: TaskArtifactUpdateEvent,
-  ): Artifact {
+  private mergeArtifact(prior: Artifact | undefined, event: TaskArtifactUpdateEvent): Artifact {
     const next = event.artifact as Artifact;
     const append = Boolean(event.append);
     const lastChunk = Boolean(event.lastChunk);
@@ -350,7 +347,7 @@ export class TaskArtifactAssembler {
   ): Record<string, unknown> {
     return {
       ...(metadata ?? {}),
-      "a2a:last_chunk": lastChunk,
+      'a2a:last_chunk': lastChunk,
     };
   }
 }

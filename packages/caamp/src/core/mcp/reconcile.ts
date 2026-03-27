@@ -5,16 +5,16 @@
  * missing lock entries for CLEO servers installed before lock tracking.
  */
 
-import type { LockEntry, McpServerEntry, SourceType } from "../../types.js";
-import { getInstalledProviders } from "../registry/detection.js";
+import type { McpServerEntry, SourceType } from '../../types.js';
+import { getInstalledProviders } from '../registry/detection.js';
 import {
   CLEO_MCP_NPM_PACKAGE,
   type CleoChannel,
   extractVersionTag,
   resolveChannelFromServerName,
-} from "./cleo.js";
-import { getTrackedMcpServers, recordMcpInstall, removeMcpFromLock } from "./lock.js";
-import { listMcpServers } from "./reader.js";
+} from './cleo.js';
+import { getTrackedMcpServers, recordMcpInstall, removeMcpFromLock } from './lock.js';
+import { listMcpServers } from './reader.js';
 
 /**
  * Lock metadata inferred from a live MCP config entry.
@@ -63,39 +63,37 @@ export function inferCleoLockData(
   config: Record<string, unknown>,
   channel: CleoChannel,
 ): InferredLockData {
-  const command = typeof config.command === "string" ? config.command : "";
+  const command = typeof config.command === 'string' ? config.command : '';
   const args = Array.isArray(config.args)
-    ? config.args.filter((a): a is string => typeof a === "string")
+    ? config.args.filter((a): a is string => typeof a === 'string')
     : [];
 
   // Check if any arg contains the CLEO npm package → package source
-  const packageArg = args.find(
-    (a) => a.includes(CLEO_MCP_NPM_PACKAGE),
-  );
+  const packageArg = args.find((a) => a.includes(CLEO_MCP_NPM_PACKAGE));
 
   if (packageArg) {
     const version = extractVersionTag(packageArg);
     return {
       source: packageArg,
-      sourceType: "package",
+      sourceType: 'package',
       version,
     };
   }
 
   // Dev channel or path-based command → command source
-  if (channel === "dev" || command.includes("/") || command.includes("\\")) {
+  if (channel === 'dev' || command.includes('/') || command.includes('\\')) {
     return {
       source: command,
-      sourceType: "command",
+      sourceType: 'command',
       version: undefined,
     };
   }
 
   // Fallback: reconstruct from command + args
-  const full = args.length > 0 ? `${command} ${args.join(" ")}` : command;
+  const full = args.length > 0 ? `${command} ${args.join(' ')}` : command;
   return {
-    source: full || "unknown",
-    sourceType: "command",
+    source: full || 'unknown',
+    sourceType: 'command',
     version: undefined,
   };
 }
@@ -130,7 +128,7 @@ export interface ReconcileResult {
   backfilled: Array<{
     serverName: string;
     channel: CleoChannel;
-    scope: "project" | "global";
+    scope: 'project' | 'global';
     agents: string[];
     source: string;
     sourceType: SourceType;
@@ -171,9 +169,7 @@ export interface ReconcileResult {
  *
  * @public
  */
-export async function reconcileCleoLock(
-  options: ReconcileOptions = {},
-): Promise<ReconcileResult> {
+export async function reconcileCleoLock(options: ReconcileOptions = {}): Promise<ReconcileResult> {
   const result: ReconcileResult = {
     backfilled: [],
     pruned: [],
@@ -190,20 +186,20 @@ export async function reconcileCleoLock(
     : providers;
 
   // Determine scopes to scan
-  const scopes: Array<"project" | "global"> = [];
+  const scopes: Array<'project' | 'global'> = [];
   if (options.global && !options.project) {
-    scopes.push("global");
+    scopes.push('global');
   } else if (options.project && !options.global) {
-    scopes.push("project");
+    scopes.push('project');
   } else {
-    scopes.push("project", "global");
+    scopes.push('project', 'global');
   }
 
   // Group key: serverName + isGlobal → collected agents and config
   interface GroupEntry {
     serverName: string;
     channel: CleoChannel;
-    scope: "project" | "global";
+    scope: 'project' | 'global';
     agents: string[];
     config: Record<string, unknown>;
   }
@@ -229,8 +225,8 @@ export async function reconcileCleoLock(
 
         liveCleoServerNames.add(entry.name);
 
-        const isGlobal = scope === "global";
-        const groupKey = `${entry.name}:${isGlobal ? "global" : "project"}`;
+        const isGlobal = scope === 'global';
+        const groupKey = `${entry.name}:${isGlobal ? 'global' : 'project'}`;
 
         if (lockEntries[entry.name] !== undefined) {
           // Check if this specific provider is already tracked
@@ -270,7 +266,7 @@ export async function reconcileCleoLock(
           inferred.source,
           inferred.sourceType,
           group.agents,
-          group.scope === "global",
+          group.scope === 'global',
           inferred.version,
         );
       } catch (err) {

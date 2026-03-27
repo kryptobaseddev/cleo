@@ -2,16 +2,16 @@
  * skills list command - LAFS-compliant with JSON-first output
  */
 
-import { randomUUID } from "node:crypto";
-import type { LAFSErrorCategory } from "@cleocode/lafs";
-import { resolveOutputFormat } from "@cleocode/lafs";
-import type { Command } from "commander";
-import pc from "picocolors";
-import { isHuman } from "../../core/logger.js";
-import { resolveProviderSkillsDir } from "../../core/paths/standard.js";
-import { getInstalledProviders } from "../../core/registry/detection.js";
-import { getProvider } from "../../core/registry/providers.js";
-import { discoverSkillsMulti } from "../../core/skills/discovery.js";
+import { randomUUID } from 'node:crypto';
+import type { LAFSErrorCategory } from '@cleocode/lafs';
+import { resolveOutputFormat } from '@cleocode/lafs';
+import type { Command } from 'commander';
+import pc from 'picocolors';
+import { isHuman } from '../../core/logger.js';
+import { resolveProviderSkillsDir } from '../../core/paths/standard.js';
+import { getInstalledProviders } from '../../core/registry/detection.js';
+import { getProvider } from '../../core/registry/providers.js';
+import { discoverSkillsMulti } from '../../core/skills/discovery.js';
 
 interface SkillsListOptions {
   global?: boolean;
@@ -48,26 +48,26 @@ interface LAFSErrorShape {
  */
 export function registerSkillsList(parent: Command): void {
   parent
-    .command("list")
-    .description("List installed skills")
-    .option("-g, --global", "List global skills")
-    .option("-a, --agent <name>", "List skills for specific agent")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('list')
+    .description('List installed skills')
+    .option('-g, --global', 'List global skills')
+    .option('-a, --agent <name>', 'List skills for specific agent')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: SkillsListOptions) => {
-      const operation = "skills.list";
-      const mvi: import("../../core/lafs.js").MVILevel = "standard";
+      const operation = 'skills.list';
+      const mvi: import('../../core/lafs.js').MVILevel = 'standard';
 
-      let format: "json" | "human";
+      let format: 'json' | 'human';
       try {
         format = resolveOutputFormat({
           jsonFlag: opts.json ?? false,
           humanFlag: (opts.human ?? false) || isHuman(),
-          projectDefault: "json",
+          projectDefault: 'json',
         }).format;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        emitJsonError(operation, mvi, "E_FORMAT_CONFLICT", message, "VALIDATION");
+        emitJsonError(operation, mvi, 'E_FORMAT_CONFLICT', message, 'VALIDATION');
         process.exit(1);
       }
 
@@ -77,8 +77,8 @@ export function registerSkillsList(parent: Command): void {
         const provider = getProvider(opts.agent);
         if (!provider) {
           const message = `Provider not found: ${opts.agent}`;
-          if (format === "json") {
-            emitJsonError(operation, mvi, "E_PROVIDER_NOT_FOUND", message, "NOT_FOUND", {
+          if (format === 'json') {
+            emitJsonError(operation, mvi, 'E_PROVIDER_NOT_FOUND', message, 'NOT_FOUND', {
               agent: opts.agent,
             });
           } else {
@@ -87,28 +87,26 @@ export function registerSkillsList(parent: Command): void {
           process.exit(1);
         }
         dirs = opts.global
-          ? [resolveProviderSkillsDir(provider, "global")]
-          : [resolveProviderSkillsDir(provider, "project")];
+          ? [resolveProviderSkillsDir(provider, 'global')]
+          : [resolveProviderSkillsDir(provider, 'project')];
       } else if (opts.global) {
         const providers = getInstalledProviders();
-        dirs = providers.map((p) => resolveProviderSkillsDir(p, "global")).filter(Boolean);
+        dirs = providers.map((p) => resolveProviderSkillsDir(p, 'global')).filter(Boolean);
       } else {
         const providers = getInstalledProviders();
-        dirs = providers
-          .map((p) => resolveProviderSkillsDir(p, "project"))
-          .filter(Boolean);
+        dirs = providers.map((p) => resolveProviderSkillsDir(p, 'project')).filter(Boolean);
       }
 
       const skills = await discoverSkillsMulti(dirs);
 
-      if (format === "json") {
+      if (format === 'json') {
         const envelope = buildEnvelope(
           operation,
           mvi,
           {
             skills,
             count: skills.length,
-            scope: opts.global ? "global" : opts.agent ? `agent:${opts.agent}` : "project",
+            scope: opts.global ? 'global' : opts.agent ? `agent:${opts.agent}` : 'project',
           },
           null,
         );
@@ -118,7 +116,7 @@ export function registerSkillsList(parent: Command): void {
 
       // Human-readable output
       if (skills.length === 0) {
-        console.log(pc.dim("No skills found."));
+        console.log(pc.dim('No skills found.'));
         return;
       }
 
@@ -126,7 +124,9 @@ export function registerSkillsList(parent: Command): void {
 
       skills.forEach((skill, index) => {
         const num = (index + 1).toString().padStart(2);
-        console.log(`  ${pc.cyan(num)}. ${pc.bold(skill.name.padEnd(30))} ${pc.dim(skill.metadata?.description ?? "")}`);
+        console.log(
+          `  ${pc.cyan(num)}. ${pc.bold(skill.name.padEnd(30))} ${pc.dim(skill.metadata?.description ?? '')}`,
+        );
       });
 
       console.log(pc.dim(`\nInstall with: caamp skills install <name>`));
@@ -136,19 +136,19 @@ export function registerSkillsList(parent: Command): void {
 
 function buildEnvelope<T>(
   operation: string,
-  mvi: import("../../core/lafs.js").MVILevel,
+  mvi: import('../../core/lafs.js').MVILevel,
   result: T | null,
   error: LAFSErrorShape | null,
 ) {
   return {
-    $schema: "https://lafs.dev/schemas/v1/envelope.schema.json" as const,
+    $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json' as const,
     _meta: {
-      specVersion: "1.0.0",
-      schemaVersion: "1.0.0",
+      specVersion: '1.0.0',
+      schemaVersion: '1.0.0',
       timestamp: new Date().toISOString(),
       operation,
       requestId: randomUUID(),
-      transport: "cli" as const,
+      transport: 'cli' as const,
       strict: true,
       mvi,
       contextVersion: 0,
@@ -162,7 +162,7 @@ function buildEnvelope<T>(
 
 function emitJsonError(
   operation: string,
-  mvi: import("../../core/lafs.js").MVILevel,
+  mvi: import('../../core/lafs.js').MVILevel,
   code: string,
   message: string,
   category: LAFSErrorCategory,

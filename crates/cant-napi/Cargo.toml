@@ -1,0 +1,20 @@
+[package]
+name = "cant-napi"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "napi-rs bindings for cant-core CANT parser"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cant-core = { path = "../cant-core" }
+napi = { version = "3", features = ["napi4"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "1"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"

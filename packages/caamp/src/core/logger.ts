@@ -68,7 +68,7 @@ export function setQuiet(q: boolean): void {
  * @public
  */
 export function debug(...args: unknown[]): void {
-  if (verboseMode) console.error("[debug]", ...args);
+  if (verboseMode) console.error('[debug]', ...args);
 }
 
 /**

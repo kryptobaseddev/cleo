@@ -2,17 +2,17 @@
  * CLEO MCP channel commands and compatibility wrappers.
  */
 
-import { createInterface } from "node:readline/promises";
-import type { Command } from "commander";
-import pc from "picocolors";
+import { createInterface } from 'node:readline/promises';
+import type { Command } from 'commander';
+import pc from 'picocolors';
 import {
   ErrorCategories,
   ErrorCodes,
   emitJsonError,
   outputSuccess,
   resolveFormat,
-} from "../../core/lafs.js";
-import { isHuman } from "../../core/logger.js";
+} from '../../core/lafs.js';
+import { isHuman } from '../../core/logger.js';
 import {
   buildCleoProfile,
   type CleoChannel,
@@ -22,14 +22,14 @@ import {
   parseEnvAssignments,
   resolveChannelFromServerName,
   resolveCleoServerName,
-} from "../../core/mcp/cleo.js";
-import { installMcpServerToAll } from "../../core/mcp/installer.js";
-import { getTrackedMcpServers, recordMcpInstall, removeMcpFromLock } from "../../core/mcp/lock.js";
-import { listMcpServers, removeMcpServer } from "../../core/mcp/reader.js";
-import { reconcileCleoLock } from "../../core/mcp/reconcile.js";
-import { getInstalledProviders } from "../../core/registry/detection.js";
-import { getProvider } from "../../core/registry/providers.js";
-import type { Provider } from "../../types.js";
+} from '../../core/mcp/cleo.js';
+import { installMcpServerToAll } from '../../core/mcp/installer.js';
+import { getTrackedMcpServers, recordMcpInstall, removeMcpFromLock } from '../../core/mcp/lock.js';
+import { listMcpServers, removeMcpServer } from '../../core/mcp/reader.js';
+import { reconcileCleoLock } from '../../core/mcp/reconcile.js';
+import { getInstalledProviders } from '../../core/registry/detection.js';
+import { getProvider } from '../../core/registry/providers.js';
+import type { Provider } from '../../types.js';
 
 interface CleoInstallOptions {
   channel?: string;
@@ -99,16 +99,16 @@ function collectTargetProviders(providerIds: string[], all?: boolean): Provider[
 
 async function validateProfile(
   provider: Provider,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   serverName: string,
 ): Promise<{ valid: boolean; reason?: string }> {
   const entries = await listMcpServers(provider, scope);
   const entry = entries.find((candidate) => candidate.name === serverName);
   if (!entry) {
-    return { valid: false, reason: "server missing after write" };
+    return { valid: false, reason: 'server missing after write' };
   }
 
-  const command = typeof entry.config.command === "string" ? entry.config.command : undefined;
+  const command = typeof entry.config.command === 'string' ? entry.config.command : undefined;
   if (!command) {
     return { valid: true };
   }
@@ -126,7 +126,7 @@ async function validateProfile(
 
 async function detectServerConflicts(
   providers: Provider[],
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   targetServerName: string,
 ): Promise<Array<{ providerId: string; message: string }>> {
   const warnings: Array<{ providerId: string; message: string }> = [];
@@ -136,13 +136,13 @@ async function detectServerConflicts(
     const existing = entries.find((entry) => entry.name === targetServerName);
     if (!existing) continue;
 
-    const command = typeof existing.config.command === "string" ? existing.config.command : "";
+    const command = typeof existing.config.command === 'string' ? existing.config.command : '';
     const args = Array.isArray(existing.config.args)
-      ? existing.config.args.filter((value): value is string => typeof value === "string")
+      ? existing.config.args.filter((value): value is string => typeof value === 'string')
       : [];
-    const flat = `${command} ${args.join(" ")}`.toLowerCase();
+    const flat = `${command} ${args.join(' ')}`.toLowerCase();
 
-    if (!flat.includes("cleo")) {
+    if (!flat.includes('cleo')) {
       warnings.push({
         providerId: provider.id,
         message: `Server name '${targetServerName}' already exists with a non-CLEO command in ${provider.id}.`,
@@ -154,14 +154,14 @@ async function detectServerConflicts(
 }
 
 function formatInstallResultHuman(
-  mode: "install" | "update",
+  mode: 'install' | 'update',
   channel: CleoChannel,
   serverName: string,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   results: Awaited<ReturnType<typeof installMcpServerToAll>>,
   validations: Array<{ providerId: string; valid: boolean; reason?: string }>,
 ): void {
-  console.log(pc.bold(`${mode === "install" ? "Install" : "Update"} CLEO channel: ${channel}`));
+  console.log(pc.bold(`${mode === 'install' ? 'Install' : 'Update'} CLEO channel: ${channel}`));
   console.log(pc.dim(`Server: ${serverName}  Scope: ${scope}`));
   console.log();
 
@@ -169,66 +169,66 @@ function formatInstallResultHuman(
     const validation = validations.find((entry) => entry.providerId === result.provider.id);
     if (result.success) {
       const validationLabel = validation?.valid
-        ? pc.green("validated")
-        : pc.yellow(`validation warning: ${validation?.reason ?? "unknown"}`);
-      console.log(`  ${pc.green("+")} ${result.provider.toolName.padEnd(22)} ${pc.dim(result.configPath)} ${validationLabel}`);
+        ? pc.green('validated')
+        : pc.yellow(`validation warning: ${validation?.reason ?? 'unknown'}`);
+      console.log(
+        `  ${pc.green('+')} ${result.provider.toolName.padEnd(22)} ${pc.dim(result.configPath)} ${validationLabel}`,
+      );
     } else {
-      console.log(`  ${pc.red("x")} ${result.provider.toolName.padEnd(22)} ${pc.red(result.error ?? "failed")}`);
-      console.log(pc.dim("    Recovery: verify config path permissions and retry with --dry-run."));
+      console.log(
+        `  ${pc.red('x')} ${result.provider.toolName.padEnd(22)} ${pc.red(result.error ?? 'failed')}`,
+      );
+      console.log(pc.dim('    Recovery: verify config path permissions and retry with --dry-run.'));
     }
   }
   console.log();
 }
 
-async function runInteractiveInstall(
-  opts: CleoInstallOptions,
-): Promise<CleoInstallOptions> {
+async function runInteractiveInstall(opts: CleoInstallOptions): Promise<CleoInstallOptions> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const discovered = getInstalledProviders();
     if (discovered.length === 0) {
-      throw new Error("No installed providers were detected for interactive setup.");
+      throw new Error('No installed providers were detected for interactive setup.');
     }
 
-    console.log(pc.bold("CLEO MCP Setup"));
-    console.log(pc.dim("Step 1/6 - Select provider(s)"));
+    console.log(pc.bold('CLEO MCP Setup'));
+    console.log(pc.dim('Step 1/6 - Select provider(s)'));
     for (const [index, provider] of discovered.entries()) {
       console.log(`  ${index + 1}. ${provider.id} (${provider.toolName})`);
     }
-    const providerAnswer = await rl.question(pc.dim("Choose providers (e.g. 1,2 or all): "));
-    const selectedProviders = providerAnswer.trim().toLowerCase() === "all"
-      ? discovered.map((provider) => provider.id)
-      : providerAnswer
-        .split(",")
-        .map((part) => Number(part.trim()))
-        .filter((value) => Number.isFinite(value) && value > 0 && value <= discovered.length)
-        .map((index) => discovered[index - 1]?.id)
-        .filter((id): id is string => Boolean(id));
+    const providerAnswer = await rl.question(pc.dim('Choose providers (e.g. 1,2 or all): '));
+    const selectedProviders =
+      providerAnswer.trim().toLowerCase() === 'all'
+        ? discovered.map((provider) => provider.id)
+        : providerAnswer
+            .split(',')
+            .map((part) => Number(part.trim()))
+            .filter((value) => Number.isFinite(value) && value > 0 && value <= discovered.length)
+            .map((index) => discovered[index - 1]?.id)
+            .filter((id): id is string => Boolean(id));
 
     if (selectedProviders.length === 0) {
-      throw new Error("No providers selected.");
+      throw new Error('No providers selected.');
     }
 
     console.log();
-    console.log(pc.dim("Step 2/6 - Select channel"));
-    const channelAnswer = await rl.question(pc.dim("Channel [stable/beta/dev] (stable): "));
-    const selectedChannel = normalizeCleoChannel(channelAnswer || "stable");
+    console.log(pc.dim('Step 2/6 - Select channel'));
+    const channelAnswer = await rl.question(pc.dim('Channel [stable/beta/dev] (stable): '));
+    const selectedChannel = normalizeCleoChannel(channelAnswer || 'stable');
 
     let command = opts.command;
     let args = [...opts.arg];
     let env = [...opts.env];
     let cleoDir = opts.cleoDir;
-    if (selectedChannel === "dev") {
-      command = await rl.question(pc.dim("Dev command (required): "));
-      const argsAnswer = await rl.question(pc.dim("Dev args (space-separated, optional): "));
-      args = argsAnswer.trim() === "" ? [] : argsAnswer.trim().split(/\s+/);
-      const dirAnswer = await rl.question(pc.dim("CLEO_DIR (~/.cleo-dev default): "));
-      cleoDir = dirAnswer.trim() === "" ? "~/.cleo-dev" : dirAnswer.trim();
-      if (cleoDir.trim() !== "") {
-        env = [
-          ...env.filter((entry) => !entry.startsWith("CLEO_DIR=")),
-          `CLEO_DIR=${cleoDir}`,
-        ];
+    if (selectedChannel === 'dev') {
+      command = await rl.question(pc.dim('Dev command (required): '));
+      const argsAnswer = await rl.question(pc.dim('Dev args (space-separated, optional): '));
+      args = argsAnswer.trim() === '' ? [] : argsAnswer.trim().split(/\s+/);
+      const dirAnswer = await rl.question(pc.dim('CLEO_DIR (~/.cleo-dev default): '));
+      cleoDir = dirAnswer.trim() === '' ? '~/.cleo-dev' : dirAnswer.trim();
+      if (cleoDir.trim() !== '') {
+        env = [...env.filter((entry) => !entry.startsWith('CLEO_DIR=')), `CLEO_DIR=${cleoDir}`];
       }
     }
 
@@ -242,16 +242,16 @@ async function runInteractiveInstall(
     });
 
     console.log();
-    console.log(pc.dim("Step 3/6 - Preview profile diff"));
+    console.log(pc.dim('Step 3/6 - Preview profile diff'));
     console.log(`  Server: ${pc.bold(profile.serverName)}`);
     console.log(`  Channel: ${selectedChannel}`);
     console.log(`  Config: ${JSON.stringify(profile.config)}`);
 
     console.log();
-    console.log(pc.dim("Step 4/6 - Confirm apply"));
-    const confirm = await rl.question(pc.dim("Apply this configuration? [y/N] "));
-    if (!["y", "yes"].includes(confirm.trim().toLowerCase())) {
-      throw new Error("Cancelled by user.");
+    console.log(pc.dim('Step 4/6 - Confirm apply'));
+    const confirm = await rl.question(pc.dim('Apply this configuration? [y/N] '));
+    if (!['y', 'yes'].includes(confirm.trim().toLowerCase())) {
+      throw new Error('Cancelled by user.');
     }
 
     return {
@@ -291,18 +291,18 @@ async function runInteractiveInstall(
  * @public
  */
 export async function executeCleoInstall(
-  mode: "install" | "update",
+  mode: 'install' | 'update',
   opts: CleoInstallOptions,
   operation: string,
 ): Promise<void> {
-  const mvi: import("../../core/lafs.js").MVILevel = "standard";
+  const mvi: import('../../core/lafs.js').MVILevel = 'standard';
 
-  let format: "json" | "human";
+  let format: 'json' | 'human';
   try {
     format = resolveFormat({
       jsonFlag: opts.json ?? false,
       humanFlag: (opts.human ?? false) || isHuman(),
-      projectDefault: "json",
+      projectDefault: 'json',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -310,15 +310,21 @@ export async function executeCleoInstall(
     process.exit(1);
   }
 
-  const interactive = (opts.interactive ?? false) && format === "human";
+  const interactive = (opts.interactive ?? false) && format === 'human';
   const resolvedOpts = interactive ? await runInteractiveInstall(opts) : opts;
 
   const channel = normalizeCleoChannel(resolvedOpts.channel);
   const providers = collectTargetProviders(resolvedOpts.provider, resolvedOpts.all);
   if (providers.length === 0) {
-    const message = "No target providers found.";
-    if (format === "json") {
-      emitJsonError(operation, mvi, ErrorCodes.PROVIDER_NOT_FOUND, message, ErrorCategories.NOT_FOUND);
+    const message = 'No target providers found.';
+    if (format === 'json') {
+      emitJsonError(
+        operation,
+        mvi,
+        ErrorCodes.PROVIDER_NOT_FOUND,
+        message,
+        ErrorCategories.NOT_FOUND,
+      );
     } else {
       console.error(pc.red(message));
     }
@@ -335,14 +341,18 @@ export async function executeCleoInstall(
     cleoDir: resolvedOpts.cleoDir,
   });
 
-  const scope = resolvedOpts.global ? "global" as const : "project" as const;
+  const scope = resolvedOpts.global ? ('global' as const) : ('project' as const);
 
   if (resolvedOpts.dryRun) {
-    if (format === "human") {
+    if (format === 'human') {
       console.log(pc.bold(`Dry run: ${mode} CLEO (${channel})`));
       console.log(pc.dim(`Server: ${profile.serverName}  Scope: ${scope}`));
-      console.log(pc.dim(`Providers: ${providers.map((provider) => provider.id).join(", ")}`));
-      console.log(pc.dim(`Command: ${profile.config.command ?? "(none)"} ${(profile.config.args ?? []).join(" ")}`));
+      console.log(pc.dim(`Providers: ${providers.map((provider) => provider.id).join(', ')}`));
+      console.log(
+        pc.dim(
+          `Command: ${profile.config.command ?? '(none)'} ${(profile.config.args ?? []).join(' ')}`,
+        ),
+      );
       if (profile.config.env && Object.keys(profile.config.env).length > 0) {
         console.log(pc.dim(`Env: ${JSON.stringify(profile.config.env)}`));
       }
@@ -364,12 +374,16 @@ export async function executeCleoInstall(
   }
 
   const conflictWarnings = await detectServerConflicts(providers, scope, profile.serverName);
-  if (format === "human" && conflictWarnings.length > 0) {
-    console.log(pc.yellow("Warning: potential server name conflicts detected."));
+  if (format === 'human' && conflictWarnings.length > 0) {
+    console.log(pc.yellow('Warning: potential server name conflicts detected.'));
     for (const warning of conflictWarnings) {
       console.log(pc.yellow(`  - ${warning.message}`));
     }
-    console.log(pc.dim("Recovery: run with --dry-run, inspect provider config, then retry with explicit channel/profile."));
+    console.log(
+      pc.dim(
+        'Recovery: run with --dry-run, inspect provider config, then retry with explicit channel/profile.',
+      ),
+    );
     console.log();
   }
 
@@ -379,47 +393,51 @@ export async function executeCleoInstall(
   const validations: Array<{ providerId: string; valid: boolean; reason?: string }> = [];
   for (const result of succeeded) {
     const validation = await validateProfile(result.provider, scope, profile.serverName);
-    validations.push({ providerId: result.provider.id, valid: validation.valid, reason: validation.reason });
+    validations.push({
+      providerId: result.provider.id,
+      valid: validation.valid,
+      reason: validation.reason,
+    });
   }
 
   if (succeeded.length > 0) {
     await recordMcpInstall(
       profile.serverName,
-      profile.packageSpec ?? resolvedOpts.command ?? "cleo-dev",
-      channel === "dev" ? "command" : "package",
+      profile.packageSpec ?? resolvedOpts.command ?? 'cleo-dev',
+      channel === 'dev' ? 'command' : 'package',
       succeeded.map((result) => result.provider.id),
       resolvedOpts.global ?? false,
       resolvedOpts.version ?? extractVersionTag(profile.packageSpec),
     );
   }
 
-  if (format === "human") {
+  if (format === 'human') {
     formatInstallResultHuman(mode, channel, profile.serverName, scope, results, validations);
   }
 
   const validationFailures = validations.filter((entry) => !entry.valid);
-  if (interactive && validationFailures.length > 0 && format === "human") {
-    console.log(pc.dim("Step 5/6 - Validation"));
+  if (interactive && validationFailures.length > 0 && format === 'human') {
+    console.log(pc.dim('Step 5/6 - Validation'));
     console.log(pc.yellow(`Validation found ${validationFailures.length} issue(s).`));
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     try {
-      console.log(pc.dim("Step 6/6 - Rollback"));
-      const answer = await rl.question(pc.dim("Rollback failed validations? [y/N] "));
-      if (["y", "yes"].includes(answer.trim().toLowerCase())) {
+      console.log(pc.dim('Step 6/6 - Rollback'));
+      const answer = await rl.question(pc.dim('Rollback failed validations? [y/N] '));
+      if (['y', 'yes'].includes(answer.trim().toLowerCase())) {
         for (const failure of validationFailures) {
           const provider = providers.find((candidate) => candidate.id === failure.providerId);
           if (!provider) continue;
           await removeMcpServer(provider, profile.serverName, scope);
         }
-        console.log(pc.yellow("Rollback completed for failed provider validations."));
+        console.log(pc.yellow('Rollback completed for failed provider validations.'));
       }
     } finally {
       rl.close();
     }
   }
 
-  if (format === "json") {
+  if (format === 'json') {
     outputSuccess(operation, mvi, {
       action: mode,
       channel,
@@ -437,7 +455,7 @@ export async function executeCleoInstall(
         validation: validations.find((entry) => entry.providerId === result.provider.id) ?? null,
       })),
       conflicts: conflictWarnings,
-      validationStatus: validationFailures.length === 0 ? "ok" : "warning",
+      validationStatus: validationFailures.length === 0 ? 'ok' : 'warning',
     });
   }
 }
@@ -464,14 +482,14 @@ export async function executeCleoUninstall(
   opts: CleoUninstallOptions,
   operation: string,
 ): Promise<void> {
-  const mvi: import("../../core/lafs.js").MVILevel = "standard";
+  const mvi: import('../../core/lafs.js').MVILevel = 'standard';
 
-  let format: "json" | "human";
+  let format: 'json' | 'human';
   try {
     format = resolveFormat({
       jsonFlag: opts.json ?? false,
       humanFlag: (opts.human ?? false) || isHuman(),
-      projectDefault: "json",
+      projectDefault: 'json',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -484,24 +502,30 @@ export async function executeCleoUninstall(
   const providers = collectTargetProviders(opts.provider, opts.all);
 
   if (providers.length === 0) {
-    const message = "No target providers found.";
-    if (format === "json") {
-      emitJsonError(operation, mvi, ErrorCodes.PROVIDER_NOT_FOUND, message, ErrorCategories.NOT_FOUND);
+    const message = 'No target providers found.';
+    if (format === 'json') {
+      emitJsonError(
+        operation,
+        mvi,
+        ErrorCodes.PROVIDER_NOT_FOUND,
+        message,
+        ErrorCategories.NOT_FOUND,
+      );
     } else {
       console.error(pc.red(message));
     }
     process.exit(1);
   }
 
-  const scope = opts.global ? "global" as const : "project" as const;
+  const scope = opts.global ? ('global' as const) : ('project' as const);
   if (opts.dryRun) {
-    if (format === "human") {
-      console.log(pc.bold("Dry run: uninstall CLEO profile"));
+    if (format === 'human') {
+      console.log(pc.bold('Dry run: uninstall CLEO profile'));
       console.log(pc.dim(`Server: ${serverName}  Channel: ${channel}  Scope: ${scope}`));
-      console.log(pc.dim(`Providers: ${providers.map((provider) => provider.id).join(", ")}`));
+      console.log(pc.dim(`Providers: ${providers.map((provider) => provider.id).join(', ')}`));
     } else {
       outputSuccess(operation, mvi, {
-        action: "uninstall",
+        action: 'uninstall',
         channel,
         serverName,
         providers: providers.map((provider) => provider.id),
@@ -522,14 +546,17 @@ export async function executeCleoUninstall(
     await removeMcpFromLock(serverName);
   }
 
-  if (format === "human") {
-    const prefix = removed.length > 0 ? pc.green("Removed") : pc.yellow("No matching profile found for");
-    console.log(`${prefix} ${pc.bold(serverName)} (${channel}) on ${removed.length}/${providers.length} providers.`);
+  if (format === 'human') {
+    const prefix =
+      removed.length > 0 ? pc.green('Removed') : pc.yellow('No matching profile found for');
+    console.log(
+      `${prefix} ${pc.bold(serverName)} (${channel}) on ${removed.length}/${providers.length} providers.`,
+    );
   }
 
-  if (format === "json") {
+  if (format === 'json') {
     outputSuccess(operation, mvi, {
-      action: "uninstall",
+      action: 'uninstall',
       channel,
       serverName,
       scope,
@@ -548,7 +575,7 @@ export async function executeCleoUninstall(
  *
  * @public
  */
-export type CleoHealthStatus = "healthy" | "degraded" | "broken";
+export type CleoHealthStatus = 'healthy' | 'degraded' | 'broken';
 
 /**
  * Health assessment result for a single CLEO MCP entry.
@@ -597,10 +624,10 @@ export function checkCleoEntryHealth(
   if (!command) {
     return {
       commandReachable: true,
-      commandDetail: "(no command)",
+      commandDetail: '(no command)',
       configPresent: true,
       lockTracked,
-      status: lockTracked ? "healthy" : "degraded",
+      status: lockTracked ? 'healthy' : 'degraded',
     };
   }
 
@@ -611,7 +638,7 @@ export function checkCleoEntryHealth(
       commandDetail: reachability.detail,
       configPresent: true,
       lockTracked,
-      status: "broken",
+      status: 'broken',
     };
   }
 
@@ -620,7 +647,7 @@ export function checkCleoEntryHealth(
     commandDetail: reachability.detail,
     configPresent: true,
     lockTracked,
-    status: lockTracked ? "healthy" : "degraded",
+    status: lockTracked ? 'healthy' : 'degraded',
   };
 }
 
@@ -642,18 +669,15 @@ export function checkCleoEntryHealth(
  *
  * @public
  */
-export async function executeCleoShow(
-  opts: CleoShowOptions,
-  operation: string,
-): Promise<void> {
-  const mvi: import("../../core/lafs.js").MVILevel = "standard";
+export async function executeCleoShow(opts: CleoShowOptions, operation: string): Promise<void> {
+  const mvi: import('../../core/lafs.js').MVILevel = 'standard';
 
-  let format: "json" | "human";
+  let format: 'json' | 'human';
   try {
     format = resolveFormat({
       jsonFlag: opts.json ?? false,
       humanFlag: (opts.human ?? false) || isHuman(),
-      projectDefault: "json",
+      projectDefault: 'json',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -663,9 +687,15 @@ export async function executeCleoShow(
 
   const providers = collectTargetProviders(opts.provider, opts.all);
   if (providers.length === 0) {
-    const message = "No target providers found.";
-    if (format === "json") {
-      emitJsonError(operation, mvi, ErrorCodes.PROVIDER_NOT_FOUND, message, ErrorCategories.NOT_FOUND);
+    const message = 'No target providers found.';
+    if (format === 'json') {
+      emitJsonError(
+        operation,
+        mvi,
+        ErrorCodes.PROVIDER_NOT_FOUND,
+        message,
+        ErrorCategories.NOT_FOUND,
+      );
     } else {
       console.error(pc.red(message));
     }
@@ -675,13 +705,13 @@ export async function executeCleoShow(
   const channelFilter = opts.channel ? normalizeCleoChannel(opts.channel) : null;
 
   // Determine which scopes to scan
-  const scopes: Array<"project" | "global"> = [];
+  const scopes: Array<'project' | 'global'> = [];
   if (opts.global && !opts.project) {
-    scopes.push("global");
+    scopes.push('global');
   } else if (opts.project && !opts.global) {
-    scopes.push("project");
+    scopes.push('project');
   } else {
-    scopes.push("project", "global");
+    scopes.push('project', 'global');
   }
 
   // Load lock file data
@@ -692,7 +722,7 @@ export async function executeCleoShow(
     providerName: string;
     serverName: string;
     channel: CleoChannel;
-    scope: "project" | "global";
+    scope: 'project' | 'global';
     command?: string;
     args: string[];
     env: Record<string, string>;
@@ -705,7 +735,7 @@ export async function executeCleoShow(
   }
 
   const entries: EnrichedProfile[] = [];
-  const warnings: import("../../core/lafs.js").LAFSWarning[] = [];
+  const warnings: import('../../core/lafs.js').LAFSWarning[] = [];
 
   for (const scope of scopes) {
     for (const provider of providers) {
@@ -715,13 +745,14 @@ export async function executeCleoShow(
         if (!channel) continue;
         if (channelFilter && channel !== channelFilter) continue;
 
-        const command = typeof entry.config.command === "string" ? entry.config.command : undefined;
+        const command = typeof entry.config.command === 'string' ? entry.config.command : undefined;
         const args = Array.isArray(entry.config.args)
-          ? entry.config.args.filter((value): value is string => typeof value === "string")
+          ? entry.config.args.filter((value): value is string => typeof value === 'string')
           : [];
-        const env = typeof entry.config.env === "object" && entry.config.env !== null
-          ? entry.config.env as Record<string, string>
-          : {};
+        const env =
+          typeof entry.config.env === 'object' && entry.config.env !== null
+            ? (entry.config.env as Record<string, string>)
+            : {};
 
         const lockEntry = lockEntries[entry.name];
         const lockTracked = lockEntry !== undefined;
@@ -744,14 +775,14 @@ export async function executeCleoShow(
           health,
         });
 
-        if (health.status === "broken") {
+        if (health.status === 'broken') {
           warnings.push({
-            code: "W_COMMAND_UNREACHABLE",
+            code: 'W_COMMAND_UNREACHABLE',
             message: `${entry.name} command not reachable on ${provider.toolName} (${health.commandDetail})`,
           });
-        } else if (health.status === "degraded") {
+        } else if (health.status === 'degraded') {
           warnings.push({
-            code: "W_NOT_TRACKED",
+            code: 'W_NOT_TRACKED',
             message: `${entry.name} on ${provider.toolName} is not tracked in lock file`,
           });
         }
@@ -759,44 +790,44 @@ export async function executeCleoShow(
     }
   }
 
-  const issueCount = entries.filter((e) => e.health.status !== "healthy").length;
+  const issueCount = entries.filter((e) => e.health.status !== 'healthy').length;
 
-  if (format === "human") {
+  if (format === 'human') {
     if (entries.length === 0) {
-      console.log(pc.dim("No CLEO channel profiles found."));
+      console.log(pc.dim('No CLEO channel profiles found.'));
     } else {
-      console.log(pc.bold("CLEO Channel Profiles"));
+      console.log(pc.bold('CLEO Channel Profiles'));
       console.log();
 
       // Column headers
       const header = [
-        "Channel".padEnd(10),
-        "Version".padEnd(10),
-        "Provider".padEnd(22),
-        "Scope".padEnd(9),
-        "Command".padEnd(33),
-        "Status".padEnd(10),
-        "Installed".padEnd(12),
-      ].join("");
+        'Channel'.padEnd(10),
+        'Version'.padEnd(10),
+        'Provider'.padEnd(22),
+        'Scope'.padEnd(9),
+        'Command'.padEnd(33),
+        'Status'.padEnd(10),
+        'Installed'.padEnd(12),
+      ].join('');
       console.log(`  ${pc.dim(header)}`);
-      console.log(`  ${pc.dim("-".repeat(106))}`);
+      console.log(`  ${pc.dim('-'.repeat(106))}`);
 
       for (const entry of entries) {
         const commandStr = entry.command
-          ? `${entry.command} ${entry.args.join(" ")}`.slice(0, 31).padEnd(33)
-          : pc.dim("-").padEnd(33);
-        const versionStr = (entry.version ?? "-").padEnd(10);
+          ? `${entry.command} ${entry.args.join(' ')}`.slice(0, 31).padEnd(33)
+          : pc.dim('-').padEnd(33);
+        const versionStr = (entry.version ?? '-').padEnd(10);
         const installedStr = entry.installedAt
           ? entry.installedAt.slice(0, 10).padEnd(12)
-          : "-".padEnd(12);
+          : '-'.padEnd(12);
 
         let statusStr: string;
-        if (entry.health.status === "healthy") {
-          statusStr = pc.green("healthy".padEnd(10));
-        } else if (entry.health.status === "degraded") {
-          statusStr = pc.yellow("degraded".padEnd(10));
+        if (entry.health.status === 'healthy') {
+          statusStr = pc.green('healthy'.padEnd(10));
+        } else if (entry.health.status === 'degraded') {
+          statusStr = pc.yellow('degraded'.padEnd(10));
         } else {
-          statusStr = pc.red("broken".padEnd(10));
+          statusStr = pc.red('broken'.padEnd(10));
         }
 
         console.log(
@@ -805,13 +836,15 @@ export async function executeCleoShow(
       }
 
       console.log();
-      const summary = `  ${entries.length} profile${entries.length !== 1 ? "s" : ""}`;
+      const summary = `  ${entries.length} profile${entries.length !== 1 ? 's' : ''}`;
       if (issueCount > 0) {
-        console.log(`${summary}  |  ${pc.yellow(`${issueCount} issue${issueCount !== 1 ? "s" : ""}`)}`);
+        console.log(
+          `${summary}  |  ${pc.yellow(`${issueCount} issue${issueCount !== 1 ? 's' : ''}`)}`,
+        );
         console.log();
-        console.log("  Issues:");
+        console.log('  Issues:');
         for (const w of warnings) {
-          console.log(`    ${pc.yellow("!")} ${w.message}`);
+          console.log(`    ${pc.yellow('!')} ${w.message}`);
         }
       } else {
         console.log(summary);
@@ -819,7 +852,7 @@ export async function executeCleoShow(
     }
   }
 
-  if (format === "json") {
+  if (format === 'json') {
     outputSuccess(
       operation,
       mvi,
@@ -855,18 +888,15 @@ export async function executeCleoShow(
  *
  * @public
  */
-export async function executeCleoRepair(
-  opts: CleoRepairOptions,
-  operation: string,
-): Promise<void> {
-  const mvi: import("../../core/lafs.js").MVILevel = "standard";
+export async function executeCleoRepair(opts: CleoRepairOptions, operation: string): Promise<void> {
+  const mvi: import('../../core/lafs.js').MVILevel = 'standard';
 
-  let format: "json" | "human";
+  let format: 'json' | 'human';
   try {
     format = resolveFormat({
       jsonFlag: opts.json ?? false,
       humanFlag: (opts.human ?? false) || isHuman(),
-      projectDefault: "json",
+      projectDefault: 'json',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -885,29 +915,29 @@ export async function executeCleoRepair(
     dryRun: opts.dryRun,
   });
 
-  if (format === "human") {
-    const prefix = opts.dryRun ? "CLEO Lock Repair (dry run)" : "CLEO Lock Repair";
+  if (format === 'human') {
+    const prefix = opts.dryRun ? 'CLEO Lock Repair (dry run)' : 'CLEO Lock Repair';
     console.log(pc.bold(prefix));
     console.log();
 
     if (result.backfilled.length > 0) {
       for (const entry of result.backfilled) {
-        const agents = entry.agents.join(", ");
-        const versionStr = entry.version ? `(${entry.version})` : "";
+        const agents = entry.agents.join(', ');
+        const versionStr = entry.version ? `(${entry.version})` : '';
         console.log(
-          `  ${pc.green("+")} ${entry.serverName.padEnd(12)}${entry.channel.padEnd(10)}${agents.padEnd(22)}${entry.scope.padEnd(10)}${entry.source}  ${pc.dim(versionStr)}`,
+          `  ${pc.green('+')} ${entry.serverName.padEnd(12)}${entry.channel.padEnd(10)}${agents.padEnd(22)}${entry.scope.padEnd(10)}${entry.source}  ${pc.dim(versionStr)}`,
         );
       }
     }
 
     if (result.pruned.length > 0) {
       for (const name of result.pruned) {
-        console.log(`  ${pc.red("-")} ${name} (removed from lock)`);
+        console.log(`  ${pc.red('-')} ${name} (removed from lock)`);
       }
     }
 
     if (result.backfilled.length === 0 && result.pruned.length === 0) {
-      console.log(pc.dim("  No changes needed. All CLEO entries are tracked."));
+      console.log(pc.dim('  No changes needed. All CLEO entries are tracked.'));
     }
 
     console.log();
@@ -918,12 +948,12 @@ export async function executeCleoRepair(
     if (result.errors.length > 0) {
       console.log();
       for (const err of result.errors) {
-        console.log(`  ${pc.red("!")} ${err.message}`);
+        console.log(`  ${pc.red('!')} ${err.message}`);
       }
     }
   }
 
-  if (format === "json") {
+  if (format === 'json') {
     outputSuccess(operation, mvi, {
       backfilled: result.backfilled,
       pruned: result.pruned,
@@ -936,20 +966,20 @@ export async function executeCleoRepair(
 
 function buildInstallOptions(command: Command): Command {
   return command
-    .requiredOption("--channel <channel>", "CLEO channel: stable|beta|dev")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Apply to all detected providers")
-    .option("-g, --global", "Use global scope")
-    .option("--version <tag>", "Tag/version for stable or beta")
-    .option("--command <command>", "Dev channel command")
-    .option("--arg <arg>", "Dev command arg (repeatable)", collect, [])
-    .option("--env <kv>", "Environment assignment KEY=value (repeatable)", collect, [])
-    .option("--cleo-dir <path>", "CLEO_DIR override for dev channel")
-    .option("--dry-run", "Preview without writing")
-    .option("-y, --yes", "Skip confirmation")
-    .option("--interactive", "Guided interactive setup")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format");
+    .requiredOption('--channel <channel>', 'CLEO channel: stable|beta|dev')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Apply to all detected providers')
+    .option('-g, --global', 'Use global scope')
+    .option('--version <tag>', 'Tag/version for stable or beta')
+    .option('--command <command>', 'Dev channel command')
+    .option('--arg <arg>', 'Dev command arg (repeatable)', collect, [])
+    .option('--env <kv>', 'Environment assignment KEY=value (repeatable)', collect, [])
+    .option('--cleo-dir <path>', 'CLEO_DIR override for dev channel')
+    .option('--dry-run', 'Preview without writing')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--interactive', 'Guided interactive setup')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format');
 }
 
 /**
@@ -970,67 +1000,61 @@ function buildInstallOptions(command: Command): Command {
  * @public
  */
 export function registerMcpCleoCommands(parent: Command): void {
-  const cleo = parent
-    .command("cleo")
-    .description("Manage CLEO MCP channel profiles");
+  const cleo = parent.command('cleo').description('Manage CLEO MCP channel profiles');
 
   buildInstallOptions(
-    cleo
-      .command("install")
-      .description("Install CLEO MCP profile by channel"),
+    cleo.command('install').description('Install CLEO MCP profile by channel'),
   ).action(async (opts: CleoInstallOptions) => {
-    await executeCleoInstall("install", opts, "mcp.cleo.install");
+    await executeCleoInstall('install', opts, 'mcp.cleo.install');
   });
 
   buildInstallOptions(
-    cleo
-      .command("update")
-      .description("Update CLEO MCP profile by channel"),
+    cleo.command('update').description('Update CLEO MCP profile by channel'),
   ).action(async (opts: CleoInstallOptions) => {
-    await executeCleoInstall("update", opts, "mcp.cleo.update");
+    await executeCleoInstall('update', opts, 'mcp.cleo.update');
   });
 
   cleo
-    .command("uninstall")
-    .description("Uninstall CLEO MCP profile for a channel")
-    .requiredOption("--channel <channel>", "CLEO channel: stable|beta|dev")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Apply to all detected providers")
-    .option("-g, --global", "Use global scope")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('uninstall')
+    .description('Uninstall CLEO MCP profile for a channel')
+    .requiredOption('--channel <channel>', 'CLEO channel: stable|beta|dev')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Apply to all detected providers')
+    .option('-g, --global', 'Use global scope')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoUninstallOptions) => {
-      await executeCleoUninstall(opts, "mcp.cleo.uninstall");
+      await executeCleoUninstall(opts, 'mcp.cleo.uninstall');
     });
 
   cleo
-    .command("show")
-    .description("Show installed CLEO MCP channel profiles")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Inspect all detected providers")
-    .option("-g, --global", "Global scope only")
-    .option("-p, --project", "Project scope only")
-    .option("--channel <channel>", "Filter channel: stable|beta|dev")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('show')
+    .description('Show installed CLEO MCP channel profiles')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Inspect all detected providers')
+    .option('-g, --global', 'Global scope only')
+    .option('-p, --project', 'Project scope only')
+    .option('--channel <channel>', 'Filter channel: stable|beta|dev')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoShowOptions) => {
-      await executeCleoShow(opts, "mcp.cleo.show");
+      await executeCleoShow(opts, 'mcp.cleo.show');
     });
 
   cleo
-    .command("repair")
-    .description("Repair lock file by backfilling untracked CLEO entries")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Scan all detected providers")
-    .option("-g, --global", "Global scope only")
-    .option("-p, --project", "Project scope only")
-    .option("--prune", "Remove orphaned lock entries not in any config")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('repair')
+    .description('Repair lock file by backfilling untracked CLEO entries')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Scan all detected providers')
+    .option('-g, --global', 'Global scope only')
+    .option('-p, --project', 'Project scope only')
+    .option('--prune', 'Remove orphaned lock entries not in any config')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoRepairOptions) => {
-      await executeCleoRepair(opts, "mcp.cleo.repair");
+      await executeCleoRepair(opts, 'mcp.cleo.repair');
     });
 }
 
@@ -1053,65 +1077,86 @@ export function registerMcpCleoCommands(parent: Command): void {
  */
 export function registerMcpCleoCompatibilityCommands(parent: Command): void {
   parent
-    .command("update")
-    .description("Update channel-managed MCP profile")
-    .argument("<name>", "Managed MCP profile name (cleo)")
-    .requiredOption("--channel <channel>", "CLEO channel: stable|beta|dev")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Apply to all detected providers")
-    .option("-g, --global", "Use global scope")
-    .option("--version <tag>", "Tag/version for stable or beta")
-    .option("--command <command>", "Dev channel command")
-    .option("--arg <arg>", "Dev command arg (repeatable)", collect, [])
-    .option("--env <kv>", "Environment assignment KEY=value (repeatable)", collect, [])
-    .option("--cleo-dir <path>", "CLEO_DIR override for dev channel")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('update')
+    .description('Update channel-managed MCP profile')
+    .argument('<name>', 'Managed MCP profile name (cleo)')
+    .requiredOption('--channel <channel>', 'CLEO channel: stable|beta|dev')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Apply to all detected providers')
+    .option('-g, --global', 'Use global scope')
+    .option('--version <tag>', 'Tag/version for stable or beta')
+    .option('--command <command>', 'Dev channel command')
+    .option('--arg <arg>', 'Dev command arg (repeatable)', collect, [])
+    .option('--env <kv>', 'Environment assignment KEY=value (repeatable)', collect, [])
+    .option('--cleo-dir <path>', 'CLEO_DIR override for dev channel')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (name: string, opts: CleoInstallOptions) => {
-      if (name !== "cleo") {
-        emitJsonError("mcp.update", "standard", ErrorCodes.INVALID_INPUT, "Only managed profile 'cleo' is supported by mcp update.", ErrorCategories.VALIDATION, { name });
+      if (name !== 'cleo') {
+        emitJsonError(
+          'mcp.update',
+          'standard',
+          ErrorCodes.INVALID_INPUT,
+          "Only managed profile 'cleo' is supported by mcp update.",
+          ErrorCategories.VALIDATION,
+          { name },
+        );
         process.exit(1);
       }
-      await executeCleoInstall("update", opts, "mcp.update");
+      await executeCleoInstall('update', opts, 'mcp.update');
     });
 
   parent
-    .command("uninstall")
-    .description("Uninstall channel-managed MCP profile")
-    .argument("<name>", "Managed MCP profile name (cleo)")
-    .requiredOption("--channel <channel>", "CLEO channel: stable|beta|dev")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Apply to all detected providers")
-    .option("-g, --global", "Use global scope")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('uninstall')
+    .description('Uninstall channel-managed MCP profile')
+    .argument('<name>', 'Managed MCP profile name (cleo)')
+    .requiredOption('--channel <channel>', 'CLEO channel: stable|beta|dev')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Apply to all detected providers')
+    .option('-g, --global', 'Use global scope')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (name: string, opts: CleoUninstallOptions) => {
-      if (name !== "cleo") {
-        emitJsonError("mcp.uninstall", "standard", ErrorCodes.INVALID_INPUT, "Only managed profile 'cleo' is supported by mcp uninstall.", ErrorCategories.VALIDATION, { name });
+      if (name !== 'cleo') {
+        emitJsonError(
+          'mcp.uninstall',
+          'standard',
+          ErrorCodes.INVALID_INPUT,
+          "Only managed profile 'cleo' is supported by mcp uninstall.",
+          ErrorCategories.VALIDATION,
+          { name },
+        );
         process.exit(1);
       }
-      await executeCleoUninstall(opts, "mcp.uninstall");
+      await executeCleoUninstall(opts, 'mcp.uninstall');
     });
 
   parent
-    .command("show")
-    .description("Show channel-managed MCP profile")
-    .argument("<name>", "Managed MCP profile name (cleo)")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Inspect all detected providers")
-    .option("-g, --global", "Global scope only")
-    .option("-p, --project", "Project scope only")
-    .option("--channel <channel>", "Filter channel: stable|beta|dev")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('show')
+    .description('Show channel-managed MCP profile')
+    .argument('<name>', 'Managed MCP profile name (cleo)')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Inspect all detected providers')
+    .option('-g, --global', 'Global scope only')
+    .option('-p, --project', 'Project scope only')
+    .option('--channel <channel>', 'Filter channel: stable|beta|dev')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (name: string, opts: CleoShowOptions) => {
-      if (name !== "cleo") {
-        emitJsonError("mcp.show", "standard", ErrorCodes.INVALID_INPUT, "Only managed profile 'cleo' is supported by mcp show.", ErrorCategories.VALIDATION, { name });
+      if (name !== 'cleo') {
+        emitJsonError(
+          'mcp.show',
+          'standard',
+          ErrorCodes.INVALID_INPUT,
+          "Only managed profile 'cleo' is supported by mcp show.",
+          ErrorCategories.VALIDATION,
+          { name },
+        );
         process.exit(1);
       }
-      await executeCleoShow(opts, "mcp.show");
+      await executeCleoShow(opts, 'mcp.show');
     });
 }
 
@@ -1133,25 +1178,23 @@ export function registerMcpCleoCompatibilityCommands(parent: Command): void {
  *
  * @public
  */
-export function mapCompatibilityInstallOptions(
-  opts: {
-    channel?: string;
-    provider?: string[];
-    agent?: string[];
-    all?: boolean;
-    global?: boolean;
-    version?: string;
-    command?: string;
-    arg?: string[];
-    env?: string[];
-    cleoDir?: string;
-    dryRun?: boolean;
-    yes?: boolean;
-    interactive?: boolean;
-    json?: boolean;
-    human?: boolean;
-  },
-): CleoInstallOptions {
+export function mapCompatibilityInstallOptions(opts: {
+  channel?: string;
+  provider?: string[];
+  agent?: string[];
+  all?: boolean;
+  global?: boolean;
+  version?: string;
+  command?: string;
+  arg?: string[];
+  env?: string[];
+  cleoDir?: string;
+  dryRun?: boolean;
+  yes?: boolean;
+  interactive?: boolean;
+  json?: boolean;
+  human?: boolean;
+}): CleoInstallOptions {
   return {
     channel: opts.channel,
     provider: [...(opts.provider ?? []), ...(opts.agent ?? [])],
@@ -1189,8 +1232,8 @@ export function mapCompatibilityInstallOptions(
  * @public
  */
 export function shouldUseCleoCompatibilityInstall(source: string, channel?: string): boolean {
-  if (source.trim().toLowerCase() !== "cleo") return false;
-  return typeof channel === "string" && channel.trim() !== "";
+  if (source.trim().toLowerCase() !== 'cleo') return false;
+  return typeof channel === 'string' && channel.trim() !== '';
 }
 
 /**
@@ -1212,67 +1255,61 @@ export function shouldUseCleoCompatibilityInstall(source: string, channel?: stri
  * @public
  */
 export function registerCleoCommands(program: Command): void {
-  const cleo = program
-    .command("cleo")
-    .description("Manage CLEO channel profiles");
+  const cleo = program.command('cleo').description('Manage CLEO channel profiles');
 
   buildInstallOptions(
-    cleo
-      .command("install")
-      .description("Install CLEO profile by channel"),
+    cleo.command('install').description('Install CLEO profile by channel'),
   ).action(async (opts: CleoInstallOptions) => {
-    await executeCleoInstall("install", opts, "cleo.install");
+    await executeCleoInstall('install', opts, 'cleo.install');
   });
 
-  buildInstallOptions(
-    cleo
-      .command("update")
-      .description("Update CLEO profile by channel"),
-  ).action(async (opts: CleoInstallOptions) => {
-    await executeCleoInstall("update", opts, "cleo.update");
-  });
+  buildInstallOptions(cleo.command('update').description('Update CLEO profile by channel')).action(
+    async (opts: CleoInstallOptions) => {
+      await executeCleoInstall('update', opts, 'cleo.update');
+    },
+  );
 
   cleo
-    .command("uninstall")
-    .description("Uninstall CLEO profile for a channel")
-    .requiredOption("--channel <channel>", "CLEO channel: stable|beta|dev")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Apply to all detected providers")
-    .option("-g, --global", "Use global scope")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('uninstall')
+    .description('Uninstall CLEO profile for a channel')
+    .requiredOption('--channel <channel>', 'CLEO channel: stable|beta|dev')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Apply to all detected providers')
+    .option('-g, --global', 'Use global scope')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoUninstallOptions) => {
-      await executeCleoUninstall(opts, "cleo.uninstall");
+      await executeCleoUninstall(opts, 'cleo.uninstall');
     });
 
   cleo
-    .command("show")
-    .description("Show installed CLEO channel profiles")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Inspect all detected providers")
-    .option("-g, --global", "Global scope only")
-    .option("-p, --project", "Project scope only")
-    .option("--channel <channel>", "Filter channel: stable|beta|dev")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('show')
+    .description('Show installed CLEO channel profiles')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Inspect all detected providers')
+    .option('-g, --global', 'Global scope only')
+    .option('-p, --project', 'Project scope only')
+    .option('--channel <channel>', 'Filter channel: stable|beta|dev')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoShowOptions) => {
-      await executeCleoShow(opts, "cleo.show");
+      await executeCleoShow(opts, 'cleo.show');
     });
 
   cleo
-    .command("repair")
-    .description("Repair lock file by backfilling untracked CLEO entries")
-    .option("--provider <id>", "Target provider (repeatable)", collect, [])
-    .option("--all", "Scan all detected providers")
-    .option("-g, --global", "Global scope only")
-    .option("-p, --project", "Project scope only")
-    .option("--prune", "Remove orphaned lock entries not in any config")
-    .option("--dry-run", "Preview without writing")
-    .option("--json", "Output as JSON (default)")
-    .option("--human", "Output in human-readable format")
+    .command('repair')
+    .description('Repair lock file by backfilling untracked CLEO entries')
+    .option('--provider <id>', 'Target provider (repeatable)', collect, [])
+    .option('--all', 'Scan all detected providers')
+    .option('-g, --global', 'Global scope only')
+    .option('-p, --project', 'Project scope only')
+    .option('--prune', 'Remove orphaned lock entries not in any config')
+    .option('--dry-run', 'Preview without writing')
+    .option('--json', 'Output as JSON (default)')
+    .option('--human', 'Output in human-readable format')
     .action(async (opts: CleoRepairOptions) => {
-      await executeCleoRepair(opts, "cleo.repair");
+      await executeCleoRepair(opts, 'cleo.repair');
     });
 }
 

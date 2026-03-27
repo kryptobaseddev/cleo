@@ -46,6 +46,7 @@ const provider: Provider = {
   priority: "high",
   status: "active",
   agentSkillsCompatible: true,
+ capabilities: { skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookFormat: null }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null } },
   capabilities: {
     skills: {
       agentsGlobalPath: "/global/skills",

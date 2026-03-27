@@ -1,0 +1,21 @@
+[package]
+name = "signaldock-payments"
+version = "0.1.0"
+edition = "2024"
+description = "x402 payment protocol for SignalDock agent services"
+publish = false
+
+[dependencies]
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
+base64 = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tower = { workspace = true }
+
+[lints]
+workspace = true

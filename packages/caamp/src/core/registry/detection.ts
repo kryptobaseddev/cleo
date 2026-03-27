@@ -5,13 +5,13 @@
  * by checking binaries, directories, app bundles, and flatpak.
  */
 
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import type { Provider } from "../../types.js";
-import { debug } from "../logger.js";
-import { getPlatformLocations, resolveProviderProjectPath } from "../paths/standard.js";
-import { getAllProviders } from "./providers.js";
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Provider } from '../../types.js';
+import { debug } from '../logger.js';
+import { getPlatformLocations, resolveProviderProjectPath } from '../paths/standard.js';
+import { getAllProviders } from './providers.js';
 
 /**
  * Result of detecting whether a provider is installed on the system.
@@ -61,8 +61,8 @@ let detectionCache: DetectionCacheState | null = null;
 
 function checkBinary(binary: string): boolean {
   try {
-    const cmd = process.platform === "win32" ? "where" : "which";
-    execFileSync(cmd, [binary], { stdio: "pipe" });
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    execFileSync(cmd, [binary], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -74,15 +74,15 @@ function checkDirectory(dir: string): boolean {
 }
 
 function checkAppBundle(appName: string): boolean {
-  if (process.platform !== "darwin") return false;
+  if (process.platform !== 'darwin') return false;
   const applications = getPlatformLocations().applications;
   return applications.some((base) => existsSync(join(base, appName)));
 }
 
 function checkFlatpak(flatpakId: string): boolean {
-  if (process.platform !== "linux") return false;
+  if (process.platform !== 'linux') return false;
   try {
-    execFileSync("flatpak", ["info", flatpakId], { stdio: "pipe" });
+    execFileSync('flatpak', ['info', flatpakId], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -121,34 +121,34 @@ export function detectProvider(provider: Provider): DetectionResult {
   const matchedMethods: string[] = [];
   const detection = provider.detection;
 
-  debug(`detecting provider ${provider.id} via methods: ${detection.methods.join(", ")}`);
+  debug(`detecting provider ${provider.id} via methods: ${detection.methods.join(', ')}`);
 
   for (const method of detection.methods) {
     switch (method) {
-      case "binary":
+      case 'binary':
         if (detection.binary && checkBinary(detection.binary)) {
           debug(`  ${provider.id}: binary "${detection.binary}" found`);
-          matchedMethods.push("binary");
+          matchedMethods.push('binary');
         }
         break;
-      case "directory":
+      case 'directory':
         if (detection.directories) {
           for (const dir of detection.directories) {
             if (checkDirectory(dir)) {
-              matchedMethods.push("directory");
+              matchedMethods.push('directory');
               break;
             }
           }
         }
         break;
-      case "appBundle":
+      case 'appBundle':
         if (detection.appBundle && checkAppBundle(detection.appBundle)) {
-          matchedMethods.push("appBundle");
+          matchedMethods.push('appBundle');
         }
         break;
-      case "flatpak":
+      case 'flatpak':
         if (detection.flatpakId && checkFlatpak(detection.flatpakId)) {
-          matchedMethods.push("flatpak");
+          matchedMethods.push('flatpak');
         }
         break;
     }
@@ -174,8 +174,8 @@ function providerSignature(provider: Provider): string {
 }
 
 function buildProvidersSignature(providers: Provider[]): string {
-  if (!providers || !Array.isArray(providers)) return "";
-  return providers.map(providerSignature).join("|");
+  if (!providers || !Array.isArray(providers)) return '';
+  return providers.map(providerSignature).join('|');
 }
 
 function cloneDetectionResults(results: DetectionResult[]): DetectionResult[] {
@@ -196,7 +196,7 @@ function getCachedResults(
 
   const ttlMs = options.ttlMs ?? DEFAULT_DETECTION_CACHE_TTL_MS;
   if (ttlMs <= 0) return null;
-  if ((Date.now() - detectionCache.createdAt) > ttlMs) return null;
+  if (Date.now() - detectionCache.createdAt > ttlMs) return null;
 
   return cloneDetectionResults(detectionCache.results);
 }
@@ -331,7 +331,10 @@ export function getInstalledProviders(options: DetectionCacheOptions = {}): Prov
  *
  * @public
  */
-export function detectProjectProviders(projectDir: string, options: DetectionCacheOptions = {}): DetectionResult[] {
+export function detectProjectProviders(
+  projectDir: string,
+  options: DetectionCacheOptions = {},
+): DetectionResult[] {
   const results = detectAllProviders(options);
   return results.map((r) => ({
     ...r,

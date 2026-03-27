@@ -1,11 +1,11 @@
 import {
+  getAgentsConfigPath,
   getAgentsHome,
-  getCanonicalSkillsDir,
-  getLockFilePath,
   getAgentsMcpDir,
   getAgentsMcpServersPath,
-  getAgentsConfigPath,
-} from "./standard.js";
+  getCanonicalSkillsDir,
+  getLockFilePath,
+} from './standard.js';
 
 /**
  * Global `.agents/` home directory (`~/.agents/` or `$AGENTS_HOME`).

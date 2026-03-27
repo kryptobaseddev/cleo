@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
-import { setFieldContext, resolveFieldContext } from './field-context.js';
+import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
 import { resolveFormat } from './middleware/output-format.js';
 
@@ -30,6 +30,7 @@ import { registerAddCommand } from './commands/add.js';
 import { registerAdminCommand } from './commands/admin.js';
 import { registerAdrCommand } from './commands/adr.js';
 // Import all command registration functions
+import { registerAgentCommand } from './commands/agent.js';
 import { registerAgentsCommand } from './commands/agents.js';
 import { registerAnalyzeCommand } from './commands/analyze.js';
 import { registerArchiveCommand } from './commands/archive.js';
@@ -40,6 +41,7 @@ import { registerBlockersCommand } from './commands/blockers.js';
 import { registerBrainCommand } from './commands/brain.js';
 import { registerBriefingCommand } from './commands/briefing.js';
 import { registerBugCommand } from './commands/bug.js';
+import { registerCantCommand } from './commands/cant.js';
 import { registerCheckCommand } from './commands/check.js';
 import { registerCheckpointCommand } from './commands/checkpoint.js';
 import { registerCommandsCommand } from './commands/commands.js';
@@ -121,6 +123,7 @@ import { registerVerifyCommand } from './commands/verify.js';
 import { registerWebCommand } from './commands/web.js';
 
 // Register all commands against the shim
+registerAgentCommand(rootShim);
 registerAgentsCommand(rootShim);
 registerAddCommand(rootShim);
 registerListCommand(rootShim);
@@ -208,6 +211,7 @@ registerAdminCommand(rootShim);
 registerAdrCommand(rootShim);
 registerBackfillCommand(rootShim);
 registerBrainCommand(rootShim);
+registerCantCommand(rootShim);
 registerMemoryBrainCommand(rootShim);
 registerMigrateClaudeMemCommand(rootShim);
 registerStickyCommand(rootShim);

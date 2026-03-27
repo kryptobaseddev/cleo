@@ -5,10 +5,10 @@
  * GitHub is always the actual source for installation.
  */
 
-import type { MarketplaceAdapter, MarketplaceResult, SearchOptions } from "./types.js";
-import { ensureOkResponse, fetchWithTimeout } from "../network/fetch.js";
+import { ensureOkResponse, fetchWithTimeout } from '../network/fetch.js';
+import type { MarketplaceAdapter, MarketplaceResult } from './types.js';
 
-const API_BASE = "https://www.agentskills.in/api/skills";
+const API_BASE = 'https://www.agentskills.in/api/skills';
 
 interface ApiSkill {
   id: string;
@@ -56,7 +56,7 @@ function toResult(skill: ApiSkill): MarketplaceResult {
     githubUrl: skill.githubUrl,
     repoFullName: skill.repoFullName,
     path: skill.path,
-    source: "agentskills.in",
+    source: 'agentskills.in',
   };
 }
 
@@ -72,7 +72,7 @@ function toResult(skill: ApiSkill): MarketplaceResult {
  */
 export class SkillsMPAdapter implements MarketplaceAdapter {
   /** The marketplace identifier used in search results. */
-  name = "agentskills.in";
+  name = 'agentskills.in';
 
   /**
    * Search for skills by query string.
@@ -85,7 +85,7 @@ export class SkillsMPAdapter implements MarketplaceAdapter {
     const params = new URLSearchParams({
       search: query,
       limit: String(limit),
-      sortBy: "stars",
+      sortBy: 'stars',
     });
 
     const url = `${API_BASE}?${params}`;
@@ -113,8 +113,8 @@ export class SkillsMPAdapter implements MarketplaceAdapter {
 
       const params = new URLSearchParams({
         search: term,
-        limit: "50",
-        sortBy: "stars",
+        limit: '50',
+        sortBy: 'stars',
       });
 
       const url = `${API_BASE}?${params}`;

@@ -1438,6 +1438,42 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'claim',
+    description: 'tasks.claim (mutate) — claim a task by assigning it to the current session',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Task ID to claim',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'unclaim',
+    description: 'tasks.unclaim (mutate) — unclaim a task by removing the current assignee',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Task ID to unclaim',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
     domain: 'session',
     operation: 'start',
     description: 'session.start (mutate)',

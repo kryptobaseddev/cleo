@@ -789,3 +789,14 @@ export { closeAllDatabases, closeDb, resetDbState } from './store/sqlite.js';
 export { createSqliteDataAccessor } from './store/sqlite-data-accessor.js';
 // Validation — doctor checks (used by cleo init tests)
 export { checkRootGitignore } from './validation/doctor/checks.js';
+
+// ---------------------------------------------------------------------------
+// Agent Registry + Conduit (T170 Unification)
+// ---------------------------------------------------------------------------
+
+export { ConduitClient } from './conduit/conduit-client.js';
+export { createConduit } from './conduit/factory.js';
+export { HttpTransport } from './conduit/http-transport.js';
+export { decrypt, encrypt } from './crypto/credentials.js';
+export { AgentRegistryAccessor } from './store/agent-registry-accessor.js';
+export { agentCredentials } from './store/tasks-schema.js';

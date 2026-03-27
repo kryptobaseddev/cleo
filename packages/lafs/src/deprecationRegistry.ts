@@ -1,4 +1,4 @@
-import type { LAFSEnvelope, Warning } from "./types.js";
+import type { LAFSEnvelope, Warning } from './types.js';
 
 export interface DeprecationEntry {
   id: string;
@@ -12,13 +12,14 @@ export interface DeprecationEntry {
 
 const DEPRECATION_REGISTRY: DeprecationEntry[] = [
   {
-    id: "meta-mvi-boolean",
-    code: "W_DEPRECATED_META_MVI_BOOLEAN",
-    message: "_meta.mvi boolean values are deprecated",
-    deprecated: "1.0.0",
-    replacement: "Use _meta.mvi as one of: minimal|standard|full|custom",
-    removeBy: "2.0.0",
-    detector: (envelope) => typeof (envelope as { _meta: { mvi: unknown } })._meta.mvi === "boolean",
+    id: 'meta-mvi-boolean',
+    code: 'W_DEPRECATED_META_MVI_BOOLEAN',
+    message: '_meta.mvi boolean values are deprecated',
+    deprecated: '1.0.0',
+    replacement: 'Use _meta.mvi as one of: minimal|standard|full|custom',
+    removeBy: '2.0.0',
+    detector: (envelope) =>
+      typeof (envelope as { _meta: { mvi: unknown } })._meta.mvi === 'boolean',
   },
 ];
 

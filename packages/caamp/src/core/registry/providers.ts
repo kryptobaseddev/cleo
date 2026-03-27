@@ -5,9 +5,9 @@
  * platform-specific paths at runtime.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   ConfigFormat,
   DetectionMethod,
@@ -19,16 +19,28 @@ import type {
   ProviderSpawnCapability,
   ProviderStatus,
   TransportType,
-} from "../../types.js";
-import { type PathScope, resolveProvidersRegistryPath, resolveProviderSkillsDir, resolveRegistryTemplatePath } from "../paths/standard.js";
-import type { HookEvent, ProviderRegistry, RegistryCapabilities, RegistryProvider, SkillsPrecedence, SpawnMechanism } from "./types.js";
+} from '../../types.js';
+import {
+  type PathScope,
+  resolveProviderSkillsDir,
+  resolveProvidersRegistryPath,
+  resolveRegistryTemplatePath,
+} from '../paths/standard.js';
+import type {
+  HookEvent,
+  ProviderRegistry,
+  RegistryCapabilities,
+  RegistryProvider,
+  SkillsPrecedence,
+  SpawnMechanism,
+} from './types.js';
 
 // ── Capability Defaults ──────────────────────────────────────────────
 
 const DEFAULT_SKILLS_CAPABILITY: ProviderSkillsCapability = {
   agentsGlobalPath: null,
   agentsProjectPath: null,
-  precedence: "vendor-only",
+  precedence: 'vendor-only',
 };
 
 const DEFAULT_HOOKS_CAPABILITY: ProviderHooksCapability = {
@@ -62,7 +74,7 @@ function resolveCapabilities(raw?: RegistryCapabilities): ProviderCapabilities {
         hookConfigPath: raw.hooks.hookConfigPath
           ? resolveRegistryTemplatePath(raw.hooks.hookConfigPath)
           : null,
-        hookFormat: raw.hooks.hookFormat as ProviderHooksCapability["hookFormat"],
+        hookFormat: raw.hooks.hookFormat as ProviderHooksCapability['hookFormat'],
       }
     : { ...DEFAULT_HOOKS_CAPABILITY, supported: [] };
 
@@ -124,7 +136,7 @@ function loadRegistry(): ProviderRegistry {
   if (_registry) return _registry;
 
   const registryPath = findRegistryPath();
-  const raw = readFileSync(registryPath, "utf-8");
+  const raw = readFileSync(registryPath, 'utf-8');
   _registry = JSON.parse(raw) as ProviderRegistry;
   return _registry;
 }
@@ -407,9 +419,10 @@ export function getProvidersByHookEvent(event: HookEvent): Provider[] {
  * @public
  */
 export function getCommonHookEvents(providerIds?: string[]): HookEvent[] {
-  const providers = providerIds && providerIds.length > 0
-    ? providerIds.map((id) => getProvider(id)).filter((p): p is Provider => p !== undefined)
-    : getAllProviders();
+  const providers =
+    providerIds && providerIds.length > 0
+      ? providerIds.map((id) => getProvider(id)).filter((p): p is Provider => p !== undefined)
+      : getAllProviders();
 
   if (providers.length === 0) return [];
 
@@ -447,14 +460,14 @@ export function getCommonHookEvents(providerIds?: string[]): HookEvent[] {
  * @public
  */
 export function providerSupports(provider: Provider, dotPath: string): boolean {
-  const parts = dotPath.split(".");
+  const parts = dotPath.split('.');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let current: any = provider.capabilities;
   for (const part of parts) {
-    if (current == null || typeof current !== "object") return false;
+    if (current == null || typeof current !== 'object') return false;
     current = current[part];
   }
-  if (typeof current === "boolean") return current;
+  if (typeof current === 'boolean') return current;
   if (Array.isArray(current)) return current.length > 0;
   return current != null;
 }
@@ -505,7 +518,7 @@ export function getSpawnCapableProviders(): Provider[] {
  * @public
  */
 export function getProvidersBySpawnCapability(
-  flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism">,
+  flag: keyof Omit<ProviderSpawnCapability, 'spawnMechanism'>,
 ): Provider[] {
   return getAllProviders().filter((p) => p.capabilities.spawn[flag] === true);
 }
@@ -591,41 +604,41 @@ export function getEffectiveSkillsPaths(
   const { precedence, agentsGlobalPath, agentsProjectPath } = provider.capabilities.skills;
 
   const resolveAgentsPath = (): string | null => {
-    if (scope === "global" && agentsGlobalPath) return agentsGlobalPath;
-    if (scope === "project" && agentsProjectPath && projectDir) {
+    if (scope === 'global' && agentsGlobalPath) return agentsGlobalPath;
+    if (scope === 'project' && agentsProjectPath && projectDir) {
       return join(projectDir, agentsProjectPath);
     }
     return null;
   };
 
   const agentsPath = resolveAgentsPath();
-  const scopeLabel = scope === "global" ? "global" : "project";
+  const scopeLabel = scope === 'global' ? 'global' : 'project';
 
   switch (precedence) {
-    case "vendor-only":
-      return [{ path: vendorPath, source: "vendor", scope: scopeLabel }];
-    case "agents-canonical":
-      return agentsPath ? [{ path: agentsPath, source: "agents", scope: scopeLabel }] : [];
-    case "agents-first":
+    case 'vendor-only':
+      return [{ path: vendorPath, source: 'vendor', scope: scopeLabel }];
+    case 'agents-canonical':
+      return agentsPath ? [{ path: agentsPath, source: 'agents', scope: scopeLabel }] : [];
+    case 'agents-first':
       return [
-        ...(agentsPath ? [{ path: agentsPath, source: "agents", scope: scopeLabel }] : []),
-        { path: vendorPath, source: "vendor", scope: scopeLabel },
+        ...(agentsPath ? [{ path: agentsPath, source: 'agents', scope: scopeLabel }] : []),
+        { path: vendorPath, source: 'vendor', scope: scopeLabel },
       ];
-    case "agents-supported":
+    case 'agents-supported':
       return [
-        { path: vendorPath, source: "vendor", scope: scopeLabel },
-        ...(agentsPath ? [{ path: agentsPath, source: "agents", scope: scopeLabel }] : []),
+        { path: vendorPath, source: 'vendor', scope: scopeLabel },
+        ...(agentsPath ? [{ path: agentsPath, source: 'agents', scope: scopeLabel }] : []),
       ];
-    case "vendor-global-agents-project":
-      if (scope === "global") {
-        return [{ path: vendorPath, source: "vendor", scope: "global" }];
+    case 'vendor-global-agents-project':
+      if (scope === 'global') {
+        return [{ path: vendorPath, source: 'vendor', scope: 'global' }];
       }
       return [
-        ...(agentsPath ? [{ path: agentsPath, source: "agents", scope: "project" }] : []),
-        { path: vendorPath, source: "vendor", scope: "project" },
+        ...(agentsPath ? [{ path: agentsPath, source: 'agents', scope: 'project' }] : []),
+        { path: vendorPath, source: 'vendor', scope: 'project' },
       ];
     default:
-      return [{ path: vendorPath, source: "vendor", scope: scopeLabel }];
+      return [{ path: vendorPath, source: 'vendor', scope: scopeLabel }];
   }
 }
 
@@ -658,7 +671,7 @@ export function buildSkillsMap(): Array<{
 }> {
   return getAllProviders().map((p) => {
     const { precedence, agentsGlobalPath, agentsProjectPath } = p.capabilities.skills;
-    const isVendorOnly = precedence === "vendor-only";
+    const isVendorOnly = precedence === 'vendor-only';
     return {
       providerId: p.id,
       toolName: p.toolName,

@@ -7,10 +7,10 @@
  * @since 1.6.0
  */
 
-import { resolveOutputFormat, type FlagResolution } from './flagSemantics.js';
-import { resolveFieldExtraction, type FieldExtractionResolution } from './fieldExtraction.js';
-import type { FlagInput } from './types.js';
 import type { FieldExtractionInput } from './fieldExtraction.js';
+import { type FieldExtractionResolution, resolveFieldExtraction } from './fieldExtraction.js';
+import { type FlagResolution, resolveOutputFormat } from './flagSemantics.js';
+import type { FlagInput } from './types.js';
 
 /** Combined input for both format and field extraction layers. */
 export interface UnifiedFlagInput {
@@ -76,14 +76,14 @@ export function resolveFlags(input: UnifiedFlagInput): UnifiedFlagResolution {
   if (format.format === 'human' && fields.field) {
     warnings.push(
       `Cross-layer: --human + --field "${fields.field}". ` +
-      'Field extraction applies first, then human rendering (§5.4.1).',
+        'Field extraction applies first, then human rendering (§5.4.1).',
     );
   }
 
   if (format.format === 'human' && fields.fields && fields.fields.length > 0) {
     warnings.push(
       `Cross-layer: --human + --fields [${fields.fields.join(', ')}]. ` +
-      'Field filtering applies first, then human rendering (§5.4.1).',
+        'Field filtering applies first, then human rendering (§5.4.1).',
     );
   }
 

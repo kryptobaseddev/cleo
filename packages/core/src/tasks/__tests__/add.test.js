@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../store/sqlite.js';
 import { addTask, findRecentDuplicate, getNextPosition, getTaskDepth, inferTaskType, validateLabels, validateParent, validatePhaseFormat, validatePriority, validateSize, validateStatus, validateTaskType, validateTitle, } from '../add.js';
 describe('validateTitle', () => {
     it('accepts valid titles', () => {
@@ -146,11 +147,26 @@ describe('addTask (integration)', () => {
     beforeEach(async () => {
         env = await createTestDb();
         accessor = env.accessor;
+        // Pin CLEO_DIR to the test cleoDir so concurrent workers cannot contaminate the path
+        process.env['CLEO_DIR'] = env.cleoDir;
     });
     afterEach(async () => {
+        delete process.env['CLEO_DIR'];
+        resetDbState();
         await env.cleanup();
     });
     it('creates a task with default values', async () => {
+        // DEBUG: verify CLEO_DIR and config are correct
+        const { existsSync, readdirSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const cleoDir = process.env['CLEO_DIR'];
+        console.log('DEBUG CLEO_DIR:', cleoDir);
+        console.log('DEBUG env.cleoDir:', env.cleoDir);
+        console.log('DEBUG match:', cleoDir === env.cleoDir);
+        console.log('DEBUG cleoDir exists:', existsSync(cleoDir));
+        if (existsSync(cleoDir)) {
+            console.log('DEBUG cleoDir contents:', readdirSync(cleoDir));
+        }
         const result = await addTask({ title: 'Test task', description: 'A test task for defaults' }, env.tempDir, accessor);
         expect(result.task.id).toBe('T001');
         expect(result.task.title).toBe('Test task');
@@ -191,7 +207,9 @@ describe('addTask (integration)', () => {
     it('handles dry run', async () => {
         const result = await addTask({ title: 'Dry run task', description: 'Testing dry run mode', dryRun: true }, env.tempDir, accessor);
         expect(result.dryRun).toBe(true);
-        expect(result.task.id).toBe('T001');
+        // Dry run does not allocate a real sequence ID — the task is a preview only
+        expect(result.task.id).toBe('T???');
+        expect(result.task.title).toBe('Dry run task');
     });
     it('validates parent hierarchy', async () => {
         // Create parent

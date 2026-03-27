@@ -7,7 +7,7 @@
  * Reference: A2A spec Section 6 (Task Lifecycle)
  */
 
-import type { Task, TaskState, TaskStatus, Artifact, Message } from '@a2a-js/sdk';
+import type { Artifact, Message, Task, TaskState, TaskStatus } from '@a2a-js/sdk';
 import type { LAFSEnvelope } from '../types.js';
 import { createLafsArtifact } from './bridge.js';
 
@@ -32,14 +32,29 @@ export const INTERRUPTED_STATES: ReadonlySet<TaskState> = new Set([
 /** Valid state transitions (adjacency map). Terminal states have empty outgoing sets. */
 export const VALID_TRANSITIONS: ReadonlyMap<TaskState, ReadonlySet<TaskState>> = new Map([
   ['submitted', new Set<TaskState>(['working', 'canceled', 'rejected', 'failed'])],
-  ['working', new Set<TaskState>(['completed', 'failed', 'canceled', 'input-required', 'auth-required'])],
+  [
+    'working',
+    new Set<TaskState>(['completed', 'failed', 'canceled', 'input-required', 'auth-required']),
+  ],
   ['input-required', new Set<TaskState>(['working', 'canceled', 'failed'])],
   ['auth-required', new Set<TaskState>(['working', 'canceled', 'failed'])],
   ['completed', new Set<TaskState>()],
   ['failed', new Set<TaskState>()],
   ['canceled', new Set<TaskState>()],
   ['rejected', new Set<TaskState>()],
-  ['unknown', new Set<TaskState>(['submitted', 'working', 'input-required', 'completed', 'canceled', 'failed', 'rejected', 'auth-required'])],
+  [
+    'unknown',
+    new Set<TaskState>([
+      'submitted',
+      'working',
+      'input-required',
+      'completed',
+      'canceled',
+      'failed',
+      'rejected',
+      'auth-required',
+    ]),
+  ],
 ]);
 
 // ============================================================================
@@ -121,7 +136,7 @@ export class TaskRefinementError extends Error {
 // ============================================================================
 
 function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
@@ -166,7 +181,9 @@ export class TaskManager {
   createTask(options?: CreateTaskOptions): Task {
     const id = generateId();
     const resolvedContextId =
-      options?.contextId ?? this.resolveContextForReferenceTasks(options?.referenceTaskIds) ?? generateId();
+      options?.contextId ??
+      this.resolveContextForReferenceTasks(options?.referenceTaskIds) ??
+      generateId();
     const contextId: string = resolvedContextId;
 
     const referenceTaskIds = options?.referenceTaskIds ?? [];
@@ -203,7 +220,10 @@ export class TaskManager {
   }
 
   /** Create a refinement/follow-up task referencing existing task(s). */
-  createRefinedTask(referenceTaskIds: string[], options?: Omit<CreateTaskOptions, 'referenceTaskIds'>): Task {
+  createRefinedTask(
+    referenceTaskIds: string[],
+    options?: Omit<CreateTaskOptions, 'referenceTaskIds'>,
+  ): Task {
     return this.createTask({
       ...options,
       referenceTaskIds,
@@ -233,7 +253,7 @@ export class TaskManager {
 
     // Filter by state
     if (options?.state) {
-      taskIds = taskIds.filter(id => {
+      taskIds = taskIds.filter((id) => {
         const task = this.tasks.get(id);
         return task && task.status.state === options.state;
       });
@@ -255,7 +275,7 @@ export class TaskManager {
     const pageTaskIds = taskIds.slice(0, limit);
     const hasMore = taskIds.length > limit;
 
-    const tasks = pageTaskIds.map(id => structuredClone(this.tasks.get(id)!));
+    const tasks = pageTaskIds.map((id) => structuredClone(this.tasks.get(id)!));
     const nextPageToken = hasMore ? pageTaskIds[pageTaskIds.length - 1] : undefined;
 
     return { tasks, nextPageToken };
@@ -345,7 +365,7 @@ export class TaskManager {
   getTasksByContext(contextId: string): Task[] {
     const taskIds = this.contextIndex.get(contextId);
     if (!taskIds) return [];
-    return [...taskIds].map(id => structuredClone(this.tasks.get(id)!));
+    return [...taskIds].map((id) => structuredClone(this.tasks.get(id)!));
   }
 
   /** Check if a task is in a terminal state */
@@ -357,7 +377,9 @@ export class TaskManager {
     return isTerminalState(task.status.state);
   }
 
-  private resolveContextForReferenceTasks(referenceTaskIds: string[] | undefined): string | undefined {
+  private resolveContextForReferenceTasks(
+    referenceTaskIds: string[] | undefined,
+  ): string | undefined {
     if (!referenceTaskIds || referenceTaskIds.length === 0) {
       return undefined;
     }
@@ -400,7 +422,7 @@ export class TaskManager {
 export function attachLafsEnvelope(
   manager: TaskManager,
   taskId: string,
-  envelope: LAFSEnvelope
+  envelope: LAFSEnvelope,
 ): Task {
   const artifact = createLafsArtifact(envelope);
   return manager.addArtifact(taskId, artifact);

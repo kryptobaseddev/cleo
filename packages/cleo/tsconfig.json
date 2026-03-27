@@ -23,7 +23,10 @@
   },
   "references": [
     { "path": "../contracts" },
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../lafs" },
+    { "path": "../caamp" },
+    { "path": "../adapters" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/__mocks__", "src/**/*.test.ts"]

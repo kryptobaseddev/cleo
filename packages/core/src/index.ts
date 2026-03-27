@@ -35,6 +35,7 @@ export * as agents from './agents/index.js';
 export * as caamp from './caamp/index.js';
 export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';
+export * as conduit from './conduit/index.js';
 export * as context from './context/index.js';
 export * as coreHooks from './hooks/index.js';
 export * as inject from './inject/index.js';
@@ -61,7 +62,7 @@ export * as routing from './routing/index.js';
 export * as security from './security/index.js';
 export * as sequence from './sequence/index.js';
 export * as sessions from './sessions/index.js';
-export * as signaldock from './signaldock/index.js';
+// signaldock/ removed — use conduit/ instead (T170 unification)
 export * as skills from './skills/index.js';
 export * as snapshot from './snapshot/index.js';
 export * as spawn from './spawn/index.js';

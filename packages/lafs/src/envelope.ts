@@ -1,16 +1,21 @@
-import { isRegisteredErrorCode, getRegistryCode, getAgentAction, getDocUrl } from "./errorRegistry.js";
+import {
+  getAgentAction,
+  getDocUrl,
+  getRegistryCode,
+  isRegisteredErrorCode,
+} from './errorRegistry.js';
 import type {
+  LAFSAgentAction,
   LAFSEnvelope,
   LAFSError,
   LAFSErrorCategory,
-  LAFSAgentAction,
   LAFSMeta,
   LAFSTransport,
   MVILevel,
-} from "./types.js";
-import { assertEnvelope } from "./validateEnvelope.js";
+} from './types.js';
+import { assertEnvelope } from './validateEnvelope.js';
 
-export const LAFS_SCHEMA_URL = "https://lafs.dev/schemas/v1/envelope.schema.json" as const;
+export const LAFS_SCHEMA_URL = 'https://lafs.dev/schemas/v1/envelope.schema.json' as const;
 
 export interface CreateEnvelopeMetaInput {
   operation: string;
@@ -23,21 +28,21 @@ export interface CreateEnvelopeMetaInput {
   mvi?: MVILevel | boolean;
   contextVersion?: number;
   sessionId?: string;
-  warnings?: LAFSMeta["warnings"];
+  warnings?: LAFSMeta['warnings'];
 }
 
 export interface CreateEnvelopeSuccessInput {
   success: true;
-  result: LAFSEnvelope["result"];
-  page?: LAFSEnvelope["page"];
+  result: LAFSEnvelope['result'];
+  page?: LAFSEnvelope['page'];
   error?: null;
-  _extensions?: LAFSEnvelope["_extensions"];
+  _extensions?: LAFSEnvelope['_extensions'];
   meta: CreateEnvelopeMetaInput;
 }
 
 export interface CreateEnvelopeErrorInput {
   success: false;
-  error: Partial<LAFSError> & Pick<LAFSError, "code" | "message">;
+  error: Partial<LAFSError> & Pick<LAFSError, 'code' | 'message'>;
   /**
    * Optional result payload to include alongside the error.
    * For validation tools (linters, type checkers), the actionable data
@@ -47,29 +52,29 @@ export interface CreateEnvelopeErrorInput {
    *
    * When omitted or null, the envelope emits `result: null` (default behavior).
    */
-  result?: LAFSEnvelope["result"] | null;
-  page?: LAFSEnvelope["page"];
-  _extensions?: LAFSEnvelope["_extensions"];
+  result?: LAFSEnvelope['result'] | null;
+  page?: LAFSEnvelope['page'];
+  _extensions?: LAFSEnvelope['_extensions'];
   meta: CreateEnvelopeMetaInput;
 }
 
 export type CreateEnvelopeInput = CreateEnvelopeSuccessInput | CreateEnvelopeErrorInput;
 
-function resolveMviLevel(input: CreateEnvelopeMetaInput["mvi"]): MVILevel {
-  if (typeof input === "boolean") {
-    return input ? "minimal" : "standard";
+function resolveMviLevel(input: CreateEnvelopeMetaInput['mvi']): MVILevel {
+  if (typeof input === 'boolean') {
+    return input ? 'minimal' : 'standard';
   }
-  return input ?? "standard";
+  return input ?? 'standard';
 }
 
 function createMeta(input: CreateEnvelopeMetaInput): LAFSMeta {
   return {
-    specVersion: input.specVersion ?? "1.0.0",
-    schemaVersion: input.schemaVersion ?? "1.0.0",
+    specVersion: input.specVersion ?? '1.0.0',
+    schemaVersion: input.schemaVersion ?? '1.0.0',
     timestamp: input.timestamp ?? new Date().toISOString(),
     operation: input.operation,
     requestId: input.requestId,
-    transport: input.transport ?? "sdk",
+    transport: input.transport ?? 'sdk',
     strict: input.strict ?? true,
     mvi: resolveMviLevel(input.mvi),
     contextVersion: input.contextVersion ?? 0,
@@ -91,17 +96,15 @@ export const CATEGORY_ACTION_MAP: Record<LAFSErrorCategory, LAFSAgentAction> = {
   MIGRATION: 'stop',
 };
 
-function normalizeError(error: CreateEnvelopeErrorInput["error"]): LAFSError {
+function normalizeError(error: CreateEnvelopeErrorInput['error']): LAFSError {
   const registryEntry = getRegistryCode(error.code);
 
-  const category = (error.category ?? registryEntry?.category ?? "INTERNAL") as LAFSErrorCategory;
+  const category = (error.category ?? registryEntry?.category ?? 'INTERNAL') as LAFSErrorCategory;
   const retryable = error.retryable ?? registryEntry?.retryable ?? false;
 
   // Derive agentAction: explicit > registry > category fallback
   const agentAction: LAFSAgentAction | undefined =
-    error.agentAction ??
-    getAgentAction(error.code) ??
-    CATEGORY_ACTION_MAP[category];
+    error.agentAction ?? getAgentAction(error.code) ?? CATEGORY_ACTION_MAP[category];
 
   const docUrl = error.docUrl ?? getDocUrl(error.code);
 
@@ -172,7 +175,7 @@ export class LafsError extends Error implements LAFSError {
 
   constructor(error: LAFSError) {
     super(error.message);
-    this.name = "LafsError";
+    this.name = 'LafsError';
     this.code = error.code;
     this.category = error.category;
     this.retryable = error.retryable;
@@ -201,7 +204,7 @@ export function parseLafsResponse<T = unknown>(
 
   const error = envelope.error;
   if (!error) {
-    throw new Error("Invalid LAFS envelope: success=false requires error object");
+    throw new Error('Invalid LAFS envelope: success=false requires error object');
   }
 
   if (options.requireRegisteredErrorCode && !isRegisteredErrorCode(error.code)) {

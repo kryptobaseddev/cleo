@@ -5,10 +5,10 @@
  * Uses the Vercel Skills model where GitHub is the actual source.
  */
 
-import type { MarketplaceAdapter, MarketplaceResult } from "./types.js";
-import { ensureOkResponse, fetchWithTimeout } from "../network/fetch.js";
+import { ensureOkResponse, fetchWithTimeout } from '../network/fetch.js';
+import type { MarketplaceAdapter, MarketplaceResult } from './types.js';
 
-const API_BASE = "https://skills.sh/api";
+const API_BASE = 'https://skills.sh/api';
 
 interface SkillsShResult {
   name: string;
@@ -33,8 +33,8 @@ function toResult(skill: SkillsShResult): MarketplaceResult {
     stars: skill.stars ?? 0,
     githubUrl: skill.url,
     repoFullName: skill.repo,
-    path: "",
-    source: "skills.sh",
+    path: '',
+    source: 'skills.sh',
   };
 }
 
@@ -50,7 +50,7 @@ function toResult(skill: SkillsShResult): MarketplaceResult {
  */
 export class SkillsShAdapter implements MarketplaceAdapter {
   /** The marketplace identifier used in search results. */
-  name = "skills.sh";
+  name = 'skills.sh';
 
   /**
    * Search for skills by query string.

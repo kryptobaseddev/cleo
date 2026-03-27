@@ -1,5 +1,5 @@
-import errorRegistry from "../schemas/v1/error-registry.json" with { type: "json" };
-import type { LAFSAgentAction } from "./types.js";
+import errorRegistry from '../schemas/v1/error-registry.json' with { type: 'json' };
+import type { LAFSAgentAction } from './types.js';
 
 export interface RegistryCode {
   code: string;
@@ -20,7 +20,7 @@ export interface ErrorRegistry {
 }
 
 export type TransportMapping = {
-  transport: "http" | "grpc" | "cli";
+  transport: 'http' | 'grpc' | 'cli';
   value: number | string;
 };
 
@@ -54,17 +54,17 @@ export function getDocUrl(code: string): string | undefined {
 
 export function getTransportMapping(
   code: string,
-  transport: "http" | "grpc" | "cli",
+  transport: 'http' | 'grpc' | 'cli',
 ): TransportMapping | null {
   const registryCode = getRegistryCode(code);
   if (!registryCode) {
     return null;
   }
 
-  if (transport === "http") {
+  if (transport === 'http') {
     return { transport, value: registryCode.httpStatus };
   }
-  if (transport === "grpc") {
+  if (transport === 'grpc') {
     return { transport, value: registryCode.grpcStatus };
   }
   return { transport, value: registryCode.cliExit };

@@ -1,0 +1,38 @@
+[package]
+name = "signaldock-transport"
+version = "0.1.0"
+edition = "2024"
+description = "Transport traits and delivery adapters (SSE, Webhook, WebSocket, HTTP/2) for SignalDock"
+publish = false
+
+[dependencies]
+signaldock-protocol = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+tokio-tungstenite = { workspace = true }
+h2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+dashmap = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+redis = { workspace = true, optional = true }
+bytes = "1"
+chrono = { workspace = true }
+
+[features]
+default = []
+redis-pubsub = ["redis"]
+
+[dev-dependencies]
+uuid = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

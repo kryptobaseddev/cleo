@@ -4,7 +4,7 @@
  * Checks /.well-known/skills/ on websites for skill definitions.
  */
 
-import { fetchWithTimeout } from "../network/fetch.js";
+import { fetchWithTimeout } from '../network/fetch.js';
 
 /**
  * A skill entry discovered via the RFC 8615 well-known endpoint.

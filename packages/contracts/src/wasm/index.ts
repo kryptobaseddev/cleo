@@ -64,7 +64,7 @@ export async function initWasm(): Promise<void> {
       lafsModule = lafs;
       conduitModule = conduit;
       isInitialized = true;
-    } catch (error) {
+    } catch (_error) {
       throw new Error('WASM initialization failed. Ensure WASM files are present.');
     }
   })();

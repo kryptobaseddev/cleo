@@ -2,12 +2,12 @@
  * GitLab fetcher for skill/MCP sources
  */
 
-import { simpleGit } from "simple-git";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { GitFetchResult } from "./github.js";
-import { fetchWithTimeout } from "../network/fetch.js";
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { simpleGit } from 'simple-git';
+import { fetchWithTimeout } from '../network/fetch.js';
+import type { GitFetchResult } from './github.js';
 
 /**
  * Clone a GitLab repo to a temp directory.
@@ -41,14 +41,14 @@ export async function cloneGitLabRepo(
   ref?: string,
   subPath?: string,
 ): Promise<GitFetchResult> {
-  const tmpDir = await mkdtemp(join(tmpdir(), "caamp-gl-"));
+  const tmpDir = await mkdtemp(join(tmpdir(), 'caamp-gl-'));
   const repoUrl = `https://gitlab.com/${owner}/${repo}.git`;
 
   const git = simpleGit();
 
-  const cloneOptions = ["--depth", "1"];
+  const cloneOptions = ['--depth', '1'];
   if (ref) {
-    cloneOptions.push("--branch", ref);
+    cloneOptions.push('--branch', ref);
   }
 
   await git.clone(repoUrl, tmpDir, cloneOptions);
@@ -95,7 +95,7 @@ export async function fetchGitLabRawFile(
   owner: string,
   repo: string,
   path: string,
-  ref = "main",
+  ref = 'main',
 ): Promise<string | null> {
   const encodedPath = encodeURIComponent(path);
   const url = `https://gitlab.com/${owner}/${repo}/-/raw/${ref}/${encodedPath}`;

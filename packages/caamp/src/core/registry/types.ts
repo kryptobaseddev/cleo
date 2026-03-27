@@ -124,11 +124,11 @@ export interface RegistryProvider {
  * @public
  */
 export type SkillsPrecedence =
-  | "vendor-only"
-  | "agents-canonical"
-  | "agents-first"
-  | "agents-supported"
-  | "vendor-global-agents-project";
+  | 'vendor-only'
+  | 'agents-canonical'
+  | 'agents-first'
+  | 'agents-supported'
+  | 'vendor-global-agents-project';
 
 /**
  * Raw skills capability definition as stored in registry.json.
@@ -195,7 +195,7 @@ export interface RegistryHooksCapability {
  *
  * @public
  */
-export type SpawnMechanism = "native" | "mcp" | "cli" | "api";
+export type SpawnMechanism = 'native' | 'mcp' | 'cli' | 'api';
 
 /**
  * Raw spawn capability definition as stored in registry.json.

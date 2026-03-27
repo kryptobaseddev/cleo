@@ -11,7 +11,17 @@
 import { ExitCode } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { CleoError } from '../../../core/src/errors.js';
-import { formatError, formatSuccess } from '../../../core/src/output.js';
+import { formatSuccess as _formatSuccess, formatError, } from '../../../core/src/output.js';
+/**
+ * Wrapper that forces mvi='full' for golden parity tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess(data, message, operationOrOpts) {
+    const opts = typeof operationOrOpts === 'string'
+        ? { operation: operationOrOpts, mvi: 'full' }
+        : { mvi: 'full', ...(operationOrOpts ?? {}) };
+    return _formatSuccess(data, message, opts);
+}
 import { createPage } from '../../../core/src/pagination.js';
 import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
 /**
@@ -173,7 +183,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
             expect(meta.schemaVersion).toBe('2026.2.1');
             expect(meta.transport).toBe('sdk');
             expect(meta.strict).toBe(true);
-            expect(meta.mvi).toBe('standard');
+            expect(meta.mvi).toBe('minimal');
             expect(meta.contextVersion).toBe(1);
             expect(meta.gateway).toBe('query');
             expect(meta.domain).toBe('tasks');

@@ -1,6 +1,6 @@
-import profilesJson from "../schemas/v1/conformance-profiles.json" with { type: "json" };
+import profilesJson from '../schemas/v1/conformance-profiles.json' with { type: 'json' };
 
-export type ConformanceTier = "core" | "standard" | "complete";
+export type ConformanceTier = 'core' | 'standard' | 'complete';
 
 export interface ConformanceProfiles {
   version: string;
@@ -40,7 +40,9 @@ export function validateConformanceProfiles(availableChecks: string[]): {
   }
 
   const known = new Set(availableChecks);
-  for (const [tier, checks] of Object.entries(profiles.tiers) as Array<[ConformanceTier, string[]]>) {
+  for (const [tier, checks] of Object.entries(profiles.tiers) as Array<
+    [ConformanceTier, string[]]
+  >) {
     for (const check of checks) {
       if (!known.has(check)) {
         errors.push(`unknown check in ${tier} tier: ${check}`);

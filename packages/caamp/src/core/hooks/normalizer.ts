@@ -10,10 +10,10 @@
  * while CAAMP handles provider-specific differences.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { resolveRegistryTemplatePath } from "../paths/standard.js";
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolveRegistryTemplatePath } from '../paths/standard.js';
 import type {
   CanonicalEventDefinition,
   CanonicalHookEvent,
@@ -26,8 +26,8 @@ import type {
   NormalizedHookEvent,
   ProviderHookProfile,
   ProviderHookSummary,
-} from "./types.js";
-import { CANONICAL_HOOK_EVENTS, HOOK_CATEGORIES } from "./types.js";
+} from './types.js';
+import { CANONICAL_HOOK_EVENTS } from './types.js';
 
 // ── Data Loading ────────────────────────────────────────────────────
 
@@ -36,12 +36,12 @@ let _mappings: HookMappingsFile | null = null;
 function findMappingsPath(): string {
   const thisDir = dirname(fileURLToPath(import.meta.url));
   // src/core/hooks/ -> providers/hook-mappings.json
-  return join(thisDir, "..", "..", "..", "providers", "hook-mappings.json");
+  return join(thisDir, '..', '..', '..', 'providers', 'hook-mappings.json');
 }
 
 function loadMappings(): HookMappingsFile {
   if (_mappings) return _mappings;
-  const raw = readFileSync(findMappingsPath(), "utf-8");
+  const raw = readFileSync(findMappingsPath(), 'utf-8');
   _mappings = JSON.parse(raw) as HookMappingsFile;
   return _mappings;
 }
@@ -147,9 +147,7 @@ export function getAllCanonicalEvents(): Record<CanonicalHookEvent, CanonicalEve
  */
 export function getCanonicalEventsByCategory(category: HookCategory): CanonicalHookEvent[] {
   const data = loadMappings();
-  return CANONICAL_HOOK_EVENTS.filter(
-    (event) => data.canonicalEvents[event].category === category,
-  );
+  return CANONICAL_HOOK_EVENTS.filter((event) => data.canonicalEvents[event].category === category);
 }
 
 /**
@@ -232,10 +230,7 @@ export function getMappedProviderIds(): string[] {
  *
  * @public
  */
-export function toNative(
-  canonical: CanonicalHookEvent,
-  providerId: string,
-): string | null {
+export function toNative(canonical: CanonicalHookEvent, providerId: string): string | null {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return null;
   const mapping = profile.mappings[canonical];
@@ -265,10 +260,7 @@ export function toNative(
  *
  * @public
  */
-export function toCanonical(
-  nativeName: string,
-  providerId: string,
-): CanonicalHookEvent | null {
+export function toCanonical(nativeName: string, providerId: string): CanonicalHookEvent | null {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return null;
 
@@ -353,10 +345,7 @@ export function toNativeBatch(
  *
  * @public
  */
-export function supportsHook(
-  canonical: CanonicalHookEvent,
-  providerId: string,
-): boolean {
+export function supportsHook(canonical: CanonicalHookEvent, providerId: string): boolean {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return false;
   return profile.mappings[canonical]?.supported ?? false;
@@ -426,9 +415,7 @@ export function getHookSupport(
 export function getSupportedEvents(providerId: string): CanonicalHookEvent[] {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return [];
-  return CANONICAL_HOOK_EVENTS.filter(
-    (event) => profile.mappings[event]?.supported,
-  );
+  return CANONICAL_HOOK_EVENTS.filter((event) => profile.mappings[event]?.supported);
 }
 
 /**
@@ -454,9 +441,7 @@ export function getSupportedEvents(providerId: string): CanonicalHookEvent[] {
 export function getUnsupportedEvents(providerId: string): CanonicalHookEvent[] {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return [...CANONICAL_HOOK_EVENTS];
-  return CANONICAL_HOOK_EVENTS.filter(
-    (event) => !profile.mappings[event]?.supported,
-  );
+  return CANONICAL_HOOK_EVENTS.filter((event) => !profile.mappings[event]?.supported);
 }
 
 /**
@@ -511,8 +496,8 @@ export function getProvidersForEvent(canonical: CanonicalHookEvent): string[] {
  */
 export function getCommonEvents(providerIds: string[]): CanonicalHookEvent[] {
   if (providerIds.length === 0) return [];
-  return CANONICAL_HOOK_EVENTS.filter(
-    (event) => providerIds.every((id) => supportsHook(event, id)),
+  return CANONICAL_HOOK_EVENTS.filter((event) =>
+    providerIds.every((id) => supportsHook(event, id)),
   );
 }
 
@@ -608,7 +593,7 @@ export function buildHookMatrix(providerIds?: string[]): CrossProviderMatrix {
   return {
     events: [...CANONICAL_HOOK_EVENTS],
     providers: ids,
-    matrix: matrix as CrossProviderMatrix["matrix"],
+    matrix: matrix as CrossProviderMatrix['matrix'],
   };
 }
 
@@ -635,7 +620,7 @@ export function buildHookMatrix(providerIds?: string[]): CrossProviderMatrix {
  */
 export function getHookSystemType(providerId: string): HookSystemType {
   const profile = getProviderHookProfile(providerId);
-  return profile?.hookSystem ?? "none";
+  return profile?.hookSystem ?? 'none';
 }
 
 /**

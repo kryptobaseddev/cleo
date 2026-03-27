@@ -5,10 +5,10 @@
  * Or: npm run build && node dist/examples/discovery-server.js
  */
 
-import express, { Request, Response, NextFunction } from "express";
+import express, { Express, Request, Response, NextFunction } from "express";
 import { discoveryMiddleware, DiscoveryConfig } from "../src/discovery.js";
 
-const app = express();
+const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
 /**

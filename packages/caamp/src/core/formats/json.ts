@@ -5,10 +5,10 @@
  * formatting, and trailing commas in JSONC files.
  */
 
-import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import * as jsonc from "jsonc-parser";
-import { ensureDir } from "./utils.js";
+import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import * as jsonc from 'jsonc-parser';
+import { ensureDir } from './utils.js';
 
 /**
  * Read and parse a JSON or JSONC config file.
@@ -30,7 +30,7 @@ import { ensureDir } from "./utils.js";
 export async function readJsonConfig(filePath: string): Promise<Record<string, unknown>> {
   if (!existsSync(filePath)) return {};
 
-  const content = await readFile(filePath, "utf-8");
+  const content = await readFile(filePath, 'utf-8');
   if (!content.trim()) return {};
 
   const errors: jsonc.ParseError[] = [];
@@ -46,18 +46,18 @@ export async function readJsonConfig(filePath: string): Promise<Record<string, u
 
 /** Detect indentation from existing file content */
 function detectIndent(content: string): { indent: string; insertSpaces: boolean; tabSize: number } {
-  const lines = content.split("\n");
+  const lines = content.split('\n');
   for (const line of lines) {
     const match = line.match(/^(\s+)/);
     if (match?.[1]) {
       const ws = match[1];
-      if (ws.startsWith("\t")) {
-        return { indent: "\t", insertSpaces: false, tabSize: 1 };
+      if (ws.startsWith('\t')) {
+        return { indent: '\t', insertSpaces: false, tabSize: 1 };
       }
       return { indent: ws, insertSpaces: true, tabSize: ws.length };
     }
   }
-  return { indent: "  ", insertSpaces: true, tabSize: 2 };
+  return { indent: '  ', insertSpaces: true, tabSize: 2 };
 }
 
 /**
@@ -90,12 +90,12 @@ export async function writeJsonConfig(
   let content: string;
 
   if (existsSync(filePath)) {
-    content = await readFile(filePath, "utf-8");
+    content = await readFile(filePath, 'utf-8');
     if (!content.trim()) {
-      content = "{}";
+      content = '{}';
     }
   } else {
-    content = "{}";
+    content = '{}';
   }
 
   const { tabSize, insertSpaces } = detectIndent(content);
@@ -103,11 +103,11 @@ export async function writeJsonConfig(
   const formatOptions: jsonc.FormattingOptions = {
     tabSize,
     insertSpaces,
-    eol: "\n",
+    eol: '\n',
   };
 
   // Build the JSON path for the server entry
-  const keyParts = configKey.split(".");
+  const keyParts = configKey.split('.');
   const jsonPath = [...keyParts, serverName];
 
   // Use jsonc.modify for surgical, comment-preserving edits
@@ -118,11 +118,11 @@ export async function writeJsonConfig(
   }
 
   // Ensure trailing newline
-  if (!content.endsWith("\n")) {
-    content += "\n";
+  if (!content.endsWith('\n')) {
+    content += '\n';
   }
 
-  await writeFile(filePath, content, "utf-8");
+  await writeFile(filePath, content, 'utf-8');
 }
 
 /**
@@ -151,7 +151,7 @@ export async function removeJsonConfig(
 ): Promise<boolean> {
   if (!existsSync(filePath)) return false;
 
-  let content = await readFile(filePath, "utf-8");
+  let content = await readFile(filePath, 'utf-8');
   if (!content.trim()) return false;
 
   const { tabSize, insertSpaces } = detectIndent(content);
@@ -159,10 +159,10 @@ export async function removeJsonConfig(
   const formatOptions: jsonc.FormattingOptions = {
     tabSize,
     insertSpaces,
-    eol: "\n",
+    eol: '\n',
   };
 
-  const keyParts = configKey.split(".");
+  const keyParts = configKey.split('.');
   const jsonPath = [...keyParts, serverName];
 
   const edits = jsonc.modify(content, jsonPath, undefined, { formattingOptions: formatOptions });
@@ -171,10 +171,10 @@ export async function removeJsonConfig(
 
   content = jsonc.applyEdits(content, edits);
 
-  if (!content.endsWith("\n")) {
-    content += "\n";
+  if (!content.endsWith('\n')) {
+    content += '\n';
   }
 
-  await writeFile(filePath, content, "utf-8");
+  await writeFile(filePath, content, 'utf-8');
   return true;
 }

@@ -333,11 +333,18 @@ describe('Task CRUD Data Parity (T4796)', () => {
         expect(engineIds).toContain('T001');
     });
     it('taskCreate produces a valid task via engine', async () => {
+        const { sessionStart } = await import('../dispatch/engines/session-engine.js');
         const { taskCreate } = await import('../dispatch/engines/task-engine.js');
+        const session = await sessionStart(testDir, {
+            scope: 'global',
+            name: 'parity-task-create',
+        });
+        expect(session.success).toBe(true);
         // Engine create
         const engineResult = await taskCreate(testDir, {
             title: 'Engine-created task',
             description: 'Created via engine for parity test',
+            acceptance: ['Task is created', 'Task has valid defaults', 'Engine result is successful'],
         });
         expect(engineResult.success).toBe(true);
         expect(engineResult.data).toBeDefined();

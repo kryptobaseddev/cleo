@@ -5,11 +5,11 @@
  * handling per-agent formats, keys, and transformations.
  */
 
-import type { McpServerConfig, Provider, } from "../../types.js";
-import { writeConfig } from "../formats/index.js";
-import { debug } from "../logger.js";
-import { resolveConfigPath } from "./reader.js";
-import { getTransform } from "./transforms.js";
+import type { McpServerConfig, Provider } from '../../types.js';
+import { writeConfig } from '../formats/index.js';
+import { debug } from '../logger.js';
+import { resolveConfigPath } from './reader.js';
+import { getTransform } from './transforms.js';
 
 /**
  * Result of installing an MCP server configuration to a single provider.
@@ -32,7 +32,7 @@ export interface InstallResult {
   /** The provider the config was written to. */
   provider: Provider;
   /** Whether project or global scope was used. */
-  scope: "project" | "global";
+  scope: 'project' | 'global';
   /** Absolute path to the config file that was written. */
   configPath: string;
   /** Whether the write succeeded. */
@@ -84,19 +84,19 @@ export async function installMcpServer(
   provider: Provider,
   serverName: string,
   config: McpServerConfig,
-  scope: "project" | "global" = "project",
+  scope: 'project' | 'global' = 'project',
   projectDir?: string,
 ): Promise<InstallResult> {
   const configPath = resolveConfigPath(provider, scope, projectDir);
 
   debug(`installing MCP server "${serverName}" for ${provider.id} (${scope})`);
-  debug(`  config path: ${configPath ?? "(none)"}`);
+  debug(`  config path: ${configPath ?? '(none)'}`);
 
   if (!configPath) {
     return {
       provider,
       scope,
-      configPath: "",
+      configPath: '',
       success: false,
       error: `Provider ${provider.id} does not support ${scope} config`,
     };
@@ -105,7 +105,7 @@ export async function installMcpServer(
   try {
     const transformedConfig = buildConfig(provider, serverName, config);
     const transform = getTransform(provider.id);
-    debug(`  transform applied: ${transform ? "yes" : "no"}`);
+    debug(`  transform applied: ${transform ? 'yes' : 'no'}`);
 
     await writeConfig(
       configPath,
@@ -165,7 +165,7 @@ export async function installMcpServerToAll(
   providers: Provider[],
   serverName: string,
   config: McpServerConfig,
-  scope: "project" | "global" = "project",
+  scope: 'project' | 'global' = 'project',
   projectDir?: string,
 ): Promise<InstallResult[]> {
   const results: InstallResult[] = [];
@@ -216,18 +216,18 @@ export function buildServerConfig(
   transport?: string,
   headers?: Record<string, string>,
 ): McpServerConfig {
-  if (source.type === "remote") {
+  if (source.type === 'remote') {
     return {
-      type: (transport ?? "http") as "sse" | "http",
+      type: (transport ?? 'http') as 'sse' | 'http',
       url: source.value,
       ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
     };
   }
 
-  if (source.type === "package") {
+  if (source.type === 'package') {
     return {
-      command: "npx",
-      args: ["-y", source.value],
+      command: 'npx',
+      args: ['-y', source.value],
     };
   }
 

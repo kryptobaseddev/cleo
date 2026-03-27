@@ -1,9 +1,9 @@
 /**
  * LAFS A2A Bridge v2.0
- * 
+ *
  * Full integration with official @a2a-js/sdk for Agent-to-Agent communication.
  * Implements A2A Protocol v1.0+ specification.
- * 
+ *
  * Reference: specs/external/specification.md
  */
 
@@ -11,34 +11,24 @@
 // Imports - Use official A2A SDK types
 // ============================================================================
 
-import {
-  AGENT_CARD_PATH,
-  HTTP_EXTENSION_HEADER,
-} from '@a2a-js/sdk';
-
 import type {
-  Task,
-  TaskState,
-  TaskStatus,
-  Artifact,
-  Part,
-  Message,
   AgentCard,
-  AgentSkill,
-  AgentCapabilities,
-  AgentExtension,
-  PushNotificationConfig,
-  MessageSendConfiguration,
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-  SendMessageResponse,
-  SendMessageSuccessResponse,
-  JSONRPCErrorResponse,
-  TextPart,
+  Artifact,
   DataPart,
   FilePart,
   FileWithUri,
+  JSONRPCErrorResponse,
+  Message,
+  MessageSendConfiguration,
+  Part,
+  SendMessageResponse,
+  SendMessageSuccessResponse,
+  Task,
+  TaskState,
+  TaskStatus,
+  TextPart,
 } from '@a2a-js/sdk';
+import { AGENT_CARD_PATH, HTTP_EXTENSION_HEADER } from '@a2a-js/sdk';
 
 // LAFS types
 import type { LAFSEnvelope, LAFSMeta } from '../types.js';
@@ -102,8 +92,8 @@ export interface LafsSendMessageParams {
 export class LafsA2AResult {
   constructor(
     private result: SendMessageResponse,
-    private config: LafsA2AConfig,
-    private requestId: string
+    _config: LafsA2AConfig,
+    _requestId: string,
   ) {}
 
   /**
@@ -146,7 +136,7 @@ export class LafsA2AResult {
   getTask(): Task | null {
     const success = this.getSuccess();
     if (!success) return null;
-    
+
     // Check if result is a Task (has id, contextId, status)
     const result = success.result;
     if (result && typeof result === 'object') {
@@ -164,7 +154,7 @@ export class LafsA2AResult {
   getMessage(): Message | null {
     const success = this.getSuccess();
     if (!success) return null;
-    
+
     const result = success.result;
     if (result && typeof result === 'object') {
       // Message objects have messageId
@@ -184,7 +174,7 @@ export class LafsA2AResult {
 
   /**
    * Extract LAFS envelope from A2A artifact
-   * 
+   *
    * A2A agents can return LAFS envelopes in artifacts for structured data.
    * This method extracts the envelope from the first artifact containing one.
    */
@@ -212,9 +202,11 @@ export class LafsA2AResult {
   getTokenEstimate(): { estimated: number; budget?: number; truncated?: boolean } | null {
     const envelope = this.getLafsEnvelope();
     if (!envelope?._meta) return null;
-    
+
     // Access LAFS meta fields
-    const meta = envelope._meta as LAFSMeta & { _tokenEstimate?: { estimated: number; budget?: number; truncated?: boolean } };
+    const meta = envelope._meta as LAFSMeta & {
+      _tokenEstimate?: { estimated: number; budget?: number; truncated?: boolean };
+    };
     return meta._tokenEstimate ?? null;
   }
 
@@ -238,13 +230,8 @@ export class LafsA2AResult {
   isTerminal(): boolean {
     const state = this.getTaskState();
     if (!state) return false;
-    
-    const terminalStates: TaskState[] = [
-      'completed',
-      'failed', 
-      'canceled',
-      'rejected'
-    ];
+
+    const terminalStates: TaskState[] = ['completed', 'failed', 'canceled', 'rejected'];
     return terminalStates.includes(state);
   }
 
@@ -290,7 +277,7 @@ export class LafsA2AResult {
 
 /**
  * Create a LAFS envelope artifact for A2A
- * 
+ *
  * @example
  * ```typescript
  * const envelope = createEnvelope({
@@ -298,7 +285,7 @@ export class LafsA2AResult {
  *   result: { data: '...' },
  *   meta: { operation: 'analysis.run' }
  * });
- * 
+ *
  * const artifact = createLafsArtifact(envelope);
  * task.artifacts.push(artifact);
  * ```
@@ -308,10 +295,12 @@ export function createLafsArtifact(envelope: LAFSEnvelope): Artifact {
     artifactId: generateId(),
     name: 'lafs_response',
     description: 'LAFS-formatted response envelope',
-    parts: [{
-      kind: 'data',
-      data: envelope as unknown as Record<string, unknown>,
-    }],
+    parts: [
+      {
+        kind: 'data',
+        data: envelope as unknown as Record<string, unknown>,
+      },
+    ],
     metadata: {
       'x-lafs-version': '2.0.0',
       'x-content-type': 'application/vnd.lafs.envelope+json',
@@ -327,7 +316,7 @@ export function createTextArtifact(text: string, name = 'text_response'): Artifa
     kind: 'text',
     text,
   };
-  
+
   return {
     artifactId: generateId(),
     name,
@@ -341,7 +330,7 @@ export function createTextArtifact(text: string, name = 'text_response'): Artifa
 export function createFileArtifact(
   fileUrl: string,
   mediaType: string,
-  filename?: string
+  filename?: string,
 ): Artifact {
   const part: FilePart = {
     kind: 'file',
@@ -352,7 +341,7 @@ export function createFileArtifact(
       ...(filename && { filename }),
     } as FileWithUri,
   };
-  
+
   return {
     artifactId: generateId(),
     name: filename || 'file',
@@ -361,9 +350,9 @@ export function createFileArtifact(
 }
 
 function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
@@ -375,13 +364,11 @@ function generateId(): string {
 /**
  * Check if an extension is required
  */
-export function isExtensionRequired(
-  agentCard: AgentCard,
-  extensionUri: string
-): boolean {
-  return agentCard.capabilities?.extensions?.some(
-    ext => ext.uri === extensionUri && ext.required
-  ) ?? false;
+export function isExtensionRequired(agentCard: AgentCard, extensionUri: string): boolean {
+  return (
+    agentCard.capabilities?.extensions?.some((ext) => ext.uri === extensionUri && ext.required) ??
+    false
+  );
 }
 
 /**
@@ -389,11 +376,9 @@ export function isExtensionRequired(
  */
 export function getExtensionParams(
   agentCard: AgentCard,
-  extensionUri: string
+  extensionUri: string,
 ): Record<string, unknown> | undefined {
-  return agentCard.capabilities?.extensions?.find(
-    ext => ext.uri === extensionUri
-  )?.params;
+  return agentCard.capabilities?.extensions?.find((ext) => ext.uri === extensionUri)?.params;
 }
 
 // ============================================================================
@@ -404,37 +389,35 @@ export function getExtensionParams(
  * A2A Agent Card well-known path
  * Reference: specs/external/agent-discovery.md
  */
-export { AGENT_CARD_PATH };
-
 /**
  * HTTP header for A2A Extensions
  * Reference: specs/external/extensions.md
  */
-export { HTTP_EXTENSION_HEADER };
+export { AGENT_CARD_PATH, HTTP_EXTENSION_HEADER };
 
 // ============================================================================
 // Re-exports from A2A SDK
 // ============================================================================
 
 export type {
-  Task,
-  TaskState,
-  TaskStatus,
-  Artifact,
-  Part,
-  Message,
-  AgentCard,
-  AgentSkill,
   AgentCapabilities,
+  AgentCard,
   AgentExtension,
-  PushNotificationConfig,
-  MessageSendConfiguration,
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-  SendMessageResponse,
-  SendMessageSuccessResponse,
-  JSONRPCErrorResponse,
-  TextPart,
+  AgentSkill,
+  Artifact,
   DataPart,
   FilePart,
+  JSONRPCErrorResponse,
+  Message,
+  MessageSendConfiguration,
+  Part,
+  PushNotificationConfig,
+  SendMessageResponse,
+  SendMessageSuccessResponse,
+  Task,
+  TaskArtifactUpdateEvent,
+  TaskState,
+  TaskStatus,
+  TaskStatusUpdateEvent,
+  TextPart,
 } from '@a2a-js/sdk';

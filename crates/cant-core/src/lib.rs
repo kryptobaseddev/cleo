@@ -40,10 +40,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod dsl;
 pub mod parser;
-
-#[cfg(feature = "wasm")]
-pub mod wasm;
+pub mod validate;
 
 /// The classification of a directive extracted from a CANT message.
 ///
@@ -69,6 +68,7 @@ pub enum DirectiveType {
 /// Contains all extracted elements from both the header (first line) and
 /// body (remaining lines) of the message. Addresses, task refs, and tags
 /// found in the body are merged with those from the header.
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedCANTMessage {
     /// The directive verb if present (e.g., `"done"` from `/done`), or `None`
@@ -195,6 +195,43 @@ pub fn parse(content: &str) -> ParsedCANTMessage {
         header_raw: header_raw.to_string(),
         body: body_raw.to_string(),
     }
+}
+
+/// Parses a complete `.cant` document into a structured AST.
+///
+/// This is the top-level entry point for CANT DSL Layer 2 parsing.
+/// For Layer 1 message parsing, use [`parse`] instead.
+///
+/// # Arguments
+///
+/// * `content` - The raw `.cant` document text.
+///
+/// # Returns
+///
+/// `Ok(CantDocument)` on success, or `Err(Vec<ParseError>)` if parsing fails.
+pub fn parse_document(
+    content: &str,
+) -> Result<dsl::ast::CantDocument, Vec<dsl::error::ParseError>> {
+    dsl::parse_document(content)
+}
+
+/// Convenience function that validates a parsed [`CantDocument`] and returns
+/// all diagnostics.
+///
+/// This is the primary entry point for consumers who want to lint a `.cant` file.
+/// It calls [`validate::validate`] internally, running all rule modules
+/// (scope, pipeline purity, types, hooks, workflows).
+///
+/// # Arguments
+///
+/// * `doc` - A parsed CANT document (obtained from [`parse_document`]).
+///
+/// # Returns
+///
+/// A vector of [`validate::diagnostic::Diagnostic`] results. An empty vector
+/// means the document passed all validation rules.
+pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnostic::Diagnostic> {
+    validate::validate(doc)
 }
 
 #[cfg(test)]

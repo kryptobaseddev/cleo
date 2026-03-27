@@ -44,8 +44,8 @@ describe('Query Gateway', () => {
         });
     });
     describe('Domain Operation Counts', () => {
-        it('tasks domain should have 15 operations', () => {
-            expect(getQueryOperationCount('tasks')).toBe(15);
+        it('tasks domain should have 16 operations', () => {
+            expect(getQueryOperationCount('tasks')).toBe(16);
         });
         it('session domain should have 8 query operations', () => {
             expect(getQueryOperationCount('session')).toBe(8);
@@ -59,11 +59,11 @@ describe('Query Gateway', () => {
         it('pipeline domain should have 14 operations', () => {
             expect(getQueryOperationCount('pipeline')).toBe(14);
         });
-        it('check domain should have 13 operations', () => {
-            expect(getQueryOperationCount('check')).toBe(13);
+        it('check domain should have 14 operations', () => {
+            expect(getQueryOperationCount('check')).toBe(14);
         });
-        it('admin domain should have 16 operations', () => {
-            expect(getQueryOperationCount('admin')).toBe(16);
+        it('admin domain should have 20 operations', () => {
+            expect(getQueryOperationCount('admin')).toBe(20);
         });
     });
     describe('Parameter Validation', () => {
@@ -222,10 +222,11 @@ describe('Query Gateway', () => {
         });
         it('should return all operations for domain', () => {
             const tasksOps = getQueryOperations('tasks');
-            expect(tasksOps).toHaveLength(15);
+            expect(tasksOps).toHaveLength(16);
             expect(tasksOps).toContain('show');
             expect(tasksOps).toContain('list');
             expect(tasksOps).toContain('find');
+            expect(tasksOps).toContain('impact');
         });
         it('should return empty array for unknown domain', () => {
             const ops = getQueryOperations('unknown');

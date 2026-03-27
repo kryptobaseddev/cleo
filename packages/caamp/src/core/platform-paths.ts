@@ -16,9 +16,9 @@
  * with existing ~/.agents installations.
  */
 
-import envPaths from 'env-paths';
 import { arch, homedir, hostname, platform, release } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import envPaths from 'env-paths';
 
 const APP_NAME = 'agents';
 
@@ -77,7 +77,7 @@ export interface SystemInfo {
 
 let _paths: PlatformPaths | null = null;
 let _sysInfo: SystemInfo | null = null;
-let _lastAgentsHome: string | undefined = undefined;
+let _lastAgentsHome: string | undefined;
 
 /**
  * Get OS-appropriate paths for CAAMP's global directories.

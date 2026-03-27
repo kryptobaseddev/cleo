@@ -1,9 +1,13 @@
-import type { ConformanceReport, FlagInput, LAFSEnvelope } from "./types.js";
-import { runEnvelopeConformance, runFlagConformance } from "./conformance.js";
-import { resolveOutputFormat } from "./flagSemantics.js";
-import { assertEnvelope, validateEnvelope, type EnvelopeValidationResult } from "./validateEnvelope.js";
+import { runEnvelopeConformance, runFlagConformance } from './conformance.js';
+import { resolveOutputFormat } from './flagSemantics.js';
+import type { ConformanceReport, FlagInput, LAFSEnvelope } from './types.js';
+import {
+  assertEnvelope,
+  type EnvelopeValidationResult,
+  validateEnvelope,
+} from './validateEnvelope.js';
 
-export type ComplianceStage = "schema" | "envelope" | "flags" | "format";
+export type ComplianceStage = 'schema' | 'envelope' | 'flags' | 'format';
 
 export interface ComplianceIssue {
   stage: ComplianceStage;
@@ -31,8 +35,8 @@ export class ComplianceError extends Error {
   readonly issues: ComplianceIssue[];
 
   constructor(issues: ComplianceIssue[]) {
-    super(`LAFS compliance failed: ${issues.map((issue) => issue.message).join("; ")}`);
-    this.name = "ComplianceError";
+    super(`LAFS compliance failed: ${issues.map((issue) => issue.message).join('; ')}`);
+    this.name = 'ComplianceError';
     this.issues = issues;
   }
 }
@@ -51,12 +55,7 @@ export function enforceCompliance(
   input: unknown,
   options: EnforceComplianceOptions = {},
 ): ComplianceResult {
-  const {
-    checkConformance = true,
-    checkFlags = false,
-    flags,
-    requireJsonOutput = false,
-  } = options;
+  const { checkConformance = true, checkFlags = false, flags, requireJsonOutput = false } = options;
 
   const issues: ComplianceIssue[] = [];
 
@@ -64,8 +63,8 @@ export function enforceCompliance(
   if (!validation.valid) {
     issues.push(
       ...validation.errors.map((error) => ({
-        stage: "schema" as const,
-        message: "schema validation failed",
+        stage: 'schema' as const,
+        message: 'schema validation failed',
         detail: error,
       })),
     );
@@ -83,7 +82,7 @@ export function enforceCompliance(
   if (checkConformance) {
     envelopeConformance = runEnvelopeConformance(envelope);
     if (!envelopeConformance.ok) {
-      issues.push(...conformanceIssues(envelopeConformance, "envelope"));
+      issues.push(...conformanceIssues(envelopeConformance, 'envelope'));
     }
   }
 
@@ -91,16 +90,16 @@ export function enforceCompliance(
   if (checkFlags && flags) {
     flagConformance = runFlagConformance(flags);
     if (!flagConformance.ok) {
-      issues.push(...conformanceIssues(flagConformance, "flags"));
+      issues.push(...conformanceIssues(flagConformance, 'flags'));
     }
   }
 
   if (requireJsonOutput) {
     const resolved = resolveOutputFormat(flags ?? {});
-    if (resolved.format !== "json") {
+    if (resolved.format !== 'json') {
       issues.push({
-        stage: "format",
-        message: "non-json output format resolved",
+        stage: 'format',
+        message: 'non-json output format resolved',
         detail: `resolved format is ${resolved.format}`,
       });
     }

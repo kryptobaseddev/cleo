@@ -1,6 +1,6 @@
-import { LAFSFlagError } from "./flagSemantics.js";
-import { isMVILevel } from "./types.js";
-import type { LAFSEnvelope, MVILevel } from "./types.js";
+import { LAFSFlagError } from './flagSemantics.js';
+import type { LAFSEnvelope, MVILevel } from './types.js';
+import { isMVILevel } from './types.js';
 
 export interface FieldExtractionInput {
   /** --field <name>: extract single field as plain text, no envelope */
@@ -19,7 +19,7 @@ export interface FieldExtractionResolution {
   /** Resolved MVI level. Defaults to 'standard'. */
   mvi: MVILevel;
   /** Which input determined the mvi value: 'flag' when mviFlag was valid, 'default' otherwise. */
-  mviSource: "flag" | "default";
+  mviSource: 'flag' | 'default';
   /**
    * True when _fields are requested, indicating the server SHOULD set
    * _meta.mvi = 'custom' in the response per §9.1.
@@ -28,28 +28,30 @@ export interface FieldExtractionResolution {
   expectsCustomMvi: boolean;
 }
 
-export function resolveFieldExtraction(
-  input: FieldExtractionInput,
-): FieldExtractionResolution {
+export function resolveFieldExtraction(input: FieldExtractionInput): FieldExtractionResolution {
   if (input.fieldFlag && input.fieldsFlag) {
     throw new LAFSFlagError(
       'E_FIELD_CONFLICT',
-      'Cannot combine --field and --fields: --field extracts a single value '
-      + 'as plain text (no envelope); --fields filters the JSON envelope. '
-      + 'Use one or the other.',
+      'Cannot combine --field and --fields: --field extracts a single value ' +
+        'as plain text (no envelope); --fields filters the JSON envelope. ' +
+        'Use one or the other.',
       { conflictingModes: ['single-field-extraction', 'multi-field-filter'] },
     );
   }
 
-  const fields = typeof input.fieldsFlag === 'string'
-    ? input.fieldsFlag.split(',').map(f => f.trim()).filter(Boolean)
-    : Array.isArray(input.fieldsFlag)
-      ? input.fieldsFlag.map(f => f.trim()).filter(Boolean)
-      : undefined;
+  const fields =
+    typeof input.fieldsFlag === 'string'
+      ? input.fieldsFlag
+          .split(',')
+          .map((f) => f.trim())
+          .filter(Boolean)
+      : Array.isArray(input.fieldsFlag)
+        ? input.fieldsFlag.map((f) => f.trim()).filter(Boolean)
+        : undefined;
 
   // 'custom' is server-set (§9.1) — not a client-requestable level
   const validMvi = isMVILevel(input.mviFlag) && input.mviFlag !== 'custom';
-  const mvi: MVILevel = validMvi ? input.mviFlag as MVILevel : 'minimal';
+  const mvi: MVILevel = validMvi ? (input.mviFlag as MVILevel) : 'minimal';
   const mviSource: FieldExtractionResolution['mviSource'] = validMvi ? 'flag' : 'default';
 
   const hasFields = (fields?.length ?? 0) > 0;
@@ -81,10 +83,7 @@ export function resolveFieldExtraction(
  *
  * Returns undefined if not found at any level.
  */
-export function extractFieldFromResult(
-  result: LAFSEnvelope['result'],
-  field: string,
-): unknown {
+export function extractFieldFromResult(result: LAFSEnvelope['result'], field: string): unknown {
   if (result === null || typeof result !== 'object') return undefined;
 
   // Shape 1: result is a direct array
@@ -115,10 +114,7 @@ export function extractFieldFromResult(
 }
 
 /** Convenience wrapper — extracts a field from an envelope's result. */
-export function extractFieldFromEnvelope(
-  envelope: LAFSEnvelope,
-  field: string,
-): unknown {
+export function extractFieldFromEnvelope(envelope: LAFSEnvelope, field: string): unknown {
   return extractFieldFromResult(envelope.result, field);
 }
 
@@ -141,14 +137,11 @@ export function extractFieldFromEnvelope(
  * strings, booleans) are preserved as-is — _fields is applied to nested
  * entity or array keys only, not to the wrapper's own primitive keys.
  */
-export function applyFieldFilter(
-  envelope: LAFSEnvelope,
-  fields: string[],
-): LAFSEnvelope {
+export function applyFieldFilter(envelope: LAFSEnvelope, fields: string[]): LAFSEnvelope {
   if (fields.length === 0 || envelope.result === null) return envelope;
 
   const pick = (obj: Record<string, unknown>): Record<string, unknown> =>
-    Object.fromEntries(fields.filter(f => f in obj).map(f => [f, obj[f]]));
+    Object.fromEntries(fields.filter((f) => f in obj).map((f) => [f, obj[f]]));
 
   let filtered: LAFSEnvelope['result'];
 
@@ -157,7 +150,7 @@ export function applyFieldFilter(
     filtered = (envelope.result as Record<string, unknown>[]).map(pick);
   } else {
     const record = envelope.result as Record<string, unknown>;
-    const topLevelMatch = fields.some(f => f in record);
+    const topLevelMatch = fields.some((f) => f in record);
 
     if (topLevelMatch) {
       // Shape 2: flat result
@@ -167,7 +160,7 @@ export function applyFieldFilter(
       filtered = Object.fromEntries(
         Object.entries(record).map(([k, v]) => {
           if (Array.isArray(v)) {
-            return [k, v.map(item => pick(item as Record<string, unknown>))];
+            return [k, v.map((item) => pick(item as Record<string, unknown>))];
           }
           if (v && typeof v === 'object') {
             return [k, pick(v as Record<string, unknown>)];

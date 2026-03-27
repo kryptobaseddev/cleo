@@ -1,0 +1,23 @@
+[package]
+name = "cant-runtime"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "CANT DSL runtime - pipeline executor"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cant-core = { path = "../cant-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"

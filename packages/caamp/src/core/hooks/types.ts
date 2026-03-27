@@ -19,7 +19,7 @@
  *
  * @public
  */
-export const HOOK_CATEGORIES = ["session", "prompt", "tool", "agent", "context"] as const;
+export const HOOK_CATEGORIES = ['session', 'prompt', 'tool', 'agent', 'context'] as const;
 
 /**
  * Union type of valid hook category strings derived from {@link HOOK_CATEGORIES}.
@@ -44,22 +44,22 @@ export type HookCategory = (typeof HOOK_CATEGORIES)[number];
  * @public
  */
 export const CANONICAL_HOOK_EVENTS = [
-  "SessionStart",
-  "SessionEnd",
-  "PromptSubmit",
-  "ResponseComplete",
-  "PreToolUse",
-  "PostToolUse",
-  "PostToolUseFailure",
-  "PermissionRequest",
-  "SubagentStart",
-  "SubagentStop",
-  "PreModel",
-  "PostModel",
-  "PreCompact",
-  "PostCompact",
-  "Notification",
-  "ConfigChange",
+  'SessionStart',
+  'SessionEnd',
+  'PromptSubmit',
+  'ResponseComplete',
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'SubagentStart',
+  'SubagentStop',
+  'PreModel',
+  'PostModel',
+  'PreCompact',
+  'PostCompact',
+  'Notification',
+  'ConfigChange',
 ] as const;
 
 /**
@@ -105,7 +105,7 @@ export interface CanonicalEventDefinition {
  *
  * @public
  */
-export type HookSystemType = "config" | "plugin" | "none";
+export type HookSystemType = 'config' | 'plugin' | 'none';
 
 /**
  * The mechanism a provider uses to execute hook handlers.
@@ -119,7 +119,7 @@ export type HookSystemType = "config" | "plugin" | "none";
  *
  * @public
  */
-export type HookHandlerType = "command" | "http" | "prompt" | "agent" | "plugin";
+export type HookHandlerType = 'command' | 'http' | 'prompt' | 'agent' | 'plugin';
 
 /**
  * Mapping of a single canonical event to a provider's native representation.

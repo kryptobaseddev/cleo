@@ -1,0 +1,10 @@
+# Ferrous Forge project configuration
+# These values are LOCKED — LLM agents must not modify them without human approval.
+
+[validation]
+max_file_lines = 300
+max_function_lines = 50
+required_edition = "2024"
+required_rust_version = "1.85.0"
+ban_underscore_bandaid = true
+require_documentation = true

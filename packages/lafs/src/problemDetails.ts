@@ -3,8 +3,9 @@
  * Converts LAFSError to RFC 9457-compliant Problem Details objects.
  * Available for any transport, not just HTTP.
  */
-import type { LAFSError } from './types.js';
+
 import { getRegistryCode } from './errorRegistry.js';
+import type { LAFSError } from './types.js';
 
 /** RFC 9457 Problem Details with LAFS extensions */
 export interface LafsProblemDetails {
@@ -34,7 +35,7 @@ export interface LafsProblemDetails {
  */
 export function lafsErrorToProblemDetails(
   error: LAFSError,
-  requestId?: string
+  requestId?: string,
 ): LafsProblemDetails {
   const registry = getRegistryCode(error.code);
 

@@ -1,9 +1,18 @@
 [workspace]
 members = [
     "crates/cant-core",
+    "crates/cant-lsp",
+    "crates/cant-napi",
+    "crates/cant-runtime",
     "crates/conduit-core",
     "crates/lafs-core",
-    "crates/signaldock-core"
+    "crates/signaldock-core",
+    "crates/signaldock-protocol",
+    "crates/signaldock-storage",
+    "crates/signaldock-transport",
+    "crates/signaldock-sdk",
+    "crates/signaldock-payments",
+    "crates/integration-tests",
 ]
 resolver = "2"
 
@@ -11,6 +20,73 @@ resolver = "2"
 edition = "2024"
 version = "0.1.0"
 rust-version = "1.88"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Web framework
+axum = { version = "0.8", features = ["ws"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+h2 = "0.4"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "uuid", "chrono", "migrate"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Crypto
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+base64 = "0.22"
+jsonwebtoken = "9"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Data structures
+dashmap = "6"
+
+# Optional
+redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+
+# napi-rs bindings
+napi = { version = "3", features = ["napi4"] }
+napi-derive = "3"
+napi-build = "1"
+
+# LSP
+tower-lsp = "0.20"
+
+# Local workspace crates
+lafs-core = { path = "crates/lafs-core" }
+conduit-core = { path = "crates/conduit-core" }
+cant-core = { path = "crates/cant-core" }
+cant-lsp = { path = "crates/cant-lsp" }
+cant-napi = { path = "crates/cant-napi" }
+cant-runtime = { path = "crates/cant-runtime" }
+signaldock-core = { path = "crates/signaldock-core" }
+signaldock-protocol = { path = "crates/signaldock-protocol" }
+signaldock-storage = { path = "crates/signaldock-storage" }
+signaldock-transport = { path = "crates/signaldock-transport" }
+signaldock-sdk = { path = "crates/signaldock-sdk" }
+signaldock-payments = { path = "crates/signaldock-payments" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

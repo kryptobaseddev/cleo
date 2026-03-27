@@ -26,7 +26,7 @@ export async function initWasm(): Promise<void> {
       const wasm = await import('../wasm/cant_core');
       await wasm.default();
       wasmModule = wasm;
-    } catch (error) {
+    } catch (_error) {
       console.warn('WASM module not available, falling back to stub implementation');
       wasmModule = null;
     }

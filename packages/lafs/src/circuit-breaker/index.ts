@@ -1,6 +1,6 @@
 /**
  * LAFS Circuit Breaker Module
- * 
+ *
  * Provides circuit breaker pattern for resilient service calls
  */
 
@@ -32,17 +32,17 @@ export class CircuitBreakerError extends Error {
 
 /**
  * Circuit breaker for protecting against cascading failures
- * 
+ *
  * @example
  * ```typescript
  * import { CircuitBreaker } from '@cleocode/lafs/circuit-breaker';
- * 
+ *
  * const breaker = new CircuitBreaker({
  *   name: 'external-api',
  *   failureThreshold: 5,
  *   resetTimeout: 30000
  * });
- * 
+ *
  * try {
  *   const result = await breaker.execute(async () => {
  *     return await externalApi.call();
@@ -70,7 +70,7 @@ export class CircuitBreaker {
       resetTimeout: 30000,
       halfOpenMaxCalls: 3,
       successThreshold: 2,
-      ...config
+      ...config,
     };
   }
 
@@ -84,16 +84,14 @@ export class CircuitBreaker {
       if (this.shouldAttemptReset()) {
         this.transitionTo('HALF_OPEN');
       } else {
-        throw new CircuitBreakerError(
-          `Circuit breaker '${this.config.name}' is OPEN`
-        );
+        throw new CircuitBreakerError(`Circuit breaker '${this.config.name}' is OPEN`);
       }
     }
 
     if (this.state === 'HALF_OPEN') {
       if (this.halfOpenCalls >= (this.config.halfOpenMaxCalls || 3)) {
         throw new CircuitBreakerError(
-          `Circuit breaker '${this.config.name}' is HALF_OPEN (max calls reached)`
+          `Circuit breaker '${this.config.name}' is HALF_OPEN (max calls reached)`,
         );
       }
       this.halfOpenCalls++;
@@ -126,7 +124,7 @@ export class CircuitBreaker {
       successes: this.successes,
       lastFailureTime: this.lastFailureTime,
       consecutiveSuccesses: this.consecutiveSuccesses,
-      totalCalls: this.totalCalls
+      totalCalls: this.totalCalls,
     };
   }
 
@@ -176,7 +174,7 @@ export class CircuitBreaker {
   private transitionTo(newState: CircuitState): void {
     console.log(`Circuit breaker '${this.config.name}': ${this.state} -> ${newState}`);
     this.state = newState;
-    
+
     if (newState === 'HALF_OPEN') {
       this.halfOpenCalls = 0;
     }
@@ -184,7 +182,7 @@ export class CircuitBreaker {
 
   private shouldAttemptReset(): boolean {
     if (!this.lastFailureTime) return true;
-    
+
     const elapsed = Date.now() - this.lastFailureTime.getTime();
     return elapsed >= (this.config.resetTimeout || 30000);
   }
@@ -193,7 +191,7 @@ export class CircuitBreaker {
     if (this.resetTimer) {
       clearTimeout(this.resetTimer);
     }
-    
+
     this.resetTimer = setTimeout(() => {
       if (this.state === 'OPEN') {
         this.transitionTo('HALF_OPEN');
@@ -205,7 +203,7 @@ export class CircuitBreaker {
     this.failures = 0;
     this.consecutiveSuccesses = 0;
     this.halfOpenCalls = 0;
-    
+
     if (this.resetTimer) {
       clearTimeout(this.resetTimer);
       this.resetTimer = undefined;
@@ -215,16 +213,16 @@ export class CircuitBreaker {
 
 /**
  * Circuit breaker registry for managing multiple breakers
- * 
+ *
  * @example
  * ```typescript
  * const registry = new CircuitBreakerRegistry();
- * 
+ *
  * registry.add('payment-api', {
  *   failureThreshold: 3,
  *   resetTimeout: 60000
  * });
- * 
+ *
  * const paymentBreaker = registry.get('payment-api');
  * ```
  */
@@ -258,13 +256,15 @@ export class CircuitBreakerRegistry {
   }
 
   resetAll(): void {
-    this.breakers.forEach(breaker => breaker.forceClose());
+    this.breakers.forEach((breaker) => {
+      breaker.forceClose();
+    });
   }
 }
 
 /**
  * Create a circuit breaker middleware for Express
- * 
+ *
  * @example
  * ```typescript
  * app.use('/external-api', circuitBreakerMiddleware({
@@ -275,7 +275,7 @@ export class CircuitBreakerRegistry {
  */
 export function circuitBreakerMiddleware(config: CircuitBreakerConfig) {
   const breaker = new CircuitBreaker(config);
-  
+
   return async (req: any, res: any, next: any) => {
     try {
       await breaker.execute(async () => {
@@ -285,7 +285,7 @@ export function circuitBreakerMiddleware(config: CircuitBreakerConfig) {
       if (error instanceof CircuitBreakerError) {
         res.status(503).json({
           error: 'Service temporarily unavailable',
-          reason: 'Circuit breaker is open'
+          reason: 'Circuit breaker is open',
         });
       } else {
         throw error;

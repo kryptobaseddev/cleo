@@ -5,7 +5,7 @@
  * Includes structured InjectionTemplate API for project-level customization.
  */
 
-import type { Provider } from "../../types.js";
+import type { Provider } from '../../types.js';
 
 // ── InjectionTemplate API ───────────────────────────────────────────
 
@@ -56,12 +56,12 @@ export function buildInjectionContent(template: InjectionTemplate): string {
 
   if (template.content && template.content.length > 0) {
     if (lines.length > 0) {
-      lines.push("");
+      lines.push('');
     }
     lines.push(...template.content);
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 /**
@@ -87,11 +87,11 @@ export function parseInjectionContent(content: string): InjectionTemplate {
   const references: string[] = [];
   const contentLines: string[] = [];
 
-  for (const line of content.split("\n")) {
+  for (const line of content.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    if (trimmed.startsWith("@")) {
+    if (trimmed.startsWith('@')) {
       references.push(trimmed);
     } else {
       contentLines.push(line);
@@ -132,23 +132,23 @@ export function generateInjectionContent(options?: {
 }): string {
   const lines: string[] = [];
 
-  lines.push("## CAAMP Managed Configuration");
-  lines.push("");
-  lines.push("This section is managed by [CAAMP](https://github.com/caamp/caamp).");
-  lines.push("Do not edit between the CAAMP markers manually.");
+  lines.push('## CAAMP Managed Configuration');
+  lines.push('');
+  lines.push('This section is managed by [CAAMP](https://github.com/caamp/caamp).');
+  lines.push('Do not edit between the CAAMP markers manually.');
 
   if (options?.mcpServerName) {
-    lines.push("");
+    lines.push('');
     lines.push(`### MCP Server: ${options.mcpServerName}`);
     lines.push(`Configured via \`caamp mcp install\`.`);
   }
 
   if (options?.customContent) {
-    lines.push("");
+    lines.push('');
     lines.push(options.customContent);
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 /**
@@ -169,17 +169,17 @@ export function generateInjectionContent(options?: {
  * @public
  */
 export function generateSkillsSection(skillNames: string[]): string {
-  if (skillNames.length === 0) return "";
+  if (skillNames.length === 0) return '';
 
   const lines: string[] = [];
-  lines.push("### Installed Skills");
-  lines.push("");
+  lines.push('### Installed Skills');
+  lines.push('');
 
   for (const name of skillNames) {
     lines.push(`- \`${name}\` - Available via SKILL.md`);
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 /**

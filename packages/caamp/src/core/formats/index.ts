@@ -6,13 +6,13 @@
  * @packageDocumentation
  */
 
-import type { ConfigFormat } from "../../types.js";
-import { readJsonConfig, writeJsonConfig, removeJsonConfig } from "./json.js";
-import { readYamlConfig, writeYamlConfig, removeYamlConfig } from "./yaml.js";
-import { readTomlConfig, writeTomlConfig, removeTomlConfig } from "./toml.js";
-import { debug } from "../logger.js";
+import type { ConfigFormat } from '../../types.js';
+import { debug } from '../logger.js';
+import { readJsonConfig, removeJsonConfig, writeJsonConfig } from './json.js';
+import { readTomlConfig, removeTomlConfig, writeTomlConfig } from './toml.js';
+import { readYamlConfig, removeYamlConfig, writeYamlConfig } from './yaml.js';
 
-export { deepMerge, getNestedValue, ensureDir } from "./utils.js";
+export { deepMerge, ensureDir, getNestedValue } from './utils.js';
 
 /**
  * Read and parse a config file in the specified format.
@@ -35,15 +35,18 @@ export { deepMerge, getNestedValue, ensureDir } from "./utils.js";
  *
  * @public
  */
-export async function readConfig(filePath: string, format: ConfigFormat): Promise<Record<string, unknown>> {
+export async function readConfig(
+  filePath: string,
+  format: ConfigFormat,
+): Promise<Record<string, unknown>> {
   debug(`reading config: ${filePath} (format: ${format})`);
   switch (format) {
-    case "json":
-    case "jsonc":
+    case 'json':
+    case 'jsonc':
       return readJsonConfig(filePath);
-    case "yaml":
+    case 'yaml':
       return readYamlConfig(filePath);
-    case "toml":
+    case 'toml':
       return readTomlConfig(filePath);
     default:
       throw new Error(`Unsupported config format: ${format as string}`);
@@ -83,12 +86,12 @@ export async function writeConfig(
 ): Promise<void> {
   debug(`writing config: ${filePath} (format: ${format}, key: ${key}, server: ${serverName})`);
   switch (format) {
-    case "json":
-    case "jsonc":
+    case 'json':
+    case 'jsonc':
       return writeJsonConfig(filePath, key, serverName, serverConfig);
-    case "yaml":
+    case 'yaml':
       return writeYamlConfig(filePath, key, serverName, serverConfig);
-    case "toml":
+    case 'toml':
       return writeTomlConfig(filePath, key, serverName, serverConfig);
     default:
       throw new Error(`Unsupported config format: ${format as string}`);
@@ -123,12 +126,12 @@ export async function removeConfig(
   serverName: string,
 ): Promise<boolean> {
   switch (format) {
-    case "json":
-    case "jsonc":
+    case 'json':
+    case 'jsonc':
       return removeJsonConfig(filePath, key, serverName);
-    case "yaml":
+    case 'yaml':
       return removeYamlConfig(filePath, key, serverName);
-    case "toml":
+    case 'toml':
       return removeTomlConfig(filePath, key, serverName);
     default:
       throw new Error(`Unsupported config format: ${format as string}`);

@@ -5,13 +5,13 @@
  * error code mapping for consistent error handling across transports.
  */
 
-export * from './jsonrpc.js';
-export * from './http.js';
 export * from './grpc.js';
+export * from './http.js';
+export * from './jsonrpc.js';
 
+import { A2A_GRPC_STATUS_CODES, GRPC_STATUS_CODE } from './grpc.js';
+import { A2A_ERROR_TYPE_URIS, A2A_HTTP_STATUS_CODES } from './http.js';
 import { type A2AErrorType, JSONRPC_A2A_ERROR_CODES } from './jsonrpc.js';
-import { A2A_HTTP_STATUS_CODES, A2A_ERROR_TYPE_URIS } from './http.js';
-import { A2A_GRPC_STATUS_CODES, GRPC_STATUS_CODE, A2A_GRPC_ERROR_REASONS } from './grpc.js';
 
 // ============================================================================
 // Cross-Binding Error Mapping

@@ -2,7 +2,16 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmconduitmessage_free: (a: number, b: number) => void;
-export const wasmconduitmessage_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+export const wasmconduitmessage_new: (
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  e: number,
+  f: number,
+  g: number,
+  h: number,
+) => number;
 export const wasmconduitmessage_id: (a: number) => [number, number];
 export const wasmconduitmessage_from: (a: number) => [number, number];
 export const wasmconduitmessage_content: (a: number) => [number, number];
@@ -19,7 +28,16 @@ export const wasmconduitstate_Reconnecting: () => number;
 export const wasmconduitstate_Error: () => number;
 export const wasmconduitstate_as_string: (a: number) => [number, number];
 export const __wbg_wasmcantmetadata_free: (a: number, b: number) => void;
-export const wasmcantmetadata_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+export const wasmcantmetadata_new: (
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  e: number,
+  f: number,
+  g: number,
+  h: number,
+) => number;
 export const wasmcantmetadata_directive_type: (a: number) => [number, number];
 export const wasmcantmetadata_addresses_json: (a: number) => [number, number];
 export const wasmcantmetadata_task_refs_json: (a: number) => [number, number];

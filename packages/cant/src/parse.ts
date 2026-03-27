@@ -1,29 +1,32 @@
 import type { ParsedCANTMessage } from './types';
-import { cantParseWASM, initWasm, isWasmAvailable } from './wasm-loader';
+import { cantParseNative, isNativeAvailable } from './native-loader';
 
 export type { ParsedCANTMessage };
 
 /**
- * Initialize the CANT parser (loads WASM module)
- * Must be called before using parseCANTMessage
+ * Initialize the CANT parser
+ *
+ * With napi-rs native addons, this is a no-op (native modules load synchronously).
+ * Kept for backward compatibility with code that previously called this for WASM init.
  *
  * @example
  * ```typescript
  * import { initCantParser, parseCANTMessage } from '@cleocode/cant';
  *
- * await initCantParser();
+ * await initCantParser(); // no-op, kept for compat
  * const result = parseCANTMessage('/done @all T1234');
  * ```
  */
 export async function initCantParser(): Promise<void> {
-  await initWasm();
+  // No-op: napi-rs native addons load synchronously via require().
+  // Kept for backward compatibility.
 }
 
 /**
  * Parse a CANT message
  *
- * If WASM is available, uses the Rust cant-core parser.
- * Falls back to a basic JavaScript implementation if WASM is not loaded.
+ * If the native addon is available, uses the Rust cant-core parser via napi-rs.
+ * Falls back to a basic JavaScript implementation if the native addon is not loaded.
  *
  * @param content - The CANT message content to parse
  * @returns ParsedCANTMessage with directive, addresses, task_refs, tags
@@ -38,21 +41,21 @@ export async function initCantParser(): Promise<void> {
  * ```
  */
 export function parseCANTMessage(content: string): ParsedCANTMessage {
-  // If WASM is available, use it
-  if (isWasmAvailable()) {
+  // If native addon is available, use it
+  if (isNativeAvailable()) {
     try {
-      const wasmResult = cantParseWASM(content);
+      const nativeResult = cantParseNative(content);
       return {
-        directive: wasmResult.directive(),
-        directive_type: wasmResult.directive_type() as ParsedCANTMessage['directive_type'],
-        addresses: wasmResult.addresses(),
-        task_refs: wasmResult.task_refs(),
-        tags: wasmResult.tags(),
-        header_raw: wasmResult.header_raw(),
-        body: wasmResult.body(),
+        directive: nativeResult.directive ?? undefined,
+        directive_type: (nativeResult.directiveType?.toLowerCase() ?? 'informational') as ParsedCANTMessage['directive_type'],
+        addresses: nativeResult.addresses ?? [],
+        task_refs: nativeResult.taskRefs ?? [],
+        tags: nativeResult.tags ?? [],
+        header_raw: nativeResult.headerRaw ?? '',
+        body: nativeResult.body ?? '',
       };
     } catch (error) {
-      console.warn('WASM parsing failed, falling back to JS:', error);
+      console.warn('Native parsing failed, falling back to JS:', error);
     }
   }
 

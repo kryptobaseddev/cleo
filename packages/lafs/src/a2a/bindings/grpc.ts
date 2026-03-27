@@ -180,7 +180,7 @@ export interface GrpcErrorInfo {
 export function createGrpcStatus(
   errorType: A2AErrorType,
   message: string,
-  metadata?: Record<string, string>
+  metadata?: Record<string, string>,
 ): GrpcStatus {
   const statusName = A2A_GRPC_STATUS_CODES[errorType];
   const code = GRPC_STATUS_CODE[statusName];

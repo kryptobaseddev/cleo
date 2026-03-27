@@ -8,11 +8,12 @@
  *   - Blast radius calculation
  *   - Critical path detection
  *   - Edge cases (orphan tasks, circular refs, no deps)
+ *   - predictImpact: free-text change description matching (T043)
  *
  * @module intelligence
  */
 import { describe, expect, it } from 'vitest';
-import { analyzeChangeImpact, analyzeTaskImpact, calculateBlastRadius } from '../impact.js';
+import { analyzeChangeImpact, analyzeTaskImpact, calculateBlastRadius, predictImpact, } from '../impact.js';
 // ============================================================================
 // Test Helpers
 // ============================================================================
@@ -379,6 +380,136 @@ describe('calculateBlastRadius', () => {
         const result = await calculateBlastRadius('T001', acc);
         expect(result.directCount).toBe(1);
         expect(result.transitiveCount).toBe(2);
+    });
+});
+// ============================================================================
+// predictImpact (T043)
+// ============================================================================
+describe('predictImpact', () => {
+    it('returns empty report when no tasks match the change description', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'Set up CI pipeline', description: 'Configure CI runner' }),
+            makeTask({ id: 'T002', title: 'Write unit tests', description: 'Add test coverage' }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('authentication login oauth', undefined, acc);
+        expect(result.change).toBe('authentication login oauth');
+        expect(result.matchedTasks).toHaveLength(0);
+        expect(result.affectedTasks).toHaveLength(0);
+        expect(result.totalAffected).toBe(0);
+        expect(result.summary).toContain('No tasks matched');
+    });
+    it('returns direct match when task title contains change keywords', async () => {
+        const tasks = [
+            makeTask({
+                id: 'T001',
+                title: 'Implement authentication module',
+                description: 'Add JWT auth',
+            }),
+            makeTask({ id: 'T002', title: 'Set up database schema', description: 'Create tables' }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('authentication module', undefined, acc);
+        expect(result.matchedTasks).toHaveLength(1);
+        expect(result.matchedTasks[0]?.id).toBe('T001');
+        expect(result.matchedTasks[0]?.exposure).toBe('direct');
+        expect(result.totalAffected).toBe(1);
+    });
+    it('traces downstream dependents from matched seed tasks', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'authentication service implementation', description: '' }),
+            makeTask({
+                id: 'T002',
+                title: 'User login form',
+                description: 'Depends on auth service',
+                depends: ['T001'],
+            }),
+            makeTask({
+                id: 'T003',
+                title: 'Dashboard access control',
+                description: 'Requires user login',
+                depends: ['T002'],
+            }),
+            makeTask({
+                id: 'T004',
+                title: 'Unrelated database migration',
+                description: 'Schema changes',
+            }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('authentication service', undefined, acc);
+        // T001 is the direct match (seed)
+        expect(result.matchedTasks.map((t) => t.id)).toContain('T001');
+        // T002 and T003 should be in affectedTasks as dependents/transitive
+        const ids = result.affectedTasks.map((t) => t.id);
+        expect(ids).toContain('T001');
+        expect(ids).toContain('T002');
+        expect(ids).toContain('T003');
+        // T004 is unrelated and should not appear
+        expect(ids).not.toContain('T004');
+    });
+    it('classifies exposure correctly: direct, dependent, transitive', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'auth login service', description: '' }),
+            makeTask({ id: 'T002', title: 'Session management', description: '', depends: ['T001'] }),
+            makeTask({ id: 'T003', title: 'Profile page', description: '', depends: ['T002'] }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('auth login', undefined, acc);
+        const t1 = result.affectedTasks.find((t) => t.id === 'T001');
+        const t2 = result.affectedTasks.find((t) => t.id === 'T002');
+        const t3 = result.affectedTasks.find((t) => t.id === 'T003');
+        expect(t1?.exposure).toBe('direct');
+        expect(t2?.exposure).toBe('dependent');
+        expect(t3?.exposure).toBe('transitive');
+    });
+    it('sorts affectedTasks: direct first, then dependent, then transitive', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'auth service core', description: '' }),
+            makeTask({ id: 'T002', title: 'Login controller', description: '', depends: ['T001'] }),
+            makeTask({ id: 'T003', title: 'Session store', description: '', depends: ['T002'] }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('auth service', undefined, acc);
+        const exposures = result.affectedTasks.map((t) => t.exposure);
+        // direct must come before dependent which must come before transitive
+        const directIdx = exposures.indexOf('direct');
+        const dependentIdx = exposures.indexOf('dependent');
+        const transitiveIdx = exposures.indexOf('transitive');
+        if (directIdx !== -1 && dependentIdx !== -1) {
+            expect(directIdx).toBeLessThan(dependentIdx);
+        }
+        if (dependentIdx !== -1 && transitiveIdx !== -1) {
+            expect(dependentIdx).toBeLessThan(transitiveIdx);
+        }
+    });
+    it('respects matchLimit parameter', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'auth module setup', description: '' }),
+            makeTask({ id: 'T002', title: 'auth token generation', description: '' }),
+            makeTask({ id: 'T003', title: 'auth session management', description: '' }),
+        ];
+        const acc = mockAccessor(tasks);
+        // Limit to 1 seed
+        const result = await predictImpact('auth', undefined, acc, 1);
+        // Only 1 direct match seeded
+        expect(result.matchedTasks).toHaveLength(1);
+    });
+    it('produces a meaningful summary string', async () => {
+        const tasks = [
+            makeTask({ id: 'T001', title: 'auth service', description: '' }),
+            makeTask({ id: 'T002', title: 'Login page', description: '', depends: ['T001'] }),
+        ];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('auth service', undefined, acc);
+        expect(result.summary).toContain('auth service');
+        expect(result.summary).toMatch(/\d+ task/);
+    });
+    it('downstreamCount is 0 for leaf tasks with no dependents', async () => {
+        const tasks = [makeTask({ id: 'T001', title: 'auth service core', description: '' })];
+        const acc = mockAccessor(tasks);
+        const result = await predictImpact('auth service', undefined, acc);
+        expect(result.affectedTasks[0]?.downstreamCount).toBe(0);
     });
 });
 //# sourceMappingURL=impact.test.js.map

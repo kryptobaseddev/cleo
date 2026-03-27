@@ -4,11 +4,11 @@
  * Scans directories for SKILL.md files and parses their frontmatter.
  */
 
-import { readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join, } from "node:path";
-import matter from "gray-matter";
-import type { SkillEntry, SkillMetadata } from "../../types.js";
+import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import matter from 'gray-matter';
+import type { SkillEntry, SkillMetadata } from '../../types.js';
 
 /**
  * Parse a SKILL.md file and extract its frontmatter metadata.
@@ -33,14 +33,14 @@ import type { SkillEntry, SkillMetadata } from "../../types.js";
  */
 export async function parseSkillFile(filePath: string): Promise<SkillMetadata | null> {
   try {
-    const content = await readFile(filePath, "utf-8");
+    const content = await readFile(filePath, 'utf-8');
     const { data } = matter(content);
 
     if (!data.name || !data.description) {
       return null;
     }
 
-    const allowedTools = data["allowed-tools"] ?? data.allowedTools;
+    const allowedTools = data['allowed-tools'] ?? data.allowedTools;
 
     return {
       name: String(data.name),
@@ -48,11 +48,12 @@ export async function parseSkillFile(filePath: string): Promise<SkillMetadata | 
       license: data.license ? String(data.license) : undefined,
       compatibility: data.compatibility ? String(data.compatibility) : undefined,
       metadata: data.metadata as Record<string, string> | undefined,
-      allowedTools: typeof allowedTools === "string"
-        ? allowedTools.split(/\s+/)
-        : Array.isArray(allowedTools)
-          ? allowedTools.map(String)
-          : undefined,
+      allowedTools:
+        typeof allowedTools === 'string'
+          ? allowedTools.split(/\s+/)
+          : Array.isArray(allowedTools)
+            ? allowedTools.map(String)
+            : undefined,
       version: data.version ? String(data.version) : undefined,
     };
   } catch {
@@ -83,7 +84,7 @@ export async function parseSkillFile(filePath: string): Promise<SkillMetadata | 
  * @public
  */
 export async function discoverSkill(skillDir: string): Promise<SkillEntry | null> {
-  const skillFile = join(skillDir, "SKILL.md");
+  const skillFile = join(skillDir, 'SKILL.md');
   if (!existsSync(skillFile)) return null;
 
   const metadata = await parseSkillFile(skillFile);

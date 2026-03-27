@@ -136,7 +136,7 @@ describe('Session Context Safety (T5122)', () => {
             expect(result.data).toHaveLength(3);
             for (const record of result.data) {
                 const keys = Object.keys(record).sort();
-                expect(keys).toEqual(['id', 'name', 'scope', 'startedAt', 'status']);
+                expect(keys).toEqual(['_next', 'id', 'name', 'scope', 'startedAt', 'status']);
             }
         });
         it('does NOT include heavy fields like notes, taskWork, handoffJson, tasksCompleted', async () => {

@@ -83,6 +83,8 @@ describe('TasksHandler', () => {
                 'stop',
                 'sync.reconcile',
                 'sync.links.remove',
+                'claim',
+                'unclaim',
             ]);
         });
     });

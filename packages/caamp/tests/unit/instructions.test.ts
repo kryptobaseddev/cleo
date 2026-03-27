@@ -50,6 +50,7 @@ function makeProvider(overrides: Partial<Provider> & { id: string; instructFile:
     priority: "medium",
     status: "active",
     agentSkillsCompatible: true,
+    capabilities: { skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookFormat: null }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null } },
     ...overrides,
   } as Provider;
 }

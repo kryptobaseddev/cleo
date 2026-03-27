@@ -8,26 +8,26 @@
 // Re-export SkillLibrary types as the primary catalog types
 export type {
   SkillLibrary,
-  SkillLibraryEntry,
-  SkillLibraryValidationResult,
-  SkillLibraryValidationIssue,
-  SkillLibraryProfile,
   SkillLibraryDispatchMatrix,
+  SkillLibraryEntry,
   SkillLibraryManifest,
   SkillLibraryManifestSkill,
-} from "./core/skills/skill-library.js";
+  SkillLibraryProfile,
+  SkillLibraryValidationIssue,
+  SkillLibraryValidationResult,
+} from './core/skills/skill-library.js';
 
 // ── Backward-compatible aliases (deprecated) ────────────────────────
 
 import type {
-  SkillLibraryEntry,
-  SkillLibraryValidationResult,
-  SkillLibraryValidationIssue,
-  SkillLibraryProfile,
   SkillLibraryDispatchMatrix,
+  SkillLibraryEntry,
   SkillLibraryManifest,
   SkillLibraryManifestSkill,
-} from "./core/skills/skill-library.js";
+  SkillLibraryProfile,
+  SkillLibraryValidationIssue,
+  SkillLibraryValidationResult,
+} from './core/skills/skill-library.js';
 
 /**
  * Backward-compatible alias for {@link SkillLibraryEntry}.
@@ -96,7 +96,7 @@ export type CtManifestSkill = SkillLibraryManifestSkill;
  *
  * @public
  */
-export type ConfigFormat = "json" | "jsonc" | "yaml" | "toml";
+export type ConfigFormat = 'json' | 'jsonc' | 'yaml' | 'toml';
 
 // ── Transport Types ─────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ export type ConfigFormat = "json" | "jsonc" | "yaml" | "toml";
  *
  * @public
  */
-export type TransportType = "stdio" | "sse" | "http";
+export type TransportType = 'stdio' | 'sse' | 'http';
 
 // ── Detection ───────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ export type TransportType = "stdio" | "sse" | "http";
  *
  * @public
  */
-export type DetectionMethod = "binary" | "directory" | "appBundle" | "flatpak";
+export type DetectionMethod = 'binary' | 'directory' | 'appBundle' | 'flatpak';
 
 /**
  * Configuration for detecting whether a provider is installed.
@@ -178,7 +178,7 @@ export interface DetectionConfig {
 // ── Provider Capabilities ────────────────────────────────────────────
 
 // Re-export capability enums from registry types for convenience
-export type { SkillsPrecedence, HookEvent, SpawnMechanism } from "./core/registry/types.js";
+export type { HookEvent, SkillsPrecedence, SpawnMechanism } from './core/registry/types.js';
 
 /**
  * Resolved skills capability for a provider at runtime.
@@ -196,7 +196,7 @@ export interface ProviderSkillsCapability {
   /** Project-relative `.agents/skills` path, or `null` if unsupported. */
   agentsProjectPath: string | null;
   /** How this provider resolves skill file precedence. */
-  precedence: import("./core/registry/types.js").SkillsPrecedence;
+  precedence: import('./core/registry/types.js').SkillsPrecedence;
 }
 
 /**
@@ -211,11 +211,11 @@ export interface ProviderSkillsCapability {
  */
 export interface ProviderHooksCapability {
   /** Hook lifecycle events this provider supports. */
-  supported: import("./core/registry/types.js").HookEvent[];
+  supported: import('./core/registry/types.js').HookEvent[];
   /** Resolved path to hook configuration file, or `null`. */
   hookConfigPath: string | null;
   /** Format of the hook config file. */
-  hookFormat: "json" | "yaml" | "toml" | "javascript" | null;
+  hookFormat: 'json' | 'yaml' | 'toml' | 'javascript' | null;
 }
 
 /**
@@ -238,7 +238,7 @@ export interface ProviderSpawnCapability {
   /** Whether multiple agents can be spawned in parallel. */
   supportsParallelSpawn: boolean;
   /** Mechanism used for spawning. */
-  spawnMechanism: import("./core/registry/types.js").SpawnMechanism | null;
+  spawnMechanism: import('./core/registry/types.js').SpawnMechanism | null;
 }
 
 /**
@@ -271,7 +271,7 @@ export interface ProviderCapabilities {
  *
  * @public
  */
-export type ProviderPriority = "high" | "medium" | "low";
+export type ProviderPriority = 'high' | 'medium' | 'low';
 
 /**
  * Lifecycle status of a provider in the registry.
@@ -283,7 +283,7 @@ export type ProviderPriority = "high" | "medium" | "low";
  *
  * @public
  */
-export type ProviderStatus = "active" | "beta" | "deprecated" | "planned";
+export type ProviderStatus = 'active' | 'beta' | 'deprecated' | 'planned';
 
 /**
  * A resolved AI agent provider definition with platform-specific paths.
@@ -434,7 +434,14 @@ export interface McpServerConfig {
  *
  * @public
  */
-export type SourceType = "remote" | "package" | "command" | "github" | "gitlab" | "local" | "library";
+export type SourceType =
+  | 'remote'
+  | 'package'
+  | 'command'
+  | 'github'
+  | 'gitlab'
+  | 'local'
+  | 'library';
 
 /**
  * Result of parsing a source string into its typed components.
@@ -778,7 +785,7 @@ export interface MarketplaceSearchResult {
  *
  * @public
  */
-export type AuditSeverity = "critical" | "high" | "medium" | "low" | "info";
+export type AuditSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 /**
  * A security audit rule definition with a regex pattern to match against skill content.
@@ -895,7 +902,7 @@ export interface AuditResult {
  *
  * @public
  */
-export type InjectionStatus = "current" | "outdated" | "missing" | "none";
+export type InjectionStatus = 'current' | 'outdated' | 'missing' | 'none';
 
 /**
  * Result of checking a single instruction file for CAAMP injection status.
@@ -962,7 +969,7 @@ export interface McpServerEntry {
   /** Human-readable provider name. */
   providerName: string;
   /** Whether from project or global config. */
-  scope: "project" | "global";
+  scope: 'project' | 'global';
   /** Absolute path to the config file. */
   configPath: string;
   /** Raw server configuration object. */

@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import type { Provider } from "../../types.js";
-import { getPlatformPaths } from "../platform-paths.js";
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import type { Provider } from '../../types.js';
+import { getPlatformPaths } from '../platform-paths.js';
 
 /**
  * Scope for path resolution, either global (user home) or project-local.
@@ -13,7 +13,7 @@ import { getPlatformPaths } from "../platform-paths.js";
  *
  * @public
  */
-export type PathScope = "project" | "global";
+export type PathScope = 'project' | 'global';
 
 /**
  * Platform-specific directory locations for agent configuration.
@@ -63,37 +63,37 @@ export function getPlatformLocations(): PlatformLocations {
   const home = homedir();
   const platform = process.platform;
 
-  if (platform === "win32") {
-    const appData = process.env["APPDATA"] ?? join(home, "AppData", "Roaming");
+  if (platform === 'win32') {
+    const appData = process.env['APPDATA'] ?? join(home, 'AppData', 'Roaming');
     return {
       home,
       config: appData,
-      vscodeConfig: join(appData, "Code", "User"),
-      zedConfig: join(appData, "Zed"),
-      claudeDesktopConfig: join(appData, "Claude"),
+      vscodeConfig: join(appData, 'Code', 'User'),
+      zedConfig: join(appData, 'Zed'),
+      claudeDesktopConfig: join(appData, 'Claude'),
       applications: [],
     };
   }
 
-  if (platform === "darwin") {
-    const config = process.env["XDG_CONFIG_HOME"] ?? join(home, ".config");
+  if (platform === 'darwin') {
+    const config = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
     return {
       home,
       config,
-      vscodeConfig: join(home, "Library", "Application Support", "Code", "User"),
-      zedConfig: join(home, "Library", "Application Support", "Zed"),
-      claudeDesktopConfig: join(home, "Library", "Application Support", "Claude"),
-      applications: ["/Applications", join(home, "Applications")],
+      vscodeConfig: join(home, 'Library', 'Application Support', 'Code', 'User'),
+      zedConfig: join(home, 'Library', 'Application Support', 'Zed'),
+      claudeDesktopConfig: join(home, 'Library', 'Application Support', 'Claude'),
+      applications: ['/Applications', join(home, 'Applications')],
     };
   }
 
-  const config = process.env["XDG_CONFIG_HOME"] ?? join(home, ".config");
+  const config = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
   return {
     home,
     config,
-    vscodeConfig: join(config, "Code", "User"),
-    zedConfig: join(config, "zed"),
-    claudeDesktopConfig: join(config, "Claude"),
+    vscodeConfig: join(config, 'Code', 'User'),
+    zedConfig: join(config, 'zed'),
+    claudeDesktopConfig: join(config, 'Claude'),
     applications: [],
   };
 }
@@ -139,7 +139,7 @@ export function getAgentsHome(): string {
  * @public
  */
 export function getProjectAgentsDir(projectRoot = process.cwd()): string {
-  return join(projectRoot, ".agents");
+  return join(projectRoot, '.agents');
 }
 
 /**
@@ -184,7 +184,7 @@ export function resolveProjectPath(relativePath: string, projectDir = process.cw
  * @public
  */
 export function getCanonicalSkillsDir(): string {
-  return join(getAgentsHome(), "skills");
+  return join(getAgentsHome(), 'skills');
 }
 
 /**
@@ -205,7 +205,7 @@ export function getCanonicalSkillsDir(): string {
  * @public
  */
 export function getLockFilePath(): string {
-  return join(getAgentsHome(), ".caamp-lock.json");
+  return join(getAgentsHome(), '.caamp-lock.json');
 }
 
 // ── .agents/ Standard Directory Structure ────────────────────────────
@@ -230,9 +230,9 @@ export function getLockFilePath(): string {
  *
  * @public
  */
-export function getAgentsMcpDir(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "mcp");
-  return join(projectDir ?? process.cwd(), ".agents", "mcp");
+export function getAgentsMcpDir(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'mcp');
+  return join(projectDir ?? process.cwd(), '.agents', 'mcp');
 }
 
 /**
@@ -254,8 +254,8 @@ export function getAgentsMcpDir(scope: PathScope = "global", projectDir?: string
  *
  * @public
  */
-export function getAgentsMcpServersPath(scope: PathScope = "global", projectDir?: string): string {
-  return join(getAgentsMcpDir(scope, projectDir), "servers.json");
+export function getAgentsMcpServersPath(scope: PathScope = 'global', projectDir?: string): string {
+  return join(getAgentsMcpDir(scope, projectDir), 'servers.json');
 }
 
 /**
@@ -277,9 +277,9 @@ export function getAgentsMcpServersPath(scope: PathScope = "global", projectDir?
  *
  * @public
  */
-export function getAgentsInstructFile(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "AGENTS.md");
-  return join(projectDir ?? process.cwd(), ".agents", "AGENTS.md");
+export function getAgentsInstructFile(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'AGENTS.md');
+  return join(projectDir ?? process.cwd(), '.agents', 'AGENTS.md');
 }
 
 /**
@@ -302,9 +302,9 @@ export function getAgentsInstructFile(scope: PathScope = "global", projectDir?: 
  *
  * @public
  */
-export function getAgentsConfigPath(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "config.toml");
-  return join(projectDir ?? process.cwd(), ".agents", "config.toml");
+export function getAgentsConfigPath(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'config.toml');
+  return join(projectDir ?? process.cwd(), '.agents', 'config.toml');
 }
 
 /**
@@ -326,9 +326,9 @@ export function getAgentsConfigPath(scope: PathScope = "global", projectDir?: st
  *
  * @public
  */
-export function getAgentsWikiDir(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "wiki");
-  return join(projectDir ?? process.cwd(), ".agents", "wiki");
+export function getAgentsWikiDir(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'wiki');
+  return join(projectDir ?? process.cwd(), '.agents', 'wiki');
 }
 
 /**
@@ -350,9 +350,9 @@ export function getAgentsWikiDir(scope: PathScope = "global", projectDir?: strin
  *
  * @public
  */
-export function getAgentsSpecDir(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "spec");
-  return join(projectDir ?? process.cwd(), ".agents", "spec");
+export function getAgentsSpecDir(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'spec');
+  return join(projectDir ?? process.cwd(), '.agents', 'spec');
 }
 
 /**
@@ -374,9 +374,9 @@ export function getAgentsSpecDir(scope: PathScope = "global", projectDir?: strin
  *
  * @public
  */
-export function getAgentsLinksDir(scope: PathScope = "global", projectDir?: string): string {
-  if (scope === "global") return join(getAgentsHome(), "links");
-  return join(projectDir ?? process.cwd(), ".agents", "links");
+export function getAgentsLinksDir(scope: PathScope = 'global', projectDir?: string): string {
+  if (scope === 'global') return join(getAgentsHome(), 'links');
+  return join(projectDir ?? process.cwd(), '.agents', 'links');
 }
 
 /**
@@ -439,7 +439,7 @@ export function resolveProviderConfigPath(
   scope: PathScope,
   projectDir = process.cwd(),
 ): string | null {
-  if (scope === "global") {
+  if (scope === 'global') {
     return provider.configPathGlobal;
   }
   if (!provider.configPathProject) {
@@ -468,11 +468,14 @@ export function resolveProviderConfigPath(
  *
  * @public
  */
-export function resolvePreferredConfigScope(provider: Provider, useGlobalFlag?: boolean): PathScope {
+export function resolvePreferredConfigScope(
+  provider: Provider,
+  useGlobalFlag?: boolean,
+): PathScope {
   if (useGlobalFlag) {
-    return "global";
+    return 'global';
   }
-  return provider.configPathProject ? "project" : "global";
+  return provider.configPathProject ? 'project' : 'global';
 }
 
 /**
@@ -501,7 +504,7 @@ export function resolveProviderSkillsDir(
   scope: PathScope,
   projectDir = process.cwd(),
 ): string {
-  if (scope === "global") {
+  if (scope === 'global') {
     return provider.pathSkills;
   }
   return resolveProjectPath(provider.pathProjectSkills, projectDir);
@@ -537,10 +540,10 @@ export function resolveProviderSkillsDirs(
   projectDir = process.cwd(),
 ): string[] {
   const vendorPath = resolveProviderSkillsDir(provider, scope, projectDir);
-  const precedence = provider.capabilities?.skills?.precedence ?? "vendor-only";
+  const precedence = provider.capabilities?.skills?.precedence ?? 'vendor-only';
 
   const resolveAgentsPath = (): string | null => {
-    if (scope === "global") {
+    if (scope === 'global') {
       return provider.capabilities?.skills?.agentsGlobalPath ?? null;
     }
     const projectRelative = provider.capabilities?.skills?.agentsProjectPath ?? null;
@@ -548,26 +551,26 @@ export function resolveProviderSkillsDirs(
   };
 
   switch (precedence) {
-    case "vendor-only":
+    case 'vendor-only':
       return [vendorPath];
 
-    case "agents-canonical": {
+    case 'agents-canonical': {
       const agentsPath = resolveAgentsPath();
       return agentsPath ? [agentsPath] : [vendorPath];
     }
 
-    case "agents-first": {
+    case 'agents-first': {
       const agentsPath = resolveAgentsPath();
       return agentsPath ? [agentsPath, vendorPath] : [vendorPath];
     }
 
-    case "agents-supported": {
+    case 'agents-supported': {
       const agentsPath = resolveAgentsPath();
       return agentsPath ? [vendorPath, agentsPath] : [vendorPath];
     }
 
-    case "vendor-global-agents-project": {
-      if (scope === "global") {
+    case 'vendor-global-agents-project': {
+      if (scope === 'global') {
         return [vendorPath];
       }
       const agentsPath = resolveAgentsPath();
@@ -624,8 +627,8 @@ export function resolveProviderProjectPath(provider: Provider, projectDir = proc
  */
 export function resolveProvidersRegistryPath(startDir: string): string {
   const candidates = [
-    join(startDir, "..", "..", "..", "providers", "registry.json"),
-    join(startDir, "..", "providers", "registry.json"),
+    join(startDir, '..', '..', '..', 'providers', 'registry.json'),
+    join(startDir, '..', 'providers', 'registry.json'),
   ];
 
   for (const candidate of candidates) {
@@ -636,7 +639,7 @@ export function resolveProvidersRegistryPath(startDir: string): string {
 
   let current = startDir;
   for (let i = 0; i < 8; i += 1) {
-    const candidate = join(current, "providers", "registry.json");
+    const candidate = join(current, 'providers', 'registry.json');
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -667,7 +670,11 @@ export function resolveProvidersRegistryPath(startDir: string): string {
  */
 export function normalizeSkillSubPath(path: string | undefined): string | undefined {
   if (!path) return undefined;
-  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/SKILL\.md$/i, "").trim();
+  const normalized = path
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/SKILL\.md$/i, '')
+    .trim();
   return normalized.length > 0 ? normalized : undefined;
 }
 
@@ -703,9 +710,9 @@ export function buildSkillSubPathCandidates(
   if (base) candidates.push(base);
   if (parsed) candidates.push(parsed);
 
-  const knownPrefixes = [".agents", ".claude"];
+  const knownPrefixes = ['.agents', '.claude'];
   for (const value of [base, parsed]) {
-    if (!value || !value.startsWith("skills/")) continue;
+    if (!value || !value.startsWith('skills/')) continue;
     for (const prefix of knownPrefixes) {
       candidates.push(`${prefix}/${value}`);
     }

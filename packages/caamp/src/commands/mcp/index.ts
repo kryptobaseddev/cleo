@@ -4,12 +4,12 @@
  * @packageDocumentation
  */
 
-import type { Command } from "commander";
-import { registerMcpCleoCommands, registerMcpCleoCompatibilityCommands } from "./cleo.js";
-import { registerMcpDetect } from "./detect.js";
-import { registerMcpInstall } from "./install.js";
-import { registerMcpList } from "./list.js";
-import { registerMcpRemove } from "./remove.js";
+import type { Command } from 'commander';
+import { registerMcpCleoCommands, registerMcpCleoCompatibilityCommands } from './cleo.js';
+import { registerMcpDetect } from './detect.js';
+import { registerMcpInstall } from './install.js';
+import { registerMcpList } from './list.js';
+import { registerMcpRemove } from './remove.js';
 
 /**
  * Registers the `mcp` command group with install, remove, list, detect, and cleo subcommands.
@@ -29,9 +29,7 @@ import { registerMcpRemove } from "./remove.js";
  * @public
  */
 export function registerMcpCommands(program: Command): void {
-  const mcp = program
-    .command("mcp")
-    .description("Manage MCP server configurations");
+  const mcp = program.command('mcp').description('Manage MCP server configurations');
 
   registerMcpInstall(mcp);
   registerMcpRemove(mcp);

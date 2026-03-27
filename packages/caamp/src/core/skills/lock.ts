@@ -4,12 +4,12 @@
  * Shares the same canonical lock file as MCP.
  */
 
-import type { LockEntry, SourceType } from "../../types.js";
-import { readLockFile, updateLockFile } from "../lock-utils.js";
-import { parseSource } from "../sources/parser.js";
-import { simpleGit } from "simple-git";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { simpleGit } from 'simple-git';
+import type { LockEntry, SourceType } from '../../types.js';
+import { readLockFile, updateLockFile } from '../lock-utils.js';
+import { parseSource } from '../sources/parser.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -126,21 +126,16 @@ export async function getTrackedSkills(): Promise<Record<string, LockEntry>> {
 }
 
 /** Fetch the latest commit SHA for a GitHub/GitLab repo via ls-remote */
-async function fetchLatestSha(
-  repoUrl: string,
-  ref?: string,
-): Promise<string | null> {
+async function fetchLatestSha(repoUrl: string, ref?: string): Promise<string | null> {
   try {
     const git = simpleGit();
-    const target = ref ?? "HEAD";
+    const target = ref ?? 'HEAD';
     // Use --refs only for named refs (branches/tags), not for HEAD
-    const args = target === "HEAD"
-      ? [repoUrl, "HEAD"]
-      : ["--refs", repoUrl, target];
+    const args = target === 'HEAD' ? [repoUrl, 'HEAD'] : ['--refs', repoUrl, target];
     const result = await git.listRemote(args);
-    const firstLine = result.trim().split("\n")[0];
+    const firstLine = result.trim().split('\n')[0];
     if (!firstLine) return null;
-    const sha = firstLine.split("\t")[0];
+    const sha = firstLine.split('\t')[0];
     return sha ?? null;
   } catch {
     return null;
@@ -150,7 +145,7 @@ async function fetchLatestSha(
 /** Fetch the latest version for an npm package via npm view */
 async function fetchLatestPackageVersion(packageName: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("npm", ["view", packageName, "version"]);
+    const { stdout } = await execFileAsync('npm', ['view', packageName, 'version']);
     return stdout.trim() || null;
   } catch {
     return null;
@@ -182,20 +177,24 @@ export async function checkSkillUpdate(skillName: string): Promise<{
   hasUpdate: boolean;
   currentVersion?: string;
   latestVersion?: string;
-  status: "up-to-date" | "update-available" | "unknown";
+  status: 'up-to-date' | 'update-available' | 'unknown';
 }> {
   const lock = await readLockFile();
   const entry = lock.skills[skillName];
   if (!entry) {
-    return { hasUpdate: false, status: "unknown" };
+    return { hasUpdate: false, status: 'unknown' };
   }
 
   // Only GitHub, GitLab, and library sources support remote checking
-  if (entry.sourceType !== "github" && entry.sourceType !== "gitlab" && entry.sourceType !== "library") {
+  if (
+    entry.sourceType !== 'github' &&
+    entry.sourceType !== 'gitlab' &&
+    entry.sourceType !== 'library'
+  ) {
     return {
       hasUpdate: false,
       currentVersion: entry.version,
-      status: "unknown",
+      status: 'unknown',
     };
   }
 
@@ -204,27 +203,27 @@ export async function checkSkillUpdate(skillName: string): Promise<{
     return {
       hasUpdate: false,
       currentVersion: entry.version,
-      status: "unknown",
+      status: 'unknown',
     };
   }
 
-  if (entry.sourceType === "library") {
+  if (entry.sourceType === 'library') {
     const packageName = parsed.owner; // owner holds the package name for library type
     const latestVersion = await fetchLatestPackageVersion(packageName);
     if (!latestVersion) {
       return {
         hasUpdate: false,
         currentVersion: entry.version,
-        status: "unknown",
+        status: 'unknown',
       };
     }
     const currentVersion = entry.version;
     const hasUpdate = !currentVersion || currentVersion !== latestVersion;
     return {
       hasUpdate,
-      currentVersion: currentVersion ?? "unknown",
+      currentVersion: currentVersion ?? 'unknown',
       latestVersion,
-      status: hasUpdate ? "update-available" : "up-to-date",
+      status: hasUpdate ? 'update-available' : 'up-to-date',
     };
   }
 
@@ -232,11 +231,11 @@ export async function checkSkillUpdate(skillName: string): Promise<{
     return {
       hasUpdate: false,
       currentVersion: entry.version,
-      status: "unknown",
+      status: 'unknown',
     };
   }
 
-  const host = parsed.type === "gitlab" ? "gitlab.com" : "github.com";
+  const host = parsed.type === 'gitlab' ? 'gitlab.com' : 'github.com';
   const repoUrl = `https://${host}/${parsed.owner}/${parsed.repo}.git`;
   const latestSha = await fetchLatestSha(repoUrl, parsed.ref);
 
@@ -244,7 +243,7 @@ export async function checkSkillUpdate(skillName: string): Promise<{
     return {
       hasUpdate: false,
       currentVersion: entry.version,
-      status: "unknown",
+      status: 'unknown',
     };
   }
 
@@ -253,9 +252,9 @@ export async function checkSkillUpdate(skillName: string): Promise<{
 
   return {
     hasUpdate,
-    currentVersion: currentVersion ?? "unknown",
+    currentVersion: currentVersion ?? 'unknown',
     latestVersion: latestSha.slice(0, 12),
-    status: hasUpdate ? "update-available" : "up-to-date",
+    status: hasUpdate ? 'update-available' : 'up-to-date',
   };
 }
 
@@ -280,19 +279,26 @@ export async function checkSkillUpdate(skillName: string): Promise<{
  *
  * @public
  */
-export async function checkAllSkillUpdates(): Promise<Record<string, {
-  hasUpdate: boolean;
-  currentVersion?: string;
-  latestVersion?: string;
-  status: "up-to-date" | "update-available" | "unknown";
-}>> {
+export async function checkAllSkillUpdates(): Promise<
+  Record<
+    string,
+    {
+      hasUpdate: boolean;
+      currentVersion?: string;
+      latestVersion?: string;
+      status: 'up-to-date' | 'update-available' | 'unknown';
+    }
+  >
+> {
   const lock = await readLockFile();
   const skillNames = Object.keys(lock.skills);
-  
+
   const results: Record<string, any> = {};
-  await Promise.all(skillNames.map(async (name) => {
-    results[name] = await checkSkillUpdate(name);
-  }));
-  
+  await Promise.all(
+    skillNames.map(async (name) => {
+      results[name] = await checkSkillUpdate(name);
+    }),
+  );
+
   return results;
 }

@@ -1,0 +1,218 @@
+//! Agent block parser for the CANT DSL.
+//!
+//! Parses `agent Name:` blocks with properties, permissions, and inline hooks.
+//!
+//! ```cant
+//! agent ops-lead:
+//!   model: opus
+//!   prompt: "You coordinate operations"
+//!   skills: ["ct-deploy", "ct-monitor"]
+//!   permissions:
+//!     tasks: read, write
+//!     session: read
+//! ```
+
+use super::ast::{AgentDef, Spanned};
+use super::error::ParseError;
+use super::hook::parse_hook_block;
+use super::indent::{IndentedLine, collect_block};
+use super::permission::parse_permissions;
+use super::property::parse_property;
+use super::span::Span;
+
+/// Parses an `agent Name:` block starting at the given line index.
+///
+/// Returns the parsed [`AgentDef`] and the number of lines consumed.
+pub fn parse_agent_block(
+    lines: &[IndentedLine<'_>],
+    start_idx: usize,
+) -> Result<(AgentDef, usize), ParseError> {
+    let header = &lines[start_idx];
+    let content = header.content;
+    let base_offset = header.byte_offset + header.indent;
+    let header_span = Span::new(
+        base_offset,
+        base_offset + content.len(),
+        header.line_number,
+        (header.indent as u32) + 1,
+    );
+
+    // Extract agent name from "agent Name:"
+    let after_agent = content
+        .strip_prefix("agent ")
+        .ok_or_else(|| ParseError::error("expected `agent Name:`", header_span))?;
+
+    let name = after_agent
+        .strip_suffix(':')
+        .ok_or_else(|| {
+            ParseError::error(
+                "expected colon after agent name, e.g. `agent Name:`",
+                header_span,
+            )
+        })?
+        .trim();
+
+    if name.is_empty() {
+        return Err(ParseError::error("empty agent name", header_span));
+    }
+
+    let name_offset = base_offset + "agent ".len();
+    let name_spanned = Spanned {
+        value: name.to_string(),
+        span: Span::new(
+            name_offset,
+            name_offset + name.len(),
+            header.line_number,
+            (header.indent as u32) + 1 + "agent ".len() as u32,
+        ),
+    };
+
+    // Collect the indented body block
+    let body_lines = collect_block(lines, start_idx + 1, header.indent);
+    let total_consumed = 1 + body_lines.len();
+
+    let mut properties = Vec::new();
+    let mut permissions = Vec::new();
+    let mut hooks = Vec::new();
+
+    let mut i = 0;
+    while i < body_lines.len() {
+        let line = &body_lines[i];
+
+        if line.is_blank() || line.is_comment() {
+            i += 1;
+            continue;
+        }
+
+        // Check for permissions: sub-block
+        if line.content == "permissions:" {
+            let perm_lines = collect_block(body_lines, i + 1, line.indent);
+            permissions = parse_permissions(perm_lines)?;
+            i += 1 + perm_lines.len();
+            continue;
+        }
+
+        // Check for inline hook: `on EventName:`
+        if line.content.starts_with("on ") && line.content.ends_with(':') {
+            let (hook, hook_consumed) = parse_hook_block(body_lines, i)?;
+            hooks.push(hook);
+            i += hook_consumed;
+            continue;
+        }
+
+        // Regular property
+        let prop = parse_property(line)?;
+        properties.push(prop);
+        i += 1;
+    }
+
+    // Calculate full span
+    let end_offset = if body_lines.is_empty() {
+        base_offset + content.len()
+    } else {
+        let last = &body_lines[body_lines.len() - 1];
+        last.byte_offset + last.indent + last.content.len()
+    };
+
+    let agent = AgentDef {
+        name: name_spanned,
+        properties,
+        permissions,
+        hooks,
+        span: Span::new(
+            base_offset,
+            end_offset,
+            header.line_number,
+            (header.indent as u32) + 1,
+        ),
+    };
+
+    Ok((agent, total_consumed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dsl::indent::split_lines;
+
+    #[test]
+    fn parse_simple_agent() {
+        let input = "agent ops-lead:\n  model: opus\n  persist: true";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(agent.name.value, "ops-lead");
+        assert_eq!(agent.properties.len(), 2);
+        assert_eq!(agent.properties[0].key.value, "model");
+        assert_eq!(agent.properties[1].key.value, "persist");
+    }
+
+    #[test]
+    fn parse_agent_with_permissions() {
+        let input = "agent scanner:\n  model: opus\n  permissions:\n    tasks: read, write\n    session: read";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 5);
+        assert_eq!(agent.name.value, "scanner");
+        assert_eq!(agent.properties.len(), 1);
+        assert_eq!(agent.permissions.len(), 2);
+        assert_eq!(agent.permissions[0].domain, "tasks");
+        assert_eq!(agent.permissions[0].access, vec!["read", "write"]);
+    }
+
+    #[test]
+    fn parse_agent_with_skills_array() {
+        let input = "agent deployer:\n  skills: [\"ct-deploy\", \"ct-monitor\"]";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(agent.name.value, "deployer");
+        assert_eq!(agent.properties.len(), 1);
+        assert_eq!(agent.properties[0].key.value, "skills");
+    }
+
+    #[test]
+    fn missing_agent_keyword() {
+        let input = "skill ops-lead:\n  model: opus";
+        let lines = split_lines(input).unwrap();
+        let err = parse_agent_block(&lines, 0).unwrap_err();
+        assert!(err.message.contains("agent Name:"));
+    }
+
+    #[test]
+    fn missing_colon_after_name() {
+        let input = "agent ops-lead\n  model: opus";
+        let lines = split_lines(input).unwrap();
+        let err = parse_agent_block(&lines, 0).unwrap_err();
+        assert!(err.message.contains("colon"));
+    }
+
+    #[test]
+    fn empty_agent_name() {
+        let input = "agent :\n  model: opus";
+        let lines = split_lines(input).unwrap();
+        let err = parse_agent_block(&lines, 0).unwrap_err();
+        assert!(err.message.contains("empty agent name"));
+    }
+
+    #[test]
+    fn agent_with_blank_lines() {
+        let input = "agent test:\n  model: opus\n\n  persist: true";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 4);
+        assert_eq!(agent.properties.len(), 2);
+    }
+
+    #[test]
+    fn agent_followed_by_other_section() {
+        let input = "agent a:\n  model: opus\nagent b:\n  model: sonnet";
+        let lines = split_lines(input).unwrap();
+        let (agent_a, consumed_a) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed_a, 2);
+        assert_eq!(agent_a.name.value, "a");
+
+        let (agent_b, consumed_b) = parse_agent_block(&lines, consumed_a).unwrap();
+        assert_eq!(consumed_b, 2);
+        assert_eq!(agent_b.name.value, "b");
+    }
+}

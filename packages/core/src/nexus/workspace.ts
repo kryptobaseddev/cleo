@@ -145,12 +145,12 @@ function checkRateLimit(agentId: string): void {
 // ACL (HIGH-02)
 // ============================================================================
 
-/** Default ACL: all agents have access (open by default, restrict as needed). */
-const DEFAULT_ACL: ProjectACL = { authorizedAgents: ['*'] };
+/** Default ACL: denies every agent unless the project explicitly authorizes them. */
+const DEFAULT_ACL: ProjectACL = { authorizedAgents: [] };
 
 /**
  * Load ACL for a project. Reads from .cleo/config.json authorizedAgents field.
- * Falls back to open access if not configured.
+ * Falls back to deny-all if not configured.
  */
 async function loadProjectACL(projectPath: string): Promise<ProjectACL> {
   try {
@@ -161,9 +161,19 @@ async function loadProjectACL(projectPath: string): Promise<ProjectACL> {
       return { authorizedAgents: agents as string[] };
     }
   } catch {
-    // Config load failure = open access
+    await logAclFailure(projectPath);
   }
   return DEFAULT_ACL;
+}
+
+async function logAclFailure(projectPath: string): Promise<void> {
+  try {
+    const { getLogger } = await import('../logger.js');
+    const log = getLogger('nexus.acl');
+    log.warn({ projectPath }, 'Failed to load ACL configuration, defaulting to deny-all');
+  } catch {
+    // best-effort logging
+  }
 }
 
 /** Check if an agent is authorized to mutate a project. */
@@ -301,10 +311,12 @@ async function routeSingleTask(
   // ACL check (HIGH-02)
   const acl = await loadProjectACL(targetProject.path);
   if (!isAuthorized(acl, directive.agentId)) {
+    // E-FIND-004: audit ACL denials and redact projectPath
+    await logRouteAudit(directive, targetProject.name, taskId, operation, false);
     return {
       success: false,
       project: targetProject.name,
-      projectPath: targetProject.path,
+      projectPath: '',
       taskId,
       operation,
       error: `Agent '${directive.agentId}' not authorized to mutate project '${targetProject.name}'`,

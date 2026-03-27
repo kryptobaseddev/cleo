@@ -5,7 +5,7 @@
  */
 export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
-type NetworkErrorKind = "timeout" | "http" | "network";
+type NetworkErrorKind = 'timeout' | 'http' | 'network';
 
 /**
  * Structured error for network failures with categorized kind.
@@ -27,7 +27,7 @@ export class NetworkError extends Error {
 
   constructor(message: string, kind: NetworkErrorKind, url: string, status?: number) {
     super(message);
-    this.name = "NetworkError";
+    this.name = 'NetworkError';
     this.kind = kind;
     this.url = url;
     this.status = status;
@@ -35,7 +35,7 @@ export class NetworkError extends Error {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 /**
@@ -71,9 +71,9 @@ export async function fetchWithTimeout(
     });
   } catch (error) {
     if (isAbortError(error)) {
-      throw new NetworkError(`Request timed out after ${timeoutMs}ms`, "timeout", url);
+      throw new NetworkError(`Request timed out after ${timeoutMs}ms`, 'timeout', url);
     }
-    throw new NetworkError("Network request failed", "network", url);
+    throw new NetworkError('Network request failed', 'network', url);
   }
 }
 
@@ -99,7 +99,12 @@ export async function fetchWithTimeout(
  */
 export function ensureOkResponse(response: Response, url: string): Response {
   if (!response.ok) {
-    throw new NetworkError(`Request failed with status ${response.status}`, "http", url, response.status);
+    throw new NetworkError(
+      `Request failed with status ${response.status}`,
+      'http',
+      url,
+      response.status,
+    );
   }
   return response;
 }
@@ -128,13 +133,13 @@ export function ensureOkResponse(response: Response, url: string): Response {
  */
 export function formatNetworkError(error: unknown): string {
   if (error instanceof NetworkError) {
-    if (error.kind === "timeout") {
-      return "Network request timed out. Please check your connection and try again.";
+    if (error.kind === 'timeout') {
+      return 'Network request timed out. Please check your connection and try again.';
     }
-    if (error.kind === "http") {
-      return `Marketplace request failed with HTTP ${error.status ?? "unknown"}. Please try again shortly.`;
+    if (error.kind === 'http') {
+      return `Marketplace request failed with HTTP ${error.status ?? 'unknown'}. Please try again shortly.`;
     }
-    return "Network request failed. Please check your connection and try again.";
+    return 'Network request failed. Please check your connection and try again.';
   }
 
   if (error instanceof Error) return error.message;

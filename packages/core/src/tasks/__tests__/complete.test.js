@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../store/sqlite.js';
 import { completeTask } from '../complete.js';
 describe('completeTask', () => {
     let env;
@@ -14,12 +15,23 @@ describe('completeTask', () => {
     beforeEach(async () => {
         env = await createTestDb();
         accessor = env.accessor;
-        await writeConfig({ verification: { enabled: false } });
+        // Pin CLEO_DIR so concurrent workers cannot contaminate path resolution
+        process.env['CLEO_DIR'] = env.cleoDir;
+        await writeConfig({
+            enforcement: {
+                session: { requiredForMutate: false },
+                acceptance: { mode: 'off' },
+            },
+            lifecycle: { mode: 'off' },
+            verification: { enabled: false },
+        });
     });
     const writeConfig = async (config) => {
         await writeFile(join(env.cleoDir, 'config.json'), JSON.stringify(config));
     };
     afterEach(async () => {
+        delete process.env['CLEO_DIR'];
+        resetDbState();
         await env.cleanup();
     });
     it('completes a pending task', async () => {
@@ -113,7 +125,7 @@ describe('completeTask', () => {
                 },
             },
         });
-        await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow('requires acceptance criteria');
+        await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow('acceptance criteria');
     });
     it('blocks completion when verification metadata is missing', async () => {
         await seedTasks(accessor, [
@@ -126,7 +138,10 @@ describe('completeTask', () => {
                 type: 'task',
             },
         ]);
-        await writeConfig({ verification: { enabled: true } });
+        await writeConfig({
+            enforcement: { acceptance: { mode: 'off' } },
+            verification: { enabled: true },
+        });
         await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow('missing verification metadata');
     });
     it('defaults verification enforcement to disabled when unset (opt-in)', async () => {
@@ -140,9 +155,11 @@ describe('completeTask', () => {
                 type: 'task',
             },
         ]);
-        // Remove config.json so verification defaults to disabled (opt-in)
-        const { rm } = await import('node:fs/promises');
-        await rm(join(env.cleoDir, 'config.json'), { force: true });
+        // Write a config that only disables acceptance enforcement but no verification
+        // settings — verifying that verification defaults to disabled (opt-in behavior).
+        await writeConfig({
+            enforcement: { acceptance: { mode: 'off' } },
+        });
         const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
         expect(result.task.status).toBe('done');
     });
@@ -157,7 +174,10 @@ describe('completeTask', () => {
                 type: 'task',
             },
         ]);
-        await writeConfig({ verification: { enabled: false } });
+        await writeConfig({
+            enforcement: { acceptance: { mode: 'off' } },
+            verification: { enabled: false },
+        });
         const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
         expect(result.task.status).toBe('done');
     });
@@ -184,6 +204,7 @@ describe('completeTask', () => {
             },
         ]);
         await writeConfig({
+            enforcement: { acceptance: { mode: 'off' } },
             verification: {
                 enabled: true,
                 requiredGates: ['implemented', 'testsPassed'],

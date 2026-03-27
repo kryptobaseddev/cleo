@@ -5,7 +5,7 @@
  * These transforms handle agents with non-standard schemas.
  */
 
-import type { McpServerConfig } from "../../types.js";
+import type { McpServerConfig } from '../../types.js';
 
 /**
  * Transform a canonical MCP server config into the Goose YAML extensions format.
@@ -34,7 +34,7 @@ import type { McpServerConfig } from "../../types.js";
 export function transformGoose(serverName: string, config: McpServerConfig): unknown {
   if (config.url) {
     // Remote server
-    const transport = config.type === "sse" ? "sse" : "streamable_http";
+    const transport = config.type === 'sse' ? 'sse' : 'streamable_http';
     return {
       name: serverName,
       type: transport,
@@ -48,7 +48,7 @@ export function transformGoose(serverName: string, config: McpServerConfig): unk
   // Stdio server
   return {
     name: serverName,
-    type: "stdio",
+    type: 'stdio',
     cmd: config.command,
     args: config.args ?? [],
     ...(config.env ? { envs: config.env } : {}),
@@ -83,15 +83,15 @@ export function transformGoose(serverName: string, config: McpServerConfig): unk
 export function transformZed(_serverName: string, config: McpServerConfig): unknown {
   if (config.url) {
     return {
-      source: "custom",
-      type: config.type ?? "http",
+      source: 'custom',
+      type: config.type ?? 'http',
       url: config.url,
       ...(config.headers ? { headers: config.headers } : {}),
     };
   }
 
   return {
-    source: "custom",
+    source: 'custom',
     command: config.command,
     args: config.args ?? [],
     ...(config.env ? { env: config.env } : {}),
@@ -124,7 +124,7 @@ export function transformZed(_serverName: string, config: McpServerConfig): unkn
 export function transformOpenCode(_serverName: string, config: McpServerConfig): unknown {
   if (config.url) {
     return {
-      type: "remote",
+      type: 'remote',
       url: config.url,
       enabled: true,
       ...(config.headers ? { headers: config.headers } : {}),
@@ -132,7 +132,7 @@ export function transformOpenCode(_serverName: string, config: McpServerConfig):
   }
 
   return {
-    type: "local",
+    type: 'local',
     command: [config.command, ...(config.args ?? [])],
     enabled: true,
     ...(config.env ? { environment: config.env } : {}),
@@ -164,7 +164,7 @@ export function transformOpenCode(_serverName: string, config: McpServerConfig):
 export function transformCodex(_serverName: string, config: McpServerConfig): unknown {
   if (config.url) {
     return {
-      type: config.type ?? "http",
+      type: config.type ?? 'http',
       url: config.url,
       ...(config.headers ? { headers: config.headers } : {}),
     };
@@ -246,15 +246,15 @@ export function getTransform(
   providerId: string,
 ): ((name: string, config: McpServerConfig) => unknown) | undefined {
   switch (providerId) {
-    case "goose":
+    case 'goose':
       return transformGoose;
-    case "zed":
+    case 'zed':
       return transformZed;
-    case "opencode":
+    case 'opencode':
       return transformOpenCode;
-    case "codex":
+    case 'codex':
       return transformCodex;
-    case "cursor":
+    case 'cursor':
       return transformCursor;
     default:
       return undefined;

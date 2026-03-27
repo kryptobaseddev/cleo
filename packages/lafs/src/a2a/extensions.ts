@@ -8,7 +8,7 @@
  */
 
 import type { AgentExtension } from '@a2a-js/sdk';
-import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 // ============================================================================
 // Constants
@@ -67,7 +67,7 @@ export function parseExtensionsHeader(headerValue: string | undefined): string[]
   if (!headerValue) return [];
   return headerValue
     .split(',')
-    .map(uri => uri.trim())
+    .map((uri) => uri.trim())
     .filter(Boolean);
 }
 
@@ -78,9 +78,9 @@ export function parseExtensionsHeader(headerValue: string | undefined): string[]
  */
 export function negotiateExtensions(
   requestedUris: string[],
-  agentExtensions: AgentExtension[]
+  agentExtensions: AgentExtension[],
 ): ExtensionNegotiationResult {
-  const declared = new Map(agentExtensions.map(ext => [ext.uri, ext]));
+  const declared = new Map(agentExtensions.map((ext) => [ext.uri, ext]));
   const activated: string[] = [];
   const unsupported: string[] = [];
 
@@ -103,9 +103,10 @@ export function negotiateExtensions(
   const activatedByKind: Partial<Record<ExtensionKind, string[]>> = {};
   for (const uri of activated) {
     const ext = declared.get(uri);
-    const kind = ext?.params && typeof ext.params === 'object'
-      ? (ext.params as Record<string, unknown>)['kind']
-      : undefined;
+    const kind =
+      ext?.params && typeof ext.params === 'object'
+        ? (ext.params as Record<string, unknown>)['kind']
+        : undefined;
     if (typeof kind === 'string' && VALID_EXTENSION_KINDS.includes(kind as ExtensionKind)) {
       const typedKind = kind as ExtensionKind;
       if (!activatedByKind[typedKind]) {
@@ -176,10 +177,14 @@ export function isValidExtensionKind(kind: string): kind is ExtensionKind {
   return VALID_EXTENSION_KINDS.includes(kind as ExtensionKind);
 }
 
-export function validateExtensionDeclaration(extension: AgentExtension): { valid: boolean; error?: string } {
-  const kind = extension.params && typeof extension.params === 'object'
-    ? (extension.params as Record<string, unknown>)['kind']
-    : undefined;
+export function validateExtensionDeclaration(extension: AgentExtension): {
+  valid: boolean;
+  error?: string;
+} {
+  const kind =
+    extension.params && typeof extension.params === 'object'
+      ? (extension.params as Record<string, unknown>)['kind']
+      : undefined;
 
   if (kind === undefined) {
     return { valid: true };
@@ -276,14 +281,14 @@ export interface ExtensionNegotiationMiddlewareOptions {
  * activated extensions, attaches result to res.locals.a2aExtensions.
  */
 export function extensionNegotiationMiddleware(
-  options: ExtensionNegotiationMiddlewareOptions
+  options: ExtensionNegotiationMiddlewareOptions,
 ): RequestHandler {
   const { extensions, enforceRequired = true } = options;
 
   return function extensionNegotiationHandler(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): void {
     // Check both canonical and SDK headers (Express normalizes to lowercase)
     const headerValue =

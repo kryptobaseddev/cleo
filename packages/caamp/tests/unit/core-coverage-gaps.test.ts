@@ -428,6 +428,7 @@ describe("core/registry/detection - appBundle and flatpak branches", () => {
         priority: "medium",
         status: "active",
         agentSkillsCompatible: false,
+      capabilities: { skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookFormat: null }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null } },
       } as any);
 
       expect(result.installed).toBe(true);
@@ -468,6 +469,7 @@ describe("core/registry/detection - appBundle and flatpak branches", () => {
         priority: "medium",
         status: "active",
         agentSkillsCompatible: false,
+      capabilities: { skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookFormat: null }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null } },
       } as any);
 
       expect(result.installed).toBe(true);

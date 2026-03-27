@@ -36,10 +36,10 @@ export function deepMerge(
 
     if (
       sourceVal !== null &&
-      typeof sourceVal === "object" &&
+      typeof sourceVal === 'object' &&
       !Array.isArray(sourceVal) &&
       targetVal !== null &&
-      typeof targetVal === "object" &&
+      typeof targetVal === 'object' &&
       !Array.isArray(targetVal)
     ) {
       result[key] = deepMerge(
@@ -81,7 +81,7 @@ export function setNestedValue(
   key: string,
   value: unknown,
 ): Record<string, unknown> {
-  const parts = keyPath.split(".");
+  const parts = keyPath.split('.');
   const result = { ...obj };
   let current: Record<string, unknown> = result;
 
@@ -94,7 +94,7 @@ export function setNestedValue(
       current[part] = { ...existing, [key]: value };
     } else {
       // Intermediate: ensure object exists
-      if (typeof current[part] !== "object" || current[part] === null) {
+      if (typeof current[part] !== 'object' || current[part] === null) {
         current[part] = {};
       }
       current[part] = { ...(current[part] as Record<string, unknown>) };
@@ -124,15 +124,12 @@ export function setNestedValue(
  *
  * @public
  */
-export function getNestedValue(
-  obj: Record<string, unknown>,
-  keyPath: string,
-): unknown {
-  const parts = keyPath.split(".");
+export function getNestedValue(obj: Record<string, unknown>, keyPath: string): unknown {
+  const parts = keyPath.split('.');
   let current: unknown = obj;
 
   for (const part of parts) {
-    if (current === null || typeof current !== "object") return undefined;
+    if (current === null || typeof current !== 'object') return undefined;
     current = (current as Record<string, unknown>)[part];
   }
 
@@ -158,7 +155,7 @@ export function getNestedValue(
  * @public
  */
 export async function ensureDir(filePath: string): Promise<void> {
-  const { mkdir } = await import("node:fs/promises");
-  const { dirname } = await import("node:path");
+  const { mkdir } = await import('node:fs/promises');
+  const { dirname } = await import('node:path');
   await mkdir(dirname(filePath), { recursive: true });
 }

@@ -2,22 +2,22 @@
  * LAFS-compliant output helpers for advanced CLI commands.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID } from 'node:crypto';
 import {
   isRegisteredErrorCode,
+  type LAFSError,
   type LAFSErrorCategory,
   type LAFSMeta,
-  type LAFSError,
   type LAFSPage,
-} from "@cleocode/lafs";
-import type { MVILevel } from "../../core/lafs.js";
+} from '@cleocode/lafs';
+import type { MVILevel } from '../../core/lafs.js';
 
 /**
  * Generic LAFS result envelope for advanced commands.
  * Uses protocol types directly for full compliance.
  */
 type LAFSResultEnvelope<T> = {
-  $schema: "https://lafs.dev/schemas/v1/envelope.schema.json";
+  $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json';
   _meta: LAFSMeta;
   success: boolean;
   result: T | null;
@@ -56,7 +56,7 @@ export class LAFSCommandError extends Error {
     details?: unknown,
   ) {
     super(message);
-    this.name = "LAFSCommandError";
+    this.name = 'LAFSCommandError';
     this.code = code;
     this.category = inferErrorCategory(code);
     this.recoverable = recoverable;
@@ -67,25 +67,25 @@ export class LAFSCommandError extends Error {
 }
 
 function inferErrorCategory(code: string): LAFSErrorCategory {
-  if (code.includes("VALIDATION")) return "VALIDATION";
-  if (code.includes("NOT_FOUND")) return "NOT_FOUND";
-  if (code.includes("CONFLICT")) return "CONFLICT";
-  if (code.includes("AUTH")) return "AUTH";
-  if (code.includes("PERMISSION")) return "PERMISSION";
-  if (code.includes("RATE_LIMIT")) return "RATE_LIMIT";
-  if (code.includes("MIGRATION")) return "MIGRATION";
-  if (code.includes("CONTRACT")) return "CONTRACT";
-  return "INTERNAL";
+  if (code.includes('VALIDATION')) return 'VALIDATION';
+  if (code.includes('NOT_FOUND')) return 'NOT_FOUND';
+  if (code.includes('CONFLICT')) return 'CONFLICT';
+  if (code.includes('AUTH')) return 'AUTH';
+  if (code.includes('PERMISSION')) return 'PERMISSION';
+  if (code.includes('RATE_LIMIT')) return 'RATE_LIMIT';
+  if (code.includes('MIGRATION')) return 'MIGRATION';
+  if (code.includes('CONTRACT')) return 'CONTRACT';
+  return 'INTERNAL';
 }
 
 function baseMeta(operation: string, mvi: MVILevel): LAFSMeta {
   return {
-    specVersion: "1.0.0",
-    schemaVersion: "1.0.0",
+    specVersion: '1.0.0',
+    schemaVersion: '1.0.0',
     timestamp: new Date().toISOString(),
     operation,
     requestId: randomUUID(),
-    transport: "cli",
+    transport: 'cli',
     strict: true,
     mvi,
     contextVersion: 0,
@@ -111,9 +111,9 @@ function baseMeta(operation: string, mvi: MVILevel): LAFSMeta {
  *
  * @public
  */
-export function emitSuccess<T>(operation: string, result: T, mvi: MVILevel = "standard"): void {
+export function emitSuccess<T>(operation: string, result: T, mvi: MVILevel = 'standard'): void {
   const envelope: LAFSResultEnvelope<T> = {
-    $schema: "https://lafs.dev/schemas/v1/envelope.schema.json",
+    $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
     _meta: {
       ...baseMeta(operation, mvi),
     },
@@ -144,19 +144,19 @@ export function emitSuccess<T>(operation: string, result: T, mvi: MVILevel = "st
  *
  * @public
  */
-export function emitError(operation: string, error: unknown, mvi: MVILevel = "standard"): void {
+export function emitError(operation: string, error: unknown, mvi: MVILevel = 'standard'): void {
   let envelope: LAFSResultEnvelope<null>;
 
   if (error instanceof LAFSCommandError) {
     envelope = {
-      $schema: "https://lafs.dev/schemas/v1/envelope.schema.json",
+      $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
       _meta: {
         ...baseMeta(operation, mvi),
       },
       success: false,
       result: null,
       error: {
-        code: isRegisteredErrorCode(error.code) ? error.code : "E_INTERNAL_UNEXPECTED",
+        code: isRegisteredErrorCode(error.code) ? error.code : 'E_INTERNAL_UNEXPECTED',
         message: error.message,
         category: error.category,
         retryable: error.recoverable,
@@ -170,20 +170,20 @@ export function emitError(operation: string, error: unknown, mvi: MVILevel = "st
     };
   } else {
     envelope = {
-      $schema: "https://lafs.dev/schemas/v1/envelope.schema.json",
+      $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
       _meta: {
         ...baseMeta(operation, mvi),
       },
       success: false,
       result: null,
       error: {
-        code: "E_INTERNAL_UNEXPECTED",
+        code: 'E_INTERNAL_UNEXPECTED',
         message: error instanceof Error ? error.message : String(error),
-        category: "INTERNAL",
+        category: 'INTERNAL',
         retryable: false,
         retryAfterMs: null,
         details: {
-          hint: "Rerun with --verbose and validate your inputs.",
+          hint: 'Rerun with --verbose and validate your inputs.',
         },
       },
       page: null,

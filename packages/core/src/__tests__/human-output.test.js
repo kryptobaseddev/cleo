@@ -11,7 +11,17 @@
 import { ExitCode } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { CleoError } from '../errors.js';
-import { formatError, formatSuccess } from '../output.js';
+import { formatSuccess as _formatSuccess, formatError } from '../output.js';
+/**
+ * Wrapper that forces mvi='full' for human output tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess(data, message, operationOrOpts) {
+    const opts = typeof operationOrOpts === 'string'
+        ? { operation: operationOrOpts, mvi: 'full' }
+        : { mvi: 'full', ...(operationOrOpts ?? {}) };
+    return _formatSuccess(data, message, opts);
+}
 import { defaultFlags, isJsonOutput, parseCommonFlags, resolveFormat } from '../ui/flags.js';
 describe('--human output verification (T4696)', () => {
     describe('Flag parsing', () => {

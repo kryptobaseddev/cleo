@@ -5,10 +5,10 @@
  * and produces findings with line-level precision.
  */
 
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import type { AuditFinding, AuditResult, AuditRule, AuditSeverity } from "../../../types.js";
-import { AUDIT_RULES } from "./rules.js";
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { AuditFinding, AuditResult, AuditRule, AuditSeverity } from '../../../types.js';
+import { AUDIT_RULES } from './rules.js';
 
 const SEVERITY_WEIGHTS: Record<AuditSeverity, number> = {
   critical: 25,
@@ -38,22 +38,19 @@ const SEVERITY_WEIGHTS: Record<AuditSeverity, number> = {
  *
  * @public
  */
-export async function scanFile(
-  filePath: string,
-  rules?: AuditRule[],
-): Promise<AuditResult> {
+export async function scanFile(filePath: string, rules?: AuditRule[]): Promise<AuditResult> {
   if (!existsSync(filePath)) {
     return { file: filePath, findings: [], score: 100, passed: true };
   }
 
-  const content = await readFile(filePath, "utf-8");
-  const lines = content.split("\n");
+  const content = await readFile(filePath, 'utf-8');
+  const lines = content.split('\n');
   const activeRules = rules ?? AUDIT_RULES;
   const findings: AuditFinding[] = [];
 
   for (const rule of activeRules) {
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? "";
+      const line = lines[i] ?? '';
       const match = line.match(rule.pattern);
       if (match) {
         findings.push({
@@ -73,7 +70,9 @@ export async function scanFile(
     0,
   );
   const score = Math.max(0, 100 - totalPenalty);
-  const passed = !findings.some((f) => f.rule.severity === "critical" || f.rule.severity === "high");
+  const passed = !findings.some(
+    (f) => f.rule.severity === 'critical' || f.rule.severity === 'high',
+  );
 
   return { file: filePath, findings, score, passed };
 }
@@ -98,8 +97,8 @@ export async function scanFile(
  * @public
  */
 export async function scanDirectory(dirPath: string): Promise<AuditResult[]> {
-  const { readdir } = await import("node:fs/promises");
-  const { join } = await import("node:path");
+  const { readdir } = await import('node:fs/promises');
+  const { join } = await import('node:path');
 
   if (!existsSync(dirPath)) return [];
 
@@ -108,7 +107,7 @@ export async function scanDirectory(dirPath: string): Promise<AuditResult[]> {
 
   for (const entry of entries) {
     if (entry.isDirectory() || entry.isSymbolicLink()) {
-      const skillFile = join(dirPath, entry.name, "SKILL.md");
+      const skillFile = join(dirPath, entry.name, 'SKILL.md');
       if (existsSync(skillFile)) {
         results.push(await scanFile(skillFile));
       }
@@ -139,20 +138,21 @@ export async function scanDirectory(dirPath: string): Promise<AuditResult[]> {
  */
 export function toSarif(results: AuditResult[]): object {
   return {
-    $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
-    version: "2.1.0",
+    $schema:
+      'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+    version: '2.1.0',
     runs: [
       {
         tool: {
           driver: {
-            name: "caamp-audit",
-            version: "0.1.0",
+            name: 'caamp-audit',
+            version: '0.1.0',
             rules: AUDIT_RULES.map((r) => ({
               id: r.id,
               name: r.name,
               shortDescription: { text: r.description },
               defaultConfiguration: {
-                level: r.severity === "critical" || r.severity === "high" ? "error" : "warning",
+                level: r.severity === 'critical' || r.severity === 'high' ? 'error' : 'warning',
               },
               properties: { category: r.category },
             })),
@@ -161,7 +161,8 @@ export function toSarif(results: AuditResult[]): object {
         results: results.flatMap((result) =>
           result.findings.map((f) => ({
             ruleId: f.rule.id,
-            level: f.rule.severity === "critical" || f.rule.severity === "high" ? "error" : "warning",
+            level:
+              f.rule.severity === 'critical' || f.rule.severity === 'high' ? 'error' : 'warning',
             message: { text: `${f.rule.description}: ${f.match}` },
             locations: [
               {

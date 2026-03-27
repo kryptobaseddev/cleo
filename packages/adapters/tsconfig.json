@@ -22,7 +22,10 @@
     "types": ["node"]
   },
   "references": [
-    { "path": "../contracts" }
+    { "path": "../contracts" },
+    { "path": "../lafs" },
+    { "path": "../caamp" },
+    { "path": "../core" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"]

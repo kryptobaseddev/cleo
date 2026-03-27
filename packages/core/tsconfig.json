@@ -22,7 +22,9 @@
     "composite": true
   },
   "references": [
-    { "path": "../contracts" }
+    { "path": "../contracts" },
+    { "path": "../lafs" },
+    { "path": "../caamp" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"]

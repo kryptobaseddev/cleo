@@ -15,7 +15,13 @@ export const wasmlafsmeta_operation: (a: number) => [number, number];
 export const wasmlafsmeta_transport: (a: number) => [number, number];
 export const __wbg_wasmlafsenvelope_free: (a: number, b: number) => void;
 export const wasmlafsenvelope_createSuccess: (a: number, b: number, c: number) => number;
-export const wasmlafsenvelope_createError: (a: number, b: number, c: number, d: number, e: number) => number;
+export const wasmlafsenvelope_createError: (
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  e: number,
+) => number;
 export const wasmlafsenvelope_success: (a: number) => number;
 export const wasmlafsenvelope_result_json: (a: number) => [number, number];
 export const wasmlafsenvelope_error_json: (a: number) => [number, number];

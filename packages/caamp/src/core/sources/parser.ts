@@ -5,11 +5,13 @@
  * GitLab URLs, local paths, or shell commands.
  */
 
-import type { ParsedSource, SourceType } from "../../types.js";
+import type { ParsedSource, SourceType } from '../../types.js';
 
 const GITHUB_SHORTHAND = /^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?:\/(.+))?$/;
-const GITHUB_URL = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)(?:\/(?:tree|blob)\/([^/]+)(?:\/(.+))?)?/;
-const GITLAB_URL = /^https?:\/\/(?:www\.)?gitlab\.com\/([^/]+)\/([^/]+)(?:\/-\/(?:tree|blob)\/([^/]+)(?:\/(.+))?)?/;
+const GITHUB_URL =
+  /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)(?:\/(?:tree|blob)\/([^/]+)(?:\/(.+))?)?/;
+const GITLAB_URL =
+  /^https?:\/\/(?:www\.)?gitlab\.com\/([^/]+)\/([^/]+)(?:\/-\/(?:tree|blob)\/([^/]+)(?:\/(.+))?)?/;
 const HTTP_URL = /^https?:\/\//;
 const NPM_SCOPED = /^@[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const NPM_PACKAGE = /^[a-zA-Z0-9_.-]+$/;
@@ -17,21 +19,21 @@ const LIBRARY_SKILL = /^(@[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|[a-zA-Z0-9_.-]+):([a-
 
 /** Infer a display name from a source */
 function inferName(source: string, type: SourceType): string {
-  if (type === "library") {
+  if (type === 'library') {
     const match = source.match(LIBRARY_SKILL);
     return match?.[2] ?? source;
   }
 
-  if (type === "remote") {
+  if (type === 'remote') {
     try {
       const url = new URL(source);
       // Extract brand from hostname: mcp.neon.tech -> neon
-      const parts = url.hostname.split(".");
+      const parts = url.hostname.split('.');
       if (parts.length >= 2) {
         const fallback = parts[0] ?? source;
         const secondLevel = parts[parts.length - 2] ?? fallback;
         const brand = parts.length === 3 ? secondLevel : fallback;
-        if (brand !== "www" && brand !== "api" && brand !== "mcp") {
+        if (brand !== 'www' && brand !== 'api' && brand !== 'mcp') {
           return brand;
         }
         // Fall back to second-level domain
@@ -43,33 +45,35 @@ function inferName(source: string, type: SourceType): string {
     }
   }
 
-  if (type === "package") {
+  if (type === 'package') {
     // Strip common MCP prefixes/suffixes
-    let name = source.replace(/^@[^/]+\//, ""); // Remove scope
-    name = name.replace(/^mcp-server-/, "");
-    name = name.replace(/^server-/, "");
-    name = name.replace(/-mcp$/, "");
-    name = name.replace(/-server$/, "");
+    let name = source.replace(/^@[^/]+\//, ''); // Remove scope
+    name = name.replace(/^mcp-server-/, '');
+    name = name.replace(/^server-/, '');
+    name = name.replace(/-mcp$/, '');
+    name = name.replace(/-server$/, '');
     return name;
   }
 
-  if (type === "github" || type === "gitlab") {
+  if (type === 'github' || type === 'gitlab') {
     // Use repo name
     const match = source.match(/\/([^/]+?)(?:\.git)?$/);
     return match?.[1] ?? source;
   }
 
-  if (type === "local") {
+  if (type === 'local') {
     // Extract directory basename from local path
-    const normalized = source.replace(/\\/g, "/").replace(/\/+$/, "");
-    const lastSegment = normalized.split("/").pop();
+    const normalized = source.replace(/\\/g, '/').replace(/\/+$/, '');
+    const lastSegment = normalized.split('/').pop();
     return lastSegment ?? source;
   }
 
-  if (type === "command") {
+  if (type === 'command') {
     // Extract first meaningful word
     const parts = source.split(/\s+/);
-    const command = parts.find((p) => !p.startsWith("-") && p !== "npx" && p !== "node" && p !== "python" && p !== "python3");
+    const command = parts.find(
+      (p) => !p.startsWith('-') && p !== 'npx' && p !== 'node' && p !== 'python' && p !== 'python3',
+    );
     return command ?? parts[0] ?? source;
   }
 
@@ -109,12 +113,12 @@ export function parseSource(input: string): ParsedSource {
     const repo = ghUrlMatch[2];
     const path = ghUrlMatch[4];
     if (!owner || !repo) {
-      return { type: "command", value: input, inferredName: inferName(input, "command") };
+      return { type: 'command', value: input, inferredName: inferName(input, 'command') };
     }
     // Use last path segment as name if subpath provided, otherwise use repo name
-    const inferredName = path ? path.split("/").pop() ?? repo : repo;
+    const inferredName = path ? (path.split('/').pop() ?? repo) : repo;
     return {
-      type: "github",
+      type: 'github',
       value: input,
       inferredName,
       owner,
@@ -131,12 +135,12 @@ export function parseSource(input: string): ParsedSource {
     const repo = glUrlMatch[2];
     const path = glUrlMatch[4];
     if (!owner || !repo) {
-      return { type: "command", value: input, inferredName: inferName(input, "command") };
+      return { type: 'command', value: input, inferredName: inferName(input, 'command') };
     }
     // Use last path segment as name if subpath provided, otherwise use repo name
-    const inferredName = path ? path.split("/").pop() ?? repo : repo;
+    const inferredName = path ? (path.split('/').pop() ?? repo) : repo;
     return {
-      type: "gitlab",
+      type: 'gitlab',
       value: input,
       inferredName,
       owner,
@@ -149,18 +153,23 @@ export function parseSource(input: string): ParsedSource {
   // HTTP URL (non-GitHub/GitLab = remote MCP server)
   if (HTTP_URL.test(input)) {
     return {
-      type: "remote",
+      type: 'remote',
       value: input,
-      inferredName: inferName(input, "remote"),
+      inferredName: inferName(input, 'remote'),
     };
   }
 
   // Local path (check before GitHub shorthand since ./ and ../ match shorthand regex)
-  if (input.startsWith("/") || input.startsWith("./") || input.startsWith("../") || input.startsWith("~")) {
+  if (
+    input.startsWith('/') ||
+    input.startsWith('./') ||
+    input.startsWith('../') ||
+    input.startsWith('~')
+  ) {
     return {
-      type: "local",
+      type: 'local',
       value: input,
-      inferredName: inferName(input, "local"),
+      inferredName: inferName(input, 'local'),
     };
   }
 
@@ -171,12 +180,12 @@ export function parseSource(input: string): ParsedSource {
     const repo = ghShorthand[2];
     const path = ghShorthand[3];
     if (!owner || !repo) {
-      return { type: "command", value: input, inferredName: inferName(input, "command") };
+      return { type: 'command', value: input, inferredName: inferName(input, 'command') };
     }
     // Use last path segment as name if subpath provided, otherwise use repo name
-    const inferredName = path ? path.split("/").pop() ?? repo : repo;
+    const inferredName = path ? (path.split('/').pop() ?? repo) : repo;
     return {
-      type: "github",
+      type: 'github',
       value: `https://github.com/${owner}/${repo}`,
       inferredName,
       owner,
@@ -189,37 +198,37 @@ export function parseSource(input: string): ParsedSource {
   const libraryMatch = input.match(LIBRARY_SKILL);
   if (libraryMatch) {
     return {
-      type: "library",
+      type: 'library',
       value: input,
-      inferredName: inferName(input, "library"),
+      inferredName: inferName(input, 'library'),
       owner: libraryMatch[1], // This will be the package name, e.g. @cleocode/ct-skills
-      repo: libraryMatch[2],  // This will be the skill name, e.g. ct-research-agent
+      repo: libraryMatch[2], // This will be the skill name, e.g. ct-research-agent
     };
   }
 
   // Scoped npm package: @scope/name
   if (NPM_SCOPED.test(input)) {
     return {
-      type: "package",
+      type: 'package',
       value: input,
-      inferredName: inferName(input, "package"),
+      inferredName: inferName(input, 'package'),
     };
   }
 
   // Simple npm package name (no spaces, no slashes)
-  if (NPM_PACKAGE.test(input) && !input.includes(" ")) {
+  if (NPM_PACKAGE.test(input) && !input.includes(' ')) {
     return {
-      type: "package",
+      type: 'package',
       value: input,
-      inferredName: inferName(input, "package"),
+      inferredName: inferName(input, 'package'),
     };
   }
 
   // Default: treat as command
   return {
-    type: "command",
+    type: 'command',
     value: input,
-    inferredName: inferName(input, "command"),
+    inferredName: inferName(input, 'command'),
   };
 }
 

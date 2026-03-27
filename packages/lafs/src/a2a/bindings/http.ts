@@ -5,8 +5,8 @@
  * and RFC 9457 Problem Details support per A2A spec Section 11.3-11.5.
  */
 
-import type { A2AErrorType } from './jsonrpc.js';
 import type { LAFSError } from '../../types.js';
+import type { A2AErrorType } from './jsonrpc.js';
 
 // ============================================================================
 // Endpoint Constants (spec Section 11.3)
@@ -23,7 +23,10 @@ export const HTTP_ENDPOINTS = {
   SetTaskPushNotificationConfig: { method: 'POST', path: '/tasks/:id/pushNotificationConfig' },
   GetTaskPushNotificationConfig: { method: 'GET', path: '/tasks/:id/pushNotificationConfig' },
   ListTaskPushNotificationConfig: { method: 'GET', path: '/tasks/:id/pushNotificationConfig:list' },
-  DeleteTaskPushNotificationConfig: { method: 'DELETE', path: '/tasks/:id/pushNotificationConfig/:configId' },
+  DeleteTaskPushNotificationConfig: {
+    method: 'DELETE',
+    path: '/tasks/:id/pushNotificationConfig/:configId',
+  },
   GetExtendedAgentCard: { method: 'GET', path: '/agent/authenticatedExtendedCard' },
 } as const;
 
@@ -58,7 +61,8 @@ export const A2A_ERROR_TYPE_URIS: Record<A2AErrorType, string> = {
   UnsupportedOperation: 'https://a2a-protocol.org/errors/unsupported-operation',
   ContentTypeNotSupported: 'https://a2a-protocol.org/errors/content-type-not-supported',
   InvalidAgentResponse: 'https://a2a-protocol.org/errors/invalid-agent-response',
-  AuthenticatedExtendedCardNotConfigured: 'https://a2a-protocol.org/errors/authenticated-extended-card-not-configured',
+  AuthenticatedExtendedCardNotConfigured:
+    'https://a2a-protocol.org/errors/authenticated-extended-card-not-configured',
   ExtensionSupportRequired: 'https://a2a-protocol.org/errors/extension-support-required',
   VersionNotSupported: 'https://a2a-protocol.org/errors/version-not-supported',
 } as const;
@@ -85,7 +89,7 @@ export interface ProblemDetails {
 export function createProblemDetails(
   errorType: A2AErrorType,
   detail: string,
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown>,
 ): ProblemDetails {
   // Convert PascalCase to Title Case: "TaskNotFound" -> "Task Not Found"
   const title = errorType.replace(/([A-Z])/g, ' $1').trim();
@@ -110,7 +114,7 @@ export function createProblemDetails(
 export function createLafsProblemDetails(
   errorType: A2AErrorType,
   lafsError: LAFSError,
-  requestId?: string
+  requestId?: string,
 ): ProblemDetails {
   const base = createProblemDetails(errorType, lafsError.message);
 
@@ -120,7 +124,9 @@ export function createLafsProblemDetails(
     retryable: lafsError.retryable,
     ...(lafsError.agentAction != null && { agentAction: lafsError.agentAction }),
     ...(lafsError.retryAfterMs != null && { retryAfterMs: lafsError.retryAfterMs }),
-    ...(lafsError.escalationRequired != null && { escalationRequired: lafsError.escalationRequired }),
+    ...(lafsError.escalationRequired != null && {
+      escalationRequired: lafsError.escalationRequired,
+    }),
     ...(lafsError.suggestedAction != null && { suggestedAction: lafsError.suggestedAction }),
     ...(lafsError.docUrl != null && { docUrl: lafsError.docUrl }),
   };
@@ -135,10 +141,7 @@ export function createLafsProblemDetails(
  * @param endpoint - HTTP endpoint definition (from HTTP_ENDPOINTS)
  * @param params - Path parameter values (keys without leading colon)
  */
-export function buildUrl(
-  endpoint: HttpEndpoint,
-  params?: Record<string, string>
-): string {
+export function buildUrl(endpoint: HttpEndpoint, params?: Record<string, string>): string {
   let path = endpoint.path as string;
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -165,7 +168,7 @@ export interface ListTasksQueryParams {
  * Handles type coercion for numeric fields.
  */
 export function parseListTasksQuery(
-  query: Record<string, string | undefined>
+  query: Record<string, string | undefined>,
 ): ListTasksQueryParams {
   return {
     contextId: query['contextId'],

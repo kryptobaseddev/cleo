@@ -5,8 +5,8 @@
  * Stored in the canonical CAAMP lock file (shared with skills lock).
  */
 
-import type { LockEntry, SourceType } from "../../types.js";
-import { readLockFile, updateLockFile } from "../lock-utils.js";
+import type { LockEntry, SourceType } from '../../types.js';
+import { readLockFile, updateLockFile } from '../lock-utils.js';
 
 /**
  * Read and parse the CAAMP lock file from the canonical lock path.
@@ -29,7 +29,7 @@ import { readLockFile, updateLockFile } from "../lock-utils.js";
  *
  * @public
  */
-export { readLockFile } from "../lock-utils.js";
+export { readLockFile } from '../lock-utils.js';
 
 /**
  * Record an MCP server installation in the lock file.
@@ -78,7 +78,7 @@ export async function recordMcpInstall(
       installedAt: existing?.installedAt ?? now,
       updatedAt: now,
       agents: [...new Set([...(existing?.agents ?? []), ...agents])],
-      canonicalPath: "",
+      canonicalPath: '',
       isGlobal,
     };
   });

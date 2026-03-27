@@ -5,9 +5,9 @@
  * deduplicates, and sorts by relevance.
  */
 
-import type { MarketplaceAdapter, MarketplaceResult } from "./types.js";
-import { SkillsMPAdapter } from "./skillsmp.js";
-import { SkillsShAdapter } from "./skillssh.js";
+import { SkillsMPAdapter } from './skillsmp.js';
+import { SkillsShAdapter } from './skillssh.js';
+import type { MarketplaceAdapter, MarketplaceResult } from './types.js';
 
 /**
  * Error thrown when all marketplace sources fail to respond.
@@ -24,7 +24,7 @@ export class MarketplaceUnavailableError extends Error {
 
   constructor(message: string, details: string[]) {
     super(message);
-    this.name = "MarketplaceUnavailableError";
+    this.name = 'MarketplaceUnavailableError';
     this.details = details;
   }
 }
@@ -69,10 +69,7 @@ export class MarketplaceClient {
    * ```
    */
   constructor(adapters?: MarketplaceAdapter[]) {
-    this.adapters = adapters ?? [
-      new SkillsMPAdapter(),
-      new SkillsShAdapter(),
-    ];
+    this.adapters = adapters ?? [new SkillsMPAdapter(), new SkillsShAdapter()];
   }
 
   /**
@@ -92,24 +89,27 @@ export class MarketplaceClient {
    * ```
    */
   async search(query: string, limit = 20): Promise<MarketplaceResult[]> {
-    const settled = await Promise.allSettled(this.adapters.map((adapter) => adapter.search(query, limit)));
+    const settled = await Promise.allSettled(
+      this.adapters.map((adapter) => adapter.search(query, limit)),
+    );
 
     const flat: MarketplaceResult[] = [];
     const failures: string[] = [];
 
     for (const [index, result] of settled.entries()) {
-      const adapterName = this.adapters[index]?.name ?? "unknown";
+      const adapterName = this.adapters[index]?.name ?? 'unknown';
 
-      if (result.status === "fulfilled") {
+      if (result.status === 'fulfilled') {
         flat.push(...result.value);
       } else {
-        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        const reason =
+          result.reason instanceof Error ? result.reason.message : String(result.reason);
         failures.push(`${adapterName}: ${reason}`);
       }
     }
 
     if (flat.length === 0 && failures.length > 0) {
-      throw new MarketplaceUnavailableError("All marketplace sources failed.", failures);
+      throw new MarketplaceUnavailableError('All marketplace sources failed.', failures);
     }
 
     // Deduplicate by scopedName, keeping higher star count
@@ -155,7 +155,7 @@ export class MarketplaceClient {
     }
 
     if (failures.length === this.adapters.length && this.adapters.length > 0) {
-      throw new MarketplaceUnavailableError("All marketplace sources failed.", failures);
+      throw new MarketplaceUnavailableError('All marketplace sources failed.', failures);
     }
 
     return null;

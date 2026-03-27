@@ -1,0 +1,13 @@
+{
+  "rust-analyzer.checkOnSave.command": "clippy",
+  "rust-analyzer.checkOnSave.extraArgs": [
+    "--",
+    "-W", "clippy::missing_docs_in_private_items",
+    "-W", "rustdoc::broken_intra_doc_links",
+    "-W", "rustdoc::missing_crate_level_docs"
+  ],
+  "editor.formatOnSave": true,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  }
+}

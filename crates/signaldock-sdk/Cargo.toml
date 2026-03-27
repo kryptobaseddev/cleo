@@ -1,0 +1,24 @@
+[package]
+name = "signaldock-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "Service layer and delivery orchestration for SignalDock"
+publish = false
+
+[dependencies]
+signaldock-protocol = { workspace = true }
+signaldock-storage = { workspace = true }
+signaldock-transport = { workspace = true }
+cant-core = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

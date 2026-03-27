@@ -853,3 +853,42 @@ export type ReleaseManifestRow = typeof releaseManifests.$inferSelect;
 export type NewReleaseManifestRow = typeof releaseManifests.$inferInsert;
 export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;
 export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
+
+// === AGENT CREDENTIALS (Unified Agent Registry — T170/T173) ===
+
+/**
+ * Agent credentials for the unified agent registry.
+ * Stores encrypted API keys and transport configuration for registered agents.
+ * Replaces loose clawmsgr-*.json config files.
+ *
+ * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.1
+ */
+export const agentCredentials = sqliteTable(
+  'agent_credentials',
+  {
+    agentId: text('agent_id').primaryKey(),
+    displayName: text('display_name').notNull(),
+    /** API key encrypted at rest using AES-256-GCM with machine-bound key. */
+    apiKeyEncrypted: text('api_key_encrypted').notNull(),
+    apiBaseUrl: text('api_base_url').notNull().default('https://api.clawmsgr.com'),
+    classification: text('classification'),
+    privacyTier: text('privacy_tier').notNull().default('public'),
+    /** JSON array of capability slugs. */
+    capabilities: text('capabilities').notNull().default('[]'),
+    /** JSON array of skill slugs. */
+    skills: text('skills').notNull().default('[]'),
+    /** JSON object with transport-specific settings. */
+    transportConfig: text('transport_config').notNull().default('{}'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    lastUsedAt: integer('last_used_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_agent_credentials_active').on(table.isActive),
+    index('idx_agent_credentials_last_used').on(table.lastUsedAt),
+  ],
+);
+
+export type AgentCredentialRow = typeof agentCredentials.$inferSelect;
+export type NewAgentCredentialRow = typeof agentCredentials.$inferInsert;

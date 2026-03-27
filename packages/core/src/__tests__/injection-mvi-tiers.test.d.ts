@@ -1,8 +1,8 @@
 /**
- * Test CLEO-INJECTION.md v2.1.0 minimal-only template.
+ * Test CLEO-INJECTION.md v2.2.0 minimal-only template.
  *
  * Validates the trimmed template:
- * 1. Has version 2.1.0
+ * 1. Has version 2.2.0
  * 2. Contains all minimal sections
  * 3. Does NOT contain standard/orchestrator content
  * 4. Contains escalation section with skill pointers

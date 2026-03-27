@@ -437,10 +437,7 @@ fn success_envelope_serializes_to_valid_json() {
     let meta_val = val.get("_meta");
     assert!(meta_val.is_some());
     let m = meta_val.unwrap_or(&serde_json::Value::Null);
-    assert_eq!(
-        m.get("specVersion").and_then(|v| v.as_str()),
-        Some("1.2.3")
-    );
+    assert_eq!(m.get("specVersion").and_then(|v| v.as_str()), Some("1.2.3"));
     assert_eq!(m.get("transport").and_then(|v| v.as_str()), Some("cli"));
     assert_eq!(m.get("mvi").and_then(|v| v.as_str()), Some("standard"));
 }
@@ -471,10 +468,7 @@ fn error_envelope_serializes_to_valid_json() {
     let err_val = val.get("error");
     assert!(err_val.is_some());
     let e = err_val.unwrap_or(&serde_json::Value::Null);
-    assert_eq!(
-        e.get("code").and_then(|v| v.as_str()),
-        Some("E_VALIDATION")
-    );
+    assert_eq!(e.get("code").and_then(|v| v.as_str()), Some("E_VALIDATION"));
     assert_eq!(
         e.get("category").and_then(|v| v.as_str()),
         Some("VALIDATION")
@@ -573,8 +567,8 @@ fn envelope_with_pagination_round_trips() {
     let deserialized: Result<LafsEnvelope, _> =
         serde_json::from_str(json_str.as_ref().map_or("", String::as_str));
     assert!(deserialized.is_ok());
-    let env2 =
-        deserialized.unwrap_or_else(|_| LafsEnvelope::success(serde_json::Value::Null, test_meta()));
+    let env2 = deserialized
+        .unwrap_or_else(|_| LafsEnvelope::success(serde_json::Value::Null, test_meta()));
     assert!(matches!(env2.page, Some(LafsPage::Cursor(_))));
 }
 
@@ -612,8 +606,8 @@ fn envelope_with_warnings_round_trips() {
     let deserialized: Result<LafsEnvelope, _> =
         serde_json::from_str(json_str.as_ref().map_or("", String::as_str));
     assert!(deserialized.is_ok());
-    let env2 =
-        deserialized.unwrap_or_else(|_| LafsEnvelope::success(serde_json::Value::Null, test_meta()));
+    let env2 = deserialized
+        .unwrap_or_else(|_| LafsEnvelope::success(serde_json::Value::Null, test_meta()));
     let warnings = env2.meta.warnings.as_ref();
     assert!(warnings.is_some());
     assert_eq!(warnings.map_or(0, Vec::len), 1);

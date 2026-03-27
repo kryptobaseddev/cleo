@@ -2,27 +2,24 @@
  * skills find command - marketplace search + recommendation mode
  */
 
-import { randomUUID } from "node:crypto";
-import {
-  type LAFSErrorCategory,
-  resolveOutputFormat,
-} from "@cleocode/lafs";
-import type { MVILevel } from "../../core/lafs.js";
-import { Command } from "commander";
-import pc from "picocolors";
-import { isHuman } from "../../core/logger.js";
-import { MarketplaceClient } from "../../core/marketplace/client.js";
-import type { MarketplaceResult } from "../../core/marketplace/types.js";
-import { formatNetworkError } from "../../core/network/fetch.js";
+import { randomUUID } from 'node:crypto';
+import { type LAFSErrorCategory, resolveOutputFormat } from '@cleocode/lafs';
+import type { Command } from 'commander';
+import pc from 'picocolors';
+import type { MVILevel } from '../../core/lafs.js';
+import { isHuman } from '../../core/logger.js';
+import { MarketplaceClient } from '../../core/marketplace/client.js';
+import type { MarketplaceResult } from '../../core/marketplace/types.js';
+import { formatNetworkError } from '../../core/network/fetch.js';
 import {
   type RankedSkillRecommendation,
   RECOMMENDATION_ERROR_CODES,
   tokenizeCriteriaValue,
-} from "../../core/skills/recommendation.js";
+} from '../../core/skills/recommendation.js';
 import {
   formatSkillRecommendations,
   recommendSkills as recommendSkillsByQuery,
-} from "../../core/skills/recommendation-api.js";
+} from '../../core/skills/recommendation-api.js';
 
 interface SkillsFindOptions {
   json?: boolean;
@@ -37,7 +34,7 @@ interface SkillsFindOptions {
   select?: string;
 }
 
-import type { LAFSErrorShape } from "../../core/lafs.js";
+import type { LAFSErrorShape } from '../../core/lafs.js';
 
 class SkillsFindValidationError extends Error {
   code: string;
@@ -45,7 +42,7 @@ class SkillsFindValidationError extends Error {
   constructor(code: string, message: string) {
     super(message);
     this.code = code;
-    this.name = "SkillsFindValidationError";
+    this.name = 'SkillsFindValidationError';
   }
 }
 
@@ -57,8 +54,8 @@ interface RecommendationOption {
   why: string;
   source: string;
   evidence?: {
-    reasons: RankedSkillRecommendation["reasons"];
-    breakdown?: RankedSkillRecommendation["breakdown"];
+    reasons: RankedSkillRecommendation['reasons'];
+    breakdown?: RankedSkillRecommendation['breakdown'];
   };
 }
 
@@ -81,35 +78,50 @@ interface RecommendationOption {
  */
 export function registerSkillsFind(parent: Command): void {
   parent
-    .command("find")
-    .description("Search marketplace for skills")
-    .argument("[query]", "Search query")
-    .option("--recommend", "Recommend skills from constraints")
-    .option("--top <n>", "Number of recommendation candidates", "3")
-    .option("--must-have <term>", "Required criteria term", (value, previous: string[]) => [...previous, value], [])
-    .option("--prefer <term>", "Preferred criteria term", (value, previous: string[]) => [...previous, value], [])
-    .option("--exclude <term>", "Excluded criteria term", (value, previous: string[]) => [...previous, value], [])
-    .option("--details", "Include expanded machine output")
-    .option("--human", "Force human-readable output")
-    .option("--json", "Output as JSON")
-    .option("--select <indexes>", "Pre-select recommendation ranks (comma-separated)")
-    .option("-l, --limit <n>", "Max results", "20")
+    .command('find')
+    .description('Search marketplace for skills')
+    .argument('[query]', 'Search query')
+    .option('--recommend', 'Recommend skills from constraints')
+    .option('--top <n>', 'Number of recommendation candidates', '3')
+    .option(
+      '--must-have <term>',
+      'Required criteria term',
+      (value, previous: string[]) => [...previous, value],
+      [],
+    )
+    .option(
+      '--prefer <term>',
+      'Preferred criteria term',
+      (value, previous: string[]) => [...previous, value],
+      [],
+    )
+    .option(
+      '--exclude <term>',
+      'Excluded criteria term',
+      (value, previous: string[]) => [...previous, value],
+      [],
+    )
+    .option('--details', 'Include expanded machine output')
+    .option('--human', 'Force human-readable output')
+    .option('--json', 'Output as JSON')
+    .option('--select <indexes>', 'Pre-select recommendation ranks (comma-separated)')
+    .option('-l, --limit <n>', 'Max results', '20')
     .action(async (query: string | undefined, opts: SkillsFindOptions) => {
-      const operation = opts.recommend ? "skills.find.recommend" : "skills.find.search";
+      const operation = opts.recommend ? 'skills.find.recommend' : 'skills.find.search';
       const details = Boolean(opts.details);
-      const mvi: MVILevel = details ? "full" : "standard";
+      const mvi: MVILevel = details ? 'full' : 'standard';
 
-      let format: "json" | "human";
+      let format: 'json' | 'human';
       try {
         format = resolveOutputFormat({
           jsonFlag: opts.json ?? false,
           humanFlag: (opts.human ?? false) || isHuman(),
-          projectDefault: "json",
+          projectDefault: 'json',
         }).format;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (opts.json) {
-          emitJsonError(operation, mvi, "E_FORMAT_CONFLICT", message, "VALIDATION");
+          emitJsonError(operation, mvi, 'E_FORMAT_CONFLICT', message, 'VALIDATION');
         } else {
           console.error(pc.red(message));
         }
@@ -140,17 +152,21 @@ export function registerSkillsFind(parent: Command): void {
           );
           const options = normalizeRecommendationOptions(recommendation.ranking, details);
           validateSelectedRanks(selectedRanks, options.length);
-          const selected = selectedRanks.length > 0
-            ? options.filter((option) => selectedRanks.includes(option.rank))
-            : [];
+          const selected =
+            selectedRanks.length > 0
+              ? options.filter((option) => selectedRanks.includes(option.rank))
+              : [];
 
-          if (format === "json") {
-            const result = formatSkillRecommendations(recommendation, { mode: "json", details }) as Record<string, unknown>;
+          if (format === 'json') {
+            const result = formatSkillRecommendations(recommendation, {
+              mode: 'json',
+              details,
+            }) as Record<string, unknown>;
             const resultOptions = Array.isArray(result.options)
-              ? result.options as Array<Record<string, unknown>>
+              ? (result.options as Array<Record<string, unknown>>)
               : [];
             const selectedObjects = resultOptions.filter((option) =>
-              selectedRanks.includes(Number(option.rank ?? 0))
+              selectedRanks.includes(Number(option.rank ?? 0)),
             );
             const envelope = buildEnvelope(
               operation,
@@ -165,10 +181,13 @@ export function registerSkillsFind(parent: Command): void {
             return;
           }
 
-          const human = formatSkillRecommendations(recommendation, { mode: "human", details }) as string;
+          const human = formatSkillRecommendations(recommendation, {
+            mode: 'human',
+            details,
+          }) as string;
           console.log(human);
           if (selected.length > 0) {
-            console.log(`Selected: ${selected.map((option) => option.scopedName).join(", ")}`);
+            console.log(`Selected: ${selected.map((option) => option.scopedName).join(', ')}`);
           }
           return;
         } catch (error) {
@@ -176,16 +195,17 @@ export function registerSkillsFind(parent: Command): void {
           const errorCode =
             error instanceof SkillsFindValidationError
               ? error.code
-              : (error as { code?: string }).code ?? RECOMMENDATION_ERROR_CODES.SOURCE_UNAVAILABLE;
+              : ((error as { code?: string }).code ??
+                RECOMMENDATION_ERROR_CODES.SOURCE_UNAVAILABLE);
           const category: LAFSErrorCategory =
             errorCode === RECOMMENDATION_ERROR_CODES.CRITERIA_CONFLICT
-              ? "CONFLICT"
+              ? 'CONFLICT'
               : errorCode === RECOMMENDATION_ERROR_CODES.NO_MATCHES
-                ? "NOT_FOUND"
+                ? 'NOT_FOUND'
                 : errorCode === RECOMMENDATION_ERROR_CODES.QUERY_INVALID
-                  ? "VALIDATION"
-                  : "INTERNAL";
-          if (format === "json") {
+                  ? 'VALIDATION'
+                  : 'INTERNAL';
+          if (format === 'json') {
             emitJsonError(operation, mvi, errorCode, message, category, {
               query: query ?? null,
             });
@@ -197,14 +217,14 @@ export function registerSkillsFind(parent: Command): void {
       }
 
       if (!query) {
-        console.log(pc.dim("Usage: caamp skills find <query>"));
+        console.log(pc.dim('Usage: caamp skills find <query>'));
         return;
       }
 
       const limit = parseInt(opts.limit, 10);
       const client = new MarketplaceClient();
 
-      if (format === "human") {
+      if (format === 'human') {
         console.log(pc.dim(`Searching marketplaces for "${query}"...\n`));
       }
 
@@ -213,8 +233,8 @@ export function registerSkillsFind(parent: Command): void {
         results = await client.search(query, limit);
       } catch (error) {
         const message = formatNetworkError(error);
-        if (format === "json") {
-          emitJsonError(operation, mvi, "E_SEARCH_FAILED", message, "TRANSIENT", {
+        if (format === 'json') {
+          emitJsonError(operation, mvi, 'E_SEARCH_FAILED', message, 'TRANSIENT', {
             query,
             limit,
           });
@@ -224,7 +244,7 @@ export function registerSkillsFind(parent: Command): void {
         process.exit(1);
       }
 
-      if (format === "json") {
+      if (format === 'json') {
         const envelope = buildEnvelope(
           operation,
           mvi,
@@ -241,7 +261,7 @@ export function registerSkillsFind(parent: Command): void {
       }
 
       if (results.length === 0) {
-        console.log(pc.yellow("No results found."));
+        console.log(pc.yellow('No results found.'));
         return;
       }
 
@@ -249,15 +269,15 @@ export function registerSkillsFind(parent: Command): void {
 
       results.forEach((skill, index) => {
         const num = (index + 1).toString().padStart(2);
-        const stars = skill.stars > 0 ? pc.yellow(`★ ${formatStars(skill.stars)}`) : "";
+        const stars = skill.stars > 0 ? pc.yellow(`★ ${formatStars(skill.stars)}`) : '';
         console.log(`  ${pc.cyan(num)}. ${pc.bold(skill.scopedName)} ${stars}`);
-        console.log(`      ${pc.dim(skill.description?.slice(0, 80) ?? "")}`);
+        console.log(`      ${pc.dim(skill.description?.slice(0, 80) ?? '')}`);
         console.log(`      ${pc.dim(`from ${skill.source}`)}`);
         console.log();
       });
 
-      console.log(pc.dim("Install with: caamp skills install <name>"));
-      console.log(pc.dim("Or select by number: caamp skills install <n>"));
+      console.log(pc.dim('Install with: caamp skills install <name>'));
+      console.log(pc.dim('Or select by number: caamp skills install <n>'));
     });
 }
 
@@ -274,7 +294,10 @@ function parseConstraintList(values: string[]): string[] {
 function parseTop(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
-    throw new SkillsFindValidationError(RECOMMENDATION_ERROR_CODES.QUERY_INVALID, "--top must be an integer between 1 and 20");
+    throw new SkillsFindValidationError(
+      RECOMMENDATION_ERROR_CODES.QUERY_INVALID,
+      '--top must be an integer between 1 and 20',
+    );
   }
   return parsed;
 }
@@ -282,29 +305,37 @@ function parseTop(value: string): number {
 function parseSelectList(value: string | undefined): number[] {
   if (!value) return [];
   const parsed = value
-    .split(",")
+    .split(',')
     .map((entry) => Number.parseInt(entry.trim(), 10))
     .filter((entry) => Number.isInteger(entry) && entry > 0);
   return Array.from(new Set(parsed));
 }
 
-function buildSeedQuery(query: string | undefined, mustHave: string[], prefer: string[], exclude: string[]): string {
+function buildSeedQuery(
+  query: string | undefined,
+  mustHave: string[],
+  prefer: string[],
+  exclude: string[],
+): string {
   if (query && query.trim().length > 0) {
     return query;
   }
 
   const seedTerms = [...mustHave, ...prefer, ...exclude].filter((term) => term.length > 0);
   if (seedTerms.length > 0) {
-    return seedTerms.join(" ");
+    return seedTerms.join(' ');
   }
 
   throw new SkillsFindValidationError(
     RECOMMENDATION_ERROR_CODES.QUERY_INVALID,
-    "Recommendation mode requires a query or at least one criteria flag.",
+    'Recommendation mode requires a query or at least one criteria flag.',
   );
 }
 
-function normalizeRecommendationOptions(ranking: RankedSkillRecommendation[], details: boolean): RecommendationOption[] {
+function normalizeRecommendationOptions(
+  ranking: RankedSkillRecommendation[],
+  details: boolean,
+): RecommendationOption[] {
   return ranking.map((entry, index) => {
     const whyCodes = entry.reasons.map((reason) => reason.code);
     return {
@@ -312,7 +343,7 @@ function normalizeRecommendationOptions(ranking: RankedSkillRecommendation[], de
       scopedName: entry.skill.scopedName,
       description: entry.skill.description,
       score: entry.score,
-      why: whyCodes.length > 0 ? whyCodes.join(", ") : "score-based match",
+      why: whyCodes.length > 0 ? whyCodes.join(', ') : 'score-based match',
       source: entry.skill.source,
       ...(details
         ? {
@@ -329,18 +360,18 @@ function normalizeRecommendationOptions(ranking: RankedSkillRecommendation[], de
 function validateCriteriaConflicts(mustHave: string[], prefer: string[], exclude: string[]): void {
   const overlap = mustHave.filter((term) => exclude.includes(term));
   if (overlap.length > 0) {
-      throw new SkillsFindValidationError(
-        RECOMMENDATION_ERROR_CODES.CRITERIA_CONFLICT,
-        "A criteria term cannot be both required and excluded.",
-      );
+    throw new SkillsFindValidationError(
+      RECOMMENDATION_ERROR_CODES.CRITERIA_CONFLICT,
+      'A criteria term cannot be both required and excluded.',
+    );
   }
 
   const preferOverlap = prefer.filter((term) => exclude.includes(term));
   if (preferOverlap.length > 0) {
-      throw new SkillsFindValidationError(
-        RECOMMENDATION_ERROR_CODES.CRITERIA_CONFLICT,
-        "A criteria term cannot be both preferred and excluded.",
-      );
+    throw new SkillsFindValidationError(
+      RECOMMENDATION_ERROR_CODES.CRITERIA_CONFLICT,
+      'A criteria term cannot be both preferred and excluded.',
+    );
   }
 }
 
@@ -355,16 +386,21 @@ function validateSelectedRanks(selectedRanks: number[], total: number): void {
   }
 }
 
-function buildEnvelope<T>(operation: string, mvi: MVILevel, result: T | null, error: LAFSErrorShape | null) {
+function buildEnvelope<T>(
+  operation: string,
+  mvi: MVILevel,
+  result: T | null,
+  error: LAFSErrorShape | null,
+) {
   return {
-    $schema: "https://lafs.dev/schemas/v1/envelope.schema.json" as const,
+    $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json' as const,
     _meta: {
-      specVersion: "1.0.0",
-      schemaVersion: "1.0.0",
+      specVersion: '1.0.0',
+      schemaVersion: '1.0.0',
       timestamp: new Date().toISOString(),
       operation,
       requestId: randomUUID(),
-      transport: "cli" as const,
+      transport: 'cli' as const,
       strict: true,
       mvi,
       contextVersion: 0,

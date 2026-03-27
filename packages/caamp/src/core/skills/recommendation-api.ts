@@ -1,11 +1,11 @@
-import { MarketplaceClient } from "../marketplace/client.js";
+import { MarketplaceClient } from '../marketplace/client.js';
 import {
   RECOMMENDATION_ERROR_CODES,
-  recommendSkills as rankSkills,
   type RecommendationCriteriaInput,
   type RecommendationOptions,
   type RecommendSkillsResult,
-} from "./recommendation.js";
+  recommendSkills as rankSkills,
+} from './recommendation.js';
 
 /**
  * Options for searching skills via marketplace APIs.
@@ -49,22 +49,24 @@ export interface RecommendSkillsQueryOptions extends RecommendationOptions {
  */
 export function formatSkillRecommendations(
   result: RecommendSkillsResult,
-  opts: { mode: "human" | "json"; details?: boolean },
+  opts: { mode: 'human' | 'json'; details?: boolean },
 ): string | Record<string, unknown> {
   const top = result.ranking;
 
-  if (opts.mode === "human") {
-    if (top.length === 0) return "No recommendations found.";
-    const lines: string[] = ["Recommended skills:", ""];
+  if (opts.mode === 'human') {
+    if (top.length === 0) return 'No recommendations found.';
+    const lines: string[] = ['Recommended skills:', ''];
     for (const [index, entry] of top.entries()) {
-      const marker = index === 0 ? " (Recommended)" : "";
+      const marker = index === 0 ? ' (Recommended)' : '';
       lines.push(`${index + 1}) ${entry.skill.scopedName}${marker}`);
-      lines.push(`   why: ${entry.reasons.map((reason) => reason.code).join(", ") || "score-based match"}`);
-      lines.push(`   tradeoff: ${entry.tradeoffs[0] ?? "none"}`);
+      lines.push(
+        `   why: ${entry.reasons.map((reason) => reason.code).join(', ') || 'score-based match'}`,
+      );
+      lines.push(`   tradeoff: ${entry.tradeoffs[0] ?? 'none'}`);
     }
-    lines.push("");
-    lines.push(`CHOOSE: ${top.map((_, index) => index + 1).join(",")}`);
-    return lines.join("\n");
+    lines.push('');
+    lines.push(`CHOOSE: ${top.map((_, index) => index + 1).join(',')}`);
+    return lines.join('\n');
   }
 
   const options = top.map((entry, index) => ({
@@ -111,7 +113,7 @@ export function formatSkillRecommendations(
 export async function searchSkills(query: string, options: SearchSkillsOptions = {}) {
   const trimmed = query.trim();
   if (!trimmed) {
-    const error = new Error("query must be non-empty") as Error & { code?: string };
+    const error = new Error('query must be non-empty') as Error & { code?: string };
     error.code = RECOMMENDATION_ERROR_CODES.QUERY_INVALID;
     throw error;
   }
@@ -120,7 +122,9 @@ export async function searchSkills(query: string, options: SearchSkillsOptions =
   try {
     return await client.search(trimmed, options.limit ?? 20);
   } catch (error) {
-    const wrapped = new Error(error instanceof Error ? error.message : String(error)) as Error & { code?: string };
+    const wrapped = new Error(error instanceof Error ? error.message : String(error)) as Error & {
+      code?: string;
+    };
     wrapped.code = RECOMMENDATION_ERROR_CODES.SOURCE_UNAVAILABLE;
     throw wrapped;
   }
@@ -149,14 +153,16 @@ export async function searchSkills(query: string, options: SearchSkillsOptions =
  */
 export async function recommendSkills(
   query: string,
-  criteria: Omit<RecommendationCriteriaInput, "query">,
+  criteria: Omit<RecommendationCriteriaInput, 'query'>,
   options: RecommendSkillsQueryOptions = {},
 ): Promise<RecommendSkillsResult> {
-  const hits = await searchSkills(query, { limit: options.limit ?? Math.max((options.top ?? 3) * 5, 20) });
+  const hits = await searchSkills(query, {
+    limit: options.limit ?? Math.max((options.top ?? 3) * 5, 20),
+  });
   const ranked = rankSkills(hits, { ...criteria, query }, options);
 
   if (ranked.ranking.length === 0) {
-    const error = new Error("no matches found") as Error & { code?: string };
+    const error = new Error('no matches found') as Error & { code?: string };
     error.code = RECOMMENDATION_ERROR_CODES.NO_MATCHES;
     throw error;
   }

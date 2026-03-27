@@ -1,10 +1,10 @@
 /**
  * LAFS Graceful Shutdown Module
- * 
+ *
  * Handles graceful shutdown of LAFS servers
  */
 
-import { Server } from 'http';
+import type { Server } from 'http';
 
 export interface GracefulShutdownConfig {
   timeout?: number;
@@ -21,20 +21,20 @@ export interface ShutdownState {
 
 const state: ShutdownState = {
   isShuttingDown: false,
-  activeConnections: 0
+  activeConnections: 0,
 };
 
 /**
  * Enable graceful shutdown for an HTTP server
- * 
+ *
  * @example
  * ```typescript
  * import express from 'express';
  * import { gracefulShutdown } from '@cleocode/lafs/shutdown';
- * 
+ *
  * const app = express();
  * const server = app.listen(3000);
- * 
+ *
  * gracefulShutdown(server, {
  *   timeout: 30000,
  *   signals: ['SIGTERM', 'SIGINT'],
@@ -45,16 +45,8 @@ const state: ShutdownState = {
  * });
  * ```
  */
-export function gracefulShutdown(
-  server: Server,
-  config: GracefulShutdownConfig = {}
-): void {
-  const {
-    timeout = 30000,
-    signals = ['SIGTERM', 'SIGINT'],
-    onShutdown,
-    onClose
-  } = config;
+export function gracefulShutdown(server: Server, config: GracefulShutdownConfig = {}): void {
+  const { timeout = 30000, signals = ['SIGTERM', 'SIGINT'], onShutdown, onClose } = config;
 
   // Track active connections
   server.on('connection', (socket) => {
@@ -62,9 +54,9 @@ export function gracefulShutdown(
       socket.destroy();
       return;
     }
-    
+
     state.activeConnections++;
-    
+
     socket.on('close', () => {
       state.activeConnections--;
     });
@@ -74,7 +66,7 @@ export function gracefulShutdown(
   signals.forEach((signal) => {
     process.on(signal, async () => {
       console.log(`${signal} received, starting graceful shutdown...`);
-      
+
       await performShutdown(server, timeout, onShutdown, onClose);
     });
   });
@@ -95,7 +87,7 @@ async function performShutdown(
   server: Server,
   timeout: number,
   onShutdown?: () => Promise<void> | void,
-  onClose?: () => Promise<void> | void
+  onClose?: () => Promise<void> | void,
 ): Promise<void> {
   if (state.isShuttingDown) {
     console.log('Shutdown already in progress...');
@@ -110,9 +102,9 @@ async function performShutdown(
     if (onShutdown) {
       await Promise.race([
         onShutdown(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Shutdown timeout')), timeout)
-        )
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Shutdown timeout')), timeout),
+        ),
       ]);
     }
 
@@ -150,7 +142,7 @@ async function performShutdown(
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -177,7 +169,7 @@ export function forceShutdown(exitCode: number = 1): void {
 
 /**
  * Middleware to reject requests during shutdown
- * 
+ *
  * @example
  * ```typescript
  * app.use(shutdownMiddleware());
@@ -188,7 +180,7 @@ export function shutdownMiddleware() {
     if (state.isShuttingDown) {
       res.status(503).json({
         error: 'Service is shutting down',
-        status: 'unavailable'
+        status: 'unavailable',
       });
       return;
     }
@@ -198,7 +190,7 @@ export function shutdownMiddleware() {
 
 /**
  * Wait for shutdown to complete
- * 
+ *
  * @example
  * ```typescript
  * await waitForShutdown();

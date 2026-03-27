@@ -77,7 +77,7 @@ describe('findSessions (T5119)', () => {
     // Verify each record has ONLY the minimal fields
     for (const record of result) {
       const keys = Object.keys(record).sort();
-      expect(keys).toEqual(['id', 'name', 'scope', 'startedAt', 'status']);
+      expect(keys).toEqual(['_next', 'id', 'name', 'scope', 'startedAt', 'status']);
     }
   });
 

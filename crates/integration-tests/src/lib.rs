@@ -6,16 +6,19 @@
 #[cfg(test)]
 mod tests {
     use cant_core::parse;
-    use conduit_core::{ConduitMessage, CantMetadata};
+    use conduit_core::{CantMetadata, ConduitMessage};
     use lafs_core::{LafsEnvelope, LafsMeta, LafsTransport};
 
     #[test]
     fn test_cant_parsing_integration() {
         // Parse a CANT message
         let cant_msg = parse("/done @all T1234 #shipped\n\nTask completed");
-        
+
         assert_eq!(cant_msg.directive.as_deref(), Some("done"));
-        assert_eq!(cant_msg.directive_type, cant_core::DirectiveType::Actionable);
+        assert_eq!(
+            cant_msg.directive_type,
+            cant_core::DirectiveType::Actionable
+        );
         assert!(cant_msg.addresses.contains(&"all".to_string()));
         assert!(cant_msg.task_refs.contains(&"T1234".to_string()));
         assert!(cant_msg.tags.contains(&"shipped".to_string()));
@@ -44,10 +47,7 @@ mod tests {
     fn test_lafs_envelope_creation() {
         // Create LAFS envelope
         let meta = LafsMeta::new("test.op", LafsTransport::Http);
-        let envelope = LafsEnvelope::success(
-            serde_json::json!({"result": "ok"}),
-            meta
-        );
+        let envelope = LafsEnvelope::success(serde_json::json!({"result": "ok"}), meta);
 
         assert!(envelope.success);
         assert!(envelope.error.is_none());
@@ -57,7 +57,7 @@ mod tests {
     fn test_full_pipeline() {
         // Step 1: Parse CANT message
         let cant_result = parse("/done @signaldock-dev T5678 #phase-0\n\nCompleted");
-        
+
         // Step 2: Create ConduitMessage with content
         let conduit_msg = ConduitMessage {
             id: "msg-456".to_string(),
@@ -78,7 +78,7 @@ mod tests {
                 "directive": cant_result.directive,
                 "taskRefs": cant_result.task_refs
             }),
-            response_meta
+            response_meta,
         );
 
         // Verify pipeline worked

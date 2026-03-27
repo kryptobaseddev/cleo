@@ -24,3 +24,6 @@ clawmsgr-*.json
 
 # Rust build artifacts
 target/
+clawmsgr-*.json
+clawmsgr-*.json
+clawmsgr-*.json

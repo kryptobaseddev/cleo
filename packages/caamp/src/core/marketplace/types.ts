@@ -65,7 +65,7 @@ export interface SearchOptions {
   /** Pagination offset. @defaultValue `0` */
   offset?: number;
   /** Sort order for results. @defaultValue `"stars"` */
-  sortBy?: "stars" | "recent" | "name";
+  sortBy?: 'stars' | 'recent' | 'name';
   /** Filter by skill category. @defaultValue `undefined` */
   category?: string;
   /** Filter by author name. @defaultValue `undefined` */

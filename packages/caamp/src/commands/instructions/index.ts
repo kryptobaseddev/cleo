@@ -5,10 +5,10 @@
  * @packageDocumentation
  */
 
-import type { Command } from "commander";
-import { registerInstructionsInject } from "./inject.js";
-import { registerInstructionsCheck } from "./check.js";
-import { registerInstructionsUpdate } from "./update.js";
+import type { Command } from 'commander';
+import { registerInstructionsCheck } from './check.js';
+import { registerInstructionsInject } from './inject.js';
+import { registerInstructionsUpdate } from './update.js';
 
 /**
  * Registers the `instructions` command group with inject, check, and update subcommands.
@@ -30,8 +30,8 @@ import { registerInstructionsUpdate } from "./update.js";
  */
 export function registerInstructionsCommands(program: Command): void {
   const instructions = program
-    .command("instructions")
-    .description("Manage instruction file injections");
+    .command('instructions')
+    .description('Manage instruction file injections');
 
   registerInstructionsInject(instructions);
   registerInstructionsCheck(instructions);

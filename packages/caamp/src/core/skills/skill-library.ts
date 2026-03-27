@@ -27,7 +27,7 @@ export interface SkillLibraryEntry {
   /** Whether this is a core skill. */
   core: boolean;
   /** Skill category tier. */
-  category: "core" | "recommended" | "specialist" | "composition" | "meta";
+  category: 'core' | 'recommended' | 'specialist' | 'composition' | 'meta';
   /** Numeric tier (0-3). */
   tier: number;
   /** Associated protocol name, or `null`. */
@@ -63,7 +63,7 @@ export interface SkillLibraryValidationResult {
  */
 export interface SkillLibraryValidationIssue {
   /** Severity level. */
-  level: "error" | "warn";
+  level: 'error' | 'warn';
   /** Field that triggered the issue. */
   field: string;
   /** Human-readable message. */
@@ -203,7 +203,7 @@ export interface SkillLibrary {
   /** Get all skills where `core === true`. */
   getCoreSkills(): SkillLibraryEntry[];
   /** Get skills filtered by category. */
-  getSkillsByCategory(category: SkillLibraryEntry["category"]): SkillLibraryEntry[];
+  getSkillsByCategory(category: SkillLibraryEntry['category']): SkillLibraryEntry[];
   /** Get direct dependency names for a skill. */
   getSkillDependencies(name: string): string[];
   /** Resolve full dependency tree for a set of skill names (includes transitive deps). */

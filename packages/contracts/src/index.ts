@@ -8,6 +8,13 @@
 
 // === Provider Adapter Contracts ===
 export type { AdapterHealthStatus, CLEOProviderAdapter } from './adapter.js';
+// === Agent Registry (credential management) ===
+export type {
+  AgentCredential,
+  AgentListFilter,
+  AgentRegistryAPI,
+  TransportConfig,
+} from './agent-registry.js';
 // === Archive Types ===
 export type {
   ArchiveCycleTimesReport,
@@ -314,7 +321,12 @@ export type {
   TesseraTemplate,
   TesseraVariable,
 } from './tessera.js';
-export type { AdapterTransportProvider } from './transport.js';
+// === Transport (low-level wire protocol) ===
+export type {
+  AdapterTransportProvider,
+  Transport,
+  TransportConnectConfig,
+} from './transport.js';
 // === WarpChain Types ===
 export type {
   ChainShape,

@@ -1,19 +1,13 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __exportStar = (this && this.__exportStar) || function(m, exports) {
-    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
-};
+// WASM loader
 Object.defineProperty(exports, "__esModule", { value: true });
-__exportStar(require("./parse"), exports);
-__exportStar(require("./types"), exports);
+exports.isWasmAvailable = exports.initWasm = exports.parseCANTMessage = exports.initCantParser = void 0;
+// Parser
+var parse_1 = require("./parse");
+Object.defineProperty(exports, "initCantParser", { enumerable: true, get: function () { return parse_1.initCantParser; } });
+Object.defineProperty(exports, "parseCANTMessage", { enumerable: true, get: function () { return parse_1.parseCANTMessage; } });
+// WASM loader
+var wasm_loader_1 = require("./wasm-loader");
+Object.defineProperty(exports, "initWasm", { enumerable: true, get: function () { return wasm_loader_1.initWasm; } });
+Object.defineProperty(exports, "isWasmAvailable", { enumerable: true, get: function () { return wasm_loader_1.isWasmAvailable; } });
 //# sourceMappingURL=index.js.map

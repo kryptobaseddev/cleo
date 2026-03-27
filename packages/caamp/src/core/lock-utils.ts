@@ -5,10 +5,10 @@
  * Both MCP and skills lock modules import from here.
  */
 
-import { open, readFile, writeFile, mkdir, rm, rename, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import type { CaampLockFile } from "../types.js";
-import { AGENTS_HOME, LOCK_FILE_PATH } from "./paths/agents.js";
+import { existsSync } from 'node:fs';
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import type { CaampLockFile } from '../types.js';
+import { AGENTS_HOME, LOCK_FILE_PATH } from './paths/agents.js';
 
 const LOCK_GUARD_PATH = `${LOCK_FILE_PATH}.lock`;
 const STALE_LOCK_MS = 5_000;
@@ -35,11 +35,15 @@ async function acquireLockGuard(retries = 40, delayMs = 25): Promise<void> {
 
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
-      const handle = await open(LOCK_GUARD_PATH, "wx");
+      const handle = await open(LOCK_GUARD_PATH, 'wx');
       await handle.close();
       return;
     } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || (error as NodeJS.ErrnoException).code !== "EEXIST") {
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        (error as NodeJS.ErrnoException).code !== 'EEXIST'
+      ) {
         throw error;
       }
       // On first retry failure, check for stale lock from a crashed process
@@ -51,7 +55,7 @@ async function acquireLockGuard(retries = 40, delayMs = 25): Promise<void> {
     }
   }
 
-  throw new Error("Timed out waiting for lock file guard");
+  throw new Error('Timed out waiting for lock file guard');
 }
 
 async function releaseLockGuard(): Promise<void> {
@@ -60,7 +64,7 @@ async function releaseLockGuard(): Promise<void> {
 
 async function writeLockFileUnsafe(lock: CaampLockFile): Promise<void> {
   const tmpPath = `${LOCK_FILE_PATH}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(tmpPath, JSON.stringify(lock, null, 2) + "\n", "utf-8");
+  await writeFile(tmpPath, JSON.stringify(lock, null, 2) + '\n', 'utf-8');
   await rename(tmpPath, LOCK_FILE_PATH);
 }
 
@@ -86,7 +90,7 @@ export async function readLockFile(): Promise<CaampLockFile> {
     if (!existsSync(LOCK_FILE_PATH)) {
       return { version: 1, skills: {}, mcpServers: {} };
     }
-    const content = await readFile(LOCK_FILE_PATH, "utf-8");
+    const content = await readFile(LOCK_FILE_PATH, 'utf-8');
     return JSON.parse(content) as CaampLockFile;
   } catch {
     return { version: 1, skills: {}, mcpServers: {} };

@@ -8,6 +8,7 @@
  *   - Blast radius calculation
  *   - Critical path detection
  *   - Edge cases (orphan tasks, circular refs, no deps)
+ *   - predictImpact: free-text change description matching (T043)
  *
  * @module intelligence
  */

@@ -6,26 +6,13 @@ rust-version = "1.88"
 description = "Canonical CANT grammar parser for CLEO ecosystem"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 nom = "7.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 conduit-core = { path = "../conduit-core" }
-wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
-
-[features]
-default = []
-wasm = ["wasm-bindgen", "js-sys", "conduit-core/wasm"]
 
 [lints.rustdoc]
 broken_intra_doc_links = "warn"
-
-# WASM build configuration
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O4", "--enable-mutable-globals"]
-
-[package.metadata.wasm-pack.profile.dev]
-wasm-opt = false

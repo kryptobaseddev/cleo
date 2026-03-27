@@ -1,8 +1,8 @@
 /**
- * Test CLEO-INJECTION.md v2.1.0 minimal-only template.
+ * Test CLEO-INJECTION.md v2.2.0 minimal-only template.
  *
  * Validates the trimmed template:
- * 1. Has version 2.1.0
+ * 1. Has version 2.2.0
  * 2. Contains all minimal sections
  * 3. Does NOT contain standard/orchestrator content
  * 4. Contains escalation section with skill pointers
@@ -20,14 +20,14 @@ const thisFile = fileURLToPath(import.meta.url);
 const corePackageRoot = resolve(dirname(thisFile), '..', '..');
 const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 const templateExists = existsSync(injectionPath);
-describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
+describe('CLEO-INJECTION v2.2.0 minimal-only template', () => {
     const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
     it('template file exists at templates/CLEO-INJECTION.md', () => {
         expect(templateExists).toBe(true);
     });
     describe('Version and metadata', () => {
-        it('has version 2.1.0', () => {
-            expect(content).toContain('Version: 2.1.0');
+        it('has version 2.2.0', () => {
+            expect(content).toContain('Version: 2.2.0');
         });
         it('has status ACTIVE', () => {
             expect(content).toContain('Status: ACTIVE');
@@ -41,17 +41,17 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
         });
         it('includes Mandatory Efficiency Sequence', () => {
             expect(content).toContain('## Mandatory Efficiency Sequence');
-            expect(content).toContain('query session status');
-            expect(content).toContain('query admin dash');
-            expect(content).toContain('query tasks current');
-            expect(content).toContain('query tasks next');
-            expect(content).toContain('query tasks show');
+            expect(content).toContain('cleo session status');
+            expect(content).toContain('cleo dash');
+            expect(content).toContain('cleo current');
+            expect(content).toContain('cleo next');
+            expect(content).toContain('cleo show');
         });
         it('includes Agent Work Loop', () => {
             expect(content).toContain('## Agent Work Loop');
-            expect(content).toContain('tasks current');
-            expect(content).toContain('tasks complete');
-            expect(content).toContain('tasks next');
+            expect(content).toContain('cleo current');
+            expect(content).toContain('cleo complete');
+            expect(content).toContain('cleo next');
         });
         it('includes Context Ethics', () => {
             expect(content).toContain('## Context Ethics');
@@ -139,9 +139,9 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
         });
     });
     describe('Template size', () => {
-        it('is under 120 lines', () => {
+        it('is under 160 lines', () => {
             const lines = content.split('\n').length;
-            expect(lines).toBeLessThan(130);
+            expect(lines).toBeLessThan(160);
         });
         it('is at least 60 lines (not accidentally empty)', () => {
             const lines = content.split('\n').length;

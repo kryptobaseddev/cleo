@@ -5,12 +5,12 @@
  * Provides the programmatic API that CLI commands delegate to.
  */
 
-import { existsSync } from "node:fs";
-import type { Provider, McpServerEntry } from "../../types.js";
-import { readConfig, removeConfig } from "../formats/index.js";
-import { getNestedValue } from "../formats/utils.js";
-import { debug } from "../logger.js";
-import { resolveProviderConfigPath, getAgentsMcpServersPath } from "../paths/standard.js";
+import { existsSync } from 'node:fs';
+import type { McpServerEntry, Provider } from '../../types.js';
+import { readConfig, removeConfig } from '../formats/index.js';
+import { getNestedValue } from '../formats/utils.js';
+import { debug } from '../logger.js';
+import { getAgentsMcpServersPath, resolveProviderConfigPath } from '../paths/standard.js';
 
 /**
  * Resolve the absolute config file path for a provider and scope.
@@ -39,7 +39,7 @@ import { resolveProviderConfigPath, getAgentsMcpServersPath } from "../paths/sta
  */
 export function resolveConfigPath(
   provider: Provider,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   projectDir?: string,
 ): string | null {
   return resolveProviderConfigPath(provider, scope, projectDir ?? process.cwd());
@@ -75,18 +75,18 @@ export function resolveConfigPath(
  */
 export async function listMcpServers(
   provider: Provider,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   projectDir?: string,
 ): Promise<McpServerEntry[]> {
   const configPath = resolveConfigPath(provider, scope, projectDir);
-  debug(`listing MCP servers for ${provider.id} (${scope}) at ${configPath ?? "(none)"}`);
+  debug(`listing MCP servers for ${provider.id} (${scope}) at ${configPath ?? '(none)'}`);
   if (!configPath || !existsSync(configPath)) return [];
 
   try {
     const config = await readConfig(configPath, provider.configFormat);
     const servers = getNestedValue(config, provider.configKey);
 
-    if (!servers || typeof servers !== "object") return [];
+    if (!servers || typeof servers !== 'object') return [];
 
     const entries: McpServerEntry[] = [];
     for (const [name, cfg] of Object.entries(servers as Record<string, unknown>)) {
@@ -133,7 +133,7 @@ export async function listMcpServers(
  * @public
  */
 export async function listAgentsMcpServers(
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   projectDir?: string,
 ): Promise<McpServerEntry[]> {
   const serversPath = getAgentsMcpServersPath(scope, projectDir);
@@ -142,18 +142,18 @@ export async function listAgentsMcpServers(
   if (!existsSync(serversPath)) return [];
 
   try {
-    const config = await readConfig(serversPath, "json");
+    const config = await readConfig(serversPath, 'json');
     // .agents/mcp/servers.json uses { "servers": { "<name>": { ... } } }
-    const servers = (config as Record<string, unknown>)["servers"];
+    const servers = (config as Record<string, unknown>)['servers'];
 
-    if (!servers || typeof servers !== "object") return [];
+    if (!servers || typeof servers !== 'object') return [];
 
     const entries: McpServerEntry[] = [];
     for (const [name, cfg] of Object.entries(servers as Record<string, unknown>)) {
       entries.push({
         name,
-        providerId: ".agents",
-        providerName: ".agents/ standard",
+        providerId: '.agents',
+        providerName: '.agents/ standard',
         scope,
         configPath: serversPath,
         config: (cfg ?? {}) as Record<string, unknown>,
@@ -195,7 +195,7 @@ export async function listAgentsMcpServers(
  */
 export async function listAllMcpServers(
   providers: Provider[],
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   projectDir?: string,
 ): Promise<McpServerEntry[]> {
   const seen = new Set<string>();
@@ -247,7 +247,7 @@ export async function listAllMcpServers(
 export async function removeMcpServer(
   provider: Provider,
   serverName: string,
-  scope: "project" | "global",
+  scope: 'project' | 'global',
   projectDir?: string,
 ): Promise<boolean> {
   const configPath = resolveConfigPath(provider, scope, projectDir);

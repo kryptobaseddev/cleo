@@ -136,6 +136,25 @@ describe('sharing', () => {
             expect(status.tracked).toContain('adrs/ADR-001.md');
             expect(status.ignored).toContain('tasks.db');
         });
+        it('returns safe defaults for git sync fields when .cleo/.git does not exist', async () => {
+            const status = await getSharingStatus(tempDir);
+            expect(status.hasGit).toBe(false);
+            expect(status.remotes).toEqual([]);
+            expect(status.pendingChanges).toBe(false);
+            expect(status.lastSync).toBeNull();
+        });
+        it('reports hasGit=true when .cleo/.git/HEAD exists', async () => {
+            // Simulate an initialized .cleo/.git repo (HEAD file is the sentinel)
+            const cleoDir = join(tempDir, '.cleo');
+            await mkdir(join(cleoDir, '.git'), { recursive: true });
+            await writeFile(join(cleoDir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+            const status = await getSharingStatus(tempDir);
+            expect(status.hasGit).toBe(true);
+            // With no actual git repo content, git commands will fail gracefully
+            expect(Array.isArray(status.remotes)).toBe(true);
+            expect(typeof status.pendingChanges).toBe('boolean');
+            expect(status.lastSync === null || typeof status.lastSync === 'string').toBe(true);
+        });
     });
 });
 //# sourceMappingURL=sharing.test.js.map

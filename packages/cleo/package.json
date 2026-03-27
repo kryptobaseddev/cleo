@@ -19,9 +19,11 @@
   },
   "dependencies": {
     "@cleocode/caamp": "workspace:*",
+    "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*",
+    "@cleocode/runtime": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "citty": "^0.2.1"
   },

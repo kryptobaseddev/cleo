@@ -11,7 +11,17 @@
  * @epic T4663
  */
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError, formatSuccess } from '@cleocode/core';
+import { formatSuccess as _formatSuccess, CleoError, formatError, } from '@cleocode/core';
+/**
+ * Wrapper that forces mvi='full' for strict mode review tests.
+ * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ */
+function formatSuccess(data, message, operationOrOpts) {
+    const opts = typeof operationOrOpts === 'string'
+        ? { operation: operationOrOpts, mvi: 'full' }
+        : { mvi: 'full', ...(operationOrOpts ?? {}) };
+    return _formatSuccess(data, message, opts);
+}
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, DEFAULT_PROTOCOL_VALIDATION } from '../lib/defaults.js';
 import { createGatewayMeta } from '../lib/gateway-meta.js';

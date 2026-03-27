@@ -84,16 +84,20 @@ export interface ConduitStateChange {
 // ============================================================================
 
 /**
- * The Conduit Protocol interface.
+ * The Conduit Protocol interface — high-level agent messaging.
+ *
+ * Conduit wraps a Transport adapter, adding messaging semantics.
  *
  * Implementations:
- * - ClawMsgrPollingService (CleoOS Electron main process — polls cloud API)
- * - LocalSignalDock (napi-rs binding — WebSocket to local SignalDock runtime)
- * - ClawMsgrWorker (CLI polling script — clawmsgr-worker.py wrapper)
+ * - `ConduitClient` (`@cleocode/core` — wraps any Transport)
+ * - `HttpTransport` (HTTP polling to cloud SignalDock API)
+ * - `LocalTransport` (napi-rs in-process — embedded SignalDock, future)
+ * - `SseTransport` (Server-Sent Events — real-time cloud, future)
  *
  * Consumers:
- * - CleoOS tRPC routers (wire into orchestration, session management)
- * - @cleocode/core facade (sessions.serialize/restore, orchestration commands)
+ * - `@cleocode/cleo` CLI (`cleo agent watch/poll/send`)
+ * - `@cleocode/runtime` (background polling, SSE connections)
+ * - CleoOS Electron (embedded SignalDock via LocalTransport)
  * - Agent spawners (deliver task assignments, collect results)
  */
 export interface Conduit {

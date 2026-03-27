@@ -72,7 +72,7 @@ export async function queryCommonHooks(
   providerIds?: string[],
 ): Promise<EngineResult<{ providerIds?: string[]; commonEvents: ProviderHookEvent[] }>> {
   const { getCommonHookEvents } = await import('@cleocode/caamp');
-  const commonEvents = getCommonHookEvents(providerIds);
+  const commonEvents = getCommonHookEvents(providerIds) as ProviderHookEvent[];
 
   return engineSuccess({
     providerIds,

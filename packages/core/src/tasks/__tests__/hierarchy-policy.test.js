@@ -46,6 +46,11 @@ function makeConfig(hierarchy) {
             auditRetentionDays: 90,
             archiveBeforePrune: true,
         },
+        enforcement: {
+            acceptance: { mode: 'off', requiredForPriorities: [], minimumCriteria: 3 },
+            session: { requiredForMutate: false },
+        },
+        verification: { enabled: false, maxRounds: 3, requiredGates: [] },
         sharing: { mode: 'none', commitAllowlist: [], denylist: [] },
     };
 }

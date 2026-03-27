@@ -1,16 +1,16 @@
-export type LAFSTransport = "cli" | "http" | "grpc" | "sdk";
+export type LAFSTransport = 'cli' | 'http' | 'grpc' | 'sdk';
 
 export type LAFSErrorCategory =
-  | "VALIDATION"
-  | "AUTH"
-  | "PERMISSION"
-  | "NOT_FOUND"
-  | "CONFLICT"
-  | "RATE_LIMIT"
-  | "TRANSIENT"
-  | "INTERNAL"
-  | "CONTRACT"
-  | "MIGRATION";
+  | 'VALIDATION'
+  | 'AUTH'
+  | 'PERMISSION'
+  | 'NOT_FOUND'
+  | 'CONFLICT'
+  | 'RATE_LIMIT'
+  | 'TRANSIENT'
+  | 'INTERNAL'
+  | 'CONTRACT'
+  | 'MIGRATION';
 
 export interface Warning {
   code: string;
@@ -23,7 +23,10 @@ export interface Warning {
 export type MVILevel = 'minimal' | 'standard' | 'full' | 'custom';
 
 export const MVI_LEVELS: ReadonlySet<MVILevel> = new Set<MVILevel>([
-  'minimal', 'standard', 'full', 'custom',
+  'minimal',
+  'standard',
+  'full',
+  'custom',
 ]);
 
 export function isMVILevel(value: unknown): value is MVILevel {
@@ -55,7 +58,13 @@ export type LAFSAgentAction =
   | 'authenticate';
 
 export const AGENT_ACTIONS: ReadonlySet<LAFSAgentAction> = new Set<LAFSAgentAction>([
-  'retry', 'retry_modified', 'escalate', 'stop', 'wait', 'refresh_context', 'authenticate',
+  'retry',
+  'retry_modified',
+  'escalate',
+  'stop',
+  'wait',
+  'refresh_context',
+  'authenticate',
 ]);
 
 export function isAgentAction(value: unknown): value is LAFSAgentAction {
@@ -75,7 +84,7 @@ export interface LAFSError {
   docUrl?: string;
 }
 export interface LAFSPageCursor {
-  mode: "cursor";
+  mode: 'cursor';
   nextCursor: string | null;
   hasMore: boolean;
   limit?: number;
@@ -83,7 +92,7 @@ export interface LAFSPageCursor {
 }
 
 export interface LAFSPageOffset {
-  mode: "offset";
+  mode: 'offset';
   limit: number;
   offset: number;
   hasMore: boolean;
@@ -91,7 +100,7 @@ export interface LAFSPageOffset {
 }
 
 export interface LAFSPageNone {
-  mode: "none";
+  mode: 'none';
 }
 
 export type LAFSPage = LAFSPageCursor | LAFSPageOffset | LAFSPageNone;
@@ -115,7 +124,7 @@ export interface ContextLedger {
 }
 
 export interface LAFSEnvelope {
-  $schema: "https://lafs.dev/schemas/v1/envelope.schema.json";
+  $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json';
   _meta: LAFSMeta;
   success: boolean;
   result: Record<string, unknown> | Record<string, unknown>[] | null;
@@ -125,11 +134,11 @@ export interface LAFSEnvelope {
 }
 
 export interface FlagInput {
-  requestedFormat?: "json" | "human";
+  requestedFormat?: 'json' | 'human';
   jsonFlag?: boolean;
   humanFlag?: boolean;
-  projectDefault?: "json" | "human";
-  userDefault?: "json" | "human";
+  projectDefault?: 'json' | 'human';
+  userDefault?: 'json' | 'human';
   /**
    * When true, indicates the output is connected to an interactive terminal.
    * If no explicit format flag or project/user default is set, TTY terminals
@@ -168,15 +177,13 @@ export interface LAFSEnvelopeWithBudget extends Omit<LAFSEnvelope, '_meta'> {
   _meta: LAFSMetaWithBudget;
 }
 
-export type MiddlewareFunction = (
-  envelope: LAFSEnvelope
-) => LAFSEnvelope | Promise<LAFSEnvelope>;
+export type MiddlewareFunction = (envelope: LAFSEnvelope) => LAFSEnvelope | Promise<LAFSEnvelope>;
 
 export type NextFunction = () => LAFSEnvelope | Promise<LAFSEnvelope>;
 
 export type BudgetMiddleware = (
   envelope: LAFSEnvelope,
-  next: NextFunction
+  next: NextFunction,
 ) => Promise<LAFSEnvelope> | LAFSEnvelope;
 
 export interface BudgetEnforcementResult {
