@@ -3,7 +3,7 @@
 //! Returns documentation and type information when the user hovers over
 //! a symbol in a `.cant` file.
 
-use cant_core::dsl::ast::{CANONICAL_EVENTS, CantDocument, Section};
+use cant_core::dsl::ast::{CanonicalEvent, CantDocument, Section};
 
 /// The result of a hover lookup: a markdown-formatted documentation string.
 pub struct HoverInfo {
@@ -29,9 +29,9 @@ pub fn hover_for_word(
         }
     }
 
-    // CAAMP event name
-    if CANONICAL_EVENTS.contains(&word) {
-        return Some(event_hover(word));
+    // Canonical event name (provider + domain)
+    if let Some(info) = event_hover(word) {
+        return Some(info);
     }
 
     // Agent property key (word appears before `:` on the line)
@@ -96,62 +96,29 @@ fn directive_hover(verb: &str) -> Option<HoverInfo> {
     })
 }
 
-/// Hover info for CAAMP event names.
-fn event_hover(event: &str) -> HoverInfo {
-    let desc = match event {
-        "SessionStart" => {
-            "**SessionStart** -- `session` category\n\nFired when a coding session begins. Cannot block."
-        }
-        "SessionEnd" => {
-            "**SessionEnd** -- `session` category\n\nFired when a coding session ends. Cannot block."
-        }
-        "PromptSubmit" => {
-            "**PromptSubmit** -- `prompt` category\n\nFired when a user prompt is submitted. Cannot block."
-        }
-        "ResponseComplete" => {
-            "**ResponseComplete** -- `prompt` category\n\nFired when an AI response completes. Cannot block."
-        }
-        "PreToolUse" => {
-            "**PreToolUse** -- `tool` category\n\nFired before a tool is invoked. **Can block execution.**"
-        }
-        "PostToolUse" => {
-            "**PostToolUse** -- `tool` category\n\nFired after a successful tool invocation. Cannot block."
-        }
-        "PostToolUseFailure" => {
-            "**PostToolUseFailure** -- `tool` category\n\nFired after a failed tool invocation. Cannot block."
-        }
-        "PermissionRequest" => {
-            "**PermissionRequest** -- `tool` category\n\nFired when a tool requests elevated permissions. **Can block execution.**"
-        }
-        "SubagentStart" => {
-            "**SubagentStart** -- `agent` category\n\nFired when a subagent process starts. Cannot block."
-        }
-        "SubagentStop" => {
-            "**SubagentStop** -- `agent` category\n\nFired when a subagent process stops. Cannot block."
-        }
-        "PreModel" => {
-            "**PreModel** -- `context` category\n\nFired before an LLM model call. Cannot block."
-        }
-        "PostModel" => {
-            "**PostModel** -- `context` category\n\nFired after an LLM model call. Cannot block."
-        }
-        "PreCompact" => {
-            "**PreCompact** -- `context` category\n\nFired before context window compaction. Cannot block."
-        }
-        "PostCompact" => {
-            "**PostCompact** -- `context` category\n\nFired after context window compaction. Cannot block."
-        }
-        "Notification" => {
-            "**Notification** -- `context` category\n\nFired on system notifications. Cannot block."
-        }
-        "ConfigChange" => {
-            "**ConfigChange** -- `context` category\n\nFired when configuration changes. Cannot block."
-        }
-        _ => "Unknown CAAMP event.",
+/// Hover info for canonical event names (provider + domain). No hardcoded match arms.
+fn event_hover(name: &str) -> Option<HoverInfo> {
+    let event = CanonicalEvent::from_str(name)?;
+    let block_text = if event.can_block() {
+        "**Can block execution.**"
+    } else {
+        "Cannot block."
     };
-    HoverInfo {
-        contents: desc.to_string(),
-    }
+    let source_label = match event.source().as_str() {
+        "provider" => "Provider event",
+        "domain" => "Domain event",
+        _ => "Event",
+    };
+    Some(HoverInfo {
+        contents: format!(
+            "**{}** -- `{}` category ({})\n\n{}. {}",
+            event.as_str(),
+            event.category().as_str(),
+            source_label,
+            event.description(),
+            block_text
+        ),
+    })
 }
 
 /// Hover info for agent block property keys.

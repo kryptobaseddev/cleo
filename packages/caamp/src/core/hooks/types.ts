@@ -8,71 +8,24 @@
  */
 
 // ── Canonical Hook Events ───────────────────────────────────────────
+//
+// SSoT: providers/hook-mappings.json → scripts/generate-hook-types.ts → generated.ts
+// DO NOT hardcode event names here. They are generated from the JSON registry.
 
-/**
- * All supported hook category names as a readonly tuple.
- *
- * @remarks
- * Categories group related canonical events for filtering and display.
- * Each canonical event belongs to exactly one category. The tuple is
- * `as const` so it can be used to derive the {@link HookCategory} union type.
- *
- * @public
- */
-export const HOOK_CATEGORIES = ['session', 'prompt', 'tool', 'agent', 'context'] as const;
+export {
+  CANONICAL_HOOK_EVENTS,
+  DOMAIN_HOOK_EVENTS,
+  EVENT_METADATA,
+  EVENT_SOURCES,
+  HOOK_CATEGORIES,
+  PROVIDER_HOOK_EVENTS,
+  type CanonicalHookEvent,
+  type EventSource,
+  type HookCategory,
+} from './generated.js';
 
-/**
- * Union type of valid hook category strings derived from {@link HOOK_CATEGORIES}.
- *
- * @remarks
- * Used to classify canonical events into logical groups such as `"session"`,
- * `"prompt"`, `"tool"`, `"agent"`, and `"context"`.
- *
- * @public
- */
-export type HookCategory = (typeof HOOK_CATEGORIES)[number];
-
-/**
- * All CAAMP canonical hook event names as a readonly tuple.
- *
- * @remarks
- * This is the single source of truth for the canonical event taxonomy.
- * Provider-native events are mapped to and from these canonical names
- * by the normalizer. The tuple is `as const` so it can derive the
- * {@link CanonicalHookEvent} union type.
- *
- * @public
- */
-export const CANONICAL_HOOK_EVENTS = [
-  'SessionStart',
-  'SessionEnd',
-  'PromptSubmit',
-  'ResponseComplete',
-  'PreToolUse',
-  'PostToolUse',
-  'PostToolUseFailure',
-  'PermissionRequest',
-  'SubagentStart',
-  'SubagentStop',
-  'PreModel',
-  'PostModel',
-  'PreCompact',
-  'PostCompact',
-  'Notification',
-  'ConfigChange',
-] as const;
-
-/**
- * Union type of valid canonical hook event names derived from {@link CANONICAL_HOOK_EVENTS}.
- *
- * @remarks
- * Every provider mapping references these canonical names. Use `toNative()`
- * to translate a canonical event to a provider-specific name, and `toCanonical()`
- * for the reverse direction.
- *
- * @public
- */
-export type CanonicalHookEvent = (typeof CANONICAL_HOOK_EVENTS)[number];
+// Import types for local use in this file's interfaces
+import type { CanonicalHookEvent, HookCategory } from './generated.js';
 
 /**
  * Definition of a canonical hook event including its category and behavior.

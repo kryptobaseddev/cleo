@@ -4,7 +4,7 @@
 //! model identifiers, agent property keys, and references to agents defined
 //! in the current document.
 
-use cant_core::dsl::ast::{CANONICAL_EVENTS, CantDocument, Section};
+use cant_core::dsl::ast::{CanonicalEvent, CantDocument, Section};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 
 // ── Keyword lists ─────────────────────────────────────────────────────
@@ -56,15 +56,19 @@ pub fn directive_completions() -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Returns completions for CAAMP event names (triggered after `on `).
+/// Returns completions for all canonical event names (triggered after `on `).
 pub fn event_completions() -> Vec<CompletionItem> {
-    CANONICAL_EVENTS
+    CanonicalEvent::ALL
         .iter()
         .map(|event| CompletionItem {
-            label: event.to_string(),
+            label: event.as_str().to_string(),
             kind: Some(CompletionItemKind::EVENT),
-            detail: Some(event_detail(event)),
-            insert_text: Some(format!("{event}:")),
+            detail: Some(format!(
+                "{} -- {}",
+                event.category().as_str(),
+                event.description()
+            )),
+            insert_text: Some(format!("{}:", event.as_str())),
             ..Default::default()
         })
         .collect()
@@ -216,28 +220,6 @@ fn directive_detail(verb: &str) -> String {
 }
 
 /// Returns a human-readable detail string for a CAAMP event name.
-fn event_detail(event: &str) -> String {
-    match event {
-        "SessionStart" => "session -- fired when a session begins".to_string(),
-        "SessionEnd" => "session -- fired when a session ends".to_string(),
-        "PromptSubmit" => "prompt -- fired when a prompt is submitted".to_string(),
-        "ResponseComplete" => "prompt -- fired when a response completes".to_string(),
-        "PreToolUse" => "tool -- fired before tool use (canBlock)".to_string(),
-        "PostToolUse" => "tool -- fired after successful tool use".to_string(),
-        "PostToolUseFailure" => "tool -- fired after failed tool use".to_string(),
-        "PermissionRequest" => "tool -- fired on permission request (canBlock)".to_string(),
-        "SubagentStart" => "agent -- fired when a subagent starts".to_string(),
-        "SubagentStop" => "agent -- fired when a subagent stops".to_string(),
-        "PreModel" => "context -- fired before model call".to_string(),
-        "PostModel" => "context -- fired after model call".to_string(),
-        "PreCompact" => "context -- fired before context compaction".to_string(),
-        "PostCompact" => "context -- fired after context compaction".to_string(),
-        "Notification" => "context -- fired on notification".to_string(),
-        "ConfigChange" => "context -- fired on config change".to_string(),
-        _ => "CAAMP event".to_string(),
-    }
-}
-
 /// Returns a human-readable detail string for an agent property key.
 fn property_detail(key: &str) -> String {
     match key {
