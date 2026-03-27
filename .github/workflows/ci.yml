@@ -49,7 +49,7 @@ jobs:
 
   typecheck:
     name: Type Check
-    needs: changes
+    needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -77,7 +77,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
-    needs: changes
+    needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
@@ -111,7 +111,7 @@ jobs:
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})
-    needs: changes
+    needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
@@ -163,7 +163,7 @@ jobs:
 
   validate-json:
     name: Validate JSON Schemas
-    needs: changes
+    needs: [biome, changes]
     if: needs.changes.outputs.schemas == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -180,7 +180,7 @@ jobs:
 
   install-test:
     name: Install Test
-    needs: changes
+    needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -223,6 +223,8 @@ jobs:
 
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
+    needs: [biome, changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
