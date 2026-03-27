@@ -18,8 +18,8 @@
  */
 
 export { migrateMarkdown } from './converter';
-export { serializeCantDocument } from './serializer';
 export { showDiff, showSummary } from './diff';
+export { serializeCantDocument } from './serializer';
 export type {
   ConvertedFile,
   MigrationOptions,

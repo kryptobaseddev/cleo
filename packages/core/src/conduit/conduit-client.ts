@@ -40,13 +40,19 @@ export class ConduitClient implements Conduit {
 
   async connect(): Promise<void> {
     this.state = 'connecting';
-    await this.transport.connect({
-      agentId: this.credential.agentId,
-      apiKey: this.credential.apiKey,
-      apiBaseUrl: this.credential.apiBaseUrl,
-      ...this.credential.transportConfig,
-    });
-    this.state = 'connected';
+    try {
+      await this.transport.connect({
+        agentId: this.credential.agentId,
+        apiKey: this.credential.apiKey,
+        apiBaseUrl: this.credential.apiBaseUrl,
+        ...this.credential.transportConfig,
+      });
+      this.state = 'connected';
+    } catch (err) {
+      // H6 fix: transition to 'error' state instead of stuck at 'connecting'
+      this.state = 'error';
+      throw err;
+    }
   }
 
   async send(

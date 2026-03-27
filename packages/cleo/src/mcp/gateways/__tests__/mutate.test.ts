@@ -29,7 +29,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(totalCount).toBeGreaterThan(0);
   });
 
-  it('should have all 10 canonical domains', () => {
+  it('should have all 11 canonical domains', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
     // Derived from registry — order follows canonical OPERATIONS definition order
     expect(domains).toEqual([
@@ -44,6 +44,7 @@ describe('MUTATE_OPERATIONS', () => {
       'tools',
       'nexus',
       'sticky',
+      'conduit',
     ]);
   });
 
@@ -494,7 +495,7 @@ describe('isMutateOperation', () => {
 describe('getMutateDomains', () => {
   it('should return all mutate domains', () => {
     const domains = getMutateDomains();
-    expect(domains).toHaveLength(10);
+    expect(domains).toHaveLength(11);
     expect(domains).toEqual(Object.keys(MUTATE_OPERATIONS));
   });
 });

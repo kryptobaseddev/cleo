@@ -2,22 +2,12 @@
  * skills validate command - LAFS-compliant with JSON-first output
  */
 
-import type { LAFSErrorCategory } from '@cleocode/lafs';
 import { resolveOutputFormat } from '@cleocode/lafs';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import { buildEnvelope, ErrorCategories, ErrorCodes, emitJsonError } from '../../core/lafs.js';
 import { isHuman } from '../../core/logger.js';
 import { validateSkill } from '../../core/skills/validator.js';
-
-interface LAFSErrorShape {
-  code: string;
-  message: string;
-  category: LAFSErrorCategory;
-  retryable: boolean;
-  retryAfterMs: number | null;
-  details: Record<string, unknown>;
-}
 
 /**
  * Registers the `skills validate` subcommand for validating SKILL.md file format.

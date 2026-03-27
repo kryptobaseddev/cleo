@@ -293,7 +293,15 @@ export async function checkAllSkillUpdates(): Promise<
   const lock = await readLockFile();
   const skillNames = Object.keys(lock.skills);
 
-  const results: Record<string, any> = {};
+  const results: Record<
+    string,
+    {
+      hasUpdate: boolean;
+      currentVersion?: string;
+      latestVersion?: string;
+      status: 'up-to-date' | 'update-available' | 'unknown';
+    }
+  > = {};
   await Promise.all(
     skillNames.map(async (name) => {
       results[name] = await checkSkillUpdate(name);

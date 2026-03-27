@@ -17,7 +17,7 @@ describe('deriveGatewayMatrix', () => {
   const mutateMatrix = deriveGatewayMatrix('mutate');
 
   describe('canonical domain entries', () => {
-    it('produces all 10 canonical query domains', () => {
+    it('produces all 11 canonical query domains', () => {
       for (const domain of CANONICAL_DOMAINS) {
         const ops = queryMatrix[domain];
         // Every canonical domain should exist (even if empty for some gateways)
@@ -28,7 +28,7 @@ describe('deriveGatewayMatrix', () => {
       }
     });
 
-    it('produces all 10 canonical mutate domains', () => {
+    it('produces all 11 canonical mutate domains', () => {
       for (const domain of CANONICAL_DOMAINS) {
         const ops = mutateMatrix[domain];
         if (domain === 'nexus') {
@@ -125,13 +125,13 @@ describe('deriveGatewayMatrix', () => {
 describe('getGatewayDomains', () => {
   it('returns canonical domains for query', () => {
     const domains = getGatewayDomains('query');
-    expect(domains).toHaveLength(10);
+    expect(domains).toHaveLength(11);
     expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
   });
 
   it('returns canonical domains for mutate', () => {
     const domains = getGatewayDomains('mutate');
-    expect(domains).toHaveLength(10);
+    expect(domains).toHaveLength(11);
     expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
   });
 });

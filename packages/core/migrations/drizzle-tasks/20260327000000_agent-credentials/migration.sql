@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS `agent_credentials` (
     `agent_id` text PRIMARY KEY NOT NULL,
     `display_name` text NOT NULL,
     `api_key_encrypted` text NOT NULL,
-    `api_base_url` text NOT NULL DEFAULT 'https://api.clawmsgr.com',
+    `api_base_url` text NOT NULL DEFAULT 'https://api.signaldock.io',
     `classification` text,
     `privacy_tier` text NOT NULL DEFAULT 'public',
     `capabilities` text NOT NULL DEFAULT '[]',

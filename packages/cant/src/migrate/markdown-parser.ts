@@ -216,9 +216,7 @@ export function extractProperties(lines: string[]): ExtractedProperty[] {
 
   for (const line of lines) {
     // Match: - **Key**: value  or  - Key: value
-    const match = line.match(
-      /^[-*]\s+\*{0,2}([A-Za-z][A-Za-z0-9 _-]*?)\*{0,2}\s*:\s*(.+)$/,
-    );
+    const match = line.match(/^[-*]\s+\*{0,2}([A-Za-z][A-Za-z0-9 _-]*?)\*{0,2}\s*:\s*(.+)$/);
     if (match) {
       const key = (match[1] ?? '').trim().toLowerCase();
       const value = (match[2] ?? '').trim();
@@ -244,9 +242,7 @@ export function extractPermissions(lines: string[]): ExtractedPermission[] {
 
   for (const line of lines) {
     // Format 1: "- Tasks: read, write"
-    const structuredMatch = line.match(
-      /^[-*]\s+([A-Za-z]+)\s*:\s*(.+)$/,
-    );
+    const structuredMatch = line.match(/^[-*]\s+([A-Za-z]+)\s*:\s*(.+)$/);
     if (structuredMatch) {
       const domain = (structuredMatch[1] ?? '').trim().toLowerCase();
       const rawValues = (structuredMatch[2] ?? '').trim();
@@ -266,9 +262,7 @@ export function extractPermissions(lines: string[]): ExtractedPermission[] {
       /^[-*]\s+(read|write|execute)(?:\s+and\s+(read|write|execute))?\s+(\w+)/i,
     );
     if (proseMatch) {
-      const values = [
-        (proseMatch[1] ?? '').toLowerCase(),
-      ];
+      const values = [(proseMatch[1] ?? '').toLowerCase()];
       if (proseMatch[2]) {
         values.push(proseMatch[2].toLowerCase());
       }

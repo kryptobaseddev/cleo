@@ -22,9 +22,14 @@
  * ```
  */
 
+/** Resolved type of the lafs-core WASM module. */
+type LafsWasmModule = typeof import('./lafs-core/lafs_core.js');
+/** Resolved type of the conduit-core WASM module. */
+type ConduitWasmModule = typeof import('./conduit-core/conduit_core.js');
+
 // WASM module instances
-let lafsModule: any = null;
-let conduitModule: any = null;
+let lafsModule: LafsWasmModule | null = null;
+let conduitModule: ConduitWasmModule | null = null;
 let isInitialized = false;
 let isInitializing = false;
 let initPromise: Promise<void> | null = null;

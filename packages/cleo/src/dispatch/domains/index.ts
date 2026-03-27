@@ -11,6 +11,7 @@
 import type { DomainHandler } from '../types.js';
 import { AdminHandler } from './admin.js';
 import { CheckHandler } from './check.js';
+import { ConduitHandler } from './conduit.js';
 import { MemoryHandler } from './memory.js';
 import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
@@ -23,6 +24,7 @@ import { ToolsHandler } from './tools.js';
 export {
   AdminHandler,
   CheckHandler,
+  ConduitHandler,
   MemoryHandler,
   NexusHandler,
   OrchestrateHandler,
@@ -49,5 +51,6 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('admin', new AdminHandler());
   handlers.set('nexus', new NexusHandler());
   handlers.set('sticky', new StickyHandler());
+  handlers.set('conduit', new ConduitHandler());
   return handlers;
 }

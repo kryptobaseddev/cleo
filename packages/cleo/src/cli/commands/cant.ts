@@ -170,11 +170,7 @@ export function registerCantCommand(program: Command): void {
  */
 async function loadMigrateEngine(): Promise<MigrateModule> {
   // Try loading paths in order of preference
-  const paths = [
-    '@cleocode/cant',
-    '../../../../cant/dist/index',
-    '../../../../cant/src/index',
-  ];
+  const paths = ['@cleocode/cant', '../../../../cant/dist/index', '../../../../cant/src/index'];
 
   for (const p of paths) {
     try {
@@ -187,7 +183,5 @@ async function loadMigrateEngine(): Promise<MigrateModule> {
     }
   }
 
-  throw new Error(
-    'Cannot load CANT migration engine. Ensure @cleocode/cant is installed.',
-  );
+  throw new Error('Cannot load CANT migration engine. Ensure @cleocode/cant is installed.');
 }

@@ -1,5 +1,5 @@
-import type { ParsedCANTMessage } from './types';
 import { cantParseNative, isNativeAvailable } from './native-loader';
+import type { ParsedCANTMessage } from './types';
 
 export type { ParsedCANTMessage };
 
@@ -47,7 +47,8 @@ export function parseCANTMessage(content: string): ParsedCANTMessage {
       const nativeResult = cantParseNative(content);
       return {
         directive: nativeResult.directive ?? undefined,
-        directive_type: (nativeResult.directiveType?.toLowerCase() ?? 'informational') as ParsedCANTMessage['directive_type'],
+        directive_type: (nativeResult.directiveType?.toLowerCase() ??
+          'informational') as ParsedCANTMessage['directive_type'],
         addresses: nativeResult.addresses ?? [],
         task_refs: nativeResult.taskRefs ?? [],
         tags: nativeResult.tags ?? [],

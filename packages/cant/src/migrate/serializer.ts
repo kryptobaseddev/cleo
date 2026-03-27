@@ -196,13 +196,13 @@ function normalizePropertyKey(key: string): string {
  *
  * Skills are converted to arrays, others remain strings.
  */
-function normalizePropertyValue(
-  key: string,
-  value: string,
-): string | string[] {
+function normalizePropertyValue(key: string, value: string): string | string[] {
   if (key === 'skills') {
     // "ct-cleo, ct-orchestrator" -> ["ct-cleo", "ct-orchestrator"]
-    return value.split(/[,\s]+/).map((v) => v.trim()).filter(Boolean);
+    return value
+      .split(/[,\s]+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
   }
   return value;
 }

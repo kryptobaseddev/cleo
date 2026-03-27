@@ -870,7 +870,7 @@ export const agentCredentials = sqliteTable(
     displayName: text('display_name').notNull(),
     /** API key encrypted at rest using AES-256-GCM with machine-bound key. */
     apiKeyEncrypted: text('api_key_encrypted').notNull(),
-    apiBaseUrl: text('api_base_url').notNull().default('https://api.clawmsgr.com'),
+    apiBaseUrl: text('api_base_url').notNull().default('https://api.signaldock.io'),
     classification: text('classification'),
     privacyTier: text('privacy_tier').notNull().default('public'),
     /** JSON array of capability slugs. */

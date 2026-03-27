@@ -37,7 +37,7 @@ export interface AgentCredential {
   displayName: string;
   /** API key for authentication (`sk_live_*`). Stored encrypted at rest. */
   apiKey: string;
-  /** Base URL of the messaging API. Interim: api.clawmsgr.com. Target: api.signaldock.io. */
+  /** Base URL of the messaging API (default: api.signaldock.io, legacy: api.clawmsgr.com). */
   apiBaseUrl: string;
   /** Agent classification from the registry (e.g. 'code_dev', 'orchestrator'). */
   classification?: string;

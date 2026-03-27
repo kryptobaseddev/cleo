@@ -14,17 +14,11 @@
  */
 
 import { ApprovalManager } from './approval.js';
-import {
-  createChildScope,
-  createScope,
-  flattenScope,
-  resolveVariable,
-  setVariable,
-} from './context-builder.js';
+import { createChildScope, createScope, flattenScope, setVariable } from './context-builder.js';
 import type { DiscretionEvaluator } from './discretion.js';
 import { DefaultDiscretionEvaluator, RateLimitedDiscretionEvaluator } from './discretion.js';
-import { executeParallel } from './parallel-runner.js';
 import type { ParallelArm as ParallelArmRunner } from './parallel-runner.js';
+import { executeParallel } from './parallel-runner.js';
 import type {
   DiscretionContext,
   ExecutionResult,
@@ -284,7 +278,7 @@ export class WorkflowExecutor {
   private async executeParallelBlock(
     statement: AstStatement,
     scope: ExecutionScope,
-    outputs: Record<string, unknown>,
+    _outputs: Record<string, unknown>,
   ): Promise<StepResult> {
     const parallel = statement as {
       modifier?: string;
@@ -292,9 +286,7 @@ export class WorkflowExecutor {
     };
 
     const strategy: JoinStrategy =
-      parallel.modifier === 'Race' ? 'race'
-      : parallel.modifier === 'Settle' ? 'settle'
-      : 'all';
+      parallel.modifier === 'Race' ? 'race' : parallel.modifier === 'Settle' ? 'settle' : 'all';
 
     const arms: ParallelArmRunner[] = (parallel.arms ?? []).map((arm) => ({
       name: arm.name,
@@ -361,7 +353,7 @@ export class WorkflowExecutor {
   /** Execute an approval gate. */
   private async executeApprovalGate(
     statement: AstStatement,
-    scope: ExecutionScope,
+    _scope: ExecutionScope,
   ): Promise<StepResult> {
     const gate = statement as {
       properties?: Array<{ key: { value: string }; value: { raw?: string } }>;
@@ -452,6 +444,7 @@ export class WorkflowExecutor {
     const loop = statement as { body?: AstStatement[]; condition?: unknown };
     let iterations = 0;
     const maxIterations = 10000;
+    let conditionMet = false;
 
     do {
       iterations++;
@@ -463,9 +456,8 @@ export class WorkflowExecutor {
         await this.executeStatement(stmt, scope, outputs);
       }
 
-      const conditionMet = await this.evaluateCondition(loop.condition, scope);
-      if (conditionMet) break;
-    } while (true);
+      conditionMet = await this.evaluateCondition(loop.condition, scope);
+    } while (!conditionMet);
 
     return {
       name: 'loop-until',
@@ -547,10 +539,7 @@ export class WorkflowExecutor {
   /**
    * Evaluate a condition (regular expression or discretion).
    */
-  private async evaluateCondition(
-    condition: unknown,
-    scope: ExecutionScope,
-  ): Promise<boolean> {
+  private async evaluateCondition(condition: unknown, scope: ExecutionScope): Promise<boolean> {
     if (!condition) return true;
 
     const cond = condition as {
@@ -584,13 +573,15 @@ export class WorkflowExecutor {
 function detectStatementType(statement: AstStatement): string {
   if ('Binding' in statement) return 'Binding';
   if ('Output' in statement) return 'Output';
-  if ('Conditional' in statement || 'condition' in statement && 'then_body' in statement) return 'Conditional';
+  if ('Conditional' in statement || ('condition' in statement && 'then_body' in statement))
+    return 'Conditional';
   if ('Parallel' in statement || 'arms' in statement) return 'Parallel';
   if ('Session' in statement || 'target' in statement) return 'Session';
   if ('Pipeline' in statement || ('steps' in statement && 'name' in statement)) return 'Pipeline';
   if ('ApprovalGate' in statement) return 'ApprovalGate';
   if ('Repeat' in statement || 'count' in statement) return 'Repeat';
-  if ('ForLoop' in statement || ('variable' in statement && 'iterable' in statement)) return 'ForLoop';
+  if ('ForLoop' in statement || ('variable' in statement && 'iterable' in statement))
+    return 'ForLoop';
   if ('LoopUntil' in statement) return 'LoopUntil';
   if ('TryCatch' in statement || 'try_body' in statement) return 'TryCatch';
   if ('Directive' in statement || 'verb' in statement) return 'Directive';
@@ -608,9 +599,7 @@ function getStatementName(statement: AstStatement): string {
 }
 
 /** Map a statement to a StepResult type category. */
-function getStatementType(
-  statement: AstStatement,
-): StepResult['type'] {
+function getStatementType(statement: AstStatement): StepResult['type'] {
   const t = detectStatementType(statement);
   const mapping: Record<string, StepResult['type']> = {
     Session: 'session',

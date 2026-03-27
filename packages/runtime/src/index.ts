@@ -8,11 +8,11 @@
  */
 
 import type { AgentRegistryAPI } from '@cleocode/contracts';
+import type { AgentPollerConfig } from './services/agent-poller.js';
 import { AgentPoller } from './services/agent-poller.js';
-import type { AgentPollerConfig, MessageHandler } from './services/agent-poller.js';
 
-export { AgentPoller } from './services/agent-poller.js';
 export type { AgentPollerConfig, MessageHandler } from './services/agent-poller.js';
+export { AgentPoller } from './services/agent-poller.js';
 
 /** Configuration for createRuntime(). */
 export interface RuntimeConfig {

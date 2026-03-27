@@ -34,9 +34,9 @@ describe('Query Gateway', () => {
       expect(total).toBeGreaterThan(0);
     });
 
-    it('should have 10 canonical query domains', () => {
+    it('should have 11 canonical query domains', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(10);
+      expect(domains).toHaveLength(11);
       // Derived from registry — order follows OPERATIONS definition order
       expect(domains).toEqual([
         // Canonical domains (order from OPERATIONS array)
@@ -50,6 +50,7 @@ describe('Query Gateway', () => {
         'tools',
         'nexus',
         'sticky',
+        'conduit',
       ]);
     });
 

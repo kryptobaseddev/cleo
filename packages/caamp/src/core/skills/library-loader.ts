@@ -42,8 +42,7 @@ const require = createRequire(import.meta.url);
  * @public
  */
 export function loadLibraryFromModule(root: string): SkillLibrary {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mod: any;
+  let mod: Record<string, unknown>;
 
   try {
     mod = require(root);
@@ -90,7 +89,8 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
     throw new Error(`Skill library at ${root} is missing 'libraryRoot' property`);
   }
 
-  return mod as SkillLibrary;
+  // Safe cast: all required methods and properties validated above
+  return mod as unknown as SkillLibrary;
 }
 
 /**

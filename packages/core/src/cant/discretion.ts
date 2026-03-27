@@ -61,7 +61,8 @@ export class DefaultDiscretionEvaluator implements DiscretionEvaluator {
 export class MockDiscretionEvaluator implements DiscretionEvaluator {
   private responses: Map<string, boolean> = new Map();
   private defaultResponse: boolean;
-  private evaluationLog: Array<{ condition: string; context: DiscretionContext; result: boolean }> = [];
+  private evaluationLog: Array<{ condition: string; context: DiscretionContext; result: boolean }> =
+    [];
 
   /**
    * Creates a mock evaluator.
@@ -130,7 +131,7 @@ export class RateLimitedDiscretionEvaluator implements DiscretionEvaluator {
     if (this.evaluationCount > this.maxEvaluations) {
       throw new Error(
         `Discretion evaluation limit exceeded: ${this.evaluationCount} > ${this.maxEvaluations}. ` +
-        'This prevents runaway costs from loops containing discretion conditions.',
+          'This prevents runaway costs from loops containing discretion conditions.',
       );
     }
     return this.inner.evaluate(condition, context);

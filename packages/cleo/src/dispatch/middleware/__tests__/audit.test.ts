@@ -55,12 +55,13 @@ vi.mock('../../../../../core/src/store/sqlite.js', () => ({
   }),
 }));
 
-vi.mock('../../../../../core/src/store/tasks-schema.js', () => ({
-  auditLog: { _: 'mock_audit_log_table' },
-  TASK_PRIORITIES: ['critical', 'high', 'medium', 'low'],
-  TASK_STATUSES: ['pending', 'active', 'blocked', 'done'],
-  MANIFEST_STATUSES: ['pending', 'accepted', 'rejected'],
-}));
+vi.mock('../../../../../core/src/store/tasks-schema.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...(actual as Record<string, unknown>),
+    // Override only what the test needs to mock
+  };
+});
 
 // Mock validation-schemas so Zod check passes without real validation
 vi.mock('../../../../../core/src/store/validation-schemas.js', () => ({

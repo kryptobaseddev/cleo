@@ -32,9 +32,17 @@ const ANSI = {
  * @returns The formatted diff string
  */
 export function showDiff(result: MigrationResult, useColor = true): string {
-  const c = useColor ? ANSI : {
-    reset: '', red: '', green: '', yellow: '', cyan: '', dim: '', bold: '',
-  };
+  const c = useColor
+    ? ANSI
+    : {
+        reset: '',
+        red: '',
+        green: '',
+        yellow: '',
+        cyan: '',
+        dim: '',
+        bold: '',
+      };
 
   const lines: string[] = [];
 

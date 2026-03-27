@@ -461,11 +461,10 @@ export function getCommonHookEvents(providerIds?: string[]): HookEvent[] {
  */
 export function providerSupports(provider: Provider, dotPath: string): boolean {
   const parts = dotPath.split('.');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let current: any = provider.capabilities;
+  let current: unknown = provider.capabilities;
   for (const part of parts) {
     if (current == null || typeof current !== 'object') return false;
-    current = current[part];
+    current = (current as Record<string, unknown>)[part];
   }
   if (typeof current === 'boolean') return current;
   if (Array.isArray(current)) return current.length > 0;

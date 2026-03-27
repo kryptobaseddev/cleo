@@ -61,11 +61,14 @@ export interface HealthStatus {
  * ```
  */
 export function healthCheck(config: HealthCheckConfig = {}) {
-  const { path = '/health', checks = [] } = config;
+  const { path: _path = '/health', checks = [] } = config;
 
   const startTime = Date.now();
 
-  return async (req: any, res: any) => {
+  return async (
+    _req: unknown,
+    res: { status: (code: number) => { json: (body: unknown) => void } },
+  ) => {
     const timestamp = new Date().toISOString();
     const checkResults: HealthCheckResult[] = [];
 
@@ -211,7 +214,7 @@ export function createExternalServiceHealthCheck(config: {
  * ```
  */
 export function livenessProbe() {
-  return (req: any, res: any) => {
+  return (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }) => {
     res.status(200).json({
       status: 'alive',
       timestamp: new Date().toISOString(),
@@ -230,7 +233,10 @@ export function livenessProbe() {
  * ```
  */
 export function readinessProbe(config: { checks?: HealthCheckFunction[] } = {}) {
-  return async (req: any, res: any) => {
+  return async (
+    _req: unknown,
+    res: { status: (code: number) => { json: (body: unknown) => void } },
+  ) => {
     const checkResults: HealthCheckResult[] = [];
 
     if (config.checks) {

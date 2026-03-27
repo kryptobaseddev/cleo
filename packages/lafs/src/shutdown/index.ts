@@ -176,7 +176,11 @@ export function forceShutdown(exitCode: number = 1): void {
  * ```
  */
 export function shutdownMiddleware() {
-  return (req: any, res: any, next: any) => {
+  return (
+    _req: unknown,
+    res: { status: (code: number) => { json: (body: unknown) => void } },
+    next: () => void,
+  ) => {
     if (state.isShuttingDown) {
       res.status(503).json({
         error: 'Service is shutting down',

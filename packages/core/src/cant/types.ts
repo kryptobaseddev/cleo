@@ -29,7 +29,16 @@ export interface StepResult {
   /** The step or statement name. */
   name: string;
   /** The type of statement that was executed. */
-  type: 'session' | 'pipeline' | 'parallel' | 'conditional' | 'loop' | 'approval' | 'binding' | 'directive' | 'output';
+  type:
+    | 'session'
+    | 'pipeline'
+    | 'parallel'
+    | 'conditional'
+    | 'loop'
+    | 'approval'
+    | 'binding'
+    | 'directive'
+    | 'output';
   /** Whether this step completed successfully. */
   success: boolean;
   /** The output value produced by this step, if any. */

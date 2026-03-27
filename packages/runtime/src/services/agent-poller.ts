@@ -8,7 +8,7 @@
  * @task T183
  */
 
-import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
+import type { ConduitMessage } from '@cleocode/contracts';
 
 /** Message handler callback. */
 export type MessageHandler = (message: ConduitMessage) => void;

@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 /**
  * Result of resolving @import lines in content.
@@ -61,10 +61,7 @@ const CANT_IMPORT_PATTERN = /^@import\s+["']?([^"'\s]+\.cant)["']?(?:\s+as\s+(\w
  * // ...
  * ```
  */
-export function resolveCantImports(
-  content: string,
-  projectRoot: string,
-): ResolvedImports {
+export function resolveCantImports(content: string, projectRoot: string): ResolvedImports {
   const lines = content.split('\n');
   const resolvedLines: string[] = [];
   const importedFiles: string[] = [];
@@ -168,9 +165,7 @@ function resolveImportPath(importPath: string, projectRoot: string): string | nu
   if (!importPath) return null;
 
   // Security: prevent path traversal outside project root
-  const resolved = isAbsolute(importPath)
-    ? importPath
-    : resolve(projectRoot, importPath);
+  const resolved = isAbsolute(importPath) ? importPath : resolve(projectRoot, importPath);
 
   const normalizedResolved = resolve(resolved);
   const normalizedRoot = resolve(projectRoot);
@@ -383,8 +378,10 @@ function extractIndentedBlock(body: string, headerPattern: RegExp): string[] {
  * Remove surrounding quotes from a string value.
  */
 function unquote(value: string): string {
-  if ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
     return value.slice(1, -1);
   }
   return value;

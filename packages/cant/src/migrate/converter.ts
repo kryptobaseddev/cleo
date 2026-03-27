@@ -158,8 +158,6 @@ function extractInlinePermissions(
       if (/^[-*]\s+/.test(line.trim()) || /^\s+[-*]\s+/.test(line)) {
         permissionLines.push(line.trim());
       } else if (line.trim() === '') {
-        // Blank line might still be within permissions
-        continue;
       } else {
         // Non-list line ends the permissions block
         inPermissions = false;
@@ -195,7 +193,10 @@ function convertHookSection(
   // Convert body to directive-like lines
   const hookBodyLines = convertHookBody(section.bodyLines);
 
-  const identifier = eventName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+  const identifier = eventName
+    .replace(/([A-Z])/g, '-$1')
+    .toLowerCase()
+    .replace(/^-/, '');
   const block: CantBlockIR = {
     type: 'on',
     name: eventName,
@@ -246,7 +247,10 @@ function convertHookBody(bodyLines: string[]): string[] {
     // Check for context-like references
     const contextMatch = stripped.match(/^(?:load\s+)?context\s*:\s*(.+)/i);
     if (contextMatch) {
-      const items = (contextMatch[1] ?? '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+      const items = (contextMatch[1] ?? '')
+        .split(/[,\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       result.push(`# context: [${items.join(', ')}]`);
       continue;
     }
@@ -402,18 +406,14 @@ function extractPipelineSteps(lines: string[]): ExtractedStep[] {
     if (!trimmed) continue;
 
     // Match: "1. Run `command`" or "- Run `command`"
-    const cmdMatch = trimmed.match(
-      /^(?:\d+\.|[-*])\s+(?:run\s+)?`([^`]+)`/i,
-    );
+    const cmdMatch = trimmed.match(/^(?:\d+\.|[-*])\s+(?:run\s+)?`([^`]+)`/i);
     if (cmdMatch) {
       const fullCmd = cmdMatch[1] ?? '';
       const parts = fullCmd.split(/\s+/);
       const command = parts[0] ?? fullCmd;
       const args = parts.slice(1);
 
-      const properties: CantPropertyIR[] = [
-        { key: 'command', value: command },
-      ];
+      const properties: CantPropertyIR[] = [{ key: 'command', value: command }];
       if (args.length > 0) {
         properties.push({ key: 'args', value: args });
       }
@@ -472,10 +472,7 @@ function formatSectionContent(section: MarkdownSection): string {
 /**
  * Build a human-readable migration summary.
  */
-function buildSummary(
-  outputFiles: ConvertedFile[],
-  unconverted: UnconvertedSection[],
-): string {
+function buildSummary(outputFiles: ConvertedFile[], unconverted: UnconvertedSection[]): string {
   const converted = outputFiles.length;
   const remaining = unconverted.length;
 
@@ -488,9 +485,7 @@ function buildSummary(
     for (const file of outputFiles) {
       kinds.set(file.kind, (kinds.get(file.kind) ?? 0) + 1);
     }
-    const kindSummary = [...kinds.entries()]
-      .map(([kind, count]) => `${count} ${kind}`)
-      .join(', ');
+    const kindSummary = [...kinds.entries()].map(([kind, count]) => `${count} ${kind}`).join(', ');
     parts.push(`(${kindSummary})`);
   }
 

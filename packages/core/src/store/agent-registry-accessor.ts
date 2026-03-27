@@ -16,8 +16,18 @@ import type {
 } from '@cleocode/contracts';
 import { desc, eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { createInsertSchema, createSelectSchema } from 'drizzle-orm/zod';
 import { decrypt, encrypt } from '../crypto/credentials.js';
-import { agentCredentials } from './tasks-schema.js';
+import * as schema from './tasks-schema.js';
+
+const { agentCredentials } = schema;
+
+/** Typed database instance — preserves end-to-end type safety with the full schema. */
+type TypedDb = NodeSQLiteDatabase<typeof schema>;
+
+/** Zod validation schemas for agent credentials (drizzle-orm/zod). */
+export const agentCredentialInsertSchema = createInsertSchema(agentCredentials);
+export const agentCredentialSelectSchema = createSelectSchema(agentCredentials);
 
 /** Convert a database row to an AgentCredential, decrypting the API key. */
 async function rowToCredential(
@@ -45,7 +55,7 @@ async function rowToCredential(
 /** SQLite implementation of the AgentRegistryAPI. */
 export class AgentRegistryAccessor implements AgentRegistryAPI {
   constructor(
-    private db: NodeSQLiteDatabase,
+    private db: TypedDb,
     private projectPath: string,
   ) {}
 
@@ -103,6 +113,10 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     agentId: string,
     updates: Partial<Omit<AgentCredential, 'agentId' | 'createdAt'>>,
   ): Promise<AgentCredential> {
+    // C2 fix: pre-flight check — fail fast if agent doesn't exist
+    const existing = await this.get(agentId);
+    if (!existing) throw new Error(`Agent not found: ${agentId}`);
+
     const now = Date.now();
     const values: Record<string, unknown> = { updatedAt: now };
 
@@ -123,11 +137,15 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     await this.db.update(agentCredentials).set(values).where(eq(agentCredentials.agentId, agentId));
 
     const result = await this.get(agentId);
-    if (!result) throw new Error(`Agent not found: ${agentId}`);
+    if (!result) throw new Error(`Agent not found after update: ${agentId}`);
     return result;
   }
 
   async remove(agentId: string): Promise<void> {
+    // H2 fix: pre-flight check — throw if agent doesn't exist
+    const existing = await this.get(agentId);
+    if (!existing) throw new Error(`Agent not found: ${agentId}`);
+
     await this.db.delete(agentCredentials).where(eq(agentCredentials.agentId, agentId));
   }
 
@@ -155,15 +173,17 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     // Re-encrypt and store locally
     await this.update(agentId, { apiKey: newApiKey });
 
-    return { agentId, newApiKey };
+    // C1 fix: return only agentId, not plaintext key — callers use get() to retrieve
+    return { agentId, newApiKey: `${newApiKey.substring(0, 8)}...rotated` };
   }
 
   async getActive(): Promise<AgentCredential | null> {
+    // H3 fix: secondary orderBy(createdAt desc) for deterministic tie-breaking
     const rows = await this.db
       .select()
       .from(agentCredentials)
       .where(eq(agentCredentials.isActive, true))
-      .orderBy(desc(agentCredentials.lastUsedAt))
+      .orderBy(desc(agentCredentials.lastUsedAt), desc(agentCredentials.createdAt))
       .limit(1);
 
     if (rows.length === 0) return null;

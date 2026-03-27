@@ -254,7 +254,7 @@ export function applyBudgetEnforcement(
 
   // If truncation is enabled, try to truncate
   if (truncateOnExceed) {
-    const { result, wasTruncated } = truncateResult(envelope.result, budget, estimator);
+    const { result } = truncateResult(envelope.result, budget, estimator);
     const truncatedEstimate = estimator.estimate(result);
 
     if (truncatedEstimate <= budget) {

@@ -32,7 +32,7 @@ export function registerAgentCommand(program: Command): void {
     .requiredOption('--id <agentId>', 'Unique agent identifier')
     .requiredOption('--name <displayName>', 'Human-readable display name')
     .requiredOption('--api-key <apiKey>', 'API key (sk_live_...)')
-    .option('--api-url <url>', 'API base URL', 'https://api.clawmsgr.com')
+    .option('--api-url <url>', 'API base URL', 'https://api.signaldock.io')
     .option('--classification <class>', 'Agent classification (e.g. code_dev, orchestrator)')
     .option('--privacy <tier>', 'Privacy tier: public, discoverable, private', 'public')
     .action(async (opts: Record<string, unknown>) => {
@@ -45,7 +45,7 @@ export function registerAgentCommand(program: Command): void {
           agentId: opts['id'] as string,
           displayName: opts['name'] as string,
           apiKey: opts['apiKey'] as string,
-          apiBaseUrl: (opts['apiUrl'] as string) ?? 'https://api.clawmsgr.com',
+          apiBaseUrl: (opts['apiUrl'] as string) ?? 'https://api.signaldock.io',
           classification: opts['classification'] as string | undefined,
           privacyTier: (opts['privacy'] as 'public' | 'discoverable' | 'private') ?? 'public',
           capabilities: [],
@@ -136,7 +136,10 @@ export function registerAgentCommand(program: Command): void {
             success: true,
             data: {
               ...credential,
-              apiKey: `${credential.apiKey.substring(0, 12)}...${credential.apiKey.substring(credential.apiKey.length - 4)}`,
+              apiKey:
+                credential.apiKey.length > 16
+                  ? `${credential.apiKey.substring(0, 12)}...${credential.apiKey.substring(credential.apiKey.length - 4)}`
+                  : '***redacted***',
             },
           },
           { command: 'agent get' },
@@ -197,6 +200,70 @@ export function registerAgentCommand(program: Command): void {
         cliOutput(
           { success: false, error: { code: 'E_ROTATE', message: String(err) } },
           { command: 'agent rotate-key' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent claim-code <id> ---
+  agent
+    .command('claim-code <agentId>')
+    .description('Generate a claim code for human ownership of an agent')
+    .action(async (agentId: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        const credential = await registry.get(agentId);
+        if (!credential) {
+          cliOutput(
+            {
+              success: false,
+              error: { code: 'E_NOT_FOUND', message: `Agent not found: ${agentId}` },
+            },
+            { command: 'agent claim-code' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+
+        const response = await fetch(`${credential.apiBaseUrl}/agents/${agentId}/claim-code`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${credential.apiKey}`,
+            'X-Agent-Id': agentId,
+          },
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          throw new Error(`Failed to generate claim code: ${response.status} ${text}`);
+        }
+
+        const data = (await response.json()) as {
+          data?: { claimCode?: string; claimUrl?: string; expiresAt?: string };
+        };
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId,
+              claimCode: data.data?.claimCode,
+              claimUrl:
+                data.data?.claimUrl ?? `https://signaldock.io/claim/${data.data?.claimCode}`,
+              expiresAt: data.data?.expiresAt,
+              message: 'Share this claim code with the human owner to verify agent ownership.',
+            },
+          },
+          { command: 'agent claim-code' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_CLAIM', message: String(err) } },
+          { command: 'agent claim-code' },
         );
         process.exitCode = 1;
       }

@@ -4,8 +4,15 @@
  * Loads the WASM module and provides access to CANT parsing functions
  */
 
+/** Shape of the CANT WASM module exports. */
+interface CantWasmModule {
+  default(): Promise<void>;
+  cant_parse(content: string): unknown;
+  cant_classify_directive(verb: string): string;
+}
+
 // Dynamic import of the WASM module
-let wasmModule: any = null;
+let wasmModule: CantWasmModule | null = null;
 let isInitializing = false;
 let initPromise: Promise<void> | null = null;
 
@@ -23,7 +30,7 @@ export async function initWasm(): Promise<void> {
   initPromise = (async () => {
     try {
       // Try to load the WASM module
-      const wasm = await import('../wasm/cant_core');
+      const wasm = (await import('../wasm/cant_core')) as CantWasmModule;
       await wasm.default();
       wasmModule = wasm;
     } catch (_error) {
@@ -46,7 +53,7 @@ export function isWasmAvailable(): boolean {
 /**
  * Parse a CANT message using WASM
  */
-export function cantParseWASM(content: string): any {
+export function cantParseWASM(content: string): unknown {
   if (!wasmModule) {
     throw new Error('WASM not initialized. Call initWasm() first.');
   }
@@ -63,4 +70,5 @@ export function cantClassifyDirectiveWASM(verb: string): string {
   return wasmModule.cant_classify_directive(verb);
 }
 
+export type { CantWasmModule };
 export { wasmModule };

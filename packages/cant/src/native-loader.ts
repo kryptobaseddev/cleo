@@ -9,7 +9,13 @@
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-let nativeModule: any = null;
+/** Shape of the native CANT addon. */
+interface CantNativeModule {
+  cantParse(content: string): unknown;
+  cantClassifyDirective(verb: string): string;
+}
+
+let nativeModule: CantNativeModule | null = null;
 let loadAttempted = false;
 
 /**
@@ -23,11 +29,11 @@ function ensureLoaded(): void {
   try {
     // Try loading the napi-rs native addon
     // The package name will be @cleocode/cant-native once published
-    nativeModule = require('@cleocode/cant-native');
+    nativeModule = require('@cleocode/cant-native') as CantNativeModule;
   } catch {
     try {
       // Development fallback: try loading from the crate build output
-      nativeModule = require('../../crates/cant-napi');
+      nativeModule = require('../../crates/cant-napi') as CantNativeModule;
     } catch {
       // Native addon not available — JS fallback will be used
       nativeModule = null;
@@ -46,7 +52,7 @@ export function isNativeAvailable(): boolean {
 /**
  * Parse a CANT message using the native addon
  */
-export function cantParseNative(content: string): any {
+export function cantParseNative(content: string): unknown {
   ensureLoaded();
   if (!nativeModule) {
     throw new Error('Native addon not available.');
@@ -67,4 +73,6 @@ export function cantClassifyDirectiveNative(verb: string): string {
 
 // Backward compatibility aliases
 export const isWasmAvailable = isNativeAvailable;
-export const initWasm = async (): Promise<void> => { ensureLoaded(); };
+export const initWasm = async (): Promise<void> => {
+  ensureLoaded();
+};

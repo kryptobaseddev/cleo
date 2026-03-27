@@ -47,8 +47,7 @@ export async function executeParallel(
       return executeRace(arms);
     case 'settle':
       return executeSettle(arms);
-    case 'all':
-    default:
+    default: // 'all' or any other value
       return executeAll(arms);
   }
 }

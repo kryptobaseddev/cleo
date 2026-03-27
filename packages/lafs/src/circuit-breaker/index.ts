@@ -276,7 +276,11 @@ export class CircuitBreakerRegistry {
 export function circuitBreakerMiddleware(config: CircuitBreakerConfig) {
   const breaker = new CircuitBreaker(config);
 
-  return async (req: any, res: any, next: any) => {
+  return async (
+    _req: unknown,
+    res: { status: (code: number) => { json: (body: unknown) => void } },
+    next: () => void,
+  ) => {
     try {
       await breaker.execute(async () => {
         next();
