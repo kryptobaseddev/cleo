@@ -444,11 +444,15 @@ condition_prop  = "condition:" , WS , expression , LINE_END ;
 statement       = session_stmt
                 | parallel_block
                 | if_stmt
+                | choice_stmt
                 | repeat_stmt
                 | for_stmt
                 | loop_until_stmt
                 | try_block
+                | throw_stmt
                 | approval_gate
+                | block_def
+                | block_call
                 | pipeline_def
                 | pipe_step
                 | let_binding
@@ -495,6 +499,17 @@ discretion      = "**" , PROSE_TEXT , "**" ;
    They are ONLY permitted in workflow bodies, NEVER in pipelines (P02). *)
 PROSE_TEXT       = { ? any character except "**" sequence ? } ;
 
+(* -- Choice (AI multi-option selection) -- *)
+
+choice_stmt     = "choice" , WS , discretion , ":" , LINE_END ,
+                  INDENT , option , { option } , DEDENT ;
+option          = "option" , WS , STRING , ":" , LINE_END ,
+                  INDENT , { statement } , DEDENT ;
+(* Unlike if/elif which evaluates serial boolean conditions, choice presents
+   N named options to the AI evaluator and lets it select the best one.
+   The discretion prose describes the decision criteria.
+   At least 2 options are REQUIRED (W12). *)
+
 (* -- Loop constructs -- *)
 
 repeat_stmt     = "repeat" , WS , expression , ":" , LINE_END ,
@@ -520,6 +535,27 @@ catch_clause    = "catch" , [ WS , NAME ] , ":" , LINE_END ,
 (* The optional NAME in catch binds the error value. *)
 finally_clause  = "finally:" , LINE_END ,
                   INDENT , { statement } , DEDENT ;
+
+(* -- Throw statement -- *)
+
+throw_stmt      = "throw" , [ WS , expression ] , LINE_END ;
+(* Explicitly signals an error from workflow logic. If inside a try block,
+   the error is caught by the catch clause. If not, it halts the workflow.
+   The optional expression becomes the error value bound by catch.
+   If omitted, a generic error with no message is thrown.
+   Throw is ONLY permitted in workflow bodies, NEVER in pipelines (P08). *)
+
+(* -- Reusable block definition -- *)
+
+block_def       = "block" , WS , NAME , [ params ] , ":" , LINE_END ,
+                  INDENT , { statement } , DEDENT ;
+(* Defines a reusable group of statements callable by name. CANT's equivalent
+   of a function/macro for DRY statement reuse. Block names follow the same
+   uniqueness rules as agent/skill/workflow names (S05).
+   Blocks inherit the caller's scope. They MUST NOT define output bindings (W13). *)
+
+block_call      = NAME , "(" , [ expression , { "," , [ WS ] , expression } ] , ")" , LINE_END ;
+(* Invokes a previously defined block by name, passing arguments positionally. *)
 
 (* -- Approval gate -- *)
 
@@ -1003,6 +1039,8 @@ pub enum Statement {
     Parallel(ParallelBlock),
     /// An if/elif/else conditional.
     Conditional(Conditional),
+    /// An AI multi-option selection.
+    Choice(ChoiceBlock),
     /// A `repeat N:` loop.
     Repeat(RepeatLoop),
     /// A `for x in collection:` loop.
@@ -1011,8 +1049,14 @@ pub enum Statement {
     LoopUntil(LoopUntil),
     /// A try/catch/finally block.
     TryCatch(TryCatch),
+    /// An explicit error signal from workflow logic.
+    Throw(ThrowStmt),
     /// A human-in-the-loop approval gate.
     ApprovalGate(ApprovalGate),
+    /// A reusable block definition.
+    BlockDef(BlockDef),
+    /// A block invocation.
+    BlockCall(BlockCall),
     /// An inline pipeline definition.
     Pipeline(PipelineDef),
     /// A single pipeline step (inside an inline pipeline).
@@ -1200,7 +1244,95 @@ pub struct ApprovalGate {
 }
 ```
 
-### 3.12 Miscellaneous Nodes
+### 3.12 Choice Block
+
+```rust
+/// An AI multi-option selection. The AI evaluator picks the best option
+/// from N named alternatives based on the discretion criteria.
+///
+/// ```cant
+/// choice **which deployment strategy best fits the risk profile**:
+///   option "blue-green":
+///     session "Execute blue-green deploy"
+///   option "canary":
+///     session "Execute canary deploy"
+///   option "rolling":
+///     session "Execute rolling deploy"
+/// ```
+#[derive(Debug, Clone)]
+pub struct ChoiceBlock {
+    /// The discretion condition describing the decision criteria.
+    pub criteria: DiscretionCondition,
+    /// The named options. MUST contain at least 2 (W12).
+    pub options: Vec<ChoiceOption>,
+    pub span: Span,
+}
+
+/// A named option within a choice block.
+#[derive(Debug, Clone)]
+pub struct ChoiceOption {
+    /// The option label (string literal).
+    pub label: String,
+    /// The body statements executed if this option is selected.
+    pub body: Vec<Statement>,
+    pub span: Span,
+}
+```
+
+### 3.13 Throw Statement
+
+```rust
+/// An explicit error signal from workflow logic.
+///
+/// ```cant
+/// if status == "critical":
+///   throw "Deployment blocked: critical status"
+/// ```
+#[derive(Debug, Clone)]
+pub struct ThrowStmt {
+    /// The error value expression. If None, a generic error is thrown.
+    pub value: Option<Expression>,
+    pub span: Span,
+}
+```
+
+### 3.14 Reusable Block
+
+```rust
+/// A reusable block definition — CANT's equivalent of a function/macro.
+///
+/// ```cant
+/// block notify(target, message):
+///   /info @{target} "{message}"
+///   session "Log notification to audit trail"
+/// ```
+#[derive(Debug, Clone)]
+pub struct BlockDef {
+    /// The block name.
+    pub name: String,
+    /// Formal parameters.
+    pub params: Vec<Param>,
+    /// The block body statements.
+    pub body: Vec<Statement>,
+    pub span: Span,
+}
+
+/// A block invocation.
+///
+/// ```cant
+/// notify(@ops-lead, "Deployment complete")
+/// ```
+#[derive(Debug, Clone)]
+pub struct BlockCall {
+    /// The name of the block to invoke.
+    pub name: String,
+    /// Positional arguments.
+    pub args: Vec<Expression>,
+    pub span: Span,
+}
+```
+
+### 3.15 Miscellaneous Nodes
 
 ```rust
 /// An import statement.
@@ -2635,11 +2767,110 @@ workflow flat:
 
 ---
 
+#### W12 -- Choice Requires At Least Two Options
+
+**Severity**: Error
+
+**Description**: A `choice` block MUST contain at least 2 `option` clauses. A single-option
+choice is meaningless — use `if` instead.
+
+**Violation**:
+```cant
+choice **which approach**:
+  option "only-one":
+    session "Do the thing"
+```
+
+**Correct**:
+```cant
+choice **which approach**:
+  option "conservative":
+    session "Safe approach"
+  option "aggressive":
+    session "Fast approach"
+```
+
+**Diagnostic**: `W12: Choice block at line {line} has only {count} option(s). A choice block must contain at least 2 options. Use 'if' for single-branch discretion.`
+
+---
+
+#### W13 -- Block Must Not Contain Output Bindings
+
+**Severity**: Error
+
+**Description**: Reusable `block` definitions MUST NOT contain `output` statements. Outputs
+are workflow-level declarations that feed the ExecutionResult. Allowing them in blocks would
+create ambiguity about which workflow the output belongs to.
+
+**Violation**:
+```cant
+block notify(msg):
+  /info @all msg
+  output notification_sent = true   # NOT allowed
+```
+
+**Correct**:
+```cant
+block notify(msg):
+  /info @all msg
+
+workflow deploy:
+  notify("Deploying")
+  output deployed = true   # outputs belong at workflow level
+```
+
+**Diagnostic**: `W13: Output binding '{name}' at line {line} is inside a block definition. Output bindings are only permitted at workflow top level.`
+
+---
+
+#### P08 -- No Throw in Pipelines
+
+**Severity**: Error
+
+**Description**: Pipeline bodies MUST NOT contain `throw` statements. Pipelines are
+deterministic — errors are signaled by non-zero exit codes from pipeline steps, not by
+explicit throw statements. Throw is a workflow-only construct.
+
+**Violation**:
+```cant
+pipeline build:
+  step compile:
+    command: "cargo"
+    args: ["build"]
+  throw "Something went wrong"   # NOT allowed
+```
+
+**Correct**:
+```cant
+workflow build-with-error-handling:
+  pipeline compile:
+    step build:
+      command: "cargo"
+      args: ["build"]
+  if compile.build.exitCode != 0:
+    throw "Build failed with exit code ${compile.build.exitCode}"
+```
+
+**Diagnostic**: `P08: Throw statement at line {line} is inside a pipeline body. Pipelines are deterministic and must not contain throw. Use non-zero exit codes from pipeline steps to signal errors.`
+
+---
+
 ## 5. CAAMP Event Mapping
 
-The 16 CAAMP canonical events map directly to CANT `on Event:` block names. Event names are
-PascalCase and MUST be used verbatim. See the
-[CAAMP Integration Spec](./CAAMP-INTEGRATION-SPEC.md) for the full event taxonomy.
+CANT `on Event:` blocks are validated against the canonical event registry. Events come from
+two sources: **provider events** (LLM-provider-lifecycle) and **domain events** (application
+business logic). Both use the same `on Event:` syntax.
+
+The canonical event registry is defined in `hook-mappings.json` (SSoT). Implementations
+MUST NOT hardcode event names. The parser SHOULD accept any PascalCase identifier in `on`
+blocks and defer validation to the validator, which reads the event registry.
+
+See [CANT-EXECUTION-SEMANTICS.md](./CANT-EXECUTION-SEMANTICS.md) Section 9 for the Generic
+Domain Event Protocol and Section 10 for CLEO domain event definitions.
+
+### 5.0 Provider Events (16)
+
+The original 16 CAAMP canonical events. These fire during AI coding tool runtime.
 
 | # | CAAMP Event | CANT Block | Category | canBlock | Description |
 |---|-------------|-----------|----------|----------|-------------|
@@ -2660,7 +2891,34 @@ PascalCase and MUST be used verbatim. See the
 | 15 | Notification | `on Notification:` | context | no | Fires on a system notification |
 | 16 | ConfigChange | `on ConfigChange:` | context | no | Fires when configuration changes |
 
-### 5.1 Blocking Event Semantics
+### 5.1 Domain Events (CLEO)
+
+Domain events fire when CLEO CQRS operations complete. They use the D:O:P pattern
+(Domain:Operation:Phase) as machine-readable metadata. See
+[CANT-EXECUTION-SEMANTICS.md](./CANT-EXECUTION-SEMANTICS.md) Section 10 for full details.
+
+| # | Domain Event | CANT Block | Category | D:O:P | Description |
+|---|-------------|-----------|----------|-------|-------------|
+| 17 | TaskCreated | `on TaskCreated:` | task | `tasks:add:post` | A task was created via `tasks.add` |
+| 18 | TaskStarted | `on TaskStarted:` | task | `tasks:start:post` | A task was started via `tasks.start` |
+| 19 | TaskCompleted | `on TaskCompleted:` | task | `tasks:complete:post` | A task was completed via `tasks.complete` |
+| 20 | TaskBlocked | `on TaskBlocked:` | task | `tasks:update:post` | A task was blocked |
+| 21 | MemoryObserved | `on MemoryObserved:` | memory | `memory:observe:post` | An observation was recorded |
+| 22 | MemoryPatternStored | `on MemoryPatternStored:` | memory | `memory:store:post` | A pattern was stored |
+| 23 | MemoryLearningStored | `on MemoryLearningStored:` | memory | `memory:store:post` | A learning was stored |
+| 24 | MemoryDecisionStored | `on MemoryDecisionStored:` | memory | `memory:store:post` | A decision was stored |
+| 25 | PipelineStageCompleted | `on PipelineStageCompleted:` | pipeline | `pipeline:validate:post` | A lifecycle gate passed |
+| 26 | PipelineManifestAppended | `on PipelineManifestAppended:` | pipeline | `pipeline:append:post` | A manifest entry was appended |
+| 27 | SessionStarted | `on SessionStarted:` | session | `session:start:post` | A session was started |
+| 28 | SessionEnded | `on SessionEnded:` | session | `session:end:post` | A session ended |
+| 29 | ApprovalRequested | `on ApprovalRequested:` | session | `session:suspend:post` | An approval gate fired |
+| 30 | ApprovalGranted | `on ApprovalGranted:` | session | `session:resume:post` | An approval was granted |
+| 31 | ApprovalExpired | `on ApprovalExpired:` | session | `session:suspend:post` | An approval token expired |
+
+Domain events are extensible. Additional domain sources (SignalDock, third-party integrations)
+MAY register events via the `domainSources` section in `hook-mappings.json`.
+
+### 5.2 Blocking Event Semantics
 
 Events with `canBlock: true` (PreToolUse, PermissionRequest) have special semantics in hook
 bodies. The hook handler MUST produce one of:

@@ -345,6 +345,23 @@ Discretion conditions use `**prose text**` syntax. The prose is opaque to the pa
 it is passed to an LLM evaluator at runtime. Discretion conditions are **forbidden in
 pipelines** (rule P02).
 
+#### Choice (AI Multi-Option Selection)
+
+Unlike `if/elif` which evaluates serial boolean conditions, `choice` presents N named
+options to the AI evaluator and lets it select the best one:
+
+```cant
+choice **which deployment strategy best fits the risk profile**:
+  option "blue-green":
+    session "Execute blue-green deploy"
+  option "canary":
+    session "Execute canary deploy"
+  option "rolling":
+    session "Execute rolling deploy"
+```
+
+At least 2 options required (rule W12). Forbidden in pipelines (rule P02).
+
 #### Loops
 
 ```cant
@@ -374,6 +391,32 @@ finally:
 ```
 
 The try body MUST contain at least one statement (rule W05).
+
+#### Throw
+
+Explicitly signal an error from workflow logic. Caught by enclosing `try/catch` blocks,
+or halts the workflow if uncaught. Forbidden in pipelines (rule P08).
+
+```cant
+if status == "critical":
+  throw "Deployment blocked: critical status detected"
+```
+
+#### Reusable Block
+
+CANT's equivalent of a function/macro. Define once, call by name. Blocks inherit the
+caller's scope. They MUST NOT contain `output` bindings (rule W13).
+
+```cant
+block notify(target, message):
+  /info @{target} "{message}"
+  session "Log notification to audit trail"
+
+workflow deploy:
+  notify(@ops-lead, "Starting deployment")
+  session "Execute deployment"
+  notify(@ops-lead, "Deployment complete")
+```
 
 #### Approval Gate
 
@@ -455,7 +498,7 @@ the result is literally `"${evil}"`. Use `\$` to escape a literal `${`.
 
 ## Validation Rules (Summary)
 
-42 rules across 5 categories. Full details in [`CANT-DSL-SPEC.md` Section 4](../specs/CANT-DSL-SPEC.md#4-validation-rules).
+45 rules across 5 categories. Full details in [`CANT-DSL-SPEC.md` Section 4](../specs/CANT-DSL-SPEC.md#4-validation-rules).
 
 ### Scope Rules (S01-S13)
 
@@ -466,7 +509,7 @@ the result is literally `"${evil}"`. Use `\$` to escape a literal `${`.
 | S03 | Error | Circular import chain |
 | S04 | Error | Import target existence |
 | S05 | Error | Unique names within file |
-| S06 | Error | Valid hook event name (16 CAAMP events) |
+| S06 | Error | Valid hook event name (from canonical event registry) |
 | S07 | Error | Unique parallel arm names |
 | S08 | Error | Unique step names in pipeline |
 | S09 | Warning | Unused binding |
@@ -475,7 +518,7 @@ the result is literally `"${evil}"`. Use `\$` to escape a literal `${`.
 | S12 | Error | Import path restricted to `.cant` extension |
 | S13 | Error | Permission values from closed set (`read`, `write`, `execute`) |
 
-### Pipeline Purity Rules (P01-P07)
+### Pipeline Purity Rules (P01-P08)
 
 Pipelines MUST be deterministic. These rules enforce it:
 
@@ -488,6 +531,7 @@ Pipelines MUST be deterministic. These rules enforce it:
 | P05 | Error | No nested workflows in pipelines |
 | P06 | Error | Command must be a bare binary (no shell interpolation) |
 | P07 | Error | Step stdin references must name an earlier step |
+| P08 | Error | No throw statements in pipelines |
 
 ### Type Rules (T01-T07)
 
@@ -505,12 +549,12 @@ Pipelines MUST be deterministic. These rules enforce it:
 
 | Rule | Severity | What It Checks |
 |------|----------|---------------|
-| H01 | Error | Event name must be a canonical CAAMP event |
+| H01 | Error | Event name must be in canonical event registry |
 | H02 | Warning | Duplicate hook for same event in same scope |
 | H03 | Error | Hook body must not be empty |
 | H04 | Error | No nested hook definitions |
 
-### Workflow Rules (W01-W11)
+### Workflow Rules (W01-W13)
 
 | Rule | Severity | What It Checks |
 |------|----------|---------------|
@@ -525,6 +569,8 @@ Pipelines MUST be deterministic. These rules enforce it:
 | W09 | Error | Session not allowed in hook bodies |
 | W10 | Error | Repeat count max limit (1000) |
 | W11 | Error | AST node count limit (10,000 nodes per file) |
+| W12 | Error | Choice block requires at least 2 options |
+| W13 | Error | Block must not contain output bindings |
 
 ---
 
@@ -610,6 +656,13 @@ elif expr | **discretion prose**:
 else:
   # body
 
+# ── Choice (AI picks from options) ──────────
+choice **decision criteria prose**:
+  option "label-a":
+    # body
+  option "label-b":
+    # body
+
 # ── Loops ────────────────────────────────────
 repeat N:
   # body
@@ -626,6 +679,13 @@ catch err:
   # body
 finally:
   # body
+throw "error message"
+throw expression
+
+# ── Reusable block ──────────────────────────
+block name(params):
+  # body (no output bindings allowed)
+name(arg1, arg2)              # call the block
 
 # ── Approval gate ────────────────────────────
 approve:
@@ -646,7 +706,8 @@ output name = expression
 
 | Document | Purpose |
 |----------|---------|
-| [`CANT-DSL-SPEC.md`](../specs/CANT-DSL-SPEC.md) | Formal specification (EBNF, AST types, 42 validation rules) |
+| [`CANT-DSL-SPEC.md`](../specs/CANT-DSL-SPEC.md) | Formal specification (EBNF, AST types, 45 validation rules) |
+| [`CANT-EXECUTION-SEMANTICS.md`](../specs/CANT-EXECUTION-SEMANTICS.md) | Workflow executor semantics, domain event protocol |
 | [`CANT-DSL-IMPLEMENTATION-PLAN.md`](../specs/CANT-DSL-IMPLEMENTATION-PLAN.md) | 7-phase implementation plan with security amendments |
 | [`CANT-TYPESCRIPT-INTEGRATION.md`](../specs/CANT-TYPESCRIPT-INTEGRATION.md) | TypeScript/WASM integration guide |
 | [`CLEO-CANT.md`](../concepts/CLEO-CANT.md) | Protocol-level spec (directive mapping, Conduit integration) |
