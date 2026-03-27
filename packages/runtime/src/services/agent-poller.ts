@@ -150,7 +150,7 @@ export class AgentPoller {
       data?: {
         messages?: Array<{
           id: string;
-          senderAgentId?: string;
+          fromAgentId?: string;
           content?: string;
           conversationId?: string;
           createdAt?: string;
@@ -160,7 +160,7 @@ export class AgentPoller {
 
     return (data.data?.messages ?? []).map((m) => ({
       id: m.id,
-      from: m.senderAgentId ?? 'unknown',
+      from: m.fromAgentId ?? 'unknown',
       content: m.content ?? '',
       threadId: m.conversationId,
       timestamp: m.createdAt ?? new Date().toISOString(),
@@ -186,7 +186,7 @@ export class AgentPoller {
       data?: {
         messages?: Array<{
           id: string;
-          senderAgentId?: string;
+          fromAgentId?: string;
           content?: string;
           conversationId?: string;
           createdAt?: string;
@@ -200,11 +200,11 @@ export class AgentPoller {
       .filter((m) => {
         // Only deliver messages that mention us or @all
         const content = m.content ?? '';
-        return mentionPattern.test(content) && m.senderAgentId !== this.config.agentId;
+        return mentionPattern.test(content) && m.fromAgentId !== this.config.agentId;
       })
       .map((m) => ({
         id: m.id,
-        from: m.senderAgentId ?? 'unknown',
+        from: m.fromAgentId ?? 'unknown',
         content: m.content ?? '',
         threadId: m.conversationId ?? conversationId,
         timestamp: m.createdAt ?? new Date().toISOString(),

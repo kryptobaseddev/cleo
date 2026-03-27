@@ -2,7 +2,7 @@
  * HttpTransport — HTTP polling transport to cloud SignalDock API.
  *
  * Implements the Transport interface using HTTP requests to the SignalDock
- * (currently clawmsgr.com) REST API. This is the default transport for
+ * (api.signaldock.io) REST API. This is the default transport for
  * cloud-connected agents.
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
@@ -82,6 +82,8 @@ export class HttpTransport implements Transport {
     const params = new URLSearchParams();
     params.set('mentioned', this.state!.agentId);
     if (options?.limit) params.set('limit', String(options.limit));
+    // H5 fix: pass since param to avoid reprocessing old messages
+    if (options?.since) params.set('since', options.since);
 
     const url = `${this.state!.apiBaseUrl}/messages/peek?${params}`;
     const response = await fetch(url, {
@@ -95,7 +97,7 @@ export class HttpTransport implements Transport {
       data?: {
         messages?: Array<{
           id: string;
-          senderAgentId?: string;
+          fromAgentId?: string;
           content?: string;
           conversationId?: string;
           createdAt?: string;
@@ -105,7 +107,7 @@ export class HttpTransport implements Transport {
 
     return (data.data?.messages ?? []).map((m) => ({
       id: m.id,
-      from: m.senderAgentId ?? 'unknown',
+      from: m.fromAgentId ?? 'unknown',
       content: m.content ?? '',
       threadId: m.conversationId,
       timestamp: m.createdAt ?? new Date().toISOString(),
