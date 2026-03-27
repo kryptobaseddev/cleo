@@ -587,6 +587,73 @@ Pipelines MUST be deterministic. These rules enforce it:
 
 ---
 
+## Scope: What CANT Absorbs vs What Stays Separate
+
+| Concept | CANT Absorbs | Stays Separate |
+|---------|-------------|---------------|
+| Agent instructions | Yes — `agent` blocks | |
+| Workflow orchestration | Yes — `workflow` construct | |
+| Deterministic pipelines | Yes — `pipeline` construct | |
+| Skill definitions | Yes — `skill` blocks | |
+| Hook configurations | Yes — `on Event:` blocks | |
+| Message protocol | Yes — directive syntax | |
+| LAFS response envelopes | | `lafs-core` (response format, not instruction) |
+| Conduit transport | | `conduit-core` (wire protocol, not content) |
+| Task state / LOOM lifecycle | | CLEO core (state machine, not instruction) |
+| Config files | | JSON config (not instruction-level) |
+
+---
+
+## LSP Architecture
+
+`cant-lsp` (Rust binary, built from `cant-core`) provides full editor integration:
+
+| Feature | Source |
+|---------|--------|
+| **Diagnostics** | 45 validation rules: syntax errors, unknown events, missing references, pipeline purity, unused bindings, type mismatches |
+| **Completions** | Keywords, canonical events (provider + domain), agent/skill/block names, properties, import paths |
+| **Hover** | Directive docs, agent property descriptions, event descriptions, reference resolution (T1234 → task title) |
+| **Go-to-definition** | Agent name → agent block, block name → block def, import → source file, variable → binding site |
+| **Document symbols** | Outline of agents, skills, hooks, workflows, pipelines, blocks |
+| **Code actions** | Auto-fix from validation diagnostics, "Extract to block", "Convert to pipeline" |
+| **Formatting** | Canonical CANT style (consistent 2-space indent, property ordering) |
+
+Editor support: VS Code extension (`editors/vscode-cant/`), Neovim (LSP client config), in-browser (napi-rs WASM).
+
+---
+
+## Design Decisions
+
+### Why `.cant` only (no `.cant.agent`, `.cant.workflow`)?
+
+The vision doc originally proposed compound extensions. The spec settled on universal `.cant`
+with `kind:` frontmatter because:
+
+1. **One grammar, one parser** — compound extensions imply different grammars per extension, but CANT is explicitly one grammar. The `kind:` field controls validation rules, not parsing.
+2. **Simpler tooling** — editor associations, glob patterns, and build tools all work with `*.cant` instead of needing `*.cant.*` patterns.
+3. **Frontmatter is more explicit** — `kind: agent` is unambiguous; filename-based inference can be wrong after refactoring.
+4. **Mixed-layer documents** — a workflow file often defines inline agents. Compound extensions would force artificial file splits.
+
+### Why non-prose?
+
+CANT's core philosophy: prose only appears in two places (session prompts and discretion
+conditions). Everything else is structured, parseable, lintable:
+
+- **Sharper attention** — no syntactic sugar, every token carries meaning
+- **Programmatic scalability** — structured templates, not generated paragraphs
+- **Pattern priming** — structured input → structured output from LLMs
+- **Static analysis** — an LSP validates `.cant` before any LLM touches it
+
+### Why domain events extend CAAMP (not a separate system)?
+
+- Single `on Event:` syntax in CANT — no namespace splitting
+- Categories cleanly separate: `tool` = provider, `task` = domain
+- HookRegistry already dispatches by event name, agnostic of source
+- Middleware pipeline can emit domain events after CQRS mutations
+- Adding events is additive — no breaking changes to existing 16 provider events
+
+---
+
 ## Quick Syntax Reference
 
 ```cant

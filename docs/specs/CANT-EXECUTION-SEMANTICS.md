@@ -18,6 +18,9 @@
 5. [Session Blocking](#5-session-blocking)
 6. [Approval Suspension](#6-approval-suspension)
 7. [Error Propagation](#7-error-propagation)
+   - 7.6 [Throw Statement Execution](#76-throw-statement-execution)
+   - 7A. [Choice Execution](#7a-choice-execution)
+   - 7B. [Reusable Block Execution](#7b-reusable-block-execution)
 8. [Output Collection and Provenance](#8-output-collection-and-provenance)
 9. [Generic Domain Event Protocol](#9-generic-domain-event-protocol)
 10. [CLEO Domain Events (First Implementation)](#10-cleo-domain-events-first-implementation)
@@ -478,6 +481,134 @@ handles recoverable errors from the session or pipeline steps, not suspension ou
 - **S-ERR-4**: `finally` blocks MUST execute regardless of try/catch outcome.
 - **S-ERR-5**: `finally` errors MUST NOT mask the original error. Both are recorded.
 - **S-ERR-6**: A false discretion result is NOT an error. It is a `false` condition.
+
+### 7.6 Throw Statement Execution
+
+```
+FUNCTION execute_throw(statement: ThrowStmt, scope: ExecutionScope) -> NEVER:
+
+  1. EVALUATE:
+     - IF statement.value is present:
+       - error_value = evaluateExpression(statement.value, scope)
+     - ELSE:
+       - error_value = "Workflow error (no message)"
+
+  2. PROPAGATE:
+     - Create CantError { message: error_value, source: "throw", span: statement.span }
+     - Propagate as a recoverable error (Section 7.2)
+     - IF inside a try block: caught by catch clause
+     - IF NOT inside a try block: halts the workflow
+
+  3. INVARIANTS:
+     - Throw is ONLY permitted in workflow bodies, NEVER in pipelines (P08)
+     - The error value is available as the catch variable binding
+```
+
+---
+
+## 7A. Choice Execution
+
+### 7A.1 Definition
+
+A `choice` block presents N named options to the AI evaluator and lets it select the
+best one based on the discretion criteria. Unlike `if/elif` which evaluates serial boolean
+conditions, `choice` is a single-shot multi-option decision.
+
+### 7A.2 Formal Model
+
+```
+FUNCTION execute_choice(block: ChoiceBlock, scope: ExecutionScope, ctx: WorkflowContext) -> StepResult:
+
+  1. BUILD EVALUATION CONTEXT:
+     - criteria_prose = block.criteria.prose
+     - option_labels = block.options.map(o => o.label)
+     - context_payload = {
+         criteria: criteria_prose,
+         options: option_labels,
+         scope_variables: extractVisibleBindings(scope)
+       }
+
+  2. EVALUATE:
+     - selected = ctx.discretionEvaluator.selectOption(criteria_prose, option_labels, context_payload)
+     - The evaluator MUST return exactly one label from option_labels
+     - IF evaluator returns a label not in option_labels: REJECT with error
+     - IF evaluator returns multiple labels: REJECT with error
+
+  3. EXECUTE SELECTED BRANCH:
+     - Find the ChoiceOption where label == selected
+     - Execute the option's body statements sequentially (Section 3)
+
+  4. RECORD:
+     - StepResult includes: selected_option, criteria_prose, available_options
+
+  RETURN StepResult{success, output, selectedOption: selected}
+```
+
+### 7A.3 Discretion Evaluator Interface Extension
+
+The `DiscretionEvaluator` interface gains a new method:
+
+```typescript
+interface DiscretionEvaluator {
+  /** Evaluate a boolean condition (existing). */
+  evaluate(condition: string, context: DiscretionContext): Promise<boolean>;
+  /** Select one option from N alternatives (new). */
+  selectOption(criteria: string, options: string[], context: DiscretionContext): Promise<string>;
+}
+```
+
+### 7A.4 Invariants
+
+- **S-CHO-1**: A choice block MUST contain at least 2 options (W12).
+- **S-CHO-2**: The evaluator MUST return exactly one label from the provided options.
+- **S-CHO-3**: Choice blocks are forbidden in pipelines (P02 — contains discretion).
+- **S-CHO-4**: Option labels MUST be unique within a choice block.
+
+---
+
+## 7B. Reusable Block Execution
+
+### 7B.1 Definition
+
+A `block` definition creates a reusable group of statements callable by name. Blocks
+inherit the caller's scope and execute their body in that scope. They are CANT's
+equivalent of a function/macro.
+
+### 7B.2 Formal Model
+
+```
+FUNCTION execute_block_call(call: BlockCall, scope: ExecutionScope, ctx: WorkflowContext) -> StepResult:
+
+  1. RESOLVE BLOCK:
+     - block_def = resolveBlock(call.name, scope)
+     - IF not found: REJECT with error S01 (unresolved reference)
+
+  2. BIND ARGUMENTS:
+     - IF call.args.length != block_def.params.length:
+       - REJECT with error "Block '{name}' expects {expected} arguments, got {actual}"
+     - Create child scope from caller's scope
+     - FOR EACH (param, arg) IN zip(block_def.params, call.args):
+       - value = evaluateExpression(arg, scope)
+       - childScope.bind(param.name, value)
+
+  3. EXECUTE BODY:
+     - result = execute_sequential(block_def.body, childScope)
+     - Block body follows all sequential execution rules (Section 3)
+
+  4. SCOPE MERGE:
+     - Bindings created inside the block body are NOT visible to the caller
+     - Only the StepResult (success, error) propagates back
+
+  RETURN result
+```
+
+### 7B.3 Invariants
+
+- **S-BLK-1**: Block names MUST be unique within a file (S05).
+- **S-BLK-2**: Block bodies MUST NOT contain `output` bindings (W13).
+- **S-BLK-3**: Block definitions are visible to all statements after the definition in the same scope.
+- **S-BLK-4**: Recursive block calls are permitted but MUST respect the nesting depth limit (W11).
+- **S-BLK-5**: Block arguments are evaluated in the caller's scope, not the block's scope.
 
 ---
 

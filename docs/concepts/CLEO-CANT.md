@@ -75,10 +75,18 @@ CANT is one layer in a clean five-layer stack. Each layer has a distinct respons
     |
   LOOM          what stage work is in (RCASD-IVTR+C lifecycle)
     |
-  Hooks/CAAMP   when events fire (16 canonical + 5 internal events)
+  Hooks/CAAMP   when events fire (16 provider + 15 domain events)
 ```
 
-CANT does not replace any other layer. Conduit is the relay path. Dispatch is the router. LOOM is the lifecycle. Hooks are the event system. CANT is the language.
+CANT does not replace any other layer. Conduit is the relay path. Dispatch is the router.
+LOOM is the lifecycle. Hooks are the event system. CANT is the language.
+
+> **Domain Events (2026-03-27)**: CAAMP has been extended beyond the original 16 provider
+> events with 15 CLEO domain events covering task, memory, pipeline, and session operations.
+> Both provider and domain events use the same `on Event:` syntax in CANT. See
+> [CANT-EXECUTION-SEMANTICS.md](../specs/CANT-EXECUTION-SEMANTICS.md) Sections 9-12 for
+> the Generic Domain Event Protocol and [CANT-DSL-SPEC.md](../specs/CANT-DSL-SPEC.md)
+> Section 5 for the complete event table.
 
 ---
 

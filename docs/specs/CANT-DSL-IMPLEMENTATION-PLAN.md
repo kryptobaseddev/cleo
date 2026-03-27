@@ -89,6 +89,25 @@ When the runtime encounters `**all reviews pass with no critical issues**`:
 - Add `approvalTokensJson` column (additive migration)
 - No separate storage system — CLEO session machinery handles everything
 
+### Decision 5: Domain Events — (A) Extend CAAMP with Domain Categories
+
+- CAAMP's 16 provider events (LLM-lifecycle) are extended with domain events (business logic)
+- CLEO registers as the first domain source: 15 events across task, memory, pipeline, session categories
+- All events use the same `on Event:` syntax in CANT — no separate namespace
+- The canonical event registry lives in `hook-mappings.json` (SSoT)
+- **CRITICAL**: Parsers MUST NOT hardcode event names. The `CANONICAL_EVENTS` const in cant-core MUST be replaced with runtime configuration read from the registry. The parser accepts any PascalCase identifier, validation checks against the registry.
+- Domain events use the D:O:P pattern (Domain:Operation:Phase) as machine-readable metadata
+- See `CANT-EXECUTION-SEMANTICS.md` Sections 9-12 for the full Generic Domain Event Protocol
+
+### Decision 6: Event Registry SSoT — (A) hook-mappings.json
+
+- `hook-mappings.json` is the single source of truth for ALL canonical events (provider + domain)
+- Each event entry gains a `source` field: `"provider"` or `"domain"`
+- A new `domainSources` section registers domain event sources (CLEO first, extensible)
+- cant-core Rust validation reads from a passed-in event list, not a compile-time constant
+- TypeScript types are generated/validated against the JSON registry
+- Adding new domain events is additive and does NOT require Rust recompilation
+
 ---
 
 ## 3. Three-Layer Grammar Architecture
@@ -415,7 +434,7 @@ llmtxt-core uses the identical wasm-bindgen pattern (19 WASM-exported functions,
 
 ### Phase 3: Orchestration Parsing (Layer 3)
 
-**Goal**: Add workflow, pipeline, session, parallel, conditional, loop, try/catch, discretion, and approval gate parsing.
+**Goal**: Add workflow, pipeline, session, parallel, conditional, choice, loop, try/catch, throw, block_def/block_call, discretion, and approval gate parsing.
 
 **Dependencies**: Phase 2 (AST types, expression parser, indentation handling)
 
@@ -428,8 +447,11 @@ llmtxt-core uses the identical wasm-bindgen pattern (19 WASM-exported functions,
 | `session.rs` | Session expression parser: `session "prompt"` / `session: agent-name` |
 | `parallel.rs` | Parallel block parser: named arms with join strategies |
 | `conditional.rs` | If/elif/else parser, discretion condition recognition |
+| `choice.rs` | Choice block parser: AI multi-option selection with discretion criteria |
 | `loop_.rs` | Loop parser: `for x in collection:`, `loop until **condition**:`, `repeat N:` |
 | `try_catch.rs` | Try/catch/finally block parser |
+| `throw.rs` | Throw statement parser: explicit error signaling |
+| `block.rs` | Reusable block definition and block call parser |
 | `discretion.rs` | Discretion condition parser: `** prose text **` extraction |
 | `approval.rs` | Approval gate parser: message, timeout, required/optional |
 
@@ -440,9 +462,13 @@ pub enum Statement {
     Session(SessionExpr),
     Parallel(ParallelBlock),
     Conditional(Conditional),
+    Choice(ChoiceBlock),       // AI multi-option selection
     Loop(LoopStmt),
     TryCatch(TryCatch),
+    Throw(ThrowStmt),          // Explicit error signaling
     ApprovalGate(ApprovalGate),
+    BlockDef(BlockDef),        // Reusable block definition
+    BlockCall(BlockCall),      // Block invocation
     PipeStep(PipeStep),
     Expression(Expression),
     Binding(Binding),
@@ -466,7 +492,7 @@ pub struct ApprovalGate { message, timeout, span }
 
 ---
 
-### Phase 4: Validation Engine (~30 Static Analysis Rules)
+### Phase 4: Validation Engine (45 Static Analysis Rules)
 
 **Goal**: Build the analysis layer that powers the LSP and CLI linter.
 
@@ -486,15 +512,15 @@ pub struct ApprovalGate { message, timeout, span }
 | `imports.rs` | Import resolution validation |
 | `diagnostic.rs` | `Diagnostic { severity, rule_id, message, span, fix? }` |
 
-#### Validation Rules (42 total)
+#### Validation Rules (45 total)
 
 **Scope (S01-S13)**:
 - S01: No unresolved variable references
 - S02: No shadowed bindings (warn)
 - S03: No circular import chains
 - S04: Import targets exist (file-level)
-- S05: Agent/skill names unique within file
-- S06: Hook event names valid (16 CAAMP canonical events)
+- S05: Agent/skill/block names unique within file
+- S06: Hook event names valid (from canonical event registry in hook-mappings.json — NOT hardcoded)
 - S07: Parallel arm names unique within block
 - S08: Bindings used before definition (error)
 - S09: **[SECURITY]** Import paths MUST resolve within project root (directory containing `.cleo/` or `.git/`). Paths traversing above project root MUST be rejected.
@@ -503,7 +529,7 @@ pub struct ApprovalGate { message, timeout, span }
 - S12: **[SECURITY]** Agent permissions in imported files MUST NOT exceed permissions of importing context (principle of least privilege).
 - S13: **[SECURITY]** Permission values MUST be from a closed set (`read`, `write`, `execute`). Arbitrary strings rejected.
 
-**Pipeline Purity (P01-P07)**:
+**Pipeline Purity (P01-P08)**:
 - P01: No `session` expressions in pipeline body
 - P02: No discretion conditions (`** **`) in pipeline body
 - P03: No `approve:` gates in pipeline body
@@ -511,6 +537,7 @@ pub struct ApprovalGate { message, timeout, span }
 - P05: All pipeline steps must be deterministic
 - P06: **[CRITICAL/SECURITY]** Pipeline `command:` values MUST NOT contain unescaped interpolation of user/agent-supplied variables. MUST use argument-array syntax (`args: [var]`) that bypasses shell interpretation. The Rust `cant-runtime` pipeline executor MUST use `Command::new(binary).args(vec)` and MUST NEVER pass interpolated strings through `sh -c`.
 - P07: **[SECURITY]** Pipeline `command:` values SHOULD be validated against a configurable command allowlist to prevent execution of arbitrary binaries.
+- P08: No `throw` statements in pipeline body (throw is workflow-only)
 
 **Types (T01-T07)**:
 - T01: Property values match expected types
@@ -522,12 +549,12 @@ pub struct ApprovalGate { message, timeout, span }
 - T07: **[SECURITY]** String interpolation MUST perform single-pass evaluation with no nested interpolation. `${}` within interpolated values MUST be treated as literal text.
 
 **Hooks (H01-H04)**:
-- H01: Event name is one of 16 CAAMP canonical events
+- H01: Event name is in canonical event registry (provider + domain events)
 - H02: No duplicate `on Event:` blocks for same event in same agent
 - H03: Hook body must not contain workflow constructs (parallel, approval)
 - H04: Blocking hooks (`canBlock: true`) must have explicit handling
 
-**Workflows (W01-W11)**:
+**Workflows (W01-W13)**:
 - W01: Approval gates require `message:` property
 - W02: Parallel arms have unique names
 - W03: Session prompts are string expressions
@@ -539,6 +566,8 @@ pub struct ApprovalGate { message, timeout, span }
 - W09: **[SECURITY]** `parallel:` blocks MUST NOT exceed configurable arm limit (default: 32).
 - W10: **[SECURITY]** `repeat N:` count MUST NOT exceed configurable limit (default: 10000).
 - W11: **[SECURITY]** Control flow nesting depth MUST NOT exceed configurable limit (default: 16). Parser enforces max input size (1MB) and max AST node count.
+- W12: Choice blocks require at least 2 option clauses
+- W13: Reusable block definitions must not contain output bindings
 
 #### Diagnostic Output Type
 
@@ -603,7 +632,7 @@ Directly consumable by LSP (Phase 5) and CLI linter.
 | Feature | Source |
 |---------|--------|
 | Diagnostics | Phase 4 validation engine (on-save + on-type) |
-| Completions | Keywords, 16 CAAMP events, agent/skill names, properties, file paths |
+| Completions | Keywords, canonical events (provider + domain), agent/skill/block names, properties, file paths |
 | Hover | Type info, directive docs (`/claim` = "actionable -> orchestrate.claim"), property descriptions |
 | Go-to-definition | Import targets, agent/skill definition sites |
 | Document symbols | Outline of agents, skills, hooks, workflows, pipelines |
@@ -813,7 +842,7 @@ New at `packages/cant/src/migrate/`:
 | Phase 1: napi-rs | ~62 | ~117 | Binding + cross-validation |
 | Phase 2: Grammar | ~140 | ~257 | AST completeness |
 | Phase 3: Orchestration | ~125 | ~382 | Control flow constructs |
-| Phase 4: Validation | ~185 | ~567 | 42 rules (12 security), diagnostic quality |
+| Phase 4: Validation | ~200 | ~582 | 45 rules (12 security + 3 new: W12, W13, P08), diagnostic quality |
 | Phase 5: LSP | ~75 | ~642 | Protocol, completions, hover |
 | Phase 6: Runtime | ~100 | ~742 | Execution correctness, security |
 | Phase 7: Migration | ~55 | ~797 | Conversion fidelity |

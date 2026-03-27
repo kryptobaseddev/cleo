@@ -1,4 +1,24 @@
-The Vision: CANT as Unified Non-Prose DSL                                                         
+⚠️ SUPERSEDED — This document is retained for design history only.
+
+  The canonical CANT specification is: docs/specs/CANT-DSL-SPEC.md
+  The human-readable guide is: docs/guides/CANT-REFERENCE.md
+  The execution semantics are: docs/specs/CANT-EXECUTION-SEMANTICS.md
+
+  Key differences from this vision:
+  - File extensions: settled on .cant only (no .cant.agent, .cant.workflow)
+  - Grammar: choice, block_def, throw_stmt added to final spec
+  - Events: expanded from 16 CAAMP events to 31 (16 provider + 15 domain)
+  - use keyword: changed to @import in final spec
+  - Phases: 7 phases (not 6), Phase 0 = spec writing added
+  - Dropped constructs: const_binding, resume_stmt (handled differently)
+
+  ─────────────────────────────────────────────────────────────────────
+
+  ORIGINAL DOCUMENT BELOW (unmodified for historical reference)
+
+  ─────────────────────────────────────────────────────────────────────
+
+  The Vision: CANT as Unified Non-Prose DSL                                                         
                                                                                                                            
   You're describing three things collapsing into one:
                                                                                                                            
