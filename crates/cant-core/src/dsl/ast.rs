@@ -155,30 +155,10 @@ pub struct HookDef {
     pub span: Span,
 }
 
-/// The 16 CAAMP canonical event names.
-pub const CANONICAL_EVENTS: &[&str] = &[
-    "SessionStart",
-    "SessionEnd",
-    "PromptSubmit",
-    "ResponseComplete",
-    "PreToolUse",
-    "PostToolUse",
-    "PostToolUseFailure",
-    "PermissionRequest",
-    "SubagentStart",
-    "SubagentStop",
-    "PreModel",
-    "PostModel",
-    "PreCompact",
-    "PostCompact",
-    "Notification",
-    "ConfigChange",
-];
-
-/// Returns true if the given event name is a valid CAAMP canonical event.
-pub fn is_canonical_event(name: &str) -> bool {
-    CANONICAL_EVENTS.contains(&name)
-}
+// Re-export generated event types from the SSoT (hook-mappings.json via build.rs).
+pub use crate::generated::events::{
+    CANONICAL_EVENT_NAMES_CSV, CanonicalEvent, EventCategory, EventSource, is_canonical_event,
+};
 
 // ── Properties ───────────────────────────────────────────────────────
 
@@ -594,21 +574,48 @@ mod tests {
 
     #[test]
     fn canonical_events_count() {
-        assert_eq!(CANONICAL_EVENTS.len(), 16);
+        // 16 provider + 15 domain = 31 total
+        assert_eq!(CanonicalEvent::ALL.len(), 31);
+        assert_eq!(CanonicalEvent::provider_events().count(), 16);
+        assert_eq!(CanonicalEvent::domain_events().count(), 15);
     }
 
     #[test]
-    fn is_canonical_event_valid() {
+    fn is_canonical_event_valid_provider() {
         assert!(is_canonical_event("SessionStart"));
         assert!(is_canonical_event("ConfigChange"));
         assert!(is_canonical_event("PostToolUseFailure"));
     }
 
     #[test]
+    fn is_canonical_event_valid_domain() {
+        assert!(is_canonical_event("TaskCompleted"));
+        assert!(is_canonical_event("MemoryObserved"));
+        assert!(is_canonical_event("PipelineStageCompleted"));
+        assert!(is_canonical_event("ApprovalGranted"));
+    }
+
+    #[test]
     fn is_canonical_event_invalid() {
-        assert!(!is_canonical_event("TaskComplete"));
-        assert!(!is_canonical_event("sessionstart"));
+        assert!(!is_canonical_event("TaskComplete")); // Wrong name (no 'd')
+        assert!(!is_canonical_event("sessionstart")); // Wrong case
         assert!(!is_canonical_event(""));
+    }
+
+    #[test]
+    fn event_metadata_accessible() {
+        let event = CanonicalEvent::from_str("PreToolUse").unwrap();
+        assert_eq!(event.category(), EventCategory::Tool);
+        assert_eq!(event.source(), EventSource::Provider);
+        assert!(event.can_block());
+    }
+
+    #[test]
+    fn domain_event_metadata() {
+        let event = CanonicalEvent::from_str("TaskCompleted").unwrap();
+        assert_eq!(event.category(), EventCategory::Task);
+        assert_eq!(event.source(), EventSource::Domain);
+        assert!(!event.can_block());
     }
 
     #[test]

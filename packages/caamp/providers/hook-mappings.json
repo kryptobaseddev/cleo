@@ -6,83 +6,213 @@
   "canonicalEvents": {
     "SessionStart": {
       "category": "session",
+      "source": "provider",
       "description": "Session begins, resumes, or is cleared",
       "canBlock": false
     },
     "SessionEnd": {
       "category": "session",
+      "source": "provider",
       "description": "Session terminates or exits",
       "canBlock": false
     },
     "PromptSubmit": {
       "category": "prompt",
+      "source": "provider",
       "description": "User submits a prompt, before agent processes it",
       "canBlock": true
     },
     "ResponseComplete": {
       "category": "prompt",
+      "source": "provider",
       "description": "Agent finishes responding to a turn",
       "canBlock": false
     },
     "PreToolUse": {
       "category": "tool",
+      "source": "provider",
       "description": "Before a tool call executes (can block/modify)",
       "canBlock": true
     },
     "PostToolUse": {
       "category": "tool",
+      "source": "provider",
       "description": "After a tool call succeeds",
       "canBlock": false
     },
     "PostToolUseFailure": {
       "category": "tool",
+      "source": "provider",
       "description": "After a tool call fails or times out",
       "canBlock": false
     },
     "PermissionRequest": {
       "category": "tool",
+      "source": "provider",
       "description": "Permission dialog appears for a tool action",
       "canBlock": true
     },
     "SubagentStart": {
       "category": "agent",
+      "source": "provider",
       "description": "A subagent is spawned",
       "canBlock": true
     },
     "SubagentStop": {
       "category": "agent",
+      "source": "provider",
       "description": "A subagent finishes execution",
       "canBlock": false
     },
     "PreModel": {
       "category": "agent",
+      "source": "provider",
       "description": "Before sending a request to the LLM",
       "canBlock": true
     },
     "PostModel": {
       "category": "agent",
+      "source": "provider",
       "description": "After receiving an LLM response",
       "canBlock": false
     },
     "PreCompact": {
       "category": "context",
+      "source": "provider",
       "description": "Before context window compaction",
       "canBlock": false
     },
     "PostCompact": {
       "category": "context",
+      "source": "provider",
       "description": "After context window compaction completes",
       "canBlock": false
     },
     "Notification": {
       "category": "context",
+      "source": "provider",
       "description": "System notification or alert is emitted",
       "canBlock": false
     },
     "ConfigChange": {
       "category": "context",
+      "source": "provider",
       "description": "Configuration file changes during a session",
       "canBlock": false
+    },
+    "TaskCreated": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been created via tasks.add",
+      "canBlock": false
+    },
+    "TaskStarted": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been started via tasks.start",
+      "canBlock": false
+    },
+    "TaskCompleted": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been marked complete via tasks.complete",
+      "canBlock": false
+    },
+    "TaskBlocked": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been blocked",
+      "canBlock": false
+    },
+    "MemoryObserved": {
+      "category": "memory",
+      "source": "domain",
+      "description": "An observation has been recorded to brain.db via memory.observe",
+      "canBlock": false
+    },
+    "MemoryPatternStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A pattern has been stored via memory.pattern.store",
+      "canBlock": false
+    },
+    "MemoryLearningStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A learning has been stored via memory.learning.store",
+      "canBlock": false
+    },
+    "MemoryDecisionStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A decision has been stored via memory.decision.store",
+      "canBlock": false
+    },
+    "PipelineStageCompleted": {
+      "category": "pipeline",
+      "source": "domain",
+      "description": "A LOOM lifecycle gate has passed validation",
+      "canBlock": false
+    },
+    "PipelineManifestAppended": {
+      "category": "pipeline",
+      "source": "domain",
+      "description": "A manifest entry has been appended to MANIFEST.jsonl",
+      "canBlock": false
+    },
+    "SessionStarted": {
+      "category": "session",
+      "source": "domain",
+      "description": "A CLEO session has been started via session.start",
+      "canBlock": false
+    },
+    "SessionEnded": {
+      "category": "session",
+      "source": "domain",
+      "description": "A CLEO session has ended via session.end",
+      "canBlock": false
+    },
+    "ApprovalRequested": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval gate has fired, awaiting human approval",
+      "canBlock": false
+    },
+    "ApprovalGranted": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval has been granted via /approve token",
+      "canBlock": false
+    },
+    "ApprovalExpired": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval token has expired without response",
+      "canBlock": false
+    }
+  },
+  "domainSources": {
+    "cleo": {
+      "version": "1.0.0",
+      "description": "CLEO task management, memory, and session system",
+      "categories": ["task", "memory", "pipeline", "session"],
+      "operationMapping": {
+        "TaskCreated":             { "domain": "tasks",    "operation": "add",      "phase": "post" },
+        "TaskStarted":             { "domain": "tasks",    "operation": "start",    "phase": "post" },
+        "TaskCompleted":           { "domain": "tasks",    "operation": "complete", "phase": "post" },
+        "TaskBlocked":             { "domain": "tasks",    "operation": "update",   "phase": "post" },
+        "MemoryObserved":          { "domain": "memory",   "operation": "observe",  "phase": "post" },
+        "MemoryPatternStored":     { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "MemoryLearningStored":    { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "MemoryDecisionStored":    { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "PipelineStageCompleted":  { "domain": "pipeline", "operation": "validate", "phase": "post" },
+        "PipelineManifestAppended":{ "domain": "pipeline", "operation": "append",   "phase": "post" },
+        "SessionStarted":          { "domain": "session",  "operation": "start",    "phase": "post" },
+        "SessionEnded":            { "domain": "session",  "operation": "end",      "phase": "post" },
+        "ApprovalRequested":       { "domain": "session",  "operation": "suspend",  "phase": "post" },
+        "ApprovalGranted":         { "domain": "session",  "operation": "resume",   "phase": "post" },
+        "ApprovalExpired":         { "domain": "session",  "operation": "suspend",  "phase": "post" }
+      }
     }
   },
   "providerMappings": {

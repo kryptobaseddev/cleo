@@ -41,6 +41,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod dsl;
+pub mod generated;
 pub mod parser;
 pub mod validate;
 

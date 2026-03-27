@@ -3,16 +3,14 @@
 //! These rules enforce event name validity, duplicate prevention, body
 //! constraints, and blocking-hook handling for CAAMP canonical hooks.
 
-use crate::dsl::ast::{CANONICAL_EVENTS, CantDocument, Section, Statement, is_canonical_event};
+use crate::dsl::ast::{
+    CANONICAL_EVENT_NAMES_CSV, CanonicalEvent, CantDocument, Section, Statement, is_canonical_event,
+};
 use crate::dsl::span::Span;
 use std::collections::HashMap;
 
 use super::context::ValidationContext;
 use super::diagnostic::Diagnostic;
-
-/// The 16 CAAMP canonical events (for reference in diagnostics).
-/// Blocking hooks that MUST have explicit handling.
-const BLOCKING_EVENTS: &[&str] = &["PreToolUse", "PermissionRequest"];
 
 /// Runs all hook checks (H01--H04) against `doc`.
 pub fn check_all(doc: &CantDocument, _ctx: &ValidationContext) -> Vec<Diagnostic> {
@@ -54,10 +52,8 @@ fn check_event_canonical(event: &str, span: Span, diags: &mut Vec<Diagnostic>) {
         diags.push(Diagnostic::error(
             "H01",
             format!(
-                "Hook event '{}' at line {} is not a CAAMP canonical event. Valid events: {}.",
-                event,
-                span.line,
-                CANONICAL_EVENTS.join(", ")
+                "Hook event '{}' at line {} is not a canonical event. Valid events: {}.",
+                event, span.line, CANONICAL_EVENT_NAMES_CSV
             ),
             span,
         ));
@@ -250,7 +246,8 @@ fn check_blocking_hook(
     agent_name: Option<&str>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    if !BLOCKING_EVENTS.contains(&event) {
+    let is_blocking = CanonicalEvent::from_str(event).is_some_and(|e| e.can_block());
+    if !is_blocking {
         return;
     }
 
@@ -351,11 +348,15 @@ mod tests {
     }
 
     #[test]
-    fn h01_all_16_events_pass() {
-        for event in CANONICAL_EVENTS {
-            let doc = make_doc(vec![Section::Hook(make_hook(event, vec![]))]);
+    fn h01_all_canonical_events_pass() {
+        for event in CanonicalEvent::ALL {
+            let doc = make_doc(vec![Section::Hook(make_hook(event.as_str(), vec![]))]);
             let diags = check_h01_canonical_events(&doc);
-            assert!(diags.is_empty(), "Event '{}' should pass H01", event);
+            assert!(
+                diags.is_empty(),
+                "Event '{}' should pass H01",
+                event.as_str()
+            );
         }
     }
 
