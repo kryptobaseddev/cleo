@@ -14,14 +14,14 @@
 
 export {
   CANONICAL_HOOK_EVENTS,
+  type CanonicalHookEvent,
   DOMAIN_HOOK_EVENTS,
   EVENT_METADATA,
   EVENT_SOURCES,
-  HOOK_CATEGORIES,
-  PROVIDER_HOOK_EVENTS,
-  type CanonicalHookEvent,
   type EventSource,
+  HOOK_CATEGORIES,
   type HookCategory,
+  PROVIDER_HOOK_EVENTS,
 } from './generated.js';
 
 // Import types for local use in this file's interfaces
