@@ -5,7 +5,16 @@
  * All hook event categories (8 total).
  * @public
  */
-export const HOOK_CATEGORIES = ['agent', 'context', 'memory', 'pipeline', 'prompt', 'session', 'task', 'tool'] as const;
+export const HOOK_CATEGORIES = [
+  'agent',
+  'context',
+  'memory',
+  'pipeline',
+  'prompt',
+  'session',
+  'task',
+  'tool',
+] as const;
 
 /** Union type of valid hook category strings. */
 export type HookCategory = (typeof HOOK_CATEGORIES)[number];
@@ -105,41 +114,199 @@ export const DOMAIN_HOOK_EVENTS = [
 ] as const;
 
 /** Metadata for each canonical event, derived from hook-mappings.json. */
-export const EVENT_METADATA: Record<CanonicalHookEvent, {
-  category: HookCategory;
-  source: EventSource;
-  canBlock: boolean;
-  description: string;
-}> = {
-  ConfigChange: { category: 'context', source: 'provider', canBlock: false, description: 'Configuration file changes during a session' },
-  Notification: { category: 'context', source: 'provider', canBlock: false, description: 'System notification or alert is emitted' },
-  PermissionRequest: { category: 'tool', source: 'provider', canBlock: true, description: 'Permission dialog appears for a tool action' },
-  PostCompact: { category: 'context', source: 'provider', canBlock: false, description: 'After context window compaction completes' },
-  PostModel: { category: 'agent', source: 'provider', canBlock: false, description: 'After receiving an LLM response' },
-  PostToolUse: { category: 'tool', source: 'provider', canBlock: false, description: 'After a tool call succeeds' },
-  PostToolUseFailure: { category: 'tool', source: 'provider', canBlock: false, description: 'After a tool call fails or times out' },
-  PreCompact: { category: 'context', source: 'provider', canBlock: false, description: 'Before context window compaction' },
-  PreModel: { category: 'agent', source: 'provider', canBlock: true, description: 'Before sending a request to the LLM' },
-  PreToolUse: { category: 'tool', source: 'provider', canBlock: true, description: 'Before a tool call executes (can block/modify)' },
-  PromptSubmit: { category: 'prompt', source: 'provider', canBlock: true, description: 'User submits a prompt, before agent processes it' },
-  ResponseComplete: { category: 'prompt', source: 'provider', canBlock: false, description: 'Agent finishes responding to a turn' },
-  SessionEnd: { category: 'session', source: 'provider', canBlock: false, description: 'Session terminates or exits' },
-  SessionStart: { category: 'session', source: 'provider', canBlock: false, description: 'Session begins, resumes, or is cleared' },
-  SubagentStart: { category: 'agent', source: 'provider', canBlock: true, description: 'A subagent is spawned' },
-  SubagentStop: { category: 'agent', source: 'provider', canBlock: false, description: 'A subagent finishes execution' },
-  ApprovalExpired: { category: 'session', source: 'domain', canBlock: false, description: 'A workflow approval token has expired without response' },
-  ApprovalGranted: { category: 'session', source: 'domain', canBlock: false, description: 'A workflow approval has been granted via /approve token' },
-  ApprovalRequested: { category: 'session', source: 'domain', canBlock: false, description: 'A workflow approval gate has fired, awaiting human approval' },
-  MemoryDecisionStored: { category: 'memory', source: 'domain', canBlock: false, description: 'A decision has been stored via memory.decision.store' },
-  MemoryLearningStored: { category: 'memory', source: 'domain', canBlock: false, description: 'A learning has been stored via memory.learning.store' },
-  MemoryObserved: { category: 'memory', source: 'domain', canBlock: false, description: 'An observation has been recorded to brain.db via memory.observe' },
-  MemoryPatternStored: { category: 'memory', source: 'domain', canBlock: false, description: 'A pattern has been stored via memory.pattern.store' },
-  PipelineManifestAppended: { category: 'pipeline', source: 'domain', canBlock: false, description: 'A manifest entry has been appended to MANIFEST.jsonl' },
-  PipelineStageCompleted: { category: 'pipeline', source: 'domain', canBlock: false, description: 'A LOOM lifecycle gate has passed validation' },
-  SessionEnded: { category: 'session', source: 'domain', canBlock: false, description: 'A CLEO session has ended via session.end' },
-  SessionStarted: { category: 'session', source: 'domain', canBlock: false, description: 'A CLEO session has been started via session.start' },
-  TaskBlocked: { category: 'task', source: 'domain', canBlock: false, description: 'A CLEO task has been blocked' },
-  TaskCompleted: { category: 'task', source: 'domain', canBlock: false, description: 'A CLEO task has been marked complete via tasks.complete' },
-  TaskCreated: { category: 'task', source: 'domain', canBlock: false, description: 'A CLEO task has been created via tasks.add' },
-  TaskStarted: { category: 'task', source: 'domain', canBlock: false, description: 'A CLEO task has been started via tasks.start' },
+export const EVENT_METADATA: Record<
+  CanonicalHookEvent,
+  {
+    category: HookCategory;
+    source: EventSource;
+    canBlock: boolean;
+    description: string;
+  }
+> = {
+  ConfigChange: {
+    category: 'context',
+    source: 'provider',
+    canBlock: false,
+    description: 'Configuration file changes during a session',
+  },
+  Notification: {
+    category: 'context',
+    source: 'provider',
+    canBlock: false,
+    description: 'System notification or alert is emitted',
+  },
+  PermissionRequest: {
+    category: 'tool',
+    source: 'provider',
+    canBlock: true,
+    description: 'Permission dialog appears for a tool action',
+  },
+  PostCompact: {
+    category: 'context',
+    source: 'provider',
+    canBlock: false,
+    description: 'After context window compaction completes',
+  },
+  PostModel: {
+    category: 'agent',
+    source: 'provider',
+    canBlock: false,
+    description: 'After receiving an LLM response',
+  },
+  PostToolUse: {
+    category: 'tool',
+    source: 'provider',
+    canBlock: false,
+    description: 'After a tool call succeeds',
+  },
+  PostToolUseFailure: {
+    category: 'tool',
+    source: 'provider',
+    canBlock: false,
+    description: 'After a tool call fails or times out',
+  },
+  PreCompact: {
+    category: 'context',
+    source: 'provider',
+    canBlock: false,
+    description: 'Before context window compaction',
+  },
+  PreModel: {
+    category: 'agent',
+    source: 'provider',
+    canBlock: true,
+    description: 'Before sending a request to the LLM',
+  },
+  PreToolUse: {
+    category: 'tool',
+    source: 'provider',
+    canBlock: true,
+    description: 'Before a tool call executes (can block/modify)',
+  },
+  PromptSubmit: {
+    category: 'prompt',
+    source: 'provider',
+    canBlock: true,
+    description: 'User submits a prompt, before agent processes it',
+  },
+  ResponseComplete: {
+    category: 'prompt',
+    source: 'provider',
+    canBlock: false,
+    description: 'Agent finishes responding to a turn',
+  },
+  SessionEnd: {
+    category: 'session',
+    source: 'provider',
+    canBlock: false,
+    description: 'Session terminates or exits',
+  },
+  SessionStart: {
+    category: 'session',
+    source: 'provider',
+    canBlock: false,
+    description: 'Session begins, resumes, or is cleared',
+  },
+  SubagentStart: {
+    category: 'agent',
+    source: 'provider',
+    canBlock: true,
+    description: 'A subagent is spawned',
+  },
+  SubagentStop: {
+    category: 'agent',
+    source: 'provider',
+    canBlock: false,
+    description: 'A subagent finishes execution',
+  },
+  ApprovalExpired: {
+    category: 'session',
+    source: 'domain',
+    canBlock: false,
+    description: 'A workflow approval token has expired without response',
+  },
+  ApprovalGranted: {
+    category: 'session',
+    source: 'domain',
+    canBlock: false,
+    description: 'A workflow approval has been granted via /approve token',
+  },
+  ApprovalRequested: {
+    category: 'session',
+    source: 'domain',
+    canBlock: false,
+    description: 'A workflow approval gate has fired, awaiting human approval',
+  },
+  MemoryDecisionStored: {
+    category: 'memory',
+    source: 'domain',
+    canBlock: false,
+    description: 'A decision has been stored via memory.decision.store',
+  },
+  MemoryLearningStored: {
+    category: 'memory',
+    source: 'domain',
+    canBlock: false,
+    description: 'A learning has been stored via memory.learning.store',
+  },
+  MemoryObserved: {
+    category: 'memory',
+    source: 'domain',
+    canBlock: false,
+    description: 'An observation has been recorded to brain.db via memory.observe',
+  },
+  MemoryPatternStored: {
+    category: 'memory',
+    source: 'domain',
+    canBlock: false,
+    description: 'A pattern has been stored via memory.pattern.store',
+  },
+  PipelineManifestAppended: {
+    category: 'pipeline',
+    source: 'domain',
+    canBlock: false,
+    description: 'A manifest entry has been appended to MANIFEST.jsonl',
+  },
+  PipelineStageCompleted: {
+    category: 'pipeline',
+    source: 'domain',
+    canBlock: false,
+    description: 'A LOOM lifecycle gate has passed validation',
+  },
+  SessionEnded: {
+    category: 'session',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO session has ended via session.end',
+  },
+  SessionStarted: {
+    category: 'session',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO session has been started via session.start',
+  },
+  TaskBlocked: {
+    category: 'task',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO task has been blocked',
+  },
+  TaskCompleted: {
+    category: 'task',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO task has been marked complete via tasks.complete',
+  },
+  TaskCreated: {
+    category: 'task',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO task has been created via tasks.add',
+  },
+  TaskStarted: {
+    category: 'task',
+    source: 'domain',
+    canBlock: false,
+    description: 'A CLEO task has been started via tasks.start',
+  },
 } as const;
