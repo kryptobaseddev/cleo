@@ -179,6 +179,9 @@ importers:
       '@cleocode/caamp':
         specifier: workspace:*
         version: link:../caamp
+      '@cleocode/cant':
+        specifier: workspace:*
+        version: link:../cant
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
