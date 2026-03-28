@@ -14,6 +14,13 @@
  * @task T178
  */
 
+import {
+  checkAgentHealth,
+  detectCrashedAgents,
+  detectStaleAgents,
+  getHealthReport,
+  STALE_THRESHOLD_MS,
+} from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -21,10 +28,7 @@ import { cliOutput } from '../renderers/index.js';
  * Register the `cleo agent` command group.
  */
 export function registerAgentCommand(program: Command): void {
-  const agent = program
-    .command('signaldock')
-    .alias('sd')
-    .description('Agent credential management (unified SignalDock registry)');
+  const agent = program.command('agent').description('Agent lifecycle, credentials, and messaging');
 
   // --- cleo agent register ---
   agent
@@ -425,5 +429,92 @@ export function registerAgentCommand(program: Command): void {
         );
         process.exitCode = 1;
       }
+    });
+
+  // --- cleo agent health ---
+  agent
+    .command('health')
+    .description('Check agent health and detect stale or crashed agents')
+    .option('--id <agentId>', 'Check health for a specific agent ID')
+    .option(
+      '--threshold <ms>',
+      'Staleness threshold in milliseconds (default: 180000 = 3 minutes)',
+      String(STALE_THRESHOLD_MS),
+    )
+    .option('--detect-crashed', 'Detect and mark crashed agents (write operation)')
+    .action(async (opts: Record<string, unknown>) => {
+      const thresholdMs =
+        typeof opts['threshold'] === 'string' ? Number(opts['threshold']) : STALE_THRESHOLD_MS;
+      const agentId = opts['id'] as string | undefined;
+      const detectCrashed = Boolean(opts['detectCrashed']);
+
+      if (agentId) {
+        const health = await checkAgentHealth(agentId, thresholdMs);
+        if (!health) {
+          cliOutput(
+            {
+              success: false,
+              error: { code: 'E_NOT_FOUND', message: `Agent not found: ${agentId}` },
+            },
+            { command: 'agent health' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+        cliOutput({ success: true, data: health }, { command: 'agent health' });
+        return;
+      }
+
+      if (detectCrashed) {
+        const crashed = await detectCrashedAgents(thresholdMs);
+        cliOutput(
+          {
+            success: true,
+            data: {
+              detectedCrashed: crashed.length,
+              agents: crashed.map((a) => ({
+                id: a.id,
+                agentType: a.agentType,
+                lastHeartbeat: a.lastHeartbeat,
+                status: a.status,
+              })),
+            },
+          },
+          { command: 'agent health' },
+        );
+        return;
+      }
+
+      const [report, stale] = await Promise.all([
+        getHealthReport(thresholdMs),
+        detectStaleAgents(thresholdMs),
+      ]);
+
+      cliOutput(
+        {
+          success: true,
+          data: {
+            summary: {
+              total: report.total,
+              active: report.active,
+              idle: report.idle,
+              starting: report.starting,
+              error: report.error,
+              crashed: report.crashed,
+              stopped: report.stopped,
+              totalErrors: report.totalErrors,
+            },
+            staleAgents: stale.map((s) => ({
+              id: s.agentId,
+              status: s.status,
+              heartbeatAgeMs: s.heartbeatAgeMs,
+              lastHeartbeat: s.lastHeartbeat,
+              thresholdMs: s.thresholdMs,
+            })),
+            thresholdMs,
+          },
+        },
+        { command: 'agent health' },
+      );
     });
 }
