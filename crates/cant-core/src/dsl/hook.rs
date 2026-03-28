@@ -59,8 +59,8 @@ pub fn parse_hook_block(
     if !is_canonical_event(event_name) {
         return Err(ParseError::error(
             format!(
-                "unknown event '{event_name}'; must be one of the 16 CAAMP canonical events \
-                 (e.g. SessionStart, ResponseComplete, PreToolUse)"
+                "unknown event '{event_name}'; must be a canonical event \
+                 (e.g. SessionStart, TaskCompleted, PreToolUse)"
             ),
             header_span,
         ));

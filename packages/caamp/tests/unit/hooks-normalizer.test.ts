@@ -37,17 +37,20 @@ describe("Hooks Normalizer", () => {
   });
 
   describe("constants", () => {
-    it("CANONICAL_HOOK_EVENTS has 16 events", () => {
-      expect(CANONICAL_HOOK_EVENTS).toHaveLength(16);
+    it("CANONICAL_HOOK_EVENTS has 31 events (16 provider + 15 domain)", () => {
+      expect(CANONICAL_HOOK_EVENTS).toHaveLength(31);
     });
 
-    it("HOOK_CATEGORIES has 5 categories", () => {
-      expect(HOOK_CATEGORIES).toHaveLength(5);
+    it("HOOK_CATEGORIES has 8 categories", () => {
+      expect(HOOK_CATEGORIES).toHaveLength(8);
       expect(HOOK_CATEGORIES).toContain("session");
       expect(HOOK_CATEGORIES).toContain("prompt");
       expect(HOOK_CATEGORIES).toContain("tool");
       expect(HOOK_CATEGORIES).toContain("agent");
       expect(HOOK_CATEGORIES).toContain("context");
+      expect(HOOK_CATEGORIES).toContain("task");
+      expect(HOOK_CATEGORIES).toContain("memory");
+      expect(HOOK_CATEGORIES).toContain("pipeline");
     });
   });
 
@@ -80,9 +83,9 @@ describe("Hooks Normalizer", () => {
   });
 
   describe("getAllCanonicalEvents", () => {
-    it("returns all 16 event definitions", () => {
+    it("returns all 31 event definitions", () => {
       const events = getAllCanonicalEvents();
-      expect(Object.keys(events)).toHaveLength(16);
+      expect(Object.keys(events)).toHaveLength(31);
       for (const event of CANONICAL_HOOK_EVENTS) {
         expect(events[event]).toBeDefined();
         expect(events[event].category).toBeTruthy();
@@ -91,11 +94,14 @@ describe("Hooks Normalizer", () => {
   });
 
   describe("getCanonicalEventsByCategory", () => {
-    it("returns session events", () => {
+    it("returns session events (provider + domain)", () => {
       const events = getCanonicalEventsByCategory("session");
+      // 2 provider + 5 domain (SessionStarted, SessionEnded, ApprovalRequested, ApprovalGranted, ApprovalExpired)
       expect(events).toContain("SessionStart");
       expect(events).toContain("SessionEnd");
-      expect(events).toHaveLength(2);
+      expect(events).toContain("SessionStarted");
+      expect(events).toContain("ApprovalRequested");
+      expect(events).toHaveLength(7);
     });
 
     it("returns tool events", () => {

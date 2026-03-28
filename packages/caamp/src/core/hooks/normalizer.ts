@@ -27,7 +27,7 @@ import type {
   ProviderHookProfile,
   ProviderHookSummary,
 } from './types.js';
-import { CANONICAL_HOOK_EVENTS } from './types.js';
+import { CANONICAL_HOOK_EVENTS, PROVIDER_HOOK_EVENTS } from './types.js';
 
 // ── Data Loading ────────────────────────────────────────────────────
 
@@ -415,7 +415,8 @@ export function getHookSupport(
 export function getSupportedEvents(providerId: string): CanonicalHookEvent[] {
   const profile = getProviderHookProfile(providerId);
   if (!profile) return [];
-  return CANONICAL_HOOK_EVENTS.filter((event) => profile.mappings[event]?.supported);
+  // Only provider events have provider mappings; domain events are not provider-translatable
+  return PROVIDER_HOOK_EVENTS.filter((event) => profile.mappings[event]?.supported);
 }
 
 /**
@@ -440,8 +441,9 @@ export function getSupportedEvents(providerId: string): CanonicalHookEvent[] {
  */
 export function getUnsupportedEvents(providerId: string): CanonicalHookEvent[] {
   const profile = getProviderHookProfile(providerId);
-  if (!profile) return [...CANONICAL_HOOK_EVENTS];
-  return CANONICAL_HOOK_EVENTS.filter((event) => !profile.mappings[event]?.supported);
+  // Only provider events have provider mappings; domain events are not provider-translatable
+  if (!profile) return [...PROVIDER_HOOK_EVENTS];
+  return PROVIDER_HOOK_EVENTS.filter((event) => !profile.mappings[event]?.supported);
 }
 
 /**
@@ -496,7 +498,8 @@ export function getProvidersForEvent(canonical: CanonicalHookEvent): string[] {
  */
 export function getCommonEvents(providerIds: string[]): CanonicalHookEvent[] {
   if (providerIds.length === 0) return [];
-  return CANONICAL_HOOK_EVENTS.filter((event) =>
+  // Only provider events are relevant for cross-provider comparison
+  return PROVIDER_HOOK_EVENTS.filter((event) =>
     providerIds.every((id) => supportsHook(event, id)),
   );
 }
@@ -540,11 +543,11 @@ export function getProviderSummary(providerId: string): ProviderHookSummary | un
     hookSystem: profile.hookSystem,
     experimental: profile.experimental,
     supportedCount: supported.length,
-    totalCanonical: CANONICAL_HOOK_EVENTS.length,
+    totalCanonical: PROVIDER_HOOK_EVENTS.length,
     supported,
     unsupported,
     providerOnly: profile.providerOnlyEvents,
-    coverage: Math.round((supported.length / CANONICAL_HOOK_EVENTS.length) * 100),
+    coverage: Math.round((supported.length / PROVIDER_HOOK_EVENTS.length) * 100),
   };
 }
 
@@ -578,8 +581,9 @@ export function buildHookMatrix(providerIds?: string[]): CrossProviderMatrix {
   const data = loadMappings();
   const ids = providerIds ?? Object.keys(data.providerMappings);
 
+  // Provider matrix only covers provider events — domain events have no provider mappings
   const matrix: Record<string, Record<string, HookMapping>> = {};
-  for (const event of CANONICAL_HOOK_EVENTS) {
+  for (const event of PROVIDER_HOOK_EVENTS) {
     matrix[event] = {};
     for (const id of ids) {
       const profile = data.providerMappings[id];
@@ -591,7 +595,7 @@ export function buildHookMatrix(providerIds?: string[]): CrossProviderMatrix {
   }
 
   return {
-    events: [...CANONICAL_HOOK_EVENTS],
+    events: [...PROVIDER_HOOK_EVENTS],
     providers: ids,
     matrix: matrix as CrossProviderMatrix['matrix'],
   };
