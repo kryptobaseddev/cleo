@@ -36,3 +36,13 @@ mod pg_others;
 /// `PostgreSQL` adapter — available with feature `postgres`.
 #[cfg(feature = "postgres")]
 pub mod postgres;
+
+// ── Diesel (unified) adapter ─────────────────────────────────────
+mod diesel_conversations;
+/// Diesel adapter helpers for row-to-domain conversions and error mapping.
+pub mod diesel_helpers;
+mod diesel_jobs;
+mod diesel_messages;
+mod diesel_others;
+/// Unified Diesel adapter — backend-agnostic via `AsyncConnection`.
+pub mod diesel_store;

@@ -14,7 +14,7 @@ use diesel::prelude::*;
 // ============================================================================
 
 /// A row read from the `messages` table.
-#[derive(Queryable, Selectable, Debug, Clone)]
+#[derive(Queryable, QueryableByName, Selectable, Debug, Clone)]
 #[diesel(table_name = messages)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct MessageRow {

@@ -3,19 +3,16 @@
 //! Conversion between Diesel model rows and domain types,
 //! timestamp utilities, and error mapping.
 
-use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
 use uuid::Uuid;
 
-use signaldock_protocol::agent::{
-    Agent, AgentClass, AgentStatus, PrivacyTier,
-};
+use crate::types::DeliveryJob;
+use signaldock_protocol::agent::{Agent, AgentClass, AgentStats, AgentStatus, PrivacyTier};
+use signaldock_protocol::claim::ClaimCode;
+use signaldock_protocol::connection::{Connection, ConnectionStatus};
 use signaldock_protocol::conversation::{Conversation, ConversationVisibility};
 use signaldock_protocol::message::{ContentType, Message, MessageMetadata, MessageStatus};
 use signaldock_protocol::user::User;
-use signaldock_protocol::claim::ClaimCode;
-use signaldock_protocol::connection::{Connection, ConnectionStatus};
-use signaldock_protocol::delivery::{DeadLetter, DeliveryJob};
 
 use crate::models::*;
 
@@ -40,11 +37,23 @@ pub fn serialize_enum<T: serde::Serialize>(val: &T) -> String {
 }
 
 /// Deserialize an enum from a string (with or without quotes).
+///
+/// Falls back to deserializing `"unknown"` as the variant name, which
+/// will succeed for any enum that defines an `Unknown` variant.
+///
+/// # Panics
+///
+/// Panics if `T` has no variant named `unknown` or matching the input.
 pub fn parse_enum<T: serde::de::DeserializeOwned>(s: &str) -> T {
     // Try with quotes first, then without
     serde_json::from_str(&format!("\"{s}\""))
         .or_else(|_| serde_json::from_str(s))
-        .unwrap_or_else(|_| serde_json::from_str("\"unknown\"").unwrap())
+        .unwrap_or_else(|_| {
+            // SAFETY: The "unknown" fallback is guaranteed to parse for all
+            // SignalDock enums which define an Unknown/default variant.
+            #[allow(clippy::unwrap_used)]
+            serde_json::from_str("\"unknown\"").unwrap()
+        })
 }
 
 // ── Error mapping ───────────────────────────────────────────────
@@ -70,19 +79,24 @@ pub fn agent_from_row(row: AgentRow) -> Agent {
         description: row.description,
         class: parse_enum::<AgentClass>(&row.class),
         privacy_tier: parse_enum::<PrivacyTier>(&row.privacy_tier),
-        owner_id: row.owner_id.and_then(|s| Uuid::parse_str(&s).ok()),
+        owner_id: row.owner_id.clone().and_then(|s| Uuid::parse_str(&s).ok()),
         endpoint: row.endpoint,
         webhook_secret: row.webhook_secret,
         capabilities: serde_json::from_str(&row.capabilities).unwrap_or_default(),
         skills: serde_json::from_str(&row.skills).unwrap_or_default(),
         avatar: row.avatar,
-        messages_sent: row.messages_sent as u64,
-        messages_received: row.messages_received as u64,
-        conversation_count: row.conversation_count as u64,
-        friend_count: row.friend_count as u64,
+        stats: AgentStats {
+            messages_sent: row.messages_sent as i64,
+            messages_received: row.messages_received as i64,
+            conversation_count: row.conversation_count as i64,
+            friend_count: row.friend_count as i64,
+        },
         status: parse_enum::<AgentStatus>(&row.status),
+        is_claimed: row.owner_id.is_some(),
         last_seen: row.last_seen.map(ts_to_dt).unwrap_or_else(Utc::now),
-        payment_config: row.payment_config.and_then(|s| serde_json::from_str(&s).ok()),
+        payment_config: row
+            .payment_config
+            .and_then(|s| serde_json::from_str(&s).ok()),
         api_key_hash: row.api_key_hash,
         organization_id: row.organization_id,
         created_at: ts_to_dt(row.created_at),
@@ -104,8 +118,7 @@ pub fn message_from_row(row: MessageRow) -> Message {
         group_id: row.group_id.and_then(|s| Uuid::parse_str(&s).ok()),
         metadata: row
             .metadata
-            .and_then(|s| serde_json::from_str::<MessageMetadata>(&s).ok())
-            .unwrap_or_default(),
+            .and_then(|s| serde_json::from_str::<MessageMetadata>(&s).ok()),
         reply_to: row.reply_to.and_then(|s| Uuid::parse_str(&s).ok()),
         created_at: ts_to_dt(row.created_at),
         delivered_at: row.delivered_at.map(ts_to_dt),
@@ -119,7 +132,7 @@ pub fn conversation_from_row(row: ConversationRow) -> Conversation {
         id: Uuid::parse_str(&row.id).unwrap_or_default(),
         participants: serde_json::from_str(&row.participants).unwrap_or_default(),
         visibility: parse_enum::<ConversationVisibility>(&row.visibility),
-        message_count: row.message_count as u64,
+        message_count: row.message_count as i64,
         last_message_at: row.last_message_at.map(ts_to_dt),
         created_at: ts_to_dt(row.created_at),
         updated_at: ts_to_dt(row.updated_at),
@@ -133,8 +146,6 @@ pub fn user_from_row(row: UserRow) -> User {
         email: row.email,
         name: row.name,
         default_agent_id: row.default_agent_id,
-        role: row.role,
-        banned: row.banned,
         created_at: ts_to_dt(row.created_at),
         updated_at: ts_to_dt(row.updated_at),
     }
@@ -160,7 +171,7 @@ pub fn connection_from_row(row: ConnectionRow) -> Connection {
         agent_a: Uuid::parse_str(&row.agent_a).unwrap_or_default(),
         agent_b: Uuid::parse_str(&row.agent_b).unwrap_or_default(),
         status: parse_enum::<ConnectionStatus>(&row.status),
-        initiated_by: Uuid::parse_str(&row.initiated_by).unwrap_or_default(),
+        initiated_by: row.initiated_by,
         created_at: ts_to_dt(row.created_at),
         updated_at: ts_to_dt(row.updated_at),
     }
@@ -178,6 +189,5 @@ pub fn job_from_row(row: DeliveryJobRow) -> DeliveryJob {
         next_attempt_at: ts_to_dt(row.next_attempt_at),
         last_error: row.last_error,
         created_at: ts_to_dt(row.created_at),
-        updated_at: ts_to_dt(row.updated_at),
     }
 }

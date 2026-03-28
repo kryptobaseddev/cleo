@@ -9,8 +9,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use diesel::prelude::*;
-use diesel_async::pooled_connection::deadpool::Pool;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use diesel_async::pooled_connection::deadpool::Pool;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use uuid::Uuid;
 
@@ -18,28 +18,52 @@ use signaldock_protocol::agent::{Agent, AgentUpdate, NewAgent};
 
 use crate::models::*;
 use crate::schema::*;
-use crate::traits::{
-    AgentRepository, ClaimRepository, ConnectionRepository, ConversationRepository,
-    DeliveryJobRepository, MessageRepository, UserRepository,
-};
+use crate::traits::AgentRepository;
 use crate::types::{AgentQuery, Page, StatsDelta};
 
-mod helpers;
-use helpers::*;
+use super::diesel_helpers::*;
 
 /// Backend-agnostic Diesel storage adapter.
 ///
 /// Generic over `C: AsyncConnection` — instantiate with:
 /// - `SyncConnectionWrapper<SqliteConnection>` for SQLite
 /// - `AsyncPgConnection` for PostgreSQL
-#[derive(Clone)]
-pub struct DieselStore<C: AsyncConnection + 'static> {
-    pool: Pool<C>,
+/// The struct requires the full deadpool `Manager` bound set so that
+/// `Pool<C>` is a valid type. These bounds are automatically satisfied
+/// by `SyncConnectionWrapper<SqliteConnection>` and `AsyncPgConnection`.
+pub struct DieselStore<C>
+where
+    C: AsyncConnection + diesel_async::pooled_connection::PoolableConnection + Send + 'static,
+    diesel::query_builder::SqlQuery:
+        diesel::query_builder::QueryFragment<<C as diesel_async::AsyncConnectionCore>::Backend>,
+    diesel::dsl::select<diesel::dsl::AsExprOf<i32, diesel::sql_types::Integer>>:
+        diesel_async::methods::ExecuteDsl<C>,
+{
+    pub(crate) pool: Pool<C>,
+}
+
+// Manual Clone impl to avoid requiring all bounds in the derive.
+impl<C> Clone for DieselStore<C>
+where
+    C: AsyncConnection + diesel_async::pooled_connection::PoolableConnection + Send + 'static,
+    diesel::query_builder::SqlQuery:
+        diesel::query_builder::QueryFragment<<C as diesel_async::AsyncConnectionCore>::Backend>,
+    diesel::dsl::select<diesel::dsl::AsExprOf<i32, diesel::sql_types::Integer>>:
+        diesel_async::methods::ExecuteDsl<C>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+        }
+    }
 }
 
 // ── SQLite constructor ──────────────────────────────────────────
 #[cfg(feature = "sqlite")]
-impl DieselStore<diesel_async::sync_connection_wrapper::SyncConnectionWrapper<diesel::SqliteConnection>>
+impl
+    DieselStore<
+        diesel_async::sync_connection_wrapper::SyncConnectionWrapper<diesel::SqliteConnection>,
+    >
 {
     /// Connect to SQLite and run embedded migrations.
     ///
@@ -57,16 +81,18 @@ impl DieselStore<diesel_async::sync_connection_wrapper::SyncConnectionWrapper<di
             .map_err(|e| anyhow::anyhow!("Failed to build SQLite pool: {e}"))?;
 
         // Run migrations and set PRAGMAs on a checkout
-        let mut conn = pool.get().await.map_err(|e| anyhow::anyhow!("Pool get: {e}"))?;
-        conn.interact(|conn| {
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| anyhow::anyhow!("Pool get: {e}"))?;
+        conn.spawn_blocking(|conn| {
             conn.batch_execute(
                 "PRAGMA journal_mode=WAL;\
                  PRAGMA foreign_keys=ON;\
                  PRAGMA busy_timeout=5000;",
             )?;
-            use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-            const MIGRATIONS: EmbeddedMigrations =
-                embed_migrations!("src/migrations/sqlite");
+            use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+            const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/migrations/sqlite");
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))?;
             Ok::<_, diesel::result::Error>(())
@@ -94,13 +120,23 @@ impl DieselStore<diesel_async::AsyncPgConnection> {
             .map_err(|e| anyhow::anyhow!("Failed to build Postgres pool: {e}"))?;
 
         // Verify connectivity
-        let _conn = pool.get().await.map_err(|e| anyhow::anyhow!("PG connect: {e}"))?;
+        let _conn = pool
+            .get()
+            .await
+            .map_err(|e| anyhow::anyhow!("PG connect: {e}"))?;
 
         Ok(Self { pool })
     }
 }
 
-impl<C: AsyncConnection + 'static> DieselStore<C> {
+impl<C> DieselStore<C>
+where
+    C: AsyncConnection + diesel_async::pooled_connection::PoolableConnection + Send + 'static,
+    diesel::query_builder::SqlQuery:
+        diesel::query_builder::QueryFragment<<C as diesel_async::AsyncConnectionCore>::Backend>,
+    diesel::dsl::select<diesel::dsl::AsExprOf<i32, diesel::sql_types::Integer>>:
+        diesel_async::methods::ExecuteDsl<C>,
+{
     /// Returns a reference to the connection pool.
     pub fn pool(&self) -> &Pool<C> {
         &self.pool
@@ -116,6 +152,7 @@ impl<C> AgentRepository for DieselStore<C>
 where
     C: AsyncConnection + 'static,
     C: diesel_async::AsyncConnection<Backend = diesel::sqlite::Sqlite>,
+    C: diesel_async::pooled_connection::PoolableConnection,
 {
     async fn find_by_agent_id(&self, aid: &str) -> Result<Option<Agent>> {
         let mut conn = self.pool.get().await.map_err(pool_err)?;
@@ -179,11 +216,15 @@ where
             .await
             .map_err(diesel_err)?;
 
-        self.find_by_id(id).await?.context("agent not found after insert")
+        AgentRepository::find_by_id(self, id)
+            .await?
+            .context("agent not found after insert")
     }
 
     async fn update(&self, id: Uuid, update: AgentUpdate) -> Result<Agent> {
-        let existing = self.find_by_id(id).await?.context("agent not found")?;
+        let existing = AgentRepository::find_by_id(self, id)
+            .await?
+            .context("agent not found")?;
         let now = now_ts();
 
         let changeset = UpdateAgentRow {
@@ -224,7 +265,9 @@ where
             .await
             .map_err(diesel_err)?;
 
-        self.find_by_id(id).await?.context("agent not found after update")
+        AgentRepository::find_by_id(self, id)
+            .await?
+            .context("agent not found after update")
     }
 
     async fn delete(&self, id: Uuid) -> Result<()> {
@@ -269,7 +312,12 @@ where
             .map_err(diesel_err)?;
 
         let agents_list = rows.into_iter().map(agent_from_row).collect();
-        Ok(Page::new(agents_list, total as u64, query.page, query.limit))
+        Ok(Page::new(
+            agents_list,
+            total as u64,
+            query.page,
+            query.limit,
+        ))
     }
 
     async fn increment_stats(&self, id: Uuid, delta: StatsDelta) -> Result<()> {
@@ -302,7 +350,9 @@ where
             .execute(&mut conn)
             .await
             .map_err(diesel_err)?;
-        self.find_by_id(id).await?.context("agent not found after set_owner")
+        AgentRepository::find_by_id(self, id)
+            .await?
+            .context("agent not found after set_owner")
     }
 
     async fn update_last_seen(&self, id: Uuid) -> Result<()> {

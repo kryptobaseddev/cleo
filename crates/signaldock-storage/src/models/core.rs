@@ -140,7 +140,7 @@ pub struct UpdateUserRow {
 // ============================================================================
 
 /// A row read from the `agents` table.
-#[derive(Queryable, Selectable, Debug, Clone)]
+#[derive(Queryable, QueryableByName, Selectable, Debug, Clone)]
 #[diesel(table_name = agents)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct AgentRow {
