@@ -658,7 +658,7 @@ This document should be added to the [CLEO Canon Index](./CLEO-CANON-INDEX.md) a
 
 ## Lore Note
 
-In the world of CLEO, the Common Tongue (LAFS) was always the formal language of the system — the structured, precise way the machine speaks back. But when the Circle of Twelve first gathered to build together, they did not speak in LAFS envelopes. They spoke in working shorthand — claims, completions, blocks, reviews. They tagged their intent. They addressed each other by name. They linked their words to the Threads they were weaving.
+In the world of CLEO, the Common Tongue (LAFS) was always the formal language of the system — the structured, precise way the machine speaks back. But when the Circle of Ten first gathered to build together, they did not speak in LAFS envelopes. They spoke in working shorthand — claims, completions, blocks, reviews. They tagged their intent. They addressed each other by name. They linked their words to the Threads they were weaving.
 
 That shorthand was never formalized. It was the language of the workshop floor, not the throne room. The Scribes did not record it. The Archivists did not index it. It was just how the work got done.
 
