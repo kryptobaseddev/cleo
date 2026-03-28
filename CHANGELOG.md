@@ -15,7 +15,7 @@
 - `cleo doctor --hooks` provider hook matrix diagnostic (T167)
 - E2E hook automation tests (T168)
 
-## [0.1.0] — 2026-03-28
+## [2026.3.76] — 2026-03-28
 
 ### Added
 - Diesel ORM foundation for signaldock-storage (schema.rs, models, consolidated migration)
@@ -24,6 +24,7 @@
 - @cleocode/runtime package with createRuntime() factory and AgentPoller
 - cleo agent watch command for continuous message polling
 - cleo agent claim-code command for ownership verification
+- cleo agent health command for agent lifecycle monitoring
 - TypedDb pattern with drizzle-orm/zod validation schemas
 
 ### Fixed
@@ -31,10 +32,12 @@
 - Ferrous Forge: 4 violations resolved (cant-core file splits)
 - CI pipeline: 5 layers of failures fixed (lint, lockfile, build order)
 - AgentRegistryAccessor drizzle type mismatch (8 TS errors eliminated)
+- Ferrous Forge @generated module doc bug (kryptobaseddev/ferrous-forge#17)
 
 ### Changed
 - DATABASE-ARCHITECTURE.md updated for Diesel as sole Rust ORM
 - signaldock-storage traits split from monolithic mod.rs (432 lines) to 7 focused files
+- Rust workspace version aligned to CalVer 2026.3.x scheme
 
 ## [2026.3.70] — 2026-03-23
 
