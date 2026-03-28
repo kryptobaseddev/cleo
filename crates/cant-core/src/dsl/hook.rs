@@ -9,14 +9,11 @@
 //!   let status = task.status
 //! ```
 
-use super::ast::{
-    Comment, DirectiveStmt, HookDef, LetBinding, Spanned, Statement, is_canonical_event,
-};
+use super::ast::{HookDef, Spanned, is_canonical_event};
 use super::error::ParseError;
-use super::expression::parse_expression;
 use super::indent::{IndentedLine, collect_block};
-use super::property::parse_property;
 use super::span::Span;
+use super::statement::parse_statement_block;
 
 /// Parses an `on EventName:` block starting at the given line index.
 ///
@@ -81,16 +78,9 @@ pub fn parse_hook_block(
     let body_lines = collect_block(lines, start_idx + 1, header.indent);
     let total_consumed = 1 + body_lines.len();
 
-    let mut body = Vec::new();
-
-    for line in body_lines {
-        if line.is_blank() {
-            continue;
-        }
-
-        let stmt = parse_statement(line)?;
-        body.push(stmt);
-    }
+    // Use the shared statement block parser which handles multi-line constructs
+    // like session statements with property blocks.
+    let body = parse_statement_block(body_lines)?;
 
     // Calculate full span
     let end_offset = if body_lines.is_empty() {
@@ -114,185 +104,10 @@ pub fn parse_hook_block(
     Ok((hook, total_consumed))
 }
 
-/// Parses a single statement line within a hook body.
-fn parse_statement(line: &IndentedLine<'_>) -> Result<Statement, ParseError> {
-    let content = line.content;
-    let base_offset = line.byte_offset + line.indent;
-    let col = (line.indent as u32) + 1;
-
-    // Comment
-    if content.starts_with('#') {
-        return Ok(Statement::Comment(Comment {
-            text: content[1..].trim().to_string(),
-            span: Span::new(
-                base_offset,
-                base_offset + content.len(),
-                line.line_number,
-                col,
-            ),
-        }));
-    }
-
-    // Directive: /verb ...
-    if content.starts_with('/') {
-        return parse_directive_stmt(line);
-    }
-
-    // Let/const binding: let name = expr
-    if content.starts_with("let ") || content.starts_with("const ") {
-        return parse_binding_stmt(line);
-    }
-
-    // Property: key: value (if it contains a colon that's not inside quotes)
-    if contains_property_colon(content) {
-        let prop = parse_property(line)?;
-        return Ok(Statement::Property(prop));
-    }
-
-    // Bare expression
-    let expr = parse_expression(content, base_offset, line.line_number, col)?;
-    Ok(Statement::Expression(expr))
-}
-
-/// Parses a `/verb @addr T1234 #tag argument` directive statement.
-fn parse_directive_stmt(line: &IndentedLine<'_>) -> Result<Statement, ParseError> {
-    let content = line.content;
-    let base_offset = line.byte_offset + line.indent;
-    let span = Span::new(
-        base_offset,
-        base_offset + content.len(),
-        line.line_number,
-        (line.indent as u32) + 1,
-    );
-
-    let parts: Vec<&str> = content.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err(ParseError::error("empty directive", span));
-    }
-
-    let verb = parts[0][1..].to_string(); // strip leading /
-    let mut addresses = Vec::new();
-    let mut task_refs = Vec::new();
-    let mut tags = Vec::new();
-    let mut argument_parts = Vec::new();
-
-    for part in &parts[1..] {
-        if part.starts_with('@') && part.len() > 1 {
-            addresses.push(part[1..].to_string());
-        } else if part.starts_with('T')
-            && part.len() > 1
-            && part[1..].chars().all(|c| c.is_ascii_digit())
-        {
-            task_refs.push(part.to_string());
-        } else if part.starts_with('#') && part.len() > 1 {
-            tags.push(part[1..].to_string());
-        } else {
-            argument_parts.push(*part);
-        }
-    }
-
-    let argument = if argument_parts.is_empty() {
-        None
-    } else {
-        Some(argument_parts.join(" "))
-    };
-
-    Ok(Statement::Directive(DirectiveStmt {
-        verb,
-        addresses,
-        task_refs,
-        tags,
-        argument,
-        span,
-    }))
-}
-
-/// Parses a `let name = expression` or `const name = expression` binding statement.
-fn parse_binding_stmt(line: &IndentedLine<'_>) -> Result<Statement, ParseError> {
-    let content = line.content;
-    let base_offset = line.byte_offset + line.indent;
-    let col = (line.indent as u32) + 1;
-    let stmt_span = Span::new(
-        base_offset,
-        base_offset + content.len(),
-        line.line_number,
-        col,
-    );
-
-    // Determine if let or const
-    let (keyword_len, after_kw) = if content.starts_with("let ") {
-        (4, &content[4..])
-    } else if content.starts_with("const ") {
-        (6, &content[6..])
-    } else {
-        return Err(ParseError::error(
-            "expected `let` or `const` keyword",
-            stmt_span,
-        ));
-    };
-
-    let eq_pos = after_kw.find('=').ok_or_else(|| {
-        ParseError::error(
-            "expected `=` in binding, e.g. `let name = expression`",
-            stmt_span,
-        )
-    })?;
-
-    let name = after_kw[..eq_pos].trim();
-    let expr_str = after_kw[eq_pos + 1..].trim();
-
-    if name.is_empty() {
-        return Err(ParseError::error("empty binding name", stmt_span));
-    }
-
-    let name_offset = base_offset + keyword_len;
-    let name_spanned = Spanned {
-        value: name.to_string(),
-        span: Span::new(
-            name_offset,
-            name_offset + name.len(),
-            line.line_number,
-            col + keyword_len as u32,
-        ),
-    };
-
-    let expr_offset = base_offset + keyword_len + eq_pos + 1;
-    let value = parse_expression(expr_str, expr_offset, line.line_number, col)?;
-
-    Ok(Statement::Binding(LetBinding {
-        name: name_spanned,
-        value,
-        span: stmt_span,
-    }))
-}
-
-/// Heuristic to detect if a line contains a `key: value` pattern.
-///
-/// Returns false if the colon is inside a quoted string or is part of `://`.
-fn contains_property_colon(s: &str) -> bool {
-    let mut in_quotes = false;
-    let bytes = s.as_bytes();
-
-    for i in 0..bytes.len() {
-        match bytes[i] {
-            b'"' => in_quotes = !in_quotes,
-            b':' if !in_quotes => {
-                // Skip URL-like colons (://)
-                if i + 2 < bytes.len() && bytes[i + 1] == b'/' && bytes[i + 2] == b'/' {
-                    continue;
-                }
-                return true;
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dsl::ast::Statement;
     use crate::dsl::indent::split_lines;
 
     #[test]
@@ -429,6 +244,45 @@ mod tests {
                 assert_eq!(d.argument, Some("deployment complete".to_string()));
             }
             other => panic!("expected Directive, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hook_with_session_statement() {
+        let input = "on SessionStart:\n  /checkin @all\n  session \"Load canon state\"\n    context: memory-bridge";
+        let lines = split_lines(input).unwrap();
+        let (hook, consumed) = parse_hook_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 4);
+        assert_eq!(hook.event.value, "SessionStart");
+        assert_eq!(hook.body.len(), 2);
+        match &hook.body[0] {
+            Statement::Directive(d) => assert_eq!(d.verb, "checkin"),
+            other => panic!("expected Directive, got {:?}", other),
+        }
+        match &hook.body[1] {
+            Statement::Session(s) => {
+                use crate::dsl::ast::SessionTarget;
+                match &s.target {
+                    SessionTarget::Prompt(p) => assert_eq!(p, "Load canon state"),
+                    other => panic!("expected Prompt, got {:?}", other),
+                }
+                assert_eq!(s.properties.len(), 1);
+                assert_eq!(s.properties[0].key.value, "context");
+            }
+            other => panic!("expected Session, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hook_with_bare_session() {
+        let input = "on SessionStart:\n  session \"Quick check\"";
+        let lines = split_lines(input).unwrap();
+        let (hook, consumed) = parse_hook_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 2);
+        assert_eq!(hook.body.len(), 1);
+        match &hook.body[0] {
+            Statement::Session(_) => {}
+            other => panic!("expected Session, got {:?}", other),
         }
     }
 }

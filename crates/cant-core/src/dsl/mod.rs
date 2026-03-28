@@ -675,4 +675,62 @@ workflow review(pr):
             other => panic!("expected Workflow, got {:?}", other),
         }
     }
+
+    // ── Context block integration tests ─────────────────────────────
+
+    #[test]
+    fn parse_agent_with_context_block_via_document() {
+        let input = "\
+---
+kind: agent
+---
+agent ops:
+  model: opus
+  context:
+    active-tasks
+    recent-decisions
+    memory-bridge";
+        let doc = parse_document(input).unwrap();
+        assert_eq!(doc.kind, Some(DocumentKind::Agent));
+        assert_eq!(doc.sections.len(), 1);
+        match &doc.sections[0] {
+            Section::Agent(a) => {
+                assert_eq!(a.name.value, "ops");
+                assert_eq!(a.properties.len(), 1);
+                assert_eq!(a.context_refs.len(), 3);
+                assert_eq!(a.context_refs[0].name, "active-tasks");
+                assert_eq!(a.context_refs[1].name, "recent-decisions");
+                assert_eq!(a.context_refs[2].name, "memory-bridge");
+            }
+            other => panic!("expected Agent, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_agent_context_permissions_hooks_combined() {
+        let input = "\
+agent coordinator:
+  model: opus
+  context:
+    active-tasks
+    memory-bridge
+  permissions:
+    tasks: read, write
+  on SessionStart:
+    /checkin @all";
+        let doc = parse_document(input).unwrap();
+        assert_eq!(doc.sections.len(), 1);
+        match &doc.sections[0] {
+            Section::Agent(a) => {
+                assert_eq!(a.name.value, "coordinator");
+                assert_eq!(a.properties.len(), 1);
+                assert_eq!(a.context_refs.len(), 2);
+                assert_eq!(a.context_refs[0].name, "active-tasks");
+                assert_eq!(a.context_refs[1].name, "memory-bridge");
+                assert_eq!(a.permissions.len(), 1);
+                assert_eq!(a.hooks.len(), 1);
+            }
+            other => panic!("expected Agent, got {:?}", other),
+        }
+    }
 }

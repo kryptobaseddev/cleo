@@ -265,4 +265,126 @@ mod tests {
         assert_eq!(consumed_b, 2);
         assert_eq!(agent_b.name.value, "b");
     }
+
+    // ── Context block tests ─────────────────────────────────────────
+
+    #[test]
+    fn parse_agent_with_context_block() {
+        let input = "agent ops:\n  model: opus\n  context:\n    active-tasks\n    recent-decisions\n    memory-bridge";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 6);
+        assert_eq!(agent.name.value, "ops");
+        assert_eq!(agent.properties.len(), 1);
+        assert_eq!(agent.context_refs.len(), 3);
+        assert_eq!(agent.context_refs[0].name, "active-tasks");
+        assert_eq!(agent.context_refs[1].name, "recent-decisions");
+        assert_eq!(agent.context_refs[2].name, "memory-bridge");
+    }
+
+    #[test]
+    fn parse_agent_context_single_ref() {
+        let input = "agent scanner:\n  context:\n    memory-bridge";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(agent.context_refs.len(), 1);
+        assert_eq!(agent.context_refs[0].name, "memory-bridge");
+    }
+
+    #[test]
+    fn parse_agent_context_quoted_strings() {
+        let input = "agent ops:\n  context:\n    \"active-tasks\"\n    \"memory-bridge\"";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(agent.context_refs.len(), 2);
+        assert_eq!(agent.context_refs[0].name, "active-tasks");
+        assert_eq!(agent.context_refs[1].name, "memory-bridge");
+    }
+
+    #[test]
+    fn parse_agent_context_mixed_bare_and_quoted() {
+        let input = "agent ops:\n  context:\n    active-tasks\n    \"memory-bridge\"";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(agent.context_refs.len(), 2);
+        assert_eq!(agent.context_refs[0].name, "active-tasks");
+        assert_eq!(agent.context_refs[1].name, "memory-bridge");
+    }
+
+    #[test]
+    fn parse_agent_context_with_blank_lines() {
+        let input = "agent ops:\n  context:\n    active-tasks\n\n    memory-bridge";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 5);
+        assert_eq!(agent.context_refs.len(), 2);
+    }
+
+    #[test]
+    fn parse_agent_context_with_comments() {
+        let input = "agent ops:\n  context:\n    # primary context\n    active-tasks\n    # secondary\n    memory-bridge";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 6);
+        assert_eq!(agent.context_refs.len(), 2);
+        assert_eq!(agent.context_refs[0].name, "active-tasks");
+        assert_eq!(agent.context_refs[1].name, "memory-bridge");
+    }
+
+    #[test]
+    fn parse_agent_context_empty_block() {
+        let input = "agent ops:\n  model: opus\n  context:";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(agent.context_refs.len(), 0);
+        assert_eq!(agent.properties.len(), 1);
+    }
+
+    #[test]
+    fn parse_agent_context_and_permissions() {
+        let input = "agent ops:\n  model: opus\n  context:\n    active-tasks\n  permissions:\n    tasks: read, write";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 6);
+        assert_eq!(agent.properties.len(), 1);
+        assert_eq!(agent.context_refs.len(), 1);
+        assert_eq!(agent.context_refs[0].name, "active-tasks");
+        assert_eq!(agent.permissions.len(), 1);
+        assert_eq!(agent.permissions[0].domain, "tasks");
+    }
+
+    #[test]
+    fn parse_agent_context_and_hooks() {
+        let input = "agent ops:\n  model: opus\n  context:\n    memory-bridge\n  on SessionStart:\n    /checkin @all";
+        let lines = split_lines(input).unwrap();
+        let (agent, consumed) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 6);
+        assert_eq!(agent.context_refs.len(), 1);
+        assert_eq!(agent.context_refs[0].name, "memory-bridge");
+        assert_eq!(agent.hooks.len(), 1);
+        assert_eq!(agent.hooks[0].event.value, "SessionStart");
+    }
+
+    #[test]
+    fn parse_agent_context_has_correct_spans() {
+        let input = "agent ops:\n  context:\n    active-tasks";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert_eq!(agent.context_refs.len(), 1);
+        let ctx = &agent.context_refs[0];
+        assert_eq!(ctx.name, "active-tasks");
+        assert!(ctx.span.start > 0);
+        assert!(ctx.span.end > ctx.span.start);
+        assert_eq!(ctx.span.line, 3);
+    }
+
+    #[test]
+    fn agent_without_context_has_empty_context_refs() {
+        let input = "agent ops:\n  model: opus";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert!(agent.context_refs.is_empty());
+    }
 }
