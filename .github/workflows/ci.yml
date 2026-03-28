@@ -106,6 +106,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
+      - name: Build packages (required for cross-package imports)
+        run: pnpm run build
       - name: Run unit tests (shard ${{ matrix.shard }}/2)
         run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
 
