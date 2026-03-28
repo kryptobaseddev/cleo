@@ -16,11 +16,13 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
+diesel = { workspace = true }
+diesel_migrations = "2"
 
 [features]
 default = ["sqlite"]
-sqlite = []
-postgres = []
+sqlite = ["diesel/sqlite"]
+postgres = ["diesel/postgres"]
 
 [lints]
 workspace = true

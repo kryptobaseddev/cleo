@@ -22,8 +22,9 @@ import { cliOutput } from '../renderers/index.js';
  */
 export function registerAgentCommand(program: Command): void {
   const agent = program
-    .command('agent')
-    .description('Agent credential management (unified registry)');
+    .command('signaldock')
+    .alias('sd')
+    .description('Agent credential management (unified SignalDock registry)');
 
   // --- cleo agent register ---
   agent

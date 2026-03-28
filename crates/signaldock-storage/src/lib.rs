@@ -28,6 +28,10 @@
 
 /// Database-specific adapter implementations (SQLite, PostgreSQL).
 pub mod adapters;
+/// Diesel model structs (Row, NewRow, UpdateRow) for all domain tables.
+pub mod models;
+/// Diesel `table!` macro definitions for the full SignalDock schema.
+pub mod schema;
 /// Repository trait definitions for all domain entities.
 pub mod traits;
 /// Pagination, query filters, and stats delta types.

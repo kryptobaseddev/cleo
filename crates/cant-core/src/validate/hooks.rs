@@ -306,6 +306,7 @@ mod tests {
             name: spanned(name),
             properties: vec![],
             permissions: vec![],
+            context_refs: vec![],
             hooks,
             span: dummy_span(),
         }

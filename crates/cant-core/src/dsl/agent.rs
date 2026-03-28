@@ -12,7 +12,7 @@
 //!     session: read
 //! ```
 
-use super::ast::{AgentDef, Spanned};
+use super::ast::{AgentDef, ContextRef, Spanned};
 use super::error::ParseError;
 use super::hook::parse_hook_block;
 use super::indent::{IndentedLine, collect_block};
@@ -73,6 +73,7 @@ pub fn parse_agent_block(
 
     let mut properties = Vec::new();
     let mut permissions = Vec::new();
+    let mut context_refs = Vec::new();
     let mut hooks = Vec::new();
 
     let mut i = 0;
@@ -89,6 +90,14 @@ pub fn parse_agent_block(
             let perm_lines = collect_block(body_lines, i + 1, line.indent);
             permissions = parse_permissions(perm_lines)?;
             i += 1 + perm_lines.len();
+            continue;
+        }
+
+        // Check for context: sub-block
+        if line.content == "context:" {
+            let ctx_lines = collect_block(body_lines, i + 1, line.indent);
+            context_refs = parse_context_refs(ctx_lines)?;
+            i += 1 + ctx_lines.len();
             continue;
         }
 
@@ -118,6 +127,7 @@ pub fn parse_agent_block(
         name: name_spanned,
         properties,
         permissions,
+        context_refs,
         hooks,
         span: Span::new(
             base_offset,
@@ -128,6 +138,46 @@ pub fn parse_agent_block(
     };
 
     Ok((agent, total_consumed))
+}
+
+/// Parses the child lines of a `context:` block into [`ContextRef`] entries.
+///
+/// Each child line is a bare name or a quoted string representing a context reference.
+fn parse_context_refs(lines: &[IndentedLine<'_>]) -> Result<Vec<ContextRef>, ParseError> {
+    let mut refs = Vec::new();
+
+    for line in lines {
+        if line.is_blank() || line.is_comment() {
+            continue;
+        }
+
+        let content = line.content;
+        let base_offset = line.byte_offset + line.indent;
+        let line_span = Span::new(
+            base_offset,
+            base_offset + content.len(),
+            line.line_number,
+            (line.indent as u32) + 1,
+        );
+
+        // Strip surrounding quotes if present
+        let name = if content.starts_with('"') && content.ends_with('"') && content.len() >= 2 {
+            content[1..content.len() - 1].to_string()
+        } else {
+            content.to_string()
+        };
+
+        if name.is_empty() {
+            return Err(ParseError::error("empty context reference", line_span));
+        }
+
+        refs.push(ContextRef {
+            name,
+            span: line_span,
+        });
+    }
+
+    Ok(refs)
 }
 
 #[cfg(test)]

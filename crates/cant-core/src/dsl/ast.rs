@@ -87,6 +87,9 @@ pub enum Section {
 ///   model: opus
 ///   permissions:
 ///     tasks: read, write
+///   context:
+///     active-tasks
+///     memory-bridge
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDef {
@@ -96,6 +99,8 @@ pub struct AgentDef {
     pub properties: Vec<Property>,
     /// Permission declarations.
     pub permissions: Vec<Permission>,
+    /// Context references from a `context:` block.
+    pub context_refs: Vec<ContextRef>,
     /// Inline hook definitions (`on Event:` within the agent block).
     pub hooks: Vec<HookDef>,
     /// Span covering the entire agent definition.
@@ -247,6 +252,23 @@ pub struct Permission {
     /// The permission access levels.
     pub access: Vec<String>,
     /// Span covering the entire permission line.
+    pub span: Span,
+}
+
+// ── Context References ──────────────────────────────────────────────
+
+/// A context reference within a `context:` block.
+///
+/// ```cant
+/// context:
+///   active-tasks
+///   "memory-bridge"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextRef {
+    /// The context reference name (bare identifier or unquoted string content).
+    pub name: String,
+    /// Source location.
     pub span: Span,
 }
 

@@ -18,6 +18,7 @@ fn make_agent(name: &str, line: u32) -> AgentDef {
         name: Spanned::new(name.to_string(), Span::new(0, name.len(), line, 1)),
         properties: vec![],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     }

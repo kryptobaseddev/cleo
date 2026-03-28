@@ -687,6 +687,7 @@ fn check_all_non_workflow_sections_ignored() {
         name: spanned("ops"),
         properties: vec![],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);

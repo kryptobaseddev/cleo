@@ -46,6 +46,7 @@ fn t01_model_string_pass() {
         name: spanned("test"),
         properties: vec![make_prop("model", string_val("opus"))],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);
@@ -59,6 +60,7 @@ fn t01_model_number_error() {
         name: spanned("test"),
         properties: vec![make_prop("model", Value::Number(42.0))],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);
@@ -115,6 +117,7 @@ fn t01_persist_boolean_pass() {
         name: spanned("test"),
         properties: vec![make_prop("persist", Value::Boolean(true))],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);
@@ -128,6 +131,7 @@ fn t01_persist_string_error() {
         name: spanned("test"),
         properties: vec![make_prop("persist", string_val("true"))],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);
@@ -490,6 +494,7 @@ fn check_all_clean_document_passes() {
             make_prop("persist", Value::Boolean(true)),
         ],
         permissions: vec![],
+        context_refs: vec![],
         hooks: vec![],
         span: dummy_span(),
     })]);
