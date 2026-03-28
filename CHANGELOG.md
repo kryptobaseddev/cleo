@@ -15,31 +15,52 @@
 - `cleo doctor --hooks` provider hook matrix diagnostic (T167)
 - E2E hook automation tests (T168)
 
-## [2026.3.76] — 2026-03-28
+## [2026.3.76] - 2026-03-28
 
 ### Added
+- **Agent Unification (T170)**: Unified `cleo agent` CLI with 10 subcommands (register, list, get, remove, rotate-key, claim-code, watch, poll, send, health)
+- **Agent Registry**: `agent_credentials` table with AES-256-GCM encrypted API keys (machine-key bound, per-project derived)
+- **Conduit Architecture**: ConduitClient + HttpTransport + factory (2-layer Transport/Conduit pattern)
+- **Transport interface**: connect/disconnect/push/poll/ack/subscribe in @cleocode/contracts
+- **AgentCredential + AgentRegistryAPI contracts**: typed CRUD for credential management
+- **@cleocode/runtime**: AgentPoller with group @mention support (fixes peek blind spot)
+- **5 Rust crates migrated**: signaldock-protocol, signaldock-storage, signaldock-transport, signaldock-sdk, signaldock-payments (5→13 workspace crates)
 - Diesel ORM foundation for signaldock-storage (schema.rs, models, consolidated migration)
 - diesel-async 0.8 with SyncConnectionWrapper for unified SQLite + Postgres adapter
 - Conduit dispatch domain (5 operations: status, peek, start, stop, send)
-- @cleocode/runtime package with createRuntime() factory and AgentPoller
 - cleo agent watch command for continuous message polling
 - cleo agent claim-code command for ownership verification
-- cleo agent health command for agent lifecycle monitoring
+- cleo agent health command (merged from deprecated `cleo agents`)
 - TypedDb pattern with drizzle-orm/zod validation schemas
+- **CANT DSL epic complete (T202)**: 694 tests, 17K Rust + 3.8K TS, 3 new crates (cant-napi, cant-lsp, cant-runtime)
+- Crypto hardening: version byte in ciphertext (F-006), HOME validation (F-002), key length check (F-004)
 
 ### Fixed
+- E-FIND-004: ACL denial now audited + projectPath redacted in nexus/workspace.ts
+- AgentRegistryAccessor: pre-flight checks on update/remove (C1/C2), deterministic getActive ordering (H3)
+- HttpTransport: `since` param now passed to peek endpoint (H5)
+- ConduitClient: connect() transitions to error state on failure (H6)
+- CLI agent key redaction safe on short keys (H1)
+- CAAMP library-loader.ts TS2352 type cast fix
+- workflow-executor.ts unused variable build errors
+- Test assertions updated for conduit dispatch domain (10→11 canonical domains)
+- Audit test mock updated for agentCredentials schema export
+- Message dedup P0 fixed server-side by signaldock-core-agent
 - Biome lint: 24 errors resolved (all types from @cleocode/contracts, zero any)
 - Ferrous Forge: 4 violations resolved (cant-core file splits)
 - CI pipeline: 5 layers of failures fixed (lint, lockfile, build order)
 - AgentRegistryAccessor drizzle type mismatch (8 TS errors eliminated)
-- Ferrous Forge @generated module doc bug (kryptobaseddev/ferrous-forge#17)
 
 ### Changed
+- Default API URL: `api.clawmsgr.com` → `api.signaldock.io` (legacy endpoint stays in parallel)
+- `packages/core/src/signaldock/` removed — replaced by `conduit/` directory
+- `cleo agents` deprecated — health monitoring moved to `cleo agent health`
+- Conduit JSDoc updated: removed ClawMsgr references, documented Transport implementations
 - DATABASE-ARCHITECTURE.md updated for Diesel as sole Rust ORM
 - signaldock-storage traits split from monolithic mod.rs (432 lines) to 7 focused files
-- Rust workspace version aligned to CalVer 2026.3.x scheme
+- Rust workspace version aligned to CalVer 2026.3.76
 
-## [2026.3.70] — 2026-03-23
+## [2026.3.70] - 2026-03-23
 
 ### Added
 - **Brain Memory Automation** (T134 epic, 12 tasks):
