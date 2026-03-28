@@ -840,6 +840,22 @@ export async function runUpgrade(
       /* best-effort */
     }
 
+    // Initialize/upgrade signaldock.db for local agent messaging (T224)
+    try {
+      const { ensureSignaldockDb } = await import('./store/signaldock-sqlite.js');
+      const sdResult = await ensureSignaldockDb(projectRootForMaint);
+      actions.push({
+        action: 'ensure_signaldock_db',
+        status: 'applied',
+        details:
+          sdResult.action === 'created'
+            ? 'signaldock.db created with full schema'
+            : 'signaldock.db schema verified',
+      });
+    } catch {
+      /* best-effort — signaldock.db will be created on first agent operation */
+    }
+
     // Regenerate memory-bridge.md
     try {
       const { writeMemoryBridge } = await import('./memory/memory-bridge.js');

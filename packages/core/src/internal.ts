@@ -408,6 +408,12 @@ export {
 } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
 export { createSession, getActiveSession } from './store/session-store.js';
+export {
+  checkSignaldockDbHealth,
+  ensureSignaldockDb,
+  getSignaldockDbPath,
+  SIGNALDOCK_SCHEMA_VERSION,
+} from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export { createTask, getTask } from './store/task-store.js';
 export {

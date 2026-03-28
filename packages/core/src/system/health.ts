@@ -181,6 +181,39 @@ export function getSystemHealth(projectRoot: string, opts?: { detailed?: boolean
     checks.push(checkAuditLogAvailability(dbPath));
   }
 
+  // Check signaldock.db (local agent messaging per T225)
+  const sdDbPath = join(cleoDir, 'signaldock.db');
+  if (existsSync(sdDbPath)) {
+    try {
+      const sdSize = statSync(sdDbPath).size;
+      if (sdSize > 0) {
+        checks.push({
+          name: 'signaldock_db',
+          status: 'pass',
+          message: `signaldock.db: ${sdSize} bytes`,
+        });
+      } else {
+        checks.push({
+          name: 'signaldock_db',
+          status: 'warn',
+          message: 'signaldock.db exists but is empty',
+        });
+      }
+    } catch {
+      checks.push({
+        name: 'signaldock_db',
+        status: 'fail',
+        message: 'signaldock.db exists but is not readable',
+      });
+    }
+  } else {
+    checks.push({
+      name: 'signaldock_db',
+      status: 'warn',
+      message: 'signaldock.db not found. Run: cleo init',
+    });
+  }
+
   // Check config.json (config remains JSON per ADR-006)
   const configPath = join(cleoDir, 'config.json');
   if (existsSync(configPath)) {

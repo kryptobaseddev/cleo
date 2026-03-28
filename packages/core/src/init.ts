@@ -532,6 +532,18 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     created.push(`brain.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
 
+  // Initialize signaldock.db for local agent messaging infrastructure (T223)
+  try {
+    const { ensureSignaldockDb } = await import('./store/signaldock-sqlite.js');
+    const sdResult = await ensureSignaldockDb(projRoot);
+    if (sdResult.action === 'created') {
+      created.push('signaldock.db');
+    }
+  } catch (err) {
+    // Non-fatal — signaldock.db will be created on first agent operation
+    created.push(`signaldock.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
+  }
+
   // T4681: Create .cleo/.gitignore (respect force flag)
   if (force) {
     // When force is set, always overwrite — ensureGitignore does content-comparison only

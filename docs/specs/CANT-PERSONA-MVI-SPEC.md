@@ -377,10 +377,11 @@ persona bootstrap MUST be updated:
 
 ---
 
-## 5. CANT Integration (Future)
+## 5. CANT Integration (Ready)
 
-When CANT tooling matures to support persona definitions natively, a `.cant` companion file
-SHOULD be created alongside the markdown bootstrap:
+CANT tooling now supports persona definitions natively (`cant-core` shipped, `cant-lsp`
+operational). A `.cant` companion file SHOULD be created alongside the markdown bootstrap.
+The reference implementation `.cleo/agents/cleo-historian.cant` demonstrates this pattern:
 
 ```cant
 ---
@@ -413,8 +414,8 @@ agent cleo-historian:
       validate tool.output with cant-core
 ```
 
-The markdown bootstrap remains the primary format until all providers can parse `.cant`
-natively. The `.cant` file provides structured metadata for tooling that can consume it.
+The markdown bootstrap remains the primary format for provider injection. The `.cant` file
+provides structured metadata for tooling, LSP diagnostics, and runtime materialization.
 
 ---
 
@@ -482,6 +483,7 @@ persona with enforcement, transcription, and self-improvement mandates across fo
 
 ## References
 
+- `docs/working/CANT-Agent-Instructions.md` — Motivating research: OpenClaw template → CANT paradigm mapping
 - `packages/lafs/docs/VISION.md` — LAFS MVI progressive disclosure design principles
 - `docs/concepts/CLEO-VISION.md` — Canonical identity and non-negotiable terms
 - `docs/specs/VERB-STANDARDS.md` — Canonical verb matrix
