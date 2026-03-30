@@ -27,6 +27,7 @@ export class HttpTransport implements Transport {
   readonly name = 'http';
   private state: HttpTransportState | null = null;
 
+  /** Connect to the SignalDock API, probing primary/fallback health when both are configured. */
   async connect(config: TransportConnectConfig): Promise<void> {
     const primaryUrl = config.apiBaseUrl;
     const fallbackUrl = config.apiBaseUrlFallback ?? null;
@@ -57,10 +58,12 @@ export class HttpTransport implements Transport {
     };
   }
 
+  /** Disconnect and clear connection state. */
   async disconnect(): Promise<void> {
     this.state = null;
   }
 
+  /** Send a message to an agent (direct or within a conversation thread). */
   async push(
     to: string,
     content: string,
@@ -100,6 +103,7 @@ export class HttpTransport implements Transport {
     return { messageId };
   }
 
+  /** Poll for new messages mentioning this agent. Returns empty array on HTTP error. */
   async poll(options?: { limit?: number; since?: string }): Promise<ConduitMessage[]> {
     this.ensureConnected();
 
@@ -136,6 +140,7 @@ export class HttpTransport implements Transport {
     }));
   }
 
+  /** Acknowledge messages by ID so they are not returned by future polls. */
   async ack(messageIds: string[]): Promise<void> {
     this.ensureConnected();
 

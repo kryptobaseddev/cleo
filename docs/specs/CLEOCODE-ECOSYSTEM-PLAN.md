@@ -228,7 +228,7 @@ AFTER (lafs-core):
 1. `lafs-core` crate built and tested
 2. SignalDock adds `Accept: application/vnd.lafs.v1+json` header support
 3. During migration: old format is default, new format opt-in via header
-4. All Conduit implementations (ClawMsgrTransport, clawmsgr-worker.py, any direct consumers) switch to new format
+4. All Conduit implementations (HttpTransport, ConduitClient, any direct consumers) switch to new format
 5. After all consumers migrated: new format becomes default, old format deprecated
 6. Cleanup: remove old format code
 
@@ -316,7 +316,7 @@ Agent sends message:
   └─ Emit via conduit-core::ConduitMessage to subscribers
        │
        ▼
-[Conduit Client — ClawMsgrTransport.onMessage()]
+[Conduit Client — ConduitClient.onMessage()]
   │
   ├─ Parse LAFS envelope (via @cleocode/lafs)
   │
@@ -379,15 +379,15 @@ pub fn parse(content: &str) -> ParsedCANTMessage { ... }
                           │ implemented by
           ┌───────────────┼───────────────┐
           ▼               ▼               ▼
-  ClawMsgrTransport   ClawMsgrWorker   LocalSignalDock
-  (CleoOS Electron)   (Python CLI)     (future napi-rs)
-  polls REST API      polls REST API   WebSocket local
+  HttpTransport       ConduitClient    LocalSignalDock
+  (HTTP polling)      (high-level)     (future napi-rs)
+  polls REST API      wraps transport  WebSocket local
           │               │               │
           └───────────────┼───────────────┘
                           │ all call
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│  SignalDock (Rust SERVICE at api.clawmsgr.com)           │
+│  SignalDock (Rust SERVICE at api.signaldock.io)           │
 │  SERVER-SIDE backend for agent messaging                 │
 │                                                          │
 │  Uses conduit-core types for wire format                 │
@@ -470,12 +470,12 @@ Must change to:
 ```
 Agent (Claude Code session)
   │
-  │  "python3 clawmsgr-worker.py send 'done @all T1234 #shipped'"
+  │  "cleo agent send 'done @all T1234 #shipped'"
   │
   ▼
-ClawMsgrWorker (Python, implements Conduit conceptually)
+ConduitClient + HttpTransport (TypeScript, implements Conduit)
   │
-  │  POST https://api.clawmsgr.com/conversations/{id}/messages
+  │  POST https://api.signaldock.io/conversations/{id}/messages
   │  Headers: Authorization: Bearer sk_live_..., X-Agent-Id: ...
   │  Body: { content: "/done @all T1234 #shipped\n\n## Task done\n..." }
   │
@@ -510,7 +510,7 @@ SignalDock API (Rust, Axum)
 ### 8.2 Agent Receives the Message (CleoOS)
 
 ```
-ClawMsgrTransport (TypeScript, implements Conduit interface)
+HttpTransport (TypeScript, implements Conduit Transport interface)
   │
   │  GET /messages/peek (polling) or SSE stream
   │
@@ -527,7 +527,7 @@ ClawMsgrTransport (TypeScript, implements Conduit interface)
   ├─ Fire onMessage() handler
   │
   ▼
-ClawMsgrPollingService (CleoOS main process)
+ConduitClient (polling via onMessage() handler)
   │
   ├─ Broadcast to renderer via IPC (for UI display)
   │
@@ -624,9 +624,9 @@ Agent wants to share a document:
 SignalDock's LAFS alignment changes the wire format for every API consumer. This is a breaking change. Must be managed with header-based opt-in during migration (see Section 3.5).
 
 **Affected consumers**:
-- ClawMsgrTransport (CleoOS)
-- ClawMsgrPollingService (CleoOS)
-- clawmsgr-worker.py (CLI agents)
+- HttpTransport (HTTP polling transport)
+- ConduitClient (high-level messaging client)
+- AgentPoller (@cleocode/runtime)
 - Any direct API consumers (curl scripts, test suites)
 - E2E tests
 
@@ -707,8 +707,8 @@ Currently `MessageMetadata` has flat fields (`mentions`, `directives`, `tags`, `
 
 | Task | Owner | Scope |
 |---|---|---|
-| ClawMsgrTransport: parse LAFS envelopes | cleoos-opus-orchestrator | Conduit impl update |
-| clawmsgr-worker.py: parse LAFS envelopes | clawmsgr-opus | Script update |
+| HttpTransport: parse LAFS envelopes | cleoos-opus-orchestrator | Conduit impl update |
+| AgentPoller: parse LAFS envelopes | cleo-dev | Runtime update |
 | `@codluv/llmtxt`: add `@cleocode/lafs` optional peer dep | claude-opus-llmtxt | Small change |
 
 ### Phase 4: Verification (after Phase 3)

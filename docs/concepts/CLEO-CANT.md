@@ -297,7 +297,7 @@ IDENTIFIER    ::= [a-zA-Z][a-zA-Z0-9_-]*
 DIGITS        ::= [0-9]+
 ```
 
-> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via WASM) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the full crate architecture.
+> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the full crate architecture.
 
 ---
 
@@ -399,7 +399,7 @@ Raw message content
 [6] Execute operation, return LAFS envelope
 ```
 
-**Steps 1-3** are performed by `cant-core` (Rust crate in `cleocode/crates/cant-core/`). SignalDock calls `cant-core::parse()` server-side on message POST. The TypeScript ecosystem calls `@cleocode/cant` (WASM wrapper) client-side. Both use the same parser — one SSoT, two runtimes.
+**Steps 1-3** are performed by `cant-core` (Rust crate in `cleocode/crates/cant-core/`). SignalDock calls `cant-core::parse()` server-side on message POST. The TypeScript ecosystem calls `@cleocode/cant` (napi-rs native binding) client-side. Both use the same parser — one SSoT, two runtimes.
 
 **Steps 4-6** are performed by `@cleocode/core` in `nexus/workspace.ts` — the CLEO-specific interpretation layer that maps directives to operations and routes through NEXUS.
 
@@ -447,7 +447,7 @@ Messages without CANT structure are valid. A Conduit message with no directive i
 
 ## Part 5: Emerging Use — SignalDock Implementation
 
-SignalDock (the Rust backend behind `api.clawmsgr.com`) is the first and currently only production implementation of the Conduit protocol. Its CANT support is partial and evolving.
+SignalDock (the Rust backend at `api.signaldock.io`) is the first and currently only production implementation of the Conduit protocol. Its CANT support is partial and evolving.
 
 ### 5.1 What SignalDock Already Does
 
@@ -465,9 +465,9 @@ SignalDock (the Rust backend behind `api.clawmsgr.com`) is the first and current
 
 ### 5.2 Where SignalDock Fits
 
-SignalDock is the **backend service** that Conduit client implementations call. It is NOT a Conduit implementation — `Conduit` is a client-side TypeScript interface defined in `@cleocode/contracts`. Implementations like `ClawMsgrTransport` (CleoOS) implement `Conduit` by making HTTP calls TO SignalDock.
+SignalDock is the **backend service** that Conduit client implementations call. It is NOT a Conduit implementation — `Conduit` is a client-side TypeScript interface defined in `@cleocode/contracts`. Implementations like `HttpTransport` implement `Conduit` by making HTTP calls TO SignalDock.
 
-The analogy: HTTP is a protocol, nginx is a server. Conduit is a client interface, SignalDock is the server. CANT is the message grammar that both sides understand — SignalDock parses it server-side via `cant-core` (Rust, native), Conduit clients parse it client-side via `@cleocode/cant` (TypeScript, WASM).
+The analogy: HTTP is a protocol, nginx is a server. Conduit is a client interface, SignalDock is the server. CANT is the message grammar that both sides understand — SignalDock parses it server-side via `cant-core` (Rust, native), Conduit clients parse it client-side via `@cleocode/cant` (TypeScript, napi-rs native binding).
 
 SignalDock remains a separate, closed-source service. It imports three crates from the public `cleocode/` monorepo as git dependencies:
 - `lafs-core` — canonical LAFS envelope types (replaces SignalDock's hand-rolled `envelope.rs`)
@@ -484,7 +484,7 @@ See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the fu
 
 **Location**: `cleocode/crates/cant-core/`
 
-**Purpose**: The canonical CANT grammar parser. Complex grammar, proper parser (not regex). Compiled to WASM for TypeScript consumption. Imported natively by SignalDock.
+**Purpose**: The canonical CANT grammar parser. Complex grammar, proper parser (not regex). Exposed to TypeScript via napi-rs (`cant-napi` crate). Imported natively by SignalDock.
 
 **Dependencies**:
 - `conduit-core` — `ConduitMessage` type (messages carry CANT content)
@@ -510,22 +510,22 @@ pub enum DirectiveType { Actionable, Routing, Informational }
 
 **Consumers**:
 - `signaldock-core/` — imports as Rust crate (native, via git dep)
-- `@cleocode/cant` — imports via WASM build
+- `@cleocode/cant` — imports via napi-rs binding (`cant-napi` crate)
 
 ### 6.2 TypeScript Package: `@cleocode/cant`
 
 **Location**: `cleocode/packages/cant/`
 
-**Purpose**: WASM wrapper around `cant-core` + CLEO-specific interpretation layer (directive-to-operation mapping). This is where the CANT grammar meets CLEO domain knowledge.
+**Purpose**: napi-rs native binding to `cant-core` + CLEO-specific interpretation layer (directive-to-operation mapping). This is where the CANT grammar meets CLEO domain knowledge.
 
 **Dependencies**:
-- `cant-core` WASM build (internal)
+- `cant-napi` napi-rs binding (internal, links `cant-core`)
 - `@cleocode/lafs` — response envelope types (re-exported as CANT response syntax)
 - `@cleocode/contracts` — `ConduitMessage`, `ParsedDirective` types
 
 **Exports**:
 ```typescript
-// Grammar parsing — delegates to cant-core WASM
+// Grammar parsing — delegates to cant-core via napi-rs
 export { parseCANTMessage } from './parse';
 export type { ParsedCANTMessage, DirectiveType } from './types';
 
@@ -552,19 +552,19 @@ export { validateCANTMessage } from './validate';
 ```
 cleocode/crates/
   lafs-core/       LAFS envelope types + validation (Rust SSoT)
-                   → WASM → packages/lafs/
+                   → napi-rs → packages/lafs/
                    → native import by signaldock-core
 
   conduit-core/    Conduit wire types (Rust SSoT)
-                   → WASM/typeshare → packages/contracts/
+                   → typeshare → packages/contracts/
                    → native import by signaldock-core
 
   cant-core/       CANT grammar parser (Rust SSoT)
-                   → WASM → packages/cant/
+                   → napi-rs (cant-napi) → packages/cant/
                    → native import by signaldock-core
 
   signaldock-core/ Shared domain types for SignalDock integration
-                   → WASM → packages/signaldock/
+                   → napi-rs → packages/signaldock/
                    → native import by signaldock backend
 ```
 
@@ -589,7 +589,7 @@ Rust crate dependency chain: `lafs-core` ← `conduit-core` ← `cant-core`
 | `lafs-core` | `crates/lafs-core/` | Rust crate | LAFS envelope types + validation (SSoT) |
 | `conduit-core` | `crates/conduit-core/` | Rust crate | Conduit wire types (SSoT) |
 | `signaldock-core` | `crates/signaldock-core/` | Rust crate | Shared domain types for SignalDock integration |
-| `@cleocode/cant` | `packages/cant/` | TS package | WASM wrapper + CLEO interpretation |
+| `@cleocode/cant` | `packages/cant/` | TS package | napi-rs binding + CLEO interpretation |
 | `@cleocode/lafs` | `packages/lafs/` | TS package | LAFS runtime (ajv, conformance, MVI) |
 | `@cleocode/contracts` | `packages/contracts/` | TS package | Zero-dep type SSoT (leaf) |
 | `@cleocode/caamp` | `packages/caamp/` | TS package | Hook normalization (16 events) |

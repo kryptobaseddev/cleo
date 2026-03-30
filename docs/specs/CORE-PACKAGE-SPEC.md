@@ -1065,6 +1065,32 @@ The `files` field restricts what ships to npm:
 
 Both compiled output (`dist/`), database migrations (`migrations/`), and source (`src/`) are published. Source inclusion enables source-map navigation and IDE go-to-definition for consumers. A `.npmignore` file in each package overrides the root `.gitignore` (which excludes `dist/`) to ensure `dist/` is included in npm tarballs.
 
+### 16.2 Native Module Build (napi-rs)
+
+Rust crates that expose TypeScript bindings use [napi-rs](https://napi.rs/) to compile native Node addons. The canonical example is `cant-napi`, which wraps `cant-core`:
+
+```bash
+# Build the napi-rs binding (produces .node binary)
+cargo build -p cant-napi --release
+
+# Or via the TS package build script (runs napi build internally)
+cd packages/cant && pnpm run build
+```
+
+**Key points**:
+
+- napi-rs replaces the former wasm-bindgen approach — `initCantParser()` is now a no-op
+- The `cant-napi` crate produces a `.node` file loaded by `@cleocode/cant` at runtime
+- Platform prebuilds (linux-x64, darwin-arm64, etc.) are generated via `napi build --platform`
+- `pnpm publish` includes prebuilds in the npm tarball — consumers need no Rust toolchain
+- Build requires: Rust 1.88+, `cargo`, and the `napi-cli` tool (`pnpm dlx @napi-rs/cli`)
+
+**Crate → Package mapping**:
+
+| Rust Crate | napi Crate | TS Package | Exports |
+|---|---|---|---|
+| `cant-core` | `cant-napi` | `@cleocode/cant` | `parse`, `validate`, `extractMeta`, `parseDocument` |
+
 ---
 
 ## 17. Examples

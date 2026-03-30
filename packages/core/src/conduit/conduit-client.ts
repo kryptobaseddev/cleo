@@ -25,19 +25,23 @@ export class ConduitClient implements Conduit {
   private credential: AgentCredential;
   private state: ConduitState = 'disconnected';
 
+  /** Create a ConduitClient backed by the given transport and credential. */
   constructor(transport: Transport, credential: AgentCredential) {
     this.transport = transport;
     this.credential = credential;
   }
 
+  /** The agent ID from the bound credential. */
   get agentId(): string {
     return this.credential.agentId;
   }
 
+  /** Current connection state (disconnected → connecting → connected | error). */
   getState(): ConduitState {
     return this.state;
   }
 
+  /** Connect the underlying transport using the bound credential. */
   async connect(): Promise<void> {
     this.state = 'connecting';
     try {
@@ -55,6 +59,7 @@ export class ConduitClient implements Conduit {
     }
   }
 
+  /** Send a message to another agent, optionally within a thread. */
   async send(
     to: string,
     content: string,
@@ -69,6 +74,7 @@ export class ConduitClient implements Conduit {
     };
   }
 
+  /** Subscribe to incoming messages. Uses real-time transport when available, else polls. */
   onMessage(handler: (message: ConduitMessage) => void): ConduitUnsubscribe {
     // Prefer real-time subscription if transport supports it
     if (this.transport.subscribe) {
@@ -85,11 +91,13 @@ export class ConduitClient implements Conduit {
     return () => clearInterval(interval);
   }
 
+  /** Send an empty heartbeat to maintain presence on the relay. */
   async heartbeat(): Promise<void> {
     // Send empty heartbeat via transport
     await this.transport.push(this.credential.agentId, '', {});
   }
 
+  /** Check whether a remote agent is currently online via the cloud API. */
   async isOnline(agentId: string): Promise<boolean> {
     // Delegate to cloud API check — stub for now
     try {
@@ -107,6 +115,7 @@ export class ConduitClient implements Conduit {
     }
   }
 
+  /** Disconnect the transport and reset state to disconnected. */
   async disconnect(): Promise<void> {
     await this.transport.disconnect();
     this.state = 'disconnected';
