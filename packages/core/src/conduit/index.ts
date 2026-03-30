@@ -12,3 +12,4 @@ export { ConduitClient } from './conduit-client.js';
 export { createConduit } from './factory.js';
 export { HttpTransport } from './http-transport.js';
 export { LocalTransport } from './local-transport.js';
+export { SseTransport } from './sse-transport.js';

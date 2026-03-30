@@ -40,43 +40,36 @@ export function getSignaldockDbPath(cwd?: string): string {
 }
 
 /**
- * Resolve the path to the consolidated migration SQL.
+ * Resolve the migrations directory from the signaldock-storage crate.
  *
- * The migration lives in the signaldock-storage crate at:
- * crates/signaldock-storage/migrations/2026-03-28-000000_initial/up.sql
- *
- * We resolve it relative to the project root (monorepo layout).
+ * Contains Diesel migration subdirectories (e.g. 2026-03-28-000000_initial/).
+ * Each subdirectory has an up.sql file.
  */
-function resolveMigrationSql(cwd?: string): string | null {
-  // Try monorepo layout first (development)
+function resolveMigrationsDir(cwd?: string): string | null {
   const projectRoot = cwd ?? process.cwd();
-  const monorepoPath = join(
-    projectRoot,
-    'crates',
-    'signaldock-storage',
-    'migrations',
-    '2026-03-28-000000_initial',
-    'up.sql',
-  );
+  const monorepoPath = join(projectRoot, 'crates', 'signaldock-storage', 'migrations');
   if (existsSync(monorepoPath)) return monorepoPath;
 
-  // Try relative to this file (installed package)
   const thisDir = dirname(fileURLToPath(import.meta.url));
-  const installedPath = join(
-    thisDir,
-    '..',
-    '..',
-    '..',
-    '..',
-    'crates',
-    'signaldock-storage',
-    'migrations',
-    '2026-03-28-000000_initial',
-    'up.sql',
-  );
+  const installedPath = join(thisDir, '..', '..', '..', '..', 'crates', 'signaldock-storage', 'migrations');
   if (existsSync(installedPath)) return installedPath;
 
   return null;
+}
+
+/**
+ * Get all migration directories sorted by name (chronological order).
+ *
+ * Returns paths to up.sql files for each migration.
+ */
+function getMigrationFiles(migrationsDir: string): string[] {
+  const { readdirSync } = require('node:fs') as typeof import('node:fs');
+  return readdirSync(migrationsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort()
+    .map((name) => join(migrationsDir, name, 'up.sql'))
+    .filter((p) => existsSync(p));
 }
 
 /**
@@ -119,31 +112,7 @@ export async function ensureSignaldockDb(
       }
     })();
 
-    if (!hasSchema) {
-      // Run the consolidated migration
-      const migrationPath = resolveMigrationSql(cwd);
-      if (!migrationPath) {
-        throw new Error(
-          'signaldock-storage migration SQL not found. Ensure crates/signaldock-storage/ exists.',
-        );
-      }
-
-      const migrationSql = readFileSync(migrationPath, 'utf-8');
-
-      // Execute the full migration SQL in one shot.
-      // node:sqlite's exec() handles multiple statements natively.
-      // We wrap in a transaction for atomicity.
-      db.exec('BEGIN TRANSACTION');
-      try {
-        db.exec(migrationSql);
-        db.exec('COMMIT');
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
-      }
-    }
-
-    // Record schema version in a metadata table
+    // Ensure migration tracking tables exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS _signaldock_meta (
         key TEXT PRIMARY KEY,
@@ -151,6 +120,44 @@ export async function ensureSignaldockDb(
         updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
       )
     `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _signaldock_migrations (
+        name TEXT PRIMARY KEY,
+        applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      )
+    `);
+
+    // Discover and apply migrations
+    const migrationsDir = resolveMigrationsDir(cwd);
+    if (!migrationsDir) {
+      throw new Error(
+        'signaldock-storage migrations directory not found. Ensure crates/signaldock-storage/ exists.',
+      );
+    }
+
+    const migrationFiles = getMigrationFiles(migrationsDir);
+    for (const sqlPath of migrationFiles) {
+      const migrationName = sqlPath.split('/').slice(-2, -1)[0] ?? sqlPath;
+
+      // Skip already-applied migrations
+      const applied = db
+        .prepare('SELECT name FROM _signaldock_migrations WHERE name = ?')
+        .get(migrationName) as { name: string } | undefined;
+      if (applied) continue;
+
+      const migrationSql = readFileSync(sqlPath, 'utf-8');
+      db.exec('BEGIN TRANSACTION');
+      try {
+        db.exec(migrationSql);
+        db.prepare('INSERT INTO _signaldock_migrations (name) VALUES (?)').run(migrationName);
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+    }
+
+    // Record schema version
     db.exec(`
       INSERT OR REPLACE INTO _signaldock_meta (key, value, updated_at)
       VALUES ('schema_version', '${SIGNALDOCK_SCHEMA_VERSION}', strftime('%s', 'now'))

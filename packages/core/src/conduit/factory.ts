@@ -12,6 +12,7 @@ import type { AgentCredential, AgentRegistryAPI, Conduit, Transport } from '@cle
 import { ConduitClient } from './conduit-client.js';
 import { HttpTransport } from './http-transport.js';
 import { LocalTransport } from './local-transport.js';
+import { SseTransport } from './sse-transport.js';
 
 /** Resolve the best available transport for a credential. */
 function resolveTransport(credential: AgentCredential): Transport {
@@ -20,10 +21,10 @@ function resolveTransport(credential: AgentCredential): Transport {
     return new LocalTransport();
   }
   if (credential.transportConfig.wsUrl) {
-    // WsTransport — fall through to HTTP for now
+    // WsTransport — fall through to SSE/HTTP for now
   }
   if (credential.transportConfig.sseEndpoint) {
-    // SseTransport — fall through to HTTP for now
+    return new SseTransport();
   }
   return new HttpTransport();
 }

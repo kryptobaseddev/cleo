@@ -12,8 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// SseTransport will be imported once implemented:
-// import { SseTransport } from '../sse-transport.js';
+import { SseTransport } from '../sse-transport.js';
 
 // ============================================================================
 // Test helpers
@@ -93,10 +92,22 @@ describe('SseTransport', () => {
     // - Throws Error with message indicating missing config
     // - State remains 'disconnected'
 
+    it('rejects connect when no sseEndpoint or apiBaseUrl provided', async () => {
+      const transport = new SseTransport();
+      await expect(
+        transport.connect({ agentId: 'test', apiKey: 'key', apiBaseUrl: '' }),
+      ).rejects.toThrow('requires');
+    });
+
     it.todo('should reject connect when already connected');
     // Expected behavior:
     // - Second connect() call throws or is no-op
     // - Does not create duplicate EventSource instances
+
+    it('has name "sse"', () => {
+      const transport = new SseTransport();
+      expect(transport.name).toBe('sse');
+    });
   });
 
   // ============================================================================
@@ -115,6 +126,12 @@ describe('SseTransport', () => {
     // Expected behavior:
     // - No error when calling disconnect() on already disconnected transport
     // - State remains 'disconnected'
+
+    it('is safe to call disconnect when not connected', async () => {
+      const transport = new SseTransport();
+      await transport.disconnect(); // Should not throw
+      await transport.disconnect(); // Still should not throw
+    });
 
     it.todo('should cancel any pending poll timers');
     // Expected behavior:
@@ -224,6 +241,21 @@ describe('SseTransport', () => {
     // Expected behavior:
     // - push() before connect() throws "Transport not connected"
     // - push() after disconnect() throws "Transport not connected"
+
+    it('throws when push is called before connect', async () => {
+      const transport = new SseTransport();
+      await expect(transport.push('to', 'msg')).rejects.toThrow('not connected');
+    });
+
+    it('throws when poll is called before connect', async () => {
+      const transport = new SseTransport();
+      await expect(transport.poll()).rejects.toThrow('not connected');
+    });
+
+    it('throws when ack is called before connect', async () => {
+      const transport = new SseTransport();
+      await expect(transport.ack(['id'])).rejects.toThrow('not connected');
+    });
   });
 
   // ============================================================================
