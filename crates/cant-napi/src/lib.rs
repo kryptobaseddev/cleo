@@ -1,3 +1,4 @@
+#![deny(unsafe_code)] // napi-rs macros generate unsafe internally — forbid would conflict
 //! napi-rs bindings for the cant-core CANT parser.
 //!
 //! This crate provides Node.js native addon bindings for the CANT parser,
@@ -343,7 +344,7 @@ fn extract_agent_profile(agent: &cant_core::dsl::ast::AgentDef) -> JsAgentProfil
             "persist" => persist = Some(value_str.clone()),
             "skills" => {
                 if let cant_core::dsl::ast::Value::Array(items) = &prop.value {
-                    skills_vec = items.iter().map(|v| format_value(v)).collect();
+                    skills_vec = items.iter().map(format_value).collect();
                 }
             }
             _ => {}
@@ -397,7 +398,7 @@ fn format_value(value: &cant_core::dsl::ast::Value) -> String {
             format!("{}{}", d.amount, format_duration_unit(&d.unit))
         }
         cant_core::dsl::ast::Value::Array(items) => {
-            let strs: Vec<String> = items.iter().map(|v| format_value(v)).collect();
+            let strs: Vec<String> = items.iter().map(format_value).collect();
             format!("[{}]", strs.join(", "))
         }
         cant_core::dsl::ast::Value::_Span(_) => String::new(),

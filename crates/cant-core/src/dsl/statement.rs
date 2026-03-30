@@ -31,10 +31,10 @@ pub fn parse_statement_block(lines: &[IndentedLine<'_>]) -> Result<Vec<Statement
         let content = line.content;
 
         // Comment
-        if content.starts_with('#') {
+        if let Some(stripped) = content.strip_prefix('#') {
             let base_offset = line.byte_offset + line.indent;
             stmts.push(Statement::Comment(Comment {
-                text: content[1..].trim().to_string(),
+                text: stripped.trim().to_string(),
                 span: Span::new(
                     base_offset,
                     base_offset + content.len(),
@@ -293,10 +293,10 @@ fn parse_binding_stmt(line: &IndentedLine<'_>) -> Result<Statement, ParseError> 
         col,
     );
 
-    let (keyword_len, after_kw) = if content.starts_with("let ") {
-        (4, &content[4..])
-    } else if content.starts_with("const ") {
-        (6, &content[6..])
+    let (keyword_len, after_kw) = if let Some(stripped) = content.strip_prefix("let ") {
+        (4, stripped)
+    } else if let Some(stripped) = content.strip_prefix("const ") {
+        (6, stripped)
     } else {
         return Err(ParseError::error(
             "expected `let` or `const` keyword",

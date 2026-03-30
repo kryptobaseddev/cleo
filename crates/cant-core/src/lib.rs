@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Canonical CANT grammar parser for the CLEO ecosystem.
 //!
 //! This crate parses CLEO Agent Notation Tongue (CANT) messages

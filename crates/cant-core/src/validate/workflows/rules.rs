@@ -136,17 +136,15 @@ fn check_session_prompts_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnosti
             Statement::Session(sess) => {
                 // Check the prompt property if it exists
                 for prop in &sess.properties {
-                    if prop.key.value == "prompt" {
-                        if !is_string_value(&prop.value) {
-                            diags.push(Diagnostic::error(
-                                "W03",
-                                format!(
-                                    "Session prompt at line {} must be a string expression.",
-                                    prop.span.line
-                                ),
-                                prop.span,
-                            ));
-                        }
+                    if prop.key.value == "prompt" && !is_string_value(&prop.value) {
+                        diags.push(Diagnostic::error(
+                            "W03",
+                            format!(
+                                "Session prompt at line {} must be a string expression.",
+                                prop.span.line
+                            ),
+                            prop.span,
+                        ));
                     }
                 }
             }

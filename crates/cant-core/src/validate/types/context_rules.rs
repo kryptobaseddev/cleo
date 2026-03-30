@@ -225,17 +225,15 @@ fn check_approval_messages_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnos
         match stmt {
             Statement::ApprovalGate(gate) => {
                 for prop in &gate.properties {
-                    if prop.key.value == "message" {
-                        if !is_value_string_like(&prop.value) {
-                            diags.push(Diagnostic::error(
-                                "T06",
-                                format!(
-                                    "Approval gate message at line {} must evaluate to a string.",
-                                    prop.span.line
-                                ),
-                                prop.span,
-                            ));
-                        }
+                    if prop.key.value == "message" && !is_value_string_like(&prop.value) {
+                        diags.push(Diagnostic::error(
+                            "T06",
+                            format!(
+                                "Approval gate message at line {} must evaluate to a string.",
+                                prop.span.line
+                            ),
+                            prop.span,
+                        ));
                     }
                 }
             }

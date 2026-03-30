@@ -122,8 +122,7 @@ pub fn check_circular_import(path: &str, ctx: &ValidationContext, span: Span) ->
         diags.push(Diagnostic::error(
             "S03",
             format!(
-                "Circular import chain detected: {} -> {}. Break the cycle by extracting shared definitions.",
-                chain_str, path
+                "Circular import chain detected: {chain_str} -> {path}. Break the cycle by extracting shared definitions."
             ),
             span,
         ));

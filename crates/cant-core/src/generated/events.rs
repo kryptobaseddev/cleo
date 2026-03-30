@@ -205,6 +205,7 @@ impl CanonicalEvent {
     }
 
     /// Parses a PascalCase event name. O(1) via compiler-optimized match.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "ConfigChange" => Some(Self::ConfigChange),

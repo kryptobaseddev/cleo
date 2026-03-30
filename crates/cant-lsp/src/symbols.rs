@@ -22,7 +22,7 @@ pub fn document_symbols(doc: &CantDocument) -> Vec<DocumentSymbol> {
                 let range = span_to_range(&agent.span);
                 let selection_range = span_to_range(&agent.name.span);
                 let children: Vec<DocumentSymbol> =
-                    agent.hooks.iter().map(|h| hook_to_symbol(h)).collect();
+                    agent.hooks.iter().map(hook_to_symbol).collect();
 
                 symbols.push(DocumentSymbol {
                     name: agent.name.value.clone(),

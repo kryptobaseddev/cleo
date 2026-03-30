@@ -211,7 +211,7 @@ fn agent_ref_hover(name: &str, doc: &CantDocument) -> Option<HoverInfo> {
     for section in &doc.sections {
         if let Section::Agent(agent) = section {
             if agent.name.value == name {
-                let mut desc = format!("**@{}** -- Agent definition", name);
+                let mut desc = format!("**@{name}** -- Agent definition");
 
                 // Add model info if present
                 for prop in &agent.properties {

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Entry point for the CANT DSL Language Server.
 //!
 //! Starts a `tower-lsp` server connected via stdio (stdin/stdout).

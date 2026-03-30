@@ -297,7 +297,7 @@ fn check_interp_in_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
 }
 
 /// Check a property Value for interpolation issues.
-fn check_interp_in_value(value: &Value, span: Span, _diags: &mut Vec<Diagnostic>) {
+fn check_interp_in_value(value: &Value, span: Span, _diags: &mut [Diagnostic]) {
     // Value::String contains raw text, not AST expressions. Interpolation checks
     // are handled at the Expression level (StringExpr with segments).
     let _ = (value, span);

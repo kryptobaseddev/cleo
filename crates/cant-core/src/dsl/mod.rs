@@ -247,8 +247,7 @@ pub fn parse_document(content: &str) -> Result<CantDocument, Vec<ParseError>> {
         let base_offset = line.byte_offset + line.indent;
         errors.push(ParseError::error(
             format!(
-                "unexpected top-level construct: `{}`; expected agent, skill, on, workflow, pipeline, @import, let, const, or #comment",
-                content_str
+                "unexpected top-level construct: `{content_str}`; expected agent, skill, on, workflow, pipeline, @import, let, const, or #comment"
             ),
             Span::new(
                 base_offset,

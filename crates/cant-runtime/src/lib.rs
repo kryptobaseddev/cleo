@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! CANT DSL Runtime — pipeline executor.
 //!
 //! This crate provides the Rust-native pipeline execution engine for the

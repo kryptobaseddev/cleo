@@ -151,8 +151,8 @@ fn check_hook_body_for_workflow(
         match stmt {
             Statement::Parallel(block) => {
                 let location = match agent_name {
-                    Some(name) => format!("agent '{}' hook '{}'", name, event),
-                    None => format!("hook '{}'", event),
+                    Some(name) => format!("agent '{name}' hook '{event}'"),
+                    None => format!("hook '{event}'"),
                 };
                 diags.push(Diagnostic::error(
                     "H03",
@@ -165,8 +165,8 @@ fn check_hook_body_for_workflow(
             }
             Statement::ApprovalGate(gate) => {
                 let location = match agent_name {
-                    Some(name) => format!("agent '{}' hook '{}'", name, event),
-                    None => format!("hook '{}'", event),
+                    Some(name) => format!("agent '{name}' hook '{event}'"),
+                    None => format!("hook '{event}'"),
                 };
                 diags.push(Diagnostic::error(
                     "H03",
@@ -256,8 +256,8 @@ fn check_blocking_hook(
 
     if !has_real_stmts {
         let location = match agent_name {
-            Some(name) => format!("agent '{}' hook '{}'", name, event),
-            None => format!("hook '{}'", event),
+            Some(name) => format!("agent '{name}' hook '{event}'"),
+            None => format!("hook '{event}'"),
         };
         diags.push(Diagnostic::warning(
             "H04",

@@ -60,10 +60,7 @@ pub fn split_lines(content: &str) -> Result<Vec<IndentedLine<'_>>, ParseError> {
         // Validate indent is a multiple of INDENT_WIDTH (only for non-blank lines)
         if !content_trimmed.is_empty() && indent % INDENT_WIDTH != 0 {
             return Err(ParseError::error(
-                format!(
-                    "indentation must be a multiple of {} spaces, found {}",
-                    INDENT_WIDTH, indent
-                ),
+                format!("indentation must be a multiple of {INDENT_WIDTH} spaces, found {indent}"),
                 Span::new(byte_offset, byte_offset + indent, line_number, 1),
             ));
         }

@@ -65,6 +65,7 @@ pub fn to_lsp_diagnostics(diags: &[CantDiagnostic]) -> Vec<tower_lsp::lsp_types:
 /// Converts a `cant_core` [`Fix`] into an LSP [`CodeAction`].
 ///
 /// Returns `None` if the fix has no edits.
+#[allow(dead_code)] // Public API -- not yet wired into the LSP handler loop
 pub fn fix_to_code_action(fix: &Fix, uri: &tower_lsp::lsp_types::Url) -> Option<CodeAction> {
     if fix.edits.is_empty() {
         return None;

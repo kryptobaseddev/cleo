@@ -93,8 +93,8 @@ fn parse_not(
     line: u32,
     col: u32,
 ) -> Result<Expression, ParseError> {
-    if input.starts_with("not ") {
-        let rest = input[4..].trim();
+    if let Some(stripped) = input.strip_prefix("not ") {
+        let rest = stripped.trim();
         let operand = parse_comparison(rest, byte_offset + 4, line, col + 4)?;
         let span = Span::new(byte_offset, byte_offset + input.len(), line, col);
         return Ok(Expression::Negation(NegationExpr {
@@ -445,12 +445,8 @@ fn find_operator_outside_quotes(input: &str, op: &str) -> Option<usize> {
         }
         if !in_quotes && &bytes[i..i + op_bytes.len()] == op_bytes {
             // For single-char ops (< >), make sure we're not part of <=, >=, !=, ==
-            if op.len() == 1 {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-                    continue;
-                }
-                // For >, also skip if preceded by a char making it part of another op
-                // (not needed with the search order we use)
+            if op.len() == 1 && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                continue;
             }
             return Some(i);
         }

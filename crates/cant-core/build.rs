@@ -52,11 +52,11 @@ fn parse_mappings(json_path: &Path) -> (Vec<EventEntry>, BTreeSet<String>, BTree
     for (name, meta) in events {
         let category = meta["category"]
             .as_str()
-            .unwrap_or_else(|| panic!("Event '{}' missing category", name))
+            .unwrap_or_else(|| panic!("Event '{name}' missing category"))
             .to_string();
         let source = meta["source"]
             .as_str()
-            .unwrap_or_else(|| panic!("Event '{}' missing source", name))
+            .unwrap_or_else(|| panic!("Event '{name}' missing source"))
             .to_string();
         let can_block = meta["canBlock"].as_bool().unwrap_or(false);
         let description = meta["description"].as_str().unwrap_or("").to_string();
@@ -211,6 +211,7 @@ fn gen_event_impl(c: &mut String, entries: &[EventEntry]) {
 
     // from_str
     c.push_str("    /// Parses a PascalCase event name. O(1) via compiler-optimized match.\n");
+    c.push_str("    #[allow(clippy::should_implement_trait)]\n");
     c.push_str("    pub fn from_str(s: &str) -> Option<Self> {\n");
     c.push_str("        match s {\n");
     for e in entries {
@@ -272,8 +273,8 @@ fn gen_const_match(
         "description" => "Human-readable description for LSP hover and diagnostics.",
         _ => "",
     };
-    c.push_str(&format!("    /// {}\n", doc));
-    c.push_str(&format!("    pub const fn {}(&self) -> {} {{\n", name, ret));
+    c.push_str(&format!("    /// {doc}\n"));
+    c.push_str(&format!("    pub const fn {name}(&self) -> {ret} {{\n"));
     c.push_str("        match self {\n");
     for e in entries {
         c.push_str(&format!(
