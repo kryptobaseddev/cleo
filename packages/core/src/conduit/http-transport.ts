@@ -31,28 +31,19 @@ export class HttpTransport implements Transport {
     const primaryUrl = config.apiBaseUrl;
     const fallbackUrl = config.apiBaseUrlFallback ?? null;
 
-    // Test primary with a health check
+    // Only probe health when there's a fallback to choose between
     let activeUrl = primaryUrl;
-    try {
-      const health = await fetch(`${primaryUrl}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!health.ok) throw new Error(`Health check returned ${health.status}`);
-    } catch {
-      // Primary unreachable — try fallback
-      if (fallbackUrl) {
-        try {
-          const fallbackHealth = await fetch(`${fallbackUrl}/health`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(5000),
-          });
-          if (fallbackHealth.ok) {
-            activeUrl = fallbackUrl;
-          }
-        } catch {
-          // Both down — use primary anyway, calls will fail with clear errors
-        }
+    if (fallbackUrl) {
+      const [primaryResult, fallbackResult] = await Promise.allSettled([
+        fetch(`${primaryUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
+        fetch(`${fallbackUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
+      ]);
+      const primaryOk =
+        primaryResult.status === 'fulfilled' && primaryResult.value.ok;
+      const fallbackOk =
+        fallbackResult.status === 'fulfilled' && fallbackResult.value.ok;
+      if (!primaryOk && fallbackOk) {
+        activeUrl = fallbackUrl;
       }
     }
 
@@ -161,16 +152,13 @@ export class HttpTransport implements Transport {
    * and swaps activeUrl for subsequent calls.
    */
   private async fetchWithFallback(path: string, init: RequestInit): Promise<Response> {
+    const timeout = AbortSignal.timeout(10000);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
     const url = `${this.state!.activeUrl}${path}`;
 
     try {
-      const response = await fetch(url, {
-        ...init,
-        signal: AbortSignal.timeout(10000),
-      });
-      return response;
+      return await fetch(url, { ...init, signal });
     } catch (primaryErr) {
-      // Primary failed — try fallback
       const otherUrl =
         this.state!.activeUrl === this.state!.primaryUrl
           ? this.state!.fallbackUrl
@@ -179,16 +167,16 @@ export class HttpTransport implements Transport {
       if (!otherUrl) throw primaryErr;
 
       try {
+        const fallbackSignal = init.signal
+          ? AbortSignal.any([init.signal, AbortSignal.timeout(10000)])
+          : AbortSignal.timeout(10000);
         const fallbackResponse = await fetch(`${otherUrl}${path}`, {
           ...init,
-          signal: AbortSignal.timeout(10000),
+          signal: fallbackSignal,
         });
-
-        // Fallback worked — swap active URL for future calls
         this.state!.activeUrl = otherUrl;
         return fallbackResponse;
       } catch {
-        // Both failed — throw original error
         throw primaryErr;
       }
     }

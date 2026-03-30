@@ -219,14 +219,6 @@ fn directive_detail(verb: &str) -> String {
     }
 }
 
-/// Returns a human-readable detail string for a CAAMP event name.
-fn event_detail(event_name: &str) -> String {
-    match CanonicalEvent::from_str(event_name) {
-        Some(event) => format!("{} -- {}", event.category().as_str(), event.description()),
-        None => "unknown event".to_string(),
-    }
-}
-
 /// Returns a human-readable detail string for an agent property key.
 fn property_detail(key: &str) -> String {
     match key {
@@ -244,6 +236,14 @@ fn property_detail(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Test helper: human-readable detail string for a CAAMP event name.
+    fn event_detail(event_name: &str) -> String {
+        match CanonicalEvent::from_str(event_name) {
+            Some(event) => format!("{} -- {}", event.category().as_str(), event.description()),
+            None => "unknown event".to_string(),
+        }
+    }
 
     #[test]
     fn directive_completions_count() {
