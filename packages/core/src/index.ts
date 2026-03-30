@@ -33,6 +33,7 @@ export * as admin from './admin/index.js';
 export * as adrs from './adrs/index.js';
 export * as agents from './agents/index.js';
 export * as caamp from './caamp/index.js';
+export * as code from './code/index.js';
 export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';
 export * as conduit from './conduit/index.js';

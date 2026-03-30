@@ -43,6 +43,11 @@ export {
   installMcpToProviders,
   installSkillsGlobally,
 } from './bootstrap.js';
+// Code analysis (Smart Explore)
+export { batchParse, parseFile } from './code/parser.js';
+export { smartOutline } from './code/outline.js';
+export { smartSearch } from './code/search.js';
+export { smartUnfold } from './code/unfold.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
 // Compliance
 export { ProtocolEnforcer, protocolEnforcer } from './compliance/protocol-enforcement.js';
