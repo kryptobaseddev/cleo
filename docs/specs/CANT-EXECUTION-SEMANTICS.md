@@ -1192,6 +1192,139 @@ Complete cross-reference from CLEO CQRS operations to domain events to CANT synt
 
 ---
 
+## 14. Agent Spawn Semantics (T191 Extensions)
+
+**Status**: Approved (GO decision, T201). Phase 2 implementation pending.
+
+This section specifies the execution semantics for the grammar extensions designed in
+EPIC T191 (CANT DSL Subagent Prompt Exploration). These extensions enable CANT to replace
+markdown-based subagent prompt definitions with structured, statically analyzable agent
+definitions.
+
+### 14.1 Grammar Extensions Summary
+
+T191 designed 7 grammar extensions to CANT Layer 2 (Instruction DSL):
+
+| Extension | Block Keyword | Purpose | Design Doc |
+|-----------|--------------|---------|------------|
+| Categorized tools | `tools:` | Tool access with category grouping | T193 |
+| Protocol constraints | `constraints:` | RFC 2119 rules with IDs and levels | T194 |
+| Domain listings | `domains:` | Canonical domain declarations | T193 |
+| CQRS gateways | `gateways:` | Gateway declarations | T193 |
+| Anti-patterns | `anti_patterns:` | Structured error guidance | T193 |
+| Typed tokens | `tokens:` | Token declarations with types and patterns | T195 |
+| Tier guards | `[tier >= N]` | MVI progressive disclosure | T196 |
+
+Additionally, a new `kind: protocol` document type enables standalone protocol definitions.
+
+### 14.2 Agent Spawn Resolution
+
+When a CANT-based agent is spawned, the executor MUST resolve the agent definition
+into a flattened prompt following this algorithm:
+
+```
+FUNCTION resolve_agent_spawn(agent_file: Path, tier: 0|1|2, tokens: TokenValues) -> String:
+
+  1. PARSE:
+     - Parse agent_file via cant-core
+     - Validate frontmatter: kind MUST be "agent"
+     - Extract agent_def block
+
+  2. RESOLVE IMPORTS:
+     - FOR EACH @import statement:
+       - Resolve import source (relative path, package name, or bare name)
+       - Parse imported file
+       - Merge imported definitions into agent scope
+       - IF import has tier guard [tier >= N] AND N > requested tier: SKIP
+
+  3. VALIDATE TOKENS:
+     - FOR EACH token in tokens.required:
+       - IF token not in provided TokenValues: REJECT with E_MISSING_REQUIRED_TOKEN
+       - IF token value fails pattern validation: REJECT with E_INVALID_TOKEN_VALUE
+     - FOR EACH token in tokens.optional:
+       - IF token not provided: use default value
+     - FOR EACH token in tokens.computed:
+       - Resolve expression, substituting from required + optional values
+       - Check for circular references: REJECT with E_CIRCULAR_TOKEN
+
+  4. APPLY TIER GUARDS:
+     - FOR EACH block with [tier >= N] annotation:
+       - IF N > requested tier: exclude block from output
+     - Blocks without tier guards are always included
+
+  5. FLATTEN:
+     - Compose output in order: agent properties, tools, domains, gateways,
+       constraints, tokens, anti_patterns, context, hooks
+     - Resolve all ${TOKEN} interpolations against validated token values
+     - Return flattened prompt string
+
+  6. POST-VALIDATION:
+     - Verify all ${TOKEN} references resolved (no unresolved tokens)
+     - Verify constraint IDs are unique
+     - Verify domain names are from canonical Circle of Ten
+     - Verify gateway names are query|mutate
+```
+
+### 14.3 Constraint Evaluation
+
+Constraints are first-class objects with machine-readable structure:
+
+```
+FUNCTION evaluate_constraint(constraint: Constraint) -> ConstraintResult:
+
+  1. PARSE LEVEL:
+     - Extract RFC 2119 level (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY)
+     - Map to severity: MUST/SHALL = error, SHOULD = warning, MAY = info
+
+  2. CLASSIFY:
+     - IF constraint has action_verb (write, call, check, etc.): ACTIONABLE
+     - IF constraint is String only: ADVISORY
+     - Actionable constraints can be validated by hooks
+
+  3. STATIC CHECK (parse time):
+     - Verify constraint ID is unique
+     - Verify RFC 2119 level is valid enum value
+     - Verify referenced tokens exist in scope
+     - Verify referenced operations exist in domain registry
+
+  4. RUNTIME CHECK (hook time):
+     - Actionable constraints generate hook validations
+     - Example: "MUST call tasks.start" → PreToolUse hook checks task status
+```
+
+### 14.4 Token Cost Impact
+
+Per T199 analysis:
+
+| Metric | Markdown | CANT | Improvement |
+|--------|----------|------|-------------|
+| Single agent spawn | ~9,700 tokens | ~2,700 tokens | 72% reduction |
+| 10-agent session | ~97,000 tokens | ~12,000 tokens | 88% reduction |
+| Static error detection | 0/18 classes | 12/18 classes | 67% coverage |
+| With hooks | 0/18 classes | 15/18 classes | 83% coverage |
+
+### 14.5 Implementation Path
+
+| Phase | Scope | Owner |
+|-------|-------|-------|
+| Phase 1 (DONE) | Grammar design, prototypes, cost analysis, GO decision | @cleo-historian |
+| Phase 2 | Parser extensions in cant-core (~200-400 LOC Rust) | @cleo-rust-lead |
+| Phase 3 | @import resolution algorithm in cant-core | @cleo-rust-lead |
+| Phase 4 | `injectCantProtocol()` in subagent.ts | @cleo-dev |
+| Phase 5 | Migration from markdown to CANT format | Team |
+
+### 14.6 Invariants
+
+- **S-SPAWN-1**: Agent spawn MUST resolve all required tokens before flattening.
+- **S-SPAWN-2**: Import resolution MUST be acyclic (no circular imports).
+- **S-SPAWN-3**: Tier guards MUST be evaluated before flattening (excluded blocks never reach the LLM).
+- **S-SPAWN-4**: Constraint IDs MUST be unique within an agent definition (including imported constraints).
+- **S-SPAWN-5**: Domain names MUST be from the canonical Circle of Ten.
+- **S-SPAWN-6**: Gateway names MUST be `query` or `mutate`.
+- **S-SPAWN-7**: The `kind: protocol` document type MUST contain only `protocol` blocks and `@import` statements.
+
+---
+
 ## References
 
 - `docs/specs/CANT-DSL-SPEC.md` — Base language specification
@@ -1204,3 +1337,11 @@ Complete cross-reference from CLEO CQRS operations to domain events to CANT synt
 - `packages/core/src/cant/workflow-executor.ts` — Workflow executor implementation
 - `packages/core/src/cant/parallel-runner.ts` — Parallel execution implementation
 - `packages/core/src/cant/approval.ts` — Approval token manager
+- `.cleo/agent-outputs/T192-subagent-prompt-audit.md` — Subagent pipeline audit
+- `.cleo/agent-outputs/T193-cant-layer2-agent-syntax.md` — Agent syntax extensions design
+- `.cleo/agent-outputs/T194-cant-protocol-constraint-syntax.md` — Protocol constraint design
+- `.cleo/agent-outputs/T195-cant-typed-token-system.md` — Typed token system design
+- `.cleo/agent-outputs/T196-cant-import-composition-model.md` — Import/composition model design
+- `.cleo/agent-outputs/T199-token-cost-analysis.md` — Token cost analysis
+- `.cleo/agent-outputs/T200-static-analysis-gap.md` — Static analysis gap assessment
+- `.cleo/agent-outputs/T201-go-no-go-decision.md` — GO decision document

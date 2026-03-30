@@ -1,0 +1,113 @@
+---
+kind: protocol
+version: 1
+---
+
+# CANT equivalent of subagent-protocol-base.md
+# T198 prototype: Structured protocol definition with typed constraints.
+
+protocol subagent-base:
+  description: "RFC 2119 protocol for all CLEO subagents"
+  version: "1.2.0"
+
+  # --- Required Tokens ---
+
+  tokens:
+    required:
+      TASK_ID: pattern("^T[0-9]+$")
+      DATE: date
+      TOPIC_SLUG: pattern("^[a-z0-9-]+$")
+    optional:
+      EPIC_ID: pattern("^T[0-9]+$") = ""
+      SESSION_ID: string = ""
+      OUTPUT_DIR: path = ".cleo/agent-outputs"
+      MANIFEST_PATH: path = "${OUTPUT_DIR}/MANIFEST.jsonl"
+    computed:
+      OUTPUT_PATH: path = "${OUTPUT_DIR}/${DATE}_${TOPIC_SLUG}.md"
+      RESEARCH_ID: string = "${TOPIC_SLUG}-${DATE}"
+
+  # --- Output Requirements ---
+
+  constraints [output]:
+    OUT-001: MUST write findings to "${OUTPUT_PATH}"
+    OUT-002: MUST append ONE entry to pipeline manifest via pipeline.manifest.append
+    OUT-003: MUST return ONLY one of: "[Type] complete/partial/blocked. See pipeline manifest."
+    OUT-004: MUST NOT return output content in response body
+
+  # --- Lifecycle Requirements ---
+
+  constraints [lifecycle]:
+    LIFE-001: MUST call tasks.start before beginning any work
+    LIFE-002: MUST call tasks.complete after writing output and manifest
+    LIFE-003: MUST NOT call tasks.complete without having written an output file
+
+  # --- Behavior Requirements ---
+
+  constraints [behavior]:
+    BEH-001: MUST NOT fabricate information — use memory.find first
+    BEH-002: MUST check success field on every LAFS response before proceeding
+    BEH-003: SHOULD link memory observations to task via memory.link
+    BEH-004: MUST NOT use deprecated operations (memory.brain.*, tasks.exists)
+
+  # --- Manifest Requirements ---
+
+  constraints [manifest]:
+    MAN-001: MUST write output file before appending manifest entry
+    MAN-002: MUST set manifest status to enum("complete", "partial", "blocked")
+    MAN-003: SHOULD include needs_followup array when status is "partial"
+    MAN-004: MUST use pipeline.manifest.append — MUST NOT write MANIFEST.jsonl directly
+
+  # --- Lifecycle Phases ---
+
+  phase initialize:
+    step 1: "Read task details via tasks.show ${TASK_ID}"
+    step 2: "Start task via tasks.start ${TASK_ID}"
+    LIFE-001: MUST call tasks.start before beginning any work
+
+  phase execute:
+    step 1: "Follow injected skill protocol for current RCASD-IVTR+C stage"
+    step 2: "Write output to ${OUTPUT_PATH}"
+    BEH-001: MUST NOT fabricate information
+
+  phase output:
+    step 1: "Write output file to ${OUTPUT_PATH}"
+    step 2: "Append manifest entry via pipeline.manifest.append"
+    step 3: "Complete task via tasks.complete ${TASK_ID}"
+    MAN-001: MUST write output file before appending manifest entry
+    LIFE-002: MUST call tasks.complete after writing output
+
+  phase return:
+    step 1: "Return one-line summary message only"
+    OUT-003: MUST return "summary message only"
+    OUT-004: MUST NOT return content in response body
+
+  # --- Error Handling ---
+
+  anti_patterns:
+    - pattern: "Returning full content in response"
+      problem: "Bloats orchestrator context window"
+      solution: "Write to output file, return one-line summary"
+    - pattern: "Writing pretty-printed JSON to manifest"
+      problem: "Multiple lines break JSONL parsers"
+      solution: "Use pipeline.manifest.append MCP operation"
+    - pattern: "Skipping tasks.start"
+      problem: "Protocol violation — LIFE-001"
+      solution: "Always call tasks.start before beginning work"
+    - pattern: "Using memory.brain.* prefix"
+      problem: "Removed in ADR-021 — returns E_INVALID_OPERATION"
+      solution: "Use memory.find, memory.observe, memory.link"
+    - pattern: "Using tasks.exists"
+      problem: "Removed from registry"
+      solution: "Use tasks.find with exact: true, check results.length"
+    - pattern: "Calling tasks.list without filters"
+      problem: "Returns all tasks with notes — huge token cost"
+      solution: "Use tasks.find for discovery"
+    - pattern: "Appending to MANIFEST.jsonl directly"
+      problem: "Legacy file — migrated to SQLite per ADR-027"
+      solution: "Use pipeline.manifest.append operation"
+    - pattern: "Loading skills via @ at runtime"
+      problem: "Cannot resolve outside orchestrator spawn"
+      solution: "Skills are injected by orchestrator at spawn time"
+    - pattern: "Fabricating data when memory is empty"
+      problem: "Hallucination — violates BEH-001"
+      solution: "Use memory.find first; if truly unknown, state uncertainty"
