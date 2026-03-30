@@ -23,6 +23,8 @@ export interface TransportConfig {
   wsUrl?: string;
   /** HTTP polling endpoint path (for HTTP polling transport). */
   pollEndpoint?: string;
+  /** Fallback API base URL (used when primary apiBaseUrl is unreachable). */
+  apiBaseUrlFallback?: string;
 }
 
 // ============================================================================

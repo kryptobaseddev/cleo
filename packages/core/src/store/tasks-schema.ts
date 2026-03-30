@@ -859,7 +859,7 @@ export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
 /**
  * Agent credentials for the unified agent registry.
  * Stores encrypted API keys and transport configuration for registered agents.
- * Replaces loose clawmsgr-*.json config files.
+ * Replaces loose JSON config files (legacy clawmsgr-*.json format).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.1
  */
