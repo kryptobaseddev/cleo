@@ -25,7 +25,7 @@
 - E-FIND-004: ACL denial now audited + projectPath redacted in nexus/workspace.ts
 - CAAMP library-loader.ts TS2352 type cast fix
 - workflow-executor.ts unused variable build errors
-- Test assertion updates for conduit dispatch domain (10→11 canonical domains)
+- Test assertion updates for conduit transport layer (Circle of Ten remains 10 domains)
 - Audit test mock updated for agentCredentials schema export
 
 ### Contracts

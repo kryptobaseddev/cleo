@@ -218,7 +218,7 @@ As of 2026-03-06, implementation counts are:
 | --------------- | -------------------------- | ------------------ | ------------------ |
 | `version`       | CLEO version               | -                  | Version string     |
 | `health`        | Health check               | -                  | Health status      |
-| `config.get`    | Get config value           | `key`              | Config value       |
+| `config.show`   | Get config value           | `key`              | Config value       |
 | `stats`         | Project statistics         | -                  | Task/session stats |
 | `context`       | Context window info        | -                  | Token usage        |
 | `job.status`    | Get background job status  | `jobId`            | Job status         |
@@ -1359,7 +1359,7 @@ Recommended limits:
   - Moved focus operations from session to tasks domain (start/stop/current)
 - Updated operation counts: 75 query + 65 mutate = 140 total (was 123)
 - Added providers domain (3 query + 1 mutate)
-- Now 11 domains total (was 10)
+- Now 10 canonical domains (Circle of Ten); conduit is a transport layer, not a domain
 - Updated all domain operation tables to match gateway source of truth
 
 ### v1.1.0 (2026-02-14)

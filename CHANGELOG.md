@@ -43,7 +43,7 @@
 - CLI agent key redaction safe on short keys (H1)
 - CAAMP library-loader.ts TS2352 type cast fix
 - workflow-executor.ts unused variable build errors
-- Test assertions updated for conduit dispatch domain (10→11 canonical domains)
+- Test assertions updated for conduit transport layer (Circle of Ten remains 10 domains)
 - Audit test mock updated for agentCredentials schema export
 - Message dedup P0 fixed server-side by signaldock-core-agent
 - Biome lint: 24 errors resolved (all types from @cleocode/contracts, zero any)
