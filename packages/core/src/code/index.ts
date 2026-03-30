@@ -6,3 +6,4 @@
 
 export { smartOutline, type OutlineNode, type SmartOutlineResult } from './outline.js';
 export { batchParse, parseFile } from './parser.js';
+export { smartSearch, type SmartSearchOptions, type SmartSearchResult } from './search.js';

@@ -27,6 +27,7 @@ export type {
   StartupSummary,
   StatusCounts,
 } from './status.js';
+export { OrchestrationHierarchyImpl } from './hierarchy.js';
 export {
   computeEpicStatus,
   computeOverallStatus,

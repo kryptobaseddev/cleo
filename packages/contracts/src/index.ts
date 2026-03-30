@@ -197,6 +197,14 @@ export type {
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
+// === Orchestration Hierarchy ===
+export {
+  OrchestrationLevel,
+  type AgentHierarchy,
+  type AgentHierarchyEntry,
+  type EscalationChain,
+  type OrchestrationHierarchyAPI,
+} from './orchestration-hierarchy.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
