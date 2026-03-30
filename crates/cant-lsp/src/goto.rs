@@ -115,6 +115,7 @@ mod tests {
             name: Spanned::new("ops-lead".to_string(), Span::new(6, 14, 1, 7)),
             properties: vec![],
             permissions: vec![],
+            context_refs: vec![],
             hooks: vec![],
             span: Span::new(0, 50, 1, 1),
         })]);
@@ -132,6 +133,7 @@ mod tests {
             name: Spanned::new("scanner".to_string(), Span::new(6, 13, 1, 7)),
             properties: vec![],
             permissions: vec![],
+            context_refs: vec![],
             hooks: vec![],
             span: Span::new(0, 40, 1, 1),
         })]);

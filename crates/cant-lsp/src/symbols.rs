@@ -159,6 +159,7 @@ mod tests {
             name: Spanned::new("ops-lead".to_string(), Span::new(6, 14, 1, 7)),
             properties: vec![],
             permissions: vec![],
+            context_refs: vec![],
             hooks: vec![],
             span: Span::new(0, 50, 1, 1),
         })]);
@@ -266,6 +267,7 @@ mod tests {
             name: Spanned::new("ops".to_string(), Span::new(6, 9, 1, 7)),
             properties: vec![],
             permissions: vec![],
+            context_refs: vec![],
             hooks: vec![HookDef {
                 event: Spanned::new("SessionStart".to_string(), Span::new(20, 32, 3, 3)),
                 body: vec![],
@@ -297,6 +299,7 @@ mod tests {
                 name: Spanned::new("a".to_string(), Span::new(6, 7, 1, 7)),
                 properties: vec![],
                 permissions: vec![],
+                context_refs: vec![],
                 hooks: vec![],
                 span: Span::new(0, 20, 1, 1),
             }),
