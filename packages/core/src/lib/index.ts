@@ -14,3 +14,11 @@ export {
   type RetryOptions,
   withRetry,
 } from './retry.js';
+
+export {
+  detectLanguage,
+  grammarPackage,
+  SUPPORTED_EXTENSIONS,
+  SUPPORTED_LANGUAGES,
+  type TreeSitterLanguage,
+} from './tree-sitter-languages.js';
