@@ -11,6 +11,8 @@
 
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/brain-schema.js';
+import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
+import { getDb } from '../store/sqlite.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -110,6 +112,20 @@ export async function storeDecision(
 
   // Create new decision with sequential ID
   const id = await nextDecisionId(projectRoot);
+
+  // Write-guard: validate cross-db task references before inserting
+  let validEpicId = params.contextEpicId;
+  let validTaskId = params.contextTaskId;
+  if (validEpicId || validTaskId) {
+    const tasksDb = await getDb(projectRoot);
+    if (validEpicId && !(await taskExistsInTasksDb(validEpicId, tasksDb))) {
+      validEpicId = undefined;
+    }
+    if (validTaskId && !(await taskExistsInTasksDb(validTaskId, tasksDb))) {
+      validTaskId = undefined;
+    }
+  }
+
   const row: NewBrainDecisionRow = {
     id,
     type: params.type,
@@ -118,8 +134,8 @@ export async function storeDecision(
     confidence: params.confidence,
     outcome: params.outcome,
     alternativesJson: params.alternatives ? JSON.stringify(params.alternatives) : undefined,
-    contextEpicId: params.contextEpicId,
-    contextTaskId: params.contextTaskId,
+    contextEpicId: validEpicId,
+    contextTaskId: validTaskId,
     contextPhase: params.contextPhase,
   };
 

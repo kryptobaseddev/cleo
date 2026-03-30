@@ -478,6 +478,8 @@ persona with enforcement, transcription, and self-improvement mandates across fo
 | Mixing enforcement with lore | Lore loads 12K tokens for a verb correction | Separate into T0 vs T3 |
 | No budget measurement | T0 silently grows past limit | Measure before publishing |
 | Trusting T-Live without verification | Stale state treated as current truth | Always verify against source |
+| `.cant` without `.md` companion | Orphan persona — provider cannot inject via markdown | Create matching `.md` bootstrap with all tiers |
+| `.md` without `.cant` companion | No structured metadata for tooling/LSP/runtime | Create matching `.cant` with agent block and events |
 
 ---
 

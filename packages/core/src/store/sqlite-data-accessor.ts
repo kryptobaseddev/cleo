@@ -14,6 +14,7 @@
 import type { Session, Task, TaskStatus } from '@cleocode/contracts';
 import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
+import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
 import type {
   ArchiveFile,
   DataAccessor,
@@ -380,6 +381,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async removeSingleSession(sessionId: string): Promise<void> {
       const db = await getDb(cwd);
       await db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
+      // Best-effort cross-db cleanup: nullify brain.db references to this session
+      void cleanupBrainRefsOnSessionDelete(sessionId, cwd);
     },
 
     // ---- Targeted query methods (Phase 2 modernization) ----

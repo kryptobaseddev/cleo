@@ -499,9 +499,7 @@ export function getProvidersForEvent(canonical: CanonicalHookEvent): string[] {
 export function getCommonEvents(providerIds: string[]): CanonicalHookEvent[] {
   if (providerIds.length === 0) return [];
   // Only provider events are relevant for cross-provider comparison
-  return PROVIDER_HOOK_EVENTS.filter((event) =>
-    providerIds.every((id) => supportsHook(event, id)),
-  );
+  return PROVIDER_HOOK_EVENTS.filter((event) => providerIds.every((id) => supportsHook(event, id)));
 }
 
 // ── Summary & Matrix Functions ──────────────────────────────────────

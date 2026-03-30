@@ -19,6 +19,7 @@
  * @what Combined maintenance runner with CLI command and progress reporting
  */
 
+import { reconcileOrphanedRefs } from '../store/cross-db-cleanup.js';
 import { applyTemporalDecay, consolidateMemories } from './brain-lifecycle.js';
 import { populateEmbeddings } from './brain-retrieval.js';
 
@@ -38,6 +39,16 @@ export interface BrainMaintenanceConsolidationResult {
   merged: number;
   /** Number of original observations archived. */
   removed: number;
+}
+
+/** Orphaned reference reconciliation step result. */
+export interface BrainMaintenanceReconciliationResult {
+  /** Decisions with stale task/epic references fixed. */
+  decisionsFixed: number;
+  /** Observations with stale session references fixed. */
+  observationsFixed: number;
+  /** Memory links with stale task references removed. */
+  linksRemoved: number;
 }
 
 /** Embedding backfill step result. */
@@ -61,6 +72,8 @@ export interface BrainMaintenanceResult {
   decay: BrainMaintenanceDecayResult;
   /** Results from the memory consolidation step. */
   consolidation: BrainMaintenanceConsolidationResult;
+  /** Results from the cross-DB orphaned reference reconciliation step. */
+  reconciliation: BrainMaintenanceReconciliationResult;
   /** Results from the embedding backfill step. */
   embeddings: BrainMaintenanceEmbeddingsResult;
   /** Total wall-clock duration of the maintenance run in milliseconds. */
@@ -78,6 +91,8 @@ export interface BrainMaintenanceOptions {
   skipDecay?: boolean;
   /** Skip the memory consolidation step. Default: false. */
   skipConsolidation?: boolean;
+  /** Skip the cross-DB orphaned reference reconciliation step. Default: false. */
+  skipReconciliation?: boolean;
   /** Skip the embedding backfill step. Default: false. */
   skipEmbeddings?: boolean;
   /**
@@ -130,6 +145,7 @@ export async function runBrainMaintenance(
   const {
     skipDecay = false,
     skipConsolidation = false,
+    skipReconciliation = false,
     skipEmbeddings = false,
     onProgress,
   } = options ?? {};
@@ -139,6 +155,11 @@ export async function runBrainMaintenance(
   // Default zero values for each step (used when step is skipped).
   const decayResult: BrainMaintenanceDecayResult = { affected: 0 };
   const consolidationResult: BrainMaintenanceConsolidationResult = { merged: 0, removed: 0 };
+  const reconciliationResult: BrainMaintenanceReconciliationResult = {
+    decisionsFixed: 0,
+    observationsFixed: 0,
+    linksRemoved: 0,
+  };
   const embeddingsResult: BrainMaintenanceEmbeddingsResult = {
     processed: 0,
     skipped: 0,
@@ -162,7 +183,17 @@ export async function runBrainMaintenance(
     onProgress?.('consolidation', 1, 1);
   }
 
-  // Step 3: Embedding backfill (with per-item progress relay)
+  // Step 3: Cross-DB orphaned reference reconciliation
+  if (!skipReconciliation) {
+    onProgress?.('reconciliation', 0, 1);
+    const raw = await reconcileOrphanedRefs(projectRoot);
+    reconciliationResult.decisionsFixed = raw.decisionsFixed;
+    reconciliationResult.observationsFixed = raw.observationsFixed;
+    reconciliationResult.linksRemoved = raw.linksRemoved;
+    onProgress?.('reconciliation', 1, 1);
+  }
+
+  // Step 4: Embedding backfill (with per-item progress relay)
   if (!skipEmbeddings) {
     const raw = await populateEmbeddings(projectRoot, {
       onProgress: (current, total) => {
@@ -177,6 +208,7 @@ export async function runBrainMaintenance(
   return {
     decay: decayResult,
     consolidation: consolidationResult,
+    reconciliation: reconciliationResult,
     embeddings: embeddingsResult,
     duration: Date.now() - startTime,
   };

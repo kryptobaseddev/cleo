@@ -56,6 +56,23 @@ describe('Session Memory', () => {
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
+
+    // Initialize tasks.db with test task IDs and session for cross-db write-guard validation
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks, sessions } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    for (const id of ['T100', 'T101']) {
+      await db
+        .insert(tasks)
+        .values({ id, title: `Test task ${id}`, status: 'pending', type: 'task', position: 0 })
+        .onConflictDoNothing()
+        .run();
+    }
+    await db
+      .insert(sessions)
+      .values({ id: 'S-001', name: 'test-session', status: 'active' })
+      .onConflictDoNothing()
+      .run();
   });
 
   afterEach(async () => {

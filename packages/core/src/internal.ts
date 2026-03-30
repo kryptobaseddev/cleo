@@ -144,6 +144,7 @@ export type {
   BrainMaintenanceDecayResult,
   BrainMaintenanceEmbeddingsResult,
   BrainMaintenanceOptions,
+  BrainMaintenanceReconciliationResult,
   BrainMaintenanceResult,
 } from './memory/brain-maintenance.js';
 export { runBrainMaintenance } from './memory/brain-maintenance.js';

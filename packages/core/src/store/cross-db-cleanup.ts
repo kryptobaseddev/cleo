@@ -11,7 +11,7 @@
  * @epic T029
  */
 
-import { eq, or } from 'drizzle-orm';
+import { and, eq, isNotNull, or } from 'drizzle-orm';
 import * as brainSchema from './brain-schema.js';
 import { getBrainDb } from './brain-sqlite.js';
 
@@ -177,6 +177,139 @@ export async function taskExistsInTasksDb(
  * if (await sessionExistsInTasksDb('ses_abc', db)) { /* safe to reference *\/ }
  * ```
  */
+/**
+ * Reconcile orphaned cross-DB references in brain.db.
+ *
+ * Scans brain.db for references to tasks/sessions that no longer exist in
+ * tasks.db and cleans them up:
+ * - brain_decisions with stale context_task_id or context_epic_id → nullify
+ * - brain_observations with stale source_session_id → nullify
+ * - brain_memory_links with stale task_id → delete row
+ *
+ * This is the background reconciliation pass mentioned in the module doc.
+ * Safe to run at any frequency — idempotent.
+ *
+ * @param cwd - Optional working directory
+ * @returns Counts of orphaned references cleaned up
+ */
+export async function reconcileOrphanedRefs(cwd?: string): Promise<{
+  decisionsFixed: number;
+  observationsFixed: number;
+  linksRemoved: number;
+}> {
+  let brainDb: Awaited<ReturnType<typeof getBrainDb>> | null = null;
+  const result = { decisionsFixed: 0, observationsFixed: 0, linksRemoved: 0 };
+
+  try {
+    brainDb = await getBrainDb(cwd);
+  } catch {
+    return result;
+  }
+
+  const { getDb } = await import('./sqlite.js');
+  let tasksDb: Awaited<ReturnType<typeof getDb>>;
+  try {
+    tasksDb = await getDb(cwd);
+  } catch {
+    return result;
+  }
+
+  try {
+    // 1. Find decisions with stale context_task_id
+    const decisionsWithTaskRef = await brainDb
+      .select({
+        id: brainSchema.brainDecisions.id,
+        contextTaskId: brainSchema.brainDecisions.contextTaskId,
+        contextEpicId: brainSchema.brainDecisions.contextEpicId,
+      })
+      .from(brainSchema.brainDecisions)
+      .where(
+        or(
+          isNotNull(brainSchema.brainDecisions.contextTaskId),
+          isNotNull(brainSchema.brainDecisions.contextEpicId),
+        ),
+      )
+      .all();
+
+    for (const d of decisionsWithTaskRef) {
+      if (d.contextTaskId) {
+        const exists = await taskExistsInTasksDb(d.contextTaskId, tasksDb);
+        if (!exists) {
+          await brainDb
+            .update(brainSchema.brainDecisions)
+            .set({ contextTaskId: null })
+            .where(eq(brainSchema.brainDecisions.id, d.id));
+          result.decisionsFixed++;
+        }
+      }
+      if (d.contextEpicId) {
+        const exists = await taskExistsInTasksDb(d.contextEpicId, tasksDb);
+        if (!exists) {
+          await brainDb
+            .update(brainSchema.brainDecisions)
+            .set({ contextEpicId: null })
+            .where(eq(brainSchema.brainDecisions.id, d.id));
+          result.decisionsFixed++;
+        }
+      }
+    }
+
+    // 2. Find observations with stale source_session_id
+    const obsWithSessionRef = await brainDb
+      .select({
+        id: brainSchema.brainObservations.id,
+        sourceSessionId: brainSchema.brainObservations.sourceSessionId,
+      })
+      .from(brainSchema.brainObservations)
+      .all();
+
+    for (const o of obsWithSessionRef) {
+      if (o.sourceSessionId) {
+        const exists = await sessionExistsInTasksDb(o.sourceSessionId, tasksDb);
+        if (!exists) {
+          await brainDb
+            .update(brainSchema.brainObservations)
+            .set({ sourceSessionId: null })
+            .where(eq(brainSchema.brainObservations.id, o.id));
+          result.observationsFixed++;
+        }
+      }
+    }
+
+    // 3. Find memory links with stale task_id
+    const allLinks = await brainDb
+      .select({
+        memoryType: brainSchema.brainMemoryLinks.memoryType,
+        memoryId: brainSchema.brainMemoryLinks.memoryId,
+        taskId: brainSchema.brainMemoryLinks.taskId,
+        linkType: brainSchema.brainMemoryLinks.linkType,
+      })
+      .from(brainSchema.brainMemoryLinks)
+      .all();
+
+    for (const link of allLinks) {
+      const exists = await taskExistsInTasksDb(link.taskId, tasksDb);
+      if (!exists) {
+        await brainDb
+          .delete(brainSchema.brainMemoryLinks)
+          .where(
+            and(
+              eq(brainSchema.brainMemoryLinks.memoryType, link.memoryType),
+              eq(brainSchema.brainMemoryLinks.memoryId, link.memoryId),
+              eq(brainSchema.brainMemoryLinks.taskId, link.taskId),
+              eq(brainSchema.brainMemoryLinks.linkType, link.linkType),
+            ),
+          );
+        result.linksRemoved++;
+      }
+    }
+  } catch {
+    // Non-fatal best-effort reconciliation
+  }
+
+  return result;
+}
+
 export async function sessionExistsInTasksDb(
   sessionId: string,
   tasksDb: Awaited<ReturnType<typeof import('./sqlite.js').getDb>>,

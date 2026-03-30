@@ -21,6 +21,16 @@ describe('Brain Retrieval', () => {
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
+
+    // Initialize tasks.db with test session for cross-db write-guard validation
+    const { getDb } = await import('../../store/sqlite.js');
+    const { sessions } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    await db
+      .insert(sessions)
+      .values({ id: 'S-123', name: 'test-session', status: 'active' })
+      .onConflictDoNothing()
+      .run();
   });
 
   afterEach(async () => {

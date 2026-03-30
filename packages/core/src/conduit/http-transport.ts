@@ -39,10 +39,8 @@ export class HttpTransport implements Transport {
         fetch(`${primaryUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
         fetch(`${fallbackUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
       ]);
-      const primaryOk =
-        primaryResult.status === 'fulfilled' && primaryResult.value.ok;
-      const fallbackOk =
-        fallbackResult.status === 'fulfilled' && fallbackResult.value.ok;
+      const primaryOk = primaryResult.status === 'fulfilled' && primaryResult.value.ok;
+      const fallbackOk = fallbackResult.status === 'fulfilled' && fallbackResult.value.ok;
       if (!primaryOk && fallbackOk) {
         activeUrl = fallbackUrl;
       }

@@ -19,11 +19,25 @@ describe('Brain Memory Links', () => {
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
+
+    // Initialize tasks.db with test task IDs for cross-db write-guard validation
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    for (const id of ['T1000', 'T2000', 'T9999']) {
+      await db
+        .insert(tasks)
+        .values({ id, title: `Test task ${id}`, status: 'pending', type: 'task', position: 0 })
+        .onConflictDoNothing()
+        .run();
+    }
   });
 
   afterEach(async () => {
     const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { resetDbState } = await import('../../store/sqlite.js');
     closeBrainDb();
+    resetDbState();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
   });

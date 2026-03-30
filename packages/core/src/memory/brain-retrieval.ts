@@ -24,6 +24,8 @@ import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from '../store/brain-schema.js';
+import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
+import { getDb } from '../store/sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type {
@@ -560,6 +562,20 @@ export async function observeBrain(
     }
   }
 
+  // Write-guard: validate cross-db session reference before inserting
+  let validSessionId = sourceSessionId ?? null;
+  if (validSessionId) {
+    try {
+      const tasksDb = await getDb(projectRoot);
+      if (!(await sessionExistsInTasksDb(validSessionId, tasksDb))) {
+        validSessionId = null;
+      }
+    } catch {
+      // Best-effort: if tasks.db unavailable, null out the reference
+      validSessionId = null;
+    }
+  }
+
   const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
 
@@ -570,7 +586,7 @@ export async function observeBrain(
     narrative: text,
     contentHash,
     project: project ?? null,
-    sourceSessionId: sourceSessionId ?? null,
+    sourceSessionId: validSessionId,
     sourceType: sourceType ?? 'agent',
     createdAt: now,
   });
@@ -607,7 +623,7 @@ export async function observeBrain(
 
   // Auto-link observation to the currently focused task when a session is active. (T141)
   // This is a fire-and-forget side effect — linking failure MUST NOT block the return.
-  if (sourceSessionId) {
+  if (validSessionId) {
     autoLinkObservationToTask(projectRoot, row.id, accessor).catch(() => {
       /* Auto-linking is best-effort */
     });

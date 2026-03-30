@@ -39,6 +39,7 @@ export function registerBrainCommand(program: Command): void {
       'Skip the temporal decay step (confidence reduction on stale learnings)',
     )
     .option('--skip-consolidation', 'Skip the memory consolidation step (merging old observations)')
+    .option('--skip-reconciliation', 'Skip the cross-DB orphaned reference reconciliation step')
     .option(
       '--skip-embeddings',
       'Skip the embedding backfill step (vector generation for observations)',
@@ -48,6 +49,7 @@ export function registerBrainCommand(program: Command): void {
       async (opts: {
         skipDecay?: boolean;
         skipConsolidation?: boolean;
+        skipReconciliation?: boolean;
         skipEmbeddings?: boolean;
         json?: boolean;
       }) => {
@@ -62,6 +64,7 @@ export function registerBrainCommand(program: Command): void {
           const result = await runBrainMaintenance(root, {
             skipDecay: !!opts.skipDecay,
             skipConsolidation: !!opts.skipConsolidation,
+            skipReconciliation: !!opts.skipReconciliation,
             skipEmbeddings: !!opts.skipEmbeddings,
             onProgress: isJson
               ? undefined
@@ -101,6 +104,11 @@ export function registerBrainCommand(program: Command): void {
           if (!opts.skipConsolidation) {
             console.log(
               `  Consolidation: ${result.consolidation.merged} merged, ${result.consolidation.removed} archived`,
+            );
+          }
+          if (!opts.skipReconciliation) {
+            console.log(
+              `  Reconcile:     ${result.reconciliation.decisionsFixed} decisions, ${result.reconciliation.observationsFixed} observations, ${result.reconciliation.linksRemoved} links`,
             );
           }
           if (!opts.skipEmbeddings) {

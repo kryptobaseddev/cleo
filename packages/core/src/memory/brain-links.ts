@@ -17,6 +17,8 @@ import type {
   BrainMemoryLinkRow,
   BrainPatternRow,
 } from '../store/brain-schema.js';
+import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
+import { getDb } from '../store/sqlite.js';
 
 type MemoryType = (typeof BRAIN_MEMORY_TYPES)[number];
 type LinkType = (typeof BRAIN_LINK_TYPES)[number];
@@ -43,6 +45,14 @@ export async function linkMemoryToTask(
 ): Promise<BrainMemoryLinkRow> {
   if (!memoryId || !taskId) {
     throw new Error('memoryId and taskId are required');
+  }
+
+  // Write-guard: reject stale task IDs before creating cross-db reference
+  const tasksDb = await getDb(projectRoot);
+  if (!(await taskExistsInTasksDb(taskId, tasksDb))) {
+    throw new Error(
+      `Write-guard: task ${taskId} does not exist in tasks.db — refusing to create brain link`,
+    );
   }
 
   const accessor = await getBrainAccessor(projectRoot);
@@ -120,10 +130,17 @@ export async function bulkLink(
   links: BulkLinkEntry[],
 ): Promise<{ created: number; skipped: number }> {
   const accessor = await getBrainAccessor(projectRoot);
+  const tasksDb = await getDb(projectRoot);
   let created = 0;
   let skipped = 0;
 
   for (const link of links) {
+    // Write-guard: reject stale task IDs before creating cross-db reference
+    if (!(await taskExistsInTasksDb(link.taskId, tasksDb))) {
+      skipped++;
+      continue;
+    }
+
     // Check for duplicate
     const existing = await accessor.getLinksForMemory(link.memoryType, link.memoryId);
     const duplicate = existing.find(
