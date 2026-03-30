@@ -13,11 +13,12 @@
  * @task T213
  */
 
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
 import { getSignaldockDbPath } from '../store/signaldock-sqlite.js';
-import { existsSync } from 'node:fs';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
@@ -31,22 +32,6 @@ interface LocalTransportState {
   dbPath: string;
   subscribers: Set<(message: ConduitMessage) => void>;
   pollTimer: ReturnType<typeof setInterval> | null;
-}
-
-/**
- * Generate a UUID v4 for message IDs.
- * Uses crypto.randomUUID when available, falls back to manual generation.
- */
-function generateId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-  // Fallback: manual v4 UUID
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
 }
 
 /** In-process SQLite transport for fully offline agent messaging. */
@@ -65,9 +50,7 @@ export class LocalTransport implements Transport {
     const dbPath = getSignaldockDbPath();
 
     if (!existsSync(dbPath)) {
-      throw new Error(
-        `LocalTransport: signaldock.db not found at ${dbPath}. Run: cleo init`,
-      );
+      throw new Error(`LocalTransport: signaldock.db not found at ${dbPath}. Run: cleo init`);
     }
 
     const db = new DatabaseSyncClass(dbPath);
@@ -122,7 +105,7 @@ export class LocalTransport implements Transport {
   ): Promise<{ messageId: string }> {
     this.ensureConnected();
     const { db, agentId } = this.state!;
-    const messageId = generateId();
+    const messageId = randomUUID();
     const nowUnix = Math.floor(Date.now() / 1000);
 
     if (options?.conversationId) {
@@ -306,7 +289,7 @@ export class LocalTransport implements Transport {
     if (existing) return existing.id;
 
     // Create new DM conversation
-    const convId = generateId();
+    const convId = randomUUID();
     const nowUnix = Math.floor(Date.now() / 1000);
 
     db.prepare(

@@ -261,11 +261,12 @@ export async function reconcileOrphanedRefs(cwd?: string): Promise<{
         sourceSessionId: brainSchema.brainObservations.sourceSessionId,
       })
       .from(brainSchema.brainObservations)
+      .where(isNotNull(brainSchema.brainObservations.sourceSessionId))
       .all();
 
     for (const o of obsWithSessionRef) {
-      if (o.sourceSessionId) {
-        const exists = await sessionExistsInTasksDb(o.sourceSessionId, tasksDb);
+      {
+        const exists = o.sourceSessionId ? await sessionExistsInTasksDb(o.sourceSessionId, tasksDb) : false;
         if (!exists) {
           await brainDb
             .update(brainSchema.brainObservations)

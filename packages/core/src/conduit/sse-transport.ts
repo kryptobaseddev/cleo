@@ -29,6 +29,7 @@ interface SseTransportState {
   eventSource: EventSource | null;
   mode: SseMode;
   messageBuffer: ConduitMessage[];
+  subscribers: Set<(message: ConduitMessage) => void>;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   connected: boolean;
@@ -65,6 +66,7 @@ export class SseTransport implements Transport {
       eventSource: null,
       mode: 'sse',
       messageBuffer: [],
+      subscribers: new Set(),
       reconnectAttempts: 0,
       reconnectTimer: null,
       connected: false,
@@ -180,33 +182,26 @@ export class SseTransport implements Transport {
   subscribe(handler: (message: ConduitMessage) => void): () => void {
     this.ensureConnected();
 
-    // For SSE mode, we intercept messages as they arrive in the buffer
-    // by wrapping the buffer push with a notification
-    const originalPush = this.state!.messageBuffer.push.bind(this.state!.messageBuffer);
-    const wrappedPush = (...items: ConduitMessage[]): number => {
-      for (const item of items) {
-        handler(item);
-      }
-      return originalPush(...items);
-    };
-    this.state!.messageBuffer.push = wrappedPush;
+    this.state!.subscribers.add(handler);
 
-    // Also start HTTP polling interval for fallback mode
-    const interval = setInterval(async () => {
-      if (this.state?.mode === 'http-fallback') {
-        const messages = await this.httpPoll({ limit: 20 });
-        for (const msg of messages) handler(msg);
-        if (messages.length > 0) {
-          await this.ack(messages.map((m) => m.id));
-        }
-      }
-    }, 5000);
+    // Start HTTP polling interval only if in fallback mode
+    const interval =
+      this.state!.mode === 'http-fallback'
+        ? setInterval(async () => {
+            if (this.state?.mode === 'http-fallback') {
+              const messages = await this.httpPoll({ limit: 20 });
+              for (const msg of messages) handler(msg);
+              if (messages.length > 0) {
+                await this.ack(messages.map((m) => m.id));
+              }
+            }
+          }, 5000)
+        : null;
 
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
       if (this.state) {
-        // Restore original push
-        this.state.messageBuffer.push = originalPush;
+        this.state.subscribers.delete(handler);
       }
     };
   }
@@ -292,6 +287,13 @@ export class SseTransport implements Transport {
       };
 
       this.state.messageBuffer.push(message);
+      for (const h of this.state.subscribers) {
+        try {
+          h(message);
+        } catch {
+          /* subscriber error must not crash transport */
+        }
+      }
     } catch {
       // Malformed SSE data — skip silently
     }
@@ -312,10 +314,7 @@ export class SseTransport implements Transport {
     }
 
     // Exponential backoff: 1s, 2s, 4s, ...
-    const delay = Math.min(
-      1000 * 2 ** (this.state.reconnectAttempts - 1),
-      MAX_RECONNECT_DELAY_MS,
-    );
+    const delay = Math.min(1000 * 2 ** (this.state.reconnectAttempts - 1), MAX_RECONNECT_DELAY_MS);
 
     this.state.reconnectTimer = setTimeout(() => {
       void this.connectSse().catch(() => {

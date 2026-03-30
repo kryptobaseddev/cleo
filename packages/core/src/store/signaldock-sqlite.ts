@@ -13,7 +13,7 @@
  * @task T223
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -51,7 +51,16 @@ function resolveMigrationsDir(cwd?: string): string | null {
   if (existsSync(monorepoPath)) return monorepoPath;
 
   const thisDir = dirname(fileURLToPath(import.meta.url));
-  const installedPath = join(thisDir, '..', '..', '..', '..', 'crates', 'signaldock-storage', 'migrations');
+  const installedPath = join(
+    thisDir,
+    '..',
+    '..',
+    '..',
+    '..',
+    'crates',
+    'signaldock-storage',
+    'migrations',
+  );
   if (existsSync(installedPath)) return installedPath;
 
   return null;
@@ -63,7 +72,6 @@ function resolveMigrationsDir(cwd?: string): string | null {
  * Returns paths to up.sql files for each migration.
  */
 function getMigrationFiles(migrationsDir: string): string[] {
-  const { readdirSync } = require('node:fs') as typeof import('node:fs');
   return readdirSync(migrationsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
