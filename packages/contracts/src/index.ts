@@ -6,6 +6,13 @@
  * Implementation packages (@cleocode/core, @cleocode/cleo) import from here.
  */
 
+// === Code Symbol Types (tree-sitter AST) ===
+export type {
+  BatchParseResult,
+  CodeSymbol,
+  CodeSymbolKind,
+  ParseResult,
+} from './code-symbol.js';
 // === Provider Adapter Contracts ===
 export type { AdapterHealthStatus, CLEOProviderAdapter } from './adapter.js';
 // === Agent Registry (credential management) ===
