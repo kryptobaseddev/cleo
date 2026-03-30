@@ -75,6 +75,77 @@ export function registerAgentCommand(program: Command): void {
       }
     });
 
+  // --- cleo agent signin ---
+  agent
+    .command('signin <agentId>')
+    .description('Sign in as an agent — marks active, caches credentials for session')
+    .option('--api-url <url>', 'Override API base URL for cloud status update')
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        // Look up the credential
+        const credential = await registry.get(agentId);
+        if (!credential) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NOT_FOUND',
+                message: `Agent '${agentId}' not registered. Run: cleo agent register --id ${agentId} --name "..." --api-key sk_live_...`,
+              },
+            },
+            { command: 'agent signin' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // Mark as active + update lastUsedAt
+        await registry.update(agentId, { isActive: true });
+        await registry.markUsed(agentId);
+
+        // Attempt to set online status on cloud (best-effort, don't fail if offline)
+        const apiUrl = (opts['apiUrl'] as string) ?? credential.apiBaseUrl;
+        try {
+          await fetch(`${apiUrl}/agents/${agentId}/status`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${credential.apiKey}`,
+              'X-Agent-Id': agentId,
+            },
+            body: JSON.stringify({ status: 'online' }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch {
+          // Offline is fine — LocalTransport works without cloud
+        }
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId: credential.agentId,
+              displayName: credential.displayName,
+              apiBaseUrl: apiUrl,
+              status: 'online',
+              transport: 'local',
+            },
+          },
+          { command: 'agent signin' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_SIGNIN', message: String(err) } },
+          { command: 'agent signin' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
   // --- cleo agent list ---
   agent
     .command('list')

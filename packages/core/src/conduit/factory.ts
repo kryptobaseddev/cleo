@@ -11,16 +11,19 @@
 import type { AgentCredential, AgentRegistryAPI, Conduit, Transport } from '@cleocode/contracts';
 import { ConduitClient } from './conduit-client.js';
 import { HttpTransport } from './http-transport.js';
+import { LocalTransport } from './local-transport.js';
 
 /** Resolve the best available transport for a credential. */
 function resolveTransport(credential: AgentCredential): Transport {
-  // Priority: Local (napi-rs) > WebSocket > SSE > HTTP polling
-  // LocalTransport and SseTransport are future — stubs not yet implemented
+  // Priority: Local (SQLite) > WebSocket > SSE > HTTP polling
+  if (LocalTransport.isAvailable()) {
+    return new LocalTransport();
+  }
   if (credential.transportConfig.wsUrl) {
-    // WsTransport stub — fall through to HTTP for now
+    // WsTransport — fall through to HTTP for now
   }
   if (credential.transportConfig.sseEndpoint) {
-    // SseTransport stub — fall through to HTTP for now
+    // SseTransport — fall through to HTTP for now
   }
   return new HttpTransport();
 }
