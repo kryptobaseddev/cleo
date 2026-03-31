@@ -375,6 +375,164 @@ export function registerAgentCommand(program: Command): void {
       }
     });
 
+  // --- cleo agent assign ---
+  agent
+    .command('assign <agentId> <taskId>')
+    .description('Assign a task to an agent via messaging')
+    .action(async (agentId: string, taskId: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb, createConduit } = await import(
+          '@cleocode/core/internal'
+        );
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        const active = await registry.getActive();
+        if (!active) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NO_ACTIVE',
+                message: 'No active agent. Run: cleo agent signin <id>',
+              },
+            },
+            { command: 'agent assign' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        const conduit = await createConduit(registry);
+        await conduit.send(
+          agentId,
+          `/action @${agentId} #task-assignment\n\nAssigned task ${taskId}. Run: cleo show ${taskId} && cleo start ${taskId}`,
+        );
+        await conduit.disconnect();
+
+        cliOutput(
+          {
+            success: true,
+            data: { agentId, taskId, assignedBy: active.agentId },
+          },
+          { command: 'agent assign' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_ASSIGN', message: String(err) } },
+          { command: 'agent assign' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent wake ---
+  agent
+    .command('wake <agentId>')
+    .description('Wake an idle agent — send a prod message')
+    .action(async (agentId: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb, createConduit } = await import(
+          '@cleocode/core/internal'
+        );
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        const active = await registry.getActive();
+        if (!active) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NO_ACTIVE',
+                message: 'No active agent. Run: cleo agent signin <id>',
+              },
+            },
+            { command: 'agent wake' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        const conduit = await createConduit(registry);
+        await conduit.send(
+          agentId,
+          `/action @${agentId} #wake #prod\n\nYou are idle. Check your queue: cleo current || cleo next. Report status immediately.`,
+        );
+        await conduit.disconnect();
+
+        cliOutput(
+          { success: true, data: { agentId, prodBy: active.agentId } },
+          { command: 'agent wake' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_WAKE', message: String(err) } },
+          { command: 'agent wake' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent spawn ---
+  agent
+    .command('spawn')
+    .description('Spawn a new ephemeral agent for a specific task')
+    .requiredOption('--role <role>', 'Agent role (e.g. code_dev, research, security)')
+    .option('--task <taskId>', 'Task to assign to the spawned agent')
+    .option('--model <model>', 'Model to use (e.g. opus, sonnet)')
+    .option('--name <name>', 'Display name for the agent')
+    .action(async (opts: Record<string, unknown>) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        const role = opts['role'] as string;
+        const taskId = opts['task'] as string | undefined;
+        const model = (opts['model'] as string) ?? 'sonnet';
+        const displayName =
+          (opts['name'] as string) ?? `ephemeral-${role}-${Date.now().toString(36)}`;
+        const agentId = displayName;
+
+        // Register the ephemeral agent locally (no cloud registration)
+        await registry.register({
+          agentId,
+          displayName,
+          apiKey: 'ephemeral-local-only',
+          apiBaseUrl: 'local',
+          classification: role,
+          privacyTier: 'private',
+          capabilities: ['chat', 'tools'],
+          skills: [role],
+          transportConfig: {},
+          isActive: true,
+        });
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId,
+              displayName,
+              role,
+              model,
+              taskId: taskId ?? null,
+              transport: 'local',
+              lifecycle: 'ephemeral',
+            },
+          },
+          { command: 'agent spawn' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_SPAWN', message: String(err) } },
+          { command: 'agent spawn' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
   // --- cleo agent list ---
   agent
     .command('list')

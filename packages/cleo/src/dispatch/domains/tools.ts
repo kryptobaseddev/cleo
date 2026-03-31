@@ -17,6 +17,12 @@
 
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
+  codeOutline,
+  codeParse,
+  codeSearch,
+  codeUnfold,
+} from '../engines/code-engine.js';
+import {
   toolsAdapterActivate,
   toolsAdapterDetect,
   toolsAdapterDispose,
@@ -93,6 +99,11 @@ export class ToolsHandler implements DomainHandler {
       // Adapter sub-domain
       if (operation.startsWith('adapter.')) {
         return this.queryAdapter(operation.slice('adapter.'.length), params, startTime);
+      }
+
+      // Code analysis sub-domain (Smart Explore)
+      if (operation.startsWith('code.')) {
+        return this.queryCode(operation.slice('code.'.length), params, startTime);
       }
 
       return unsupportedOp('query', 'tools', operation, startTime);
@@ -591,6 +602,37 @@ export class ToolsHandler implements DomainHandler {
       }
       default:
         return unsupportedOp('query', 'tools', `adapter.${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Code analysis queries (Smart Explore)
+  // -----------------------------------------------------------------------
+
+  private async queryCode(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'outline': {
+        const result = await codeOutline(params);
+        return wrapResult(result, 'query', 'tools', 'code.outline', startTime);
+      }
+      case 'search': {
+        const result = await codeSearch(params);
+        return wrapResult(result, 'query', 'tools', 'code.search', startTime);
+      }
+      case 'unfold': {
+        const result = await codeUnfold(params);
+        return wrapResult(result, 'query', 'tools', 'code.unfold', startTime);
+      }
+      case 'parse': {
+        const result = await codeParse(params);
+        return wrapResult(result, 'query', 'tools', 'code.parse', startTime);
+      }
+      default:
+        return unsupportedOp('query', 'tools', `code.${sub}`, startTime);
     }
   }
 

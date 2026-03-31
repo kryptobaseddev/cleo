@@ -328,6 +328,10 @@ subCommands['version'] = defineCommand({
   },
 });
 
+// Native citty command groups (not shimmed from Commander)
+import { codeCommand } from './commands/code.js';
+subCommands['code'] = codeCommand;
+
 for (const shim of rootShim._subcommands) {
   subCommands[shim._name] = shimToCitty(shim);
   for (const alias of shim._aliases) {
