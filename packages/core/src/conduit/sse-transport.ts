@@ -56,7 +56,7 @@ export class SseTransport implements Transport {
       throw new Error('SseTransport requires sseEndpoint or apiBaseUrl in config.');
     }
 
-    const endpoint = sseEndpoint ?? `${config.apiBaseUrl}/sse`;
+    const endpoint = sseEndpoint ?? `${config.apiBaseUrl}/messages/stream`;
 
     this.state = {
       agentId: config.agentId,

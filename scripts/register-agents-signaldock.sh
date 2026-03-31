@@ -81,7 +81,7 @@ print(d.get('data', {}).get('apiKey', 'FAILED'))
   "apiKey": "${api_key}",
   "apiBaseUrl": "${API}",
   "pollEndpoint": "/messages/poll/new",
-  "sseEndpoint": "/sse",
+  "sseEndpoint": "/messages/stream",
   "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOJSON
