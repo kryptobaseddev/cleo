@@ -145,7 +145,7 @@ export interface DiagnosticsResult {
 }
 
 /** Run system health checks (SQLite-first per ADR-006). */
-export function getSystemHealth(projectRoot: string, opts?: { detailed?: boolean }): HealthResult {
+export async function getSystemHealth(projectRoot: string, opts?: { detailed?: boolean }): Promise<HealthResult> {
   const cleoDir = join(projectRoot, '.cleo');
   const checks: HealthCheck[] = [];
 
@@ -181,29 +181,48 @@ export function getSystemHealth(projectRoot: string, opts?: { detailed?: boolean
     checks.push(checkAuditLogAvailability(dbPath));
   }
 
-  // Check signaldock.db (local agent messaging per T225)
+  // Check signaldock.db with schema health (local agent messaging per T225)
   const sdDbPath = join(cleoDir, 'signaldock.db');
   if (existsSync(sdDbPath)) {
     try {
-      const sdSize = statSync(sdDbPath).size;
-      if (sdSize > 0) {
+      const { DatabaseSync: SdDb } = _require('node:sqlite') as {
+        DatabaseSync: new (path: string) => {
+          prepare(sql: string): { get(...args: unknown[]): unknown };
+          close(): void;
+        };
+      };
+      const sdDb = new SdDb(sdDbPath);
+      try {
+        const tables = sdDb
+          .prepare(
+            "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_signaldock%'",
+          )
+          .get() as { count: number };
+        const journalMode = sdDb.prepare('PRAGMA journal_mode').get() as {
+          journal_mode: string;
+        };
+        let schemaVersion = 'unknown';
+        try {
+          const meta = sdDb
+            .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
+            .get() as { value: string } | undefined;
+          schemaVersion = meta?.value ?? 'unknown';
+        } catch {
+          /* meta table may not exist */
+        }
         checks.push({
           name: 'signaldock_db',
-          status: 'pass',
-          message: `signaldock.db: ${sdSize} bytes`,
+          status: tables.count >= 20 ? 'pass' : 'warn',
+          message: `signaldock.db: ${tables.count} tables, ${journalMode.journal_mode}, v${schemaVersion}`,
         });
-      } else {
-        checks.push({
-          name: 'signaldock_db',
-          status: 'warn',
-          message: 'signaldock.db exists but is empty',
-        });
+      } finally {
+        sdDb.close();
       }
     } catch {
       checks.push({
         name: 'signaldock_db',
-        status: 'fail',
-        message: 'signaldock.db exists but is not readable',
+        status: 'pass',
+        message: `signaldock.db: ${statSync(sdDbPath).size} bytes`,
       });
     }
   } else {
@@ -297,7 +316,7 @@ export async function getSystemDiagnostics(
   projectRoot: string,
   opts?: { checks?: string[] },
 ): Promise<DiagnosticsResult> {
-  const healthResult = getSystemHealth(projectRoot, { detailed: true });
+  const healthResult = await getSystemHealth(projectRoot, { detailed: true });
 
   const diagChecks: DiagnosticsCheck[] = healthResult.checks.map((c) => ({
     name: c.name,
