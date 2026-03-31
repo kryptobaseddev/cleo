@@ -44,14 +44,18 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
+
+        const agentId = opts['id'] as string;
+        const displayName = opts['name'] as string;
+        const classification = opts['classification'] as string | undefined;
 
         const credential = await registry.register({
-          agentId: opts['id'] as string,
-          displayName: opts['name'] as string,
+          agentId,
+          displayName,
           apiKey: opts['apiKey'] as string,
           apiBaseUrl: (opts['apiUrl'] as string) ?? 'https://api.signaldock.io',
-          classification: opts['classification'] as string | undefined,
+          classification,
           privacyTier: (opts['privacy'] as 'public' | 'discoverable' | 'private') ?? 'public',
           capabilities: [],
           skills: [],
@@ -59,10 +63,77 @@ export function registerAgentCommand(program: Command): void {
           isActive: true,
         });
 
+        // Scaffold .cant persona file if it doesn't exist
+        const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const cantDir = join('.cleo', 'agents');
+        const cantPath = join(cantDir, `${agentId}.cant`);
+        let cantScaffolded = false;
+
+        if (!existsSync(cantPath)) {
+          mkdirSync(cantDir, { recursive: true });
+          const role = classification ?? 'specialist';
+          const cantContent = `---
+kind: agent
+version: 2
+---
+
+agent ${agentId}:
+  house: none
+  allegiance: canon
+  role: ${role}
+  parent: cleoos-opus-orchestrator
+  description: "${displayName}"
+
+  tone:
+    |
+    TODO: Describe how this agent communicates.
+
+  prompt:
+    |
+    TODO: Write the core behavioral instruction.
+
+  skills: [ct-cleo]
+
+  permissions:
+    tasks: read
+    session: read
+    memory: read
+
+  transport:
+    primary: local
+    fallback: sse
+    cloud: http
+    apiBaseUrl: https://api.signaldock.io
+
+  lifecycle:
+    start: cleo agent start ${agentId}
+    stop: cleo agent stop ${agentId}
+    status: cleo agent status ${agentId}
+
+  context:
+    active-tasks
+    memory-bridge
+
+  on SessionStart:
+    /checkin @all #online
+
+  enforcement:
+    1: TODO — what does this agent push back on?
+`;
+          writeFileSync(cantPath, cantContent, 'utf-8');
+          cantScaffolded = true;
+        }
+
         cliOutput(
           {
             success: true,
-            data: { agentId: credential.agentId, displayName: credential.displayName },
+            data: {
+              agentId: credential.agentId,
+              displayName: credential.displayName,
+              cantFile: cantScaffolded ? cantPath : existsSync(cantPath) ? cantPath : null,
+              cantScaffolded,
+            },
           },
           { command: 'agent register' },
         );
@@ -84,7 +155,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         // Look up the credential
         const credential = await registry.get(agentId);
@@ -161,7 +232,7 @@ export function registerAgentCommand(program: Command): void {
         const { join } = await import('node:path');
 
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         // 1. Look up credential
         const credential = await registry.get(agentId);
@@ -180,12 +251,23 @@ export function registerAgentCommand(program: Command): void {
           return;
         }
 
-        // 2. Load .cant profile if available
+        // 2. Load and validate .cant profile if available
         let profile: string | null = null;
-        const cantPath =
-          (opts['cant'] as string) ?? join('.cleo', 'agents', `${agentId}.cant`);
+        let cantValidation: { valid: boolean; errors: string[] } | null = null;
+        const cantPath = (opts['cant'] as string) ?? join('.cleo', 'agents', `${agentId}.cant`);
         if (existsSync(cantPath)) {
           profile = readFileSync(cantPath, 'utf-8');
+          try {
+            const { validate } = await import('@cleocode/cant');
+            const result = validate(profile);
+            cantValidation = {
+              valid: result.valid,
+              errors: result.diagnostics?.map((d: { message: string }) => d.message) ?? [],
+            };
+          } catch {
+            // cant-napi not available — profile loaded but unvalidated
+            cantValidation = null;
+          }
         }
 
         // 3. Mark active + update lastUsedAt
@@ -205,16 +287,16 @@ export function registerAgentCommand(program: Command): void {
             signal: AbortSignal.timeout(5000),
           });
         } catch {
-          // Offline is fine
+          // Offline is fine — LocalTransport works without cloud
         }
 
-        // 5. Start runtime services
+        // 5. Start runtime services (transport auto-resolved: Local > SSE > HTTP)
         const pollInterval = Number(opts['pollInterval'] ?? 5000);
         const runtime = await createRuntime(registry, {
           agentId,
           pollIntervalMs: pollInterval,
           heartbeatIntervalMs: opts['heartbeat'] === false ? 0 : 30000,
-          groupConversationIds: [],
+          groupConversationIds: credential.transportConfig.groupConversationIds ?? [],
         });
 
         runtime.poller.start();
@@ -226,7 +308,14 @@ export function registerAgentCommand(program: Command): void {
               agentId,
               displayName: credential.displayName,
               status: 'online',
-              profile: profile ? 'loaded' : 'none',
+              transport: runtime.transport.name,
+              profile: profile
+                ? cantValidation
+                  ? cantValidation.valid
+                    ? 'validated'
+                    : `invalid (${cantValidation.errors.length} errors)`
+                  : 'loaded (unvalidated)'
+                : 'none',
               services: {
                 poller: 'running',
                 heartbeat: runtime.heartbeat ? 'running' : 'disabled',
@@ -265,7 +354,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
         if (!credential) {
@@ -320,7 +409,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         if (agentId) {
           const credential = await registry.get(agentId);
@@ -385,7 +474,7 @@ export function registerAgentCommand(program: Command): void {
           '@cleocode/core/internal'
         );
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const active = await registry.getActive();
         if (!active) {
@@ -436,7 +525,7 @@ export function registerAgentCommand(program: Command): void {
           '@cleocode/core/internal'
         );
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const active = await registry.getActive();
         if (!active) {
@@ -486,7 +575,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const role = opts['role'] as string;
         const taskId = opts['task'] as string | undefined;
@@ -543,19 +632,31 @@ export function registerAgentCommand(program: Command): void {
           '@cleocode/core/internal'
         );
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
         const active = await registry.getActive();
         if (!active) {
-          cliOutput({ success: false, error: { code: 'E_NO_ACTIVE', message: 'No active agent.' } }, { command: 'agent reassign' });
+          cliOutput(
+            { success: false, error: { code: 'E_NO_ACTIVE', message: 'No active agent.' } },
+            { command: 'agent reassign' },
+          );
           process.exitCode = 1;
           return;
         }
         const conduit = await createConduit(registry);
-        await conduit.send(agentId, `/action @${agentId} #task-reassignment\n\nTask ${taskId} reassigned to you by ${active.agentId}. Run: cleo show ${taskId} && cleo start ${taskId}`);
+        await conduit.send(
+          agentId,
+          `/action @${agentId} #task-reassignment\n\nTask ${taskId} reassigned to you by ${active.agentId}. Run: cleo show ${taskId} && cleo start ${taskId}`,
+        );
         await conduit.disconnect();
-        cliOutput({ success: true, data: { taskId, newOwner: agentId, reassignedBy: active.agentId } }, { command: 'agent reassign' });
+        cliOutput(
+          { success: true, data: { taskId, newOwner: agentId, reassignedBy: active.agentId } },
+          { command: 'agent reassign' },
+        );
       } catch (err) {
-        cliOutput({ success: false, error: { code: 'E_REASSIGN', message: String(err) } }, { command: 'agent reassign' });
+        cliOutput(
+          { success: false, error: { code: 'E_REASSIGN', message: String(err) } },
+          { command: 'agent reassign' },
+        );
         process.exitCode = 1;
       }
     });
@@ -568,7 +669,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
         const agents = await registry.list({ active: true });
         let stopped = 0;
         for (const a of agents) {
@@ -576,16 +677,28 @@ export function registerAgentCommand(program: Command): void {
           try {
             await fetch(`${a.apiBaseUrl}/agents/${a.agentId}/status`, {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${a.apiKey}`, 'X-Agent-Id': a.agentId },
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${a.apiKey}`,
+                'X-Agent-Id': a.agentId,
+              },
               body: JSON.stringify({ status: 'offline' }),
               signal: AbortSignal.timeout(3000),
             });
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
           stopped++;
         }
-        cliOutput({ success: true, data: { stopped, total: agents.length } }, { command: 'agent stop-all' });
+        cliOutput(
+          { success: true, data: { stopped, total: agents.length } },
+          { command: 'agent stop-all' },
+        );
       } catch (err) {
-        cliOutput({ success: false, error: { code: 'E_STOP_ALL', message: String(err) } }, { command: 'agent stop-all' });
+        cliOutput(
+          { success: false, error: { code: 'E_STOP_ALL', message: String(err) } },
+          { command: 'agent stop-all' },
+        );
         process.exitCode = 1;
       }
     });
@@ -605,10 +718,16 @@ export function registerAgentCommand(program: Command): void {
         const { promisify } = await import('node:util');
         const execFileAsync = promisify(execFile);
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
         const credential = await registry.get(agentId);
         if (!credential) {
-          cliOutput({ success: false, error: { code: 'E_NOT_FOUND', message: `Agent '${agentId}' not registered.` } }, { command: 'agent work' });
+          cliOutput(
+            {
+              success: false,
+              error: { code: 'E_NOT_FOUND', message: `Agent '${agentId}' not registered.` },
+            },
+            { command: 'agent work' },
+          );
           process.exitCode = 1;
           return;
         }
@@ -616,26 +735,57 @@ export function registerAgentCommand(program: Command): void {
         await registry.markUsed(agentId);
         const cantPath = join('.cleo', 'agents', `${agentId}.cant`);
         const hasProfile = existsSync(cantPath);
-        const runtime = await createRuntime(registry, { agentId, pollIntervalMs: 5000, heartbeatIntervalMs: 30000 });
+        const runtime = await createRuntime(registry, {
+          agentId,
+          pollIntervalMs: 5000,
+          heartbeatIntervalMs: 30000,
+        });
         runtime.poller.start();
-        cliOutput({ success: true, data: { agentId, mode: 'work-loop', profile: hasProfile ? 'loaded' : 'none', status: 'running' } }, { command: 'agent work' });
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId,
+              mode: 'work-loop',
+              profile: hasProfile ? 'loaded' : 'none',
+              status: 'running',
+            },
+          },
+          { command: 'agent work' },
+        );
         const taskInterval = Number(opts['pollInterval'] ?? 30000);
         const workLoop = setInterval(async () => {
           try {
-            const { stdout: currentRaw } = await execFileAsync('cleo', ['current'], { encoding: 'utf-8', timeout: 10000 });
+            const { stdout: currentRaw } = await execFileAsync('cleo', ['current'], {
+              encoding: 'utf-8',
+              timeout: 10000,
+            });
             if (currentRaw.trim()) return;
-            const { stdout: nextRaw } = await execFileAsync('cleo', ['next'], { encoding: 'utf-8', timeout: 10000 });
+            const { stdout: nextRaw } = await execFileAsync('cleo', ['next'], {
+              encoding: 'utf-8',
+              timeout: 10000,
+            });
             if (nextRaw.trim()) {
               console.log(`[${agentId}] Task available. Run: cleo start <id> to begin.`);
             }
-          } catch { /* non-fatal */ }
+          } catch {
+            /* non-fatal */
+          }
         }, taskInterval);
-        const shutdown = () => { clearInterval(workLoop); runtime.stop(); void registry.update(agentId, { isActive: false }).catch(() => {}); process.exit(0); };
+        const shutdown = () => {
+          clearInterval(workLoop);
+          runtime.stop();
+          void registry.update(agentId, { isActive: false }).catch(() => {});
+          process.exit(0);
+        };
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
         await new Promise(() => {});
       } catch (err) {
-        cliOutput({ success: false, error: { code: 'E_WORK', message: String(err) } }, { command: 'agent work' });
+        cliOutput(
+          { success: false, error: { code: 'E_WORK', message: String(err) } },
+          { command: 'agent work' },
+        );
         process.exitCode = 1;
       }
     });
@@ -649,7 +799,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const filter = opts['active'] ? { active: true } : undefined;
         const agents = await registry.list(filter);
@@ -685,7 +835,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
         if (!credential) {
@@ -731,7 +881,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         await registry.remove(agentId);
         cliOutput({ success: true, data: { agentId, removed: true } }, { command: 'agent remove' });
@@ -752,7 +902,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const result = await registry.rotateKey(agentId);
         cliOutput(
@@ -783,7 +933,7 @@ export function registerAgentCommand(program: Command): void {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
         if (!credential) {
@@ -851,7 +1001,7 @@ export function registerAgentCommand(program: Command): void {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const { createRuntime } = await import('@cleocode/runtime');
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const groupIds = opts['group']
           ? (opts['group'] as string).split(',').map((s) => s.trim())
@@ -928,7 +1078,7 @@ export function registerAgentCommand(program: Command): void {
           '@cleocode/core/internal'
         );
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const agentId = opts['agent'] as string | undefined;
         const conduit = await createConduit(registry, agentId);
@@ -961,7 +1111,7 @@ export function registerAgentCommand(program: Command): void {
           '@cleocode/core/internal'
         );
         const db = await getDb();
-        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const registry = new AgentRegistryAccessor(process.cwd());
 
         const agentId = opts['agent'] as string | undefined;
         const to = opts['to'] as string | undefined;

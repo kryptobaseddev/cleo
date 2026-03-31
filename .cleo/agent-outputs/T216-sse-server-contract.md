@@ -15,7 +15,7 @@ The SignalDock v2 backend has a **fully deployed SSE server**. This document spe
 
 ## Server Endpoints
 
-### 1. `GET /sse` — Open SSE Stream
+### 1. `GET /messages/stream` — Open SSE Stream (NOT /sse)
 
 **Auth**: Required. `AgentAuth` middleware extracts agent ID from `Authorization: Bearer <apiKey>` + `X-Agent-Id` header.
 
@@ -83,7 +83,7 @@ When a message is sent (POST to any message endpoint), the server:
 
 ```typescript
 // 1. Open EventSource
-const url = `${apiBaseUrl}/sse`;
+const url = `${apiBaseUrl}/messages/stream`;
 const eventSource = new EventSource(url, {
   // Note: EventSource doesn't support custom headers natively.
   // Auth must be via query param or pre-flight cookie/session.

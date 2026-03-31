@@ -264,6 +264,18 @@ CREATE INDEX idx_agent_connections_agent ON agent_connections(agent_id);
 CREATE INDEX idx_agent_connections_transport ON agent_connections(transport_type);
 CREATE INDEX idx_agent_connections_heartbeat ON agent_connections(last_heartbeat);`,
   },
+  {
+    name: '2026-03-31-000001_agent_credentials',
+    sql: `-- Move agent credentials into signaldock.db agents table (T234 clean-cut).
+ALTER TABLE agents ADD COLUMN api_key_encrypted TEXT;
+ALTER TABLE agents ADD COLUMN api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io';
+ALTER TABLE agents ADD COLUMN classification TEXT;
+ALTER TABLE agents ADD COLUMN transport_config TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE agents ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE agents ADD COLUMN last_used_at INTEGER;
+CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);
+CREATE INDEX IF NOT EXISTS idx_agents_last_used ON agents(last_used_at);`,
+  },
 ];
 
 /**

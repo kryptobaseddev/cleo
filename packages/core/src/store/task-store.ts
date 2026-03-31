@@ -78,7 +78,14 @@ export async function updateTask(
 
   if (updates.title !== undefined) updateRow.title = updates.title;
   if (updates.description !== undefined) updateRow.description = updates.description;
-  if (updates.status !== undefined) updateRow.status = updates.status;
+  if (updates.status !== undefined) {
+    updateRow.status = updates.status;
+    // Clear stale timestamps when status resets to non-terminal state
+    if (updates.status === 'pending' || updates.status === 'active') {
+      if (updates.cancelledAt === undefined) updateRow.cancelledAt = null;
+      if (updates.completedAt === undefined) updateRow.completedAt = null;
+    }
+  }
   if (updates.priority !== undefined) updateRow.priority = updates.priority;
   if (updates.type !== undefined) updateRow.type = updates.type;
   if (updates.parentId !== undefined) updateRow.parentId = updates.parentId;

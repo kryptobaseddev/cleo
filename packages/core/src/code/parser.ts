@@ -12,7 +12,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import type { BatchParseResult, CodeSymbol, CodeSymbolKind, ParseResult } from '@cleocode/contracts';
+import type {
+  BatchParseResult,
+  CodeSymbol,
+  CodeSymbolKind,
+  ParseResult,
+} from '@cleocode/contracts';
 import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-languages.js';
 
 // ---------------------------------------------------------------------------
@@ -211,13 +216,23 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
   const language = detectLanguage(filePath);
 
   if (!language) {
-    return { filePath: relPath, language: 'unknown', symbols: [], errors: ['Unsupported language'] };
+    return {
+      filePath: relPath,
+      language: 'unknown',
+      symbols: [],
+      errors: ['Unsupported language'],
+    };
   }
 
   const queryKey = queryKeyForLanguage(language);
   const pattern = QUERY_PATTERNS[queryKey];
   if (!pattern) {
-    return { filePath: relPath, language, symbols: [], errors: [`No query pattern for ${language}`] };
+    return {
+      filePath: relPath,
+      language,
+      symbols: [],
+      errors: [`No query pattern for ${language}`],
+    };
   }
 
   const tmpDir = mkdtempSync(join(tmpdir(), 'cleo-ts-'));

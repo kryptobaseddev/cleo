@@ -1,20 +1,3 @@
-CREATE TABLE IF NOT EXISTS `adr_relations` (
-	`from_adr_id` text NOT NULL,
-	`to_adr_id` text NOT NULL,
-	`relation_type` text NOT NULL,
-	CONSTRAINT `adr_relations_pk` PRIMARY KEY(`from_adr_id`, `to_adr_id`, `relation_type`),
-	CONSTRAINT `fk_adr_relations_from_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`from_adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE,
-	CONSTRAINT `fk_adr_relations_to_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`to_adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `adr_task_links` (
-	`adr_id` text NOT NULL,
-	`task_id` text NOT NULL,
-	`link_type` text DEFAULT 'related' NOT NULL,
-	CONSTRAINT `adr_task_links_pk` PRIMARY KEY(`adr_id`, `task_id`),
-	CONSTRAINT `fk_adr_task_links_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE
-);
---> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `architecture_decisions` (
 	`id` text PRIMARY KEY,
 	`title` text NOT NULL,
@@ -34,6 +17,23 @@ CREATE TABLE IF NOT EXISTS `architecture_decisions` (
 	`summary` text,
 	`keywords` text,
 	`topics` text
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `adr_relations` (
+	`from_adr_id` text NOT NULL,
+	`to_adr_id` text NOT NULL,
+	`relation_type` text NOT NULL,
+	CONSTRAINT `adr_relations_pk` PRIMARY KEY(`from_adr_id`, `to_adr_id`, `relation_type`),
+	CONSTRAINT `fk_adr_relations_from_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`from_adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE,
+	CONSTRAINT `fk_adr_relations_to_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`to_adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `adr_task_links` (
+	`adr_id` text NOT NULL,
+	`task_id` text NOT NULL,
+	`link_type` text DEFAULT 'related' NOT NULL,
+	CONSTRAINT `adr_task_links_pk` PRIMARY KEY(`adr_id`, `task_id`),
+	CONSTRAINT `fk_adr_task_links_adr_id_architecture_decisions_id_fk` FOREIGN KEY (`adr_id`) REFERENCES `architecture_decisions`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `audit_log` (
@@ -57,27 +57,130 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
 	`project_hash` text
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `lifecycle_evidence` (
-	`id` text PRIMARY KEY,
-	`stage_id` text NOT NULL,
-	`uri` text NOT NULL,
-	`type` text NOT NULL,
-	`recorded_at` text DEFAULT (datetime('now')) NOT NULL,
-	`recorded_by` text,
-	`description` text,
-	CONSTRAINT `fk_lifecycle_evidence_stage_id_lifecycle_stages_id_fk` FOREIGN KEY (`stage_id`) REFERENCES `lifecycle_stages`(`id`) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS `schema_meta` (
+	`key` text PRIMARY KEY,
+	`value` text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `lifecycle_gate_results` (
+CREATE TABLE IF NOT EXISTS `sessions` (
 	`id` text PRIMARY KEY,
-	`stage_id` text NOT NULL,
-	`gate_name` text NOT NULL,
-	`result` text NOT NULL,
-	`checked_at` text DEFAULT (datetime('now')) NOT NULL,
-	`checked_by` text NOT NULL,
-	`details` text,
+	`name` text NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`scope_json` text DEFAULT '{}' NOT NULL,
+	`current_task` text,
+	`task_started_at` text,
+	`agent` text,
+	`notes_json` text DEFAULT '[]',
+	`tasks_completed_json` text DEFAULT '[]',
+	`tasks_created_json` text DEFAULT '[]',
+	`handoff_json` text,
+	`started_at` text DEFAULT (datetime('now')) NOT NULL,
+	`ended_at` text,
+	`previous_session_id` text,
+	`next_session_id` text,
+	`agent_identifier` text,
+	`handoff_consumed_at` text,
+	`handoff_consumed_by` text,
+	`debrief_json` text,
+	`provider_id` text,
+	`stats_json` text,
+	`resume_count` integer,
+	`grade_mode` integer
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `status_registry` (
+	`name` text NOT NULL,
+	`entity_type` text NOT NULL,
+	`namespace` text NOT NULL,
+	`description` text NOT NULL,
+	`is_terminal` integer DEFAULT false NOT NULL,
+	CONSTRAINT `status_registry_pk` PRIMARY KEY(`name`, `entity_type`)
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tasks` (
+	`id` text PRIMARY KEY,
+	`title` text NOT NULL,
+	`description` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`priority` text DEFAULT 'medium' NOT NULL,
+	`type` text,
+	`parent_id` text,
+	`phase` text,
+	`size` text,
+	`position` integer,
+	`position_version` integer DEFAULT 0,
+	`labels_json` text DEFAULT '[]',
+	`notes_json` text DEFAULT '[]',
+	`acceptance_json` text DEFAULT '[]',
+	`files_json` text DEFAULT '[]',
+	`origin` text,
+	`blocked_by` text,
+	`epic_lifecycle` text,
+	`no_auto_complete` integer,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text,
+	`completed_at` text,
+	`cancelled_at` text,
+	`cancellation_reason` text,
+	`archived_at` text,
+	`archive_reason` text,
+	`cycle_time_days` integer,
+	`verification_json` text,
+	`created_by` text,
+	`modified_by` text,
+	`session_id` text,
+	CONSTRAINT `fk_tasks_parent_id_tasks_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `tasks`(`id`) ON DELETE SET NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `task_dependencies` (
+	`task_id` text NOT NULL,
+	`depends_on` text NOT NULL,
+	CONSTRAINT `task_dependencies_pk` PRIMARY KEY(`task_id`, `depends_on`),
+	CONSTRAINT `fk_task_dependencies_task_id_tasks_id_fk` FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON DELETE CASCADE,
+	CONSTRAINT `fk_task_dependencies_depends_on_tasks_id_fk` FOREIGN KEY (`depends_on`) REFERENCES `tasks`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `task_relations` (
+	`task_id` text NOT NULL,
+	`related_to` text NOT NULL,
+	`relation_type` text DEFAULT 'related' NOT NULL,
 	`reason` text,
-	CONSTRAINT `fk_lifecycle_gate_results_stage_id_lifecycle_stages_id_fk` FOREIGN KEY (`stage_id`) REFERENCES `lifecycle_stages`(`id`) ON DELETE CASCADE
+	CONSTRAINT `task_relations_pk` PRIMARY KEY(`task_id`, `related_to`),
+	CONSTRAINT `fk_task_relations_task_id_tasks_id_fk` FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON DELETE CASCADE,
+	CONSTRAINT `fk_task_relations_related_to_tasks_id_fk` FOREIGN KEY (`related_to`) REFERENCES `tasks`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `task_work_history` (
+	`id` integer PRIMARY KEY AUTOINCREMENT,
+	`session_id` text NOT NULL,
+	`task_id` text NOT NULL,
+	`set_at` text DEFAULT (datetime('now')) NOT NULL,
+	`cleared_at` text,
+	CONSTRAINT `fk_task_work_history_session_id_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `token_usage` (
+	`id` text PRIMARY KEY,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`provider` text DEFAULT 'unknown' NOT NULL,
+	`model` text,
+	`transport` text DEFAULT 'unknown' NOT NULL,
+	`gateway` text,
+	`domain` text,
+	`operation` text,
+	`session_id` text,
+	`task_id` text,
+	`request_id` text,
+	`input_chars` integer DEFAULT 0 NOT NULL,
+	`output_chars` integer DEFAULT 0 NOT NULL,
+	`input_tokens` integer DEFAULT 0 NOT NULL,
+	`output_tokens` integer DEFAULT 0 NOT NULL,
+	`total_tokens` integer DEFAULT 0 NOT NULL,
+	`method` text DEFAULT 'heuristic' NOT NULL,
+	`confidence` text DEFAULT 'coarse' NOT NULL,
+	`request_hash` text,
+	`response_hash` text,
+	`metadata_json` text DEFAULT '{}' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `lifecycle_pipelines` (
@@ -113,6 +216,29 @@ CREATE TABLE IF NOT EXISTS `lifecycle_stages` (
 	`validation_status` text,
 	`provenance_chain_json` text,
 	CONSTRAINT `fk_lifecycle_stages_pipeline_id_lifecycle_pipelines_id_fk` FOREIGN KEY (`pipeline_id`) REFERENCES `lifecycle_pipelines`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `lifecycle_evidence` (
+	`id` text PRIMARY KEY,
+	`stage_id` text NOT NULL,
+	`uri` text NOT NULL,
+	`type` text NOT NULL,
+	`recorded_at` text DEFAULT (datetime('now')) NOT NULL,
+	`recorded_by` text,
+	`description` text,
+	CONSTRAINT `fk_lifecycle_evidence_stage_id_lifecycle_stages_id_fk` FOREIGN KEY (`stage_id`) REFERENCES `lifecycle_stages`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `lifecycle_gate_results` (
+	`id` text PRIMARY KEY,
+	`stage_id` text NOT NULL,
+	`gate_name` text NOT NULL,
+	`result` text NOT NULL,
+	`checked_at` text DEFAULT (datetime('now')) NOT NULL,
+	`checked_by` text NOT NULL,
+	`details` text,
+	`reason` text,
+	CONSTRAINT `fk_lifecycle_gate_results_stage_id_lifecycle_stages_id_fk` FOREIGN KEY (`stage_id`) REFERENCES `lifecycle_stages`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `lifecycle_transitions` (
@@ -182,130 +308,15 @@ CREATE TABLE IF NOT EXISTS `release_manifests` (
 	CONSTRAINT `fk_release_manifests_pipeline_id_lifecycle_pipelines_id_fk` FOREIGN KEY (`pipeline_id`) REFERENCES `lifecycle_pipelines`(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `schema_meta` (
-	`key` text PRIMARY KEY,
-	`value` text NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `sessions` (
+CREATE TABLE IF NOT EXISTS `warp_chains` (
 	`id` text PRIMARY KEY,
 	`name` text NOT NULL,
-	`status` text DEFAULT 'active' NOT NULL,
-	`scope_json` text DEFAULT '{}' NOT NULL,
-	`current_task` text,
-	`task_started_at` text,
-	`agent` text,
-	`notes_json` text DEFAULT '[]',
-	`tasks_completed_json` text DEFAULT '[]',
-	`tasks_created_json` text DEFAULT '[]',
-	`handoff_json` text,
-	`started_at` text DEFAULT (datetime('now')) NOT NULL,
-	`ended_at` text,
-	`previous_session_id` text,
-	`next_session_id` text,
-	`agent_identifier` text,
-	`handoff_consumed_at` text,
-	`handoff_consumed_by` text,
-	`debrief_json` text,
-	`provider_id` text,
-	`stats_json` text,
-	`resume_count` integer,
-	`grade_mode` integer
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `status_registry` (
-	`name` text NOT NULL,
-	`entity_type` text NOT NULL,
-	`namespace` text NOT NULL,
-	`description` text NOT NULL,
-	`is_terminal` integer DEFAULT false NOT NULL,
-	CONSTRAINT `status_registry_pk` PRIMARY KEY(`name`, `entity_type`)
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `task_dependencies` (
-	`task_id` text NOT NULL,
-	`depends_on` text NOT NULL,
-	CONSTRAINT `task_dependencies_pk` PRIMARY KEY(`task_id`, `depends_on`),
-	CONSTRAINT `fk_task_dependencies_task_id_tasks_id_fk` FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON DELETE CASCADE,
-	CONSTRAINT `fk_task_dependencies_depends_on_tasks_id_fk` FOREIGN KEY (`depends_on`) REFERENCES `tasks`(`id`) ON DELETE CASCADE
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `task_relations` (
-	`task_id` text NOT NULL,
-	`related_to` text NOT NULL,
-	`relation_type` text DEFAULT 'related' NOT NULL,
-	`reason` text,
-	CONSTRAINT `task_relations_pk` PRIMARY KEY(`task_id`, `related_to`),
-	CONSTRAINT `fk_task_relations_task_id_tasks_id_fk` FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON DELETE CASCADE,
-	CONSTRAINT `fk_task_relations_related_to_tasks_id_fk` FOREIGN KEY (`related_to`) REFERENCES `tasks`(`id`) ON DELETE CASCADE
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `task_work_history` (
-	`id` integer PRIMARY KEY AUTOINCREMENT,
-	`session_id` text NOT NULL,
-	`task_id` text NOT NULL,
-	`set_at` text DEFAULT (datetime('now')) NOT NULL,
-	`cleared_at` text,
-	CONSTRAINT `fk_task_work_history_session_id_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON DELETE CASCADE
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `tasks` (
-	`id` text PRIMARY KEY,
-	`title` text NOT NULL,
+	`version` text NOT NULL,
 	`description` text,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`priority` text DEFAULT 'medium' NOT NULL,
-	`type` text,
-	`parent_id` text,
-	`phase` text,
-	`size` text,
-	`position` integer,
-	`position_version` integer DEFAULT 0,
-	`labels_json` text DEFAULT '[]',
-	`notes_json` text DEFAULT '[]',
-	`acceptance_json` text DEFAULT '[]',
-	`files_json` text DEFAULT '[]',
-	`origin` text,
-	`blocked_by` text,
-	`epic_lifecycle` text,
-	`no_auto_complete` integer,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text,
-	`completed_at` text,
-	`cancelled_at` text,
-	`cancellation_reason` text,
-	`archived_at` text,
-	`archive_reason` text,
-	`cycle_time_days` integer,
-	`verification_json` text,
-	`created_by` text,
-	`modified_by` text,
-	`session_id` text,
-	CONSTRAINT `fk_tasks_parent_id_tasks_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `tasks`(`id`) ON DELETE SET NULL
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `token_usage` (
-	`id` text PRIMARY KEY,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`provider` text DEFAULT 'unknown' NOT NULL,
-	`model` text,
-	`transport` text DEFAULT 'unknown' NOT NULL,
-	`gateway` text,
-	`domain` text,
-	`operation` text,
-	`session_id` text,
-	`task_id` text,
-	`request_id` text,
-	`input_chars` integer DEFAULT 0 NOT NULL,
-	`output_chars` integer DEFAULT 0 NOT NULL,
-	`input_tokens` integer DEFAULT 0 NOT NULL,
-	`output_tokens` integer DEFAULT 0 NOT NULL,
-	`total_tokens` integer DEFAULT 0 NOT NULL,
-	`method` text DEFAULT 'heuristic' NOT NULL,
-	`confidence` text DEFAULT 'coarse' NOT NULL,
-	`request_hash` text,
-	`response_hash` text,
-	`metadata_json` text DEFAULT '{}' NOT NULL
+	`definition` text NOT NULL,
+	`validated` integer DEFAULT false,
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `warp_chain_instances` (
@@ -320,17 +331,6 @@ CREATE TABLE IF NOT EXISTS `warp_chain_instances` (
 	`created_at` text DEFAULT (datetime('now')),
 	`updated_at` text DEFAULT (datetime('now')),
 	CONSTRAINT `fk_warp_chain_instances_chain_id_warp_chains_id_fk` FOREIGN KEY (`chain_id`) REFERENCES `warp_chains`(`id`)
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `warp_chains` (
-	`id` text PRIMARY KEY,
-	`name` text NOT NULL,
-	`version` text NOT NULL,
-	`description` text,
-	`definition` text NOT NULL,
-	`validated` integer DEFAULT false,
-	`created_at` text DEFAULT (datetime('now')),
-	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_adr_task_links_task_id` ON `adr_task_links` (`task_id`);--> statement-breakpoint

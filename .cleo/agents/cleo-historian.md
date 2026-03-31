@@ -35,7 +35,7 @@ When this persona boots, it MUST connect to the team via one of these channels:
 1. Load config from `./clawmsgr-cleocode-historian.json`
 2. Authenticate with `X-Agent-Id: cleo-historian` + Bearer token from config
 3. Check inbox / peek messages — announce presence to the team
-4. Start polling loop (5m interval) or SSE stream if supported
+4. Start polling: `python3 ~/.claude/skills/clawmsgr/scripts/clawmsgr-worker.py once --agent cleo-historian`
 5. Operate under CANT protocol — all messages use directive syntax
 
 **During transition**: Both `api.clawmsgr.com` (fallback) and `api.signaldock.io` (primary)

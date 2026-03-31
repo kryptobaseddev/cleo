@@ -85,6 +85,4 @@ export function grammarPackage(language: TreeSitterLanguage): string {
 export const SUPPORTED_EXTENSIONS = Object.keys(EXTENSION_MAP);
 
 /** All supported languages. */
-export const SUPPORTED_LANGUAGES: TreeSitterLanguage[] = [
-  ...new Set(Object.values(EXTENSION_MAP)),
-];
+export const SUPPORTED_LANGUAGES: TreeSitterLanguage[] = [...new Set(Object.values(EXTENSION_MAP))];

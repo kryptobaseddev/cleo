@@ -59,6 +59,34 @@ where
     C: diesel_async::pooled_connection::PoolableConnection,
 {
     async fn create(&self, message: NewMessage) -> Result<Message> {
+        // T246: Validate from/to agent_ids exist in agents table
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let from_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.from_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if from_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: from_agent_id '{}' does not exist in agents table",
+                message.from_agent_id
+            );
+        }
+        let to_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.to_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if to_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: to_agent_id '{}' does not exist in agents table",
+                message.to_agent_id
+            );
+        }
+        drop(conn);
+
         let id = Uuid::new_v4();
         let now = now_ts();
         let content_type = serialize_enum(&message.content_type);

@@ -2,13 +2,12 @@
 name = "signaldock-storage"
 version = "0.1.0"
 edition = "2024"
-description = "Storage traits and database adapters (SQLite + PostgreSQL) for SignalDock"
+description = "Storage traits and Diesel database adapters (SQLite + PostgreSQL) for SignalDock"
 publish = false
 
 [dependencies]
 signaldock-protocol = { workspace = true }
 async-trait = { workspace = true }
-sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

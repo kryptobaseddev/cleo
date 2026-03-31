@@ -186,6 +186,20 @@ pub struct AgentRow {
     pub api_key_hash: Option<String>,
     /// FK to the owning organization.
     pub organization_id: Option<String>,
+    /// Transport type: "http", "sse", or "websocket".
+    pub transport_type: String,
+    /// Encrypted API key (AES-256-GCM).
+    pub api_key_encrypted: Option<String>,
+    /// Base URL of the messaging API.
+    pub api_base_url: String,
+    /// Agent classification (e.g. "code_dev", "orchestrator").
+    pub classification: Option<String>,
+    /// JSON transport-specific configuration.
+    pub transport_config: String,
+    /// Whether this agent is currently active.
+    pub is_active: bool,
+    /// Unix timestamp of last use.
+    pub last_used_at: Option<i64>,
     /// Unix timestamp of creation.
     pub created_at: i64,
     /// Unix timestamp of last update.
@@ -238,6 +252,20 @@ pub struct NewAgentRow {
     pub api_key_hash: Option<String>,
     /// FK to organization.
     pub organization_id: Option<String>,
+    /// Transport type.
+    pub transport_type: String,
+    /// Encrypted API key.
+    pub api_key_encrypted: Option<String>,
+    /// API base URL.
+    pub api_base_url: String,
+    /// Agent classification.
+    pub classification: Option<String>,
+    /// Transport config JSON.
+    pub transport_config: String,
+    /// Active flag.
+    pub is_active: bool,
+    /// Last used timestamp.
+    pub last_used_at: Option<i64>,
     /// Creation timestamp.
     pub created_at: i64,
     /// Last update timestamp.
@@ -284,6 +312,20 @@ pub struct UpdateAgentRow {
     pub api_key_hash: Option<Option<String>>,
     /// Updated organization FK.
     pub organization_id: Option<Option<String>>,
+    /// Updated transport type.
+    pub transport_type: Option<String>,
+    /// Updated encrypted API key.
+    pub api_key_encrypted: Option<Option<String>>,
+    /// Updated API base URL.
+    pub api_base_url: Option<String>,
+    /// Updated classification.
+    pub classification: Option<Option<String>>,
+    /// Updated transport config.
+    pub transport_config: Option<String>,
+    /// Updated active flag.
+    pub is_active: Option<bool>,
+    /// Updated last used timestamp.
+    pub last_used_at: Option<Option<i64>>,
     /// Updated timestamp.
     pub updated_at: Option<i64>,
 }

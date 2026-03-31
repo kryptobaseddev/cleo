@@ -15,7 +15,7 @@ import { LocalTransport } from './local-transport.js';
 import { SseTransport } from './sse-transport.js';
 
 /** Resolve the best available transport for a credential. */
-function resolveTransport(credential: AgentCredential): Transport {
+export function resolveTransport(credential: AgentCredential): Transport {
   // Priority: Local (SQLite) > WebSocket > SSE > HTTP polling
   if (LocalTransport.isAvailable()) {
     return new LocalTransport();

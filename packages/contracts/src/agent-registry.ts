@@ -49,6 +49,8 @@ export interface AgentCredential {
   capabilities: string[];
   /** Agent skills (e.g. ['coding', 'review', 'testing']). */
   skills: string[];
+  /** Transport type for agent connections. */
+  transportType: 'http' | 'sse' | 'websocket';
   /** Transport-specific configuration. */
   transportConfig: TransportConfig;
   /** Whether this agent is currently active. */

@@ -43,9 +43,9 @@ export {
   installMcpToProviders,
   installSkillsGlobally,
 } from './bootstrap.js';
+export { smartOutline } from './code/outline.js';
 // Code analysis (Smart Explore)
 export { batchParse, parseFile } from './code/parser.js';
-export { smartOutline } from './code/outline.js';
 export { smartSearch } from './code/search.js';
 export { smartUnfold } from './code/unfold.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
@@ -811,4 +811,3 @@ export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
 export { AgentRegistryAccessor } from './store/agent-registry-accessor.js';
-export { agentCredentials } from './store/tasks-schema.js';

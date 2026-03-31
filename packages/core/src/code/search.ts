@@ -41,13 +41,20 @@ export interface SmartSearchOptions {
  * Respects common ignore patterns (node_modules, dist, .git, etc.)
  * and optionally filters by file pattern and language.
  */
-function collectSourceFiles(
-  dir: string,
-  options: SmartSearchOptions,
-): string[] {
+function collectSourceFiles(dir: string, options: SmartSearchOptions): string[] {
   const IGNORE_DIRS = new Set([
-    'node_modules', 'dist', '.git', '.cleo', 'target', '__pycache__',
-    '.next', '.nuxt', 'build', 'coverage', '.turbo', '.cache',
+    'node_modules',
+    'dist',
+    '.git',
+    '.cleo',
+    'target',
+    '__pycache__',
+    '.next',
+    '.nuxt',
+    'build',
+    'coverage',
+    '.turbo',
+    '.cache',
   ]);
 
   const files: string[] = [];
@@ -55,7 +62,11 @@ function collectSourceFiles(
   function walk(currentDir: string): void {
     let entries: { isDirectory(): boolean; isFile(): boolean; name: string }[];
     try {
-      entries = readdirSync(currentDir, { withFileTypes: true, encoding: 'utf-8' }) as { isDirectory(): boolean; isFile(): boolean; name: string }[];
+      entries = readdirSync(currentDir, { withFileTypes: true, encoding: 'utf-8' }) as {
+        isDirectory(): boolean;
+        isFile(): boolean;
+        name: string;
+      }[];
     } catch {
       return;
     }
@@ -99,7 +110,10 @@ function collectSourceFiles(
  * Scoring: exact name match (10) > substring in name (5) >
  * path match (3) > fuzzy (1).
  */
-function scoreSymbol(symbol: CodeSymbol, query: string): { score: number; matchType: SmartSearchResult['matchType'] } {
+function scoreSymbol(
+  symbol: CodeSymbol,
+  query: string,
+): { score: number; matchType: SmartSearchResult['matchType'] } {
   const q = query.toLowerCase();
   const name = symbol.name.toLowerCase();
   const path = symbol.filePath.toLowerCase();

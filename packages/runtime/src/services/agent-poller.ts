@@ -8,7 +8,7 @@
  * @task T183
  */
 
-import type { ConduitMessage } from '@cleocode/contracts';
+import type { ConduitMessage, Transport } from '@cleocode/contracts';
 
 /** Message handler callback. */
 export type MessageHandler = (message: ConduitMessage) => void;
@@ -27,6 +27,12 @@ export interface AgentPollerConfig {
   groupConversationIds?: string[];
   /** Max messages to fetch per group conversation poll. Default: 15. */
   groupPollLimit?: number;
+  /**
+   * Transport instance for polling messages.
+   * When provided, poll() delegates to transport.poll() instead of raw HTTP.
+   * The transport must already be connected before passing to AgentPoller.
+   */
+  transport?: Transport;
 }
 
 /** Tracks seen message IDs for dedup. */
@@ -132,8 +138,13 @@ export class AgentPoller {
     }
   }
 
-  /** Peek for messages mentioning this agent. */
+  /** Peek for messages mentioning this agent. Delegates to transport when available. */
   private async peekMessages(): Promise<ConduitMessage[]> {
+    if (this.config.transport) {
+      return this.config.transport.poll({ limit: 50 });
+    }
+
+    // Fallback: raw HTTP when no transport injected
     const params = new URLSearchParams();
     params.set('mentioned', this.config.agentId);
     params.set('limit', '50');

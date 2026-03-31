@@ -45,7 +45,7 @@ CLEO uses **4 databases** — 3 per-project and 1 global. TypeScript databases (
 | `externalTaskLinks` | Links to external systems (GitHub issues, etc.) |
 | `statusRegistryTable` | Task status registry |
 | `agentInstances` | Which agents work on which tasks in this project |
-| `agent_credentials` | **NEW** — encrypted API keys + agent profiles (see Unified Agent Registry spec) |
+| `agent_credentials` | Encrypted API keys + transport config — LOCAL CACHE of signaldock.db agent identity (see T234) |
 | `schema_meta` | Schema version tracking |
 
 ### 2. `brain.db` — Knowledge & Memory
@@ -78,31 +78,33 @@ CLEO uses **4 databases** — 3 per-project and 1 global. TypeScript databases (
 All tables are managed by a single ORM (Diesel) with compile-time query verification:
 
 ```
-signaldock.db (Diesel — single ORM, dual backend)
-├── Core messaging
-│   ├── agents (agent identity, API key hash, payment config, organization)
+signaldock.db (Diesel ORM — sole Rust ORM, dual backend)
+├── Agent identity (SSoT — all agent data flows FROM here)
+│   ├── agents (identity, transport_type, API key hash, payment config, organization)
+│   ├── agent_connections (SSE/WebSocket lifecycle, heartbeat tracking)
+│   ├── agent_capabilities, agent_skills (junction tables — SSoT for capabilities/skills)
+│   ├── capabilities, skills (codified registry — 19 capabilities, 35 skills seeded)
+│   ├── claim_codes (ownership transfer codes)
+│   └── connections (agent-to-agent friendships)
+├── Messaging
 │   ├── conversations (agent-to-agent threads)
 │   ├── messages (content, metadata, @mentions, threading, attachments)
-│   └── messages_fts (FTS5 virtual table — SQLite only, Postgres uses tsvector)
+│   ├── messages_fts (FTS5 virtual table — SQLite only, Postgres uses tsvector)
+│   ├── message_pins (bookmarked messages)
+│   └── attachments (llmtxt compressed content blobs)
 ├── Reliable delivery
 │   ├── delivery_jobs (retry queue with backoff)
 │   └── dead_letters (failed delivery archive)
-├── Agent registry
-│   ├── capabilities, skills (codified metadata — 19 capabilities, 35 skills)
-│   ├── agent_capabilities, agent_skills (junction tables)
-│   └── claim_codes, connections (ownership + presence)
 ├── Auth (via better-auth-diesel, same DB)
 │   ├── users (full better-auth schema: role, banned, email_verified, 2FA, metadata, slug)
 │   ├── accounts (OAuth provider links + email/password)
 │   ├── sessions (auth session tokens)
 │   └── verifications (email/2FA verification tokens)
-├── Organization
-│   ├── organization (name, slug, logo, metadata)
-│   ├── org_agent_keys (fleet API key management)
-│   └── member, invitation (org membership + invites)
-├── Features
-│   ├── message_pins (bookmarked messages)
-│   └── attachments (llmtxt compressed content blobs)
+└── Organization
+    ├── organization (name, slug, logo, metadata)
+    └── org_agent_keys (fleet API key management)
+    NOTE: member + invitation tables referenced in prior spec versions do NOT exist.
+    They were planned but never implemented. Will be added when org membership is built.
 ```
 
 **Why Diesel (not sqlx)?**
@@ -137,6 +139,10 @@ signaldock.db (Diesel — single ORM, dual backend)
 | 0015 | users.*(10 columns), `accounts`, `sessions`, `verifications` | better-auth compatibility (email_verified, role, banned, 2FA, etc.) |
 | 0016 | agents.`organization_id`, `org_agent_keys` | Organization fleet management |
 | 0017 | `organization` | Organization table (FK target for 0016) |
+| 0018 | `attachment_versions`, `attachment_approvals`, `attachment_contributors` | Collaborative document versioning |
+| 0019 | users.`slug`, organization.`slug` | Better-auth slug columns |
+| 2026-03-28-000000 | (consolidated initial) | All 19 sqlx migrations merged into single Diesel migration |
+| 2026-03-30-000001 | agents.`transport_type`, `agent_connections` | SSE/WebSocket transport tracking + connection lifecycle |
 
 #### better-auth Plugins (operating on same DB)
 
@@ -193,34 +199,44 @@ Both SDKs share the same Diesel-backed storage layer, ensuring identical behavio
 ## Database Relationships
 
 ```
-tasks.db (Drizzle)                brain.db (Drizzle + sqlite-vec)
-┌──────────────────┐             ┌──────────────────┐
-│ tasks            │ ←soft FK── │ brainObservations │
-│ sessions         │             │ brainDecisions   │
-│ agentInstances   │             │ brainPatterns    │
-│ agent_credentials│             │ brainLearnings   │
-│ (encrypted keys) │             └──────────────────┘
-└──────┬───────────┘
-       │ agent_credentials.agentId = agents.agent_id
-       │
-signaldock.db (Diesel ORM)       nexus.db (Drizzle, GLOBAL)
-┌──────────────────┐             ┌──────────────────┐
-│ agents           │             │ projectRegistry  │
-│ users + accounts │ (Diesel)    │ nexusAuditLog   │
-│ sessions (auth)  │             │ warpChains       │
-│ messages         │             └──────────────────┘
-│ conversations    │
-│ delivery_jobs    │
-│ capabilities     │
-│ skills           │
-│ message_pins     │
-│ attachments      │
-│ organization     │
-│ messages_fts     │ (FTS5)
-└──────────────────┘
+                    signaldock.db (Diesel ORM) — AGENT SSoT
+                    ┌──────────────────────────┐
+                    │ agents (identity SSoT)    │
+                    │ agent_connections         │
+                    │ agent_capabilities/skills │
+                    │ conversations, messages   │
+                    │ delivery_jobs, dead_ltrs  │
+                    │ users, accounts, sessions │
+                    │ organization              │
+                    │ attachments, message_pins │
+                    │ messages_fts (FTS5)       │
+                    └─────────┬────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │ soft FK       │ soft FK       │
+              ▼               ▼               ▼
+tasks.db (Drizzle)    brain.db (Drizzle)   nexus.db (GLOBAL)
+┌─────────────────┐   ┌────────────────┐   ┌────────────────┐
+│ tasks           │   │ observations   │   │ projectRegistry│
+│ sessions        │   │ decisions      │   │ nexusAuditLog  │
+│ agentInstances  │──▶│ patterns       │   │ warpChains     │
+│ agent_credentials│  │ learnings      │   └────────────────┘
+│ (encrypted keys │   │ memory_links   │
+│  + transport —  │   └────────────────┘
+│  CACHE of       │
+│  signaldock.db) │
+│ lifecycle       │
+│ audit_log       │
+└─────────────────┘
+
+Data flow: signaldock.db → tasks.db (credential cache) → brain.db (soft refs)
+Registration: cleo agent register → signaldock.db (SSoT) → tasks.db (cache)
+Runtime: cleo agent start → TransportFactory → Local or HTTP Transport
 ```
 
-**Cross-database relationships are soft FKs** (text IDs, no enforced foreign keys across database files). This is by design — each database can be backed up, restored, or migrated independently without breaking referential integrity in other databases.
+**Cross-database relationships are soft FKs** (text IDs, no enforced foreign keys across database files). Application-layer write-guards (T185, T238) validate cross-DB references before insert. `reconcileOrphanedRefs()` cleans stale references during brain maintenance.
+
+**SSoT Rule**: signaldock.db `agents` table is the single source of truth for agent identity. `tasks.db.agent_credentials` is a LOCAL CACHE of encrypted credentials — it MUST NOT be the primary registration target. `cleo agent register` writes to signaldock.db FIRST, then caches credentials locally.
 
 ---
 
@@ -234,7 +250,7 @@ signaldock.db (Diesel ORM)       nexus.db (Drizzle, GLOBAL)
 /path/to/project/.cleo/          ← PROJECT-LEVEL
 ├── tasks.db                     ← Tasks, sessions, lifecycle, ADRs, credentials
 ├── brain.db                     ← Knowledge: decisions, patterns, observations
-├── signaldock.db                ← Agent messaging (sqlx + Diesel dual-ORM)
+├── signaldock.db                ← Agent identity + messaging (Diesel ORM)
 └── config.json                  ← Project configuration
 ```
 

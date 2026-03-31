@@ -829,12 +829,12 @@ export async function systemMetrics(
  * System health check: verify core data files exist and are valid.
  * @task T4631
  */
-export function systemHealth(
+export async function systemHealth(
   projectRoot: string,
   params?: { detailed?: boolean },
-): EngineResult<import('@cleocode/core/internal').HealthResult> {
+): Promise<EngineResult<import('@cleocode/core/internal').HealthResult>> {
   try {
-    const result = getSystemHealth(projectRoot, params);
+    const result = await getSystemHealth(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);

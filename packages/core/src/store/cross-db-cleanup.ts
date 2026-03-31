@@ -266,7 +266,9 @@ export async function reconcileOrphanedRefs(cwd?: string): Promise<{
 
     for (const o of obsWithSessionRef) {
       {
-        const exists = o.sourceSessionId ? await sessionExistsInTasksDb(o.sourceSessionId, tasksDb) : false;
+        const exists = o.sourceSessionId
+          ? await sessionExistsInTasksDb(o.sourceSessionId, tasksDb)
+          : false;
         if (!exists) {
           await brainDb
             .update(brainSchema.brainObservations)
@@ -323,4 +325,42 @@ export async function sessionExistsInTasksDb(
     .where(eqOp(sessions.id, sessionId))
     .all();
   return result.length > 0;
+}
+
+/**
+ * Verify an agent exists in signaldock.db before creating cross-DB references.
+ * Returns true if the agent_id exists in signaldock.db agents table.
+ *
+ * Provides write-guard for agent_instances and agent_error_log in tasks.db
+ * that reference agents whose identity lives in signaldock.db.
+ *
+ * @param agentId - Agent slug (e.g. 'cleo-db-lead') to verify
+ * @param cwd - Optional working directory
+ * @returns True if the agent exists in signaldock.db
+ *
+ * @task T238
+ */
+export async function agentExistsInSignaldockDb(agentId: string, cwd?: string): Promise<boolean> {
+  try {
+    const { getSignaldockDbPath } = await import('./signaldock-sqlite.js');
+    const { existsSync } = await import('node:fs');
+    const dbPath = getSignaldockDbPath(cwd);
+    if (!existsSync(dbPath)) return false;
+
+    const { createRequire } = await import('node:module');
+    const _require = createRequire(import.meta.url);
+    const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    try {
+      const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
+        | { id: string }
+        | undefined;
+      return !!row;
+    } finally {
+      db.close();
+    }
+  } catch {
+    // signaldock.db may not exist yet — non-fatal
+    return false;
+  }
 }

@@ -10,6 +10,7 @@
 //! See [ADR-002: Storage Abstraction](../../../docs/dev/adr/002-storage-abstraction.md).
 
 mod agent;
+mod agent_connection;
 mod claim;
 mod connection;
 mod conversation;
@@ -18,6 +19,7 @@ mod message;
 mod user;
 
 pub use agent::AgentRepository;
+pub use agent_connection::{AgentConnection, AgentConnectionRepository};
 pub use claim::ClaimRepository;
 pub use connection::ConnectionRepository;
 pub use conversation::ConversationRepository;

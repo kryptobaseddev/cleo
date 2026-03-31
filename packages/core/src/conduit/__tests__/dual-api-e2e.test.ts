@@ -12,9 +12,9 @@
  * @task T226
  */
 
-import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { HttpTransport } from '../http-transport.js';
 
 // ============================================================================
@@ -25,7 +25,9 @@ const CLEO_DIR = join(process.cwd(), '.cleo');
 const SKIP_E2E = process.env['SKIP_E2E'] === '1';
 
 /** Load a ClawMsgr/SignalDock config file. */
-function loadConfig(filename: string): { agentId: string; apiKey: string; apiBaseUrl: string } | null {
+function loadConfig(
+  filename: string,
+): { agentId: string; apiKey: string; apiBaseUrl: string } | null {
   const path = join(CLEO_DIR, filename);
   if (!existsSync(path)) return null;
   try {

@@ -4,7 +4,7 @@
  * @module code
  */
 
-export { smartOutline, type OutlineNode, type SmartOutlineResult } from './outline.js';
+export { type OutlineNode, type SmartOutlineResult, smartOutline } from './outline.js';
 export { batchParse, parseFile } from './parser.js';
-export { smartSearch, type SmartSearchOptions, type SmartSearchResult } from './search.js';
-export { smartUnfold, type SmartUnfoldResult } from './unfold.js';
+export { type SmartSearchOptions, type SmartSearchResult, smartSearch } from './search.js';
+export { type SmartUnfoldResult, smartUnfold } from './unfold.js';

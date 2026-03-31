@@ -205,6 +205,13 @@ where
                 .transpose()?,
             api_key_hash: None,
             organization_id: None,
+            transport_type: "http".to_string(),
+            api_key_encrypted: None,
+            api_base_url: "https://api.signaldock.io".to_string(),
+            classification: None,
+            transport_config: "{}".to_string(),
+            is_active: true,
+            last_used_at: Some(now),
             created_at: now,
             updated_at: now,
         };
@@ -364,6 +371,101 @@ where
             .await
             .map_err(diesel_err)?;
         Ok(())
+    }
+}
+
+// ============================================================================
+// Platform count queries (T220 migration support)
+// ============================================================================
+
+impl<C> DieselStore<C>
+where
+    C: AsyncConnection + 'static,
+    C: diesel_async::AsyncConnection<Backend = diesel::sqlite::Sqlite>,
+    C: diesel_async::pooled_connection::PoolableConnection,
+{
+    /// Count all rows in the agents table.
+    pub async fn count_agents(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        agents::table
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count agents claimed by a user (owner_id IS NOT NULL).
+    pub async fn count_claimed_agents(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        agents::table
+            .filter(agents::owner_id.is_not_null())
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count agents active within a time window (last_seen > cutoff).
+    pub async fn count_active_agents(&self, cutoff_epoch: i64) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        agents::table
+            .filter(agents::last_seen.gt(cutoff_epoch))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count all rows in the messages table.
+    pub async fn count_messages(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        messages::table
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count all rows in the conversations table.
+    pub async fn count_conversations(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        conversations::table
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count conversations with a specific visibility.
+    pub async fn count_conversations_by_visibility(&self, visibility: &str) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        conversations::table
+            .filter(conversations::visibility.eq(visibility))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count all rows in the users table.
+    pub async fn count_users(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        users::table
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
+    }
+
+    /// Count online agents (status = 'online').
+    pub async fn count_online_agents(&self) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        agents::table
+            .filter(agents::status.eq("online"))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)
     }
 }
 

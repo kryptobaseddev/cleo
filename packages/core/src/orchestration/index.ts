@@ -20,6 +20,7 @@ export {
 } from './analyze.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
+export { OrchestrationHierarchyImpl } from './hierarchy.js';
 export type {
   EpicStatus,
   OverallStatus,
@@ -27,7 +28,6 @@ export type {
   StartupSummary,
   StatusCounts,
 } from './status.js';
-export { OrchestrationHierarchyImpl } from './hierarchy.js';
 export {
   computeEpicStatus,
   computeOverallStatus,

@@ -6,13 +6,6 @@
  * Implementation packages (@cleocode/core, @cleocode/cleo) import from here.
  */
 
-// === Code Symbol Types (tree-sitter AST) ===
-export type {
-  BatchParseResult,
-  CodeSymbol,
-  CodeSymbolKind,
-  ParseResult,
-} from './code-symbol.js';
 // === Provider Adapter Contracts ===
 export type { AdapterHealthStatus, CLEOProviderAdapter } from './adapter.js';
 // === Agent Registry (credential management) ===
@@ -47,6 +40,13 @@ export type {
   SupersededEntry,
 } from './brain.js';
 export type { AdapterCapabilities } from './capabilities.js';
+// === Code Symbol Types (tree-sitter AST) ===
+export type {
+  BatchParseResult,
+  CodeSymbol,
+  CodeSymbolKind,
+  ParseResult,
+} from './code-symbol.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
   Conduit,
@@ -199,11 +199,11 @@ export * as ops from './operations/index.js';
 export type { BrainState } from './operations/orchestrate.js';
 // === Orchestration Hierarchy ===
 export {
-  OrchestrationLevel,
   type AgentHierarchy,
   type AgentHierarchyEntry,
   type EscalationChain,
   type OrchestrationHierarchyAPI,
+  OrchestrationLevel,
 } from './orchestration-hierarchy.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===

@@ -53,7 +53,12 @@ export interface SmartOutlineResult {
  * opening brace or colon (for Python). This gives context without
  * the full implementation body.
  */
-function extractSignature(lines: string[], startLine: number, endLine: number, language: string): string {
+function extractSignature(
+  lines: string[],
+  startLine: number,
+  endLine: number,
+  language: string,
+): string {
   const start = Math.max(0, startLine - 1); // 1-based to 0-based
   const end = Math.min(lines.length, endLine);
 
@@ -102,7 +107,12 @@ function buildTree(symbols: CodeSymbol[], lines: string[], language: string): Ou
       children: [],
     };
 
-    if (sym.kind === 'class' || sym.kind === 'struct' || sym.kind === 'impl' || sym.kind === 'trait') {
+    if (
+      sym.kind === 'class' ||
+      sym.kind === 'struct' ||
+      sym.kind === 'impl' ||
+      sym.kind === 'trait'
+    ) {
       classNodes.set(sym.name, node);
       nodes.push(node);
     } else if (sym.kind === 'method' && sym.parent) {

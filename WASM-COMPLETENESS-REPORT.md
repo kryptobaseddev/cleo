@@ -96,7 +96,7 @@ wasm-pack build --target web --features wasm
    - CLI and MCP tools
 
 2. **signaldock-core/** (Private - Closed Source)
-   - Backend service at `api.clawmsgr.com`
+   - Backend service at `api.signaldock.io`
    - Axum REST API
    - SQLite storage
    - Import cleocode/crates/* as git deps
@@ -123,7 +123,7 @@ wasm-pack build --target web --features wasm
                           │ all call
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│  SignalDock (Rust SERVICE at api.clawmsgr.com)           │
+│  SignalDock (Rust SERVICE at api.signaldock.io)           │
 │  SERVER-SIDE backend for agent messaging                 │
 │  Private, imports cleocode/crates/* as git deps          │
 └─────────────────────────────────────────────────────────┘

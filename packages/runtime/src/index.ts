@@ -7,7 +7,10 @@
  * @module runtime
  */
 
-import type { AgentRegistryAPI } from '@cleocode/contracts';
+import type { AgentRegistryAPI, Transport } from '@cleocode/contracts';
+import { conduit } from '@cleocode/core';
+
+const { resolveTransport } = conduit;
 import type { AgentPollerConfig } from './services/agent-poller.js';
 import { AgentPoller } from './services/agent-poller.js';
 import { HeartbeatService } from './services/heartbeat.js';
@@ -41,6 +44,11 @@ export interface RuntimeConfig {
   sseEndpoint?: string;
   /** Transport factory for SSE connection. Caller provides to avoid circular deps. */
   createSseTransport?: () => import('@cleocode/contracts').Transport;
+  /**
+   * Pre-created transport instance. When provided, bypasses auto-resolution.
+   * The transport must NOT be connected yet — createRuntime handles connection.
+   */
+  transport?: Transport;
 }
 
 /** Handle returned by createRuntime(). */
@@ -53,6 +61,8 @@ export interface RuntimeHandle {
   keyRotation: KeyRotationService | null;
   /** The SseConnectionService instance (null if no SSE endpoint). */
   sseConnection: SseConnectionService | null;
+  /** The resolved transport (local, sse, or http). */
+  transport: Transport;
   /** The agent ID the runtime is running as. */
   agentId: string;
   /** Stop all runtime services and clean up. */
@@ -83,6 +93,15 @@ export async function createRuntime(
     );
   }
 
+  // Resolve transport: caller-provided > auto-detected (Local > SSE > HTTP)
+  const transport = config?.transport ?? resolveTransport(credential);
+  await transport.connect({
+    agentId: credential.agentId,
+    apiKey: credential.apiKey,
+    apiBaseUrl: credential.apiBaseUrl,
+    ...credential.transportConfig,
+  });
+
   const pollerConfig: AgentPollerConfig = {
     agentId: credential.agentId,
     apiKey: credential.apiKey,
@@ -90,6 +109,7 @@ export async function createRuntime(
     pollIntervalMs: config?.pollIntervalMs ?? credential.transportConfig.pollIntervalMs ?? 5000,
     groupConversationIds: config?.groupConversationIds,
     groupPollLimit: config?.groupPollLimit,
+    transport,
   };
 
   const poller = new AgentPoller(pollerConfig);
@@ -137,12 +157,14 @@ export async function createRuntime(
     heartbeat,
     keyRotation,
     sseConnection,
+    transport,
     agentId: credential.agentId,
     stop: () => {
       poller.stop();
       heartbeat?.stop();
       keyRotation?.stop();
       void sseConnection?.stop();
+      void transport.disconnect();
     },
   };
 }

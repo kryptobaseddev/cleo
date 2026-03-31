@@ -8,10 +8,10 @@
  * @task T227
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureSignaldockDb, getSignaldockDbPath } from '../../store/signaldock-sqlite.js';
 import { LocalTransport } from '../local-transport.js';
 
@@ -132,7 +132,10 @@ describe('Local Credential Flow E2E', () => {
       });
 
       // 3. Agent 1 sends a message to Agent 2
-      const sendResult = await agent1.push('cleo-dev', '/action @cleo-dev #test Hello from rust-lead');
+      const sendResult = await agent1.push(
+        'cleo-dev',
+        '/action @cleo-dev #test Hello from rust-lead',
+      );
       expect(sendResult.messageId).toBeDefined();
 
       // 4. Agent 2 polls and receives the message
@@ -198,7 +201,11 @@ describe('Local Credential Flow E2E', () => {
       const dbLead = new LocalTransport();
 
       await prime.connect({ agentId: 'prime', apiKey: 'sk1', apiBaseUrl: 'http://localhost' });
-      await rustLead.connect({ agentId: 'rust-lead', apiKey: 'sk2', apiBaseUrl: 'http://localhost' });
+      await rustLead.connect({
+        agentId: 'rust-lead',
+        apiKey: 'sk2',
+        apiBaseUrl: 'http://localhost',
+      });
       await dbLead.connect({ agentId: 'db-lead', apiKey: 'sk3', apiBaseUrl: 'http://localhost' });
 
       // Prime sends to rust-lead

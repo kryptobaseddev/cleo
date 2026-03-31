@@ -8,12 +8,12 @@
  * @task T213
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LocalTransport } from '../local-transport.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureSignaldockDb } from '../../store/signaldock-sqlite.js';
+import { LocalTransport } from '../local-transport.js';
 
 // ============================================================================
 // Test helpers
@@ -24,7 +24,10 @@ let originalCwd: string;
 
 /** Create a temporary directory with a valid signaldock.db for testing. */
 async function setupTestDb(): Promise<string> {
-  const dir = join(tmpdir(), `local-transport-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `local-transport-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(join(dir, '.cleo'), { recursive: true });
   await ensureSignaldockDb(dir);
   return dir;

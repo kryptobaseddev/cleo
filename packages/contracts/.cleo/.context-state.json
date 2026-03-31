@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-29T05:02:22Z",
+  "staleAfterMs": 5000,
+  "contextWindow": {
+    "maxTokens": 1000000,
+    "currentTokens": 553059,
+    "percentage": 55
+  },
+  "status": "ok",
+  "sessionId": "",
+  "workspace": "/mnt/projects/cleocode/packages/contracts"
+}

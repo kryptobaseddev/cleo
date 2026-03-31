@@ -1,32 +1,30 @@
-//! Repository trait abstraction and database adapters for
+//! Repository trait abstraction and Diesel database adapters for
 //! `SignalDock`.
 //!
 //! This crate defines storage-agnostic repository traits
-//! ([`traits`]) and concrete adapter implementations for
-//! `SQLite` (`adapters::sqlite`) and `PostgreSQL`
-//! (`adapters::postgres`).
+//! ([`traits`]) and a unified Diesel adapter that supports both
+//! `SQLite` and `PostgreSQL` backends via `diesel-async`.
 //!
 //! # Feature flags
 //!
 //! | Flag | Enables |
 //! |------|---------|
-//! | `sqlite` | [`SqliteStore`] adapter and `SQLite` migrations |
-//! | `postgres` | `PostgresStore` adapter and `PostgreSQL` migrations |
+//! | `sqlite` | SQLite backend via Diesel |
+//! | `postgres` | PostgreSQL backend via Diesel |
 //!
 //! # Modules
 //!
 //! - [`types`] — Pagination, query filters, and stats deltas.
 //! - [`traits`] — Repository trait definitions.
-//! - [`adapters`] — Database-specific implementations.
+//! - [`adapters`] — Diesel adapter implementations.
 //!
 //! # Design
 //!
 //! Repository trait abstraction defined in
 //! [ADR-002: Storage Abstraction](../../docs/dev/adr/002-storage-abstraction.md).
-//! Dynamic query rationale in
-//! [ADR-003: Dynamic sqlx Queries](../../docs/dev/adr/003-dynamic-sqlx-queries.md).
+//! Diesel is the sole Rust ORM (enforcement rule #4, T229).
 
-/// Database-specific adapter implementations (SQLite, PostgreSQL).
+/// Diesel database adapter implementations.
 pub mod adapters;
 /// Diesel model structs (Row, NewRow, UpdateRow) for all domain tables.
 pub mod models;
@@ -37,8 +35,4 @@ pub mod traits;
 /// Pagination, query filters, and stats delta types.
 pub mod types;
 
-#[cfg(feature = "sqlite")]
-pub use adapters::sqlite::SqliteStore;
-
-#[cfg(feature = "postgres")]
-pub use adapters::postgres::PostgresStore;
+pub use adapters::diesel_store::DieselStore;

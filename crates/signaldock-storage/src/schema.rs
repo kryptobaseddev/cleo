@@ -69,8 +69,29 @@ diesel::table! {
         payment_config -> Nullable<Text>,
         api_key_hash -> Nullable<Text>,
         organization_id -> Nullable<Text>,
+        transport_type -> Text,
+        api_key_encrypted -> Nullable<Text>,
+        api_base_url -> Text,
+        classification -> Nullable<Text>,
+        transport_config -> Text,
+        is_active -> Bool,
+        last_used_at -> Nullable<BigInt>,
         created_at -> BigInt,
         updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    /// Active agent connections for SSE/WebSocket heartbeat and stale detection.
+    agent_connections (id) {
+        id -> Text,
+        agent_id -> Text,
+        transport_type -> Text,
+        connection_id -> Nullable<Text>,
+        connected_at -> BigInt,
+        last_heartbeat -> BigInt,
+        connection_metadata -> Nullable<Text>,
+        created_at -> BigInt,
     }
 }
 
@@ -347,6 +368,7 @@ diesel::table! {
 // Foreign key relationships (joinable! macros)
 // ============================================================================
 
+diesel::joinable!(agent_connections -> agents (agent_id));
 diesel::joinable!(agents -> users (owner_id));
 diesel::joinable!(agents -> organization (organization_id));
 diesel::joinable!(messages -> conversations (conversation_id));
@@ -372,6 +394,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     users,
     organization,
     agents,
+    agent_connections,
     conversations,
     messages,
     claim_codes,

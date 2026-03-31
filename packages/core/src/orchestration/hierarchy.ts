@@ -30,7 +30,7 @@ import { OrchestrationLevel } from '@cleocode/contracts';
  */
 function buildDefaultHierarchy(): AgentHierarchy {
   const agents: Record<string, AgentHierarchyEntry> = {
-    'owner': {
+    owner: {
       agentId: 'owner',
       displayName: 'Owner (HITL)',
       level: OrchestrationLevel.HITL,

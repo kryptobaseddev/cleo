@@ -79,7 +79,10 @@ function findLeadingDocStart(lines: string[], symbolStartLine: number, language:
   }
   // Line comments: /// (Rust) or // (TS/JS decorators less common)
   else if (line.startsWith('///') || line.startsWith('//!')) {
-    while (i >= 0 && (lines[i]!.trimStart().startsWith('///') || lines[i]!.trimStart().startsWith('//!'))) {
+    while (
+      i >= 0 &&
+      (lines[i]!.trimStart().startsWith('///') || lines[i]!.trimStart().startsWith('//!'))
+    ) {
       docStart = i + 1;
       i--;
     }
@@ -133,7 +136,10 @@ export function smartUnfold(
   // Parse the file
   const parseResult = parseFile(filePath, root);
   if (parseResult.symbols.length === 0) {
-    return { ...empty, errors: parseResult.errors.length > 0 ? parseResult.errors : ['No symbols found'] };
+    return {
+      ...empty,
+      errors: parseResult.errors.length > 0 ? parseResult.errors : ['No symbols found'],
+    };
   }
 
   // Find the matching symbol
@@ -144,14 +150,13 @@ export function smartUnfold(
     // Nested: "Class.method" — find method with matching parent range
     const [parentName, childName] = parts;
     const parent = parseResult.symbols.find(
-      (s) => s.name === parentName && (s.kind === 'class' || s.kind === 'struct' || s.kind === 'impl'),
+      (s) =>
+        s.name === parentName && (s.kind === 'class' || s.kind === 'struct' || s.kind === 'impl'),
     );
     if (parent) {
       match = parseResult.symbols.find(
         (s) =>
-          s.name === childName &&
-          s.startLine >= parent.startLine &&
-          s.endLine <= parent.endLine,
+          s.name === childName && s.startLine >= parent.startLine && s.endLine <= parent.endLine,
       );
     }
   } else {
@@ -171,7 +176,10 @@ export function smartUnfold(
   try {
     lines = readFileSync(filePath, 'utf-8').split('\n');
   } catch (err) {
-    return { ...empty, errors: [`Failed to read file: ${err instanceof Error ? err.message : String(err)}`] };
+    return {
+      ...empty,
+      errors: [`Failed to read file: ${err instanceof Error ? err.message : String(err)}`],
+    };
   }
 
   // Determine full range including doc comment

@@ -27,7 +27,7 @@ describe('system health audit_log checks', () => {
     await getDb(projectRoot);
     closeDb();
 
-    const result = getSystemHealth(projectRoot);
+    const result = await getSystemHealth(projectRoot);
     const auditLog = result.checks.find((c) => c.name === 'audit_log');
 
     expect(auditLog).toBeDefined();
@@ -45,7 +45,7 @@ describe('system health audit_log checks', () => {
     db.close();
     expect(existsSync(dbPath)).toBe(true);
 
-    const result = getSystemHealth(projectRoot);
+    const result = await getSystemHealth(projectRoot);
     const auditLog = result.checks.find((c) => c.name === 'audit_log');
 
     expect(auditLog).toBeDefined();
