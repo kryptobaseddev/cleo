@@ -533,6 +533,113 @@ export function registerAgentCommand(program: Command): void {
       }
     });
 
+  // --- cleo agent reassign ---
+  agent
+    .command('reassign <taskId> <agentId>')
+    .description('Reassign a task to another agent via conduit message')
+    .action(async (taskId: string, agentId: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb, createConduit } = await import(
+          '@cleocode/core/internal'
+        );
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const active = await registry.getActive();
+        if (!active) {
+          cliOutput({ success: false, error: { code: 'E_NO_ACTIVE', message: 'No active agent.' } }, { command: 'agent reassign' });
+          process.exitCode = 1;
+          return;
+        }
+        const conduit = await createConduit(registry);
+        await conduit.send(agentId, `/action @${agentId} #task-reassignment\n\nTask ${taskId} reassigned to you by ${active.agentId}. Run: cleo show ${taskId} && cleo start ${taskId}`);
+        await conduit.disconnect();
+        cliOutput({ success: true, data: { taskId, newOwner: agentId, reassignedBy: active.agentId } }, { command: 'agent reassign' });
+      } catch (err) {
+        cliOutput({ success: false, error: { code: 'E_REASSIGN', message: String(err) } }, { command: 'agent reassign' });
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent stop-all ---
+  agent
+    .command('stop-all')
+    .description('Stop all active agents — mark all offline')
+    .action(async () => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const agents = await registry.list({ active: true });
+        let stopped = 0;
+        for (const a of agents) {
+          await registry.update(a.agentId, { isActive: false });
+          try {
+            await fetch(`${a.apiBaseUrl}/agents/${a.agentId}/status`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${a.apiKey}`, 'X-Agent-Id': a.agentId },
+              body: JSON.stringify({ status: 'offline' }),
+              signal: AbortSignal.timeout(3000),
+            });
+          } catch { /* best-effort */ }
+          stopped++;
+        }
+        cliOutput({ success: true, data: { stopped, total: agents.length } }, { command: 'agent stop-all' });
+      } catch (err) {
+        cliOutput({ success: false, error: { code: 'E_STOP_ALL', message: String(err) } }, { command: 'agent stop-all' });
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent work ---
+  agent
+    .command('work <agentId>')
+    .description('Enter autonomous work loop — poll tasks, report, repeat')
+    .option('--poll-interval <ms>', 'Task check interval in milliseconds', '30000')
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const { createRuntime } = await import('@cleocode/runtime');
+        const { existsSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+        const credential = await registry.get(agentId);
+        if (!credential) {
+          cliOutput({ success: false, error: { code: 'E_NOT_FOUND', message: `Agent '${agentId}' not registered.` } }, { command: 'agent work' });
+          process.exitCode = 1;
+          return;
+        }
+        await registry.update(agentId, { isActive: true });
+        await registry.markUsed(agentId);
+        const cantPath = join('.cleo', 'agents', `${agentId}.cant`);
+        const hasProfile = existsSync(cantPath);
+        const runtime = await createRuntime(registry, { agentId, pollIntervalMs: 5000, heartbeatIntervalMs: 30000 });
+        runtime.poller.start();
+        cliOutput({ success: true, data: { agentId, mode: 'work-loop', profile: hasProfile ? 'loaded' : 'none', status: 'running' } }, { command: 'agent work' });
+        const taskInterval = Number(opts['pollInterval'] ?? 30000);
+        const workLoop = setInterval(async () => {
+          try {
+            const { stdout: currentRaw } = await execFileAsync('cleo', ['current'], { encoding: 'utf-8', timeout: 10000 });
+            if (currentRaw.trim()) return;
+            const { stdout: nextRaw } = await execFileAsync('cleo', ['next'], { encoding: 'utf-8', timeout: 10000 });
+            if (nextRaw.trim()) {
+              console.log(`[${agentId}] Task available. Run: cleo start <id> to begin.`);
+            }
+          } catch { /* non-fatal */ }
+        }, taskInterval);
+        const shutdown = () => { clearInterval(workLoop); runtime.stop(); void registry.update(agentId, { isActive: false }).catch(() => {}); process.exit(0); };
+        process.on('SIGINT', shutdown);
+        process.on('SIGTERM', shutdown);
+        await new Promise(() => {});
+      } catch (err) {
+        cliOutput({ success: false, error: { code: 'E_WORK', message: String(err) } }, { command: 'agent work' });
+        process.exitCode = 1;
+      }
+    });
+
   // --- cleo agent list ---
   agent
     .command('list')
