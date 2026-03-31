@@ -146,6 +146,235 @@ export function registerAgentCommand(program: Command): void {
       }
     });
 
+  // --- cleo agent start ---
+  agent
+    .command('start <agentId>')
+    .description('Start an agent — load profile, connect transport, enter work loop')
+    .option('--cant <file>', 'Path to .cant persona file')
+    .option('--poll-interval <ms>', 'Poll interval in milliseconds', '5000')
+    .option('--no-heartbeat', 'Disable heartbeat service')
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const { createRuntime } = await import('@cleocode/runtime');
+        const { existsSync, readFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        // 1. Look up credential
+        const credential = await registry.get(agentId);
+        if (!credential) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NOT_FOUND',
+                message: `Agent '${agentId}' not registered. Run: cleo agent register --id ${agentId} --name "..." --api-key sk_live_...`,
+              },
+            },
+            { command: 'agent start' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // 2. Load .cant profile if available
+        let profile: string | null = null;
+        const cantPath =
+          (opts['cant'] as string) ?? join('.cleo', 'agents', `${agentId}.cant`);
+        if (existsSync(cantPath)) {
+          profile = readFileSync(cantPath, 'utf-8');
+        }
+
+        // 3. Mark active + update lastUsedAt
+        await registry.update(agentId, { isActive: true });
+        await registry.markUsed(agentId);
+
+        // 4. Set cloud status (best-effort)
+        try {
+          await fetch(`${credential.apiBaseUrl}/agents/${agentId}/status`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${credential.apiKey}`,
+              'X-Agent-Id': agentId,
+            },
+            body: JSON.stringify({ status: 'online' }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch {
+          // Offline is fine
+        }
+
+        // 5. Start runtime services
+        const pollInterval = Number(opts['pollInterval'] ?? 5000);
+        const runtime = await createRuntime(registry, {
+          agentId,
+          pollIntervalMs: pollInterval,
+          heartbeatIntervalMs: opts['heartbeat'] === false ? 0 : 30000,
+          groupConversationIds: [],
+        });
+
+        runtime.poller.start();
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId,
+              displayName: credential.displayName,
+              status: 'online',
+              profile: profile ? 'loaded' : 'none',
+              services: {
+                poller: 'running',
+                heartbeat: runtime.heartbeat ? 'running' : 'disabled',
+                keyRotation: runtime.keyRotation ? 'running' : 'disabled',
+              },
+            },
+          },
+          { command: 'agent start' },
+        );
+
+        // 6. Keep process alive until SIGINT/SIGTERM
+        const shutdown = () => {
+          runtime.stop();
+          void registry.update(agentId, { isActive: false }).catch(() => {});
+          process.exit(0);
+        };
+        process.on('SIGINT', shutdown);
+        process.on('SIGTERM', shutdown);
+
+        // Keep alive
+        await new Promise(() => {});
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_START', message: String(err) } },
+          { command: 'agent start' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent stop ---
+  agent
+    .command('stop <agentId>')
+    .description('Stop an agent — mark offline and deactivate')
+    .action(async (agentId: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        const credential = await registry.get(agentId);
+        if (!credential) {
+          cliOutput(
+            {
+              success: false,
+              error: { code: 'E_NOT_FOUND', message: `Agent '${agentId}' not registered.` },
+            },
+            { command: 'agent stop' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // Mark inactive
+        await registry.update(agentId, { isActive: false });
+
+        // Set cloud status offline (best-effort)
+        try {
+          await fetch(`${credential.apiBaseUrl}/agents/${agentId}/status`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${credential.apiKey}`,
+              'X-Agent-Id': agentId,
+            },
+            body: JSON.stringify({ status: 'offline' }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch {
+          // Offline is fine
+        }
+
+        cliOutput(
+          { success: true, data: { agentId, status: 'offline' } },
+          { command: 'agent stop' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_STOP', message: String(err) } },
+          { command: 'agent stop' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent status ---
+  agent
+    .command('status [agentId]')
+    .description('Show agent status — all agents or specific agent')
+    .action(async (agentId?: string) => {
+      try {
+        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const db = await getDb();
+        const registry = new AgentRegistryAccessor(db, process.cwd());
+
+        if (agentId) {
+          const credential = await registry.get(agentId);
+          if (!credential) {
+            cliOutput(
+              {
+                success: false,
+                error: { code: 'E_NOT_FOUND', message: `Agent '${agentId}' not registered.` },
+              },
+              { command: 'agent status' },
+            );
+            process.exitCode = 1;
+            return;
+          }
+          cliOutput(
+            {
+              success: true,
+              data: {
+                agentId: credential.agentId,
+                displayName: credential.displayName,
+                active: credential.isActive,
+                lastUsedAt: credential.lastUsedAt,
+                transport: credential.transportType,
+              },
+            },
+            { command: 'agent status' },
+          );
+        } else {
+          const agents = await registry.list();
+          cliOutput(
+            {
+              success: true,
+              data: {
+                agents: agents.map((a) => ({
+                  agentId: a.agentId,
+                  displayName: a.displayName,
+                  active: a.isActive,
+                  lastUsedAt: a.lastUsedAt,
+                })),
+                total: agents.length,
+              },
+            },
+            { command: 'agent status' },
+          );
+        }
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_STATUS', message: String(err) } },
+          { command: 'agent status' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
   // --- cleo agent list ---
   agent
     .command('list')
