@@ -107,11 +107,149 @@ struct ActionItemRow {
 #[async_trait]
 impl MessageRepository for DieselStore<SqliteConn> {
     async fn create(&self, message: NewMessage) -> Result<Message> {
-        msg_create(self, message).await
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let from_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.from_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if from_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: from_agent_id '{}' does not exist in agents table",
+                message.from_agent_id
+            );
+        }
+        let to_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.to_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if to_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: to_agent_id '{}' does not exist in agents table",
+                message.to_agent_id
+            );
+        }
+        drop(conn);
+
+        let id = Uuid::new_v4();
+        let now = now_ts();
+        let content_type = serialize_enum(&message.content_type);
+        let attachments_json = serde_json::to_string(&message.attachments)?;
+        let metadata_json = message
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?
+            .unwrap_or_else(|| "{}".to_string());
+
+        let new_row = NewMessageRow {
+            id: id.to_string(),
+            conversation_id: message.conversation_id.to_string(),
+            from_agent_id: message.from_agent_id.clone(),
+            to_agent_id: message.to_agent_id.clone(),
+            content: message.content.clone(),
+            content_type,
+            status: "pending".to_string(),
+            attachments: attachments_json,
+            group_id: message.group_id.map(|g| g.to_string()),
+            metadata: Some(metadata_json),
+            reply_to: message.reply_to.map(|r| r.to_string()),
+            created_at: now,
+            delivered_at: None,
+            read_at: None,
+        };
+
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::insert_into(messages::table)
+            .values(&new_row)
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+
+        MessageRepository::find_by_id(self, id)
+            .await?
+            .context("message not found after insert")
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>> {
-        msg_find_by_id(self, id).await
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let row: Option<MessageRow> = messages::table
+            .find(id.to_string())
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        Ok(row.map(message_from_row))
+    }
+
+    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<MessageRow> = if let Some(since) = since_id {
+            let since_ts: Option<i64> = messages::table
+                .find(since.to_string())
+                .select(messages::created_at)
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(diesel_err)?;
+            let ts = since_ts.unwrap_or(0);
+            messages::table
+                .filter(messages::to_agent_id.eq(agent_id))
+                .filter(messages::created_at.gt(ts))
+                .order(messages::created_at.asc())
+                .load(&mut conn)
+                .await
+                .map_err(diesel_err)?
+        } else {
+            messages::table
+                .filter(messages::to_agent_id.eq(agent_id))
+                .filter(messages::status.eq("pending"))
+                .order(messages::created_at.asc())
+                .load(&mut conn)
+                .await
+                .map_err(diesel_err)?
+        };
+        Ok(rows.into_iter().map(message_from_row).collect())
+    }
+
+    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
+        let now = now_ts();
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::update(messages::table.find(id.to_string()))
+            .set((
+                messages::status.eq("delivered"),
+                messages::delivered_at.eq(Some(now)),
+            ))
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(())
+    }
+
+    async fn mark_read(&self, id: Uuid) -> Result<()> {
+        let now = now_ts();
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::update(messages::table.find(id.to_string()))
+            .set((messages::status.eq("read"), messages::read_at.eq(Some(now))))
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(())
+    }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let count: i64 = messages::table
+            .filter(messages::to_agent_id.eq(agent_id))
+            .filter(messages::status.eq_any(&["pending", "delivered"]))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(count)
     }
 
     async fn list_for_conversation(&self, query: MessageQuery) -> Result<Page<Message>> {
@@ -204,18 +342,6 @@ impl MessageRepository for DieselStore<SqliteConn> {
         Ok(Page::new(msgs, total as u64, query.page, query.limit))
     }
 
-    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
-        msg_poll_new(self, agent_id, since_id).await
-    }
-
-    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
-        msg_mark_delivered(self, id).await
-    }
-
-    async fn mark_read(&self, id: Uuid) -> Result<()> {
-        msg_mark_read(self, id).await
-    }
-
     async fn search(
         &self,
         query: &str,
@@ -253,10 +379,6 @@ impl MessageRepository for DieselStore<SqliteConn> {
             .map_err(diesel_err)?
         };
         Ok(rows.into_iter().map(message_from_row).collect())
-    }
-
-    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
-        msg_count_unread(self, agent_id).await
     }
 
     async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
@@ -316,11 +438,149 @@ impl MessageRepository for DieselStore<SqliteConn> {
 #[async_trait]
 impl MessageRepository for DieselStore<PgConn> {
     async fn create(&self, message: NewMessage) -> Result<Message> {
-        msg_create(self, message).await
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let from_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.from_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if from_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: from_agent_id '{}' does not exist in agents table",
+                message.from_agent_id
+            );
+        }
+        let to_exists: Option<AgentRow> = agents::table
+            .filter(agents::agent_id.eq(&message.to_agent_id))
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        if to_exists.is_none() {
+            anyhow::bail!(
+                "Write-guard: to_agent_id '{}' does not exist in agents table",
+                message.to_agent_id
+            );
+        }
+        drop(conn);
+
+        let id = Uuid::new_v4();
+        let now = now_ts();
+        let content_type = serialize_enum(&message.content_type);
+        let attachments_json = serde_json::to_string(&message.attachments)?;
+        let metadata_json = message
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?
+            .unwrap_or_else(|| "{}".to_string());
+
+        let new_row = NewMessageRow {
+            id: id.to_string(),
+            conversation_id: message.conversation_id.to_string(),
+            from_agent_id: message.from_agent_id.clone(),
+            to_agent_id: message.to_agent_id.clone(),
+            content: message.content.clone(),
+            content_type,
+            status: "pending".to_string(),
+            attachments: attachments_json,
+            group_id: message.group_id.map(|g| g.to_string()),
+            metadata: Some(metadata_json),
+            reply_to: message.reply_to.map(|r| r.to_string()),
+            created_at: now,
+            delivered_at: None,
+            read_at: None,
+        };
+
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::insert_into(messages::table)
+            .values(&new_row)
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+
+        MessageRepository::find_by_id(self, id)
+            .await?
+            .context("message not found after insert")
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>> {
-        msg_find_by_id(self, id).await
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let row: Option<MessageRow> = messages::table
+            .find(id.to_string())
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(diesel_err)?;
+        Ok(row.map(message_from_row))
+    }
+
+    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<MessageRow> = if let Some(since) = since_id {
+            let since_ts: Option<i64> = messages::table
+                .find(since.to_string())
+                .select(messages::created_at)
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(diesel_err)?;
+            let ts = since_ts.unwrap_or(0);
+            messages::table
+                .filter(messages::to_agent_id.eq(agent_id))
+                .filter(messages::created_at.gt(ts))
+                .order(messages::created_at.asc())
+                .load(&mut conn)
+                .await
+                .map_err(diesel_err)?
+        } else {
+            messages::table
+                .filter(messages::to_agent_id.eq(agent_id))
+                .filter(messages::status.eq("pending"))
+                .order(messages::created_at.asc())
+                .load(&mut conn)
+                .await
+                .map_err(diesel_err)?
+        };
+        Ok(rows.into_iter().map(message_from_row).collect())
+    }
+
+    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
+        let now = now_ts();
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::update(messages::table.find(id.to_string()))
+            .set((
+                messages::status.eq("delivered"),
+                messages::delivered_at.eq(Some(now)),
+            ))
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(())
+    }
+
+    async fn mark_read(&self, id: Uuid) -> Result<()> {
+        let now = now_ts();
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        diesel::update(messages::table.find(id.to_string()))
+            .set((messages::status.eq("read"), messages::read_at.eq(Some(now))))
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(())
+    }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let count: i64 = messages::table
+            .filter(messages::to_agent_id.eq(agent_id))
+            .filter(messages::status.eq_any(&["pending", "delivered"]))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(count)
     }
 
     async fn list_for_conversation(&self, query: MessageQuery) -> Result<Page<Message>> {
@@ -409,18 +669,6 @@ impl MessageRepository for DieselStore<PgConn> {
         Ok(Page::new(msgs, total as u64, query.page, query.limit))
     }
 
-    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
-        msg_poll_new(self, agent_id, since_id).await
-    }
-
-    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
-        msg_mark_delivered(self, id).await
-    }
-
-    async fn mark_read(&self, id: Uuid) -> Result<()> {
-        msg_mark_read(self, id).await
-    }
-
     async fn search(
         &self,
         query: &str,
@@ -459,10 +707,6 @@ impl MessageRepository for DieselStore<PgConn> {
             .map_err(diesel_err)?
         };
         Ok(rows.into_iter().map(message_from_row).collect())
-    }
-
-    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
-        msg_count_unread(self, agent_id).await
     }
 
     async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
@@ -513,175 +757,3 @@ impl MessageRepository for DieselStore<PgConn> {
             .collect())
     }
 }
-
-// ============================================================================
-// Shared helper functions — DSL-based, backend-agnostic via macro
-// ============================================================================
-
-/// Generates shared message helper functions for a concrete connection type.
-macro_rules! impl_msg_helpers {
-    ($conn:ty) => {
-        /// Create a new message with write-guard validation.
-        async fn msg_create(store: &DieselStore<$conn>, message: NewMessage) -> Result<Message> {
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            let from_exists: Option<AgentRow> = agents::table
-                .filter(agents::agent_id.eq(&message.from_agent_id))
-                .first(&mut conn)
-                .await
-                .optional()
-                .map_err(diesel_err)?;
-            if from_exists.is_none() {
-                anyhow::bail!(
-                    "Write-guard: from_agent_id '{}' does not exist in agents table",
-                    message.from_agent_id
-                );
-            }
-            let to_exists: Option<AgentRow> = agents::table
-                .filter(agents::agent_id.eq(&message.to_agent_id))
-                .first(&mut conn)
-                .await
-                .optional()
-                .map_err(diesel_err)?;
-            if to_exists.is_none() {
-                anyhow::bail!(
-                    "Write-guard: to_agent_id '{}' does not exist in agents table",
-                    message.to_agent_id
-                );
-            }
-            drop(conn);
-
-            let id = Uuid::new_v4();
-            let now = now_ts();
-            let content_type = serialize_enum(&message.content_type);
-            let attachments_json = serde_json::to_string(&message.attachments)?;
-            let metadata_json = message
-                .metadata
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()?
-                .unwrap_or_else(|| "{}".to_string());
-
-            let new_row = NewMessageRow {
-                id: id.to_string(),
-                conversation_id: message.conversation_id.to_string(),
-                from_agent_id: message.from_agent_id.clone(),
-                to_agent_id: message.to_agent_id.clone(),
-                content: message.content.clone(),
-                content_type,
-                status: "pending".to_string(),
-                attachments: attachments_json,
-                group_id: message.group_id.map(|g| g.to_string()),
-                metadata: Some(metadata_json),
-                reply_to: message.reply_to.map(|r| r.to_string()),
-                created_at: now,
-                delivered_at: None,
-                read_at: None,
-            };
-
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            diesel::insert_into(messages::table)
-                .values(&new_row)
-                .execute(&mut conn)
-                .await
-                .map_err(diesel_err)?;
-
-            msg_find_by_id(store, id)
-                .await?
-                .context("message not found after insert")
-        }
-
-        /// Find a message by ID.
-        async fn msg_find_by_id(store: &DieselStore<$conn>, id: Uuid) -> Result<Option<Message>> {
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            let row: Option<MessageRow> = messages::table
-                .find(id.to_string())
-                .first(&mut conn)
-                .await
-                .optional()
-                .map_err(diesel_err)?;
-            Ok(row.map(message_from_row))
-        }
-
-        /// Poll for new messages for an agent.
-        async fn msg_poll_new(
-            store: &DieselStore<$conn>,
-            agent_id: &str,
-            since_id: Option<Uuid>,
-        ) -> Result<Vec<Message>> {
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            let rows: Vec<MessageRow> = if let Some(since) = since_id {
-                let since_ts: Option<i64> = messages::table
-                    .find(since.to_string())
-                    .select(messages::created_at)
-                    .first(&mut conn)
-                    .await
-                    .optional()
-                    .map_err(diesel_err)?;
-                let ts = since_ts.unwrap_or(0);
-                messages::table
-                    .filter(messages::to_agent_id.eq(agent_id))
-                    .filter(messages::created_at.gt(ts))
-                    .order(messages::created_at.asc())
-                    .load(&mut conn)
-                    .await
-                    .map_err(diesel_err)?
-            } else {
-                messages::table
-                    .filter(messages::to_agent_id.eq(agent_id))
-                    .filter(messages::status.eq("pending"))
-                    .order(messages::created_at.asc())
-                    .load(&mut conn)
-                    .await
-                    .map_err(diesel_err)?
-            };
-            Ok(rows.into_iter().map(message_from_row).collect())
-        }
-
-        /// Mark a message as delivered.
-        async fn msg_mark_delivered(store: &DieselStore<$conn>, id: Uuid) -> Result<()> {
-            let now = now_ts();
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            diesel::update(messages::table.find(id.to_string()))
-                .set((
-                    messages::status.eq("delivered"),
-                    messages::delivered_at.eq(Some(now)),
-                ))
-                .execute(&mut conn)
-                .await
-                .map_err(diesel_err)?;
-            Ok(())
-        }
-
-        /// Mark a message as read.
-        async fn msg_mark_read(store: &DieselStore<$conn>, id: Uuid) -> Result<()> {
-            let now = now_ts();
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            diesel::update(messages::table.find(id.to_string()))
-                .set((messages::status.eq("read"), messages::read_at.eq(Some(now))))
-                .execute(&mut conn)
-                .await
-                .map_err(diesel_err)?;
-            Ok(())
-        }
-
-        /// Count unread messages for an agent.
-        async fn msg_count_unread(store: &DieselStore<$conn>, agent_id: &str) -> Result<i64> {
-            let mut conn = store.pool.get().await.map_err(pool_err)?;
-            let count: i64 = messages::table
-                .filter(messages::to_agent_id.eq(agent_id))
-                .filter(messages::status.eq_any(&["pending", "delivered"]))
-                .count()
-                .get_result(&mut conn)
-                .await
-                .map_err(diesel_err)?;
-            Ok(count)
-        }
-    };
-}
-
-// Generate shared helper functions for each backend.
-#[cfg(feature = "sqlite")]
-impl_msg_helpers!(SqliteConn);
-
-#[cfg(feature = "postgres")]
-impl_msg_helpers!(PgConn);
