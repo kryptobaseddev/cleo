@@ -69,22 +69,41 @@ impl DieselStore<SqliteConn> {
     pub async fn sqlite(database_url: &str) -> Result<Self> {
         use diesel::connection::SimpleConnection;
 
-        let config = AsyncDieselConnectionManager::<SqliteConn>::new(database_url);
-        let pool = Pool::builder(config)
+        // Build connection manager with a post_create hook that sets
+        // PRAGMAs on EVERY new connection (not just the first).
+        // Without this, pooled connections miss WAL mode and busy_timeout,
+        // causing "database is locked" under concurrent writes.
+        let manager = AsyncDieselConnectionManager::<SqliteConn>::new(database_url);
+        let pool = Pool::builder(manager)
+            .post_create(deadpool::managed::Hook::async_fn(|conn, _| {
+                Box::pin(async move {
+                    conn.spawn_blocking(|c| {
+                        c.batch_execute(
+                            "PRAGMA journal_mode=WAL;\
+                             PRAGMA foreign_keys=ON;\
+                             PRAGMA busy_timeout=5000;\
+                             PRAGMA synchronous=NORMAL;",
+                        )
+                        .map_err(|e| {
+                            deadpool::managed::HookError::StaticMessage("PRAGMA setup failed")
+                        })
+                    })
+                    .await
+                    .map_err(|_| {
+                        deadpool::managed::HookError::StaticMessage("spawn_blocking failed")
+                    })?;
+                    Ok(())
+                })
+            }))
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build SQLite pool: {e}"))?;
 
-        // Run migrations and set PRAGMAs on a checkout
+        // Run migrations on the first checkout
         let mut conn = pool
             .get()
             .await
             .map_err(|e| anyhow::anyhow!("Pool get: {e}"))?;
         conn.spawn_blocking(|conn| {
-            conn.batch_execute(
-                "PRAGMA journal_mode=WAL;\
-                 PRAGMA foreign_keys=ON;\
-                 PRAGMA busy_timeout=5000;",
-            )?;
             use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
             const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/migrations/sqlite");
             conn.run_pending_migrations(MIGRATIONS)
@@ -346,8 +365,7 @@ macro_rules! impl_agent_repository {
                         count_q = count_q.filter(agents::class.eq(serialize_enum(class)));
                     }
                     if let Some(ref tier) = query.privacy_tier {
-                        count_q =
-                            count_q.filter(agents::privacy_tier.eq(serialize_enum(tier)));
+                        count_q = count_q.filter(agents::privacy_tier.eq(serialize_enum(tier)));
                     }
                     if let Some(ref status) = query.status {
                         count_q = count_q.filter(agents::status.eq(serialize_enum(status)));
@@ -363,7 +381,11 @@ macro_rules! impl_agent_repository {
                         let p = format!("%\"{skill}\"%");
                         count_q = count_q.filter(agents::skills.like(p));
                     }
-                    count_q.count().get_result(&mut conn).await.map_err(diesel_err)?
+                    count_q
+                        .count()
+                        .get_result(&mut conn)
+                        .await
+                        .map_err(diesel_err)?
                 };
 
                 // Apply sort + pagination to the filtered query
