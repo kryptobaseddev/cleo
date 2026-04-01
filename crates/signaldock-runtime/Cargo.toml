@@ -1,0 +1,26 @@
+[package]
+name = "signaldock-runtime"
+version = "0.1.1"
+edition = "2024"
+description = "Universal agent connector for SignalDock — 2-step install for any agent on any platform"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CleoAgent/signaldock-runtime"
+keywords = ["signaldock", "agent", "sse", "webhook", "runtime"]
+categories = ["network-programming", "command-line-utilities"]
+
+[[bin]]
+name = "signaldock"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }

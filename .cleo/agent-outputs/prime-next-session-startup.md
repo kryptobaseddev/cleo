@@ -1,4 +1,4 @@
-# PRIME Session Startup — 2026-04-01
+# PRIME Session Startup — 2026-04-02
 
 ## Identity
 You are **cleo-prime** — the PRIME Orchestrator for CleoCode. Your primary channel is **api.signaldock.io**.
@@ -20,40 +20,59 @@ curl -s -X POST "https://api.signaldock.io/messages" \
   -d '{"content":"cleo-prime online. New session started. Requesting status update.","toAgentId":"cleobot"}'
 ```
 
-## What Was Shipped (v2026.4.0)
-- T234 Agent Domain Unification — 12/12 COMPLETE
-- T220 sqlx→Diesel migration — 71/71 queries replaced
-- 3 CRITICAL security fixes on api.signaldock.io
-- Database separation: tasks.db=tasks, signaldock.db=agents, brain.db=memory
-- cleo agent start works with LocalTransport
-- ClawMsgr skill fixed (--agent flag, 4-track discovery)
-- All agent configs switched to api.signaldock.io
+## What Was Shipped This Session (T222 Progress)
 
-## What's Next: T255 — CLEO Daemon
-The daemon (`cleod`) does NOT exist yet. This is the big missing piece:
-- No background process (agents die when terminal closes)
-- No IPC socket (CLI can't talk to daemon)
-- No auto-start (cleo commands don't check/start daemon)
-- No persistent agent state across sessions
-Read memory: cleo-daemon-vision.md
+### cleocode repo (pushed to GitHub: d79fbe46)
+- **signaldock-storage dual-backend Diesel adapters**: All 7 repository trait impls macro-generated for both SqliteConn and PgConn
+- AgentRepository::list() rewritten from raw SQL to boxed Diesel DSL
+- PostgreSQL DieselStore::postgres() constructor with embedded migration runner
+- FTS5 search (SQLite) / ILIKE search (PostgreSQL) with backend-specific SQL
+- Type aliases: SqliteStore, PgStore, SqliteConn, PgConn
+- Backward-compat module: signaldock_storage::adapters::sqlite::SqliteStore
 
-## Also Pending
-- @cleocode/cant npm propagation issue (local install works)
-- clawmsgr.com still has 9 security vulns (different codebase from signaldock.io)
-- CANT v2 ProseBlock parser started but not complete
-- Agent persona updates for signaldock.io migration
+### signaldock-core repo (committed locally: a68a3b7, NOT pushed)
+- Feature-gated Store type: cfg(feature = "sqlite-backend") vs cfg(not(...))
+- AppState gains sqlx_pool for 71 raw sqlx queries in route handlers
+- Dockerfile supports ENABLE_SQLITE=true/false build arg
+- BETTER_AUTH_DB_URL fallback for PostgreSQL deployments
+- Cargo feature collision fix (sqlite/postgres names collide with sqlx features)
+- 22 files changed, 697 insertions
 
-## Strategic Agent Roster
-| Agent | Role | Channel |
-|-------|------|---------|
-| cleo-prime | PRIME orchestrator | signaldock.io |
-| cleo-dev | CleoCode TS/frontend | signaldock.io |
-| cleo-db-lead | Database architecture | signaldock.io |
-| cleo-rust-lead | Rust specialist (cross-project) | signaldock.io |
-| cleo-historian | Canon, docs, CANT | signaldock.io |
-| signaldock-core-agent | SignalDock project lead | signaldock.io |
-| cleobot | SUPREME agent (operator bridge) | signaldock.io |
-| cleoagent | Super agent (testing) | signaldock.io |
+## What's Remaining for T222
+
+### 1. Push signaldock-core to GitHub
+```bash
+cd /mnt/projects/signaldock-core && git push origin main
+```
+
+### 2. Railway PostgreSQL Deployment
+```bash
+# Add PostgreSQL database to Railway project
+railway add --database postgres
+
+# Set environment variables
+railway variables set DATABASE_URL="<postgres connection string>"
+railway variables set ENABLE_SQLITE=false
+railway variables set BETTER_AUTH_DB_URL="sqlite:///app/data/auth.db"
+
+# Trigger redeploy
+railway up
+```
+
+### 3. Known Limitations
+- **better-auth** still uses SQLite (DieselSqliteAdapter). No PG adapter exists yet.
+  For PG deploys, BETTER_AUTH_DB_URL falls back to local SQLite file.
+  Follow-up: create better-auth-diesel-pg adapter.
+- **71 raw sqlx queries** in route handlers use separate sqlx pool (not Diesel).
+  Follow-up: migrate to Diesel DSL incrementally.
+- **Cargo feature collision**: NEVER name features `sqlite` or `postgres` when sqlx dep has same.
+  Use `sqlite-backend` and `cfg(not(feature = "sqlite-backend"))` for PG.
+
+## Also Pending (not T222)
+- T255: CLEO Daemon — big missing piece, no progress this session
+- @cleocode/cant npm propagation issue
+- CANT v2 ProseBlock parser
+- Smart Explore (T147 epic)
 
 ## Hierarchy
 - **cleobot** outranks cleo-prime. They are the operator's representative.
@@ -65,11 +84,7 @@ Read memory: cleo-daemon-vision.md
 - Database separation: each DB owns ONE domain. No cross-domain data.
 - Greenfield: NO backwards compatibility.
 - Local-first: everything must work offline.
-- NEVER simulate another agent's poll (steals their messages).
-- Use `cc-headfull` for headless autonomous sessions.
-- Use zellij for terminal multiplexing and agent monitoring.
 
 ## Configs
 - SignalDock: `.cleo/clawmsgr-cleoos-prime.json`
 - ClawMsgr backup: `.cleo/clawmsgr-cleoos-opus-orchestrator.json`
-- Persona: `.cleo/agents/cleoos-opus-orchestrator.md`

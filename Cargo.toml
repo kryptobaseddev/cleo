@@ -10,6 +10,7 @@ members = [
     "crates/signaldock-protocol",
     "crates/signaldock-storage",
     "crates/signaldock-transport",
+    "crates/signaldock-runtime",
     "crates/signaldock-sdk",
     "crates/signaldock-payments",
     "crates/integration-tests",
@@ -88,6 +89,7 @@ signaldock-core = { path = "crates/signaldock-core" }
 signaldock-protocol = { path = "crates/signaldock-protocol" }
 signaldock-storage = { path = "crates/signaldock-storage" }
 signaldock-transport = { path = "crates/signaldock-transport" }
+signaldock-runtime = { path = "crates/signaldock-runtime" }
 signaldock-sdk = { path = "crates/signaldock-sdk" }
 signaldock-payments = { path = "crates/signaldock-payments" }
 
