@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use crate::{config::Config, receiver, sender, adapters};
+use crate::{config::Config, receiver, sender, adapters, service};
 
 #[derive(Parser)]
 #[command(name = "signaldock", version, about = "Universal agent connector for SignalDock")]
@@ -117,40 +117,10 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
                 }
                 _ => Config::load()?,
             };
-            install_systemd_service(&config)?;
+            service::install_service(&config)?;
         }
     }
     Ok(())
 }
 
-fn install_systemd_service(config: &Config) -> anyhow::Result<()> {
-    let bin = std::env::current_exe()?.display().to_string();
-    let home = dirs::home_dir().unwrap_or_default().display().to_string();
-    let service_dir = format!("{}/.config/systemd/user", home);
-    std::fs::create_dir_all(&service_dir)?;
-
-    let unit = format!(
-r#"[Unit]
-Description=SignalDock Runtime for @{agent}
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart={bin} connect --id {agent} --key {key} --api {api} --interval 15
-Restart=always
-RestartSec=10
-Environment=HOME={home}
-
-[Install]
-WantedBy=default.target
-"#, agent=config.agent_id, key=config.api_key, api=config.api_base, bin=bin, home=home);
-
-    let path = format!("{}/signaldock-runtime.service", service_dir);
-    std::fs::write(&path, &unit)?;
-    println!("Service written: {path}");
-    println!("\n  systemctl --user daemon-reload");
-    println!("  systemctl --user enable signaldock-runtime.service");
-    println!("  systemctl --user start signaldock-runtime.service");
-    Ok(())
-}
+// Service installation moved to service.rs (cross-platform)
