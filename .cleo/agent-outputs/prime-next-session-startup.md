@@ -1,81 +1,75 @@
-# PRIME Session Startup — 2026-03-31
+# PRIME Session Startup — 2026-04-01
 
 ## Identity
-You are cleoos-opus-orchestrator (PRIME). You manage 8 agents across CleoCode and SignalDock.
+You are **cleo-prime** — the PRIME Orchestrator for CleoCode. Your primary channel is **api.signaldock.io**.
+Legacy ID `cleoos-opus-orchestrator` on ClawMsgr is backup only.
 
-## Immediate: T254 — Audit all task statuses against code
+## First: Connect to SignalDock
 ```bash
-# 1. Check what's actually committed
-git log --oneline -30
-git -C /mnt/projects/signaldock log --oneline -15
+# 1. Check SignalDock messages
+python3 ~/.claude/skills/clawmsgr/scripts/clawmsgr-worker.py once --agent cleo-prime
 
-# 2. Check uncommitted work
-git status --short | wc -l
-git -C /mnt/projects/signaldock status --short | wc -l
+# 2. Check ClawMsgr backup
+python3 ~/.claude/skills/clawmsgr/scripts/clawmsgr-worker.py once --agent cleoos-opus-orchestrator
 
-# 3. For each "done" task from session 2026-03-30, verify commit exists
-# Tasks to verify: T211, T185, T191, T202, T184, T215, T229, T221, T223, T224, T225, T183, T009, T011, T092-T096, T228, T235, T239, T242, T247
-
-# 4. For each "cancelled" task, verify it's truly a duplicate
-# Cancelled: T234, T235, T236, T237, T238, T241, T243, T244, T248, T228
-
-# 5. Check 51 uncommitted files — what needs committing?
-git diff --stat HEAD
+# 3. Message cleobot (SUPREME agent — operator's representative, outranks you)
+curl -s -X POST "https://api.signaldock.io/messages" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(python3 -c "import json; print(json.load(open('.cleo/clawmsgr-cleoos-prime.json'))['apiKey'])")" \
+  -H "X-Agent-Id: cleo-prime" \
+  -d '{"content":"cleo-prime online. New session started. Requesting status update.","toAgentId":"cleobot"}'
 ```
 
-## Then: T234 Epic — Agent Domain Unification
-Priority subtasks:
-- T236: Wire `cleo agent start` to use LocalTransport
-- T237: Deduplicate capabilities/skills storage  
-- T238: Cross-DB write-guards
-- T240: Scaffold .cant on register
-- T245: Fix phantom FKs
-- T246: FK on messages
-- T249: E2E lifecycle test
-- T251: Version bump + npm publish
-- T252: Validate init/upgrade/doctor
-- T253: llmtxt upgrade
+## What Was Shipped (v2026.4.0)
+- T234 Agent Domain Unification — 12/12 COMPLETE
+- T220 sqlx→Diesel migration — 71/71 queries replaced
+- 3 CRITICAL security fixes on api.signaldock.io
+- Database separation: tasks.db=tasks, signaldock.db=agents, brain.db=memory
+- cleo agent start works with LocalTransport
+- ClawMsgr skill fixed (--agent flag, 4-track discovery)
+- All agent configs switched to api.signaldock.io
 
-## Key Facts
-- signaldock.db = SSoT for agent identity (T235 decision)
-- agent_credentials in tasks.db = cache for encrypted keys
-- `cleo agent start` EXISTS in dev build but FAILS (transport_type column issue)
-- installed CLI is v2026.3.76 on npm, dev build has 30+ more commits
-- LocalTransport PROVEN working (bidirectional messaging via signaldock.db)
-- SSE cloud PROVEN working (HTTP 200 through Cloudflare after fix 77abf8d)
-- .cant handles config, .md handles narrative — both needed
-- Architecture: Agent → Conduit → Transport (Local/SSE/HTTP) → SignalDock
-- PRIME uses cleo-prime-dev credential for Conduit, cleoos-opus-orchestrator for ClawMsgr backup
-- Greenfield project — NO backwards compatibility
-
-## Agent Matrix
-Planning group: 97946d67-9709-44e9-9df9-98751b765cd9
-CleoCode: cleo-rust-lead, cleo-db-lead, cleo-dev, cleo-historian
-SignalDock: signaldock-core-agent, signaldock-backend, signaldock-frontend, signaldock-dev
-
-## ClawMsgr Config
-/mnt/projects/cleocode/.cleo/clawmsgr-cleoos-opus-orchestrator.json
-
-## Workspace
-/mnt/projects/workspaces/cleocode-unification/
-
-## Owner Vision: CLEO Daemon (T255)
-Owner wants Docker-like pattern: `cleod` (daemon always running) + `cleo` (CLI remote control).
-Any `cleo` command auto-starts daemon if not running. Daemon manages Conduit, agents, TTY tracking.
-Cross-platform. PID file. Graceful timeout. Event bus instead of DB polling.
-THIS DOES NOT EXIST YET — it's the next major architectural piece after T234.
+## What's Next: T255 — CLEO Daemon
+The daemon (`cleod`) does NOT exist yet. This is the big missing piece:
+- No background process (agents die when terminal closes)
+- No IPC socket (CLI can't talk to daemon)
+- No auto-start (cleo commands don't check/start daemon)
+- No persistent agent state across sessions
 Read memory: cleo-daemon-vision.md
 
-## Agent DB Problems (T234)
-cleo-db-lead found 5 critical issues: agent_id means different things, 3 disconnected agent concepts,
-phantom FKs, no FK on messages, duplicate storage. T235 (SSoT decision) and T239 (spec update) are done.
-T236-T253 remain. Read memory: agent-domain-audit.md
+## Also Pending
+- @cleocode/cant npm propagation issue (local install works)
+- clawmsgr.com still has 9 security vulns (different codebase from signaldock.io)
+- CANT v2 ProseBlock parser started but not complete
+- Agent persona updates for signaldock.io migration
+
+## Strategic Agent Roster
+| Agent | Role | Channel |
+|-------|------|---------|
+| cleo-prime | PRIME orchestrator | signaldock.io |
+| cleo-dev | CleoCode TS/frontend | signaldock.io |
+| cleo-db-lead | Database architecture | signaldock.io |
+| cleo-rust-lead | Rust specialist (cross-project) | signaldock.io |
+| cleo-historian | Canon, docs, CANT | signaldock.io |
+| signaldock-core-agent | SignalDock project lead | signaldock.io |
+| cleobot | SUPREME agent (operator bridge) | signaldock.io |
+| cleoagent | Super agent (testing) | signaldock.io |
+
+## Hierarchy
+- **cleobot** outranks cleo-prime. They are the operator's representative.
+- Communicate with cleobot via signaldock.io for operator coordination.
+- NEVER contact the human owner directly — escalate to cleobot.
 
 ## Rules
-- NEVER mark tasks done without git verification (feedback_verify_before_marking.md)
-- NEVER contact human owner from agent — escalate to PRIME only
-- Verify code before trusting any agent claim
-- Test for REAL, not mock — actually run `cleo agent start` and prove it works
-- Local-first, cloud-additive
-- Provider-agnostic — no slash commands for connection
-- Greenfield — no backwards compatibility needed
+- SignalDock is primary. ClawMsgr is backup only.
+- Database separation: each DB owns ONE domain. No cross-domain data.
+- Greenfield: NO backwards compatibility.
+- Local-first: everything must work offline.
+- NEVER simulate another agent's poll (steals their messages).
+- Use `cc-headfull` for headless autonomous sessions.
+- Use zellij for terminal multiplexing and agent monitoring.
+
+## Configs
+- SignalDock: `.cleo/clawmsgr-cleoos-prime.json`
+- ClawMsgr backup: `.cleo/clawmsgr-cleoos-opus-orchestrator.json`
+- Persona: `.cleo/agents/cleoos-opus-orchestrator.md`
