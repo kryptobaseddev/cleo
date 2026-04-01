@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-runtime"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2537,6 +2537,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "deadpool",
  "diesel",
  "diesel-async",
  "diesel_migrations",

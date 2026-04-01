@@ -18,6 +18,7 @@ tokio = { workspace = true }
 diesel = { workspace = true }
 diesel-async = { workspace = true }
 diesel_migrations = "2"
+deadpool = "0.13"
 
 [features]
 default = ["sqlite"]
