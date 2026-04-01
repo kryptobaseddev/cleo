@@ -36,3 +36,13 @@ pub mod traits;
 pub mod types;
 
 pub use adapters::diesel_store::DieselStore;
+
+/// Convenience type alias for the SQLite-backed Diesel store.
+#[cfg(feature = "sqlite")]
+pub type SqliteStore = DieselStore<
+    diesel_async::sync_connection_wrapper::SyncConnectionWrapper<diesel::SqliteConnection>,
+>;
+
+/// Convenience type alias for the PostgreSQL-backed Diesel store.
+#[cfg(feature = "postgres")]
+pub type PgStore = DieselStore<diesel_async::AsyncPgConnection>;

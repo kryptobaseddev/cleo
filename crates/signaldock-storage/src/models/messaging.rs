@@ -16,7 +16,8 @@ use diesel::prelude::*;
 /// A row read from the `messages` table.
 #[derive(Queryable, QueryableByName, Selectable, Debug, Clone)]
 #[diesel(table_name = messages)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct MessageRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
@@ -103,7 +104,8 @@ pub struct UpdateMessageRow {
 /// A row read from the `claim_codes` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = claim_codes)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct ClaimCodeRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
@@ -158,7 +160,8 @@ pub struct UpdateClaimCodeRow {
 /// A row read from the `delivery_jobs` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = delivery_jobs)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct DeliveryJobRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
@@ -231,7 +234,8 @@ pub struct UpdateDeliveryJobRow {
 /// A row read from the `dead_letters` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = dead_letters)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct DeadLetterRow {
     /// Primary key (UUID as TEXT).
     pub id: String,

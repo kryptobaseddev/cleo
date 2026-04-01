@@ -16,3 +16,13 @@ mod diesel_messages;
 mod diesel_others;
 /// Unified Diesel adapter — backend-agnostic via `AsyncConnection`.
 pub mod diesel_store;
+
+/// Backward-compatible re-export of the SQLite-backed store.
+///
+/// Allows existing code to use `signaldock_storage::adapters::sqlite::SqliteStore`
+/// without changes.
+#[cfg(feature = "sqlite")]
+pub mod sqlite {
+    /// SQLite-backed Diesel store (type alias for `DieselStore<SyncConnectionWrapper<SqliteConnection>>`).
+    pub type SqliteStore = crate::SqliteStore;
+}

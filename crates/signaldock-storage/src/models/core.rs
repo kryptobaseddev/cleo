@@ -15,7 +15,8 @@ use diesel::prelude::*;
 /// A row read from the `users` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = users)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct UserRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
@@ -142,7 +143,8 @@ pub struct UpdateUserRow {
 /// A row read from the `agents` table.
 #[derive(Queryable, QueryableByName, Selectable, Debug, Clone)]
 #[diesel(table_name = agents)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct AgentRow {
     /// Internal primary key (UUID as TEXT).
     pub id: String,
@@ -337,7 +339,8 @@ pub struct UpdateAgentRow {
 /// A row read from the `conversations` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = conversations)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct ConversationRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
@@ -398,7 +401,8 @@ pub struct UpdateConversationRow {
 /// A row read from the `connections` table.
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = connections)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct ConnectionRow {
     /// Primary key (UUID as TEXT).
     pub id: String,
