@@ -1,80 +1,34 @@
-//! Base trait for all platform adapters.
+//! Adapter trait — the SSOT interface for delivery transport mechanisms.
 //!
-//! Every adapter MUST implement this trait. It provides the unified interface
-//! that the receiver uses to deliver messages to the agent's platform.
-//!
-//! ## Building a new adapter
-//!
-//! ```rust
-//! use crate::adapters::base::{PlatformAdapter, Message};
-//!
-//! pub struct MyAdapter { /* config */ }
-//!
-//! impl PlatformAdapter for MyAdapter {
-//!     fn name(&self) -> &str { "my-platform" }
-//!
-//!     fn deliver(&self, msg: &Message) -> anyhow::Result<DeliveryResult> {
-//!         // Your delivery logic here
-//!         Ok(DeliveryResult::Delivered)
-//!     }
-//! }
-//! ```
+//! Adapters are low-level: they take a URL/path and a JSON payload,
+//! and deliver it. They don't know about SignalDock messages or providers.
 
-use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
-/// A normalized message from SignalDock, ready for delivery to an adapter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    /// SignalDock message ID (UUID)
-    pub id: String,
-    /// Sender agent ID
-    pub from: String,
-    /// Message content (text)
-    pub content: String,
-    /// Conversation ID
-    pub conversation_id: String,
-    /// Content type (usually "text")
-    pub content_type: String,
-    /// ISO 8601 timestamp
-    pub created_at: String,
-    /// Raw metadata from SignalDock
-    pub metadata: serde_json::Value,
+/// Configuration for creating an adapter.
+#[derive(Debug, Clone)]
+pub enum AdapterConfig {
+    /// HTTP POST to a URL with optional auth header.
+    Http { url: String, auth_header: Option<String> },
+    /// Write JSON files to a directory.
+    File { dir: String },
+    /// Print JSON to stdout.
+    Stdout,
 }
 
-/// Result of a delivery attempt.
+/// Result of a delivery attempt at the transport level.
 #[derive(Debug)]
-pub enum DeliveryResult {
-    /// Message was delivered successfully.
-    Delivered,
-    /// Delivery failed but should be retried.
-    Retry(String),
-    /// Delivery permanently failed — do not retry.
-    Failed(String),
+pub enum TransportResult {
+    Ok,
+    RetryableError(String),
+    PermanentError(String),
 }
 
-/// The trait all platform adapters must implement.
-///
-/// Adapters are responsible for taking a SignalDock message and
-/// waking/notifying the target agent platform.
-pub trait PlatformAdapter: Send + Sync {
-    /// Human-readable name of this adapter (e.g., "openclaw", "webhook").
+/// Low-level delivery adapter. Providers compose these internally.
+pub trait Adapter: Send + Sync {
+    /// Adapter name for logging.
     fn name(&self) -> &str;
 
-    /// Deliver a message to the platform.
-    ///
-    /// Return `DeliveryResult::Delivered` on success.
-    /// Return `DeliveryResult::Retry` for transient failures (network, timeout).
-    /// Return `DeliveryResult::Failed` for permanent failures (auth, config).
-    fn deliver(&self, msg: &Message) -> anyhow::Result<DeliveryResult>;
-
-    /// Check if the adapter is healthy and can accept deliveries.
-    /// Default implementation always returns true.
-    fn is_healthy(&self) -> bool {
-        true
-    }
-
-    /// Optional setup/initialization. Called once when adapter is created.
-    fn init(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
+    /// Send a JSON payload to the target.
+    fn send(&self, payload: &serde_json::Value) -> Result<TransportResult>;
 }

@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-runtime"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2516,8 +2516,11 @@ dependencies = [
  "async-trait",
  "cant-core",
  "chrono",
+ "hex",
+ "rand 0.8.5",
  "serde",
  "serde_json",
+ "sha2",
  "signaldock-protocol",
  "signaldock-storage",
  "signaldock-transport",

@@ -1,36 +1,43 @@
-//! Platform adapters for SignalDock Runtime.
+//! Adapter system — unified delivery infrastructure for SignalDock Runtime.
 //!
-//! Architecture:
-//! - `base.rs` defines the `PlatformAdapter` trait (interface contract)
-//! - Each adapter in its own file implements the trait
-//! - This module re-exports everything and provides the factory
+//! ```text
+//! src/adapters/
+//! ├── mod.rs              ← This file: top-level exports
+//! ├── adapter.rs          ← Adapter trait (transport SSOT)
+//! ├── http.rs             ← HTTP POST transport
+//! ├── stdout.rs           ← Stdout transport
+//! ├── file.rs             ← File write transport
+//! └── providers/          ← Agent platform providers
+//!     ├── mod.rs          ← Provider registry + barrel exports
+//!     ├── provider.rs     ← Provider trait (platform SSOT)
+//!     ├── detect.rs       ← Auto-detection + factory
+//!     ├── openclaw.rs     ← OpenClaw
+//!     ├── claude_code.rs  ← Claude Code
+//!     ├── codex.rs        ← OpenAI Codex
+//!     ├── gemini.rs       ← Google Gemini
+//!     ├── copilot.rs      ← GitHub Copilot
+//!     ├── opencode.rs     ← OpenCode
+//!     └── generic.rs      ← Webhook / Stdout / File wrappers
+//! ```
 //!
-//! To add a new adapter:
-//! 1. Create `src/adapters/my_platform.rs`
-//! 2. Implement `PlatformAdapter` for your struct
-//! 3. Add `pub mod my_platform;` below
-//! 4. Add a match arm in `create()` below
+//! **Adapters** = transport mechanisms (HOW to deliver)
+//! **Providers** = agent platforms (WHERE to deliver, using adapters)
 
-// Base trait — all adapters implement this
+// Transport layer
 pub mod base;
-
-// Adapter implementations (barrel export)
-pub mod openclaw;
-pub mod webhook;
+pub mod http;
 pub mod stdout;
-pub mod file_output;
+pub mod file;
 
-// Re-export the trait and types so consumers use `adapters::PlatformAdapter`
-pub use base::{PlatformAdapter, Message, DeliveryResult};
+// Platform providers (nested)
+pub mod providers;
 
-// Re-export concrete adapters for direct construction
-pub use openclaw::OpenClawAdapter;
-pub use webhook::WebhookAdapter;
+// Re-export transport types
+pub use base::{Adapter, AdapterConfig, TransportResult};
+pub use http::HttpAdapter;
 pub use stdout::StdoutAdapter;
-pub use file_output::FileAdapter;
+pub use file::FileAdapter;
 
-mod detect;
-mod factory;
-
-pub use detect::detect_platform;
-pub use factory::create;
+// Re-export provider types (bubble up for convenience)
+pub use providers::provider::{Provider, ProviderInfo, Message, DeliveryResult};
+pub use providers::{detect_provider, create_provider};

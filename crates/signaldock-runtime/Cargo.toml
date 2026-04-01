@@ -1,6 +1,6 @@
 [package]
 name = "signaldock-runtime"
-version = "0.2.0"
+version = "0.6.0"
 edition = "2024"
 description = "Universal agent connector for SignalDock — 2-step install for any agent on any platform"
 license = "MIT OR Apache-2.0"

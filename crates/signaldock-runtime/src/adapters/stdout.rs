@@ -1,24 +1,16 @@
-//! Stdout adapter — prints message JSON to stdout.
-//!
-//! Useful for piping: signaldock connect --platform stdout | jq .content | my-bot
+//! Stdout adapter — print JSON to stdout.
+//! Pipe-friendly: signaldock connect --platform stdout | jq . | my-bot
 
 use anyhow::Result;
-use super::base::{PlatformAdapter, Message, DeliveryResult};
+use super::base::{Adapter, TransportResult};
 
 pub struct StdoutAdapter;
 
-impl PlatformAdapter for StdoutAdapter {
+impl Adapter for StdoutAdapter {
     fn name(&self) -> &str { "stdout" }
 
-    fn deliver(&self, msg: &Message) -> Result<DeliveryResult> {
-        let output = serde_json::json!({
-            "from": msg.from,
-            "content": msg.content,
-            "messageId": msg.id,
-            "conversationId": msg.conversation_id,
-            "createdAt": msg.created_at,
-        });
-        println!("{}", serde_json::to_string(&output)?);
-        Ok(DeliveryResult::Delivered)
+    fn send(&self, payload: &serde_json::Value) -> Result<TransportResult> {
+        println!("{}", serde_json::to_string(payload)?);
+        Ok(TransportResult::Ok)
     }
 }
