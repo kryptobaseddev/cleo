@@ -1083,8 +1083,10 @@ agent ${agentId}:
         const agentId = opts['agent'] as string | undefined;
         const conduit = await createConduit(registry, agentId);
         const limit = Number(opts['limit']) || 20;
+        const messages = await conduit.poll({ limit });
+
         cliOutput(
-          { success: true, data: { agentId: conduit.agentId, messages: [], limit } },
+          { success: true, data: { agentId: conduit.agentId, messages, count: messages.length, limit } },
           { command: 'agent poll' },
         );
 

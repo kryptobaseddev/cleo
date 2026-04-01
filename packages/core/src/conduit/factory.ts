@@ -14,18 +14,35 @@ import { HttpTransport } from './http-transport.js';
 import { LocalTransport } from './local-transport.js';
 import { SseTransport } from './sse-transport.js';
 
-/** Resolve the best available transport for a credential. */
+/**
+ * Resolve the best available transport for a credential.
+ *
+ * Cloud-backed agents (apiBaseUrl is a remote URL) use HttpTransport
+ * so they can receive messages from the SignalDock cloud relay.
+ * LocalTransport is only used when the agent is explicitly local-only
+ * (apiBaseUrl is 'local' or absent), since local signaldock.db doesn't
+ * sync with the cloud.
+ */
 export function resolveTransport(credential: AgentCredential): Transport {
-  // Priority: Local (SQLite) > WebSocket > SSE > HTTP polling
+  const isCloudBacked =
+    credential.apiBaseUrl &&
+    credential.apiBaseUrl !== 'local' &&
+    credential.apiBaseUrl.startsWith('http');
+
+  // Cloud-backed agents must use network transports to receive cloud messages
+  if (isCloudBacked) {
+    if (credential.transportConfig.sseEndpoint) {
+      return new SseTransport();
+    }
+    return new HttpTransport();
+  }
+
+  // Local-only agents use LocalTransport when signaldock.db is available
   if (LocalTransport.isAvailable()) {
     return new LocalTransport();
   }
-  if (credential.transportConfig.wsUrl) {
-    // WsTransport — fall through to SSE/HTTP for now
-  }
-  if (credential.transportConfig.sseEndpoint) {
-    return new SseTransport();
-  }
+
+  // Fallback to HTTP
   return new HttpTransport();
 }
 

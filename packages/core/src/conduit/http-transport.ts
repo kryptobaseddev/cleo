@@ -101,12 +101,13 @@ export class HttpTransport implements Transport {
     return { messageId };
   }
 
-  /** Poll for new messages mentioning this agent. Returns empty array on HTTP error. */
+  /** Poll for new messages for this agent. Returns empty array on HTTP error. */
   async poll(options?: { limit?: number; since?: string }): Promise<ConduitMessage[]> {
     this.ensureConnected();
 
     const params = new URLSearchParams();
-    params.set('mentioned', this.state!.agentId);
+    // Don't filter by mentioned — the API already scopes by X-Agent-Id header.
+    // Using mentioned= misses messages sent TO this agent without @-mentions.
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.since) params.set('since', options.since);
 

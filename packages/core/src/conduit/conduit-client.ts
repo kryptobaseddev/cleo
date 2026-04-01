@@ -74,6 +74,11 @@ export class ConduitClient implements Conduit {
     };
   }
 
+  /** One-shot poll for new messages. Delegates to the transport's poll method. */
+  async poll(options?: { limit?: number; since?: string }): Promise<ConduitMessage[]> {
+    return this.transport.poll(options);
+  }
+
   /** Subscribe to incoming messages. Uses real-time transport when available, else polls. */
   onMessage(handler: (message: ConduitMessage) => void): ConduitUnsubscribe {
     // Prefer real-time subscription if transport supports it

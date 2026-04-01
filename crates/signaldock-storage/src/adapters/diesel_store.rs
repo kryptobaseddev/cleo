@@ -81,17 +81,16 @@ impl DieselStore<SqliteConn> {
                         conn.spawn_blocking(|c: &mut diesel::SqliteConnection| {
                             c.batch_execute(
                                 "PRAGMA journal_mode=WAL;\
-                                     PRAGMA foreign_keys=ON;\
-                                     PRAGMA busy_timeout=5000;\
-                                     PRAGMA synchronous=NORMAL;",
+                                 PRAGMA foreign_keys=ON;\
+                                 PRAGMA busy_timeout=5000;\
+                                 PRAGMA synchronous=NORMAL;",
                             )
-                            .map_err(|_| {
-                                deadpool::managed::HookError::message("PRAGMA setup failed")
-                            })
                         })
                         .await
-                        .map_err(|_| {
-                            deadpool::managed::HookError::message("spawn_blocking failed")
+                        .map_err(|e| {
+                            deadpool::managed::HookError::message(format!(
+                                "SQLite PRAGMA setup failed: {e}"
+                            ))
                         })?;
                         Ok(())
                     })

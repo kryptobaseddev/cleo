@@ -109,6 +109,9 @@ export interface Conduit {
   /** Subscribe to incoming messages. Returns unsubscribe function. */
   onMessage(handler: (message: ConduitMessage) => void): ConduitUnsubscribe;
 
+  /** One-shot poll for new messages. Returns messages without subscribing. */
+  poll(options?: { limit?: number; since?: string }): Promise<ConduitMessage[]>;
+
   // --- Presence ---
 
   /** Send a heartbeat to indicate this agent is alive. */
