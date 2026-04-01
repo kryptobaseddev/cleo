@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use crate::{config::Config, receiver, sender, adapter};
+use crate::{config::Config, receiver, sender, adapters};
 
 #[derive(Parser)]
 #[command(name = "signaldock", version, about = "Universal agent connector for SignalDock")]
@@ -60,7 +60,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Connect { id, key, api, platform, webhook, interval } => {
             let platform_type = match platform.as_deref() {
                 Some(p) => p.to_string(),
-                None => adapter::detect_platform(),
+                None => adapters::detect_platform(),
             };
 
             let config = Config {
@@ -69,12 +69,13 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
                 api_base: api,
                 platform: platform_type.clone(),
                 webhook_url: webhook,
+                file_output_dir: None,
             };
             config.save()?;
 
             tracing::info!(agent = %id, platform = %platform_type, "Connecting");
 
-            let adapter = adapter::create(&config)?;
+            let adapter = adapters::create(&config)?;
             receiver::run_poll(config, adapter, interval).await?;
         }
 
@@ -116,8 +117,9 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
                     let c = Config {
                         agent_id: i, api_key: k,
                         api_base: "https://api.signaldock.io".into(),
-                        platform: adapter::detect_platform(),
+                        platform: adapters::detect_platform(),
                         webhook_url: None,
+                        file_output_dir: None,
                     };
                     c.save()?;
                     c

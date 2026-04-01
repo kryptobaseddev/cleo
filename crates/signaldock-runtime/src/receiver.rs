@@ -2,16 +2,18 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration};
-use crate::{config::Config, adapter::PlatformAdapter};
+use crate::config::Config;
+use crate::adapters::base::{PlatformAdapter, Message, DeliveryResult};
 
-/// Run the poll-based receiver. Polls every `interval` seconds,
-/// delivers new messages to the platform adapter, acks them.
+/// Run the poll receiver. Polls every `interval` seconds,
+/// delivers new messages via the platform adapter, acks them.
 pub async fn run_poll(config: Config, adapter: Box<dyn PlatformAdapter>, interval_secs: u64) -> Result<()> {
     let seen = Arc::new(Mutex::new(load_seen(&config)?));
     let config = Arc::new(config);
     let adapter: Arc<Box<dyn PlatformAdapter>> = Arc::new(adapter);
 
-    eprintln!("[signaldock] Receiver started: @{} platform={} interval={}s", config.agent_id, adapter.name(), interval_secs);
+    eprintln!("[signaldock] Receiver started: @{} platform={} interval={}s",
+        config.agent_id, adapter.name(), interval_secs);
 
     let mut consecutive_errors: u32 = 0;
 
@@ -43,7 +45,6 @@ pub async fn run_poll(config: Config, adapter: Box<dyn PlatformAdapter>, interva
     }
 }
 
-/// Single poll cycle: peek → filter new → deliver → ack.
 async fn poll_once(
     config: &Config,
     adapter: &Arc<Box<dyn PlatformAdapter>>,
@@ -73,11 +74,9 @@ async fn poll_once(
     let mut delivered = 0;
     let mut ack_ids = Vec::new();
 
-    for msg in messages {
-        let msg_id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let from = msg.get("fromAgentId").and_then(|v| v.as_str()).unwrap_or("");
-        let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        let conv_id = msg.get("conversationId").and_then(|v| v.as_str()).unwrap_or("");
+    for raw in messages {
+        let msg_id = raw.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let from = raw.get("fromAgentId").and_then(|v| v.as_str()).unwrap_or("");
 
         if from == config.agent_id || from.is_empty() || msg_id.is_empty() {
             continue;
@@ -89,15 +88,37 @@ async fn poll_once(
             s.insert(msg_id.to_string());
         }
 
-        eprintln!("[signaldock] New from @{}: {}...", from, &content[..content.len().min(80)]);
+        let msg = Message {
+            id: msg_id.to_string(),
+            from: from.to_string(),
+            content: raw.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            conversation_id: raw.get("conversationId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            content_type: raw.get("contentType").and_then(|v| v.as_str()).unwrap_or("text").to_string(),
+            created_at: raw.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            metadata: raw.get("metadata").cloned().unwrap_or(serde_json::Value::Null),
+        };
 
-        match adapter.deliver(from, content, msg_id, conv_id) {
-            Ok(()) => {
+        eprintln!("[signaldock] New from @{}: {}...", msg.from, &msg.content[..msg.content.len().min(80)]);
+
+        match adapter.deliver(&msg) {
+            Ok(DeliveryResult::Delivered) => {
                 delivered += 1;
                 ack_ids.push(msg_id.to_string());
             }
+            Ok(DeliveryResult::Retry(reason)) => {
+                eprintln!("[signaldock] Retry: {} — will retry next cycle", reason);
+                // Don't ack — will catch again next poll
+                let mut s = seen.lock().unwrap();
+                s.remove(msg_id);
+            }
+            Ok(DeliveryResult::Failed(reason)) => {
+                eprintln!("[signaldock] Failed: {} — skipping", reason);
+                ack_ids.push(msg_id.to_string()); // Ack to avoid infinite retry
+            }
             Err(e) => {
-                eprintln!("[signaldock] Delivery failed: {} — will retry", e);
+                eprintln!("[signaldock] Error: {} — will retry", e);
+                let mut s = seen.lock().unwrap();
+                s.remove(msg_id);
             }
         }
     }

@@ -8,7 +8,10 @@ pub struct Config {
     pub api_key: String,
     pub api_base: String,
     pub platform: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_output_dir: Option<String>,
 }
 
 impl Config {
@@ -32,16 +35,14 @@ impl Config {
 
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, json)?;
-        tracing::info!(path = %path.display(), "Config saved");
+        std::fs::write(&path, serde_json::to_string_pretty(self)?)?;
         Ok(())
     }
 
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         let json = std::fs::read_to_string(&path)
-            .context("No config found. Run: signaldock connect --id <agent> --key <key>")?;
+            .context("No config. Run: signaldock connect --id <agent> --key <key>")?;
         Ok(serde_json::from_str(&json)?)
     }
 }
