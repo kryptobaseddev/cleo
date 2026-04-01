@@ -6,7 +6,7 @@ use uuid::Uuid;
 use anyhow::Result;
 use signaldock_protocol::message::{Message, NewMessage};
 
-use crate::types::{MessageQuery, Page};
+use crate::types::{ActionItem, MessageQuery, Page, UnreadConversation};
 
 /// Persistence operations for [`Message`] entities.
 #[async_trait]
@@ -70,4 +70,35 @@ pub trait MessageRepository: Send + Sync {
         conversation_id: Option<Uuid>,
         limit: u32,
     ) -> Result<Vec<Message>>;
+
+    /// Counts unread messages (status `pending` or `delivered`)
+    /// addressed to the given agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns `anyhow::Error` on database failure.
+    async fn count_unread(&self, agent_id: &str) -> Result<i64>;
+
+    /// Returns per-conversation unread counts for an agent.
+    ///
+    /// Groups unread messages by `conversation_id` and returns
+    /// each group's count and most recent timestamp, ordered
+    /// by recency (newest conversation first).
+    ///
+    /// # Errors
+    ///
+    /// Returns `anyhow::Error` on database failure.
+    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>>;
+
+    /// Returns inbox action items — unread messages with non-empty
+    /// metadata — for the given agent.
+    ///
+    /// Results include a 200-character content preview and the raw
+    /// metadata JSON, ordered by creation time (newest first),
+    /// capped at `limit` rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns `anyhow::Error` on database failure.
+    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>>;
 }

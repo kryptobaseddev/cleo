@@ -198,9 +198,38 @@ pub enum Value {
     Identifier(String),
     /// A duration value (e.g., `30s`, `5m`).
     Duration(DurationValue),
+    /// A multi-line prose block using pipe-then-indent syntax.
+    ///
+    /// Used for narrative sections like `tone:`, `prompt:`, and other
+    /// free-form text in `kind:agent` documents.
+    ///
+    /// ```cant
+    /// tone: |
+    ///   You are calm and precise.
+    ///   Never use jargon.
+    /// ```
+    ProseBlock(ProseBlock),
     /// Span for the value.
     #[serde(skip)]
     _Span(Span),
+}
+
+/// A multi-line prose block using pipe-then-indent syntax.
+///
+/// Collects indented lines following a `|` marker into a structured
+/// text block. Leading common whitespace is trimmed from all lines.
+///
+/// ```cant
+/// prompt: |
+///   You coordinate all operations.
+///   Be concise and actionable.
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProseBlock {
+    /// The collected lines of prose text (common indentation stripped).
+    pub lines: Vec<String>,
+    /// Span covering the entire prose block (from `|` through last line).
+    pub span: Span,
 }
 
 /// A string value that may contain interpolation segments.

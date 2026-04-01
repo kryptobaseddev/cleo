@@ -36,6 +36,7 @@ pub mod parallel;
 pub mod permission;
 pub mod pipeline;
 pub mod property;
+pub mod prose_block;
 pub mod session;
 pub mod skill;
 pub mod span;

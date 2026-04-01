@@ -6,7 +6,7 @@ use uuid::Uuid;
 use anyhow::Result;
 use signaldock_protocol::agent::{Agent, AgentUpdate, NewAgent};
 
-use crate::types::{AgentQuery, Page, StatsDelta};
+use crate::types::{AgentQuery, OnlineAgent, Page, StatsDelta};
 
 /// Persistence operations for [`Agent`] entities.
 #[async_trait]
@@ -79,4 +79,15 @@ pub trait AgentRepository: Send + Sync {
     ///
     /// Returns `anyhow::Error` on database failure.
     async fn update_last_seen(&self, id: Uuid) -> Result<()>;
+
+    /// Lists agents that are not offline and were seen after the
+    /// given epoch threshold.
+    ///
+    /// Results are ordered by `last_seen DESC` (most recently
+    /// active first).
+    ///
+    /// # Errors
+    ///
+    /// Returns `anyhow::Error` on database failure.
+    async fn list_online(&self, threshold_epoch: i64) -> Result<Vec<OnlineAgent>>;
 }

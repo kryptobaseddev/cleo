@@ -19,7 +19,7 @@ use signaldock_protocol::agent::{Agent, AgentUpdate, NewAgent};
 use crate::models::*;
 use crate::schema::*;
 use crate::traits::AgentRepository;
-use crate::types::{AgentQuery, Page, StatsDelta};
+use crate::types::{AgentQuery, OnlineAgent, Page, StatsDelta};
 
 use super::diesel_helpers::*;
 
@@ -371,6 +371,27 @@ where
             .await
             .map_err(diesel_err)?;
         Ok(())
+    }
+
+    async fn list_online(&self, threshold_epoch: i64) -> Result<Vec<OnlineAgent>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<(String, String, Option<i64>)> = agents::table
+            .filter(agents::status.ne("offline"))
+            .filter(agents::last_seen.gt(threshold_epoch))
+            .select((agents::agent_id, agents::status, agents::last_seen))
+            .order(agents::last_seen.desc())
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(agent_id, status, last_seen)| OnlineAgent {
+                agent_id,
+                status,
+                last_seen: last_seen.unwrap_or(0),
+            })
+            .collect())
     }
 }
 

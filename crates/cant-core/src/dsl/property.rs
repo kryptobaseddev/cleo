@@ -7,6 +7,7 @@
 use super::ast::{DurationUnit, DurationValue, Property, Spanned, StringValue, Value};
 use super::error::ParseError;
 use super::indent::IndentedLine;
+use super::prose_block::parse_prose_block;
 use super::span::Span;
 
 /// Parses a `key: value` line into a [`Property`] AST node.
@@ -53,6 +54,45 @@ pub fn parse_property(line: &IndentedLine<'_>) -> Result<Property, ParseError> {
         value,
         span: line_span,
     })
+}
+
+/// Parses a `key: value` property, with prose block support.
+///
+/// If the value is `|` (pipe character alone), the parser enters prose block
+/// mode and consumes subsequent indented lines as a [`Value::ProseBlock`].
+///
+/// Returns the parsed [`Property`] and the number of additional lines consumed
+/// beyond the property line itself (0 for non-prose properties, N for prose blocks).
+pub fn parse_property_or_prose(
+    lines: &[IndentedLine<'_>],
+    line_idx: usize,
+) -> Result<(Property, usize), ParseError> {
+    let line = &lines[line_idx];
+    let content = line.content;
+    let base_offset = line.byte_offset + line.indent;
+
+    let colon_pos = content.find(':').ok_or_else(|| {
+        let span = Span::new(
+            base_offset,
+            base_offset + content.len(),
+            line.line_number,
+            (line.indent as u32) + 1,
+        );
+        ParseError::error(format!("expected `key: value`, got: {content}"), span)
+    })?;
+
+    let value_str = content[colon_pos + 1..].trim();
+
+    // Check for pipe-then-indent prose block
+    if value_str == "|" {
+        let mut prop = parse_property(line)?;
+        let (prose, consumed) = parse_prose_block(lines, line_idx, line.indent)?;
+        prop.value = Value::ProseBlock(prose);
+        return Ok((prop, consumed));
+    }
+
+    let prop = parse_property(line)?;
+    Ok((prop, 0))
 }
 
 /// Parses a value string into a [`Value`] AST node.

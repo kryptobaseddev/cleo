@@ -11,7 +11,7 @@
 use super::ast::{SkillDef, Spanned};
 use super::error::ParseError;
 use super::indent::{IndentedLine, collect_block};
-use super::property::parse_property;
+use super::property::parse_property_or_prose;
 use super::span::Span;
 
 /// Parses a `skill Name:` block starting at the given line index.
@@ -67,13 +67,18 @@ pub fn parse_skill_block(
 
     let mut properties = Vec::new();
 
-    for line in body_lines {
+    let mut i = 0;
+    while i < body_lines.len() {
+        let line = &body_lines[i];
+
         if line.is_blank() || line.is_comment() {
+            i += 1;
             continue;
         }
 
-        let prop = parse_property(line)?;
+        let (prop, extra) = parse_property_or_prose(body_lines, i)?;
         properties.push(prop);
+        i += 1 + extra;
     }
 
     // Calculate full span

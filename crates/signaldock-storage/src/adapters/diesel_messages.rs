@@ -17,7 +17,7 @@ use super::diesel_store::DieselStore;
 use crate::models::*;
 use crate::schema::*;
 use crate::traits::MessageRepository;
-use crate::types::{MessageQuery, Page, SortDirection};
+use crate::types::{ActionItem, MessageQuery, Page, SortDirection, UnreadConversation};
 
 /// Sanitizes user input for FTS5 MATCH queries.
 ///
@@ -355,6 +355,76 @@ where
 
         Ok(rows.into_iter().map(message_from_row).collect())
     }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let count: i64 = messages::table
+            .filter(messages::to_agent_id.eq(agent_id))
+            .filter(messages::status.eq_any(&["pending", "delivered"]))
+            .count()
+            .get_result(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+        Ok(count)
+    }
+
+    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
+        // GROUP BY with aggregate functions requires raw SQL in Diesel
+        // because the typed DSL does not support arbitrary GROUP BY projections.
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<UnreadConversationRow> = diesel::sql_query(
+            "SELECT conversation_id, COUNT(*) AS unread, MAX(created_at) AS last_at \
+             FROM messages \
+             WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
+             GROUP BY conversation_id \
+             ORDER BY last_at DESC",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| UnreadConversation {
+                conversation_id: r.conversation_id,
+                unread: r.unread,
+                last_at: r.last_at,
+            })
+            .collect())
+    }
+
+    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>> {
+        // SUBSTR and complex WHERE conditions on nullable JSON columns
+        // require raw SQL — the Diesel typed DSL does not support SUBSTR.
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<ActionItemRow> = diesel::sql_query(
+            "SELECT id, from_agent_id, conversation_id, \
+                    SUBSTR(content, 1, 200) AS preview, metadata, created_at \
+             FROM messages \
+             WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
+                   AND metadata IS NOT NULL AND metadata != '{}' AND metadata != 'null' \
+             ORDER BY created_at DESC \
+             LIMIT ?",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .bind::<diesel::sql_types::BigInt, _>(limit)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| ActionItem {
+                id: r.id,
+                from_agent_id: r.from_agent_id,
+                conversation_id: r.conversation_id,
+                preview: r.preview,
+                metadata: r.metadata,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
 }
 
 /// Helper struct for extracting COUNT(*) from raw SQL queries.
@@ -362,4 +432,32 @@ where
 struct CountResult {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     count: i64,
+}
+
+/// Row projection for the `unread_by_conversation` GROUP BY query.
+#[derive(QueryableByName, Debug)]
+struct UnreadConversationRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    conversation_id: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    unread: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    last_at: i64,
+}
+
+/// Row projection for the `action_items` query.
+#[derive(QueryableByName, Debug)]
+struct ActionItemRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    from_agent_id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    conversation_id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    preview: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    metadata: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    created_at: i64,
 }

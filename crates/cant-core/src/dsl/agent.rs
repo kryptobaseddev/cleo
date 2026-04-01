@@ -17,7 +17,7 @@ use super::error::ParseError;
 use super::hook::parse_hook_block;
 use super::indent::{IndentedLine, collect_block};
 use super::permission::parse_permissions;
-use super::property::parse_property;
+use super::property::parse_property_or_prose;
 use super::span::Span;
 
 /// Parses an `agent Name:` block starting at the given line index.
@@ -109,10 +109,10 @@ pub fn parse_agent_block(
             continue;
         }
 
-        // Regular property
-        let prop = parse_property(line)?;
+        // Regular property (with prose block support)
+        let (prop, extra) = parse_property_or_prose(body_lines, i)?;
         properties.push(prop);
-        i += 1;
+        i += 1 + extra;
     }
 
     // Calculate full span

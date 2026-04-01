@@ -193,6 +193,64 @@ pub struct DeliveryJob {
     pub created_at: DateTime<Utc>,
 }
 
+/// Summary of an agent's online presence, returned by
+/// [`AgentRepository::list_online`].
+///
+/// A lightweight projection of the `agents` table containing only
+/// the fields needed to render an online-agents list.
+///
+/// [`AgentRepository::list_online`]: crate::traits::AgentRepository::list_online
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineAgent {
+    /// Public-facing agent identifier (e.g. `"cleo-orchestrator"`).
+    pub agent_id: String,
+    /// Current online status string (e.g. `"online"`, `"busy"`).
+    pub status: String,
+    /// Unix timestamp of the agent's most recent activity.
+    pub last_seen: i64,
+}
+
+/// Per-conversation unread message summary, returned by
+/// [`MessageRepository::unread_by_conversation`].
+///
+/// Aggregated via `GROUP BY conversation_id` over unread messages.
+///
+/// [`MessageRepository::unread_by_conversation`]:
+///     crate::traits::MessageRepository::unread_by_conversation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnreadConversation {
+    /// Conversation UUID (as string from the database).
+    pub conversation_id: String,
+    /// Number of unread messages in this conversation.
+    pub unread: i64,
+    /// Unix timestamp of the most recent unread message.
+    pub last_at: i64,
+}
+
+/// A compact inbox action item with metadata, returned by
+/// [`MessageRepository::action_items`].
+///
+/// Contains a content preview (first 200 chars) and the raw
+/// metadata JSON for the caller to parse directives/mentions.
+///
+/// [`MessageRepository::action_items`]:
+///     crate::traits::MessageRepository::action_items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionItem {
+    /// Message UUID (as string from the database).
+    pub id: String,
+    /// Sender agent identifier.
+    pub from_agent_id: String,
+    /// Parent conversation UUID (as string from the database).
+    pub conversation_id: String,
+    /// First 200 characters of the message content.
+    pub preview: String,
+    /// Raw JSON metadata string (contains directives, mentions, tags).
+    pub metadata: String,
+    /// Unix timestamp of message creation.
+    pub created_at: i64,
+}
+
 impl StatsDelta {
     /// Returns a delta that increments `messages_sent` by 1.
     pub fn sent() -> Self {
