@@ -16,6 +16,17 @@ use signaldock_protocol::user::User;
 
 use crate::models::*;
 
+// ── Backend type aliases ────────────────────────────────────────
+
+/// SQLite connection type alias for `DieselStore` impls.
+#[cfg(feature = "sqlite")]
+pub type SqliteConn =
+    diesel_async::sync_connection_wrapper::SyncConnectionWrapper<diesel::SqliteConnection>;
+
+/// PostgreSQL connection type alias for `DieselStore` impls.
+#[cfg(feature = "postgres")]
+pub type PgConn = diesel_async::AsyncPgConnection;
+
 // ── Timestamp helpers ───────────────────────────────────────────
 
 /// Current Unix timestamp in seconds.

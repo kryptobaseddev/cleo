@@ -1,13 +1,13 @@
 //! [`MessageRepository`] implementation for [`DieselStore`].
 //!
-//! Translates the sqlx-based message queries into Diesel DSL.
-//! Uses `diesel::sql_query` for FTS5 full-text search and
-//! the GROUP BY deduplication query (not expressible in typed DSL).
+//! Uses Diesel DSL where possible and `diesel::sql_query` for
+//! GROUP BY deduplication and full-text search. FTS5 is used on
+//! SQLite; ILIKE is used on PostgreSQL.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use diesel::prelude::*;
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel_async::RunQueryDsl;
 use uuid::Uuid;
 
 use signaldock_protocol::message::{Message, NewMessage};
@@ -19,11 +19,12 @@ use crate::schema::*;
 use crate::traits::MessageRepository;
 use crate::types::{ActionItem, MessageQuery, Page, SortDirection, UnreadConversation};
 
-/// Sanitizes user input for FTS5 MATCH queries.
+/// Sanitizes user input for FTS5 MATCH queries (SQLite only).
 ///
 /// Strips FTS5 operators (AND, OR, NOT, NEAR), removes special
 /// characters that could cause parse errors, enforces max length,
 /// and wraps each word in double quotes for literal matching.
+#[cfg(feature = "sqlite")]
 fn sanitize_fts5_query(input: &str) -> String {
     let truncated = if input.len() > 256 {
         &input[..256]
@@ -51,380 +52,16 @@ fn sanitize_fts5_query(input: &str) -> String {
     words.join(" ")
 }
 
-#[async_trait]
-impl<C> MessageRepository for DieselStore<C>
-where
-    C: AsyncConnection + 'static,
-    C: diesel_async::AsyncConnection<Backend = diesel::sqlite::Sqlite>,
-    C: diesel_async::pooled_connection::PoolableConnection,
-{
-    async fn create(&self, message: NewMessage) -> Result<Message> {
-        // T246: Validate from/to agent_ids exist in agents table
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        let from_exists: Option<AgentRow> = agents::table
-            .filter(agents::agent_id.eq(&message.from_agent_id))
-            .first(&mut conn)
-            .await
-            .optional()
-            .map_err(diesel_err)?;
-        if from_exists.is_none() {
-            anyhow::bail!(
-                "Write-guard: from_agent_id '{}' does not exist in agents table",
-                message.from_agent_id
-            );
-        }
-        let to_exists: Option<AgentRow> = agents::table
-            .filter(agents::agent_id.eq(&message.to_agent_id))
-            .first(&mut conn)
-            .await
-            .optional()
-            .map_err(diesel_err)?;
-        if to_exists.is_none() {
-            anyhow::bail!(
-                "Write-guard: to_agent_id '{}' does not exist in agents table",
-                message.to_agent_id
-            );
-        }
-        drop(conn);
-
-        let id = Uuid::new_v4();
-        let now = now_ts();
-        let content_type = serialize_enum(&message.content_type);
-        let attachments_json = serde_json::to_string(&message.attachments)?;
-        let metadata_json = message
-            .metadata
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?
-            .unwrap_or_else(|| "{}".to_string());
-
-        let new_row = NewMessageRow {
-            id: id.to_string(),
-            conversation_id: message.conversation_id.to_string(),
-            from_agent_id: message.from_agent_id.clone(),
-            to_agent_id: message.to_agent_id.clone(),
-            content: message.content.clone(),
-            content_type,
-            status: "pending".to_string(),
-            attachments: attachments_json,
-            group_id: message.group_id.map(|g| g.to_string()),
-            metadata: Some(metadata_json),
-            reply_to: message.reply_to.map(|r| r.to_string()),
-            created_at: now,
-            delivered_at: None,
-            read_at: None,
-        };
-
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        diesel::insert_into(messages::table)
-            .values(&new_row)
-            .execute(&mut conn)
-            .await
-            .map_err(diesel_err)?;
-
-        self.find_by_id(id)
-            .await?
-            .context("message not found after insert")
-    }
-
-    async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>> {
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        let row: Option<MessageRow> = messages::table
-            .find(id.to_string())
-            .first(&mut conn)
-            .await
-            .optional()
-            .map_err(diesel_err)?;
-        Ok(row.map(message_from_row))
-    }
-
-    async fn list_for_conversation(&self, query: MessageQuery) -> Result<Page<Message>> {
-        let conv_id = query
-            .conversation_id
-            .context("conversation_id required for list_for_conversation")?;
-        let conv_str = conv_id.to_string();
-        let after_ts = query.after_timestamp.map(|ts| ts.timestamp());
-
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-
-        // Count unique logical messages (dedup fan-out copies by group_id).
-        let total: i64 = if let Some(ts) = after_ts {
-            diesel::sql_query(
-                "SELECT COUNT(*) AS count FROM (\
-                   SELECT COALESCE(group_id, id) AS gkey \
-                   FROM messages WHERE conversation_id = ? AND created_at > ? \
-                   GROUP BY gkey\
-                 )",
-            )
-            .bind::<diesel::sql_types::Text, _>(&conv_str)
-            .bind::<diesel::sql_types::BigInt, _>(ts)
-            .get_result::<CountResult>(&mut conn)
-            .await
-            .map(|r| r.count)
-            .map_err(diesel_err)?
-        } else {
-            diesel::sql_query(
-                "SELECT COUNT(*) AS count FROM (\
-                   SELECT COALESCE(group_id, id) AS gkey \
-                   FROM messages WHERE conversation_id = ? \
-                   GROUP BY gkey\
-                 )",
-            )
-            .bind::<diesel::sql_types::Text, _>(&conv_str)
-            .get_result::<CountResult>(&mut conn)
-            .await
-            .map(|r| r.count)
-            .map_err(diesel_err)?
-        };
-
-        let offset = if query.page == 0 {
-            0
-        } else {
-            (query.page.saturating_sub(1)) * query.limit
-        };
-
-        let order = match query.sort {
-            SortDirection::Asc => "ASC",
-            SortDirection::Desc => "DESC",
-        };
-
-        // Deduplicate fan-out copies using GROUP BY COALESCE(group_id, id).
-        let rows: Vec<MessageRow> = if let Some(ts) = after_ts {
-            diesel::sql_query(format!(
-                "SELECT MIN(id) AS id, conversation_id, \
-                   MIN(from_agent_id) AS from_agent_id, \
-                   MIN(to_agent_id) AS to_agent_id, \
-                   MIN(content) AS content, \
-                   MIN(content_type) AS content_type, \
-                   MIN(status) AS status, \
-                   MIN(created_at) AS created_at, \
-                   MIN(delivered_at) AS delivered_at, \
-                   MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, \
-                   COALESCE(group_id, MIN(id)) AS group_id, \
-                   MIN(metadata) AS metadata, \
-                   MIN(reply_to) AS reply_to \
-                 FROM messages \
-                 WHERE conversation_id = ? AND created_at > ? \
-                 GROUP BY COALESCE(group_id, id) \
-                 ORDER BY MIN(created_at) {order} \
-                 LIMIT ? OFFSET ?"
-            ))
-            .bind::<diesel::sql_types::Text, _>(&conv_str)
-            .bind::<diesel::sql_types::BigInt, _>(ts)
-            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
-            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
-            .load(&mut conn)
-            .await
-            .map_err(diesel_err)?
-        } else {
-            diesel::sql_query(format!(
-                "SELECT MIN(id) AS id, conversation_id, \
-                   MIN(from_agent_id) AS from_agent_id, \
-                   MIN(to_agent_id) AS to_agent_id, \
-                   MIN(content) AS content, \
-                   MIN(content_type) AS content_type, \
-                   MIN(status) AS status, \
-                   MIN(created_at) AS created_at, \
-                   MIN(delivered_at) AS delivered_at, \
-                   MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, \
-                   COALESCE(group_id, MIN(id)) AS group_id, \
-                   MIN(metadata) AS metadata, \
-                   MIN(reply_to) AS reply_to \
-                 FROM messages \
-                 WHERE conversation_id = ? \
-                 GROUP BY COALESCE(group_id, id) \
-                 ORDER BY MIN(created_at) {order} \
-                 LIMIT ? OFFSET ?"
-            ))
-            .bind::<diesel::sql_types::Text, _>(&conv_str)
-            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
-            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
-            .load(&mut conn)
-            .await
-            .map_err(diesel_err)?
-        };
-
-        let msgs = rows.into_iter().map(message_from_row).collect();
-        Ok(Page::new(msgs, total as u64, query.page, query.limit))
-    }
-
-    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-
-        let rows: Vec<MessageRow> = if let Some(since) = since_id {
-            // Look up the created_at of the cursor message.
-            let since_ts: Option<i64> = messages::table
-                .find(since.to_string())
-                .select(messages::created_at)
-                .first(&mut conn)
-                .await
-                .optional()
-                .map_err(diesel_err)?;
-
-            let ts = since_ts.unwrap_or(0);
-
-            messages::table
-                .filter(messages::to_agent_id.eq(agent_id))
-                .filter(messages::created_at.gt(ts))
-                .order(messages::created_at.asc())
-                .load(&mut conn)
-                .await
-                .map_err(diesel_err)?
-        } else {
-            messages::table
-                .filter(messages::to_agent_id.eq(agent_id))
-                .filter(messages::status.eq("pending"))
-                .order(messages::created_at.asc())
-                .load(&mut conn)
-                .await
-                .map_err(diesel_err)?
-        };
-
-        Ok(rows.into_iter().map(message_from_row).collect())
-    }
-
-    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
-        let now = now_ts();
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        diesel::update(messages::table.find(id.to_string()))
-            .set((
-                messages::status.eq("delivered"),
-                messages::delivered_at.eq(Some(now)),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(diesel_err)?;
-        Ok(())
-    }
-
-    async fn mark_read(&self, id: Uuid) -> Result<()> {
-        let now = now_ts();
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        diesel::update(messages::table.find(id.to_string()))
-            .set((messages::status.eq("read"), messages::read_at.eq(Some(now))))
-            .execute(&mut conn)
-            .await
-            .map_err(diesel_err)?;
-        Ok(())
-    }
-
-    async fn search(
-        &self,
-        query: &str,
-        conversation_id: Option<Uuid>,
-        limit: u32,
-    ) -> Result<Vec<Message>> {
-        let sanitized = sanitize_fts5_query(query);
-        if sanitized.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-
-        // FTS5 requires raw SQL — not representable in Diesel typed DSL.
-        let rows: Vec<MessageRow> = if let Some(cid) = conversation_id {
-            diesel::sql_query(
-                "SELECT m.* FROM messages m \
-                 JOIN messages_fts f ON m.rowid = f.rowid \
-                 WHERE messages_fts MATCH ? AND m.conversation_id = ? \
-                 ORDER BY rank \
-                 LIMIT ?",
-            )
-            .bind::<diesel::sql_types::Text, _>(&sanitized)
-            .bind::<diesel::sql_types::Text, _>(cid.to_string())
-            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
-            .load(&mut conn)
-            .await
-            .map_err(diesel_err)?
-        } else {
-            diesel::sql_query(
-                "SELECT m.* FROM messages m \
-                 JOIN messages_fts f ON m.rowid = f.rowid \
-                 WHERE messages_fts MATCH ? \
-                 ORDER BY rank \
-                 LIMIT ?",
-            )
-            .bind::<diesel::sql_types::Text, _>(&sanitized)
-            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
-            .load(&mut conn)
-            .await
-            .map_err(diesel_err)?
-        };
-
-        Ok(rows.into_iter().map(message_from_row).collect())
-    }
-
-    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        let count: i64 = messages::table
-            .filter(messages::to_agent_id.eq(agent_id))
-            .filter(messages::status.eq_any(&["pending", "delivered"]))
-            .count()
-            .get_result(&mut conn)
-            .await
-            .map_err(diesel_err)?;
-        Ok(count)
-    }
-
-    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
-        // GROUP BY with aggregate functions requires raw SQL in Diesel
-        // because the typed DSL does not support arbitrary GROUP BY projections.
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        let rows: Vec<UnreadConversationRow> = diesel::sql_query(
-            "SELECT conversation_id, COUNT(*) AS unread, MAX(created_at) AS last_at \
-             FROM messages \
-             WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
-             GROUP BY conversation_id \
-             ORDER BY last_at DESC",
-        )
-        .bind::<diesel::sql_types::Text, _>(agent_id)
-        .load(&mut conn)
-        .await
-        .map_err(diesel_err)?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| UnreadConversation {
-                conversation_id: r.conversation_id,
-                unread: r.unread,
-                last_at: r.last_at,
-            })
-            .collect())
-    }
-
-    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>> {
-        // SUBSTR and complex WHERE conditions on nullable JSON columns
-        // require raw SQL — the Diesel typed DSL does not support SUBSTR.
-        let mut conn = self.pool.get().await.map_err(pool_err)?;
-        let rows: Vec<ActionItemRow> = diesel::sql_query(
-            "SELECT id, from_agent_id, conversation_id, \
-                    SUBSTR(content, 1, 200) AS preview, metadata, created_at \
-             FROM messages \
-             WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
-                   AND metadata IS NOT NULL AND metadata != '{}' AND metadata != 'null' \
-             ORDER BY created_at DESC \
-             LIMIT ?",
-        )
-        .bind::<diesel::sql_types::Text, _>(agent_id)
-        .bind::<diesel::sql_types::BigInt, _>(limit)
-        .load(&mut conn)
-        .await
-        .map_err(diesel_err)?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| ActionItem {
-                id: r.id,
-                from_agent_id: r.from_agent_id,
-                conversation_id: r.conversation_id,
-                preview: r.preview,
-                metadata: r.metadata,
-                created_at: r.created_at,
-            })
-            .collect())
-    }
+/// Sanitizes user input for ILIKE queries (PostgreSQL).
+#[cfg(feature = "postgres")]
+fn sanitize_search_query(input: &str) -> String {
+    let truncated = if input.len() > 256 {
+        &input[..256]
+    } else {
+        input
+    };
+    // Escape LIKE/ILIKE special characters
+    truncated.replace('%', "\\%").replace('_', "\\_")
 }
 
 /// Helper struct for extracting COUNT(*) from raw SQL queries.
@@ -461,3 +98,590 @@ struct ActionItemRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     created_at: i64,
 }
+
+// ============================================================================
+// SQLite MessageRepository — uses ? placeholders and FTS5
+// ============================================================================
+
+#[cfg(feature = "sqlite")]
+#[async_trait]
+impl MessageRepository for DieselStore<SqliteConn> {
+    async fn create(&self, message: NewMessage) -> Result<Message> {
+        msg_create(self, message).await
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>> {
+        msg_find_by_id(self, id).await
+    }
+
+    async fn list_for_conversation(&self, query: MessageQuery) -> Result<Page<Message>> {
+        let conv_id = query
+            .conversation_id
+            .context("conversation_id required for list_for_conversation")?;
+        let conv_str = conv_id.to_string();
+        let after_ts = query.after_timestamp.map(|ts| ts.timestamp());
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+
+        let total: i64 = if let Some(ts) = after_ts {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM (\
+                   SELECT COALESCE(group_id, id) AS gkey \
+                   FROM messages WHERE conversation_id = ? AND created_at > ? \
+                   GROUP BY gkey\
+                 )",
+            )
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(ts)
+            .get_result::<CountResult>(&mut conn)
+            .await
+            .map(|r| r.count)
+            .map_err(diesel_err)?
+        } else {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM (\
+                   SELECT COALESCE(group_id, id) AS gkey \
+                   FROM messages WHERE conversation_id = ? \
+                   GROUP BY gkey\
+                 )",
+            )
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .get_result::<CountResult>(&mut conn)
+            .await
+            .map(|r| r.count)
+            .map_err(diesel_err)?
+        };
+
+        let offset = if query.page == 0 {
+            0
+        } else {
+            (query.page.saturating_sub(1)) * query.limit
+        };
+        let order = match query.sort {
+            SortDirection::Asc => "ASC",
+            SortDirection::Desc => "DESC",
+        };
+
+        let rows: Vec<MessageRow> = if let Some(ts) = after_ts {
+            diesel::sql_query(format!(
+                "SELECT MIN(id) AS id, conversation_id, \
+                   MIN(from_agent_id) AS from_agent_id, MIN(to_agent_id) AS to_agent_id, \
+                   MIN(content) AS content, MIN(content_type) AS content_type, \
+                   MIN(status) AS status, MIN(created_at) AS created_at, \
+                   MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
+                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
+                 FROM messages WHERE conversation_id = ? AND created_at > ? \
+                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
+            ))
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(ts)
+            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
+            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        } else {
+            diesel::sql_query(format!(
+                "SELECT MIN(id) AS id, conversation_id, \
+                   MIN(from_agent_id) AS from_agent_id, MIN(to_agent_id) AS to_agent_id, \
+                   MIN(content) AS content, MIN(content_type) AS content_type, \
+                   MIN(status) AS status, MIN(created_at) AS created_at, \
+                   MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
+                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
+                 FROM messages WHERE conversation_id = ? \
+                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
+            ))
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
+            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        };
+
+        let msgs = rows.into_iter().map(message_from_row).collect();
+        Ok(Page::new(msgs, total as u64, query.page, query.limit))
+    }
+
+    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
+        msg_poll_new(self, agent_id, since_id).await
+    }
+
+    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
+        msg_mark_delivered(self, id).await
+    }
+
+    async fn mark_read(&self, id: Uuid) -> Result<()> {
+        msg_mark_read(self, id).await
+    }
+
+    async fn search(
+        &self,
+        query: &str,
+        conversation_id: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<Message>> {
+        let sanitized = sanitize_fts5_query(query);
+        if sanitized.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<MessageRow> = if let Some(cid) = conversation_id {
+            diesel::sql_query(
+                "SELECT m.* FROM messages m \
+                 JOIN messages_fts f ON m.rowid = f.rowid \
+                 WHERE messages_fts MATCH ? AND m.conversation_id = ? \
+                 ORDER BY rank LIMIT ?",
+            )
+            .bind::<diesel::sql_types::Text, _>(&sanitized)
+            .bind::<diesel::sql_types::Text, _>(cid.to_string())
+            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        } else {
+            diesel::sql_query(
+                "SELECT m.* FROM messages m \
+                 JOIN messages_fts f ON m.rowid = f.rowid \
+                 WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?",
+            )
+            .bind::<diesel::sql_types::Text, _>(&sanitized)
+            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        };
+        Ok(rows.into_iter().map(message_from_row).collect())
+    }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        msg_count_unread(self, agent_id).await
+    }
+
+    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<UnreadConversationRow> = diesel::sql_query(
+            "SELECT conversation_id, COUNT(*) AS unread, MAX(created_at) AS last_at \
+             FROM messages WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
+             GROUP BY conversation_id ORDER BY last_at DESC",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UnreadConversation {
+                conversation_id: r.conversation_id,
+                unread: r.unread,
+                last_at: r.last_at,
+            })
+            .collect())
+    }
+
+    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<ActionItemRow> = diesel::sql_query(
+            "SELECT id, from_agent_id, conversation_id, \
+                    SUBSTR(content, 1, 200) AS preview, metadata, created_at \
+             FROM messages WHERE to_agent_id = ? AND status IN ('pending', 'delivered') \
+                   AND metadata IS NOT NULL AND metadata != '{}' AND metadata != 'null' \
+             ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .bind::<diesel::sql_types::BigInt, _>(limit)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ActionItem {
+                id: r.id,
+                from_agent_id: r.from_agent_id,
+                conversation_id: r.conversation_id,
+                preview: r.preview,
+                metadata: r.metadata,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+}
+
+// ============================================================================
+// PostgreSQL MessageRepository — uses $N placeholders and ILIKE
+// ============================================================================
+
+#[cfg(feature = "postgres")]
+#[async_trait]
+impl MessageRepository for DieselStore<PgConn> {
+    async fn create(&self, message: NewMessage) -> Result<Message> {
+        msg_create(self, message).await
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>> {
+        msg_find_by_id(self, id).await
+    }
+
+    async fn list_for_conversation(&self, query: MessageQuery) -> Result<Page<Message>> {
+        let conv_id = query
+            .conversation_id
+            .context("conversation_id required for list_for_conversation")?;
+        let conv_str = conv_id.to_string();
+        let after_ts = query.after_timestamp.map(|ts| ts.timestamp());
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+
+        let total: i64 = if let Some(ts) = after_ts {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM (\
+                   SELECT COALESCE(group_id, id) AS gkey \
+                   FROM messages WHERE conversation_id = $1 AND created_at > $2 \
+                   GROUP BY gkey\
+                 ) sub",
+            )
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(ts)
+            .get_result::<CountResult>(&mut conn)
+            .await
+            .map(|r| r.count)
+            .map_err(diesel_err)?
+        } else {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM (\
+                   SELECT COALESCE(group_id, id) AS gkey \
+                   FROM messages WHERE conversation_id = $1 \
+                   GROUP BY gkey\
+                 ) sub",
+            )
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .get_result::<CountResult>(&mut conn)
+            .await
+            .map(|r| r.count)
+            .map_err(diesel_err)?
+        };
+
+        let offset = if query.page == 0 {
+            0
+        } else {
+            (query.page.saturating_sub(1)) * query.limit
+        };
+        let order = match query.sort {
+            SortDirection::Asc => "ASC",
+            SortDirection::Desc => "DESC",
+        };
+
+        let rows: Vec<MessageRow> = if let Some(ts) = after_ts {
+            diesel::sql_query(format!(
+                "SELECT MIN(id) AS id, conversation_id, \
+                   MIN(from_agent_id) AS from_agent_id, MIN(to_agent_id) AS to_agent_id, \
+                   MIN(content) AS content, MIN(content_type) AS content_type, \
+                   MIN(status) AS status, MIN(created_at) AS created_at, \
+                   MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
+                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
+                 FROM messages WHERE conversation_id = $1 AND created_at > $2 \
+                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $3 OFFSET $4"
+            ))
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(ts)
+            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
+            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
+            .load(&mut conn).await.map_err(diesel_err)?
+        } else {
+            diesel::sql_query(format!(
+                "SELECT MIN(id) AS id, conversation_id, \
+                   MIN(from_agent_id) AS from_agent_id, MIN(to_agent_id) AS to_agent_id, \
+                   MIN(content) AS content, MIN(content_type) AS content_type, \
+                   MIN(status) AS status, MIN(created_at) AS created_at, \
+                   MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
+                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
+                 FROM messages WHERE conversation_id = $1 \
+                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $2 OFFSET $3"
+            ))
+            .bind::<diesel::sql_types::Text, _>(&conv_str)
+            .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
+            .bind::<diesel::sql_types::BigInt, _>(offset as i64)
+            .load(&mut conn).await.map_err(diesel_err)?
+        };
+
+        let msgs = rows.into_iter().map(message_from_row).collect();
+        Ok(Page::new(msgs, total as u64, query.page, query.limit))
+    }
+
+    async fn poll_new(&self, agent_id: &str, since_id: Option<Uuid>) -> Result<Vec<Message>> {
+        msg_poll_new(self, agent_id, since_id).await
+    }
+
+    async fn mark_delivered(&self, id: Uuid) -> Result<()> {
+        msg_mark_delivered(self, id).await
+    }
+
+    async fn mark_read(&self, id: Uuid) -> Result<()> {
+        msg_mark_read(self, id).await
+    }
+
+    async fn search(
+        &self,
+        query: &str,
+        conversation_id: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<Message>> {
+        let sanitized = sanitize_search_query(query);
+        if sanitized.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let pattern = format!("%{sanitized}%");
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        // Use ILIKE for case-insensitive text search on PostgreSQL.
+        let rows: Vec<MessageRow> = if let Some(cid) = conversation_id {
+            diesel::sql_query(
+                "SELECT * FROM messages \
+                 WHERE content ILIKE $1 AND conversation_id = $2 \
+                 ORDER BY created_at DESC LIMIT $3",
+            )
+            .bind::<diesel::sql_types::Text, _>(&pattern)
+            .bind::<diesel::sql_types::Text, _>(cid.to_string())
+            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        } else {
+            diesel::sql_query(
+                "SELECT * FROM messages \
+                 WHERE content ILIKE $1 \
+                 ORDER BY created_at DESC LIMIT $2",
+            )
+            .bind::<diesel::sql_types::Text, _>(&pattern)
+            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
+            .load(&mut conn)
+            .await
+            .map_err(diesel_err)?
+        };
+        Ok(rows.into_iter().map(message_from_row).collect())
+    }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        msg_count_unread(self, agent_id).await
+    }
+
+    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<UnreadConversationRow> = diesel::sql_query(
+            "SELECT conversation_id, COUNT(*) AS unread, MAX(created_at) AS last_at \
+             FROM messages WHERE to_agent_id = $1 AND status IN ('pending', 'delivered') \
+             GROUP BY conversation_id ORDER BY last_at DESC",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UnreadConversation {
+                conversation_id: r.conversation_id,
+                unread: r.unread,
+                last_at: r.last_at,
+            })
+            .collect())
+    }
+
+    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>> {
+        let mut conn = self.pool.get().await.map_err(pool_err)?;
+        let rows: Vec<ActionItemRow> = diesel::sql_query(
+            "SELECT id, from_agent_id, conversation_id, \
+                    SUBSTRING(content FROM 1 FOR 200) AS preview, metadata, created_at \
+             FROM messages WHERE to_agent_id = $1 AND status IN ('pending', 'delivered') \
+                   AND metadata IS NOT NULL AND metadata != '{}' AND metadata != 'null' \
+             ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind::<diesel::sql_types::Text, _>(agent_id)
+        .bind::<diesel::sql_types::BigInt, _>(limit)
+        .load(&mut conn)
+        .await
+        .map_err(diesel_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ActionItem {
+                id: r.id,
+                from_agent_id: r.from_agent_id,
+                conversation_id: r.conversation_id,
+                preview: r.preview,
+                metadata: r.metadata,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+}
+
+// ============================================================================
+// Shared helper functions — DSL-based, backend-agnostic via macro
+// ============================================================================
+
+/// Generates shared message helper functions for a concrete connection type.
+macro_rules! impl_msg_helpers {
+    ($conn:ty) => {
+        /// Create a new message with write-guard validation.
+        async fn msg_create(store: &DieselStore<$conn>, message: NewMessage) -> Result<Message> {
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            let from_exists: Option<AgentRow> = agents::table
+                .filter(agents::agent_id.eq(&message.from_agent_id))
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(diesel_err)?;
+            if from_exists.is_none() {
+                anyhow::bail!(
+                    "Write-guard: from_agent_id '{}' does not exist in agents table",
+                    message.from_agent_id
+                );
+            }
+            let to_exists: Option<AgentRow> = agents::table
+                .filter(agents::agent_id.eq(&message.to_agent_id))
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(diesel_err)?;
+            if to_exists.is_none() {
+                anyhow::bail!(
+                    "Write-guard: to_agent_id '{}' does not exist in agents table",
+                    message.to_agent_id
+                );
+            }
+            drop(conn);
+
+            let id = Uuid::new_v4();
+            let now = now_ts();
+            let content_type = serialize_enum(&message.content_type);
+            let attachments_json = serde_json::to_string(&message.attachments)?;
+            let metadata_json = message
+                .metadata
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?
+                .unwrap_or_else(|| "{}".to_string());
+
+            let new_row = NewMessageRow {
+                id: id.to_string(),
+                conversation_id: message.conversation_id.to_string(),
+                from_agent_id: message.from_agent_id.clone(),
+                to_agent_id: message.to_agent_id.clone(),
+                content: message.content.clone(),
+                content_type,
+                status: "pending".to_string(),
+                attachments: attachments_json,
+                group_id: message.group_id.map(|g| g.to_string()),
+                metadata: Some(metadata_json),
+                reply_to: message.reply_to.map(|r| r.to_string()),
+                created_at: now,
+                delivered_at: None,
+                read_at: None,
+            };
+
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            diesel::insert_into(messages::table)
+                .values(&new_row)
+                .execute(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+
+            msg_find_by_id(store, id)
+                .await?
+                .context("message not found after insert")
+        }
+
+        /// Find a message by ID.
+        async fn msg_find_by_id(store: &DieselStore<$conn>, id: Uuid) -> Result<Option<Message>> {
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            let row: Option<MessageRow> = messages::table
+                .find(id.to_string())
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(diesel_err)?;
+            Ok(row.map(message_from_row))
+        }
+
+        /// Poll for new messages for an agent.
+        async fn msg_poll_new(
+            store: &DieselStore<$conn>,
+            agent_id: &str,
+            since_id: Option<Uuid>,
+        ) -> Result<Vec<Message>> {
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            let rows: Vec<MessageRow> = if let Some(since) = since_id {
+                let since_ts: Option<i64> = messages::table
+                    .find(since.to_string())
+                    .select(messages::created_at)
+                    .first(&mut conn)
+                    .await
+                    .optional()
+                    .map_err(diesel_err)?;
+                let ts = since_ts.unwrap_or(0);
+                messages::table
+                    .filter(messages::to_agent_id.eq(agent_id))
+                    .filter(messages::created_at.gt(ts))
+                    .order(messages::created_at.asc())
+                    .load(&mut conn)
+                    .await
+                    .map_err(diesel_err)?
+            } else {
+                messages::table
+                    .filter(messages::to_agent_id.eq(agent_id))
+                    .filter(messages::status.eq("pending"))
+                    .order(messages::created_at.asc())
+                    .load(&mut conn)
+                    .await
+                    .map_err(diesel_err)?
+            };
+            Ok(rows.into_iter().map(message_from_row).collect())
+        }
+
+        /// Mark a message as delivered.
+        async fn msg_mark_delivered(store: &DieselStore<$conn>, id: Uuid) -> Result<()> {
+            let now = now_ts();
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            diesel::update(messages::table.find(id.to_string()))
+                .set((
+                    messages::status.eq("delivered"),
+                    messages::delivered_at.eq(Some(now)),
+                ))
+                .execute(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+            Ok(())
+        }
+
+        /// Mark a message as read.
+        async fn msg_mark_read(store: &DieselStore<$conn>, id: Uuid) -> Result<()> {
+            let now = now_ts();
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            diesel::update(messages::table.find(id.to_string()))
+                .set((messages::status.eq("read"), messages::read_at.eq(Some(now))))
+                .execute(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+            Ok(())
+        }
+
+        /// Count unread messages for an agent.
+        async fn msg_count_unread(store: &DieselStore<$conn>, agent_id: &str) -> Result<i64> {
+            let mut conn = store.pool.get().await.map_err(pool_err)?;
+            let count: i64 = messages::table
+                .filter(messages::to_agent_id.eq(agent_id))
+                .filter(messages::status.eq_any(&["pending", "delivered"]))
+                .count()
+                .get_result(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+            Ok(count)
+        }
+    };
+}
+
+// Generate shared helper functions for each backend.
+#[cfg(feature = "sqlite")]
+impl_msg_helpers!(SqliteConn);
+
+#[cfg(feature = "postgres")]
+impl_msg_helpers!(PgConn);
