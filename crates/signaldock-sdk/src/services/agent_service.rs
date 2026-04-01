@@ -174,9 +174,7 @@ impl<R: AgentRepository + ClaimRepository + Send + Sync> AgentService<R> {
     pub async fn generate_api_key(&self, agent_id: &str) -> Result<ApiKeyResult> {
         let agent = self.get_by_agent_id(agent_id).await?;
         if agent.api_key_hash.is_some() {
-            anyhow::bail!(
-                "Agent already has an API key. Use rotate_api_key to replace it."
-            );
+            anyhow::bail!("Agent already has an API key. Use rotate_api_key to replace it.");
         }
         let (api_key, hash) = generate_api_key_pair();
         let update = AgentUpdate {

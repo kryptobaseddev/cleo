@@ -64,7 +64,6 @@ impl EventSource {
 /// Total: 31 events (16 provider, 15 domain).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CanonicalEvent {
-
     // Provider events
     /// ConfigChange — `context` category. Configuration file changes during a session.
     ConfigChange,
@@ -376,12 +375,18 @@ impl CanonicalEvent {
             Self::SubagentStop => "A subagent finishes execution",
             Self::ApprovalExpired => "A workflow approval token has expired without response",
             Self::ApprovalGranted => "A workflow approval has been granted via /approve token",
-            Self::ApprovalRequested => "A workflow approval gate has fired, awaiting human approval",
+            Self::ApprovalRequested => {
+                "A workflow approval gate has fired, awaiting human approval"
+            }
             Self::MemoryDecisionStored => "A decision has been stored via memory.decision.store",
             Self::MemoryLearningStored => "A learning has been stored via memory.learning.store",
-            Self::MemoryObserved => "An observation has been recorded to brain.db via memory.observe",
+            Self::MemoryObserved => {
+                "An observation has been recorded to brain.db via memory.observe"
+            }
             Self::MemoryPatternStored => "A pattern has been stored via memory.pattern.store",
-            Self::PipelineManifestAppended => "A manifest entry has been appended to MANIFEST.jsonl",
+            Self::PipelineManifestAppended => {
+                "A manifest entry has been appended to MANIFEST.jsonl"
+            }
             Self::PipelineStageCompleted => "A LOOM lifecycle gate has passed validation",
             Self::SessionEnded => "A CLEO session has ended via session.end",
             Self::SessionStarted => "A CLEO session has been started via session.start",
@@ -399,12 +404,18 @@ impl CanonicalEvent {
 
     /// Returns all provider-sourced events.
     pub fn provider_events() -> impl Iterator<Item = Self> {
-        Self::ALL.iter().copied().filter(|e| matches!(e.source(), EventSource::Provider))
+        Self::ALL
+            .iter()
+            .copied()
+            .filter(|e| matches!(e.source(), EventSource::Provider))
     }
 
     /// Returns all domain-sourced events.
     pub fn domain_events() -> impl Iterator<Item = Self> {
-        Self::ALL.iter().copied().filter(|e| matches!(e.source(), EventSource::Domain))
+        Self::ALL
+            .iter()
+            .copied()
+            .filter(|e| matches!(e.source(), EventSource::Domain))
     }
 }
 

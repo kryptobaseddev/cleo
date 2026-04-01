@@ -12,6 +12,9 @@ categories = ["network-programming", "command-line-utilities"]
 name = "signaldock"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }

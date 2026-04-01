@@ -14,7 +14,7 @@ use signaldock_protocol::{
 };
 use signaldock_storage::{
     traits::{AgentRepository, ClaimRepository},
-    types::{AgentQuery, Page, StatsDelta},
+    types::{AgentQuery, OnlineAgent, Page, StatsDelta},
 };
 
 /// In-memory mock implementation of storage traits for testing.
@@ -176,6 +176,22 @@ impl AgentRepository for MockStore {
         let a = map.get_mut(&id).ok_or_else(|| anyhow!("not found"))?;
         a.last_seen = Utc::now();
         Ok(())
+    }
+
+    async fn list_online(&self, threshold_epoch: i64) -> Result<Vec<OnlineAgent>> {
+        let map = lock(&self.agents)?;
+        let results = map
+            .values()
+            .filter(|a| {
+                a.status != AgentStatus::Offline && a.last_seen.timestamp() > threshold_epoch
+            })
+            .map(|a| OnlineAgent {
+                agent_id: a.agent_id.clone(),
+                status: format!("{:?}", a.status).to_lowercase(),
+                last_seen: a.last_seen.timestamp(),
+            })
+            .collect();
+        Ok(results)
     }
 }
 

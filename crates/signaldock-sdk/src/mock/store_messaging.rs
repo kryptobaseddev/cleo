@@ -9,7 +9,7 @@ use signaldock_protocol::{
 };
 use signaldock_storage::{
     traits::{ConversationRepository, MessageRepository},
-    types::{ConversationQuery, MessageQuery, Page},
+    types::{ActionItem, ConversationQuery, MessageQuery, Page, UnreadConversation},
 };
 
 use super::MockStore;
@@ -222,5 +222,78 @@ impl MessageRepository for MockStore {
         results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         results.truncate(limit as usize);
         Ok(results)
+    }
+
+    async fn count_unread(&self, agent_id: &str) -> Result<i64> {
+        let map = lock(&self.messages)?;
+        let count = map
+            .values()
+            .filter(|m| {
+                m.to_agent_id == agent_id
+                    && matches!(m.status, MessageStatus::Pending | MessageStatus::Delivered)
+            })
+            .count();
+        Ok(count as i64)
+    }
+
+    async fn unread_by_conversation(&self, agent_id: &str) -> Result<Vec<UnreadConversation>> {
+        let map = lock(&self.messages)?;
+        let mut by_conv: std::collections::HashMap<Uuid, (i64, i64)> =
+            std::collections::HashMap::new();
+        for m in map.values().filter(|m| {
+            m.to_agent_id == agent_id
+                && matches!(m.status, MessageStatus::Pending | MessageStatus::Delivered)
+        }) {
+            let entry = by_conv.entry(m.conversation_id).or_insert((0, 0));
+            entry.0 += 1;
+            let ts = m.created_at.timestamp();
+            if ts > entry.1 {
+                entry.1 = ts;
+            }
+        }
+        let mut results: Vec<UnreadConversation> = by_conv
+            .into_iter()
+            .map(|(cid, (count, last))| UnreadConversation {
+                conversation_id: cid.to_string(),
+                unread: count,
+                last_at: last,
+            })
+            .collect();
+        results.sort_by(|a, b| b.last_at.cmp(&a.last_at));
+        Ok(results)
+    }
+
+    async fn action_items(&self, agent_id: &str, limit: i64) -> Result<Vec<ActionItem>> {
+        let map = lock(&self.messages)?;
+        let mut items: Vec<ActionItem> = map
+            .values()
+            .filter(|m| {
+                m.to_agent_id == agent_id
+                    && matches!(m.status, MessageStatus::Pending | MessageStatus::Delivered)
+                    && m.metadata.is_some()
+            })
+            .map(|m| {
+                let preview = if m.content.len() > 200 {
+                    m.content[..200].to_string()
+                } else {
+                    m.content.clone()
+                };
+                ActionItem {
+                    id: m.id.to_string(),
+                    from_agent_id: m.from_agent_id.clone(),
+                    conversation_id: m.conversation_id.to_string(),
+                    preview,
+                    metadata: m
+                        .metadata
+                        .as_ref()
+                        .map(|md| serde_json::to_string(md).unwrap_or_default())
+                        .unwrap_or_default(),
+                    created_at: m.created_at.timestamp(),
+                }
+            })
+            .collect();
+        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.truncate(limit as usize);
+        Ok(items)
     }
 }
