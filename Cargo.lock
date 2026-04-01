@@ -162,7 +162,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cant-core"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "conduit-core",
  "nom",
@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "cant-lsp"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "cant-core",
  "serde",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "cant-napi"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "cant-core",
  "napi",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "cant-runtime"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "cant-core",
  "serde",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "cleocode-workspace"
-version = "2026.3.76"
+version = "2026.4.0"
 
 [[package]]
 name = "combine"
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "conduit-core"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "lafs-core",
  "serde",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "cant-core",
  "conduit-core",
@@ -1144,7 +1144,7 @@ dependencies = [
 
 [[package]]
 name = "lafs-core"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-core"
-version = "2026.3.76"
+version = "2026.4.0"
 dependencies = [
  "chrono",
  "conduit-core",
