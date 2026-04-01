@@ -86,12 +86,12 @@ impl DieselStore<SqliteConn> {
                                      PRAGMA synchronous=NORMAL;",
                             )
                             .map_err(|_| {
-                                deadpool::managed::HookError::StaticMessage("PRAGMA setup failed")
+                                deadpool::managed::HookError::message("PRAGMA setup failed")
                             })
                         })
                         .await
                         .map_err(|_| {
-                            deadpool::managed::HookError::StaticMessage("spawn_blocking failed")
+                            deadpool::managed::HookError::message("spawn_blocking failed")
                         })?;
                         Ok(())
                     })
