@@ -75,26 +75,28 @@ impl DieselStore<SqliteConn> {
         // causing "database is locked" under concurrent writes.
         let manager = AsyncDieselConnectionManager::<SqliteConn>::new(database_url);
         let pool = Pool::builder(manager)
-            .post_create(deadpool::managed::Hook::async_fn(|conn, _| {
-                Box::pin(async move {
-                    conn.spawn_blocking(|c| {
-                        c.batch_execute(
-                            "PRAGMA journal_mode=WAL;\
-                             PRAGMA foreign_keys=ON;\
-                             PRAGMA busy_timeout=5000;\
-                             PRAGMA synchronous=NORMAL;",
-                        )
-                        .map_err(|e| {
-                            deadpool::managed::HookError::StaticMessage("PRAGMA setup failed")
+            .post_create(deadpool::managed::Hook::async_fn(
+                |conn: &mut SqliteConn, _| {
+                    Box::pin(async move {
+                        conn.spawn_blocking(|c: &mut diesel::SqliteConnection| {
+                            c.batch_execute(
+                                "PRAGMA journal_mode=WAL;\
+                                     PRAGMA foreign_keys=ON;\
+                                     PRAGMA busy_timeout=5000;\
+                                     PRAGMA synchronous=NORMAL;",
+                            )
+                            .map_err(|_| {
+                                deadpool::managed::HookError::StaticMessage("PRAGMA setup failed")
+                            })
                         })
+                        .await
+                        .map_err(|_| {
+                            deadpool::managed::HookError::StaticMessage("spawn_blocking failed")
+                        })?;
+                        Ok(())
                     })
-                    .await
-                    .map_err(|_| {
-                        deadpool::managed::HookError::StaticMessage("spawn_blocking failed")
-                    })?;
-                    Ok(())
-                })
-            }))
+                },
+            ))
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build SQLite pool: {e}"))?;
 
