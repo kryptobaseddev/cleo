@@ -292,15 +292,81 @@ macro_rules! impl_agent_repository {
             async fn list(&self, query: AgentQuery) -> Result<Page<Agent>> {
                 let mut conn = self.pool.get().await.map_err(pool_err)?;
 
-                // Count total
-                let total: i64 = agents::table
-                    .count()
-                    .get_result(&mut conn)
-                    .await
-                    .map_err(diesel_err)?;
-
-                // Fetch page using boxed query for dynamic ordering
+                // Build filtered query (shared between count and fetch)
                 let mut boxed = agents::table.into_boxed();
+
+                if let Some(ref search) = query.search {
+                    let pattern = format!("%{search}%");
+                    boxed = boxed.filter(
+                        agents::name
+                            .like(pattern.clone())
+                            .or(agents::agent_id.like(pattern.clone()))
+                            .or(agents::description.like(pattern)),
+                    );
+                }
+                if let Some(ref class) = query.class {
+                    boxed = boxed.filter(agents::class.eq(serialize_enum(class)));
+                }
+                if let Some(ref tier) = query.privacy_tier {
+                    boxed = boxed.filter(agents::privacy_tier.eq(serialize_enum(tier)));
+                }
+                if let Some(ref status) = query.status {
+                    boxed = boxed.filter(agents::status.eq(serialize_enum(status)));
+                }
+                if let Some(ref owner) = query.owner_id {
+                    boxed = boxed.filter(agents::owner_id.eq(owner.to_string()));
+                }
+                // Capability/skill filters use JSON LIKE on the serialized arrays.
+                // Junction table joins are complex in boxed queries; LIKE on the
+                // JSON column is simple and correct for moderate dataset sizes.
+                if let Some(ref cap) = query.capability {
+                    let pattern = format!("%\"{cap}\"%");
+                    boxed = boxed.filter(agents::capabilities.like(pattern));
+                }
+                if let Some(ref skill) = query.skill {
+                    let pattern = format!("%\"{skill}\"%");
+                    boxed = boxed.filter(agents::skills.like(pattern));
+                }
+
+                // Count total matching the filters (not global count)
+                // Re-run the same filters on a separate count query since
+                // Diesel's boxed queries can't be cloned.
+                let total: i64 = {
+                    let mut count_q = agents::table.into_boxed();
+                    if let Some(ref search) = query.search {
+                        let p = format!("%{search}%");
+                        count_q = count_q.filter(
+                            agents::name
+                                .like(p.clone())
+                                .or(agents::agent_id.like(p.clone()))
+                                .or(agents::description.like(p)),
+                        );
+                    }
+                    if let Some(ref class) = query.class {
+                        count_q = count_q.filter(agents::class.eq(serialize_enum(class)));
+                    }
+                    if let Some(ref tier) = query.privacy_tier {
+                        count_q =
+                            count_q.filter(agents::privacy_tier.eq(serialize_enum(tier)));
+                    }
+                    if let Some(ref status) = query.status {
+                        count_q = count_q.filter(agents::status.eq(serialize_enum(status)));
+                    }
+                    if let Some(ref owner) = query.owner_id {
+                        count_q = count_q.filter(agents::owner_id.eq(owner.to_string()));
+                    }
+                    if let Some(ref cap) = query.capability {
+                        let p = format!("%\"{cap}\"%");
+                        count_q = count_q.filter(agents::capabilities.like(p));
+                    }
+                    if let Some(ref skill) = query.skill {
+                        let p = format!("%\"{skill}\"%");
+                        count_q = count_q.filter(agents::skills.like(p));
+                    }
+                    count_q.count().get_result(&mut conn).await.map_err(diesel_err)?
+                };
+
+                // Apply sort + pagination to the filtered query
                 match query.sort {
                     crate::types::AgentSortField::Messages => {
                         boxed = boxed.order(agents::messages_sent.desc());
