@@ -1,6 +1,40 @@
 # Changelog
 
-## [Unreleased]
+## [2026.4.0] - 2026-04-01
+
+### Added
+- **T234 Agent Domain Unification**: Complete separation of concerns — signaldock.db owns ALL agent data, tasks.db owns tasks only
+- **AgentRegistryAccessor rewrite**: Reads/writes signaldock.db exclusively (no dual-write, no cache)
+- **agent_connections table**: SSE/WebSocket lifecycle tracking with heartbeat monitoring
+- **agent_credentials migration**: api_key_encrypted, transport_config, classification in signaldock.db
+- **LocalTransport proven**: E2E lifecycle test (6 tests) — register, start, send, receive, stop
+- **TransportFactory wiring**: createRuntime() auto-selects Local > SSE > HTTP
+- **cleo agent start**: Full transport stack working with LocalTransport auto-selection
+- **.cant scaffold on register**: T240 — generates valid CANT v2 persona file on agent registration
+- **CANT v2 ProseBlock**: AST node for multi-line prose in .cant files
+- **DieselStore message traits**: count_unread, unread_by_conversation, online agent listing
+- **Cross-DB write-guards**: agentExistsInSignaldockDb() validation before cross-DB references
+- **Junction table sync**: capabilities/skills synced to signaldock.db on register/update
+- **cleo-prime**: Registered on api.signaldock.io as primary orchestrator identity
+
+### Removed
+- 12 sqlx adapter files (102 queries eliminated) — Diesel is sole Rust ORM
+- agent_credentials dual-write pattern (was writing to both tasks.db and signaldock.db)
+- Backfill code from upgrade.ts
+
+### Fixed
+- Drizzle migration FK ordering (lifecycle_evidence created before lifecycle_stages)
+- Peek SQL timestamp filtering (was returning all messages from epoch)
+- 3 CRITICAL security vulnerabilities on api.signaldock.io (AnyAuth bypass, message leakage, impersonation)
+- ClawMsgr worker: 4-track message discovery, --agent flag, cursor stall fix
+- ClawMsgr daemon: full message delivery (was count-only)
+- signaldock.db embedded migrations work outside monorepo
+
+### Changed
+- Database separation: tasks.db=tasks, signaldock.db=agents, brain.db=memory, nexus.db=collab
+- SignalDock is primary communication channel (ClawMsgr is legacy backup)
+- All agent configs updated with groupConversationIds + correct API URLs
+- 5 agent personas updated with --agent polling standard
 
 ### Added (T158 CAAMP 1.9.1 Integration)
 - CAAMP ^1.9.1 with 16-event canonical hook taxonomy (T159)
