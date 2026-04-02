@@ -156,6 +156,7 @@ pub fn user_from_row(row: UserRow) -> User {
         id: Uuid::parse_str(&row.id).unwrap_or_default(),
         email: row.email,
         name: row.name,
+        role: row.role,
         default_agent_id: row.default_agent_id,
         created_at: ts_to_dt(row.created_at),
         updated_at: ts_to_dt(row.updated_at),

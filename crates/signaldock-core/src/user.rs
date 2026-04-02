@@ -17,6 +17,8 @@ pub struct User {
     pub email: String,
     /// Optional display name.
     pub name: Option<String>,
+    /// User role: `user`, `admin`, or `superadmin`.
+    pub role: String,
     /// The agentId this user defaults to when sending messages.
     /// `None` means auto-select the first owned agent.
     #[serde(skip_serializing_if = "Option::is_none")]
