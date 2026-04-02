@@ -309,7 +309,7 @@ impl MessageRepository for DieselStore<SqliteConn> {
                    MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = ? AND created_at > ? \
-                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
+                 GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
             ))
             .bind::<diesel::sql_types::Text, _>(&conv_str)
             .bind::<diesel::sql_types::BigInt, _>(ts)
@@ -328,7 +328,7 @@ impl MessageRepository for DieselStore<SqliteConn> {
                    MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = ? \
-                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
+                 GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
             ))
             .bind::<diesel::sql_types::Text, _>(&conv_str)
             .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
@@ -640,7 +640,7 @@ impl MessageRepository for DieselStore<PgConn> {
                    MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = $1 AND created_at > $2 \
-                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $3 OFFSET $4"
+                 GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $3 OFFSET $4"
             ))
             .bind::<diesel::sql_types::Text, _>(&conv_str)
             .bind::<diesel::sql_types::BigInt, _>(ts)
@@ -657,7 +657,7 @@ impl MessageRepository for DieselStore<PgConn> {
                    MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = $1 \
-                 GROUP BY COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $2 OFFSET $3"
+                 GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $2 OFFSET $3"
             ))
             .bind::<diesel::sql_types::Text, _>(&conv_str)
             .bind::<diesel::sql_types::BigInt, _>(query.limit as i64)
