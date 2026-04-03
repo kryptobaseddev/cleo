@@ -1,25 +1,50 @@
 /**
  * MVI-aware envelope projection.
+ *
  * Strips fields based on declared MVI level to reduce token cost.
- * At 'minimal': ~38 tokens per error (vs ~162 at 'full').
+ * At `'minimal'`: approximately 38 tokens per error (vs approximately 162 at `'full'`).
+ *
+ * @remarks
+ * Projection is applied after field extraction and before serialization. The four
+ * MVI levels control which envelope fields are included in the output:
+ * - `'minimal'`: only fields required for agent control flow
+ * - `'standard'`: all commonly useful fields (current default)
+ * - `'full'` / `'custom'`: complete envelope, no stripping
+ *
+ * @since 1.5.0
  */
 import type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from './types.js';
 
-/** Extended meta type that includes optional _tokenEstimate from budget enforcement. */
+/** Extended meta type that includes optional `_tokenEstimate` from budget enforcement. */
 type MetaWithEstimate = LAFSMeta & { _tokenEstimate?: unknown };
 
-/** Extended error type that includes optional agent-action fields (may be added by types agent). */
+/** Extended error type that includes optional agent-action fields (may be added by the agent layer). */
 type ErrorWithAgent = LAFSError & {
+  /** Suggested action for the agent to take in response to the error. */
   agentAction?: string;
+  /** Whether the error requires escalation to a human operator. */
   escalationRequired?: boolean;
 };
 
 /**
  * Project an envelope to the declared MVI verbosity level.
- * - 'minimal': Only fields required for agent control flow
- * - 'standard': All commonly useful fields (current default behavior)
- * - 'full': Complete echo-back including request parameters
- * - 'custom': No projection (controlled by _fields)
+ *
+ * @param envelope - The full LAFS envelope to project
+ * @param mviLevel - Override MVI level; falls back to `envelope._meta.mvi`, then `'standard'`
+ * @returns A plain object containing only the fields appropriate for the resolved MVI level
+ *
+ * @remarks
+ * MVI levels control projection behavior:
+ * - `'minimal'`: only fields required for agent control flow (success, error code, retry info)
+ * - `'standard'`: all commonly useful fields (current default behavior)
+ * - `'full'`: complete echo-back including request parameters
+ * - `'custom'`: no projection (controlled by field extraction layer)
+ *
+ * @example
+ * ```ts
+ * const minimal = projectEnvelope(envelope, 'minimal');
+ * // minimal contains only: success, _meta (requestId, contextVersion), result/error
+ * ```
  */
 export function projectEnvelope(
   envelope: LAFSEnvelope,
@@ -137,7 +162,20 @@ function projectErrorMinimal(error: LAFSError): Record<string, unknown> {
 
 /**
  * Estimate token count for a projected envelope.
- * Uses simple heuristic: 1 token per ~4 characters of JSON.
+ *
+ * @param projected - The projected envelope object to estimate
+ * @returns The estimated token count based on JSON serialization length
+ *
+ * @remarks
+ * Uses a simple heuristic of 1 token per approximately 4 characters of
+ * JSON-serialized output. This is an approximation suitable for budget
+ * enforcement, not an exact tokenizer count.
+ *
+ * @example
+ * ```ts
+ * const tokens = estimateProjectedTokens(projectEnvelope(envelope, 'minimal'));
+ * // tokens ~= Math.ceil(JSON.stringify(projected).length / 4)
+ * ```
  */
 export function estimateProjectedTokens(projected: Record<string, unknown>): number {
   const json = JSON.stringify(projected);

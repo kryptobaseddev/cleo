@@ -15,24 +15,24 @@ Thank you for your interest in contributing to the LLM-Agent-First Specification
 
 ```bash
 # Clone the repository
-git clone https://github.com/kryptobaseddev/lafs.git
-cd lafs
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo/packages/lafs
 
 # Install dependencies
-npm install
+pnpm install
 
 # Run tests
-npm test
+pnpm test
 
 # Type-check
-npx tsc --noEmit
+pnpm run typecheck
 ```
 
 ## Making changes
 
 1. Fork the repository and create a feature branch from `main`.
 2. Make your changes with clear, focused commits.
-3. Ensure all tests pass (`npm test`) and the project type-checks (`npx tsc --noEmit`).
+3. Ensure all tests pass (`pnpm test`) and the project type-checks (`pnpm run typecheck`).
 4. Submit a pull request with a clear description of the change and its motivation.
 
 Keep pull requests focused on a single concern. If you are fixing a bug and also refactoring nearby code, prefer separate PRs.

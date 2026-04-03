@@ -14,10 +14,44 @@ function pushCheck(
   checks.push({ name, pass, ...(detail ? { detail } : {}) });
 }
 
+/**
+ * Options for configuring envelope conformance checking.
+ *
+ * @remarks
+ * When a tier is specified, only the checks belonging to that tier (and below)
+ * are included in the final report.
+ */
 export interface EnvelopeConformanceOptions {
+  /**
+   * The conformance tier to filter checks by.
+   * @defaultValue undefined
+   */
   tier?: ConformanceTier;
 }
 
+/**
+ * Runs the full suite of LAFS envelope conformance checks.
+ *
+ * @remarks
+ * Validates schema, envelope invariants, error-code registration,
+ * agent-action validity, transport mapping consistency, context mutation
+ * rules, MVI level, strict-mode behavior, pagination mode consistency,
+ * strict-mode enforcement, and context preservation. When a
+ * {@link EnvelopeConformanceOptions.tier} is specified, only checks
+ * belonging to that tier are included in the returned report.
+ *
+ * @param envelope - The raw value to validate as a LAFS envelope.
+ * @param options - Optional tier filter for the conformance checks.
+ * @returns A {@link ConformanceReport} with individual check results and an overall pass/fail.
+ *
+ * @example
+ * ```ts
+ * const report = runEnvelopeConformance(parsedJson, { tier: 'core' });
+ * if (!report.ok) {
+ *   console.error(report.checks.filter(c => !c.pass));
+ * }
+ * ```
+ */
 export function runEnvelopeConformance(
   envelope: unknown,
   options: EnvelopeConformanceOptions = {},
@@ -357,6 +391,24 @@ export function runEnvelopeConformance(
   return { ok: tierChecks.every((check) => check.pass), checks: tierChecks };
 }
 
+/**
+ * Runs LAFS flag-semantics conformance checks against a set of flag inputs.
+ *
+ * @remarks
+ * Verifies that conflicting flags (`--human` + `--json`) are properly rejected,
+ * the protocol default resolves to JSON, and project/user config overrides are
+ * respected. Catches {@link LAFSFlagError} with code `E_FORMAT_CONFLICT` as a
+ * valid conformance outcome.
+ *
+ * @param flags - The flag input to validate.
+ * @returns A {@link ConformanceReport} with individual check results and an overall pass/fail.
+ *
+ * @example
+ * ```ts
+ * const report = runFlagConformance({ humanFlag: true, jsonFlag: false });
+ * console.log(report.ok); // true
+ * ```
+ */
 export function runFlagConformance(flags: FlagInput): ConformanceReport {
   const checks: ConformanceReport['checks'] = [];
 

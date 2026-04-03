@@ -1,0 +1,274 @@
+---
+title: ''
+---
+
+Key entry-point functions to get started with the library.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-getting-started */}
+
+## Key Functions
+
+### getErrorCodeMapping(errorType)
+
+Get the complete error code mapping for a given A2A error type.
+
+```typescript
+(errorType: A2AErrorType) => ErrorCodeMapping
+```
+
+**Example**
+
+```ts
+const mapping = getErrorCodeMapping('TaskNotFound');
+// { jsonRpcCode: -32001, httpStatus: 404, httpTypeUri: '...', grpcStatus: 'NOT_FOUND', grpcCode: 5 }
+```
+
+### parseA2AVersionHeader(headerValue)
+
+Parse the `a2a-version` header into an array of version strings.
+
+```typescript
+(headerValue: string | undefined) => string[]
+```
+
+**Example**
+
+```ts
+parseA2AVersionHeader('1.0, 2.0'); // ['1.0', '2.0']
+parseA2AVersionHeader(undefined);   // []
+```
+
+### negotiateA2AVersion(requestedVersions)
+
+Negotiate an A2A protocol version from the client's requested versions.
+
+```typescript
+(requestedVersions: string[]) => string | null
+```
+
+**Example**
+
+```ts
+negotiateA2AVersion(['1.0', '2.0']); // '1.0'
+negotiateA2AVersion([]);              // '1.0' (default)
+negotiateA2AVersion(['3.0']);          // null
+```
+
+### circuitBreakerMiddleware(config)
+
+Create an Express middleware that wraps downstream handlers with a circuit breaker.
+
+```typescript
+(config: CircuitBreakerConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => Promise<void>
+```
+
+**Example**
+
+```typescript
+app.use('/external-api', circuitBreakerMiddleware({
+  name: 'external-api',
+  failureThreshold: 5
+}));
+```
+
+### healthCheck(config)
+
+Health check middleware for Express applications.
+
+```typescript
+(config?: HealthCheckConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Example**
+
+```typescript
+import express from 'express';
+import { healthCheck } from '@cleocode/lafs/health';
+
+const app = express();
+
+// Basic health check
+app.use('/health', healthCheck());
+
+// Custom health checks
+app.use('/health', healthCheck({
+  checks: [
+    async () => ({
+      name: 'database',
+      status: await checkDatabase() ? 'ok' : 'error'
+    })
+  ]
+}));
+```
+
+### createDatabaseHealthCheck(config, , )
+
+Create a health check function that verifies database connectivity.
+
+```typescript
+(config: { checkConnection: () => Promise<boolean>; name?: string; }) => HealthCheckFunction
+```
+
+**Example**
+
+```typescript
+const dbCheck = createDatabaseHealthCheck({
+  checkConnection: async () => await db.ping()
+});
+
+app.use('/health', healthCheck({
+  checks: [dbCheck]
+}));
+```
+
+### createExternalServiceHealthCheck(config, , , )
+
+Create a health check function that probes an external HTTP service.
+
+```typescript
+(config: { name: string; url: string; timeout?: number; }) => HealthCheckFunction
+```
+
+**Example**
+
+```typescript
+const apiCheck = createExternalServiceHealthCheck({
+  name: 'payment-api',
+  url: 'https://api.payment.com/health',
+  timeout: 5000
+});
+```
+
+### livenessProbe()
+
+Liveness probe -- a minimal check confirming the process is running.
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => void
+```
+
+**Example**
+
+```typescript
+app.get('/health/live', livenessProbe());
+```
+
+### readinessProbe(config)
+
+Readiness probe -- verifies the service can accept traffic.
+
+```typescript
+(config?: { checks?: HealthCheckFunction[]; }) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Example**
+
+```typescript
+app.get('/health/ready', readinessProbe({
+  checks: [dbCheck, cacheCheck]
+}));
+```
+
+### gracefulShutdown(server, config)
+
+Enable graceful shutdown for an HTTP server.
+
+```typescript
+(server: Server, config?: GracefulShutdownConfig) => void
+```
+
+**Example**
+
+```typescript
+import express from 'express';
+import { gracefulShutdown } from '@cleocode/lafs/shutdown';
+
+const app = express();
+const server = app.listen(3000);
+
+gracefulShutdown(server, {
+  timeout: 30000,
+  signals: ['SIGTERM', 'SIGINT'],
+  onShutdown: async () => {
+    console.log('Shutting down...');
+    await db.close();
+  }
+});
+```
+
+### isShuttingDown()
+
+Check whether a shutdown sequence is currently in progress.
+
+```typescript
+() => boolean
+```
+
+**Example**
+
+```typescript
+if (isShuttingDown()) {
+  return; // skip expensive work
+}
+```
+
+### getShutdownState()
+
+Get a snapshot of the current shutdown state.
+
+```typescript
+() => ShutdownState
+```
+
+**Example**
+
+```typescript
+const state = getShutdownState();
+console.log(`Connections: ${state.activeConnections}`);
+```
+
+### forceShutdown(exitCode)
+
+Terminate the process immediately without waiting for connections to drain.
+
+```typescript
+(exitCode?: number) => void
+```
+
+**Example**
+
+```typescript
+forceShutdown(1);
+```
+
+### shutdownMiddleware()
+
+Express middleware that rejects requests with 503 while the server is shutting down.
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => void
+```
+
+**Example**
+
+```typescript
+app.use(shutdownMiddleware());
+```
+
+### waitForShutdown()
+
+Wait until a shutdown sequence begins.
+
+```typescript
+() => Promise<void>
+```
+
+**Example**
+
+```typescript
+await waitForShutdown();
+```
+
+{/* FORGE:AUTO-END guide-getting-started */}

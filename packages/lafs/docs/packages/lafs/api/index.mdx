@@ -1,0 +1,288 @@
+---
+title: ''
+---
+
+API reference for the `lafs` package.
+
+## Functions & Classes
+
+| Symbol                                                                                                | Kind     | Description                                                                      |
+| ----------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`TokenEstimator`](/packages/lafs/api/functions#tokenestimator)                                       | class    | Character-based token estimator for JSON payloads.                               |
+| [`estimateTokens()`](/packages/lafs/api/functions#estimatetokens)                                     | function | Convenience function to estimate tokens for a value.                             |
+| [`estimateTokensJSON()`](/packages/lafs/api/functions#estimatetokensjson)                             | function | Convenience function to estimate tokens from a JSON string.                      |
+| [`isMVILevel()`](/packages/lafs/api/functions#ismvilevel)                                             | function | Type guard that checks whether an unknown value is a valid `MVILevel`.           |
+| [`isAgentAction()`](/packages/lafs/api/functions#isagentaction)                                       | function | Type guard that checks whether an unknown value is a valid `LAFSAgentAction`.    |
+| [`applyBudgetEnforcement()`](/packages/lafs/api/functions#applybudgetenforcement)                     | function | Apply budget enforcement to an envelope.                                         |
+| [`withBudget()`](/packages/lafs/api/functions#withbudget)                                             | function | Create a budget enforcement middleware function.                                 |
+| [`checkBudget()`](/packages/lafs/api/functions#checkbudget)                                           | function | Check if an envelope has exceeded its budget without modifying it.               |
+| [`withBudgetSync()`](/packages/lafs/api/functions#withbudgetsync)                                     | function | Synchronous version of withBudget for non-async contexts.                        |
+| [`wrapWithBudget()`](/packages/lafs/api/functions#wrapwithbudget)                                     | function | Higher-order function that wraps a handler with budget enforcement.              |
+| [`composeMiddleware()`](/packages/lafs/api/functions#composemiddleware)                               | function | Compose multiple middleware functions into a single middleware.                  |
+| [`getConformanceProfiles()`](/packages/lafs/api/functions#getconformanceprofiles)                     | function | Loads the conformance profiles from the bundled JSON schema.                     |
+| [`getChecksForTier()`](/packages/lafs/api/functions#getchecksfortier)                                 | function | Returns the list of check names that belong to the given conformance tier.       |
+| [`validateConformanceProfiles()`](/packages/lafs/api/functions#validateconformanceprofiles)           | function | Validates that the conformance profiles are internally consistent and referen... |
+| [`getErrorRegistry()`](/packages/lafs/api/functions#geterrorregistry)                                 | function | Loads the full LAFS error registry from the bundled JSON.                        |
+| [`isRegisteredErrorCode()`](/packages/lafs/api/functions#isregisterederrorcode)                       | function | Checks whether a given error code exists in the LAFS error registry.             |
+| [`getRegistryCode()`](/packages/lafs/api/functions#getregistrycode)                                   | function | Retrieves the full registry entry for a given error code.                        |
+| [`getAgentAction()`](/packages/lafs/api/functions#getagentaction)                                     | function | Returns the default agent action for a given error code.                         |
+| [`getTypeUri()`](/packages/lafs/api/functions#gettypeuri)                                             | function | Returns the RFC 9457 type URI for a given error code.                            |
+| [`getDocUrl()`](/packages/lafs/api/functions#getdocurl)                                               | function | Returns the documentation URL for a given error code.                            |
+| [`getTransportMapping()`](/packages/lafs/api/functions#gettransportmapping)                           | function | Resolves the transport-specific status value for a given error code and trans... |
+| [`LAFSFlagError`](/packages/lafs/api/functions#lafsflagerror)                                         | class    | Error thrown when LAFS flag validation fails.                                    |
+| [`resolveOutputFormat()`](/packages/lafs/api/functions#resolveoutputformat)                           | function | Resolve the output format from flag inputs using the LAFS precedence chain.      |
+| [`validateEnvelope()`](/packages/lafs/api/functions#validateenvelope)                                 | function | Validates an unknown input against the LAFS envelope JSON Schema (Draft-07).     |
+| [`assertEnvelope()`](/packages/lafs/api/functions#assertenvelope)                                     | function | Validates input and throws on schema failure, returning a typed envelope on s... |
+| [`runEnvelopeConformance()`](/packages/lafs/api/functions#runenvelopeconformance)                     | function | Runs the full suite of LAFS envelope conformance checks.                         |
+| [`runFlagConformance()`](/packages/lafs/api/functions#runflagconformance)                             | function | Runs LAFS flag-semantics conformance checks against a set of flag inputs.        |
+| [`ComplianceError`](/packages/lafs/api/functions#complianceerror)                                     | class    | Error thrown when `assertCompliance` or `withCompliance` detects failures.       |
+| [`enforceCompliance()`](/packages/lafs/api/functions#enforcecompliance)                               | function | Runs the full LAFS compliance pipeline against an unknown input value.           |
+| [`assertCompliance()`](/packages/lafs/api/functions#assertcompliance)                                 | function | Validates input and throws `ComplianceError` on any failure.                     |
+| [`withCompliance()`](/packages/lafs/api/functions#withcompliance)                                     | function | Wraps an envelope-producing function with automatic compliance enforcement.      |
+| [`createComplianceMiddleware()`](/packages/lafs/api/functions#createcompliancemiddleware)             | function | Creates a `ComplianceMiddleware` that enforces LAFS compliance on the next ha... |
+| [`getDeprecationRegistry()`](/packages/lafs/api/functions#getdeprecationregistry)                     | function | Retrieve all registered deprecation entries.                                     |
+| [`detectDeprecatedEnvelopeFields()`](/packages/lafs/api/functions#detectdeprecatedenvelopefields)     | function | Detect deprecated field usage in a LAFS envelope.                                |
+| [`emitDeprecationWarnings()`](/packages/lafs/api/functions#emitdeprecationwarnings)                   | function | Emit deprecation warnings by attaching them to the envelope metadata.            |
+| [`parseExtensionsHeader()`](/packages/lafs/api/functions#parseextensionsheader)                       | function | Parse A2A-Extensions header value into URI array.                                |
+| [`negotiateExtensions()`](/packages/lafs/api/functions#negotiateextensions)                           | function | Negotiate extensions between client-requested and agent-declared sets.           |
+| [`formatExtensionsHeader()`](/packages/lafs/api/functions#formatextensionsheader)                     | function | Format activated extension URIs into header value.                               |
+| [`buildLafsExtension()`](/packages/lafs/api/functions#buildlafsextension)                             | function | Build an A2A AgentExtension object declaring LAFS support.                       |
+| [`buildExtension()`](/packages/lafs/api/functions#buildextension)                                     | function | Build a generic A2A AgentExtension object.                                       |
+| [`isValidExtensionKind()`](/packages/lafs/api/functions#isvalidextensionkind)                         | function | Check whether a string is a valid extension kind.                                |
+| [`validateExtensionDeclaration()`](/packages/lafs/api/functions#validateextensiondeclaration)         | function | Validate an A2A extension declaration for correctness.                           |
+| [`ExtensionSupportRequiredError`](/packages/lafs/api/functions#extensionsupportrequirederror)         | class    | Error thrown when required A2A extensions are not supported by the client.       |
+| [`extensionNegotiationMiddleware()`](/packages/lafs/api/functions#extensionnegotiationmiddleware)     | function | Express middleware for A2A extension negotiation.                                |
+| [`discoveryMiddleware()`](/packages/lafs/api/functions#discoverymiddleware)                           | function | Create Express middleware for serving A2A Agent Card.                            |
+| [`discoveryFastifyPlugin()`](/packages/lafs/api/functions#discoveryfastifyplugin)                     | function | Fastify plugin for A2A Agent Card discovery.                                     |
+| [`createEnvelope()`](/packages/lafs/api/functions#createenvelope)                                     | function | Create a fully validated LAFS envelope from a success or error input.            |
+| [`LafsError`](/packages/lafs/api/functions#lafserror)                                                 | class    | Error subclass that carries the full `LAFSError` payload.                        |
+| [`parseLafsResponse()`](/packages/lafs/api/functions#parselafsresponse)                               | function | Parse and unwrap a raw LAFS envelope, returning the result or throwing on error. |
+| [`resolveFieldExtraction()`](/packages/lafs/api/functions#resolvefieldextraction)                     | function | Resolve field extraction flags into a validated configuration.                   |
+| [`extractFieldFromResult()`](/packages/lafs/api/functions#extractfieldfromresult)                     | function | Extract a named field from a LAFS result object.                                 |
+| [`extractFieldFromEnvelope()`](/packages/lafs/api/functions#extractfieldfromenvelope)                 | function | Extract a named field from an envelope's result.                                 |
+| [`applyFieldFilter()`](/packages/lafs/api/functions#applyfieldfilter)                                 | function | Filter result fields in a LAFS envelope to the requested subset.                 |
+| [`resolveFlags()`](/packages/lafs/api/functions#resolveflags)                                         | function | Resolve all flags across both layers and validate cross-layer semantics.         |
+| [`LafsA2AResult`](/packages/lafs/api/functions#lafsa2aresult)                                         | class    | Wrapper for A2A responses with LAFS envelope support.                            |
+| [`createLafsArtifact()`](/packages/lafs/api/functions#createlafsartifact)                             | function | Create a LAFS envelope artifact for A2A.                                         |
+| [`createTextArtifact()`](/packages/lafs/api/functions#createtextartifact)                             | function | Create a text artifact.                                                          |
+| [`createFileArtifact()`](/packages/lafs/api/functions#createfileartifact)                             | function | Create a file artifact.                                                          |
+| [`isExtensionRequired()`](/packages/lafs/api/functions#isextensionrequired)                           | function | Check if an extension is required in an Agent Card.                              |
+| [`getExtensionParams()`](/packages/lafs/api/functions#getextensionparams)                             | function | Get extension parameters from an Agent Card.                                     |
+| [`isValidTransition()`](/packages/lafs/api/functions#isvalidtransition)                               | function | Check if a transition from one state to another is valid.                        |
+| [`isTerminalState()`](/packages/lafs/api/functions#isterminalstate)                                   | function | Check if a state is terminal (no further transitions allowed).                   |
+| [`isInterruptedState()`](/packages/lafs/api/functions#isinterruptedstate)                             | function | Check if a state is interrupted (paused awaiting input).                         |
+| [`InvalidStateTransitionError`](/packages/lafs/api/functions#invalidstatetransitionerror)             | class    | Thrown when attempting an invalid state transition.                              |
+| [`TaskImmutabilityError`](/packages/lafs/api/functions#taskimmutabilityerror)                         | class    | Thrown when attempting to modify a task in a terminal state.                     |
+| [`TaskNotFoundError`](/packages/lafs/api/functions#tasknotfounderror)                                 | class    | Thrown when a task is not found.                                                 |
+| [`TaskRefinementError`](/packages/lafs/api/functions#taskrefinementerror)                             | class    | Thrown when a refinement/follow-up task references invalid parent tasks.         |
+| [`TaskManager`](/packages/lafs/api/functions#taskmanager)                                             | class    | In-memory task manager implementing A2A task lifecycle.                          |
+| [`attachLafsEnvelope()`](/packages/lafs/api/functions#attachlafsenvelope)                             | function | Attach a LAFS envelope as an artifact to an A2A task.                            |
+| [`TaskEventBus`](/packages/lafs/api/functions#taskeventbus)                                           | class    | In-memory event bus for task lifecycle streaming events.                         |
+| [`streamTaskEvents()`](/packages/lafs/api/functions#streamtaskevents)                                 | function | Build an async iterator for real-time task stream events.                        |
+| [`PushNotificationConfigStore`](/packages/lafs/api/functions#pushnotificationconfigstore)             | class    | In-memory manager for async push-notification configs.                           |
+| [`PushNotificationDispatcher`](/packages/lafs/api/functions#pushnotificationdispatcher)               | class    | Deliver task updates to registered push-notification webhooks.                   |
+| [`TaskArtifactAssembler`](/packages/lafs/api/functions#taskartifactassembler)                         | class    | Applies append/lastChunk artifact deltas into task-local snapshots.              |
+| [`createJsonRpcRequest()`](/packages/lafs/api/functions#createjsonrpcrequest)                         | function | Create a JSON-RPC 2.0 request object.                                            |
+| [`createJsonRpcResponse()`](/packages/lafs/api/functions#createjsonrpcresponse)                       | function | Create a JSON-RPC 2.0 success response.                                          |
+| [`createJsonRpcErrorResponse()`](/packages/lafs/api/functions#createjsonrpcerrorresponse)             | function | Create a JSON-RPC 2.0 error response.                                            |
+| [`createA2AErrorResponse()`](/packages/lafs/api/functions#createa2aerrorresponse)                     | function | Create an A2A-specific JSON-RPC error response by error type name.               |
+| [`validateJsonRpcRequest()`](/packages/lafs/api/functions#validatejsonrpcrequest)                     | function | Validate the structure of a JSON-RPC request.                                    |
+| [`isA2AError()`](/packages/lafs/api/functions#isa2aerror)                                             | function | Check if a numeric error code is an A2A-specific error.                          |
+| [`createGrpcStatus()`](/packages/lafs/api/functions#creategrpcstatus)                                 | function | Create a gRPC Status object for an A2A error type.                               |
+| [`createProblemDetails()`](/packages/lafs/api/functions#createproblemdetails)                         | function | Create an RFC 9457 Problem Details object for an A2A error.                      |
+| [`createLafsProblemDetails()`](/packages/lafs/api/functions#createlafsproblemdetails)                 | function | Create an RFC 9457 Problem Details object bridging A2A error types with LAFS...  |
+| [`buildUrl()`](/packages/lafs/api/functions#buildurl)                                                 | function | Build a URL by substituting path parameters.                                     |
+| [`parseListTasksQuery()`](/packages/lafs/api/functions#parselisttasksquery)                           | function | Parse camelCase query parameters for the ListTasks endpoint.                     |
+| [`getErrorCodeMapping()`](/packages/lafs/api/functions#geterrorcodemapping)                           | function | Get the complete error code mapping for a given A2A error type.                  |
+| [`parseA2AVersionHeader()`](/packages/lafs/api/functions#parsea2aversionheader)                       | function | Parse the `a2a-version` header into an array of version strings.                 |
+| [`negotiateA2AVersion()`](/packages/lafs/api/functions#negotiatea2aversion)                           | function | Negotiate an A2A protocol version from the client's requested versions.          |
+| [`CircuitBreakerError`](/packages/lafs/api/functions#circuitbreakererror)                             | class    | Error thrown when a circuit breaker rejects a call.                              |
+| [`CircuitBreaker`](/packages/lafs/api/functions#circuitbreaker)                                       | class    | Circuit breaker for protecting against cascading failures.                       |
+| [`CircuitBreakerRegistry`](/packages/lafs/api/functions#circuitbreakerregistry)                       | class    | Registry for managing multiple named circuit breakers.                           |
+| [`circuitBreakerMiddleware()`](/packages/lafs/api/functions#circuitbreakermiddleware)                 | function | Create an Express middleware that wraps downstream handlers with a circuit br... |
+| [`healthCheck()`](/packages/lafs/api/functions#healthcheck)                                           | function | Health check middleware for Express applications.                                |
+| [`createDatabaseHealthCheck()`](/packages/lafs/api/functions#createdatabasehealthcheck)               | function | Create a health check function that verifies database connectivity.              |
+| [`createExternalServiceHealthCheck()`](/packages/lafs/api/functions#createexternalservicehealthcheck) | function | Create a health check function that probes an external HTTP service.             |
+| [`livenessProbe()`](/packages/lafs/api/functions#livenessprobe)                                       | function | Liveness probe -- a minimal check confirming the process is running.             |
+| [`readinessProbe()`](/packages/lafs/api/functions#readinessprobe)                                     | function | Readiness probe -- verifies the service can accept traffic.                      |
+| [`wrapMCPResult()`](/packages/lafs/api/functions#wrapmcpresult)                                       | function | Wrap an MCP tool result in a LAFS envelope.                                      |
+| [`createAdapterErrorEnvelope()`](/packages/lafs/api/functions#createadaptererrorenvelope)             | function | Create a LAFS error envelope for MCP adapter errors.                             |
+| [`isTextContent()`](/packages/lafs/api/functions#istextcontent)                                       | function | Type guard to check if content is MCP TextContent.                               |
+| [`parseMCPTextContent()`](/packages/lafs/api/functions#parsemcptextcontent)                           | function | Parse MCP text content as JSON if possible.                                      |
+| [`projectEnvelope()`](/packages/lafs/api/functions#projectenvelope)                                   | function | Project an envelope to the declared MVI verbosity level.                         |
+| [`estimateProjectedTokens()`](/packages/lafs/api/functions#estimateprojectedtokens)                   | function | Estimate token count for a projected envelope.                                   |
+| [`lafsErrorToProblemDetails()`](/packages/lafs/api/functions#lafserrortoproblemdetails)               | function | Convert a LAFSError to an RFC 9457 Problem Details object.                       |
+| [`gracefulShutdown()`](/packages/lafs/api/functions#gracefulshutdown)                                 | function | Enable graceful shutdown for an HTTP server.                                     |
+| [`isShuttingDown()`](/packages/lafs/api/functions#isshuttingdown)                                     | function | Check whether a shutdown sequence is currently in progress.                      |
+| [`getShutdownState()`](/packages/lafs/api/functions#getshutdownstate)                                 | function | Get a snapshot of the current shutdown state.                                    |
+| [`forceShutdown()`](/packages/lafs/api/functions#forceshutdown)                                       | function | Terminate the process immediately without waiting for connections to drain.      |
+| [`shutdownMiddleware()`](/packages/lafs/api/functions#shutdownmiddleware)                             | function | Express middleware that rejects requests with 503 while the server is shuttin... |
+| [`waitForShutdown()`](/packages/lafs/api/functions#waitforshutdown)                                   | function | Wait until a shutdown sequence begins.                                           |
+
+## Types & Interfaces
+
+| Symbol                                                                                                    | Kind      | Description                                                                       |
+| --------------------------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------- |
+| [`TokenEstimatorOptions`](/packages/lafs/api/types#tokenestimatoroptions)                                 | interface | Configuration options for the token estimator.                                    |
+| [`LAFSTransport`](/packages/lafs/api/types#lafstransport)                                                 | type      | Transport protocol used to deliver a LAFS envelope.                               |
+| [`LAFSErrorCategory`](/packages/lafs/api/types#lafserrorcategory)                                         | type      | Classification category for a LAFS error.                                         |
+| [`Warning`](/packages/lafs/api/types#warning)                                                             | interface | A non-fatal warning attached to a LAFS envelope's `_meta.warnings` array.         |
+| [`MVILevel`](/packages/lafs/api/types#mvilevel)                                                           | type      | Minimum Viable Information level controlling envelope verbosity.                  |
+| [`LAFSMeta`](/packages/lafs/api/types#lafsmeta)                                                           | interface | Metadata block (`_meta`) embedded in every LAFS envelope.                         |
+| [`LAFSAgentAction`](/packages/lafs/api/types#lafsagentaction)                                             | type      | Recommended action an LLM agent should take in response to an error.              |
+| [`LAFSError`](/packages/lafs/api/types#lafserror)                                                         | interface | Structured error payload returned in a failing LAFS envelope.                     |
+| [`LAFSPageCursor`](/packages/lafs/api/types#lafspagecursor)                                               | interface | Cursor-based pagination metadata.                                                 |
+| [`LAFSPageOffset`](/packages/lafs/api/types#lafspageoffset)                                               | interface | Offset-based pagination metadata.                                                 |
+| [`LAFSPageNone`](/packages/lafs/api/types#lafspagenone)                                                   | interface | Sentinel pagination mode indicating no pagination is applied.                     |
+| [`LAFSPage`](/packages/lafs/api/types#lafspage)                                                           | type      | Discriminated union of all supported pagination modes.                            |
+| [`ContextLedgerEntry`](/packages/lafs/api/types#contextledgerentry)                                       | interface | A single entry in the context ledger recording one state mutation.                |
+| [`ContextLedger`](/packages/lafs/api/types#contextledger)                                                 | interface | Append-only ledger tracking context mutations across agent interactions.          |
+| [`LAFSEnvelope`](/packages/lafs/api/types#lafsenvelope)                                                   | interface | Top-level LAFS response envelope wrapping every operation result.                 |
+| [`FlagInput`](/packages/lafs/api/types#flaginput)                                                         | interface | Input parameters for resolving the output format via flag semantics.              |
+| [`ConformanceReport`](/packages/lafs/api/types#conformancereport)                                         | interface | Result of a LAFS conformance test run.                                            |
+| [`BudgetEnforcementOptions`](/packages/lafs/api/types#budgetenforcementoptions)                           | type      | Options controlling token-budget enforcement behaviour.                           |
+| [`TokenEstimate`](/packages/lafs/api/types#tokenestimate)                                                 | interface | Token-count estimate attached to a budget-aware envelope.                         |
+| [`LAFSMetaWithBudget`](/packages/lafs/api/types#lafsmetawithbudget)                                       | interface | Extended metadata block that includes an optional token-budget estimate.          |
+| [`LAFSEnvelopeWithBudget`](/packages/lafs/api/types#lafsenvelopewithbudget)                               | interface | LAFS envelope variant whose metadata includes token-budget estimates.             |
+| [`MiddlewareFunction`](/packages/lafs/api/types#middlewarefunction)                                       | type      | Middleware function that transforms a LAFS envelope.                              |
+| [`NextFunction`](/packages/lafs/api/types#nextfunction)                                                   | type      | Continuation function passed to `BudgetMiddleware` to invoke the next middlew\... |
+| [`BudgetMiddleware`](/packages/lafs/api/types#budgetmiddleware)                                           | type      | Middleware function for token-budget enforcement with chain delegation.           |
+| [`BudgetEnforcementResult`](/packages/lafs/api/types#budgetenforcementresult)                             | interface | Outcome of running budget enforcement on a LAFS envelope.                         |
+| [`ConformanceTier`](/packages/lafs/api/types#conformancetier)                                             | type      | Named conformance tier indicating the breadth of checks applied.                  |
+| [`ConformanceProfiles`](/packages/lafs/api/types#conformanceprofiles)                                     | interface | Schema for the conformance-profiles JSON file.                                    |
+| [`RegistryCode`](/packages/lafs/api/types#registrycode)                                                   | interface | A single entry in the LAFS error-code registry.                                   |
+| [`ErrorRegistry`](/packages/lafs/api/types#errorregistry)                                                 | interface | Top-level shape of the LAFS error-registry JSON file.                             |
+| [`TransportMapping`](/packages/lafs/api/types#transportmapping)                                           | type      | A transport-specific status value resolved from the error registry.               |
+| [`FlagResolution`](/packages/lafs/api/types#flagresolution)                                               | interface | Result of resolving output format flags.                                          |
+| [`StructuredValidationError`](/packages/lafs/api/types#structuredvalidationerror)                         | interface | Structured representation of a single validation error from AJV.                  |
+| [`EnvelopeValidationResult`](/packages/lafs/api/types#envelopevalidationresult)                           | interface | Result of validating a value against the LAFS envelope JSON Schema.               |
+| [`EnvelopeConformanceOptions`](/packages/lafs/api/types#envelopeconformanceoptions)                       | interface | Options for configuring envelope conformance checking.                            |
+| [`ComplianceStage`](/packages/lafs/api/types#compliancestage)                                             | type      | Identifies which stage of the compliance pipeline produced an issue.              |
+| [`ComplianceIssue`](/packages/lafs/api/types#complianceissue)                                             | interface | Describes a single compliance failure detected during enforcement.                |
+| [`EnforceComplianceOptions`](/packages/lafs/api/types#enforcecomplianceoptions)                           | interface | Options controlling which compliance stages are executed.                         |
+| [`ComplianceResult`](/packages/lafs/api/types#complianceresult)                                           | interface | Aggregated result of a full LAFS compliance run.                                  |
+| [`ComplianceMiddleware`](/packages/lafs/api/types#compliancemiddleware)                                   | type      | Middleware signature for intercepting LAFS envelopes in a pipeline.               |
+| [`DeprecationEntry`](/packages/lafs/api/types#deprecationentry)                                           | interface | A single deprecation rule in the registry.                                        |
+| [`LafsExtensionParams`](/packages/lafs/api/types#lafsextensionparams)                                     | interface | LAFS extension parameters declared in Agent Card                                  |
+| [`ExtensionKind`](/packages/lafs/api/types#extensionkind)                                                 | type      | Classification of an A2A extension's behavior.                                    |
+| [`ExtensionNegotiationResult`](/packages/lafs/api/types#extensionnegotiationresult)                       | interface | Result of extension negotiation between client and agent                          |
+| [`BuildLafsExtensionOptions`](/packages/lafs/api/types#buildlafsextensionoptions)                         | interface | Options for building the LAFS extension declaration                               |
+| [`BuildExtensionOptions`](/packages/lafs/api/types#buildextensionoptions)                                 | interface | Options for building a generic A2A extension declaration                          |
+| [`ExtensionNegotiationMiddlewareOptions`](/packages/lafs/api/types#extensionnegotiationmiddlewareoptions) | interface | Options for the extension negotiation middleware                                  |
+| [`AgentProvider`](/packages/lafs/api/types#agentprovider)                                                 | interface | A2A Agent Provider information.                                                   |
+| [`AgentCapabilities`](/packages/lafs/api/types#agentcapabilities)                                         | interface | A2A Agent Capabilities.                                                           |
+| [`AgentExtension`](/packages/lafs/api/types#agentextension)                                               | interface | A2A Agent Extension declaration.                                                  |
+| [`AgentSkill`](/packages/lafs/api/types#agentskill)                                                       | interface | A2A Agent Skill.                                                                  |
+| [`SecurityScheme`](/packages/lafs/api/types#securityscheme)                                               | interface | Security scheme for authentication (OpenAPI 3.0 style).                           |
+| [`AgentCard`](/packages/lafs/api/types#agentcard)                                                         | interface | A2A v1.0 Agent Card - Standard format for agent discovery.                        |
+| [`Capability`](/packages/lafs/api/types#capability)                                                       | interface | Legacy capability descriptor.                                                     |
+| [`ServiceConfig`](/packages/lafs/api/types#serviceconfig)                                                 | interface | Legacy service configuration.                                                     |
+| [`EndpointConfig`](/packages/lafs/api/types#endpointconfig)                                               | interface | Legacy endpoint configuration.                                                    |
+| [`DiscoveryDocument`](/packages/lafs/api/types#discoverydocument)                                         | interface | Legacy discovery document format.                                                 |
+| [`DiscoveryConfig`](/packages/lafs/api/types#discoveryconfig)                                             | interface | Configuration for the discovery middleware (A2A v1.0 format).                     |
+| [`DiscoveryMiddlewareOptions`](/packages/lafs/api/types#discoverymiddlewareoptions)                       | interface | Discovery middleware options.                                                     |
+| [`CreateEnvelopeMetaInput`](/packages/lafs/api/types#createenvelopemetainput)                             | interface | Input for constructing the `_meta` block of a LAFS envelope.                      |
+| [`CreateEnvelopeSuccessInput`](/packages/lafs/api/types#createenvelopesuccessinput)                       | interface | Input for creating a successful LAFS envelope.                                    |
+| [`CreateEnvelopeErrorInput`](/packages/lafs/api/types#createenvelopeerrorinput)                           | interface | Input for creating a failing LAFS envelope.                                       |
+| [`CreateEnvelopeInput`](/packages/lafs/api/types#createenvelopeinput)                                     | type      | Discriminated union of success and error inputs for `createEnvelope`.             |
+| [`ParseLafsResponseOptions`](/packages/lafs/api/types#parselafsresponseoptions)                           | interface | Options for `parseLafsResponse`.                                                  |
+| [`FieldExtractionInput`](/packages/lafs/api/types#fieldextractioninput)                                   | interface | Input flags for the field extraction layer.                                       |
+| [`FieldExtractionResolution`](/packages/lafs/api/types#fieldextractionresolution)                         | interface | Resolved field extraction configuration.                                          |
+| [`UnifiedFlagInput`](/packages/lafs/api/types#unifiedflaginput)                                           | interface | Combined input for both format and field extraction layers.                       |
+| [`UnifiedFlagResolution`](/packages/lafs/api/types#unifiedflagresolution)                                 | interface | Combined resolution result with cross-layer warnings.                             |
+| [`LafsA2AConfig`](/packages/lafs/api/types#lafsa2aconfig)                                                 | interface | Configuration for LAFS A2A integration.                                           |
+| [`LafsSendMessageParams`](/packages/lafs/api/types#lafssendmessageparams)                                 | interface | Request parameters for sending messages.                                          |
+| [`CreateTaskOptions`](/packages/lafs/api/types#createtaskoptions)                                         | interface | Options for creating a new task                                                   |
+| [`ListTasksOptions`](/packages/lafs/api/types#listtasksoptions)                                           | interface | Options for listing tasks                                                         |
+| [`ListTasksResult`](/packages/lafs/api/types#listtasksresult)                                             | interface | Paginated result from listTasks                                                   |
+| [`TaskStreamEvent`](/packages/lafs/api/types#taskstreamevent)                                             | type      | Union type of task stream events emitted by the event bus.                        |
+| [`StreamIteratorOptions`](/packages/lafs/api/types#streamiteratoroptions)                                 | interface | Options for the stream task events async iterator                                 |
+| [`PushNotificationDeliveryResult`](/packages/lafs/api/types#pushnotificationdeliveryresult)               | interface | Result of delivering a push notification to a single webhook                      |
+| [`PushTransport`](/packages/lafs/api/types#pushtransport)                                                 | type      | Transport function for sending HTTP requests to push-notification webhooks.       |
+| [`JsonRpcMethod`](/packages/lafs/api/types#jsonrpcmethod)                                                 | type      | Union of all valid JSON-RPC method string values from `JSONRPC_METHODS`           |
+| [`A2AErrorType`](/packages/lafs/api/types#a2aerrortype)                                                   | type      | Union of A2A error type key names from `JSONRPC_A2A_ERROR_CODES`                  |
+| [`JsonRpcRequest`](/packages/lafs/api/types#jsonrpcrequest)                                               | interface | A JSON-RPC 2.0 request object.                                                    |
+| [`JsonRpcResponse`](/packages/lafs/api/types#jsonrpcresponse)                                             | interface | A JSON-RPC 2.0 success response object.                                           |
+| [`JsonRpcErrorResponse`](/packages/lafs/api/types#jsonrpcerrorresponse)                                   | interface | A JSON-RPC 2.0 error response object.                                             |
+| [`GrpcStatusCode`](/packages/lafs/api/types#grpcstatuscode)                                               | type      | Numeric gRPC status code value (0-16)                                             |
+| [`GrpcStatusName`](/packages/lafs/api/types#grpcstatusname)                                               | type      | String name of a gRPC status code (e.g. `"OK"`, `"NOT_FOUND"`)                    |
+| [`GrpcServiceMethod`](/packages/lafs/api/types#grpcservicemethod)                                         | interface | Descriptor for a single gRPC service method.                                      |
+| [`GrpcStatus`](/packages/lafs/api/types#grpcstatus)                                                       | interface | gRPC Status object for A2A errors.                                                |
+| [`GrpcErrorInfo`](/packages/lafs/api/types#grpcerrorinfo)                                                 | interface | Equivalent of `google.rpc.ErrorInfo` for structured gRPC error details.           |
+| [`HttpEndpoint`](/packages/lafs/api/types#httpendpoint)                                                   | type      | Union of all HTTP endpoint descriptor objects from `HTTP_ENDPOINTS`               |
+| [`ProblemDetails`](/packages/lafs/api/types#problemdetails)                                               | interface | RFC 9457 Problem Details object.                                                  |
+| [`ListTasksQueryParams`](/packages/lafs/api/types#listtasksqueryparams)                                   | interface | Parsed query parameters for the ListTasks endpoint.                               |
+| [`ErrorCodeMapping`](/packages/lafs/api/types#errorcodemapping)                                           | interface | Complete error code mapping across all three transports.                          |
+| [`CircuitState`](/packages/lafs/api/types#circuitstate)                                                   | type      | Represents the three possible states of a circuit breaker.                        |
+| [`CircuitBreakerConfig`](/packages/lafs/api/types#circuitbreakerconfig)                                   | interface | Configuration options for a `CircuitBreaker` instance.                            |
+| [`CircuitBreakerMetrics`](/packages/lafs/api/types#circuitbreakermetrics)                                 | interface | Snapshot of runtime metrics for a `CircuitBreaker`.                               |
+| [`HealthCheckConfig`](/packages/lafs/api/types#healthcheckconfig)                                         | interface | Configuration for the `healthCheck` middleware.                                   |
+| [`HealthCheckFunction`](/packages/lafs/api/types#healthcheckfunction)                                     | type      | A function that performs a single health check.                                   |
+| [`HealthCheckResult`](/packages/lafs/api/types#healthcheckresult)                                         | interface | Result of an individual health check.                                             |
+| [`HealthStatus`](/packages/lafs/api/types#healthstatus)                                                   | interface | Aggregated health status returned by the health endpoint.                         |
+| [`LafsProblemDetails`](/packages/lafs/api/types#lafsproblemdetails)                                       | interface | RFC 9457 Problem Details with LAFS extensions.                                    |
+| [`GracefulShutdownConfig`](/packages/lafs/api/types#gracefulshutdownconfig)                               | interface | Configuration for the `gracefulShutdown` handler.                                 |
+| [`ShutdownState`](/packages/lafs/api/types#shutdownstate)                                                 | interface | Snapshot of the current shutdown state.                                           |
+
+## Other Exports
+
+| Symbol                                                                                   | Kind     | Description                                                                      |
+| ---------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`defaultEstimator`](/packages/lafs/api/functions#defaultestimator)                      | variable | Global token estimator instance with default settings.                           |
+| [`tokenEstimator.ts`](/packages/lafs/api/functions#tokenestimatorts)                     | file     |                                                                                  |
+| [`MVI_LEVELS`](/packages/lafs/api/functions#mvilevels)                                   | variable | Immutable set of all valid `MVILevel` values.                                    |
+| [`AGENT_ACTIONS`](/packages/lafs/api/functions#agentactions)                             | variable | Immutable set of all valid `LAFSAgentAction` values.                             |
+| [`types.ts`](/packages/lafs/api/functions#typests)                                       | file     |                                                                                  |
+| [`budgetEnforcement.ts`](/packages/lafs/api/functions#budgetenforcementts)               | file     |                                                                                  |
+| [`conformanceProfiles.ts`](/packages/lafs/api/functions#conformanceprofilests)           | file     |                                                                                  |
+| [`errorRegistry.ts`](/packages/lafs/api/functions#errorregistryts)                       | file     |                                                                                  |
+| [`flagSemantics.ts`](/packages/lafs/api/functions#flagsemanticsts)                       | file     |                                                                                  |
+| [`validateEnvelope.ts`](/packages/lafs/api/functions#validateenvelopets)                 | file     |                                                                                  |
+| [`conformance.ts`](/packages/lafs/api/functions#conformancets)                           | file     |                                                                                  |
+| [`cli.ts`](/packages/lafs/api/functions#clits)                                           | file     |                                                                                  |
+| [`compliance.ts`](/packages/lafs/api/functions#compliancets)                             | file     |                                                                                  |
+| [`deprecationRegistry.ts`](/packages/lafs/api/functions#deprecationregistryts)           | file     |                                                                                  |
+| [`LAFS_EXTENSION_URI`](/packages/lafs/api/functions#lafsextensionuri)                    | variable | Canonical LAFS extension URI                                                     |
+| [`A2A_EXTENSIONS_HEADER`](/packages/lafs/api/functions#a2aextensionsheader)              | variable | Canonical A2A Extensions header per spec Section 3.2.6                           |
+| [`extensions.ts`](/packages/lafs/api/functions#extensionsts)                             | file     |                                                                                  |
+| [`discovery.ts`](/packages/lafs/api/functions#discoveryts)                               | file     |                                                                                  |
+| [`LAFS_SCHEMA_URL`](/packages/lafs/api/functions#lafsschemaurl)                          | variable | Canonical JSON Schema URL for the LAFS v1 envelope.                              |
+| [`CATEGORY_ACTION_MAP`](/packages/lafs/api/functions#categoryactionmap)                  | variable | Default agent action for each error category.                                    |
+| [`envelope.ts`](/packages/lafs/api/functions#envelopets)                                 | file     |                                                                                  |
+| [`fieldExtraction.ts`](/packages/lafs/api/functions#fieldextractionts)                   | file     |                                                                                  |
+| [`flagResolver.ts`](/packages/lafs/api/functions#flagresolverts)                         | file     |                                                                                  |
+| [`bridge.ts`](/packages/lafs/api/functions#bridgets)                                     | file     |                                                                                  |
+| [`TERMINAL_STATES`](/packages/lafs/api/functions#terminalstates)                         | variable | States from which no further transitions are possible                            |
+| [`INTERRUPTED_STATES`](/packages/lafs/api/functions#interruptedstates)                   | variable | States where the task is paused awaiting external input                          |
+| [`VALID_TRANSITIONS`](/packages/lafs/api/functions#validtransitions)                     | variable | Valid state transitions (adjacency map). Terminal states have empty outgoing...  |
+| [`task-lifecycle.ts`](/packages/lafs/api/functions#task-lifecyclets)                     | file     |                                                                                  |
+| [`streaming.ts`](/packages/lafs/api/functions#streamingts)                               | file     |                                                                                  |
+| [`JSONRPC_METHODS`](/packages/lafs/api/functions#jsonrpcmethods)                         | variable | All JSON-RPC method names defined by the A2A protocol.                           |
+| [`JSONRPC_STANDARD_ERROR_CODES`](/packages/lafs/api/functions#jsonrpcstandarderrorcodes) | variable | Standard JSON-RPC 2.0 error codes.                                               |
+| [`JSONRPC_A2A_ERROR_CODES`](/packages/lafs/api/functions#jsonrpca2aerrorcodes)           | variable | A2A-specific error codes (-32001 through -32009).                                |
+| [`jsonrpc.ts`](/packages/lafs/api/functions#jsonrpcts)                                   | file     |                                                                                  |
+| [`GRPC_STATUS_CODE`](/packages/lafs/api/functions#grpcstatuscode)                        | variable | Standard gRPC status codes (numeric values 0-16).                                |
+| [`A2A_GRPC_STATUS_CODES`](/packages/lafs/api/functions#a2agrpcstatuscodes)               | variable | Maps A2A error types to gRPC status names.                                       |
+| [`A2A_GRPC_ERROR_REASONS`](/packages/lafs/api/functions#a2agrpcerrorreasons)             | variable | UPPER\_SNAKE\_CASE error reasons without "Error" suffix.                         |
+| [`A2A_GRPC_ERROR_DOMAIN`](/packages/lafs/api/functions#a2agrpcerrordomain)               | variable | Error domain for A2A gRPC errors.                                                |
+| [`GRPC_SERVICE_METHODS`](/packages/lafs/api/functions#grpcservicemethods)                | variable | gRPC service method definitions for the A2A protocol.                            |
+| [`GRPC_METADATA_VERSION_KEY`](/packages/lafs/api/functions#grpcmetadataversionkey)       | variable | gRPC metadata key for A2A protocol version.                                      |
+| [`GRPC_METADATA_EXTENSIONS_KEY`](/packages/lafs/api/functions#grpcmetadataextensionskey) | variable | gRPC metadata key for activated A2A extensions.                                  |
+| [`grpc.ts`](/packages/lafs/api/functions#grpcts)                                         | file     |                                                                                  |
+| [`HTTP_ENDPOINTS`](/packages/lafs/api/functions#httpendpoints)                           | variable | HTTP+JSON endpoint definitions for each A2A operation.                           |
+| [`A2A_HTTP_STATUS_CODES`](/packages/lafs/api/functions#a2ahttpstatuscodes)               | variable | Maps A2A error types to HTTP status codes.                                       |
+| [`A2A_ERROR_TYPE_URIS`](/packages/lafs/api/functions#a2aerrortypeuris)                   | variable | RFC 9457 Problem Details type URIs for A2A errors.                               |
+| [`http.ts`](/packages/lafs/api/functions#httpts)                                         | file     |                                                                                  |
+| [`A2A_ERROR_MAPPINGS`](/packages/lafs/api/functions#a2aerrormappings)                    | variable | Precomputed cross-binding error mapping for all 9 A2A error types.               |
+| [`SUPPORTED_A2A_VERSIONS`](/packages/lafs/api/functions#supporteda2aversions)            | variable | Supported A2A protocol versions.                                                 |
+| [`DEFAULT_A2A_VERSION`](/packages/lafs/api/functions#defaulta2aversion)                  | variable | Default A2A protocol version used when none is requested.                        |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     | A2A Protocol Bindings - Barrel Export  Re-exports all binding modules and pro... |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     |                                                                                  |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     |                                                                                  |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     | LAFS Health Check Module  Provides health check endpoints for monitoring and...  |
+| [`mcpAdapter.ts`](/packages/lafs/api/functions#mcpadapterts)                             | file     |                                                                                  |
+| [`mviProjection.ts`](/packages/lafs/api/functions#mviprojectionts)                       | file     |                                                                                  |
+| [`PROBLEM_DETAILS_CONTENT_TYPE`](/packages/lafs/api/functions#problemdetailscontenttype) | variable | Content-Type for RFC 9457 Problem Details responses.                             |
+| [`problemDetails.ts`](/packages/lafs/api/functions#problemdetailsts)                     | file     |                                                                                  |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     | LAFS Graceful Shutdown Module  Handles graceful shutdown of LAFS servers.        |
+| [`index.ts`](/packages/lafs/api/functions#indexts)                                       | file     |                                                                                  |

@@ -1,7 +1,9 @@
 /**
  * LAFS Health Check Module
  *
- * Provides health check endpoints for monitoring and orchestration
+ * Provides health check endpoints for monitoring and orchestration.
+ *
+ * @packageDocumentation
  */
 
 import { createRequire } from 'node:module';
@@ -14,30 +16,81 @@ try {
   pkg = require('../../../package.json');
 }
 
+/** Configuration for the {@link healthCheck} middleware. */
 export interface HealthCheckConfig {
+  /**
+   * URL path at which the health endpoint is mounted.
+   * @defaultValue '/health'
+   */
   path?: string;
+
+  /**
+   * Array of custom health check functions to run on each request.
+   * @defaultValue []
+   */
   checks?: HealthCheckFunction[];
 }
 
+/**
+ * A function that performs a single health check.
+ *
+ * @remarks
+ * May be synchronous or asynchronous. Must return a {@link HealthCheckResult}
+ * describing the outcome.
+ */
 export type HealthCheckFunction = () => Promise<HealthCheckResult> | HealthCheckResult;
 
+/** Result of an individual health check. */
 export interface HealthCheckResult {
+  /** Human-readable name identifying this check. */
   name: string;
+
+  /** Outcome status of the check. */
   status: 'ok' | 'warning' | 'error';
+
+  /**
+   * Optional descriptive message providing additional detail.
+   * @defaultValue undefined
+   */
   message?: string;
+
+  /**
+   * Execution duration of the check in milliseconds.
+   * @defaultValue undefined
+   */
   duration?: number;
 }
 
+/** Aggregated health status returned by the health endpoint. */
 export interface HealthStatus {
+  /** Overall service health derived from individual check results. */
   status: 'healthy' | 'degraded' | 'unhealthy';
+
+  /** ISO-8601 timestamp of when the health check was performed. */
   timestamp: string;
+
+  /** LAFS package version. */
   version: string;
+
+  /** Server uptime in seconds since the middleware was initialised. */
   uptime: number;
+
+  /** Individual check results. */
   checks: HealthCheckResult[];
 }
 
 /**
- * Health check middleware for Express applications
+ * Health check middleware for Express applications.
+ *
+ * @remarks
+ * Runs all configured checks on each request, determines an overall status
+ * (`healthy`, `degraded`, or `unhealthy`), and responds with a JSON
+ * {@link HealthStatus} body. Returns HTTP 200 for healthy/degraded and 503
+ * for unhealthy. Two built-in checks (`envelopeValidation` and
+ * `tokenBudgets`) are always appended.
+ *
+ * @param config - Optional health check configuration
+ * @returns An Express-compatible middleware function that serves the health endpoint
  *
  * @example
  * ```typescript
@@ -124,7 +177,17 @@ export function healthCheck(config: HealthCheckConfig = {}) {
 }
 
 /**
- * Create a database health check
+ * Create a health check function that verifies database connectivity.
+ *
+ * @remarks
+ * Wraps a caller-supplied connection check and returns a {@link HealthCheckResult}
+ * with status `'ok'` or `'error'` depending on whether the connection succeeds.
+ * Exceptions thrown by `checkConnection` are caught and reported as errors.
+ *
+ * @param config - Database check configuration
+ * @param config.checkConnection - Async function returning `true` if the database is reachable
+ * @param config.name - Display name for this check in health output
+ * @returns A {@link HealthCheckFunction} suitable for use in {@link HealthCheckConfig.checks}
  *
  * @example
  * ```typescript
@@ -160,7 +223,18 @@ export function createDatabaseHealthCheck(config: {
 }
 
 /**
- * Create an external service health check
+ * Create a health check function that probes an external HTTP service.
+ *
+ * @remarks
+ * Sends a `GET` request to the configured URL with an abort timeout. Returns
+ * status `'ok'` when the response is successful (HTTP 2xx) and `'error'`
+ * otherwise. Network failures and timeouts are caught and reported.
+ *
+ * @param config - External service check configuration
+ * @param config.name - Display name for this check in health output
+ * @param config.url - URL to probe for health status
+ * @param config.timeout - Request timeout in milliseconds
+ * @returns A {@link HealthCheckFunction} suitable for use in {@link HealthCheckConfig.checks}
  *
  * @example
  * ```typescript
@@ -206,7 +280,14 @@ export function createExternalServiceHealthCheck(config: {
 }
 
 /**
- * Liveness probe - basic check that service is running
+ * Liveness probe -- a minimal check confirming the process is running.
+ *
+ * @remarks
+ * Returns a 200 response with `{ status: 'alive', timestamp }`. Intended for
+ * Kubernetes liveness probes or equivalent orchestrator health checks that
+ * only need to verify the process has not crashed.
+ *
+ * @returns An Express-compatible middleware function
  *
  * @example
  * ```typescript
@@ -223,7 +304,15 @@ export function livenessProbe() {
 }
 
 /**
- * Readiness probe - check that service is ready to accept traffic
+ * Readiness probe -- verifies the service can accept traffic.
+ *
+ * @remarks
+ * Runs all configured health checks and responds with 200 (`ready`) when
+ * every check passes or 503 (`not ready`) when any check reports an error.
+ * Intended for Kubernetes readiness probes or load balancer health checks.
+ *
+ * @param config - Optional configuration with custom health check functions
+ * @returns An Express-compatible async middleware function
  *
  * @example
  * ```typescript

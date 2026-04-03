@@ -1,21 +1,52 @@
 /**
  * LAFS Graceful Shutdown Module
  *
- * Handles graceful shutdown of LAFS servers
+ * Handles graceful shutdown of LAFS servers.
+ *
+ * @packageDocumentation
  */
 
 import type { Server } from 'http';
 
+/** Configuration for the {@link gracefulShutdown} handler. */
 export interface GracefulShutdownConfig {
+  /**
+   * Maximum time in milliseconds to wait for in-flight requests before forcing exit.
+   * @defaultValue 30000
+   */
   timeout?: number;
+
+  /**
+   * POSIX signals that trigger a graceful shutdown.
+   * @defaultValue ['SIGTERM', 'SIGINT']
+   */
   signals?: NodeJS.Signals[];
+
+  /**
+   * Callback invoked at the start of shutdown, before the server stops accepting connections.
+   * @defaultValue undefined
+   */
   onShutdown?: () => Promise<void> | void;
+
+  /**
+   * Callback invoked after all connections have closed (or the timeout elapsed).
+   * @defaultValue undefined
+   */
   onClose?: () => Promise<void> | void;
 }
 
+/** Snapshot of the current shutdown state. */
 export interface ShutdownState {
+  /** Whether a shutdown sequence is currently in progress. */
   isShuttingDown: boolean;
+
+  /** Number of TCP connections still open. */
   activeConnections: number;
+
+  /**
+   * Timestamp when the shutdown sequence began.
+   * @defaultValue undefined
+   */
   shutdownStartTime?: Date;
 }
 
@@ -25,7 +56,17 @@ const state: ShutdownState = {
 };
 
 /**
- * Enable graceful shutdown for an HTTP server
+ * Enable graceful shutdown for an HTTP server.
+ *
+ * @remarks
+ * Registers listeners for the configured signals (and uncaught errors) that
+ * trigger an orderly shutdown sequence: invoke the `onShutdown` callback,
+ * stop accepting new connections, drain existing connections up to the
+ * timeout, invoke the `onClose` callback, and exit the process. New
+ * connections received after shutdown starts are immediately destroyed.
+ *
+ * @param server - The Node.js HTTP server to manage
+ * @param config - Optional shutdown configuration
  *
  * @example
  * ```typescript
@@ -146,21 +187,60 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Check if server is shutting down
+ * Check whether a shutdown sequence is currently in progress.
+ *
+ * @remarks
+ * Returns `true` once a shutdown signal has been received and the shutdown
+ * handler has started executing. Useful for guards that need to short-circuit
+ * work when the process is going down.
+ *
+ * @returns `true` if the server is shutting down, `false` otherwise
+ *
+ * @example
+ * ```typescript
+ * if (isShuttingDown()) {
+ *   return; // skip expensive work
+ * }
+ * ```
  */
 export function isShuttingDown(): boolean {
   return state.isShuttingDown;
 }
 
 /**
- * Get shutdown state
+ * Get a snapshot of the current shutdown state.
+ *
+ * @remarks
+ * Returns a shallow copy of the internal {@link ShutdownState}, including
+ * whether shutdown is in progress, the active connection count, and the
+ * shutdown start time (if applicable).
+ *
+ * @returns A copy of the current {@link ShutdownState}
+ *
+ * @example
+ * ```typescript
+ * const state = getShutdownState();
+ * console.log(`Connections: ${state.activeConnections}`);
+ * ```
  */
 export function getShutdownState(): ShutdownState {
   return { ...state };
 }
 
 /**
- * Force immediate shutdown (emergency use only)
+ * Terminate the process immediately without waiting for connections to drain.
+ *
+ * @remarks
+ * Calls `process.exit()` with the given exit code. Intended only for
+ * emergency situations where a graceful shutdown has stalled or a fatal
+ * condition prevents orderly teardown.
+ *
+ * @param exitCode - Process exit code
+ *
+ * @example
+ * ```typescript
+ * forceShutdown(1);
+ * ```
  */
 export function forceShutdown(exitCode: number = 1): void {
   console.log('Force shutting down...');
@@ -168,7 +248,14 @@ export function forceShutdown(exitCode: number = 1): void {
 }
 
 /**
- * Middleware to reject requests during shutdown
+ * Express middleware that rejects requests with 503 while the server is shutting down.
+ *
+ * @remarks
+ * Should be mounted early in the middleware stack so that new requests are
+ * immediately rejected once shutdown begins, preventing work from starting
+ * that cannot complete before the process exits.
+ *
+ * @returns An Express-compatible middleware function
  *
  * @example
  * ```typescript
@@ -193,7 +280,14 @@ export function shutdownMiddleware() {
 }
 
 /**
- * Wait for shutdown to complete
+ * Wait until a shutdown sequence begins.
+ *
+ * @remarks
+ * Polls the internal shutdown state every 100ms and resolves once
+ * `isShuttingDown` becomes `true`. Useful for test harnesses or background
+ * workers that need to block until the process is going down.
+ *
+ * @returns A promise that resolves when shutdown has started
  *
  * @example
  * ```typescript

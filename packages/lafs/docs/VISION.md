@@ -95,9 +95,9 @@ LAFS defines the response contract. Consumer projects define how they adopt it.
 
 ## Next steps
 
-- **[Quick start](../getting-started/quickstart.md)** — Get started with LAFS in 5 minutes
+- **[Getting started](../getting-started.mdx)** — Get started with LAFS in 5 minutes
 - **[Positioning](POSITIONING.md)** — Where LAFS fits in the AI protocol stack
-- **[Envelope basics](../getting-started/envelope-basics.md)** — Learn the envelope structure
+- **[API Reference](../packages/lafs/api/functions.mdx)** — Full API reference
 
 ## Complementary positioning
 
@@ -109,17 +109,3 @@ LAFS does not replace MCP, A2A, or any transport protocol. It complements them.
 
 Think of it this way: MCP and A2A are the roads. LAFS is the standard shipping container that travels on them. You don't need to rebuild the road — you just need every package to fit the same container.
 
-## Design principles
-
-1. **MVI (Minimum Viable Information)** — Responses carry only what the consumer needs by default. Less noise, fewer tokens, faster processing.
-2. **Progressive disclosure** — Need more detail? Ask for it. Default responses are lean; expanded data is one request away.
-3. **Transport agnosticism** — LAFS defines the envelope shape, not how it's delivered. HTTP, gRPC, CLI, message queues — the contract is the same.
-4. **Schema-first design** — The spec is machine-verifiable. JSON Schemas define the contract; conformance is validated, not assumed.
-
-## Boundary model
-
-LAFS defines the response contract. Consumer projects define how they adopt it.
-
-- The LAFS repository owns normative protocol semantics and conformance artifacts.
-- Consumer repositories (e.g., CAAMP) own mappings, evidence, and local implementation profiles.
-- Consumer repositories MUST reference LAFS protocol docs and MUST NOT redefine protocol semantics.

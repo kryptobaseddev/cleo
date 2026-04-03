@@ -94,4 +94,4 @@ LAFS envelopes work over any transport:
 - **[MCP Integration](mcp.md)** — Build MCP tools with LAFS
 - **[A2A Integration](a2a.md)** — Multi-agent communication
 - **[REST Integration](rest.md)** — HTTP API integration
-- **[Quick start](../getting-started/quickstart.md)** — Get started in 5 minutes
+- **[Getting started](../getting-started.mdx)** — Get started in 5 minutes

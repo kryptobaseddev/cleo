@@ -3,19 +3,48 @@ import type { CallToolResult, TextContent } from '@modelcontextprotocol/sdk/type
 import type { LAFSEnvelope, LAFSError, LAFSMeta, TokenEstimate } from './types.js';
 
 /**
- * MCP Content Item - represents a single content entry from MCP
+ * MCP Content Item - represents a single content entry from MCP.
+ *
+ * @remarks
+ * Models the polymorphic content items returned by MCP tool calls. Only
+ * `text` items carry a `text` field; `image` items carry `data`/`mimeType`;
+ * `resource` items carry an opaque `resource` payload.
  */
 interface MCPContentItem {
+  /** Content type discriminator */
   type: 'text' | 'image' | 'resource';
+  /**
+   * Text payload (present when `type` is `"text"`).
+   * @defaultValue `undefined`
+   */
   text?: string;
+  /**
+   * Base64-encoded data (present when `type` is `"image"`).
+   * @defaultValue `undefined`
+   */
   data?: string;
+  /**
+   * MIME type for the data.
+   * @defaultValue `undefined`
+   */
   mimeType?: string;
+  /**
+   * Opaque resource payload (present when `type` is `"resource"`).
+   * @defaultValue `undefined`
+   */
   resource?: unknown;
 }
 
 /**
- * Extract result from MCP content array
- * Attempts to parse JSON content, falls back to text representation
+ * Extract a result object from an MCP content array.
+ *
+ * @param content - Array of MCP content items
+ * @returns Parsed JSON object, combined text/content object, or `null` if empty
+ *
+ * @remarks
+ * Attempts to parse a single text item as JSON. If parsing fails or there are
+ * multiple items, text parts are joined and non-text items are grouped under
+ * a `content` key.
  */
 function extractResultFromContent(content: MCPContentItem[]): Record<string, unknown> | null {
   if (!content || content.length === 0) {
@@ -64,8 +93,14 @@ function extractResultFromContent(content: MCPContentItem[]): Record<string, unk
 }
 
 /**
- * Estimate token count from content
- * Rough estimation: ~4 characters per token
+ * Estimate token count from content.
+ *
+ * @param content - JSON-serializable content object, or `null`
+ * @returns Estimated token count (0 if content is `null`)
+ *
+ * @remarks
+ * Uses a rough heuristic of ~4 characters per token based on the
+ * JSON-serialized length of the content.
  */
 function estimateTokens(content: Record<string, unknown> | null): number {
   if (!content) return 0;
@@ -74,7 +109,16 @@ function estimateTokens(content: Record<string, unknown> | null): number {
 }
 
 /**
- * Truncate content to fit within budget
+ * Truncate content to fit within a token budget.
+ *
+ * @param content - Content object to truncate, or `null`
+ * @param budget - Maximum allowed token count
+ * @returns Object containing the (possibly truncated) result, truncation flag, and original estimate
+ *
+ * @remarks
+ * If the content exceeds the budget, the JSON string is sliced proportionally
+ * and re-parsed. Truncated results include `_truncated`, `_originalTokens`,
+ * and `_budget` metadata fields.
  */
 function truncateToBudget(
   content: Record<string, unknown> | null,
@@ -129,7 +173,16 @@ function truncateToBudget(
 }
 
 /**
- * Convert MCP error to LAFS error format
+ * Convert an MCP error to LAFS error format.
+ *
+ * @param mcpResult - The MCP tool result flagged as an error
+ * @param operation - The operation name for context
+ * @returns A fully-populated {@link LAFSError}
+ *
+ * @remarks
+ * Inspects the error text content to classify the error into a LAFS category
+ * (NOT_FOUND, RATE_LIMIT, AUTH, PERMISSION, VALIDATION, TRANSIENT, or INTERNAL).
+ * Rate-limit and transient errors are marked as retryable with appropriate delays.
  */
 function convertMCPErrorToLAFS(mcpResult: CallToolResult, operation: string): LAFSError {
   const content = mcpResult.content as MCPContentItem[];
@@ -196,12 +249,28 @@ function convertMCPErrorToLAFS(mcpResult: CallToolResult, operation: string): LA
 }
 
 /**
- * Wrap MCP tool result in LAFS envelope
+ * Wrap an MCP tool result in a LAFS envelope.
  *
  * @param mcpResult - The raw MCP CallToolResult
  * @param operation - The operation name (tool name)
- * @param budget - Optional token budget for response
- * @returns LAFS-compliant envelope
+ * @param budget - Optional token budget for response truncation
+ * @returns LAFS-compliant envelope with `success`, `result`, and `error` fields
+ *
+ * @remarks
+ * Converts the MCP content array into a structured result object. When the MCP
+ * result is an error, it is classified into a LAFS error category. If a `budget`
+ * is specified, the result payload is truncated to fit and a token estimate
+ * extension is attached.
+ *
+ * @example
+ * ```typescript
+ * import { wrapMCPResult } from "@cleocode/lafs";
+ *
+ * const envelope = wrapMCPResult(mcpToolResult, "tasks.list", 500);
+ * if (envelope.success) {
+ *   console.log(envelope.result);
+ * }
+ * ```
  */
 export function wrapMCPResult(
   mcpResult: CallToolResult,
@@ -271,12 +340,28 @@ export function wrapMCPResult(
 }
 
 /**
- * Create a LAFS error envelope for MCP adapter errors
+ * Create a LAFS error envelope for MCP adapter errors.
  *
- * @param message - Error message
- * @param operation - The operation being performed
- * @param category - Error category
- * @returns LAFS error envelope
+ * @param message - Human-readable error message
+ * @param operation - The operation being performed when the error occurred
+ * @param category - Error category (defaults to `"INTERNAL"`)
+ * @returns LAFS envelope with `success: false` and the error payload
+ *
+ * @remarks
+ * Generates a standalone error envelope for adapter-level failures that occur
+ * outside of MCP tool execution (e.g., connection errors, configuration issues).
+ * Rate-limit and transient categories are automatically marked as retryable.
+ *
+ * @example
+ * ```typescript
+ * import { createAdapterErrorEnvelope } from "@cleocode/lafs";
+ *
+ * const errorEnvelope = createAdapterErrorEnvelope(
+ *   "MCP server unreachable",
+ *   "tasks.list",
+ *   "TRANSIENT",
+ * );
+ * ```
  */
 export function createAdapterErrorEnvelope(
   message: string,
@@ -318,7 +403,20 @@ export function createAdapterErrorEnvelope(
 }
 
 /**
- * Type guard to check if content is TextContent
+ * Type guard to check if content is MCP TextContent.
+ *
+ * @param content - Unknown value to check
+ * @returns `true` if the value is a valid MCP TextContent object
+ *
+ * @remarks
+ * Validates that the value is an object with `type === "text"` and a string `text` field.
+ *
+ * @example
+ * ```typescript
+ * if (isTextContent(item)) {
+ *   console.log(item.text);
+ * }
+ * ```
  */
 export function isTextContent(content: unknown): content is TextContent {
   return (
@@ -332,7 +430,19 @@ export function isTextContent(content: unknown): content is TextContent {
 }
 
 /**
- * Parse MCP text content as JSON if possible
+ * Parse MCP text content as JSON if possible.
+ *
+ * @param content - MCP TextContent to parse
+ * @returns Parsed JSON value, or the raw text string if JSON parsing fails
+ *
+ * @remarks
+ * Attempts `JSON.parse` on the text payload. If the text is not valid JSON,
+ * the raw string is returned unchanged.
+ *
+ * @example
+ * ```typescript
+ * const data = parseMCPTextContent(textContent);
+ * ```
  */
 export function parseMCPTextContent(content: TextContent): unknown {
   try {

@@ -1,6 +1,8 @@
 /**
  * LAFS Agent-to-Agent (A2A) Integration v2.0
  *
+ * @packageDocumentation
+ *
  * Full integration with the official @a2a-js/sdk for Agent-to-Agent communication.
  * Implements A2A Protocol v1.0+ specification.
  *

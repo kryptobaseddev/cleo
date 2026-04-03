@@ -1,0 +1,124 @@
+---
+title: ''
+---
+
+This page explains the core concepts behind **@cleocode/lafs**.
+
+> This is a stub page. Edit this file to add your project's conceptual documentation.
+>
+> Auto-generated sections below (inside FORGE:AUTO markers) update on every build.
+
+{/* FORGE:AUTO-START how-it-works */}
+
+## How It Works
+
+@cleocode/lafs processes your TypeScript source with a single AST traversal, extracting TSDoc comments and type information to generate documentation.
+
+{/* FORGE:AUTO-END how-it-works */}
+
+{/* FORGE:AUTO-START key-abstractions */}
+
+## Key Abstractions
+
+- **`TokenEstimatorOptions`** — Configuration options for the token estimator.
+- **`LAFSTransport`** — Transport protocol used to deliver a LAFS envelope.
+- **`LAFSErrorCategory`** — Classification category for a LAFS error.
+- **`Warning`** — A non-fatal warning attached to a LAFS envelope's `_meta.warnings` array.
+- **`MVILevel`** — Minimum Viable Information level controlling envelope verbosity.
+- **`LAFSMeta`** — Metadata block (`_meta`) embedded in every LAFS envelope.
+- **`LAFSAgentAction`** — Recommended action an LLM agent should take in response to an error.
+- **`LAFSError`** — Structured error payload returned in a failing LAFS envelope.
+- **`LAFSPageCursor`** — Cursor-based pagination metadata.
+- **`LAFSPageOffset`** — Offset-based pagination metadata.
+- **`LAFSPageNone`** — Sentinel pagination mode indicating no pagination is applied.
+- **`LAFSPage`** — Discriminated union of all supported pagination modes.
+- **`ContextLedgerEntry`** — A single entry in the context ledger recording one state mutation.
+- **`ContextLedger`** — Append-only ledger tracking context mutations across agent interactions.
+- **`LAFSEnvelope`** — Top-level LAFS response envelope wrapping every operation result.
+- **`FlagInput`** — Input parameters for resolving the output format via flag semantics.
+- **`ConformanceReport`** — Result of a LAFS conformance test run.
+- **`BudgetEnforcementOptions`** — Options controlling token-budget enforcement behaviour.
+- **`TokenEstimate`** — Token-count estimate attached to a budget-aware envelope.
+- **`LAFSMetaWithBudget`** — Extended metadata block that includes an optional token-budget estimate.
+- **`LAFSEnvelopeWithBudget`** — LAFS envelope variant whose metadata includes token-budget estimates.
+- **`MiddlewareFunction`** — Middleware function that transforms a LAFS envelope.
+- **`NextFunction`** — Continuation function passed to `BudgetMiddleware` to invoke the next middleware in the chain.
+- **`BudgetMiddleware`** — Middleware function for token-budget enforcement with chain delegation.
+- **`BudgetEnforcementResult`** — Outcome of running budget enforcement on a LAFS envelope.
+- **`ConformanceTier`** — Named conformance tier indicating the breadth of checks applied.
+- **`ConformanceProfiles`** — Schema for the conformance-profiles JSON file.
+- **`RegistryCode`** — A single entry in the LAFS error-code registry.
+- **`ErrorRegistry`** — Top-level shape of the LAFS error-registry JSON file.
+- **`TransportMapping`** — A transport-specific status value resolved from the error registry.
+- **`FlagResolution`** — Result of resolving output format flags.
+- **`StructuredValidationError`** — Structured representation of a single validation error from AJV.
+- **`EnvelopeValidationResult`** — Result of validating a value against the LAFS envelope JSON Schema.
+- **`EnvelopeConformanceOptions`** — Options for configuring envelope conformance checking.
+- **`ComplianceStage`** — Identifies which stage of the compliance pipeline produced an issue.
+- **`ComplianceIssue`** — Describes a single compliance failure detected during enforcement.
+- **`EnforceComplianceOptions`** — Options controlling which compliance stages are executed.
+- **`ComplianceResult`** — Aggregated result of a full LAFS compliance run.
+- **`ComplianceMiddleware`** — Middleware signature for intercepting LAFS envelopes in a pipeline.
+- **`DeprecationEntry`** — A single deprecation rule in the registry.
+- **`LafsExtensionParams`** — LAFS extension parameters declared in Agent Card
+- **`ExtensionKind`** — Classification of an A2A extension's behavior.
+- **`ExtensionNegotiationResult`** — Result of extension negotiation between client and agent
+- **`BuildLafsExtensionOptions`** — Options for building the LAFS extension declaration
+- **`BuildExtensionOptions`** — Options for building a generic A2A extension declaration
+- **`ExtensionNegotiationMiddlewareOptions`** — Options for the extension negotiation middleware
+- **`AgentProvider`** — A2A Agent Provider information.
+- **`AgentCapabilities`** — A2A Agent Capabilities.
+- **`AgentExtension`** — A2A Agent Extension declaration.
+- **`AgentSkill`** — A2A Agent Skill.
+- **`SecurityScheme`** — Security scheme for authentication (OpenAPI 3.0 style).
+- **`AgentCard`** — A2A v1.0 Agent Card - Standard format for agent discovery.
+- **`Capability`** — Legacy capability descriptor.
+- **`ServiceConfig`** — Legacy service configuration.
+- **`EndpointConfig`** — Legacy endpoint configuration.
+- **`DiscoveryDocument`** — Legacy discovery document format.
+- **`DiscoveryConfig`** — Configuration for the discovery middleware (A2A v1.0 format).
+- **`DiscoveryMiddlewareOptions`** — Discovery middleware options.
+- **`CreateEnvelopeMetaInput`** — Input for constructing the `_meta` block of a LAFS envelope.
+- **`CreateEnvelopeSuccessInput`** — Input for creating a successful LAFS envelope.
+- **`CreateEnvelopeErrorInput`** — Input for creating a failing LAFS envelope.
+- **`CreateEnvelopeInput`** — Discriminated union of success and error inputs for `createEnvelope`.
+- **`ParseLafsResponseOptions`** — Options for `parseLafsResponse`.
+- **`FieldExtractionInput`** — Input flags for the field extraction layer.
+- **`FieldExtractionResolution`** — Resolved field extraction configuration.
+- **`UnifiedFlagInput`** — Combined input for both format and field extraction layers.
+- **`UnifiedFlagResolution`** — Combined resolution result with cross-layer warnings.
+- **`LafsA2AConfig`** — Configuration for LAFS A2A integration.
+- **`LafsSendMessageParams`** — Request parameters for sending messages.
+- **`CreateTaskOptions`** — Options for creating a new task
+- **`ListTasksOptions`** — Options for listing tasks
+- **`ListTasksResult`** — Paginated result from listTasks
+- **`TaskStreamEvent`** — Union type of task stream events emitted by the event bus.
+- **`StreamIteratorOptions`** — Options for the stream task events async iterator
+- **`PushNotificationDeliveryResult`** — Result of delivering a push notification to a single webhook
+- **`PushTransport`** — Transport function for sending HTTP requests to push-notification webhooks.
+- **`JsonRpcMethod`** — Union of all valid JSON-RPC method string values from `JSONRPC_METHODS`
+- **`A2AErrorType`** — Union of A2A error type key names from `JSONRPC_A2A_ERROR_CODES`
+- **`JsonRpcRequest`** — A JSON-RPC 2.0 request object.
+- **`JsonRpcResponse`** — A JSON-RPC 2.0 success response object.
+- **`JsonRpcErrorResponse`** — A JSON-RPC 2.0 error response object.
+- **`GrpcStatusCode`** — Numeric gRPC status code value (0-16)
+- **`GrpcStatusName`** — String name of a gRPC status code (e.g. `"OK"`, `"NOT_FOUND"`)
+- **`GrpcServiceMethod`** — Descriptor for a single gRPC service method.
+- **`GrpcStatus`** — gRPC Status object for A2A errors.
+- **`GrpcErrorInfo`** — Equivalent of `google.rpc.ErrorInfo` for structured gRPC error details.
+- **`HttpEndpoint`** — Union of all HTTP endpoint descriptor objects from `HTTP_ENDPOINTS`
+- **`ProblemDetails`** — RFC 9457 Problem Details object.
+- **`ListTasksQueryParams`** — Parsed query parameters for the ListTasks endpoint.
+- **`ErrorCodeMapping`** — Complete error code mapping across all three transports.
+- **`CircuitState`** — Represents the three possible states of a circuit breaker.
+- **`CircuitBreakerConfig`** — Configuration options for a `CircuitBreaker` instance.
+- **`CircuitBreakerMetrics`** — Snapshot of runtime metrics for a `CircuitBreaker`.
+- **`HealthCheckConfig`** — Configuration for the `healthCheck` middleware.
+- **`HealthCheckFunction`** — A function that performs a single health check.
+- **`HealthCheckResult`** — Result of an individual health check.
+- **`HealthStatus`** — Aggregated health status returned by the health endpoint.
+- **`LafsProblemDetails`** — RFC 9457 Problem Details with LAFS extensions.
+- **`GracefulShutdownConfig`** — Configuration for the `gracefulShutdown` handler.
+- **`ShutdownState`** — Snapshot of the current shutdown state.
+
+{/* FORGE:AUTO-END key-abstractions */}

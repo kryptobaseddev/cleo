@@ -10,6 +10,8 @@
     "outDir": "dist",
     "rootDir": ".",
     "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,

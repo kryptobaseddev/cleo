@@ -67,6 +67,9 @@
     "schema",
     "conformance"
   ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "author": "CLEO Code <hello@cleo.co> (https://cleo.co)",
   "license": "MIT",
   "devDependencies": {

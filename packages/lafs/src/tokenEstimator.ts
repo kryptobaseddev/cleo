@@ -6,26 +6,51 @@
  * Properly handles nested objects, arrays, Unicode graphemes, and circular references.
  */
 
+/**
+ * Configuration options for the token estimator.
+ *
+ * @remarks
+ * All options have sensible defaults. Override individual fields to tune
+ * estimation accuracy or performance for specific workloads.
+ *
+ * @example
+ * ```typescript
+ * const opts: TokenEstimatorOptions = {
+ *   charsPerToken: 3.5,
+ *   maxDepth: 50,
+ * };
+ * ```
+ */
 export interface TokenEstimatorOptions {
   /**
-   * Characters per token ratio (default: 4)
+   * Characters per token ratio.
+   * @defaultValue `4`
    */
   charsPerToken?: number;
 
   /**
-   * Maximum depth to traverse for circular reference detection (default: 100)
+   * Maximum depth to traverse for circular reference detection.
+   * @defaultValue `100`
    */
   maxDepth?: number;
 
   /**
-   * Maximum string length to process for Unicode grapheme counting (default: 100000)
+   * Maximum string length to process for Unicode grapheme counting.
+   * @defaultValue `100000`
    */
   maxStringLength?: number;
 }
 
 /**
- * Counts Unicode graphemes in a string using Intl.Segmenter when available.
- * Falls back to character counting for environments without Intl.Segmenter.
+ * Count Unicode graphemes in a string.
+ *
+ * @param str - Input string to count
+ * @returns Number of grapheme clusters in the string
+ *
+ * @remarks
+ * Uses `Intl.Segmenter` when available (Node.js 16+, modern browsers) for
+ * accurate grapheme counting. Falls back to spread-based code-point counting
+ * which handles surrogate pairs but not all grapheme clusters.
  */
 function countGraphemes(str: string): number {
   // Use Intl.Segmenter for proper grapheme counting (Node.js 16+, modern browsers)
@@ -39,7 +64,11 @@ function countGraphemes(str: string): number {
 }
 
 /**
- * Default options for token estimation
+ * Default options for token estimation.
+ *
+ * @remarks
+ * These values represent the baseline configuration used when no overrides
+ * are provided to the {@link TokenEstimator} constructor.
  */
 const DEFAULT_OPTIONS: Required<TokenEstimatorOptions> = {
   charsPerToken: 4,
@@ -48,17 +77,32 @@ const DEFAULT_OPTIONS: Required<TokenEstimatorOptions> = {
 };
 
 /**
- * TokenEstimator provides character-based token counting for JSON payloads.
+ * Character-based token estimator for JSON payloads.
  *
+ * @remarks
  * Algorithm:
- * 1. Serialize value to JSON (handling circular refs)
- * 2. Count Unicode graphemes (not bytes)
- * 3. Divide by charsPerToken ratio (default 4)
- * 4. Add overhead for structural characters
+ * 1. Recursively traverse the value (handling circular refs via WeakSet)
+ * 2. Count Unicode graphemes (not bytes) for string content
+ * 3. Divide by `charsPerToken` ratio (default 4)
+ * 4. Add overhead for structural JSON characters
+ *
+ * The estimator is intentionally conservative to avoid underestimating budget usage.
+ *
+ * @example
+ * ```typescript
+ * const estimator = new TokenEstimator({ charsPerToken: 4 });
+ * const tokens = estimator.estimate({ name: "hello", items: [1, 2, 3] });
+ * ```
  */
 export class TokenEstimator {
+  /** Resolved configuration with defaults applied */
   private options: Required<TokenEstimatorOptions>;
 
+  /**
+   * Create a new TokenEstimator.
+   *
+   * @param options - Configuration overrides (merged with defaults)
+   */
   constructor(options: TokenEstimatorOptions = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
   }
@@ -91,6 +135,11 @@ export class TokenEstimator {
 
   /**
    * Internal recursive estimation with circular reference tracking.
+   *
+   * @param value - Value to estimate
+   * @param seen - WeakSet tracking visited objects for circular reference detection
+   * @param depth - Current recursion depth
+   * @returns Estimated token count for this value
    */
   private estimateWithTracking(value: unknown, seen: WeakSet<object>, depth: number): number {
     // Prevent infinite recursion
@@ -159,6 +208,11 @@ export class TokenEstimator {
 
   /**
    * Estimate tokens for an array.
+   *
+   * @param arr - Array to estimate
+   * @param seen - WeakSet tracking visited objects
+   * @param depth - Current recursion depth
+   * @returns Estimated token count including brackets and separators
    */
   private estimateArray(arr: unknown[], seen: WeakSet<object>, depth: number): number {
     let tokens = 1; // Opening bracket [ (already counted as structural)
@@ -179,6 +233,11 @@ export class TokenEstimator {
 
   /**
    * Estimate tokens for a plain object.
+   *
+   * @param obj - Object to estimate
+   * @param seen - WeakSet tracking visited objects
+   * @param depth - Current recursion depth
+   * @returns Estimated token count including braces, keys, colons, and separators
    */
   private estimateObject(
     obj: Record<string, unknown>,
@@ -214,6 +273,9 @@ export class TokenEstimator {
 
   /**
    * Check if a value can be safely serialized (no circular refs).
+   *
+   * @param value - Value to check
+   * @returns `true` if `JSON.stringify` succeeds without throwing
    */
   canSerialize(value: unknown): boolean {
     try {
@@ -225,8 +287,10 @@ export class TokenEstimator {
   }
 
   /**
-   * Serialize value to JSON with circular reference handling.
-   * Circular refs are replaced with "[Circular]".
+   * Serialize a value to JSON with circular reference handling.
+   *
+   * @param value - Value to serialize
+   * @returns JSON string with circular references replaced by `"[Circular]"`
    */
   safeStringify(value: unknown): string {
     const seen = new WeakSet();
@@ -243,7 +307,10 @@ export class TokenEstimator {
   }
 
   /**
-   * Create a safe copy of a value with circular refs removed.
+   * Create a deep copy of a value with circular refs replaced by `"[Circular]"`.
+   *
+   * @param value - Value to copy
+   * @returns Deep clone with all circular references replaced
    */
   safeCopy<T>(value: T): T {
     const seen = new WeakSet();
@@ -280,11 +347,28 @@ export class TokenEstimator {
 
 /**
  * Global token estimator instance with default settings.
+ *
+ * @remarks
+ * Reuses a single estimator instance to avoid repeated object allocation.
+ * All default {@link TokenEstimatorOptions} values apply.
  */
 export const defaultEstimator = new TokenEstimator();
 
 /**
  * Convenience function to estimate tokens for a value.
+ *
+ * @param value - Any JavaScript value to estimate
+ * @param options - Optional estimator configuration overrides
+ * @returns Estimated token count
+ *
+ * @remarks
+ * Uses the global {@link defaultEstimator} when no options are provided.
+ * Creates a new estimator instance when custom options are given.
+ *
+ * @example
+ * ```typescript
+ * const tokens = estimateTokens({ data: [1, 2, 3] });
+ * ```
  */
 export function estimateTokens(value: unknown, options?: TokenEstimatorOptions): number {
   const estimator = options ? new TokenEstimator(options) : defaultEstimator;
@@ -293,6 +377,19 @@ export function estimateTokens(value: unknown, options?: TokenEstimatorOptions):
 
 /**
  * Convenience function to estimate tokens from a JSON string.
+ *
+ * @param json - Pre-serialized JSON string
+ * @param options - Optional estimator configuration overrides
+ * @returns Estimated token count
+ *
+ * @remarks
+ * More efficient than {@link estimateTokens} when you already have the
+ * JSON string, since it skips the serialization step.
+ *
+ * @example
+ * ```typescript
+ * const tokens = estimateTokensJSON('{"key": "value"}');
+ * ```
  */
 export function estimateTokensJSON(json: string, options?: TokenEstimatorOptions): number {
   const estimator = options ? new TokenEstimator(options) : defaultEstimator;

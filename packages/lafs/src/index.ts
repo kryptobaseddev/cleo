@@ -1,3 +1,15 @@
+/**
+ * LAFS (LLM-Agent-First Specification) TypeScript SDK.
+ *
+ * @packageDocumentation
+ *
+ * @remarks
+ * This is the main entry point for the `@cleocode/lafs` package. It re-exports all
+ * public modules including envelope creation, validation, conformance checking,
+ * error registry, flag resolution, MVI projection, A2A integration, and operational
+ * primitives (health, shutdown, circuit breaker).
+ */
+
 // A2A SDK types (non-conflicting subset)
 export type {
   Artifact,

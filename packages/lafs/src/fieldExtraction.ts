@@ -1,33 +1,98 @@
+/**
+ * Field extraction resolution for LAFS envelopes.
+ *
+ * Implements section 9.2 of the LAFS spec: `--field` extracts a single value
+ * as plain text (no envelope), `--fields` filters the JSON envelope to a subset,
+ * and `--mvi` controls envelope verbosity.
+ *
+ * @remarks
+ * This module provides both resolution (flag parsing) and runtime extraction/filtering
+ * functions. The resolution layer is consumed by the unified resolver in `flagResolver.ts`.
+ *
+ * @since 1.5.0
+ */
+
 import { LAFSFlagError } from './flagSemantics.js';
 import type { LAFSEnvelope, MVILevel } from './types.js';
 import { isMVILevel } from './types.js';
 
+/**
+ * Input flags for the field extraction layer.
+ *
+ * @remarks
+ * Mutually exclusive: `fieldFlag` and `fieldsFlag` cannot both be set.
+ * Providing both causes an `E_FIELD_CONFLICT` error during resolution.
+ */
 export interface FieldExtractionInput {
-  /** --field <name>: extract single field as plain text, no envelope */
+  /**
+   * `--field <name>`: extract a single field as plain text, discarding the envelope.
+   * @defaultValue undefined
+   */
   fieldFlag?: string;
-  /** --fields <a,b,c>: filter result to these fields, preserve envelope */
+  /**
+   * `--fields <a,b,c>`: filter result to these fields while preserving the envelope.
+   * Accepts a comma-separated string or an array of field names.
+   * @defaultValue undefined
+   */
   fieldsFlag?: string | string[];
-  /** --mvi <level>: envelope verbosity (client-requestable levels only) */
+  /**
+   * `--mvi <level>`: requested envelope verbosity level (client-requestable levels only).
+   * The `'custom'` level is server-set and not valid here.
+   * @defaultValue undefined
+   */
   mviFlag?: MVILevel | string;
 }
 
+/**
+ * Resolved field extraction configuration.
+ *
+ * @remarks
+ * Produced by {@link resolveFieldExtraction}. Contains the parsed and validated
+ * field extraction settings ready for use by extraction and filtering functions.
+ */
 export interface FieldExtractionResolution {
-  /** When set: extract this field as plain text, discard envelope. */
+  /**
+   * When set, extract this field as plain text, discarding the envelope.
+   * @defaultValue undefined
+   */
   field?: string;
-  /** When set: filter result to these fields (envelope preserved). */
+  /**
+   * When set, filter the result to these fields (envelope is preserved).
+   * @defaultValue undefined
+   */
   fields?: string[];
-  /** Resolved MVI level. Defaults to 'standard'. */
+  /** Resolved MVI level. Falls back to `'minimal'` when no valid flag is provided. */
   mvi: MVILevel;
-  /** Which input determined the mvi value: 'flag' when mviFlag was valid, 'default' otherwise. */
+  /** Which input determined the mvi value: `'flag'` when mviFlag was valid, `'default'` otherwise. */
   mviSource: 'flag' | 'default';
   /**
-   * True when _fields are requested, indicating the server SHOULD set
-   * _meta.mvi = 'custom' in the response per §9.1.
+   * True when `fields` are requested, indicating the server SHOULD set
+   * `_meta.mvi = 'custom'` in the response per section 9.1.
    * Separate from the client-resolved mvi level.
    */
   expectsCustomMvi: boolean;
 }
 
+/**
+ * Resolve field extraction flags into a validated configuration.
+ *
+ * @param input - The field extraction flag inputs
+ * @returns The resolved extraction configuration with mvi level and source
+ *
+ * @remarks
+ * Parses and validates the `--field`, `--fields`, and `--mvi` flags. Throws
+ * `E_FIELD_CONFLICT` if both `--field` and `--fields` are provided. The `'custom'`
+ * MVI level is server-set per section 9.1 and is rejected as a client-requested value;
+ * invalid or absent `--mvi` falls back to `'minimal'`.
+ *
+ * @example
+ * ```ts
+ * const resolution = resolveFieldExtraction({ fieldsFlag: 'id,title' });
+ * // => { fields: ['id', 'title'], mvi: 'minimal', mviSource: 'default', expectsCustomMvi: true }
+ * ```
+ *
+ * @throws {@link LAFSFlagError} When both `fieldFlag` and `fieldsFlag` are set.
+ */
 export function resolveFieldExtraction(input: FieldExtractionInput): FieldExtractionResolution {
   if (input.fieldFlag && input.fieldsFlag) {
     throw new LAFSFlagError(
@@ -68,20 +133,29 @@ export function resolveFieldExtraction(input: FieldExtractionInput): FieldExtrac
 /**
  * Extract a named field from a LAFS result object.
  *
+ * @param result - The envelope result value (object, array, or null)
+ * @param field - The field name to extract
+ * @returns The extracted value, or `undefined` if not found at any level
+ *
+ * @remarks
  * Handles four result shapes:
- *   1. Direct array: result[0][field]       (list operations where result IS an array)
- *   2. Direct:       result[field]          (flat result object)
- *   3. Nested:       result.<key>[field]    (wrapper-entity, e.g. result.task.title)
- *   4. Array value:  result.<key>[0][field] (wrapper-array, e.g. result.items[0].title)
+ *   1. Direct array: `result[0][field]` (list operations where result IS an array)
+ *   2. Direct: `result[field]` (flat result object)
+ *   3. Nested: `result.<key>[field]` (wrapper-entity, e.g. `result.task.title`)
+ *   4. Array value: `result.<key>[0][field]` (wrapper-array, e.g. `result.items[0].title`)
  *
  * Returns the value from the first match only. For array results (shapes 1
  * and 4), returns the first element's field value only. To extract from all
- * elements, iterate the array or use applyFieldFilter().
+ * elements, iterate the array or use {@link applyFieldFilter}.
  *
  * When multiple wrapper keys contain the requested field (shapes 3 and 4),
  * the first key in property insertion order wins.
  *
- * Returns undefined if not found at any level.
+ * @example
+ * ```ts
+ * const result = { task: { id: 'T1', title: 'Fix bug' } };
+ * extractFieldFromResult(result, 'title'); // => 'Fix bug'
+ * ```
  */
 export function extractFieldFromResult(result: LAFSEnvelope['result'], field: string): unknown {
   if (result === null || typeof result !== 'object') return undefined;
@@ -113,7 +187,22 @@ export function extractFieldFromResult(result: LAFSEnvelope['result'], field: st
   return undefined;
 }
 
-/** Convenience wrapper — extracts a field from an envelope's result. */
+/**
+ * Extract a named field from an envelope's result.
+ *
+ * @param envelope - The LAFS envelope to extract from
+ * @param field - The field name to extract
+ * @returns The extracted value, or `undefined` if not found
+ *
+ * @remarks
+ * Convenience wrapper around {@link extractFieldFromResult} that accepts
+ * the full envelope and delegates to the result extraction logic.
+ *
+ * @example
+ * ```ts
+ * const value = extractFieldFromEnvelope(envelope, 'title');
+ * ```
+ */
 export function extractFieldFromEnvelope(envelope: LAFSEnvelope, field: string): unknown {
   return extractFieldFromResult(envelope.result, field);
 }
@@ -121,21 +210,33 @@ export function extractFieldFromEnvelope(envelope: LAFSEnvelope, field: string):
 /**
  * Filter result fields in a LAFS envelope to the requested subset.
  *
- * Handles the same four result shapes as extractFieldFromResult:
- *   1. Direct array:    project each element
- *   2. Flat result:     project top-level keys
- *   3. Wrapper-entity:  project nested entity's keys, preserve wrapper
- *   4. Wrapper-array:   project each element's keys, preserve wrapper
+ * @param envelope - The LAFS envelope whose result will be filtered
+ * @param fields - Array of field names to retain in the result
+ * @returns A new envelope with the filtered result and `_meta.mvi` set to `'custom'`
  *
- * Sets _meta.mvi = 'custom' per §9.1.
- * Returns a new envelope with a new _meta object. Result values are not
+ * @remarks
+ * Handles the same four result shapes as {@link extractFieldFromResult}:
+ *   1. Direct array: project each element
+ *   2. Flat result: project top-level keys
+ *   3. Wrapper-entity: project nested entity's keys, preserve wrapper
+ *   4. Wrapper-array: project each element's keys, preserve wrapper
+ *
+ * Sets `_meta.mvi = 'custom'` per section 9.1.
+ * Returns a new envelope with a new `_meta` object. Result values are not
  * deep-cloned; nested object references are shared with the original.
- * Unknown field names are silently omitted per §9.2.
+ * Unknown field names are silently omitted per section 9.2.
  *
  * When result is a wrapper (shapes 3/4) with multiple keys, each key is
  * projected independently. Primitive values at the wrapper level (numbers,
- * strings, booleans) are preserved as-is — _fields is applied to nested
+ * strings, booleans) are preserved as-is; field filtering is applied to nested
  * entity or array keys only, not to the wrapper's own primitive keys.
+ *
+ * @example
+ * ```ts
+ * const filtered = applyFieldFilter(envelope, ['id', 'title']);
+ * // filtered.result contains only 'id' and 'title' fields
+ * // filtered._meta.mvi === 'custom'
+ * ```
  */
 export function applyFieldFilter(envelope: LAFSEnvelope, fields: string[]): LAFSEnvelope {
   if (fields.length === 0 || envelope.result === null) return envelope;

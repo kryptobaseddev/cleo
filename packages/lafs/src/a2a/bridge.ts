@@ -4,6 +4,12 @@
  * Full integration with official @a2a-js/sdk for Agent-to-Agent communication.
  * Implements A2A Protocol v1.0+ specification.
  *
+ * @remarks
+ * Provides the core bridge between LAFS envelopes and A2A protocol types.
+ * Includes a result wrapper ({@link LafsA2AResult}) for extracting typed data
+ * from A2A responses, artifact creation helpers for LAFS envelopes, text, and
+ * files, and extension introspection utilities.
+ *
  * Reference: specs/external/specification.md
  */
 
@@ -38,47 +44,94 @@ import type { LAFSEnvelope, LAFSMeta } from '../types.js';
 // ============================================================================
 
 /**
- * Configuration for LAFS A2A integration
+ * Configuration for LAFS A2A integration.
+ *
+ * @remarks
+ * Controls default token budgets, envelope wrapping behavior, protocol
+ * version, and extension activation for all A2A operations.
  */
 export interface LafsA2AConfig {
-  /** Default token budget for all operations */
+  /**
+   * Default token budget for all operations.
+   * @defaultValue undefined
+   */
   defaultBudget?: {
+    /** Maximum number of tokens allowed */
     maxTokens?: number;
+    /** Maximum number of items allowed */
     maxItems?: number;
+    /** Maximum number of bytes allowed */
     maxBytes?: number;
   };
-  /** Whether to automatically wrap responses in LAFS envelopes */
+  /**
+   * Whether to automatically wrap responses in LAFS envelopes.
+   * @defaultValue undefined
+   */
   envelopeResponses?: boolean;
-  /** A2A protocol version to use (default: "1.0") */
+  /**
+   * A2A protocol version to use.
+   * @defaultValue undefined
+   */
   protocolVersion?: string;
-  /** Extension URIs to activate for all requests */
+  /**
+   * Extension URIs to activate for all requests.
+   * @defaultValue undefined
+   */
   defaultExtensions?: string[];
 }
 
 /**
- * Request parameters for sending messages
+ * Request parameters for sending messages.
+ *
+ * @remarks
+ * Encapsulates the message content, A2A configuration, token budget,
+ * extension activation, and conversation context for a single send
+ * operation.
  */
 export interface LafsSendMessageParams {
-  /** Message content */
+  /** Message content including role, parts, and optional metadata */
   message: {
+    /** Role of the message sender */
     role: 'user' | 'agent';
+    /** Content parts composing the message */
     parts: Part[];
-    /** Optional message metadata */
+    /**
+     * Optional message metadata.
+     * @defaultValue undefined
+     */
     metadata?: Record<string, unknown>;
   };
-  /** A2A configuration for this request */
+  /**
+   * A2A configuration for this request.
+   * @defaultValue undefined
+   */
   configuration?: MessageSendConfiguration;
-  /** Token budget override */
+  /**
+   * Token budget override for this request.
+   * @defaultValue undefined
+   */
   budget?: {
+    /** Maximum number of tokens allowed */
     maxTokens?: number;
+    /** Maximum number of items allowed */
     maxItems?: number;
+    /** Maximum number of bytes allowed */
     maxBytes?: number;
   };
-  /** Extensions to activate for this request */
+  /**
+   * Extensions to activate for this request.
+   * @defaultValue undefined
+   */
   extensions?: string[];
-  /** Context ID for multi-turn conversations */
+  /**
+   * Context ID for multi-turn conversations.
+   * @defaultValue undefined
+   */
   contextId?: string;
-  /** Task ID for continuing existing task */
+  /**
+   * Task ID for continuing existing task.
+   * @defaultValue undefined
+   */
   taskId?: string;
 }
 
@@ -87,9 +140,22 @@ export interface LafsSendMessageParams {
 // ============================================================================
 
 /**
- * Wrapper for A2A responses with LAFS envelope support
+ * Wrapper for A2A responses with LAFS envelope support.
+ *
+ * @remarks
+ * Provides typed accessors for extracting tasks, messages, LAFS envelopes,
+ * token estimates, and state information from raw A2A `SendMessageResponse`
+ * objects. All methods are null-safe and return `null` when the expected
+ * data is not present.
  */
 export class LafsA2AResult {
+  /**
+   * Create a LafsA2AResult wrapper.
+   *
+   * @param result - Raw A2A SendMessageResponse to wrap
+   * @param _config - LAFS A2A configuration (reserved for future use)
+   * @param _requestId - Request ID for correlation (reserved for future use)
+   */
   constructor(
     private result: SendMessageResponse,
     _config: LafsA2AConfig,
@@ -97,21 +163,27 @@ export class LafsA2AResult {
   ) {}
 
   /**
-   * Get the raw A2A response
+   * Get the raw A2A response.
+   *
+   * @returns The underlying SendMessageResponse object
    */
   getA2AResult(): SendMessageResponse {
     return this.result;
   }
 
   /**
-   * Check if result is an error
+   * Check if the result is an error response.
+   *
+   * @returns True if the response contains a JSON-RPC error
    */
   isError(): boolean {
     return 'error' in this.result;
   }
 
   /**
-   * Get error details if result is an error
+   * Get error details if the result is an error.
+   *
+   * @returns The JSON-RPC error response, or null if the result is a success
    */
   getError(): JSONRPCErrorResponse | null {
     if (this.isError()) {
@@ -121,7 +193,9 @@ export class LafsA2AResult {
   }
 
   /**
-   * Get success result
+   * Get the success result.
+   *
+   * @returns The success response, or null if the result is an error
    */
   getSuccess(): SendMessageSuccessResponse | null {
     if (!this.isError()) {
@@ -131,7 +205,13 @@ export class LafsA2AResult {
   }
 
   /**
-   * Extract Task from response (if present)
+   * Extract a Task from the response (if present).
+   *
+   * @remarks
+   * Checks the success result for an object with `id` and `status` properties,
+   * which identifies it as a Task rather than a Message.
+   *
+   * @returns The extracted Task, or null if not present or result is an error
    */
   getTask(): Task | null {
     const success = this.getSuccess();
@@ -149,7 +229,13 @@ export class LafsA2AResult {
   }
 
   /**
-   * Extract Message from response (if present)
+   * Extract a Message from the response (if present).
+   *
+   * @remarks
+   * Checks the success result for an object with `messageId` but without
+   * `status`, which distinguishes it from a Task.
+   *
+   * @returns The extracted Message, or null if not present or result is an error
    */
   getMessage(): Message | null {
     const success = this.getSuccess();
@@ -166,17 +252,23 @@ export class LafsA2AResult {
   }
 
   /**
-   * Check if response contains a LAFS envelope
+   * Check if the response contains a LAFS envelope.
+   *
+   * @returns True if a LAFS envelope was found in the task's artifacts
    */
   hasLafsEnvelope(): boolean {
     return this.getLafsEnvelope() !== null;
   }
 
   /**
-   * Extract LAFS envelope from A2A artifact
+   * Extract a LAFS envelope from A2A artifact.
    *
+   * @remarks
    * A2A agents can return LAFS envelopes in artifacts for structured data.
-   * This method extracts the envelope from the first artifact containing one.
+   * This method scans all artifacts for a DataPart containing an object
+   * with `$schema`, `_meta`, and `success` fields (the LAFS envelope shape).
+   *
+   * @returns The first LAFS envelope found, or null if none present
    */
   getLafsEnvelope(): LAFSEnvelope | null {
     const task = this.getTask();
@@ -197,7 +289,14 @@ export class LafsA2AResult {
   }
 
   /**
-   * Get token estimate from LAFS envelope
+   * Get token estimate from LAFS envelope.
+   *
+   * @remarks
+   * Extracts the `_tokenEstimate` field from the LAFS envelope's `_meta`
+   * section, which contains estimated token usage, budget, and truncation
+   * information.
+   *
+   * @returns Token estimate object, or null if no envelope or no estimate present
    */
   getTokenEstimate(): { estimated: number; budget?: number; truncated?: boolean } | null {
     const envelope = this.getLafsEnvelope();
@@ -211,21 +310,30 @@ export class LafsA2AResult {
   }
 
   /**
-   * Get task status
+   * Get the task status.
+   *
+   * @returns The task's current status, or null if no task is present
    */
   getTaskStatus(): TaskStatus | null {
     return this.getTask()?.status ?? null;
   }
 
   /**
-   * Get task state
+   * Get the task state.
+   *
+   * @returns The task's current state string, or null if no task is present
    */
   getTaskState(): TaskState | null {
     return this.getTaskStatus()?.state ?? null;
   }
 
   /**
-   * Check if task is in a terminal state
+   * Check if the task is in a terminal state.
+   *
+   * @remarks
+   * Terminal states are `completed`, `failed`, `canceled`, and `rejected`.
+   *
+   * @returns True if the task is in a terminal state, false otherwise or if no task is present
    */
   isTerminal(): boolean {
     const state = this.getTaskState();
@@ -236,30 +344,38 @@ export class LafsA2AResult {
   }
 
   /**
-   * Check if task requires input
+   * Check if the task requires user input.
+   *
+   * @returns True if the task state is `input-required`
    */
   isInputRequired(): boolean {
     return this.getTaskState() === 'input-required';
   }
 
   /**
-   * Check if task requires authentication
+   * Check if the task requires authentication.
+   *
+   * @returns True if the task state is `auth-required`
    */
   isAuthRequired(): boolean {
     return this.getTaskState() === 'auth-required';
   }
 
   /**
-   * Get all artifacts from task
+   * Get all artifacts from the task.
+   *
+   * @returns Array of task artifacts, or empty array if no task or no artifacts
    */
   getArtifacts(): Artifact[] {
     return this.getTask()?.artifacts ?? [];
   }
 
+  /** Type guard: checks whether a Part is a DataPart by inspecting its `kind` field. */
   private isDataPart(part: Part): part is DataPart {
     return part.kind === 'data';
   }
 
+  /** Heuristic check: returns true if the data object looks like a LAFS envelope (has `$schema`, `_meta`, `success`). */
   private isLafsEnvelope(data: unknown): boolean {
     return (
       typeof data === 'object' &&
@@ -276,7 +392,15 @@ export class LafsA2AResult {
 // ============================================================================
 
 /**
- * Create a LAFS envelope artifact for A2A
+ * Create a LAFS envelope artifact for A2A.
+ *
+ * @remarks
+ * Wraps a LAFS envelope in an A2A Artifact with a DataPart. The artifact
+ * is tagged with LAFS version and content type metadata for identification
+ * by consumers.
+ *
+ * @param envelope - LAFS envelope to wrap as an artifact
+ * @returns A2A Artifact containing the envelope as a DataPart
  *
  * @example
  * ```typescript
@@ -309,7 +433,19 @@ export function createLafsArtifact(envelope: LAFSEnvelope): Artifact {
 }
 
 /**
- * Create a text artifact
+ * Create a text artifact.
+ *
+ * @remarks
+ * Wraps a plain text string in an A2A Artifact with a TextPart.
+ *
+ * @param text - Text content for the artifact
+ * @param name - Display name for the artifact
+ * @returns A2A Artifact containing the text as a TextPart
+ *
+ * @example
+ * ```typescript
+ * const artifact = createTextArtifact('Hello, world!', 'greeting');
+ * ```
  */
 export function createTextArtifact(text: string, name = 'text_response'): Artifact {
   const part: TextPart = {
@@ -325,7 +461,26 @@ export function createTextArtifact(text: string, name = 'text_response'): Artifa
 }
 
 /**
- * Create a file artifact
+ * Create a file artifact.
+ *
+ * @remarks
+ * Wraps a file URI in an A2A Artifact with a FilePart. The media type
+ * and optional filename are included for proper content handling by
+ * consumers.
+ *
+ * @param fileUrl - URI pointing to the file resource
+ * @param mediaType - MIME type of the file (e.g., `application/pdf`)
+ * @param filename - Optional display filename for the artifact
+ * @returns A2A Artifact containing the file reference as a FilePart
+ *
+ * @example
+ * ```typescript
+ * const artifact = createFileArtifact(
+ *   'https://example.com/report.pdf',
+ *   'application/pdf',
+ *   'report.pdf',
+ * );
+ * ```
  */
 export function createFileArtifact(
   fileUrl: string,
@@ -362,7 +517,22 @@ function generateId(): string {
 // ============================================================================
 
 /**
- * Check if an extension is required
+ * Check if an extension is required in an Agent Card.
+ *
+ * @remarks
+ * Scans the agent card's declared extensions for one matching the given
+ * URI with `required: true`.
+ *
+ * @param agentCard - Agent Card to inspect
+ * @param extensionUri - URI of the extension to check
+ * @returns True if the extension is declared as required
+ *
+ * @example
+ * ```typescript
+ * if (isExtensionRequired(agentCard, LAFS_EXTENSION_URI)) {
+ *   console.log('LAFS extension is mandatory for this agent');
+ * }
+ * ```
  */
 export function isExtensionRequired(agentCard: AgentCard, extensionUri: string): boolean {
   return (
@@ -372,7 +542,22 @@ export function isExtensionRequired(agentCard: AgentCard, extensionUri: string):
 }
 
 /**
- * Get extension parameters
+ * Get extension parameters from an Agent Card.
+ *
+ * @remarks
+ * Finds the extension matching the given URI and returns its `params` object.
+ *
+ * @param agentCard - Agent Card to inspect
+ * @param extensionUri - URI of the extension to look up
+ * @returns The extension's params object, or undefined if not found
+ *
+ * @example
+ * ```typescript
+ * const params = getExtensionParams(agentCard, LAFS_EXTENSION_URI);
+ * if (params?.supportsTokenBudgets) {
+ *   // Enable budget tracking
+ * }
+ * ```
  */
 export function getExtensionParams(
   agentCard: AgentCard,
@@ -386,11 +571,21 @@ export function getExtensionParams(
 // ============================================================================
 
 /**
- * A2A Agent Card well-known path
+ * A2A Agent Card well-known path.
+ *
+ * @remarks
+ * The standard path `/.well-known/agent-card.json` where A2A Agent Cards
+ * are published. Re-exported from the A2A SDK.
+ *
  * Reference: specs/external/agent-discovery.md
  */
 /**
- * HTTP header for A2A Extensions
+ * HTTP header for A2A Extensions.
+ *
+ * @remarks
+ * Used to communicate extension activation between client and agent.
+ * Re-exported from the A2A SDK.
+ *
  * Reference: specs/external/extensions.md
  */
 export { AGENT_CARD_PATH, HTTP_EXTENSION_HEADER };

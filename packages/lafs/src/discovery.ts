@@ -27,79 +27,206 @@ try {
 // ============================================================================
 
 /**
- * A2A Agent Provider information
+ * A2A Agent Provider information.
+ *
+ * @remarks
+ * Describes the organization that provides and maintains an A2A agent.
+ * Used within {@link AgentCard} to identify the service provider.
+ *
+ * @example
+ * ```typescript
+ * const provider: AgentProvider = {
+ *   url: "https://example.com",
+ *   organization: "Acme Corp"
+ * };
+ * ```
  */
 export interface AgentProvider {
-  /** Organization URL */
+  /** Organization URL (must be a valid HTTPS URL) */
   url: string;
-  /** Organization name */
+  /** Organization name (human-readable label) */
   organization: string;
 }
 
 /**
- * A2A Agent Capabilities
+ * A2A Agent Capabilities.
+ *
+ * @remarks
+ * Declares the runtime capabilities of an A2A agent, including streaming support,
+ * push notification handling, and registered protocol extensions.
+ *
+ * @example
+ * ```typescript
+ * const caps: AgentCapabilities = {
+ *   streaming: true,
+ *   pushNotifications: false,
+ *   extendedAgentCard: false,
+ *   extensions: []
+ * };
+ * ```
  */
 export interface AgentCapabilities {
-  /** Supports streaming responses */
+  /**
+   * Supports streaming responses.
+   * @defaultValue `undefined` (treated as `false`)
+   */
   streaming?: boolean;
-  /** Supports push notifications */
+  /**
+   * Supports push notifications.
+   * @defaultValue `undefined` (treated as `false`)
+   */
   pushNotifications?: boolean;
-  /** Supports extended agent card */
+  /**
+   * Supports extended agent card.
+   * @defaultValue `undefined` (treated as `false`)
+   */
   extendedAgentCard?: boolean;
-  /** Supported extensions */
+  /**
+   * Supported extensions declared by this agent.
+   * @defaultValue `undefined`
+   */
   extensions?: AgentExtension[];
 }
 
 /**
- * A2A Agent Extension declaration
+ * A2A Agent Extension declaration.
+ *
+ * @remarks
+ * Represents a protocol extension supported by the agent. Extensions use a URI
+ * as a globally-unique identifier and may carry extension-specific parameters.
+ *
+ * @example
+ * ```typescript
+ * const ext: AgentExtension = {
+ *   uri: "https://lafs.dev/extensions/v1/lafs",
+ *   description: "LAFS envelope protocol",
+ *   required: false,
+ *   params: { supportsContextLedger: true }
+ * };
+ * ```
  */
 export interface AgentExtension {
-  /** Extension URI (unique identifier) */
+  /** Extension URI (globally-unique identifier) */
   uri: string;
-  /** Human-readable description */
+  /** Human-readable description of what the extension provides */
   description: string;
-  /** Whether the extension is required */
+  /** Whether the extension is required for interoperability */
   required: boolean;
-  /** Extension-specific parameters */
+  /**
+   * Extension-specific parameters.
+   * @defaultValue `undefined`
+   */
   params?: Record<string, unknown>;
 }
 
 /**
- * A2A Agent Skill
+ * A2A Agent Skill.
+ *
+ * @remarks
+ * Describes a discrete capability exposed by the agent. Skills include metadata
+ * for discovery (tags, examples) and may override the agent-level I/O modes.
+ *
+ * @example
+ * ```typescript
+ * const skill: AgentSkill = {
+ *   id: "envelope-processor",
+ *   name: "Envelope Processor",
+ *   description: "Validates and processes LAFS envelopes",
+ *   tags: ["lafs", "envelope"],
+ *   examples: ["Validate this envelope"],
+ * };
+ * ```
  */
 export interface AgentSkill {
-  /** Skill unique identifier */
+  /** Skill unique identifier (kebab-case recommended) */
   id: string;
-  /** Human-readable name */
+  /** Human-readable display name */
   name: string;
-  /** Detailed description */
+  /** Detailed description of what the skill does */
   description: string;
-  /** Keywords/tags for the skill */
+  /** Keywords/tags for discovery and categorization */
   tags: string[];
-  /** Example prompts */
+  /**
+   * Example prompts that demonstrate typical usage.
+   * @defaultValue `undefined`
+   */
   examples?: string[];
-  /** Supported input modes (overrides agent defaults) */
+  /**
+   * Supported input modes (overrides agent-level {@link AgentCard.defaultInputModes}).
+   * @defaultValue `undefined`
+   */
   inputModes?: string[];
-  /** Supported output modes (overrides agent defaults) */
+  /**
+   * Supported output modes (overrides agent-level {@link AgentCard.defaultOutputModes}).
+   * @defaultValue `undefined`
+   */
   outputModes?: string[];
 }
 
 /**
- * Security scheme for authentication (OpenAPI 3.0 style)
+ * Security scheme for authentication (OpenAPI 3.0 style).
+ *
+ * @remarks
+ * Maps to the OpenAPI 3.0 Security Scheme Object. Used in {@link AgentCard.securitySchemes}
+ * to declare supported authentication mechanisms.
+ *
+ * @example
+ * ```typescript
+ * const scheme: SecurityScheme = {
+ *   type: "http",
+ *   scheme: "bearer",
+ *   bearerFormat: "JWT",
+ * };
+ * ```
  */
 export interface SecurityScheme {
+  /** Authentication type per OpenAPI 3.0 */
   type: 'http' | 'apiKey' | 'oauth2' | 'openIdConnect';
+  /**
+   * Human-readable description of the scheme.
+   * @defaultValue `undefined`
+   */
   description?: string;
+  /**
+   * HTTP auth scheme name (e.g., `"bearer"`).
+   * @defaultValue `undefined`
+   */
   scheme?: string;
+  /**
+   * Bearer token format hint (e.g., `"JWT"`).
+   * @defaultValue `undefined`
+   */
   bearerFormat?: string;
 }
 
 /**
- * A2A v1.0 Agent Card - Standard format for agent discovery
- * Reference: specs/external/specification.md Section 5
+ * A2A v1.0 Agent Card - Standard format for agent discovery.
+ *
+ * @remarks
+ * The Agent Card is the primary discovery document for A2A v1.0. It is served
+ * at `/.well-known/agent-card.json` and describes the agent's identity,
+ * capabilities, skills, and security requirements.
+ * Reference: specs/external/specification.md Section 5.
+ *
+ * @example
+ * ```typescript
+ * const card: AgentCard = {
+ *   name: "my-agent",
+ *   description: "A LAFS-compliant agent",
+ *   version: "1.0.0",
+ *   url: "https://api.example.com",
+ *   capabilities: { streaming: false },
+ *   defaultInputModes: ["application/json"],
+ *   defaultOutputModes: ["application/json"],
+ *   skills: [],
+ * };
+ * ```
  */
 export interface AgentCard {
-  /** JSON Schema URL */
+  /**
+   * JSON Schema URL for validation.
+   * @defaultValue `undefined`
+   */
   $schema?: string;
   /** Human-readable agent name */
   name: string;
@@ -109,23 +236,38 @@ export interface AgentCard {
   version: string;
   /** Base URL for A2A endpoints */
   url: string;
-  /** Service provider information */
+  /**
+   * Service provider information.
+   * @defaultValue `undefined`
+   */
   provider?: AgentProvider;
-  /** Agent capabilities */
+  /** Agent capabilities declaration */
   capabilities: AgentCapabilities;
-  /** Supported input content types */
+  /** Supported input content types (MIME types) */
   defaultInputModes: string[];
-  /** Supported output content types */
+  /** Supported output content types (MIME types) */
   defaultOutputModes: string[];
-  /** Agent skills/capabilities */
+  /** Agent skills/capabilities for discovery */
   skills: AgentSkill[];
-  /** Security authentication schemes */
+  /**
+   * Security authentication schemes (keyed by scheme name).
+   * @defaultValue `undefined`
+   */
   securitySchemes?: Record<string, SecurityScheme>;
-  /** Required security schemes */
+  /**
+   * Required security scheme references (OpenAPI 3.0 format).
+   * @defaultValue `undefined`
+   */
   security?: Array<Record<string, string[]>>;
-  /** Documentation URL */
+  /**
+   * Documentation URL for the agent.
+   * @defaultValue `undefined`
+   */
   documentationUrl?: string;
-  /** Icon URL */
+  /**
+   * Icon URL for the agent.
+   * @defaultValue `undefined`
+   */
   iconUrl?: string;
 }
 
@@ -134,42 +276,93 @@ export interface AgentCard {
 // ============================================================================
 
 /**
- * @deprecated Use AgentSkill instead
+ * Legacy capability descriptor.
+ *
+ * @deprecated Use {@link AgentSkill} instead.
+ *
+ * @remarks
+ * Retained for backward compatibility with pre-A2A discovery documents.
+ * Will be removed in v2.0.0.
  */
 export interface Capability {
+  /** Capability name */
   name: string;
+  /** Capability version */
   version: string;
+  /**
+   * Human-readable description.
+   * @defaultValue `undefined`
+   */
   description?: string;
+  /** Supported operations */
   operations: string[];
+  /**
+   * Whether this capability is optional.
+   * @defaultValue `undefined`
+   */
   optional?: boolean;
 }
 
 /**
- * @deprecated Use AgentCard instead
+ * Legacy service configuration.
+ *
+ * @deprecated Use {@link AgentCard} instead.
+ *
+ * @remarks
+ * Retained for backward compatibility with pre-A2A discovery documents.
+ * Will be removed in v2.0.0.
  */
 export interface ServiceConfig {
+  /** Service name */
   name: string;
+  /** Service version */
   version: string;
+  /**
+   * Human-readable description.
+   * @defaultValue `undefined`
+   */
   description?: string;
 }
 
 /**
- * @deprecated Will be removed in v2.0.0
+ * Legacy endpoint configuration.
+ *
+ * @deprecated Will be removed in v2.0.0.
+ *
+ * @remarks
+ * Retained for backward compatibility with pre-A2A discovery documents.
  */
 export interface EndpointConfig {
+  /** Envelope endpoint URL */
   envelope: string;
+  /**
+   * Context endpoint URL.
+   * @defaultValue `undefined`
+   */
   context?: string;
+  /** Discovery endpoint URL */
   discovery: string;
 }
 
 /**
- * @deprecated Use AgentCard instead
+ * Legacy discovery document format.
+ *
+ * @deprecated Use {@link AgentCard} instead.
+ *
+ * @remarks
+ * The pre-A2A discovery document format. Automatically generated from
+ * legacy config for backward compatibility. Will be removed in v2.0.0.
  */
 export interface DiscoveryDocument {
+  /** JSON Schema URL */
   $schema: string;
+  /** LAFS specification version */
   lafs_version: string;
+  /** Service configuration */
   service: ServiceConfig;
+  /** Declared capabilities */
   capabilities: Capability[];
+  /** Endpoint configuration */
   endpoints: EndpointConfig;
 }
 
@@ -178,22 +371,59 @@ export interface DiscoveryDocument {
 // ============================================================================
 
 /**
- * Configuration for the discovery middleware (A2A v1.0 format)
+ * Configuration for the discovery middleware (A2A v1.0 format).
+ *
+ * @remarks
+ * Provide either `agent` (A2A v1.0) or the legacy `service`/`capabilities`/`endpoints`
+ * combination. The legacy fields are deprecated and will be removed in v2.0.0.
+ *
+ * @example
+ * ```typescript
+ * const config: DiscoveryConfig = {
+ *   agent: {
+ *     name: "my-agent",
+ *     description: "Example",
+ *     version: "1.0.0",
+ *     url: "https://api.example.com",
+ *     capabilities: { streaming: false },
+ *     defaultInputModes: ["application/json"],
+ *     defaultOutputModes: ["application/json"],
+ *     skills: [],
+ *   },
+ *   cacheMaxAge: 3600,
+ * };
+ * ```
  */
 export interface DiscoveryConfig {
-  /** Agent information (required for A2A v1.0; omit only with legacy 'service') */
+  /**
+   * Agent information (required for A2A v1.0; omit only with legacy `service`).
+   * @defaultValue `undefined`
+   */
   agent?: Omit<AgentCard, '$schema'>;
-  /** Base URL for constructing absolute URLs */
+  /**
+   * Base URL for constructing absolute URLs.
+   * @defaultValue `undefined`
+   */
   baseUrl?: string;
-  /** Cache duration in seconds (default: 3600) */
+  /**
+   * Cache duration in seconds.
+   * @defaultValue `3600`
+   */
   cacheMaxAge?: number;
-  /** Schema URL override */
+  /**
+   * Schema URL override.
+   * @defaultValue `undefined`
+   */
   schemaUrl?: string;
-  /** Optional custom headers */
+  /**
+   * Optional custom response headers.
+   * @defaultValue `undefined`
+   */
   headers?: Record<string, string>;
   /**
    * Automatically include LAFS as an A2A extension in Agent Card.
    * Pass `true` for defaults, or an object to customize parameters.
+   * @defaultValue `undefined`
    */
   autoIncludeLafsExtension?:
     | boolean
@@ -203,15 +433,21 @@ export interface DiscoveryConfig {
         supportsTokenBudgets?: boolean;
       };
   /**
-   * @deprecated Use 'agent' instead
+   * Legacy service configuration.
+   * @deprecated Use `agent` instead.
+   * @defaultValue `undefined`
    */
   service?: ServiceConfig;
   /**
-   * @deprecated Use 'agent.skills' instead
+   * Legacy capabilities list.
+   * @deprecated Use `agent.skills` instead.
+   * @defaultValue `undefined`
    */
   capabilities?: Capability[];
   /**
-   * @deprecated Use 'agent.url' and individual endpoints
+   * Legacy endpoint URLs.
+   * @deprecated Use `agent.url` and individual endpoints.
+   * @defaultValue `undefined`
    */
   endpoints?: {
     envelope: string;
@@ -219,29 +455,54 @@ export interface DiscoveryConfig {
     discovery?: string;
   };
   /**
-   * @deprecated Use 'agent.version' instead
+   * Legacy LAFS version override.
+   * @deprecated Use `agent.version` instead.
+   * @defaultValue `undefined`
    */
   lafsVersion?: string;
 }
 
 /**
- * Discovery middleware options
+ * Discovery middleware options.
+ *
+ * @remarks
+ * Controls path routing, legacy support, and caching behavior
+ * for the discovery middleware.
+ *
+ * @example
+ * ```typescript
+ * const options: DiscoveryMiddlewareOptions = {
+ *   path: "/.well-known/agent-card.json",
+ *   enableEtag: true,
+ * };
+ * ```
  */
 export interface DiscoveryMiddlewareOptions {
   /**
-   * Primary path to serve Agent Card (default: /.well-known/agent-card.json)
+   * Primary path to serve Agent Card.
+   * @defaultValue `"/.well-known/agent-card.json"`
    */
   path?: string;
   /**
-   * Legacy path for backward compatibility (default: /.well-known/lafs.json)
-   * @deprecated Will be removed in v2.0.0
+   * Legacy path for backward compatibility.
+   * @deprecated Will be removed in v2.0.0.
+   * @defaultValue `"/.well-known/lafs.json"`
    */
   legacyPath?: string;
-  /** Enable legacy path support (default: true) */
+  /**
+   * Enable legacy path support.
+   * @defaultValue `true` (disabled when a custom `path` is set)
+   */
   enableLegacyPath?: boolean;
-  /** Enable HEAD requests (default: true) */
+  /**
+   * Enable HEAD requests.
+   * @defaultValue `true`
+   */
   enableHead?: boolean;
-  /** Enable ETag caching (default: true) */
+  /**
+   * Enable ETag caching.
+   * @defaultValue `true`
+   */
   enableEtag?: boolean;
 }
 
@@ -250,7 +511,16 @@ export interface DiscoveryMiddlewareOptions {
 // ============================================================================
 
 /**
- * Build absolute URL from base and path
+ * Build an absolute URL from a base and path.
+ *
+ * @param base - Base URL prefix (may be `undefined` to infer from request)
+ * @param path - Relative or absolute path
+ * @param req - Optional Express request for protocol/host inference
+ * @returns Absolute URL string
+ *
+ * @remarks
+ * Resolution order: if `path` is already absolute, return as-is; otherwise
+ * combine with `base`, or fall back to request headers.
  */
 function buildUrl(base: string | undefined, path: string, req?: Request): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -273,14 +543,30 @@ function buildUrl(base: string | undefined, path: string, req?: Request): string
 }
 
 /**
- * Generate ETag from content
+ * Generate an ETag from content.
+ *
+ * @param content - Serialized content string
+ * @returns Quoted SHA-256 ETag (first 32 hex chars)
+ *
+ * @remarks
+ * Uses SHA-256 truncated to 32 hex characters for a compact but
+ * collision-resistant ETag value.
  */
 function generateETag(content: string): string {
   return `"${createHash('sha256').update(content).digest('hex').slice(0, 32)}"`;
 }
 
 /**
- * Build A2A Agent Card from configuration
+ * Build an A2A Agent Card from configuration.
+ *
+ * @param config - Discovery configuration
+ * @param req - Optional Express request for URL construction
+ * @returns Fully-populated {@link AgentCard}
+ *
+ * @remarks
+ * Handles automatic migration from legacy `service` config to the A2A v1.0 format
+ * with a console deprecation warning. When `autoIncludeLafsExtension` is set, the
+ * LAFS extension is appended to the card's capabilities.
  */
 function buildAgentCard(config: DiscoveryConfig, req?: Request): AgentCard {
   const schemaUrl = config.schemaUrl || 'https://lafs.dev/schemas/v1/agent-card.schema.json';
@@ -347,8 +633,17 @@ function buildAgentCard(config: DiscoveryConfig, req?: Request): AgentCard {
 }
 
 /**
- * Build legacy discovery document for backward compatibility
- * @deprecated Will be removed in v2.0.0
+ * Build a legacy discovery document for backward compatibility.
+ *
+ * @param config - Discovery configuration
+ * @param req - Optional Express request for URL construction
+ * @returns Legacy {@link DiscoveryDocument}
+ *
+ * @remarks
+ * Generates the pre-A2A discovery document format from either the legacy
+ * `service` config or the modern `agent` config.
+ *
+ * @deprecated Will be removed in v2.0.0.
  */
 function buildLegacyDiscoveryDocument(config: DiscoveryConfig, req?: Request): DiscoveryDocument {
   const schemaUrl = config.schemaUrl || 'https://lafs.dev/schemas/v1/discovery.schema.json';
@@ -387,14 +682,17 @@ function buildLegacyDiscoveryDocument(config: DiscoveryConfig, req?: Request): D
 // ============================================================================
 
 /**
- * Create Express middleware for serving A2A Agent Card
- *
- * Serves A2A-compliant Agent Card at /.well-known/agent-card.json
- * Maintains backward compatibility with legacy /.well-known/lafs.json
+ * Create Express middleware for serving A2A Agent Card.
  *
  * @param config - Discovery configuration (A2A v1.0 format)
- * @param options - Middleware options
- * @returns Express RequestHandler
+ * @param options - Middleware options for path routing and caching
+ * @returns Express RequestHandler that serves the Agent Card
+ *
+ * @remarks
+ * Serves an A2A-compliant Agent Card at `/.well-known/agent-card.json`.
+ * Maintains backward compatibility with the legacy `/.well-known/lafs.json`
+ * path (with deprecation warnings). Supports ETag-based conditional requests,
+ * HEAD requests, and configurable cache headers.
  *
  * @example
  * ```typescript
@@ -578,10 +876,27 @@ export function discoveryMiddleware(
 }
 
 /**
- * Fastify plugin for A2A Agent Card discovery
+ * Fastify plugin for A2A Agent Card discovery.
  *
  * @param fastify - Fastify instance
- * @param options - Plugin options
+ * @param options - Plugin options containing `config` and optional `path`
+ * @returns Promise that resolves when the plugin is registered
+ *
+ * @remarks
+ * Registers a route on the Fastify instance to serve the A2A Agent Card
+ * with proper caching headers. The actual route registration depends on
+ * the Fastify API; this provides a type-safe plugin signature.
+ *
+ * @example
+ * ```typescript
+ * import Fastify from "fastify";
+ * import { discoveryFastifyPlugin } from "@cleocode/lafs/discovery";
+ *
+ * const app = Fastify();
+ * app.register(discoveryFastifyPlugin, {
+ *   config: { agent: { name: "my-agent", ... } },
+ * });
+ * ```
  */
 export async function discoveryFastifyPlugin(
   fastify: unknown,

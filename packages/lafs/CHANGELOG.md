@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.0] - 2026-04-03
+
+### Changed
+
+- **CalVer adoption**: Package version switched from SemVer (1.x) to CalVer (YYYY.M.P) to align with the `@cleocode` monorepo versioning convention. The protocol spec version inside envelopes (`_meta.specVersion`) remains `1.0.0` per the LAFS versioning policy.
+- **Repository consolidation**: LAFS now lives at `packages/lafs` inside the `kryptobaseddev/cleo` monorepo (previously standalone at `kryptobaseddev/lafs`).
+
 ## [1.8.0] - 2026-03-19
 
 ### Changed
@@ -550,20 +557,24 @@ This is a major release (1.0.0) marking production readiness. All previously dep
 
 ---
 
-[Unreleased]: https://github.com/kryptobaseddev/lafs/compare/v1.5.0...HEAD
-[1.5.0]: https://github.com/kryptobaseddev/lafs/compare/v1.4.1...v1.5.0
-[1.4.1]: https://github.com/kryptobaseddev/lafs/compare/v1.4.0...v1.4.1
-[1.4.0]: https://github.com/kryptobaseddev/lafs/compare/v1.3.2...v1.4.0
-[1.3.2]: https://github.com/kryptobaseddev/lafs/compare/v1.3.1...v1.3.2
-[1.3.1]: https://github.com/kryptobaseddev/lafs/compare/v1.3.0...v1.3.1
-[1.3.0]: https://github.com/kryptobaseddev/lafs/compare/v1.2.3...v1.3.0
-[1.2.3]: https://github.com/kryptobaseddev/lafs/compare/v1.2.2...v1.2.3
-[1.2.2]: https://github.com/kryptobaseddev/lafs/compare/v1.2.0...v1.2.2
-[1.2.0]: https://github.com/kryptobaseddev/lafs/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/kryptobaseddev/lafs/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/kryptobaseddev/lafs/releases/tag/v1.0.0
-[0.5.0]: https://github.com/lafs/lafs/releases/tag/v0.5.0
-[0.4.0]: https://github.com/lafs/lafs/releases/tag/v0.4.0
-[0.3.0]: https://github.com/lafs/lafs/releases/tag/v0.3.0
-[0.2.0]: https://github.com/lafs/lafs/releases/tag/v0.2.0
-[0.1.0]: https://github.com/lafs/lafs/releases/tag/v0.1.0
+[Unreleased]: https://github.com/kryptobaseddev/cleo/compare/v2026.4.0...HEAD
+[2026.4.0]: https://github.com/kryptobaseddev/cleo/compare/v1.8.0...v2026.4.0
+[1.8.0]: https://github.com/kryptobaseddev/cleo/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/kryptobaseddev/cleo/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/kryptobaseddev/cleo/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/kryptobaseddev/cleo/compare/v1.4.1...v1.5.0
+[1.4.1]: https://github.com/kryptobaseddev/cleo/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/kryptobaseddev/cleo/compare/v1.3.2...v1.4.0
+[1.3.2]: https://github.com/kryptobaseddev/cleo/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/kryptobaseddev/cleo/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/kryptobaseddev/cleo/compare/v1.2.3...v1.3.0
+[1.2.3]: https://github.com/kryptobaseddev/cleo/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/kryptobaseddev/cleo/compare/v1.2.0...v1.2.2
+[1.2.0]: https://github.com/kryptobaseddev/cleo/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/kryptobaseddev/cleo/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v1.0.0
+[0.5.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v0.5.0
+[0.4.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v0.4.0
+[0.3.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v0.3.0
+[0.2.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v0.2.0
+[0.1.0]: https://github.com/kryptobaseddev/cleo/releases/tag/v0.1.0

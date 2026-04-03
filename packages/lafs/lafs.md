@@ -1,7 +1,6 @@
 # LAFS: LLM-Agent-First Specification
 
-> 📚 **Documentation:** https://codluv.gitbook.io/lafs/  
-> **Version:** 1.6.0 | **Status:** Production Ready
+> **Version:** 2026.4.0 | **Status:** Production Ready
 
 ## 1. Scope
 
@@ -735,13 +734,13 @@ FUNCTION estimate_tokens(value, depth = 0):
 - Breaking changes MUST require major version increments.
 - Deprecated fields MUST have documented sunset policy.
 
-See `docs/VERSIONING.md` and `docs/DEPRECATION.md`.
+Versioning and deprecation policies are specified inline in this section. See TSDoc on `src/deprecationRegistry.ts` for the runtime deprecation API.
 
 ---
 
 ## 12. Conformance
 
-Conforming implementations MUST pass minimum checks in `docs/CONFORMANCE.md` and schema validation for the canonical envelope.
+Conforming implementations MUST pass the conformance checks listed below and schema validation for the canonical envelope. See TSDoc on `src/conformance.ts` and `src/conformanceProfiles.ts` for the programmatic conformance API.
 
 ### 12.1 Adoption Tiers
 

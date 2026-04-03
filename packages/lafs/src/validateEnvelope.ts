@@ -35,20 +35,59 @@ addFormats(ajv);
 
 const validate = ajv.compile(envelopeSchema);
 
-/** Structured representation of a single validation error from AJV */
+/**
+ * Structured representation of a single validation error from AJV.
+ *
+ * @remarks
+ * Normalizes the raw AJV error shape into a predictable structure
+ * with guaranteed non-optional fields.
+ */
 export interface StructuredValidationError {
+  /** JSON Pointer path to the property that failed validation (e.g., `"/_meta/mvi"`). */
   path: string;
+  /** The AJV validation keyword that triggered the error (e.g., `"required"`, `"type"`). */
   keyword: string;
+  /** Human-readable description of the validation failure. */
   message: string;
+  /** Keyword-specific parameters from AJV (e.g., `{ missingProperty: "success" }`). */
   params: Record<string, unknown>;
 }
 
+/**
+ * Result of validating a value against the LAFS envelope JSON Schema.
+ *
+ * @remarks
+ * Contains both human-readable error strings and structured error objects
+ * for programmatic consumption.
+ */
 export interface EnvelopeValidationResult {
+  /** True when the input fully conforms to the envelope schema. */
   valid: boolean;
+  /** Flattened human-readable error messages (empty when valid). */
   errors: string[];
+  /** Structured error objects with path, keyword, and params (empty when valid). */
   structuredErrors: StructuredValidationError[];
 }
 
+/**
+ * Validates an unknown input against the LAFS envelope JSON Schema (Draft-07).
+ *
+ * @remarks
+ * Uses a pre-compiled AJV validator with `allErrors: true` so every
+ * violation is reported, not just the first. The compiled schema is
+ * shared across calls for performance.
+ *
+ * @param input - The raw value to validate.
+ * @returns An {@link EnvelopeValidationResult} with validity status and any errors.
+ *
+ * @example
+ * ```ts
+ * const result = validateEnvelope(JSON.parse(rawJson));
+ * if (!result.valid) {
+ *   console.error(result.errors);
+ * }
+ * ```
+ */
 export function validateEnvelope(input: unknown): EnvelopeValidationResult {
   const valid = validate(input);
   if (valid) {
@@ -74,6 +113,24 @@ export function validateEnvelope(input: unknown): EnvelopeValidationResult {
   return { valid: false, errors, structuredErrors };
 }
 
+/**
+ * Validates input and throws on schema failure, returning a typed envelope on success.
+ *
+ * @remarks
+ * Thin wrapper around {@link validateEnvelope} that converts a non-valid
+ * result into a thrown `Error`. The error message includes all validation
+ * errors joined by semicolons.
+ *
+ * @param input - The raw value to validate as a LAFS envelope.
+ * @returns The input cast to {@link LAFSEnvelope} when schema validation passes.
+ * @throws {Error} When the input does not conform to the envelope schema.
+ *
+ * @example
+ * ```ts
+ * const envelope = assertEnvelope(parsed);
+ * console.log(envelope.success);
+ * ```
+ */
 export function assertEnvelope(input: unknown): LAFSEnvelope {
   const result = validateEnvelope(input);
   if (!result.valid) {
