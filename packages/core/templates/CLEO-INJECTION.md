@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.2.0
+Version: 2.3.0
 Status: ACTIVE
 
 ## Runtime Environment
@@ -10,28 +10,17 @@ Status: ACTIVE
 
 **Mode**: `${CLEO_RUNTIME:-standalone}`
 
-### Channel Preference
+### Channel
 
-| Runtime | Primary Channel | Fallback | Rationale |
-|---------|----------------|----------|-----------|
-| `standalone` | CLI (`cleo <command>`) | MCP (query/mutate) | CLI is cheaper (fewer tokens), more reliable, and baked into core |
-| `cleoos` | Workspace-provided | CLI | CleoOS workspace manages channel routing via capability matrix |
+CLI (`cleo <command>`) is the **only** dispatch channel. There is no MCP fallback.
 
-When running in **standalone** mode (the default):
-- Prefer CLI commands over MCP tool calls for all CLEO operations
-- CLI commands are shorter, use fewer tokens, and bypass the MCP dispatch layer
-- Use MCP only when the provider does not support shell execution
-
-When running in **CleoOS** mode:
-- Follow the workspace-provided channel routing preferences
-- CleoOS manages the capability matrix and optimal channel selection
-- This mode is a work-in-progress — fall back to CLI if unsure
+- All CLEO operations use `cleo <command> [args]` syntax
+- CLI commands are token-efficient, reliable, and baked into core
 
 ## CLEO Identity
 
-You are a CLEO protocol agent. CLEO operations are available via CLI (primary) and MCP (fallback):
-- CLI: `cleo <command> [args]` — preferred for token efficiency (flat commands, not domain-prefixed)
-- MCP: `query`/`mutate` gateways with `{domain, operation, params}` — use when CLI is unavailable
+You are a CLEO protocol agent. All operations use the CLI:
+- `cleo <command> [args]` — flat commands, not domain-prefixed
 
 ## Mandatory Efficiency Sequence
 
@@ -53,7 +42,7 @@ Repeat until session ends:
 
 ## Context Ethics
 
-Every MCP call costs tokens. Budget wisely:
+Every call costs tokens. Budget wisely:
 
 | Operation | ~Tokens | When to Use |
 |-----------|---------|-------------|
@@ -85,12 +74,12 @@ Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large
 
 ## Session Quick Reference
 
-| Goal | CLI (Primary) | MCP (Fallback) |
-|------|--------------|----------------|
-| Check active session | `cleo session status` | `query session status` |
-| Resume context | `cleo briefing` | `query session briefing.show` |
-| Start working | `cleo session start --scope global` | `mutate session start {scope: "global"}` |
-| Stop working | `cleo session end` | `mutate session end` |
+| Goal | Command |
+|------|---------|
+| Check active session | `cleo session status` |
+| Resume context | `cleo briefing` |
+| Start working | `cleo session start --scope global` |
+| Stop working | `cleo session end` |
 
 For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo/agent-outputs/T5124-session-decision-tree.md`
 
@@ -100,12 +89,12 @@ For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo
 
 CLEO includes a native BRAIN memory system. Use the 3-layer retrieval pattern for token-efficient access:
 
-| Step | Operation | Gateway | ~Tokens | Purpose |
-|------|-----------|---------|---------|---------|
-| 1 | `memory find` | query | 50/hit | Search index (IDs + titles) |
-| 2 | `memory timeline` | query | 200-500 | Context around an anchor ID |
-| 3 | `memory fetch` | query | 500/entry | Full details for filtered IDs |
-| Save | `memory observe` | mutate | — | Save observation to brain.db |
+| Step | Command | ~Tokens | Purpose |
+|------|---------|---------|---------|
+| 1 | `cleo memory find "query"` | 50/hit | Search index (IDs + titles) |
+| 2 | `cleo memory timeline <id>` | 200-500 | Context around an anchor ID |
+| 3 | `cleo memory fetch <id>` | 500/entry | Full details for filtered IDs |
+| Save | `cleo observe "text" --title "title"` | — | Save observation to brain.db |
 
 **Workflow**: Search first (cheap) → filter interesting IDs → fetch only what you need.
 
@@ -134,8 +123,8 @@ If the file is missing, run `cleo init` or `cleo refresh-memory` to regenerate i
 ## Escalation
 
 For deeper guidance beyond this minimal protocol:
-- **Session & lifecycle**: `query admin help` or load `ct-cleo` skill
-- **Orchestration**: `query admin help --tier 2` or load `ct-orchestrator` skill
+- **Session & lifecycle**: `cleo help` or load `ct-cleo` skill
+- **Orchestration**: `cleo help --tier 2` or load `ct-orchestrator` skill
 - **Operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
 
 ## References

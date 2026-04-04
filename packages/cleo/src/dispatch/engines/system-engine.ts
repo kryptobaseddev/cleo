@@ -1388,7 +1388,7 @@ export async function systemFix(
 }
 
 /**
- * Runtime/channel diagnostics for CLI/MCP installation mode checks.
+ * Runtime/channel diagnostics for CLI installation mode checks.
  * @task T4815
  */
 export async function systemRuntime(

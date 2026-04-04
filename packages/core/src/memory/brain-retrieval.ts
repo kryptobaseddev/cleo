@@ -10,7 +10,7 @@
  * 4. observeBrain       — unified save (observations table)
  *
  * Wave 2A provides the core implementations; Wave 2B wires them through
- * the dispatch layer (engine-compat -> domain handler -> MCP gateway).
+ * the dispatch layer (engine-compat -> domain handler -> CLI gateway).
  *
  * @task T5131 T5132 T5133 T5134 T5135
  * @epic T5149

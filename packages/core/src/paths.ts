@@ -100,8 +100,8 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
   if (isAbsolutePath(relativePath)) {
     return relativePath;
   }
-  // Expand leading tilde
-  if (relativePath.startsWith('~/') || relativePath === '~') {
+  // Expand leading tilde (handles both ~/ on Unix and ~\ on Windows)
+  if (relativePath.startsWith('~/') || relativePath.startsWith('~\\') || relativePath === '~') {
     return resolve(homedir(), relativePath.slice(2));
   }
   return resolve(getProjectRoot(cwd), relativePath);
@@ -336,7 +336,9 @@ export function getCleoTemplatesTildePath(): string {
   const absPath = getCleoTemplatesDir();
   const home = homedir();
   if (absPath.startsWith(home)) {
-    return `~${absPath.slice(home.length)}`;
+    // Always use forward slash after tilde for cross-platform @-reference resolution
+    const relative = absPath.slice(home.length).replace(/\\/g, '/');
+    return `~${relative}`;
   }
   return absPath;
 }

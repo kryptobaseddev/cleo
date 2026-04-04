@@ -18,9 +18,6 @@ import {
   outputSuccess,
   resolveFormat,
 } from '../core/lafs.js';
-import { resolveChannelFromServerName } from '../core/mcp/cleo.js';
-import { readLockFile } from '../core/mcp/lock.js';
-import { listMcpServers } from '../core/mcp/reader.js';
 import { CANONICAL_SKILLS_DIR } from '../core/paths/agents.js';
 import { detectAllProviders } from '../core/registry/detection.js';
 import { getAllProviders, getProviderCount } from '../core/registry/providers.js';
@@ -57,11 +54,6 @@ interface DoctorResult {
     canonical: number;
     brokenLinks: number;
     staleLinks: number;
-  };
-  mcpServers: {
-    tracked: number;
-    untracked: number;
-    orphaned: number;
   };
   checks: Array<{
     label: string;
@@ -251,176 +243,6 @@ function checkSkillSymlinks(): SectionResult {
   return { name: 'Skills', checks };
 }
 
-async function checkLockFile(): Promise<SectionResult> {
-  const checks: CheckResult[] = [];
-
-  try {
-    const lock = await readLockFile();
-    checks.push({ label: 'Lock file valid', status: 'pass' });
-
-    const lockSkillNames = Object.keys(lock.skills);
-    checks.push({ label: `${lockSkillNames.length} skill entries`, status: 'pass' });
-
-    // Check for orphaned skill entries (canonical path no longer exists)
-    const orphaned: string[] = [];
-    for (const [name, entry] of Object.entries(lock.skills)) {
-      if (entry.canonicalPath && !existsSync(entry.canonicalPath)) {
-        orphaned.push(name);
-      }
-    }
-
-    if (orphaned.length === 0) {
-      checks.push({ label: '0 orphaned entries', status: 'pass' });
-    } else {
-      checks.push({
-        label: `${orphaned.length} orphaned skill${orphaned.length !== 1 ? 's' : ''} (in lock, missing from disk)`,
-        status: 'warn',
-        detail: orphaned.join(', '),
-      });
-    }
-
-    // Check for untracked skills (on disk but not in lock)
-    const canonicalDir = CANONICAL_SKILLS_DIR;
-    if (existsSync(canonicalDir)) {
-      const onDisk = readdirSync(canonicalDir).filter((name) => {
-        try {
-          const stat = lstatSync(join(canonicalDir, name));
-          return stat.isDirectory() || stat.isSymbolicLink();
-        } catch {
-          return false;
-        }
-      });
-      const untracked = onDisk.filter((name) => !lock.skills[name]);
-
-      if (untracked.length === 0) {
-        checks.push({ label: '0 untracked skills', status: 'pass' });
-      } else {
-        checks.push({
-          label: `${untracked.length} untracked skill${untracked.length !== 1 ? 's' : ''} (on disk, not in lock)`,
-          status: 'warn',
-          detail: untracked.join(', '),
-        });
-      }
-    }
-
-    // Check lock agent-list vs actual symlinks
-    const results = detectAllProviders();
-    const installed = results.filter((r) => r.installed);
-    const mismatches: string[] = [];
-
-    for (const [name, entry] of Object.entries(lock.skills)) {
-      if (!entry.agents || entry.agents.length === 0) continue;
-
-      for (const agentId of entry.agents) {
-        const provider = installed.find((r) => r.provider.id === agentId);
-        if (!provider) continue;
-
-        const linkPath = join(provider.provider.pathSkills, name);
-        if (!existsSync(linkPath)) {
-          mismatches.push(`${name} missing from ${agentId}`);
-        }
-      }
-    }
-
-    if (mismatches.length === 0) {
-      checks.push({ label: 'Lock agent-lists match symlinks', status: 'pass' });
-    } else {
-      checks.push({
-        label: `${mismatches.length} agent-list mismatch${mismatches.length !== 1 ? 'es' : ''}`,
-        status: 'warn',
-        detail:
-          mismatches.slice(0, 5).join(', ') +
-          (mismatches.length > 5 ? ` (+${mismatches.length - 5} more)` : ''),
-      });
-    }
-  } catch (err) {
-    checks.push({
-      label: 'Failed to read lock file',
-      status: 'fail',
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  return { name: 'Lock File', checks };
-}
-
-async function checkMcpLockEntries(): Promise<SectionResult> {
-  const checks: CheckResult[] = [];
-
-  try {
-    const lock = await readLockFile();
-    const lockNames = Object.keys(lock.mcpServers);
-    checks.push({ label: `${lockNames.length} MCP server entries in lock`, status: 'pass' });
-
-    // Detect untracked CLEO servers (in config, not in lock)
-    const results = detectAllProviders();
-    const installed = results.filter((r) => r.installed);
-    const liveCleoNames = new Set<string>();
-    let untrackedCount = 0;
-
-    for (const scope of ['project', 'global'] as const) {
-      for (const r of installed) {
-        try {
-          const entries = await listMcpServers(r.provider, scope);
-          for (const entry of entries) {
-            const channel = resolveChannelFromServerName(entry.name);
-            if (!channel) continue;
-            liveCleoNames.add(entry.name);
-
-            if (!lock.mcpServers[entry.name]) {
-              untrackedCount++;
-            }
-          }
-        } catch {
-          // skip unreadable configs
-        }
-      }
-    }
-
-    if (untrackedCount === 0) {
-      checks.push({ label: 'All CLEO servers tracked in lock', status: 'pass' });
-    } else {
-      checks.push({
-        label: `${untrackedCount} untracked CLEO server${untrackedCount !== 1 ? 's' : ''} (in config, not in lock)`,
-        status: 'warn',
-        detail: 'Run `caamp cleo repair` to backfill lock entries',
-      });
-    }
-
-    // Detect orphaned CLEO entries (in lock, not in any config)
-    let orphanedCount = 0;
-    const orphanedNames: string[] = [];
-
-    for (const serverName of lockNames) {
-      const channel = resolveChannelFromServerName(serverName);
-      if (!channel) continue;
-
-      if (!liveCleoNames.has(serverName)) {
-        orphanedCount++;
-        orphanedNames.push(serverName);
-      }
-    }
-
-    if (orphanedCount === 0) {
-      checks.push({ label: 'No orphaned CLEO lock entries', status: 'pass' });
-    } else {
-      checks.push({
-        label: `${orphanedCount} orphaned CLEO lock entr${orphanedCount !== 1 ? 'ies' : 'y'} (in lock, not in any config)`,
-        status: 'warn',
-        detail: orphanedNames.join(', ') + ' — Run `caamp cleo repair --prune` to clean up',
-      });
-    }
-  } catch (err) {
-    checks.push({
-      label: 'Failed to check MCP lock entries',
-      status: 'fail',
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  return { name: 'MCP Lock', checks };
-}
-
 async function checkConfigFiles(): Promise<SectionResult> {
   const checks: CheckResult[] = [];
 
@@ -531,8 +353,6 @@ export function registerDoctorCommand(program: Command): void {
         sections.push(checkRegistry());
         sections.push(checkInstalledProviders());
         sections.push(checkSkillSymlinks());
-        sections.push(await checkLockFile());
-        sections.push(await checkMcpLockEntries());
         sections.push(await checkConfigFiles());
 
         // Tally results
@@ -558,12 +378,6 @@ export function registerDoctorCommand(program: Command): void {
         const installedProviders = detectionResults.filter((r) => r.installed);
         const { canonicalCount, brokenCount, staleCount } = countSkillIssues();
 
-        const {
-          tracked: mcpTracked,
-          untracked: mcpUntracked,
-          orphaned: mcpOrphaned,
-        } = countMcpLockIssues(sections);
-
         const result: DoctorResult = {
           environment: {
             node: getNodeVersion(),
@@ -584,11 +398,6 @@ export function registerDoctorCommand(program: Command): void {
             canonical: canonicalCount,
             brokenLinks: brokenCount,
             staleLinks: staleCount,
-          },
-          mcpServers: {
-            tracked: mcpTracked,
-            untracked: mcpUntracked,
-            orphaned: mcpOrphaned,
           },
           checks: sections.flatMap((s) =>
             s.checks.map((c) => ({
@@ -706,33 +515,4 @@ function countSkillIssues(): { canonicalCount: number; brokenCount: number; stal
   }
 
   return { canonicalCount, brokenCount, staleCount };
-}
-
-function countMcpLockIssues(sections: SectionResult[]): {
-  tracked: number;
-  untracked: number;
-  orphaned: number;
-} {
-  const mcpSection = sections.find((s) => s.name === 'MCP Lock');
-  if (!mcpSection) return { tracked: 0, untracked: 0, orphaned: 0 };
-
-  let tracked = 0;
-  let untracked = 0;
-  let orphaned = 0;
-
-  for (const check of mcpSection.checks) {
-    const countMatch = check.label.match(/^(\d+)/);
-    if (!countMatch?.[1]) continue;
-
-    const count = Number.parseInt(countMatch[1], 10);
-    if (check.label.includes('MCP server entries in lock')) {
-      tracked = count;
-    } else if (check.label.includes('untracked')) {
-      untracked = count;
-    } else if (check.label.includes('orphaned')) {
-      orphaned = count;
-    }
-  }
-
-  return { tracked, untracked, orphaned };
 }

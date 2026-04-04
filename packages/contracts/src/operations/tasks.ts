@@ -6,7 +6,7 @@
  *
  * SYNC: Canonical type definitions live in the CLI package at:
  *   src/types/task.ts (TaskStatus, TaskPriority, Task, etc.)
- * These MCP operation types are the API contract (wire format).
+ * These operation types are the API contract (wire format).
  * Internal domain types must stay aligned with CLI definitions.
  */
 

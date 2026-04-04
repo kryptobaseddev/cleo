@@ -2,7 +2,7 @@
  * CLI command: cleo observe <text>
  * Saves an observation to brain.db via the memory system.
  *
- * Provides CLI parity for the MCP `mutate memory observe` operation.
+ * Provides CLI parity for the `mutate memory observe` dispatch operation.
  */
 
 import { getProjectRoot } from '@cleocode/core';

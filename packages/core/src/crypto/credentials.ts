@@ -34,14 +34,23 @@ const CIPHERTEXT_VERSION = 0x01;
  * @throws If HOME/USERPROFILE are unset (F-002: never fall back to /tmp).
  */
 function getMachineKeyPath(): string {
-  const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-  if (!home) {
+  // Use platform-aware data directory: XDG on Linux, Library on macOS, %LOCALAPPDATA% on Windows
+  if (process.platform === 'win32') {
+    const appData = process.env['LOCALAPPDATA'] ?? process.env['APPDATA'];
+    if (appData) return join(appData, 'cleo', 'Data', 'machine-key');
+  } else if (process.platform === 'darwin') {
+    const home = process.env['HOME'];
+    if (home) return join(home, 'Library', 'Application Support', 'cleo', 'machine-key');
+  }
+  // Linux / fallback: XDG_DATA_HOME or ~/.local/share
+  const dataHome = process.env['XDG_DATA_HOME'] ?? join(process.env['HOME'] ?? '', '.local', 'share');
+  if (!dataHome) {
     throw new Error(
-      'Cannot determine home directory. Set HOME or USERPROFILE environment variable. ' +
-        'Machine key cannot be stored securely without a persistent home directory.',
+      'Cannot determine data directory. Set HOME or XDG_DATA_HOME environment variable. ' +
+        'Machine key cannot be stored securely without a persistent data directory.',
     );
   }
-  return join(home, '.local', 'share', 'cleo', 'machine-key');
+  return join(dataHome, 'cleo', 'machine-key');
 }
 
 /**
@@ -54,14 +63,16 @@ async function getMachineKey(): Promise<Buffer> {
   const keyPath = getMachineKeyPath();
 
   try {
-    // Check existing key
+    // Check existing key — skip permission check on Windows (NTFS doesn't support Unix modes)
     const stats = await stat(keyPath);
-    const mode = stats.mode & 0o777;
-    if (mode !== 0o600) {
-      throw new Error(
-        `Machine key has unsafe permissions (${mode.toString(8)}). Expected 0600. ` +
-          `Fix with: chmod 600 ${keyPath}`,
-      );
+    if (process.platform !== 'win32') {
+      const mode = stats.mode & 0o777;
+      if (mode !== 0o600) {
+        throw new Error(
+          `Machine key has unsafe permissions (${mode.toString(8)}). Expected 0600. ` +
+            `Fix with: chmod 600 ${keyPath}`,
+        );
+      }
     }
     const key = await readFile(keyPath);
     // F-004: validate key length

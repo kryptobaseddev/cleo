@@ -23,7 +23,7 @@ import { CursorInstallProvider } from './install.js';
  * CLEO provider adapter for Cursor AI code editor.
  *
  * Bridges CLEO's adapter system with Cursor's capabilities:
- * - Install: Registers MCP server in .cursor/mcp.json and manages rule files
+ * - Install: Manages .cursorrules and .cursor/rules/cleo.mdc rule files
  * - Hooks: Stub provider (Cursor has no lifecycle event system)
  * - Spawn: Not supported (Cursor has no CLI for subagent spawning)
  */
@@ -51,7 +51,7 @@ export class CursorAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: '.cursor/rules/*.mdc',
     supportsContextMonitor: false,

@@ -94,8 +94,8 @@ describe('ClaudeCodeAdapter', () => {
       expect(adapter.capabilities.supportsInstall).toBe(true);
     });
 
-    it('supports MCP', () => {
-      expect(adapter.capabilities.supportsMcp).toBe(true);
+    it('does not support MCP (removed)', () => {
+      expect(adapter.capabilities.supportsMcp).toBe(false);
     });
 
     it('supports instruction files with CLAUDE.md pattern', () => {
@@ -103,10 +103,22 @@ describe('ClaudeCodeAdapter', () => {
       expect(adapter.capabilities.instructionFilePattern).toBe('CLAUDE.md');
     });
 
-    it('declares expected hook events', () => {
-      expect(adapter.capabilities.supportedHookEvents).toContain('onSessionStart');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onSessionEnd');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onToolComplete');
+    it('declares expected hook events (14 CAAMP canonical events)', () => {
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionStart');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionEnd');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PromptSubmit');
+      expect(adapter.capabilities.supportedHookEvents).toContain('ResponseComplete');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUseFailure');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PermissionRequest');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SubagentStart');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SubagentStop');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreCompact');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostCompact');
+      expect(adapter.capabilities.supportedHookEvents).toContain('Notification');
+      expect(adapter.capabilities.supportedHookEvents).toContain('ConfigChange');
+      expect(adapter.capabilities.supportedHookEvents).toHaveLength(14);
     });
   });
 
@@ -171,20 +183,28 @@ describe('ClaudeCodeHookProvider', () => {
   });
 
   describe('mapProviderEvent', () => {
-    it('maps SessionStart to onSessionStart', () => {
-      expect(hooks.mapProviderEvent('SessionStart')).toBe('onSessionStart');
+    it('maps SessionStart to SessionStart (identity)', () => {
+      expect(hooks.mapProviderEvent('SessionStart')).toBe('SessionStart');
     });
 
-    it('maps PostToolUse to onToolComplete', () => {
-      expect(hooks.mapProviderEvent('PostToolUse')).toBe('onToolComplete');
+    it('maps PostToolUse to PostToolUse (identity)', () => {
+      expect(hooks.mapProviderEvent('PostToolUse')).toBe('PostToolUse');
     });
 
-    it('maps UserPromptSubmit to onPromptSubmit', () => {
-      expect(hooks.mapProviderEvent('UserPromptSubmit')).toBe('onPromptSubmit');
+    it('maps UserPromptSubmit to PromptSubmit', () => {
+      expect(hooks.mapProviderEvent('UserPromptSubmit')).toBe('PromptSubmit');
     });
 
-    it('maps Stop to onSessionEnd', () => {
-      expect(hooks.mapProviderEvent('Stop')).toBe('onSessionEnd');
+    it('maps Stop to ResponseComplete', () => {
+      expect(hooks.mapProviderEvent('Stop')).toBe('ResponseComplete');
+    });
+
+    it('maps PreToolUse to PreToolUse (identity)', () => {
+      expect(hooks.mapProviderEvent('PreToolUse')).toBe('PreToolUse');
+    });
+
+    it('maps PermissionRequest to PermissionRequest (identity)', () => {
+      expect(hooks.mapProviderEvent('PermissionRequest')).toBe('PermissionRequest');
     });
 
     it('returns null for unknown events', () => {
@@ -210,13 +230,23 @@ describe('ClaudeCodeHookProvider', () => {
   });
 
   describe('getEventMap', () => {
-    it('returns all mapped events', () => {
+    it('returns all 14 mapped events', () => {
       const map = hooks.getEventMap();
-      expect(Object.keys(map)).toHaveLength(4);
-      expect(map.SessionStart).toBe('onSessionStart');
-      expect(map.PostToolUse).toBe('onToolComplete');
-      expect(map.UserPromptSubmit).toBe('onPromptSubmit');
-      expect(map.Stop).toBe('onSessionEnd');
+      expect(Object.keys(map)).toHaveLength(14);
+      expect(map.SessionStart).toBe('SessionStart');
+      expect(map.SessionEnd).toBe('SessionEnd');
+      expect(map.UserPromptSubmit).toBe('PromptSubmit');
+      expect(map.Stop).toBe('ResponseComplete');
+      expect(map.PreToolUse).toBe('PreToolUse');
+      expect(map.PostToolUse).toBe('PostToolUse');
+      expect(map.PostToolUseFailure).toBe('PostToolUseFailure');
+      expect(map.PermissionRequest).toBe('PermissionRequest');
+      expect(map.SubagentStart).toBe('SubagentStart');
+      expect(map.SubagentStop).toBe('SubagentStop');
+      expect(map.PreCompact).toBe('PreCompact');
+      expect(map.PostCompact).toBe('PostCompact');
+      expect(map.Notification).toBe('Notification');
+      expect(map.ConfigChange).toBe('ConfigChange');
     });
   });
 });
@@ -274,12 +304,12 @@ describe('ClaudeCodeInstallProvider', () => {
       expect(typeof result.mcpRegistered).toBe('boolean');
     });
 
-    it('registers MCP when mcpServerPath provided', async () => {
+    it('does not register MCP even when mcpServerPath provided', async () => {
       const result = await installProvider.install({
         projectDir: '/tmp/test-project',
         mcpServerPath: '/path/to/mcp-server.js',
       });
-      expect(result.mcpRegistered).toBe(true);
+      expect(result.mcpRegistered).toBe(false);
     });
   });
 

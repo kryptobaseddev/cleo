@@ -184,7 +184,7 @@ export interface BrainConfig {
   autoCapture: boolean;
   /** Whether to capture file change events (default: false). */
   captureFiles: boolean;
-  /** Whether to capture MCP tool events (default: false). */
+  /** Unused. CLI dispatch only. */
   captureMcp: boolean;
   /** Whether to capture active-work dispatch mutations (tasks.add, tasks.update) (default: false). */
   captureWork: boolean;

@@ -31,18 +31,22 @@ describe('CursorAdapter', () => {
     expect(adapter.version).toBe('1.0.0');
   });
 
-  it('does not support hooks', () => {
-    expect(adapter.capabilities.supportsHooks).toBe(false);
-    expect(adapter.capabilities.supportedHookEvents).toHaveLength(0);
+  it('supports hooks with 10 CAAMP events', () => {
+    expect(adapter.capabilities.supportsHooks).toBe(true);
+    expect(adapter.capabilities.supportedHookEvents).toHaveLength(10);
+    expect(adapter.capabilities.supportedHookEvents).toContain('SessionStart');
+    expect(adapter.capabilities.supportedHookEvents).toContain('SessionEnd');
+    expect(adapter.capabilities.supportedHookEvents).toContain('PreToolUse');
+    expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUse');
   });
 
   it('does not support spawn', () => {
     expect(adapter.capabilities.supportsSpawn).toBe(false);
   });
 
-  it('supports install, MCP, and instruction files', () => {
+  it('supports install and instruction files', () => {
     expect(adapter.capabilities.supportsInstall).toBe(true);
-    expect(adapter.capabilities.supportsMcp).toBe(true);
+    expect(adapter.capabilities.supportsMcp).toBe(false);
     expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
     expect(adapter.capabilities.instructionFilePattern).toBe('.cursor/rules/*.mdc');
   });
@@ -99,10 +103,21 @@ describe('CursorHookProvider', () => {
     hooks = new CursorHookProvider();
   });
 
-  it('returns null for all events (no hook support)', () => {
+  it('maps Cursor native events to CAAMP canonical names', () => {
+    expect(hooks.mapProviderEvent('sessionStart')).toBe('SessionStart');
+    expect(hooks.mapProviderEvent('sessionEnd')).toBe('SessionEnd');
+    expect(hooks.mapProviderEvent('beforeSubmitPrompt')).toBe('PromptSubmit');
+    expect(hooks.mapProviderEvent('stop')).toBe('ResponseComplete');
+    expect(hooks.mapProviderEvent('preToolUse')).toBe('PreToolUse');
+    expect(hooks.mapProviderEvent('postToolUse')).toBe('PostToolUse');
+    expect(hooks.mapProviderEvent('postToolUseFailure')).toBe('PostToolUseFailure');
+    expect(hooks.mapProviderEvent('subagentStart')).toBe('SubagentStart');
+    expect(hooks.mapProviderEvent('subagentStop')).toBe('SubagentStop');
+    expect(hooks.mapProviderEvent('preCompact')).toBe('PreCompact');
+  });
+
+  it('returns null for unsupported or unknown events', () => {
     expect(hooks.mapProviderEvent('SessionStart')).toBeNull();
-    expect(hooks.mapProviderEvent('PostToolUse')).toBeNull();
-    expect(hooks.mapProviderEvent('Stop')).toBeNull();
     expect(hooks.mapProviderEvent('')).toBeNull();
     expect(hooks.mapProviderEvent('anything')).toBeNull();
   });
@@ -200,39 +215,17 @@ describe('CursorInstallProvider', () => {
     expect(injectionCount).toBe(1);
   });
 
-  it('registers MCP server in .cursor/mcp.json', async () => {
+  it('install returns mcpRegistered false', async () => {
     const result = await install.install({
       projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
     });
 
     expect(result.success).toBe(true);
-    expect(result.mcpRegistered).toBe(true);
+    expect(result.mcpRegistered).toBe(false);
     expect(result.instructionFileUpdated).toBe(true);
-
-    const mcpPath = join(testDir, '.cursor', 'mcp.json');
-    expect(existsSync(mcpPath)).toBe(true);
-    const config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-    expect(config.mcpServers.cleo).toEqual({
-      command: 'node',
-      args: ['/path/to/cleo-mcp.js'],
-    });
   });
 
-  it('uninstall removes MCP server from .cursor/mcp.json', async () => {
-    await install.install({
-      projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
-    });
-
-    await install.uninstall();
-
-    const mcpPath = join(testDir, '.cursor', 'mcp.json');
-    const config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-    expect(config.mcpServers.cleo).toBeUndefined();
-  });
-
-  it('uninstall is no-op when not installed', async () => {
+  it('uninstall is a no-op', async () => {
     await expect(install.uninstall()).resolves.toBeUndefined();
   });
 });

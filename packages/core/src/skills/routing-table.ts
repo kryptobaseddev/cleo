@@ -28,7 +28,7 @@ export interface RoutingEntry {
   /** Operation name (e.g. 'show', 'find') */
   operation: string;
   /** Preferred channel for token efficiency */
-  preferredChannel: 'mcp' | 'cli' | 'either';
+  preferredChannel: 'cli' | 'either';
   /** Reason for the channel preference */
   reason: string;
 }
@@ -40,9 +40,9 @@ export interface RoutingEntry {
  *
  * @param domain - Domain name
  * @param operation - Operation name
- * @returns Preferred channel ('mcp', 'cli', or 'either' as fallback)
+ * @returns Preferred channel ('cli' or 'either' as fallback)
  */
-export function getPreferredChannel(domain: string, operation: string): 'mcp' | 'cli' | 'either' {
+export function getPreferredChannel(domain: string, operation: string): 'cli' | 'either' {
   const entry = getCapabilityMatrix().find(
     (cap) => cap.domain === domain && cap.operation === operation,
   );
@@ -76,7 +76,7 @@ export function getRoutingForDomain(domain: string): RoutingEntry[] {
  * @param channel - Channel preference to filter by
  * @returns Matching routing entries
  */
-export function getOperationsByChannel(channel: 'mcp' | 'cli' | 'either'): RoutingEntry[] {
+export function getOperationsByChannel(channel: 'cli' | 'either'): RoutingEntry[] {
   return getCapabilityMatrix()
     .filter((cap) => cap.preferredChannel === channel)
     .map((cap) => ({

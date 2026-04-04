@@ -2,7 +2,7 @@
  * LAFS Field Filter Middleware
  *
  * Implements LAFS _fields parameter (field selection) and _mvi envelope verbosity.
- * Extracts _fields and _mvi from params (for MCP agents that pass them as params),
+ * Extracts _fields and _mvi from params (for callers that pass them as params),
  * stores them on the request, and post-processes the response via the canonical
  * SDK utilities from @cleocode/lafs v1.5.0.
  *
@@ -21,7 +21,7 @@ import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js'
  * - _fields: filter response data to specified fields (delegates to SDK applyFieldFilter)
  * - _mvi: envelope verbosity — stored on request for downstream use
  *
- * _fields and _mvi are extracted from req.params (for MCP callers that pass
+ * _fields and _mvi are extracted from req.params (for callers that pass
  * them as params) and stored on the DispatchRequest before the domain handler runs.
  */
 export function createFieldFilter(): Middleware {
@@ -29,7 +29,7 @@ export function createFieldFilter(): Middleware {
     req: DispatchRequest,
     next: () => Promise<DispatchResponse>,
   ): Promise<DispatchResponse> => {
-    // Extract control params from req.params (MCP agents pass them here)
+    // Extract control params from req.params (callers may pass them here)
     const _fields = req._fields ?? (req.params?._fields as string[] | undefined);
     const rawMvi = req._mvi ?? (req.params?._mvi as string | undefined);
     const _mvi = isMVILevel(rawMvi) ? rawMvi : undefined;

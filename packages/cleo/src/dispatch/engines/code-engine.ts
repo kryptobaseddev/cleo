@@ -2,7 +2,7 @@
  * Code analysis engine — dispatch wrapper for Smart Explore operations.
  *
  * Wraps @cleocode/core code analysis functions (parseFile, smartOutline,
- * smartSearch, smartUnfold) for use via dispatch/MCP gateway.
+ * smartSearch, smartUnfold) for use via the dispatch gateway.
  *
  * @task T154
  */

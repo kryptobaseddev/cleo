@@ -39,14 +39,7 @@ Grading requires audit data. Sessions must be started with the `--grade` flag to
 ct session start --scope epic:T001 --name "Feature work" --grade
 
 # The --grade flag enables detailed audit logging
-# All MCP and CLI operations are recorded for later analysis
-```
-
-### MCP
-
-```
-mutate({ domain: "session", operation: "start",
-  params: { scope: "epic:T001", name: "Feature work", grade: true }})
+# All CLI operations are recorded for later analysis
 ```
 
 ## Running Scenarios
@@ -63,10 +56,10 @@ Tests whether task creation follows protocol: descriptions provided, parent exis
 Tests whether the agent handles errors correctly: follows up `E_NOT_FOUND` with recovery lookups (`tasks.find`), avoids duplicate creates after failures.
 
 ### 4. Full Lifecycle
-Tests session discipline end-to-end: session listed before task ops, session properly ended, MCP-first usage patterns.
+Tests session discipline end-to-end: session listed before task ops, session properly ended, CLI usage patterns.
 
 ### 5. Multi-Domain Analysis
-Tests progressive disclosure: use of `admin.help` or skill lookups, preference for `query` (MCP) over CLI for programmatic access.
+Tests progressive disclosure: use of `admin.help` or skill lookups, use of progressive disclosure for programmatic access.
 
 ## Evaluating Results
 
@@ -78,22 +71,6 @@ ct grade <sessionId>
 
 # List all past grade results
 ct grade --list
-```
-
-### MCP
-
-```
-# Grade a session
-# Canonical registry surface (preferred)
-query({ domain: "check", operation: "grade",
-  params: { sessionId: "abc-123" }})
-
-# List past grades
-query({ domain: "check", operation: "grade.list" })
-
-# Use canonical surface (check domain)
-query({ domain: "check", operation: "grade",
-  params: { sessionId: "abc-123" }})
 ```
 
 ## Understanding the 5 Dimensions
@@ -145,9 +122,9 @@ Starts at 20 and deducts for violations:
 | Points | Criteria |
 |--------|----------|
 | 10 | `admin.help` or skill lookup calls made |
-| 10 | `query` (MCP gateway) used for programmatic access |
+| 10 | Progressive disclosure used for programmatic access |
 
-**What it measures**: Does the agent use progressive disclosure (help/skills) and prefer MCP over CLI?
+**What it measures**: Does the agent use progressive disclosure (help/skills) for efficient protocol access?
 
 ## Interpreting Scores
 
@@ -182,7 +159,7 @@ Flags are actionable diagnostic messages. Each flag identifies a specific behavi
 - `Subtasks created without parent existence check` -- Verify parent exists first
 - `E_NOT_FOUND not followed by recovery lookup` -- Follow errors with `tasks.find`
 - `No admin.help or skill lookup calls` -- Load `ct-cleo` for protocol guidance
-- `No MCP query calls` -- Prefer `query` over CLI
+- `No progressive disclosure calls` -- Use `admin.help` or skill lookups
 
 ## Common Anti-patterns
 
@@ -195,7 +172,7 @@ Flags are actionable diagnostic messages. Each flag identifies a specific behavi
 | Ignoring `E_NOT_FOUND` errors | -5 each S4 | Follow up with `tasks.find` or `tasks.exists` |
 | Creating duplicate tasks | -5 S4 | Check for existing tasks before creating new ones |
 | Never using `admin.help` | -10 S5 | Use progressive disclosure for protocol guidance |
-| CLI-only usage (no MCP) | -10 S5 | Prefer `query`/`mutate` for programmatic access |
+| No progressive disclosure calls | -10 S5 | Use `admin.help` or skill lookups for protocol guidance |
 
 ## Grade Result Schema
 
@@ -211,20 +188,9 @@ Grade results are stored in `.cleo/metrics/GRADES.jsonl` as append-only JSONL. E
 - `entryCount` (number) -- Audit entries analyzed
 - `evaluator` (`auto` | `manual`) -- How the grade was computed
 
-## MCP Operations
+## CLI Grade Operations
 
-| Gateway | Domain | Operation | Description |
-|---------|--------|-----------|-------------|
-| `query` | `check` | `grade` | Canonical grade read (`params: { sessionId }`) |
-| `query` | `check` | `grade.list` | Canonical grade history read |
-| `query` | `check` | `grade` | Canonical grade read (preferred) |
-| `query` | `check` | `grade.list` | Canonical grade history read (preferred) |
-| `query` | `admin` | `token` | Canonical token telemetry read (`action=summary|list|show`) |
-
-
-## API Update Notes
-
-- Prefer the canonical registry surface from `docs/specs/CLEO-API.md`: `check.grade`, `check.grade.list`, and `admin.token` with an `action` param.
-- Use `check.grade` and `check.grade.list` as the canonical surface; legacy handlers may still appear in existing automation.
-- Browser clients should target `POST /api/query` and `POST /api/mutate`; LAFS metadata is carried in `X-Cleo-*` headers by default.
-- Treat persisted token transport values `api` and `http` as equivalent during the compatibility window described in `docs/specs/CLEO-WEB-API.md`.
+| Command | Description |
+|---------|-------------|
+| `ct grade <sessionId>` | Grade a specific session |
+| `ct grade --list` | List past grade results |

@@ -220,7 +220,7 @@ function scanFile(filePath: string, canonicalDomains: Set<string>): FoundRef[] {
   // We build it once and reuse (reset lastIndex each loop iteration).
   const domainsAlt = [...canonicalDomains].join('|');
 
-  // Pattern 1 — MCP style, single line:
+  // Pattern 1 — dispatch style, single line:
   //   domain: "tasks", operation: "show"
   //   query({ domain: "tasks", operation: "show" })
   const mcpSingleLine =
@@ -253,7 +253,7 @@ function scanFile(filePath: string, canonicalDomains: Set<string>): FoundRef[] {
       continue;
     }
 
-    // --- Pattern 1: single-line MCP ---
+    // --- Pattern 1: single-line dispatch ---
     let m: RegExpExecArray | null;
     mcpSingleLine.lastIndex = 0;
     while ((m = mcpSingleLine.exec(line)) !== null) {
@@ -264,7 +264,7 @@ function scanFile(filePath: string, canonicalDomains: Set<string>): FoundRef[] {
       }
     }
 
-    // --- Pattern 2: multi-line MCP (domain on one line, operation on next) ---
+    // --- Pattern 2: multi-line dispatch (domain on one line, operation on next) ---
     const domainOnly = /domain:\s*["']([^"']+)["']/.exec(line);
     const opOnly = /operation:\s*["']([^"']+)["']/.exec(line);
 

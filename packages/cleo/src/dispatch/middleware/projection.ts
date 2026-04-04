@@ -132,8 +132,9 @@ export function createProjectionMiddleware(): Middleware {
       delete req.params['_mviTier'];
     }
 
-    // MCP smart defaults: tasks.list defaults to compact mode
-    if (req.source === 'mcp' && req.domain === 'tasks' && req.operation === 'list') {
+    // Smart defaults: tasks.list defaults to compact mode for non-CLI sources.
+    // CLI is the only source — compact injection applies to non-CLI callers.
+    if (req.domain === 'tasks' && req.operation === 'list' && req.source !== 'cli') {
       req.params ??= {};
       if (req.params['compact'] === undefined) {
         req.params['compact'] = true;

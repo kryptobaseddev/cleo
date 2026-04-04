@@ -110,7 +110,7 @@ export const TOKEN_USAGE_METHODS = ['otel', 'provider_api', 'tokenizer', 'heuris
 export const TOKEN_USAGE_CONFIDENCE = ['real', 'high', 'estimated', 'coarse'] as const;
 
 /** Transport types for token telemetry. */
-export const TOKEN_USAGE_TRANSPORTS = ['cli', 'mcp', 'api', 'agent', 'unknown'] as const;
+export const TOKEN_USAGE_TRANSPORTS = ['cli', 'api', 'agent', 'unknown'] as const;
 
 /** Task relation types matching DB CHECK constraint on task_relations.relation_type. */
 export const TASK_RELATION_TYPES = [
@@ -608,7 +608,7 @@ export const auditLog = sqliteTable(
 // === TOKEN USAGE ===
 
 /**
- * Central provider-aware token telemetry for CLI, MCP, and external adapters.
+ * Central provider-aware token telemetry for CLI and external adapters.
  * Stores measured request/response token counts plus method/confidence metadata.
  */
 export const tokenUsage = sqliteTable(

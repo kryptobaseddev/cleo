@@ -1,7 +1,7 @@
 /**
  * Check Domain Handler (Dispatch Layer)
  *
- * Consolidates MCP validate domain operations into the canonical "check"
+ * Consolidates validate domain operations into the canonical "check"
  * domain. Handles schema validation, protocol compliance, task validation,
  * manifest checks, output validation, compliance tracking, test operations,
  * and coherence checks.

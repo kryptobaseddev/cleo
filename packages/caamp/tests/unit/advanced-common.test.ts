@@ -24,7 +24,6 @@ vi.mock("../../src/core/registry/providers.js", () => ({
 import {
   parsePriority,
   readJsonFile,
-  readMcpOperations,
   readSkillOperations,
   readTextInput,
   resolveProviders,
@@ -120,25 +119,6 @@ describe("advanced/common", () => {
     await expect(readJsonFile("/tmp/missing.json")).rejects.toMatchObject({
       code: "E_ADVANCED_INPUT_JSON",
       details: { reason: "ENOENT" },
-    });
-  });
-
-  it("validates MCP operations structure and scope", async () => {
-    mocks.readFile.mockResolvedValueOnce(
-      JSON.stringify([{ serverName: "srv", config: { command: "npx" }, scope: "project" }]),
-    );
-    await expect(readMcpOperations("/tmp/mcp-valid.json")).resolves.toEqual([
-      { serverName: "srv", config: { command: "npx" }, scope: "project" },
-    ]);
-
-    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ serverName: "not-array" }));
-    await expect(readMcpOperations("/tmp/mcp-not-array.json")).rejects.toMatchObject({
-      code: "E_ADVANCED_VALIDATION_MCP_ARRAY",
-    });
-
-    mocks.readFile.mockResolvedValueOnce(JSON.stringify([{ serverName: "srv", config: { command: "npx" }, scope: "team" }]));
-    await expect(readMcpOperations("/tmp/mcp-bad-scope.json")).rejects.toMatchObject({
-      code: "E_ADVANCED_VALIDATION_SCOPE",
     });
   });
 

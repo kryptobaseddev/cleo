@@ -2,8 +2,8 @@
  * CLI issue command - file bug reports, feature requests, or questions to CLEO GitHub.
  * Supports subcommands: bug, feature, help, diagnostics.
  *
- * Fix #63: Calls addIssue() from core directly instead of dispatching through
- * MCP (the tools.issue.add.* operations were removed from the registry in T5615).
+ * Fix #63: Calls addIssue() from core directly (the tools.issue.add.*
+ * operations were removed from the registry in T5615).
  *
  * @task T4555
  * @epic T4545
@@ -33,7 +33,7 @@ export function registerIssueCommand(program: Command): void {
     .requiredOption('--title <title>', 'Issue title')
     .requiredOption('--body <body>', 'Issue description')
     .option('--severity <severity>', 'Severity level (Blocker, Major, Moderate, Minor)')
-    .option('--area <area>', 'Affected area (cli, mcp, docs, tests, other)')
+    .option('--area <area>', 'Affected area (cli, dispatch, docs, tests, other)')
     .option('--open', 'Open issue in browser after creation')
     .option('--dry-run', 'Preview without filing')
     .action(async (opts: Record<string, unknown>) => {
@@ -85,7 +85,7 @@ export function registerIssueCommand(program: Command): void {
 
 /**
  * Handle issue creation for a subcommand type (bug, feature, help).
- * Calls addIssue() from core directly (Fix #63: MCP operations were removed in T5615).
+ * Calls addIssue() from core directly (Fix #63: operations were removed in T5615).
  * @task T4555
  */
 async function handleIssueType(issueType: string, opts: Record<string, unknown>): Promise<void> {

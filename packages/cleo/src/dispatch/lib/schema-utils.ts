@@ -3,10 +3,7 @@
  *
  * Provides getOperationSchema() — a convenience function that looks up an
  * OperationDef from the OPERATIONS registry and returns a JSON Schema object
- * suitable for MCP tool introspection.
- *
- * This bridges the registry (single source of truth) and the MCP gateway
- * definitions so that input_schema values are auto-derived, not hardcoded.
+ * suitable for tool introspection.
  *
  *  T4894
  *  T4901
@@ -17,26 +14,24 @@ import type { Gateway } from '../types.js';
 import type { JSONSchemaObject, JsonSchemaProperty, JsonSchemaType } from './param-utils.js';
 
 /**
- * Build an MCP input schema directly from cleo's OperationDef.
+ * Build an input schema directly from cleo's OperationDef.
  *
- * This duplicates the logic from core's buildMcpInputSchema to avoid
- * type incompatibility between cleo's ParamDef and core's ParamDef
- * (they are structurally compatible at runtime but TypeScript treats
- * them as distinct types across project references).
+ * Derives a JSON Schema object from the ParamDef array, filtering
+ * hidden params and applying enum constraints.
  */
-function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
+function buildInputSchema(def: OperationDef): JSONSchemaObject {
   const properties: Record<string, JsonSchemaProperty> = {};
   const required: string[] = [];
 
   for (const param of def.params ?? []) {
-    if (param.mcp?.hidden) continue;
+    if (param.hidden) continue;
 
     const prop: JsonSchemaProperty = {
       type: param.type as JsonSchemaType,
       description: param.description,
     };
 
-    if (param.mcp?.enum) prop.enum = [...param.mcp.enum];
+    if (param.enum) prop.enum = [...param.enum];
 
     properties[param.name] = prop;
     if (param.required) required.push(param.name);
@@ -87,7 +82,7 @@ export function getOperationSchema(
     return PERMISSIVE_SCHEMA;
   }
 
-  return buildMcpInputSchema(def);
+  return buildInputSchema(def);
 }
 
 /**
@@ -103,7 +98,7 @@ export function getAllOperationSchemas(gateway: Gateway): Record<string, JSONSch
   for (const def of OPERATIONS) {
     if (def.gateway !== gateway) continue;
     const key = `${def.domain}.${def.operation}`;
-    result[key] = (def.params ?? []).length === 0 ? PERMISSIVE_SCHEMA : buildMcpInputSchema(def);
+    result[key] = (def.params ?? []).length === 0 ? PERMISSIVE_SCHEMA : buildInputSchema(def);
   }
 
   return result;

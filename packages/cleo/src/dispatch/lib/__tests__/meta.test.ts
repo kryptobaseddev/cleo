@@ -20,15 +20,15 @@ describe('createDispatchMeta', () => {
     expect(meta.operation).toBe('show');
     expect(meta.timestamp).toBe('2026-02-20T12:00:00.000Z');
     expect(meta.duration_ms).toBe(42);
-    expect(meta.source).toBe('mcp');
+    expect(meta.source).toBe('cli');
     expect(meta.requestId).toBeDefined();
     expect(typeof meta.requestId).toBe('string');
     expect(meta.requestId.length).toBeGreaterThan(0);
   });
 
-  it('should default source to mcp when not provided', () => {
+  it('should default source to cli when not provided', () => {
     const meta = createDispatchMeta('mutate', 'session', 'start', Date.now());
-    expect(meta.source).toBe('mcp');
+    expect(meta.source).toBe('cli');
   });
 
   it('should use provided source', () => {
@@ -37,7 +37,7 @@ describe('createDispatchMeta', () => {
   });
 
   it('should use provided requestId when given', () => {
-    const meta = createDispatchMeta('query', 'tasks', 'list', Date.now(), 'mcp', 'custom-req-id');
+    const meta = createDispatchMeta('query', 'tasks', 'list', Date.now(), 'cli', 'custom-req-id');
     expect(meta.requestId).toBe('custom-req-id');
   });
 

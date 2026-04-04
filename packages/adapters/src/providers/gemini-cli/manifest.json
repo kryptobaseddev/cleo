@@ -21,7 +21,7 @@
     ],
     "supportsSpawn": false,
     "supportsInstall": true,
-    "supportsMcp": true,
+    "supportsMcp": false,
     "supportsInstructionFiles": false,
     "supportsContextMonitor": false,
     "supportsStatusline": false,

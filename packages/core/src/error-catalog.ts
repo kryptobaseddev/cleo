@@ -1,8 +1,8 @@
 /**
  * Unified Error Catalog -- single source of truth for all CLEO error definitions.
  *
- * Merges previously scattered error registries (error-registry.ts, _error.ts,
- * mcp/lib/exit-codes.ts) into one canonical catalog keyed by ExitCode.
+ * Merges previously scattered error registries into one canonical catalog
+ * keyed by ExitCode.
  *
  * Consumers should import from here instead of the legacy registries.
  *
@@ -26,7 +26,7 @@ export interface ErrorDefinition {
   message: string;
   /** Default fix suggestion (copy-paste command or instruction). */
   fix?: string;
-  /** HTTP status code for API/MCP responses. */
+  /** HTTP status code for API responses. */
   httpStatus: number;
   /** Whether retry may succeed. */
   recoverable: boolean;

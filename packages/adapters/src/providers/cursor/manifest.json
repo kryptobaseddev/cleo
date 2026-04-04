@@ -10,7 +10,7 @@
     "supportedHookEvents": [],
     "supportsSpawn": false,
     "supportsInstall": true,
-    "supportsMcp": true,
+    "supportsMcp": false,
     "supportsInstructionFiles": true,
     "instructionFilePattern": ".cursor/rules/*.mdc",
     "supportsContextMonitor": false,

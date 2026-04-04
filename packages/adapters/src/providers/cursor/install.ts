@@ -2,7 +2,6 @@
  * Cursor Install Provider
  *
  * Handles CLEO installation into Cursor environments:
- * - Registers CLEO MCP server in .cursor/mcp.json
  * - Ensures .cursorrules has CLEO @-references (legacy format)
  * - Creates .cursor/rules/cleo.mdc with CLEO references (modern format)
  *
@@ -22,54 +21,37 @@ import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cle
 /** Lines that should appear in instruction files to reference CLEO. */
 const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
-/** MCP server registration key used in Cursor config. */
-const MCP_SERVER_KEY = 'cleo';
-
 /**
  * Install provider for Cursor.
  *
  * Manages CLEO's integration with Cursor by:
- * 1. Registering the CLEO MCP server in .cursor/mcp.json
- * 2. Creating/updating .cursorrules with @-references (legacy)
- * 3. Creating .cursor/rules/cleo.mdc with @-references (modern)
+ * 1. Creating/updating .cursorrules with @-references (legacy)
+ * 2. Creating .cursor/rules/cleo.mdc with @-references (modern)
  */
 export class CursorInstallProvider implements AdapterInstallProvider {
-  private installedProjectDir: string | null = null;
-
   /**
    * Install CLEO into a Cursor project.
    *
-   * @param options - Installation options including project directory and MCP server path
+   * @param options - Installation options including project directory
    * @returns Result describing what was installed
    */
   async install(options: InstallOptions): Promise<InstallResult> {
-    const { projectDir, mcpServerPath } = options;
+    const { projectDir } = options;
     const installedAt = new Date().toISOString();
     let instructionFileUpdated = false;
-    let mcpRegistered = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Register MCP server in .cursor/mcp.json
-    if (mcpServerPath) {
-      mcpRegistered = this.registerMcpServer(projectDir, mcpServerPath);
-      if (mcpRegistered) {
-        details.mcpConfigPath = join(projectDir, '.cursor', 'mcp.json');
-      }
-    }
-
-    // Step 2: Ensure instruction files have @-references
+    // Step 1: Ensure instruction files have @-references
     instructionFileUpdated = this.updateInstructionFiles(projectDir);
     if (instructionFileUpdated) {
       details.instructionFiles = this.getUpdatedFileList(projectDir);
     }
 
-    this.installedProjectDir = projectDir;
-
     return {
       success: true,
       installedAt,
       instructionFileUpdated,
-      mcpRegistered,
+      mcpRegistered: false,
       details,
     };
   }
@@ -77,42 +59,26 @@ export class CursorInstallProvider implements AdapterInstallProvider {
   /**
    * Uninstall CLEO from the current Cursor project.
    *
-   * Removes the MCP server registration from .cursor/mcp.json.
    * Does not remove instruction file references (they are harmless if CLEO is not present).
    */
-  async uninstall(): Promise<void> {
-    if (!this.installedProjectDir) return;
-
-    const mcpPath = join(this.installedProjectDir, '.cursor', 'mcp.json');
-    if (existsSync(mcpPath)) {
-      try {
-        const raw = readFileSync(mcpPath, 'utf-8');
-        const config = JSON.parse(raw) as Record<string, unknown>;
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
-          delete mcpServers[MCP_SERVER_KEY];
-          writeFileSync(mcpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-        }
-      } catch {
-        // Ignore errors during uninstall
-      }
-    }
-
-    this.installedProjectDir = null;
-  }
+  async uninstall(): Promise<void> {}
 
   /**
    * Check whether CLEO is installed in the current environment.
    *
-   * Checks for MCP server registered in .cursor/mcp.json.
+   * Checks for .cursor/rules/cleo.mdc or .cursorrules with CLEO references.
    */
   async isInstalled(): Promise<boolean> {
-    const mcpPath = join(process.cwd(), '.cursor', 'mcp.json');
-    if (existsSync(mcpPath)) {
+    const mdcPath = join(process.cwd(), '.cursor', 'rules', 'cleo.mdc');
+    if (existsSync(mdcPath)) {
+      return true;
+    }
+
+    const rulesPath = join(process.cwd(), '.cursorrules');
+    if (existsSync(rulesPath)) {
       try {
-        const config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
+        const content = readFileSync(rulesPath, 'utf-8');
+        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
           return true;
         }
       } catch {
@@ -132,43 +98,6 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
     this.updateInstructionFiles(projectDir);
-  }
-
-  /**
-   * Register the CLEO MCP server in .cursor/mcp.json.
-   *
-   * Cursor stores MCP server configuration in .cursor/mcp.json
-   * under the mcpServers key.
-   *
-   * @returns true if registration was performed or updated
-   */
-  private registerMcpServer(projectDir: string, mcpServerPath: string): boolean {
-    const cursorDir = join(projectDir, '.cursor');
-    const mcpPath = join(cursorDir, 'mcp.json');
-    let config: Record<string, unknown> = {};
-
-    mkdirSync(cursorDir, { recursive: true });
-
-    if (existsSync(mcpPath)) {
-      try {
-        config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-      } catch {
-        // Start fresh on parse error
-      }
-    }
-
-    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-      config.mcpServers = {};
-    }
-
-    const mcpServers = config.mcpServers as Record<string, unknown>;
-    mcpServers[MCP_SERVER_KEY] = {
-      command: 'node',
-      args: [mcpServerPath],
-    };
-
-    writeFileSync(mcpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    return true;
   }
 
   /**

@@ -693,7 +693,7 @@ describe('gradeSession', () => {
       );
     });
 
-    it('flags when no MCP query calls', async () => {
+    it('flags when no query gateway calls', async () => {
       mocks.queryAudit.mockResolvedValue([
         entry({ domain: 'tasks', operation: 'find', timestamp: ts(0) }),
       ]);
@@ -701,7 +701,7 @@ describe('gradeSession', () => {
       const result = await gradeSession('s5-nomcp', tempDir);
 
       expect(result.flags).toContain(
-        'No MCP query calls (prefer query over CLI for programmatic access)',
+        'No query gateway calls (use query operations for programmatic access)',
       );
     });
   });

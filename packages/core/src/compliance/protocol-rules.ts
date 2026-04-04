@@ -2,7 +2,7 @@
  * Protocol Rule Definitions for CLEO
  *
  * Defines validation rules for all 9 RCASD-IVTR+C protocols.
- * Moved from src/mcp/lib/protocol-rules.ts to core for proper layering.
+ * Moved to core for proper layering (formerly in dispatch).
  *
  * @task T2918
  * @task T5707

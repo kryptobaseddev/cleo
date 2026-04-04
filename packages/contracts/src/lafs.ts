@@ -40,7 +40,7 @@ export interface Warning {
 }
 
 /** LAFS transport metadata. */
-export type LAFSTransport = 'mcp' | 'cli' | 'http' | 'sdk';
+export type LAFSTransport = 'cli' | 'http' | 'sdk';
 
 /** MVI (Minimal Viable Information) level. */
 export type MVILevel = 'minimal' | 'standard' | 'full';
@@ -102,7 +102,7 @@ export interface LafsAlternative {
   command: string;
 }
 
-/** LAFS error detail shared between CLI and MCP. */
+/** LAFS error detail shared between CLI and gateway. */
 export interface LafsErrorDetail {
   code: number | string;
   name?: string;
@@ -134,11 +134,11 @@ export interface LafsError {
 export type LafsEnvelope<T = unknown> = LafsSuccess<T> | LafsError;
 
 // ---------------------------------------------------------------------------
-// MCP / gateway envelope extension (extends LAFSMeta)
+// Gateway envelope extension (extends LAFSMeta)
 // ---------------------------------------------------------------------------
 
 /**
- * Metadata attached to every MCP gateway response.
+ * Metadata attached to every gateway response.
  * Extends the canonical LAFSMeta with CLEO gateway-specific fields.
  *
  * @task T4655
@@ -149,28 +149,28 @@ export interface GatewayMeta extends LAFSMeta {
   duration_ms: number;
 }
 
-/** MCP success envelope (extends CLI base with _meta). */
+/** Gateway success envelope (extends CLI base with _meta). */
 export interface GatewaySuccess<T = unknown> extends LafsSuccess<T> {
   _meta: GatewayMeta;
 }
 
-/** MCP error envelope (extends CLI base with _meta). */
+/** Gateway error envelope (extends CLI base with _meta). */
 export interface GatewayError extends LafsError {
   _meta: GatewayMeta;
 }
 
-/** MCP envelope union type. */
+/** Gateway envelope union type. */
 export type GatewayEnvelope<T = unknown> = GatewaySuccess<T> | GatewayError;
 
 // ---------------------------------------------------------------------------
-// Unified envelope (covers both CLI and MCP)
+// Unified envelope (covers both CLI and Gateway)
 // ---------------------------------------------------------------------------
 
 /**
  * Unified CLEO response envelope.
  *
- * Every CLEO response (CLI or MCP) is a CleoResponse. MCP responses include
- * the _meta field; CLI responses do not.
+ * Every CLEO response (CLI or Gateway) is a CleoResponse. Gateway responses
+ * include the _meta field; CLI responses do not.
  */
 export type CleoResponse<T = unknown> = LafsEnvelope<T> | GatewayEnvelope<T>;
 
@@ -188,7 +188,7 @@ export function isLafsError<T>(envelope: LafsEnvelope<T>): envelope is LafsError
   return envelope.success === false;
 }
 
-/** Type guard for MCP gateway responses (has _meta). */
+/** Type guard for gateway responses (has _meta). */
 export function isGatewayEnvelope<T>(envelope: CleoResponse<T>): envelope is GatewayEnvelope<T> {
   return '_meta' in envelope && envelope._meta !== undefined;
 }

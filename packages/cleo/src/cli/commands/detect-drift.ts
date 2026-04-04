@@ -71,7 +71,7 @@ export function registerDetectDriftCommand(program: Command): void {
       const projectRoot = findProjectRoot();
 
       // Detect if we're running inside the CLEO source repo vs a user project.
-      // The source-level checks (src/cli/commands, src/mcp/domains, etc.) only
+      // The source-level checks (src/cli/commands, src/dispatch/domains, etc.) only
       // apply to the CLEO monorepo itself — skip them in user projects (#78).
       const isCleoRepo =
         existsSync(join(projectRoot, 'src', 'cli', 'commands')) ||
@@ -161,8 +161,8 @@ export function registerDetectDriftCommand(program: Command): void {
       // Check 1: Gateway-to-spec sync
       try {
         const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATIONS-REFERENCE.md');
-        const queryPath = join(projectRoot, 'src', 'mcp', 'gateways', 'query.ts');
-        const mutatePath = join(projectRoot, 'src', 'mcp', 'gateways', 'mutate.ts');
+        const registryPath = join(projectRoot, 'src', 'dispatch', 'registry.ts');
+        const dispatchDomainsDir = join(projectRoot, 'src', 'dispatch', 'domains');
 
         if (!existsSync(specPath)) {
           addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATIONS-REFERENCE.md missing', [
@@ -175,36 +175,33 @@ export function registerDetectDriftCommand(program: Command): void {
                 'Create docs/specs/CLEO-OPERATIONS-REFERENCE.md with canonical operation definitions',
             },
           ]);
-        } else if (!existsSync(queryPath) || !existsSync(mutatePath)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'MCP gateway files missing', [
+        } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
+          addCheck('Gateway-to-spec sync', 'fail', 'Dispatch registry or domains missing', [
             {
               severity: 'error',
               category: 'implementation',
-              message: 'MCP gateway files not found',
-              file: queryPath,
-              recommendation: 'Verify src/mcp/gateways/query.ts and mutate.ts exist',
+              message: 'Dispatch registry or domains directory not found',
+              file: registryPath,
+              recommendation: 'Verify src/dispatch/registry.ts and src/dispatch/domains/ exist',
             },
           ]);
         } else {
           const specContent = safeRead(specPath);
-          const queryContent = safeRead(queryPath);
-          const mutateContent = safeRead(mutatePath);
+          const registryContent = safeRead(registryPath);
 
           // Extract operations from spec
           const specOpsMatch = specContent.match(/## `([a-z_]+)`/g) || [];
           const specOps = specOpsMatch.map((m: string) => m.replace(/## `|`/g, ''));
 
-          // Extract operations from gateways
-          const queryOpsMatch = queryContent.match(/case '([a-z_]+)':/g) || [];
-          const mutateOpsMatch = mutateContent.match(/case '([a-z_]+)':/g) || [];
-          const gatewayOps = [
-            ...queryOpsMatch.map((m: string) => m.replace(/case '|':/g, '')),
-            ...mutateOpsMatch.map((m: string) => m.replace(/case '|':/g, '')),
-          ];
+          // Extract operations from registry
+          const registryOpsMatch = registryContent.match(/operation:\s*'([a-z_.]+)'/g) || [];
+          const registryOps = registryOpsMatch.map((m: string) =>
+            m.replace(/operation:\s*'|'/g, ''),
+          );
 
           // Find mismatches
-          const specOnly = specOps.filter((op: string) => !gatewayOps.includes(op));
-          const gatewayOnly = gatewayOps.filter((op: string) => !specOps.includes(op));
+          const specOnly = specOps.filter((op: string) => !registryOps.includes(op));
+          const gatewayOnly = registryOps.filter((op: string) => !specOps.includes(op));
 
           if (specOnly.length === 0 && gatewayOnly.length === 0) {
             addCheck(
@@ -220,7 +217,7 @@ export function registerDetectDriftCommand(program: Command): void {
                 category: 'spec-coverage',
                 message: `${specOnly.length} operations in spec but not in gateways: ${specOnly.join(', ')}`,
                 recommendation:
-                  'Add missing operation handlers to MCP gateways or remove from spec',
+                  'Add missing operation handlers to dispatch domains or remove from spec',
               });
             }
             if (gatewayOnly.length > 0) {
@@ -285,14 +282,14 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 3: Domain handler coverage
       try {
-        const domainsDir = join(projectRoot, 'src', 'mcp', 'domains');
+        const domainsDir = join(projectRoot, 'src', 'dispatch', 'domains');
         if (!existsSync(domainsDir)) {
-          addCheck('Domain handler coverage', 'fail', 'MCP domains directory missing', [
+          addCheck('Domain handler coverage', 'fail', 'Dispatch domains directory missing', [
             {
               severity: 'error',
               category: 'structure',
-              message: 'src/mcp/domains/ not found',
-              recommendation: 'Verify MCP domain handlers are in place',
+              message: 'src/dispatch/domains/ not found',
+              recommendation: 'Verify dispatch domain handlers are in place',
             },
           ]);
         } else {

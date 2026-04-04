@@ -3,7 +3,7 @@
  *
  * Main CLEOProviderAdapter implementation for Moonshot AI Kimi.
  * Provides install-only capabilities for CLEO integration.
- * Kimi has no native hook system, so integration is via MCP only.
+ * Kimi has no native hook system; integration is via instruction files.
  *
  * @task T163
  * @epic T134
@@ -29,7 +29,7 @@ const execAsync = promisify(exec);
  *
  * Bridges CLEO's adapter system with Kimi's integration surface:
  * - Hooks: No-op (Kimi has no native hook system)
- * - Install: Registers MCP server in ~/.kimi/mcp.json and ensures AGENTS.md references
+ * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
  * @task T163
  * @epic T134
@@ -44,7 +44,7 @@ export class KimiAdapter implements CLEOProviderAdapter {
     supportedHookEvents: [],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

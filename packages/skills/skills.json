@@ -4,7 +4,7 @@
   "skills": [
     {
       "name": "ct-cleo",
-      "description": "CLEO task management protocol - core guidance for session, task, and workflow operations. Provides MCP-first workflow, CLI fallback, session protocol, task discovery patterns, RCSD lifecycle overview, and error handling. Load this skill for detailed CLEO protocol guidance.",
+      "description": "CLEO task management protocol - core guidance for session, task, and workflow operations. Provides CLI-based workflow, session protocol, task discovery patterns, RCSD lifecycle overview, and error handling. Load this skill for detailed CLEO protocol guidance.",
       "version": "2.0.0",
       "path": "skills/ct-cleo/SKILL.md",
       "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/loom-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],

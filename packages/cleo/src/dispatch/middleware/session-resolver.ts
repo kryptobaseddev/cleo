@@ -1,11 +1,11 @@
 /**
  * Session Resolver Middleware for CQRS Dispatch Layer.
  *
- * Runs FIRST in both MCP and CLI middleware pipelines.
+ * Runs FIRST in the CLI middleware pipeline.
  * Populates request.sessionId from the best available source:
  *
  *   1. request.sessionId already set (explicit)  -> use it
- *   2. getBoundSession() has context (MCP path)   -> stamp it
+ *   2. getBoundSession() has context              -> stamp it
  *   3. process.env.CLEO_SESSION_ID (legacy/transitional) -> use it
  *   4. No session found -> leave undefined (OK for many operations)
  *
@@ -32,7 +32,7 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
       return next();
     }
 
-    // Tier 2: Process-scoped session context (MCP path)
+    // Tier 2: Process-scoped session context
     const bound = getBoundSession();
     if (bound) {
       req.sessionId = bound.sessionId;

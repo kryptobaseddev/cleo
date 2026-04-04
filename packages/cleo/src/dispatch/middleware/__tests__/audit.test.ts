@@ -90,7 +90,7 @@ describe('createAudit middleware', () => {
       domain: 'tasks',
       operation: 'add',
       params: { taskId: 'T100', title: 'Test task' },
-      source: 'mcp',
+      source: 'cli',
       requestId: 'req-001',
       ...overrides,
     };
@@ -104,7 +104,7 @@ describe('createAudit middleware', () => {
         operation: 'add',
         timestamp: new Date().toISOString(),
         duration_ms: 10,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'req-001',
       },
       success: true,

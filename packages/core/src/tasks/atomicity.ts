@@ -36,7 +36,7 @@ const DOMAIN_KEYWORDS = [
   'api',
   'ui',
   'cli',
-  'mcp',
+  'dispatch',
   'test',
   'docs',
 ] as const;

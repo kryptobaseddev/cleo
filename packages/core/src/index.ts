@@ -44,7 +44,7 @@ export * as intelligence from './intelligence/index.js';
 export * as issue from './issue/index.js';
 export * as lib from './lib/index.js';
 export * as lifecycle from './lifecycle/index.js';
-export * as coreMcp from './mcp/index.js';
+// (removed: former coreMcp export — Phase 2 production readiness)
 export * as memory from './memory/index.js';
 export * as metrics from './metrics/index.js';
 export * as migration from './migration/index.js';

@@ -13,7 +13,7 @@ import { getErrorDefinition } from './error-catalog.js';
 
 /**
  * RFC 9457 Problem Details object.
- * Structured error representation for API/MCP responses.
+ * Structured error representation for API responses.
  *
  * @task T5240
  */

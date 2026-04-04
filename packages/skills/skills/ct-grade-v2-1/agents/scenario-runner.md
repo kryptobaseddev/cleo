@@ -1,12 +1,11 @@
 # Scenario Runner Agent
 
-You are a CLEO grade scenario executor. Your job is to run a specific grade playbook scenario using the specified interface (MCP or CLI), capture the audit trail, and grade the resulting session.
+You are a CLEO grade scenario executor. Your job is to run a specific grade playbook scenario using the CLI, capture the audit trail, and grade the resulting session.
 
 ## Inputs
 
 You will receive:
 - `SCENARIO`: Which scenario to run (s1|s2|s3|s4|s5|s6|s7|s8|s9|s10)
-- `INTERFACE`: Which interface to use (mcp|cli)
 - `OUTPUT_DIR`: Where to write results
 - `PROJECT_DIR`: Path to the CLEO project (for cleo-dev --cwd)
 - `RUN_NUMBER`: Integer (1, 2, 3...) for repeated runs
@@ -17,30 +16,24 @@ You will receive:
 
 Note the ISO timestamp before any operations.
 
-### Step 2: Start a graded session via MCP (always use MCP for session lifecycle)
+### Step 2: Start a graded session
 
-```
-mutate session start { "grade": true, "name": "grade-<SCENARIO>-<INTERFACE>-run<RUN>", "scope": "global" }
+```bash
+cleo-dev --cwd <PROJECT_DIR> session start --grade --name "grade-<SCENARIO>-run<RUN>" --scope global
 ```
 
 Save the returned `sessionId`.
 
 If this fails (DB migration error, ENOENT, or non-zero exit):
 - Write `grade.json: { "error": "DB_UNAVAILABLE", "totalScore": null }`
-- Write `timing.json: { "error": "DB_UNAVAILABLE", "total_tokens": null, "duration_ms": null, "arm": "<INTERFACE>", "scenario": "<SCENARIO>", "run": <RUN_NUMBER>, "interface": "<INTERFACE>", "executor_start": "<ISO>", "executor_end": "<ISO>" }`
+- Write `timing.json: { "error": "DB_UNAVAILABLE", "total_tokens": null, "duration_ms": null, "scenario": "<SCENARIO>", "run": <RUN_NUMBER>, "interface": "cli", "executor_start": "<ISO>", "executor_end": "<ISO>" }`
 - Output: `SESSION_START_FAILED: DB_UNAVAILABLE`
 - Stop. Do NOT abort silently.
 
 ### Step 3: Execute scenario operations
 
-Follow the exact operation sequence from the scenario playbook. Use INTERFACE to determine whether each operation is done via MCP or CLI.
+Follow the exact operation sequence from the scenario playbook. All operations use the CLI.
 
-**MCP operations** use the query/mutate gateway:
-```
-query tasks find { "status": "active" }
-```
-
-**CLI operations** use cleo-dev (prefer) or cleo, with PROJECT_DIR as cwd if provided:
 ```bash
 cleo-dev --cwd <PROJECT_DIR> find --status active
 ```
@@ -49,14 +42,14 @@ Scenario sequences are in [../references/playbook-v2.md](../references/playbook-
 
 ### Step 4: End the session
 
-```
-mutate session end
+```bash
+cleo-dev --cwd <PROJECT_DIR> session end
 ```
 
 ### Step 5: Grade the session
 
-```
-query admin grade { "sessionId": "<saved-id>" }
+```bash
+cleo-dev --cwd <PROJECT_DIR> check grade --session "<saved-id>"
 ```
 
 Save the full GradeResult JSON.
@@ -65,7 +58,7 @@ Save the full GradeResult JSON.
 
 Record every operation you executed as a JSONL file. Each line:
 ```json
-{"seq": 1, "gateway": "query", "domain": "tasks", "operation": "find", "params": {}, "success": true, "interface": "mcp", "timestamp": "..."}
+{"seq": 1, "domain": "tasks", "operation": "find", "params": {}, "success": true, "interface": "cli", "timestamp": "..."}
 ```
 
 ### Step 7: Write output files
@@ -89,10 +82,9 @@ Write to `<OUTPUT_DIR>/<SCENARIO>/arm-<INTERFACE>/`:
 **timing.json** — Fill in what you can; orchestrator fills `total_tokens` and `duration_ms`:
 ```json
 {
-  "arm": "<INTERFACE>",
   "scenario": "<SCENARIO>",
   "run": <RUN_NUMBER>,
-  "interface": "<INTERFACE>",
+  "interface": "cli",
   "session_id": "<session-id>",
   "executor_start": "<ISO>",
   "executor_end": "<ISO>",
@@ -109,19 +101,8 @@ Note: `total_tokens` and `duration_ms` are filled by the orchestrator from the t
 
 After receiving the grade result, record the exchange to persist token measurements:
 
-```
-mutate admin token {
-  "action": "record",
-  "sessionId": "<session-id>",
-  "transport": "mcp",
-  "domain": "admin",
-  "operation": "grade",
-  "metadata": {
-    "scenario": "<SCENARIO>",
-    "interface": "<INTERFACE>",
-    "run": <RUN_NUMBER>
-  }
-}
+```bash
+cleo-dev --cwd <PROJECT_DIR> admin token record --session "<session-id>" --domain admin --operation grade --metadata '{"scenario":"<SCENARIO>","run":<RUN_NUMBER>}'
 ```
 
 Save the returned `id` as `token_usage_id` in timing.json.
@@ -170,7 +151,6 @@ Do NOT do these during scenario execution — they will lower the grade intentio
 When complete, summarize:
 ```
 SCENARIO: <id>
-INTERFACE: <interface>
 RUN: <n>
 SESSION_ID: <id>
 TOTAL_SCORE: <n>/100

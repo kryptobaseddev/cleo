@@ -6,7 +6,7 @@
  *
  * SYNC: Canonical type definitions live in the CLI package at:
  *   src/types/session.ts (Session, SessionScope, etc.)
- * These MCP operation types are the API contract (wire format).
+ * These operation types are the API contract (wire format).
  */
 
 /**

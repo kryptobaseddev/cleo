@@ -196,7 +196,7 @@ export class SessionHandler implements DomainHandler {
             // Use Object.assign to add the alias without violating Session type
             Object.assign(sessionData, { sessionId });
 
-            // T4959: Bind session to process-scoped context (MCP path)
+            // T4959: Bind session to process-scoped context
             try {
               const scopeParts = scope.split(':');
               bindSession({

@@ -2,7 +2,7 @@
  * Archive analytics — rich reporting and insights from archived tasks.
  *
  * Moved from CLI archive-stats command to core for reuse across
- * MCP, CLI, and programmatic consumers.
+ * CLI and programmatic consumers.
  *
  * @task T4555
  * @epic T4545

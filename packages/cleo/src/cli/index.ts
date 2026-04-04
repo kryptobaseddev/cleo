@@ -79,7 +79,6 @@ import { registerLifecycleCommand } from './commands/lifecycle.js';
 import { registerListCommand } from './commands/list.js';
 import { registerLogCommand } from './commands/log.js';
 import { registerMapCommand } from './commands/map.js';
-import { registerMcpInstallCommand } from './commands/mcp-install.js';
 import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 import { registerNextCommand } from './commands/next.js';
@@ -146,7 +145,6 @@ registerOrchestrateCommand(rootShim);
 registerLifecycleCommand(rootShim);
 registerReleaseCommand(rootShim);
 registerEnvCommand(rootShim);
-registerMcpInstallCommand(rootShim);
 registerCheckpointCommand(rootShim);
 registerCommandsCommand(rootShim);
 registerDocsCommand(rootShim);
@@ -330,6 +328,7 @@ subCommands['version'] = defineCommand({
 
 // Native citty command groups (not shimmed from Commander)
 import { codeCommand } from './commands/code.js';
+
 subCommands['code'] = codeCommand;
 
 for (const shim of rootShim._subcommands) {
@@ -385,22 +384,13 @@ for (const shim of rootShim._subcommands) {
   }
 }
 
-if (process.argv[2] === 'mcp') {
-  const mcpPath = join(import.meta.dirname ?? '', '..', 'mcp', 'index.js');
-  const { spawn } = await import('node:child_process');
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', mcpPath], {
-    stdio: 'inherit',
-  });
-  child.on('exit', (code) => process.exit(code ?? 0));
-} else {
-  const main = defineCommand({
-    meta: {
-      name: 'cleo',
-      version: CLI_VERSION,
-      description: 'CLEO V2 - Task management for AI coding agents',
-    },
-    subCommands,
-  });
+const main = defineCommand({
+  meta: {
+    name: 'cleo',
+    version: CLI_VERSION,
+    description: 'CLEO V2 - Task management for AI coding agents',
+  },
+  subCommands,
+});
 
-  runMain(main);
-}
+runMain(main);

@@ -1,7 +1,7 @@
 /**
  * CLI command: cleo migrate claude-mem
  *
- * Migrates observations from the external claude-mem MCP plugin's SQLite
+ * Migrates observations from the external claude-mem plugin's SQLite
  * database (~/.claude-mem/claude-mem.db) into CLEO's native brain.db.
  *
  * @epic T5149

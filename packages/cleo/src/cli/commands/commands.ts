@@ -21,8 +21,7 @@ export function registerCommandsCommand(program: Command): void {
     .option('--tier <n>', 'Help tier level (0=basic, 1=extended, 2=full)', parseInt)
     .action(async (commandName: string | undefined, opts: Record<string, unknown>) => {
       console.error(
-        '[DEPRECATED] cleo commands now delegates to admin.help.\n' +
-          'Use: query admin help (MCP) or cleo help (CLI)\n',
+        '[DEPRECATED] cleo commands now delegates to admin.help.\n' + 'Use: cleo help (CLI)\n',
       );
 
       await dispatchFromCli(

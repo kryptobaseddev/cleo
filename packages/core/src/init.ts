@@ -1,8 +1,8 @@
 /**
  * Core init logic - project initialization and maintenance.
  *
- * Single source of truth for all init operations. Both CLI and MCP
- * delegate here (shared-core pattern).
+ * Single source of truth for all init operations. CLI delegates here
+ * (shared-core pattern).
  *
  * Handles:
  *   1. .cleo/ directory structure creation
@@ -11,7 +11,7 @@
  *   4. Sequence counter (SQLite schema_meta)
  *   5. Project info (.cleo/project-info.json)
  *   6. CAAMP injection into agent instruction files (AGENTS.md hub pattern)
- *   7. MCP server installation to detected providers
+ *   7. (removed — was MCP server installation)
  *   8. Agent definition installation (cleo-subagent)
  *   9. Core skill installation via CAAMP
  *  10. NEXUS project registration
@@ -169,55 +169,15 @@ export async function initAgentDefinition(created: string[], warnings: string[])
 }
 
 /**
- * Install MCP server config to all detected providers via CAAMP.
+ * No-op. Kept for API compatibility.
  * @task T4706
  */
 export async function initMcpServer(
-  projectRoot: string,
-  created: string[],
-  warnings: string[],
+  _projectRoot: string,
+  _created: string[],
+  _warnings: string[],
 ): Promise<void> {
-  try {
-    const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import(
-      './mcp/index.js'
-    );
-    const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
-    type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
-
-    const env = detectEnvMode();
-    const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
-    const serverName = getMcpServerName(env);
-    const providers = getInstalledProviders();
-
-    if (providers.length === 0) {
-      return;
-    }
-
-    // MCP server config is a system-level tool setup by default.
-    // Project-level CLEO data still lives in per-project .cleo/.
-    const results = await installMcpServerToAll(
-      providers,
-      serverName,
-      serverEntry,
-      'global',
-      projectRoot,
-    );
-
-    const successes = results.filter((r) => r.success);
-    const failures = results.filter((r) => !r.success);
-
-    if (successes.length > 0) {
-      created.push(`MCP server: ${successes.map((r) => r.provider.id).join(', ')}`);
-    }
-
-    for (const f of failures) {
-      if (f.error) {
-        warnings.push(`MCP install to ${f.provider.id}: ${f.error}`);
-      }
-    }
-  } catch (err) {
-    warnings.push(`MCP server install: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // No-op: removed
 }
 
 /**
@@ -464,7 +424,7 @@ export async function updateDocs(): Promise<InitResult> {
  * Run full project initialization.
  *
  * Creates the .cleo/ directory structure, installs schemas, templates,
- * agent definitions, MCP server configs, skills, and registers with NEXUS.
+ * agent definitions, skills, and registers with NEXUS.
  *
  * @task T4681
  * @task T4682
@@ -694,15 +654,15 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // ADR-029: Contributor project MCP registration
+  // ADR-029: Contributor project dev channel setup
   try {
     const { ensureContributorMcp } = await import('./scaffold.js');
-    const mcpResult = await ensureContributorMcp(projRoot);
-    if (mcpResult.action !== 'skipped') {
-      created.push(`contributor MCP: ${mcpResult.details ?? mcpResult.action}`);
+    const devResult = await ensureContributorMcp(projRoot);
+    if (devResult.action !== 'skipped') {
+      created.push(`contributor dev channel: ${devResult.details ?? devResult.action}`);
     }
   } catch (err) {
-    warnings.push(`Contributor MCP setup: ${err instanceof Error ? err.message : String(err)}`);
+    warnings.push(`Contributor dev channel: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // T4685: Agent definition (cleo-subagent)

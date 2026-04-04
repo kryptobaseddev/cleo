@@ -7,27 +7,22 @@ import {
   installBatchWithRollback,
   selectProvidersByMinimumPriority,
 } from '../../core/advanced/orchestration.js';
-import {
-  parsePriority,
-  readMcpOperations,
-  readSkillOperations,
-  resolveProviders,
-} from './common.js';
+import { parsePriority, readSkillOperations, resolveProviders } from './common.js';
 import { LAFSCommandError, runLafsCommand } from './lafs.js';
 
 /**
- * Registers the `advanced batch` subcommand for rollback-capable batch install of MCP and skills.
+ * Registers the `advanced batch` subcommand for rollback-capable batch install of skills.
  *
  * @remarks
- * Installs MCP servers and skills from JSON files in a single atomic operation with automatic
+ * Installs skills from a JSON file in a single atomic operation with automatic
  * rollback on failure. Supports minimum priority tier filtering and project directory resolution.
  *
  * @param parent - The parent `advanced` Command to attach the batch subcommand to
  *
  * @example
  * ```bash
- * caamp advanced batch --mcp-file mcp.json --skills-file skills.json
- * caamp advanced batch --mcp-file mcp.json --min-tier medium
+ * caamp advanced batch --skills-file skills.json
+ * caamp advanced batch --skills-file skills.json --min-tier medium
  * ```
  *
  * @public
@@ -35,7 +30,7 @@ import { LAFSCommandError, runLafsCommand } from './lafs.js';
 export function registerAdvancedBatch(parent: Command): void {
   parent
     .command('batch')
-    .description('Run rollback-capable batch install for MCP + skills')
+    .description('Run rollback-capable batch install for skills')
     .option(
       '-a, --agent <name>',
       'Target specific provider(s)',
@@ -44,8 +39,7 @@ export function registerAdvancedBatch(parent: Command): void {
     )
     .option('--all', 'Use all registry providers (not only detected)')
     .option('--min-tier <tier>', 'Minimum priority tier: high|medium|low', 'low')
-    .option('--mcp-file <path>', 'JSON file containing McpBatchOperation[]')
-    .option('--skills-file <path>', 'JSON file containing SkillBatchOperation[]')
+    .requiredOption('--skills-file <path>', 'JSON file containing SkillBatchOperation[]')
     .option('--project-dir <path>', 'Project directory to resolve project-scope paths')
     .option('--details', 'Include detailed operation result')
     .action(
@@ -53,8 +47,7 @@ export function registerAdvancedBatch(parent: Command): void {
         agent: string[];
         all?: boolean;
         minTier: string;
-        mcpFile?: string;
-        skillsFile?: string;
+        skillsFile: string;
         projectDir?: string;
         details?: boolean;
       }) =>
@@ -63,14 +56,13 @@ export function registerAdvancedBatch(parent: Command): void {
           const minimumPriority = parsePriority(opts.minTier);
           const providers = selectProvidersByMinimumPriority(baseProviders, minimumPriority);
 
-          const mcp = opts.mcpFile ? await readMcpOperations(opts.mcpFile) : [];
-          const skills = opts.skillsFile ? await readSkillOperations(opts.skillsFile) : [];
+          const skills = await readSkillOperations(opts.skillsFile);
 
-          if (mcp.length === 0 && skills.length === 0) {
+          if (skills.length === 0) {
             throw new LAFSCommandError(
               'E_ADVANCED_VALIDATION_NO_OPS',
               'No operations provided.',
-              'Provide --mcp-file and/or --skills-file.',
+              'Provide a --skills-file with at least one operation.',
             );
           }
 
@@ -85,7 +77,6 @@ export function registerAdvancedBatch(parent: Command): void {
           const result = await installBatchWithRollback({
             providers,
             minimumPriority,
-            mcp,
             skills,
             projectDir: opts.projectDir,
           });
@@ -101,11 +92,10 @@ export function registerAdvancedBatch(parent: Command): void {
           }
 
           return {
-            objective: 'Install MCP and skills with rollback safety',
+            objective: 'Install skills with rollback safety',
             constraints: {
               minimumPriority,
               providerCount: providers.length,
-              mcpOps: mcp.length,
               skillOps: skills.length,
             },
             acceptanceCriteria: {
@@ -116,7 +106,6 @@ export function registerAdvancedBatch(parent: Command): void {
               ? result
               : {
                   providerCount: result.providerIds.length,
-                  mcpApplied: result.mcpApplied,
                   skillsApplied: result.skillsApplied,
                   rollbackPerformed: result.rollbackPerformed,
                 },

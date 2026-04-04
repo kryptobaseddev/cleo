@@ -10,7 +10,7 @@
     "supportedHookEvents": ["onSessionStart", "onSessionEnd", "onToolStart", "onToolComplete", "onError"],
     "supportsSpawn": true,
     "supportsInstall": true,
-    "supportsMcp": true,
+    "supportsMcp": false,
     "supportsInstructionFiles": true,
     "instructionFilePattern": "CLAUDE.md",
     "supportsContextMonitor": true,

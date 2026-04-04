@@ -28,7 +28,7 @@ const execAsync = promisify(exec);
  *
  * Bridges CLEO's adapter system with Codex CLI's native capabilities:
  * - Hooks: Maps Codex events (SessionStart, PromptSubmit, ResponseComplete) to CAAMP events
- * - Install: Registers MCP server in ~/.codex/config.json and ensures AGENTS.md references
+ * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
  * @task T162
  * @epic T134
@@ -43,7 +43,7 @@ export class CodexAdapter implements CLEOProviderAdapter {
     supportedHookEvents: ['SessionStart', 'UserPromptSubmit', 'Stop'],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

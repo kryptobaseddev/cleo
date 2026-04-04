@@ -32,7 +32,7 @@ function makeRequest(overrides: Partial<DispatchRequest> = {}): DispatchRequest 
     domain: 'tasks',
     operation: 'list',
     params: {},
-    source: 'mcp',
+    source: 'cli',
     requestId: 'req-001',
     ...overrides,
   };
@@ -46,7 +46,7 @@ function makeResponse(overrides: Partial<DispatchResponse> = {}): DispatchRespon
       operation: 'list',
       timestamp: new Date().toISOString(),
       duration_ms: 5,
-      source: 'mcp',
+      source: 'cli',
       requestId: 'req-001',
     },
     success: true,
@@ -84,7 +84,7 @@ describe('createProtocolEnforcement middleware', () => {
         operation: 'update',
         timestamp: new Date().toISOString(),
         duration_ms: 10,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'req-002',
       },
     });
@@ -128,7 +128,7 @@ describe('createProtocolEnforcement middleware', () => {
       domain: 'tasks',
       operation: 'complete',
       requestId: 'req-003',
-      source: 'mcp',
+      source: 'cli',
     });
     const next = vi.fn();
 
@@ -137,7 +137,7 @@ describe('createProtocolEnforcement middleware', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_PROTOCOL_IMPLEMENTATION');
     // Verify _meta gets backfilled with source and requestId from req
-    expect(result._meta.source).toBe('mcp');
+    expect(result._meta.source).toBe('cli');
     expect(result._meta.requestId).toBe('req-003');
   });
 
@@ -191,7 +191,7 @@ describe('createProtocolEnforcement middleware', () => {
         operation: 'complete',
         timestamp: new Date().toISOString(),
         duration_ms: 12,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'req-005',
       },
       data: { completed: true },

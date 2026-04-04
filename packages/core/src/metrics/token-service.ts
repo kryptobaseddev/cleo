@@ -1,14 +1,14 @@
 /**
  * Provider-aware token measurement and persistence.
  *
- * Central SSoT for CLI/MCP/tooling token estimation with a three-layer chain:
+ * Central SSoT for CLI/tooling token estimation with a three-layer chain:
  * 1) OTel/provider telemetry when available
  * 2) Exact tokenizer for supported models
  * 3) Heuristic fallback calibrated for JSON vs text payloads
  *
  * @task T5618
  * @why CLEO needs a provider-aware in-house token service instead of relying on a single external runtime.
- * @what Adds central token measurement, persistence, CRUD, and summary helpers for CLI, MCP, tests, and telemetry tooling.
+ * @what Adds central token measurement, persistence, CRUD, and summary helpers for CLI, tests, and telemetry tooling.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -21,7 +21,7 @@ import { detectRuntimeProviderContext } from './provider-detection.js';
 
 export type TokenMethod = 'otel' | 'provider_api' | 'tokenizer' | 'heuristic';
 export type TokenConfidence = 'real' | 'high' | 'estimated' | 'coarse';
-export type TokenTransport = 'cli' | 'mcp' | 'api' | 'agent' | 'unknown';
+export type TokenTransport = 'cli' | 'api' | 'agent' | 'unknown';
 
 export interface TokenExchangeInput {
   requestPayload?: unknown;
@@ -554,7 +554,7 @@ export async function autoRecordDispatchTokenUsage(input: TokenExchangeInput): P
   try {
     await recordTokenExchange(input);
   } catch {
-    // Token telemetry must never break core CLI/MCP flows.
+    // Token telemetry must never break core CLI flows.
   }
 }
 

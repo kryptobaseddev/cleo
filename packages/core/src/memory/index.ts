@@ -372,7 +372,7 @@ export async function queryManifest(
 
 // ============================================================================
 // Engine-compatible manifest operations (extended fields)
-// These are used by the MCP engine layer for research domain support.
+// These are used by the dispatch engine layer for research domain support.
 // ============================================================================
 
 /** Extended manifest entry with optional fields used by the engine. */

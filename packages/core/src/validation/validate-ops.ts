@@ -865,23 +865,23 @@ export function coreComplianceRecord(
  */
 export function coreTestStatus(projectRoot: string): {
   batsTests: { available: boolean; directory: string | null };
-  mcpTests: { available: boolean; directory: string | null };
+  dispatchTests: { available: boolean; directory: string | null };
   message: string;
 } {
   const testDir = join(projectRoot, 'tests');
-  const mcpTestDir = join(projectRoot, 'src', 'mcp', '__tests__');
+  const dispatchTestDir = join(projectRoot, 'src', 'dispatch', '__tests__');
 
   const hasBatsTests = existsSync(testDir);
-  const hasMcpTests = existsSync(mcpTestDir);
+  const hasDispatchTests = existsSync(dispatchTestDir);
 
   return {
     batsTests: {
       available: hasBatsTests,
       directory: hasBatsTests ? 'tests/' : null,
     },
-    mcpTests: {
-      available: hasMcpTests,
-      directory: hasMcpTests ? 'src/mcp/__tests__/' : null,
+    dispatchTests: {
+      available: hasDispatchTests,
+      directory: hasDispatchTests ? 'src/dispatch/__tests__/' : null,
     },
     message: 'Use validate.test.run to execute tests',
   };

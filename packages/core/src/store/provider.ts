@@ -2,7 +2,7 @@
  * Store provider abstraction layer.
  *
  * Defines the StoreProvider interface backed by SQLite (ADR-006).
- * CLI and MCP engine use StoreProvider for all data access.
+ * CLI and dispatch engine use StoreProvider for all data access.
  *
  * @epic T4454
  * @task W1-T6
@@ -104,7 +104,7 @@ export interface StoreProvider {
 
   // ---- High-level domain operations ----
   // These wrap core business logic (validation, ID generation, logging, etc.)
-  // and are the primary API for CLI commands and MCP engine.
+  // and are the primary API for CLI commands and dispatch engine.
   // @task T4656
   // @epic T4654
 

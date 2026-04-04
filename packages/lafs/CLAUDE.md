@@ -63,7 +63,7 @@ All modules are re-exported from `src/index.ts`:
 | `deprecationRegistry.ts` | Deprecation detector: `detectDeprecatedEnvelopeFields()`, `getDeprecationRegistry()` |
 | **Interoperability** | |
 | `problemDetails.ts` | RFC 9457 Problem Details bridge: `lafsErrorToProblemDetails()`, converts LAFSError to RFC 9457 objects |
-| `mcpAdapter.ts` | MCP (Model Context Protocol) adapter: converts MCP `CallToolResult` to LAFS envelopes |
+| ~~`mcpAdapter.ts`~~ | _(removed — MCP adapter eliminated in Phase 2 production readiness)_ |
 | `discovery.ts` | Express middleware for A2A Agent Card at `/.well-known/agent-card.json` with `autoIncludeLafsExtension`, backward compat with `/.well-known/lafs.json` |
 | `cli.ts` | CLI entry point (`lafs-conformance` binary) |
 | **Operations and Reliability** | |
@@ -123,12 +123,12 @@ All modules are re-exported from `src/index.ts`:
 ### Dependencies
 
 - **Runtime**: `ajv`, `ajv-formats` (schema validation), `@a2a-js/sdk` (A2A protocol), `express` (middleware)
-- **Dev**: `typescript`, `vitest`, `tsx`, `supertest`, `@modelcontextprotocol/sdk`, `@types/node`, `@types/express`, `@types/supertest`
+- **Dev**: `typescript`, `vitest`, `tsx`, `supertest`, `@types/node`, `@types/express`, `@types/supertest`
 
 ## Tests
 
 20 test files in `tests/`:
-`a2aBridge`, `agentAction`, `bindings`, `budgetEnforcement`, `compliance`, `conformanceProfiles`, `deprecationMigration`, `discovery`, `envelope`, `envelopeApi`, `extensions`, `fieldExtraction`, `flag-resolver`, `flags`, `mcpIntegration`, `mviProjection`, `problemDetails`, `streamingAsync`, `structuredValidation`, `task-lifecycle`
+`a2aBridge`, `agentAction`, `bindings`, `budgetEnforcement`, `compliance`, `conformanceProfiles`, `deprecationMigration`, `discovery`, `envelope`, `envelopeApi`, `extensions`, `fieldExtraction`, `flag-resolver`, `flags`, `mviProjection`, `problemDetails`, `streamingAsync`, `structuredValidation`, `task-lifecycle`
 
 ## CI
 

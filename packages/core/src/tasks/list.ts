@@ -13,7 +13,7 @@ import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
-/** Compact task representation — minimal fields for MCP list responses. */
+/** Compact task representation — minimal fields for list responses. */
 export interface CompactTask {
   id: string;
   title: string;

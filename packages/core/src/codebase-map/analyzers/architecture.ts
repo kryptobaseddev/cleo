@@ -29,7 +29,7 @@ const LAYER_PURPOSE: Record<string, string> = {
   hooks: 'React hooks',
   composables: 'Vue composables',
   cli: 'CLI interface',
-  mcp: 'MCP server layer',
+  mcp: 'Protocol server layer (legacy)',
   dispatch: 'Dispatch / routing layer',
   types: 'Type definitions',
   schemas: 'Schema definitions',
@@ -64,7 +64,7 @@ const ARCH_PATTERNS: Record<string, string[]> = {
   mvc: ['models', 'views', 'controllers'],
   modular: ['modules'],
   'clean-architecture': ['domain', 'application', 'infrastructure'],
-  'dispatch-first': ['dispatch', 'core', 'mcp', 'cli'],
+  'dispatch-first': ['dispatch', 'core', 'cli'],
   'component-based': ['components', 'pages'],
 };
 

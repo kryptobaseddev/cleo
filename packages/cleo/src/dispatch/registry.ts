@@ -2275,7 +2275,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'admin',
     operation: 'install.global',
-    description: 'Refresh global CLEO setup: provider files, MCP configs, ~/.agents/AGENTS.md',
+    description: 'Refresh global CLEO setup: provider files, configs, ~/.agents/AGENTS.md',
     tier: 2,
     idempotent: true,
     sessionRequired: false,

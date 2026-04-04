@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-04-03T20:55:32Z",
+  "staleAfterMs": 5000,
+  "contextWindow": {
+    "maxTokens": 1000000,
+    "currentTokens": 176362,
+    "percentage": 17
+  },
+  "status": "ok",
+  "sessionId": "",
+  "workspace": "/mnt/projects/cleocode/packages/lafs"
+}

@@ -3,9 +3,12 @@
 **Generated:** 2026-03-07 23:47 UTC  
 **Source:** `/tmp/ct-grade-eval`
 
+> **DEPRECATED**: This report was generated when MCP was still supported. MCP has been removed.
+> All operations now use the CLI exclusively. These results are retained for historical reference only.
+
 ---
 
-## MCP vs CLI Blind A/B Results
+## Historical: MCP vs CLI Blind A/B Results
 
 **Overall winner: MCP**  
 

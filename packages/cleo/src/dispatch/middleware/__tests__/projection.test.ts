@@ -87,7 +87,7 @@ describe('createProjectionMiddleware', () => {
       domain: 'tasks',
       operation: 'show',
       params: {},
-      source: 'mcp',
+      source: 'cli',
       requestId: 'test-req-1',
       ...overrides,
     };
@@ -101,7 +101,7 @@ describe('createProjectionMiddleware', () => {
         operation: 'show',
         timestamp: new Date().toISOString(),
         duration_ms: 0,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'test-req-1',
       },
       success: true,
@@ -171,7 +171,7 @@ describe('createProjectionMiddleware', () => {
         operation: 'show',
         timestamp: new Date().toISOString(),
         duration_ms: 0,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'test-req-1',
       },
       success: false,
@@ -183,14 +183,14 @@ describe('createProjectionMiddleware', () => {
   });
 });
 
-describe('MCP compact default for tasks.list', () => {
+describe('compact default for tasks.list', () => {
   function makeRequest(overrides: Partial<DispatchRequest> = {}): DispatchRequest {
     return {
       gateway: 'query',
       domain: 'tasks',
       operation: 'list',
       params: {},
-      source: 'mcp',
+      source: 'cli',
       requestId: 'test-compact-1',
       ...overrides,
     };
@@ -204,7 +204,7 @@ describe('MCP compact default for tasks.list', () => {
         operation: 'list',
         timestamp: new Date().toISOString(),
         duration_ms: 0,
-        source: 'mcp',
+        source: 'cli',
         requestId: 'test-compact-1',
       },
       success: true,
@@ -212,7 +212,7 @@ describe('MCP compact default for tasks.list', () => {
     };
   }
 
-  it('should inject compact: true for MCP tasks.list', async () => {
+  it('should NOT inject compact for CLI tasks.list (CLI-only)', async () => {
     const middleware = createProjectionMiddleware();
     const req = makeRequest();
     let capturedParams: Record<string, unknown> | undefined;
@@ -220,10 +220,10 @@ describe('MCP compact default for tasks.list', () => {
       capturedParams = req.params;
       return makeSuccessResponse();
     });
-    expect(capturedParams!['compact']).toBe(true);
+    expect(capturedParams!['compact']).toBeUndefined();
   });
 
-  it('should initialize params before injecting compact', async () => {
+  it('should not inject compact when params is undefined', async () => {
     const middleware = createProjectionMiddleware();
     const req = makeRequest({ params: undefined });
     let capturedParams: Record<string, unknown> | undefined;
@@ -231,18 +231,8 @@ describe('MCP compact default for tasks.list', () => {
       capturedParams = req.params;
       return makeSuccessResponse();
     });
-    expect(capturedParams).toEqual({ compact: true });
-  });
-
-  it('should NOT inject compact for CLI tasks.list', async () => {
-    const middleware = createProjectionMiddleware();
-    const req = makeRequest({ source: 'cli' });
-    let capturedParams: Record<string, unknown> | undefined;
-    await middleware(req, async () => {
-      capturedParams = req.params;
-      return makeSuccessResponse();
-    });
-    expect(capturedParams!['compact']).toBeUndefined();
+    // CLI source: no compact injection. Params may be initialized but compact is absent.
+    expect(capturedParams?.['compact']).toBeUndefined();
   });
 
   it('should NOT override explicit compact: false', async () => {

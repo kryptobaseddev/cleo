@@ -28,7 +28,7 @@ const execAsync = promisify(exec);
  *
  * Bridges CLEO's adapter system with Gemini CLI's native capabilities:
  * - Hooks: Maps Gemini CLI events (SessionStart, PreToolUse, etc.) to CAAMP events
- * - Install: Registers MCP server in ~/.gemini/settings.json and ensures AGENTS.md references
+ * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
  * @task T161
  * @epic T134
@@ -54,7 +54,7 @@ export class GeminiCliAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

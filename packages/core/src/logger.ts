@@ -5,8 +5,8 @@
  * Custom formatters for uppercase level labels and ISO timestamps.
  * Context via child loggers (getLogger('subsystem')).
  *
- * MCP safety: all diagnostic logging goes to files — stdout is reserved
- * for the MCP protocol. Fallback stderr logger if not yet initialized.
+ * All diagnostic logging goes to files — stdout is reserved for structured
+ * CLI output. Fallback stderr logger if not yet initialized.
  */
 
 import { existsSync } from 'node:fs';
@@ -59,7 +59,7 @@ export function initLogger(
   // transport has mkdir: true as a safety net for edge cases where the
   // logger is initialized before scaffold (e.g. early startup fallback).
   if (!existsSync(currentLogDir)) {
-    // Emit to stderr — safe for MCP (protocol is stdout only)
+    // Emit to stderr — stdout is reserved for structured output
     process.stderr.write(
       `[cleo:logger] Log directory missing: ${currentLogDir} — pino-roll will create it\n`,
     );
@@ -122,11 +122,11 @@ export function initLogger(
  * Safe to call before initLogger — returns a stderr fallback logger
  * so early startup code and tests never crash.
  *
- * @param subsystem - Logical subsystem name (e.g. 'audit', 'mcp', 'migration')
+ * @param subsystem - Logical subsystem name (e.g. 'audit', 'dispatch', 'migration')
  */
 export function getLogger(subsystem: string): pino.Logger {
   if (!rootLogger) {
-    // Fallback: stderr logger (safe for MCP — protocol is stdout)
+    // Fallback: stderr logger (stdout reserved for structured output)
     return pino(
       {
         level: 'warn',

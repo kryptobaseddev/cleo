@@ -2,7 +2,7 @@
  * Security Hardening and Input Sanitization (Core)
  *
  * Canonical location for input sanitization and security validation.
- * Self-contained with no dispatch or MCP dependencies.
+ * Self-contained with no dispatch dependencies.
  *
  * Canonical location: src/core/security/input-sanitization.ts
  * Re-exported from: src/dispatch/lib/security.ts (backward compat)
@@ -296,7 +296,7 @@ export class RateLimiter {
 
 /**
  * Parameters that expect array values.
- * MCP clients may send comma-separated strings instead of arrays.
+ * External clients may send comma-separated strings instead of arrays.
  */
 const ARRAY_PARAMS = new Set([
   'labels',
@@ -316,7 +316,7 @@ const ARRAY_PARAMS = new Set([
 
 /**
  * Normalize a value to an array of strings.
- * Handles MCP clients sending comma-separated strings where arrays are expected.
+ * Handles external clients sending comma-separated strings where arrays are expected.
  */
 export function ensureArray(value: unknown, separator = ','): string[] | undefined {
   if (value === undefined || value === null) return undefined;
@@ -426,7 +426,7 @@ export function sanitizeParams(
     }
   }
 
-  // Normalize array parameters (MCP clients may send comma-separated strings)
+  // Normalize array parameters (external clients may send comma-separated strings)
   for (const key of Object.keys(sanitized)) {
     if (ARRAY_PARAMS.has(key) && sanitized[key] !== undefined) {
       sanitized[key] = ensureArray(sanitized[key]);

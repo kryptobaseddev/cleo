@@ -1,7 +1,7 @@
 /**
  * Dispatch-local metadata factory.
  *
- * Replaces the import of createGatewayMeta from MCP lib.
+ * Generates LAFS-conformant metadata for dispatch layer responses.
  * Generates LAFS-conformant metadata for dispatch responses.
  *
  * @task T4772
@@ -17,7 +17,7 @@ import type { DispatchResponse, Source } from '../types.js';
  * @param domain    - Domain name (e.g., 'tasks', 'session')
  * @param operation - Operation name (e.g., 'show', 'list')
  * @param startTime - Timestamp from Date.now() at start of request
- * @param source    - Where the request originated ('cli' or 'mcp')
+ * @param source    - Where the request originated
  * @param requestId - Optional pre-generated request ID
  * @param sessionId - Optional session ID to include in metadata
  * @returns Metadata conforming to DispatchResponse['_meta']
@@ -30,7 +30,7 @@ export function createDispatchMeta(
   domain: string,
   operation: string,
   startTime: number,
-  source: Source = 'mcp',
+  source: Source = 'cli',
   requestId?: string,
   sessionId?: string | null,
 ): DispatchResponse['_meta'] {

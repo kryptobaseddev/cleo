@@ -4,22 +4,22 @@ description: >-
   CLEO session grading and A/B behavioral analysis with token tracking. Evaluates agent
   session quality via a 5-dimension rubric (S1 session discipline, S2 discovery efficiency,
   S3 task hygiene, S4 error protocol, S5 progressive disclosure). Supports three modes:
-  (1) scenario — run playbook scenarios S1-S5 against MCP or CLI; (2) ab — blind A/B
-  comparison of CLEO MCP gateway vs CLI for same domain operations with token cost
+  (1) scenario — run playbook scenarios S1-S5 via CLI; (2) ab — blind A/B
+  comparison of different CLI configurations for same domain operations with token cost
   measurement; (3) blind — spawn two agents with different configurations, blind-comparator
   picks winner, analyzer produces recommendation. Use when grading agent sessions, running
-  grade playbook scenarios, comparing MCP vs CLI behavioral differences, measuring token
-  usage across interface types, or performing multi-run blind A/B evaluation with statistical
+  grade playbook scenarios, comparing behavioral differences, measuring token
+  usage across configurations, or performing multi-run blind A/B evaluation with statistical
   analysis and comparative report. Triggers on: grade session, evaluate agent behavior,
-  A/B test CLEO interfaces, run grade scenario, token usage analysis, behavioral rubric,
-  protocol compliance scoring, MCP vs CLI comparison.
-argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [interface=mcp|cli|both] [runs=N] [session-id=<id>]"
+  A/B test CLEO configurations, run grade scenario, token usage analysis, behavioral rubric,
+  protocol compliance scoring.
+argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [runs=N] [session-id=<id>]"
 allowed-tools: ["Bash(python *)", "Bash(cleo-dev *)", "Bash(cleo *)", "Bash(kill *)", "Bash(lsof *)", "Agent", "Read", "Write", "Glob"]
 ---
 
 # ct-grade v2.1 — CLEO Grading and A/B Testing
 
-Session grading and A/B behavioral analysis for CLEO protocol compliance. Three operating modes cover everything from single-session scoring to multi-run blind comparisons between MCP and CLI interfaces.
+Session grading and A/B behavioral analysis for CLEO protocol compliance. Three operating modes cover everything from single-session scoring to multi-run blind comparisons between different CLI configurations.
 
 ## On Every /ct-grade Invocation
 
@@ -48,7 +48,7 @@ echo "Grade viewer stopped."
 | Mode | Purpose | Key Output |
 |---|---|---|
 | `scenario` | Run playbook scenarios S1-S5 as graded sessions | GradeResult per scenario |
-| `ab` | Run same domain operations via MCP AND CLI, compare | comparison.json + token delta |
+| `ab` | Run same domain operations with two configurations, compare | comparison.json + token delta |
 | `blind` | Two agents run same task, blind comparator picks winner | analysis.json + winner |
 
 ## Parameters
@@ -57,7 +57,7 @@ echo "Grade viewer stopped."
 |---|---|---|---|
 | `mode` | `scenario\|ab\|blind` | `scenario` | Operating mode |
 | `scenario` | `s1\|s2\|s3\|s4\|s5\|all` | `all` | Grade playbook scenario(s) to run |
-| `interface` | `mcp\|cli\|both` | `both` | Which interface to exercise |
+| `interface` | `cli` | `cli` | Interface to exercise (CLI only) |
 | `domains` | comma list | `tasks,session` | Domains to test in `ab` mode |
 | `runs` | integer | `3` | Runs per configuration for statistical confidence |
 | `session-id` | string | — | Grade a specific existing session (skips execution) |
@@ -70,12 +70,12 @@ echo "Grade viewer stopped."
 /ct-grade session-id=<id>
 ```
 
-**Run scenario S4 (Full Lifecycle) on MCP:**
+**Run scenario S4 (Full Lifecycle):**
 ```
-/ct-grade mode=scenario scenario=s4 interface=mcp
+/ct-grade mode=scenario scenario=s4
 ```
 
-**A/B compare MCP vs CLI for tasks + session domains (3 runs each):**
+**A/B compare two configurations for tasks + session domains (3 runs each):**
 ```
 /ct-grade mode=ab domains=tasks,session runs=3
 ```
@@ -93,10 +93,10 @@ echo "Grade viewer stopped."
 
 1. Set up output dir with `python $CLAUDE_SKILL_DIR/scripts/setup_run.py --mode scenario --scenario <id> --output-dir <dir>`
 2. For each scenario, spawn a `scenario-runner` agent:
-   - Agent start: `mutate session start { "grade": true, "name": "<scenario-id>-<interface>" }`
+   - Agent start: `cleo session start --scope global --name "<scenario-id>" --grade`
    - Agent executes the scenario operations (see [references/playbook-v2.md](references/playbook-v2.md))
-   - Agent end: `mutate session end`
-   - Agent runs: `query admin grade { "sessionId": "<id>" }`
+   - Agent end: `cleo session end`
+   - Agent runs: `ct grade <sessionId>`
    - Agent saves: `GradeResult` to `<output-dir>/<scenario>/grade.json`
 3. Capture `total_tokens` + `duration_ms` from task notification → `timing.json`
 4. Run: `python $CLAUDE_SKILL_DIR/scripts/generate_report.py --run-dir <dir> --mode scenario`
@@ -105,16 +105,16 @@ echo "Grade viewer stopped."
 
 1. Set up run dir with `python $CLAUDE_SKILL_DIR/scripts/setup_run.py --mode ab --output-dir <dir>`
 2. For each target domain, spawn TWO agents in the SAME turn:
-   - **Arm A** (MCP): `agents/scenario-runner.md` with `INTERFACE=mcp`
-   - **Arm B** (CLI): `agents/scenario-runner.md` with `INTERFACE=cli`
+   - **Arm A**: `agents/scenario-runner.md` with configuration A
+   - **Arm B**: `agents/scenario-runner.md` with configuration B
    - Capture tokens from both task notifications immediately
-3. Pass both outputs to `agents/blind-comparator.md` (does NOT know which is MCP vs CLI)
+3. Pass both outputs to `agents/blind-comparator.md` (does NOT know which configuration is which)
 4. Comparator writes `comparison.json`
 5. Run `python $CLAUDE_SKILL_DIR/scripts/generate_report.py --run-dir <dir> --mode ab`
 
 ### Mode: blind
 
-Same as `ab` but configurations may differ beyond MCP/CLI (e.g., different session scopes, different agent prompts). The comparator is always blind to configuration identity.
+Same as `ab` but configurations may differ (e.g., different session scopes, different agent prompts). The comparator is always blind to configuration identity.
 
 ---
 
@@ -127,7 +127,7 @@ timing = {
   "total_tokens": task.total_tokens,     # from task notification — EPHEMERAL
   "duration_ms": task.duration_ms,       # from task notification
   "arm": "arm-A",
-  "interface": "mcp",
+  "interface": "cli",
   "scenario": "s4",
   "run": 1,
   "executor_start": start_iso,
@@ -154,11 +154,9 @@ If running without task notifications (no total_tokens available):
 | S2 Discovery Efficiency | 20 | `find:list` ratio ≥80% (+15), `tasks.show` used (+5) |
 | S3 Task Hygiene | 20 | Starts 20, -5 per add without description, -3 if subtask no exists check |
 | S4 Error Protocol | 20 | Starts 20, -5 per unrecovered E_NOT_FOUND, -5 if duplicates |
-| S5 Progressive Disclosure | 20 | `admin.help`/skill lookup (+10), MCP `query` gateway used (+10) |
+| S5 Progressive Disclosure | 20 | `admin.help`/skill lookup (+10), progressive disclosure used (+10) |
 
-**Grade letters:** A≥90, B≥75, C≥60, D≥45, F<45
-
-**Note:** CLI-only sessions always score 0 on S5 — `metadata.gateway` is not set by the CLI adapter. MCP earns +10 automatically.
+**Grade letters:** A>=90, B>=75, C>=60, D>=45, F<45
 
 ---
 
@@ -227,11 +225,11 @@ Shows historical grades from GRADES.jsonl, A/B summaries from any workspace subd
 
 ---
 
-## MCP Grade Operations
+## CLI Grade Operations
 
-| Gateway | Domain | Operation | Params |
-|---|---|---|---|
-| `query` | `admin` | `grade` | `{ "sessionId": "<id>" }` |
-| `query` | `admin` | `grade.list` | — |
-| `mutate` | `session` | `start` | `{ "grade": true, "name": "<n>", "scope": "global" }` |
-| `mutate` | `session` | `end` | — |
+| Command | Description |
+|---------|-------------|
+| `ct grade <sessionId>` | Grade a specific session |
+| `ct grade --list` | List past grade results |
+| `ct session start --scope global --name "<n>" --grade` | Start graded session |
+| `ct session end` | End session |

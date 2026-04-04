@@ -2,30 +2,24 @@
  * Gemini CLI Install Provider
  *
  * Handles CLEO installation into Gemini CLI environments:
- * - Registers CLEO MCP server in ~/.gemini/settings.json
  * - Ensures AGENTS.md has CLEO @-references
  *
  * @task T161
  * @epic T134
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 
 /** Lines that should appear in AGENTS.md to reference CLEO. */
 const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
-/** MCP server registration key used in Gemini CLI settings. */
-const MCP_SERVER_KEY = 'cleo';
-
 /**
  * Install provider for Gemini CLI.
  *
  * Manages CLEO's integration with Gemini CLI by:
- * 1. Registering the CLEO MCP server in ~/.gemini/settings.json
- * 2. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
  *
  * @task T161
  * @epic T134
@@ -34,26 +28,17 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   /**
    * Install CLEO into a Gemini CLI environment.
    *
-   * @param options - Installation options including project directory and MCP server path
+   * @param options - Installation options including project directory
    * @returns Result describing what was installed
    * @task T161
    */
   async install(options: InstallOptions): Promise<InstallResult> {
-    const { projectDir, mcpServerPath } = options;
+    const { projectDir } = options;
     const installedAt = new Date().toISOString();
     let instructionFileUpdated = false;
-    let mcpRegistered = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Register MCP server in ~/.gemini/settings.json
-    if (mcpServerPath) {
-      mcpRegistered = this.registerMcpServer(mcpServerPath);
-      if (mcpRegistered) {
-        details.mcpConfigPath = join(homedir(), '.gemini', 'settings.json');
-      }
-    }
-
-    // Step 2: Ensure AGENTS.md has @-references
+    // Step 1: Ensure AGENTS.md has @-references
     instructionFileUpdated = this.updateInstructionFile(projectDir);
     if (instructionFileUpdated) {
       details.instructionFile = join(projectDir, 'AGENTS.md');
@@ -63,7 +48,7 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
       success: true,
       installedAt,
       instructionFileUpdated,
-      mcpRegistered,
+      mcpRegistered: false,
       details,
     };
   }
@@ -71,41 +56,25 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   /**
    * Uninstall CLEO from the Gemini CLI environment.
    *
-   * Removes the MCP server registration from ~/.gemini/settings.json.
    * Does not remove AGENTS.md references (they are harmless if CLEO is not present).
    * @task T161
    */
   async uninstall(): Promise<void> {
-    const settingsPath = join(homedir(), '.gemini', 'settings.json');
-    if (existsSync(settingsPath)) {
-      try {
-        const raw = readFileSync(settingsPath, 'utf-8');
-        const config = JSON.parse(raw) as Record<string, unknown>;
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
-          delete mcpServers[MCP_SERVER_KEY];
-          writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-        }
-      } catch {
-        // Ignore errors during uninstall
-      }
-    }
+    // No-op: no MCP registration to remove
   }
 
   /**
    * Check whether CLEO is installed in the Gemini CLI environment.
    *
-   * Checks for MCP server registered in ~/.gemini/settings.json.
-   * Returns true if the CLEO MCP server entry is found.
+   * Checks for CLEO references in AGENTS.md.
    * @task T161
    */
   async isInstalled(): Promise<boolean> {
-    const settingsPath = join(homedir(), '.gemini', 'settings.json');
-    if (existsSync(settingsPath)) {
+    const agentsMdPath = join(process.cwd(), 'AGENTS.md');
+    if (existsSync(agentsMdPath)) {
       try {
-        const config = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
+        const content = readFileSync(agentsMdPath, 'utf-8');
+        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
           return true;
         }
       } catch {
@@ -126,44 +95,6 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
     this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Register the CLEO MCP server in ~/.gemini/settings.json.
-   *
-   * Gemini CLI stores its MCP server configuration in ~/.gemini/settings.json
-   * under the mcpServers key.
-   *
-   * @param mcpServerPath - Absolute path to the MCP server entry point
-   * @returns true if registration was performed or updated
-   */
-  private registerMcpServer(mcpServerPath: string): boolean {
-    const geminiDir = join(homedir(), '.gemini');
-    const settingsPath = join(geminiDir, 'settings.json');
-    let config: Record<string, unknown> = {};
-
-    mkdirSync(geminiDir, { recursive: true });
-
-    if (existsSync(settingsPath)) {
-      try {
-        config = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-      } catch {
-        // Start fresh on parse error
-      }
-    }
-
-    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-      config.mcpServers = {};
-    }
-
-    const mcpServers = config.mcpServers as Record<string, unknown>;
-    mcpServers[MCP_SERVER_KEY] = {
-      command: 'node',
-      args: [mcpServerPath],
-    };
-
-    writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    return true;
   }
 
   /**

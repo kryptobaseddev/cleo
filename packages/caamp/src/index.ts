@@ -1,29 +1,19 @@
 /**
  * @packageDocumentation
  * Provides the public API surface for the CAAMP library, re-exporting types,
- * registry functions, detection utilities, skill management, MCP server
- * installation, instruction file injection, marketplace search, and
+ * registry functions, detection utilities, skill management,
+ * instruction file injection, marketplace search, and
  * format-agnostic config read/write operations.
  */
 
 export type {
   BatchInstallOptions,
   BatchInstallResult,
-  ConflictPolicy,
-  DualScopeConfigureOptions,
-  DualScopeConfigureResult,
   InstructionUpdateSummary,
-  McpBatchOperation,
-  McpConflict,
-  McpConflictCode,
-  McpPlanApplyResult,
   SkillBatchOperation,
 } from './core/advanced/orchestration.js';
 // Advanced orchestration
 export {
-  applyMcpInstallWithPolicy,
-  configureProviderGlobalAndProject,
-  detectMcpConfigConflicts,
   installBatchWithRollback,
   selectProvidersByMinimumPriority,
   updateInstructionsSingleOperation,
@@ -98,46 +88,6 @@ export { isQuiet, isVerbose, setQuiet, setVerbose } from './core/logger.js';
 // Marketplace
 export { MarketplaceClient } from './core/marketplace/client.js';
 export type { MarketplaceResult } from './core/marketplace/types.js';
-// CLEO core
-export type { CleoChannel, CleoProfileBuildResult } from './core/mcp/cleo.js';
-export {
-  buildCleoProfile,
-  checkCommandReachability,
-  extractVersionTag,
-  isCleoSource,
-  normalizeCleoChannel,
-  parseEnvAssignments,
-  resolveChannelFromServerName,
-  resolveCleoServerName,
-} from './core/mcp/cleo.js';
-export type { InstallResult } from './core/mcp/installer.js';
-// MCP install
-export {
-  buildServerConfig,
-  installMcpServer,
-  installMcpServerToAll,
-} from './core/mcp/installer.js';
-// MCP lock
-export {
-  getLastSelectedAgents,
-  getTrackedMcpServers,
-  readLockFile,
-  recordMcpInstall,
-  removeMcpFromLock,
-  saveLastSelectedAgents,
-} from './core/mcp/lock.js';
-// MCP read/list/remove
-export {
-  listAgentsMcpServers,
-  listAllMcpServers,
-  listMcpServers,
-  removeMcpServer,
-  resolveConfigPath,
-} from './core/mcp/reader.js';
-// MCP reconcile
-export type { InferredLockData, ReconcileOptions, ReconcileResult } from './core/mcp/reconcile.js';
-export { inferCleoLockData, reconcileCleoLock } from './core/mcp/reconcile.js';
-export { getTransform } from './core/mcp/transforms.js';
 // Canonical path utilities
 export {
   getAgentsConfigPath,

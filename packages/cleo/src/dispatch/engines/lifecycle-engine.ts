@@ -3,7 +3,7 @@
  *
  * Delegates all business logic to src/core/lifecycle/index.ts.
  * This file only wraps core function calls in EngineResult format
- * for the MCP domain handlers.
+ * for the dispatch domain handlers.
  *
  * @task T4785
  * @task T4800 - Updated to canonical full-form stage names

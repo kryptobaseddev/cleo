@@ -336,9 +336,10 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
 
     for (const ref of refs) {
       const rawPath = ref.slice(1).trim();
-      const resolvedPath = rawPath.startsWith('~/')
-        ? join(homedir(), rawPath.slice(2))
-        : join(projectRoot, rawPath);
+      const resolvedPath =
+        rawPath.startsWith('~/') || rawPath.startsWith('~\\')
+          ? join(homedir(), rawPath.slice(2))
+          : join(projectRoot, rawPath);
 
       if (!existsSync(resolvedPath)) {
         missing.push(rawPath);

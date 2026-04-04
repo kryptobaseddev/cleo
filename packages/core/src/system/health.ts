@@ -145,7 +145,10 @@ export interface DiagnosticsResult {
 }
 
 /** Run system health checks (SQLite-first per ADR-006). */
-export async function getSystemHealth(projectRoot: string, opts?: { detailed?: boolean }): Promise<HealthResult> {
+export async function getSystemHealth(
+  projectRoot: string,
+  opts?: { detailed?: boolean },
+): Promise<HealthResult> {
   const cleoDir = join(projectRoot, '.cleo');
   const checks: HealthCheck[] = [];
 
@@ -186,7 +189,9 @@ export async function getSystemHealth(projectRoot: string, opts?: { detailed?: b
   if (existsSync(sdDbPath)) {
     try {
       const { DatabaseSync: SdDb } = _require('node:sqlite') as {
-        DatabaseSync: new (path: string) => {
+        DatabaseSync: new (
+          path: string,
+        ) => {
           prepare(sql: string): { get(...args: unknown[]): unknown };
           close(): void;
         };
@@ -920,8 +925,8 @@ export async function runDoctorFixes(projectRoot: string): Promise<FixResult[]> 
       };
     },
     contributor_channel: async () => {
-      const { ensureContributorMcp } = await import('../scaffold.js');
-      const r = await ensureContributorMcp(projectRoot);
+      const { ensureContributorMcp: ensureContributorDev } = await import('../scaffold.js');
+      const r = await ensureContributorDev(projectRoot);
       return {
         check: 'contributor_channel',
         action: r.action === 'skipped' ? 'skipped' : 'fixed',
@@ -1008,7 +1013,7 @@ export async function runDoctorFixes(projectRoot: string): Promise<FixResult[]> 
 }
 
 // ============================================================================
-// Startup Health Check (MCP + CLI unified entry point)
+// Startup Health Check (CLI unified entry point)
 // ============================================================================
 
 /**
@@ -1040,7 +1045,7 @@ export interface StartupHealthResult {
 }
 
 /**
- * Unified startup health check for MCP server and CLI entry points.
+ * Unified startup health check for CLI entry points.
  *
  * This is the single entry point for startup diagnostics. It follows a
  * three-phase approach:

@@ -11,15 +11,6 @@ ct session start --scope epic:T001 --auto-focus --name "Name"
 #                ^^^^^^^^^^^^^^^^^ REQUIRED     ^^^^^^^^^^^^^ REQUIRED
 ```
 
-## MCP Session Operations
-
-```
-mutate({ domain: "session", operation: "start",
-  params: { scope: "epic:T001", name: "Work", autoStart: true }})
-query({ domain: "session", operation: "status" })
-mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
-```
-
 ## CLI Session Protocol
 
 ### START (ALWAYS first)
@@ -121,9 +112,9 @@ Skills are **context injections, NOT agents**. The orchestrator selects and inje
 
 ### Discovery
 
-```
-query({ domain: "tools", operation: "skill.list" })
-query({ domain: "tools", operation: "skill.show", params: { name: "ct-orchestrator" }})
+```bash
+cleo skill list
+cleo skill show ct-orchestrator
 ```
 
 ### Key Skills

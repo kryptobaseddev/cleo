@@ -11,7 +11,7 @@
  *   ct adr sync                  — sync .cleo/adrs/ into architecture_decisions DB
  *   ct adr find <query>          — fuzzy search ADRs by title, summary, keywords, topics
  *
- * MCP equivalents:
+ * Dispatch equivalents:
  *   mutate({domain:'admin', operation:'adr.validate'})
  *   query({domain:'admin',  operation:'adr.list',  params:{status?}})
  *   query({domain:'admin',  operation:'adr.show',  params:{adrId}})

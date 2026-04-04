@@ -1,7 +1,7 @@
 /**
  * Tools Domain Handler (Dispatch Layer)
  *
- * Consolidates MCP domains issues, skills, and providers into a single
+ * Consolidates issues, skills, and providers into a single
  * "tools" domain with dot-prefixed operation names. All operations delegate
  * to the tools-engine which wraps src/core/ calls.
  *
@@ -16,12 +16,7 @@
  */
 
 import { getLogger, getProjectRoot } from '@cleocode/core';
-import {
-  codeOutline,
-  codeParse,
-  codeSearch,
-  codeUnfold,
-} from '../engines/code-engine.js';
+import { codeOutline, codeParse, codeSearch, codeUnfold } from '../engines/code-engine.js';
 import {
   toolsAdapterActivate,
   toolsAdapterDetect,

@@ -2,7 +2,7 @@
  * Central token telemetry command group.
  *
  * @task T5618
- * @why CLEO needs a provider-aware in-house token tool that works across CLI, MCP, tests, and telemetry workflows.
+ * @why CLEO needs a provider-aware in-house token tool that works across CLI, tests, and telemetry workflows.
  * @what Adds summary/list/show/delete/clear plus direct estimate/record support for token telemetry.
  */
 
@@ -144,7 +144,7 @@ export function registerTokenCommand(program: Command): void {
     .description('Estimate request/response tokens using the central token service')
     .option('--provider <provider>', 'Provider name')
     .option('--model <model>', 'Model name')
-    .option('--transport <transport>', 'Transport (cli|mcp|api|agent|unknown)', 'unknown')
+    .option('--transport <transport>', 'Transport (cli|api|agent|unknown)', 'unknown')
     .option('--gateway <gateway>', 'Gateway name')
     .option('--domain <domain>', 'Domain name')
     .option('--operation <name>', 'Operation name')
@@ -161,7 +161,7 @@ export function registerTokenCommand(program: Command): void {
         responsePayload,
         provider: opts['provider'] as string | undefined,
         model: opts['model'] as string | undefined,
-        transport: opts['transport'] as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+        transport: opts['transport'] as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
         gateway: opts['gateway'] as string | undefined,
         domain: opts['domain'] as string | undefined,
         operation: opts['operation'] as string | undefined,

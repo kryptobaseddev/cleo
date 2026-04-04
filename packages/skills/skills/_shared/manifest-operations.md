@@ -393,8 +393,7 @@ cleo research stats
 ### cleo research inject
 
 > **Note**: Not currently implemented in the CLI. The orchestrator generates fully-resolved
-> subagent prompts via `cleo orchestrator spawn <taskId>` or
-> `mutate({ domain: "orchestrate", operation: "spawn", params: { taskId } })`.
+> subagent prompts via `cleo orchestrator spawn <taskId>`.
 
 ---
 

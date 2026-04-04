@@ -10,7 +10,6 @@
  * - hybrid: Can run either way (prefers CLI when available)
  *
  * preferredChannel encodes token-efficiency routing (from routing-table.ts):
- * - mcp: Lower overhead (no CLI startup), direct DB access, structured JSON
  * - cli: Human-readable output, shell integration, interactive prompts
  * - either: No significant difference or context-dependent
  *
@@ -32,9 +31,10 @@ export type GatewayType = 'query' | 'mutate';
 
 /**
  * Preferred communication channel for token efficiency.
- * Added for provider-agnostic skill routing (@task T5240).
+ * CLI is the only dispatch channel.
+ * @task T5240
  */
-export type PreferredChannel = 'mcp' | 'cli' | 'either';
+export type PreferredChannel = 'cli' | 'either';
 
 export interface OperationCapability {
   domain: string;
@@ -65,7 +65,7 @@ export interface CapabilityReport {
 /**
  * The capability matrix - single source of truth for operation routing.
  *
- * Gateway registries (query.ts + mutate.ts) define the canonical MCP API surface.
+ * Gateway registries (query.ts + mutate.ts) define the canonical API surface.
  * This matrix defines the full routing table including CLI-only paths.
  * All verb aliases have been removed — only canonical operation names remain.
  *
@@ -79,9 +79,9 @@ export interface CapabilityReport {
 const CAPABILITY_MATRIX: OperationCapability[] = [
   // === Tasks Domain ===
   // Query operations
-  { domain: 'tasks', operation: 'show', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
-  { domain: 'tasks', operation: 'list', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
-  { domain: 'tasks', operation: 'find', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'tasks', operation: 'show', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
+  { domain: 'tasks', operation: 'list', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
+  { domain: 'tasks', operation: 'find', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'tasks',
     operation: 'tree',
@@ -110,8 +110,8 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  { domain: 'tasks', operation: 'next', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
-  { domain: 'tasks', operation: 'plan', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'tasks', operation: 'next', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
+  { domain: 'tasks', operation: 'plan', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'tasks',
     operation: 'relates',
@@ -138,7 +138,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'current',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tasks',
@@ -148,20 +148,20 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     preferredChannel: 'either',
   },
   // Mutate operations
-  { domain: 'tasks', operation: 'add', gateway: 'mutate', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'tasks', operation: 'add', gateway: 'mutate', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'tasks',
     operation: 'update',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tasks',
     operation: 'complete',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tasks',
@@ -217,14 +217,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'start',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tasks',
     operation: 'stop',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   // Sync sub-domain (provider-agnostic task reconciliation)
   {
@@ -256,7 +256,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'status',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'session',
@@ -291,14 +291,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'handoff.show',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'session',
     operation: 'briefing.show',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'session',
@@ -313,14 +313,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'start',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'session',
     operation: 'end',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'session',
@@ -409,7 +409,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  { domain: 'admin', operation: 'dash', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'admin', operation: 'dash', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'admin',
     operation: 'log',
@@ -424,7 +424,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  { domain: 'admin', operation: 'help', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'admin', operation: 'help', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'admin',
     operation: 'token',
@@ -453,7 +453,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  { domain: 'admin', operation: 'map', gateway: 'query', mode: 'native', preferredChannel: 'mcp' },
+  { domain: 'admin', operation: 'map', gateway: 'query', mode: 'native', preferredChannel: 'cli' },
   // Mutate operations
   {
     domain: 'admin',
@@ -617,7 +617,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'compliance.summary',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'check',
@@ -674,7 +674,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'compliance.record',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'check',
@@ -776,7 +776,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'spawn',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'orchestrate',
@@ -821,42 +821,42 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'find',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'timeline',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'fetch',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'decision.find',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'pattern.find',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'learning.find',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
@@ -899,28 +899,28 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'observe',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'decision.store',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'pattern.store',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
     operation: 'learning.store',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'memory',
@@ -951,14 +951,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'stage.validate',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'pipeline',
     operation: 'stage.status',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'pipeline',
@@ -1183,21 +1183,21 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'skill.list',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
     operation: 'skill.show',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
     operation: 'skill.find',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
@@ -1268,14 +1268,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'provider.list',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
     operation: 'provider.detect',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
@@ -1311,14 +1311,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'adapter.list',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
     operation: 'adapter.show',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
@@ -1339,7 +1339,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'adapter.activate',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'tools',
@@ -1514,14 +1514,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'list',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'sticky',
     operation: 'show',
     gateway: 'query',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   // Mutate operations
   {
@@ -1529,7 +1529,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     operation: 'add',
     gateway: 'mutate',
     mode: 'native',
-    preferredChannel: 'mcp',
+    preferredChannel: 'cli',
   },
   {
     domain: 'sticky',

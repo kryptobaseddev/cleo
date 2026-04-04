@@ -36,12 +36,12 @@ describe('ClaudeCodeAdapter', () => {
     expect(adapter.capabilities.supportsHooks).toBe(true);
     expect(adapter.capabilities.supportsSpawn).toBe(true);
     expect(adapter.capabilities.supportsInstall).toBe(true);
-    expect(adapter.capabilities.supportsMcp).toBe(true);
+    expect(adapter.capabilities.supportsMcp).toBe(false);
     expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
     expect(adapter.capabilities.instructionFilePattern).toBe('CLAUDE.md');
-    expect(adapter.capabilities.supportedHookEvents).toContain('onSessionStart');
-    expect(adapter.capabilities.supportedHookEvents).toContain('onSessionEnd');
-    expect(adapter.capabilities.supportedHookEvents).toContain('onToolComplete');
+    expect(adapter.capabilities.supportedHookEvents).toContain('SessionStart');
+    expect(adapter.capabilities.supportedHookEvents).toContain('SessionEnd');
+    expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUse');
   });
 
   it('exposes hooks, spawn, and install providers', () => {
@@ -87,20 +87,20 @@ describe('ClaudeCodeHookProvider', () => {
     hooks = new ClaudeCodeHookProvider();
   });
 
-  it('maps SessionStart to onSessionStart', () => {
-    expect(hooks.mapProviderEvent('SessionStart')).toBe('onSessionStart');
+  it('maps SessionStart to SessionStart', () => {
+    expect(hooks.mapProviderEvent('SessionStart')).toBe('SessionStart');
   });
 
-  it('maps PostToolUse to onToolComplete', () => {
-    expect(hooks.mapProviderEvent('PostToolUse')).toBe('onToolComplete');
+  it('maps PostToolUse to PostToolUse', () => {
+    expect(hooks.mapProviderEvent('PostToolUse')).toBe('PostToolUse');
   });
 
-  it('maps UserPromptSubmit to onPromptSubmit', () => {
-    expect(hooks.mapProviderEvent('UserPromptSubmit')).toBe('onPromptSubmit');
+  it('maps UserPromptSubmit to PromptSubmit', () => {
+    expect(hooks.mapProviderEvent('UserPromptSubmit')).toBe('PromptSubmit');
   });
 
-  it('maps Stop to onSessionEnd', () => {
-    expect(hooks.mapProviderEvent('Stop')).toBe('onSessionEnd');
+  it('maps Stop to ResponseComplete', () => {
+    expect(hooks.mapProviderEvent('Stop')).toBe('ResponseComplete');
   });
 
   it('returns null for unknown events', () => {
@@ -118,11 +118,11 @@ describe('ClaudeCodeHookProvider', () => {
 
   it('exposes event map for introspection', () => {
     const map = hooks.getEventMap();
-    expect(map).toHaveProperty('SessionStart', 'onSessionStart');
-    expect(map).toHaveProperty('PostToolUse', 'onToolComplete');
-    expect(map).toHaveProperty('UserPromptSubmit', 'onPromptSubmit');
-    expect(map).toHaveProperty('Stop', 'onSessionEnd');
-    expect(Object.keys(map)).toHaveLength(4);
+    expect(map).toHaveProperty('SessionStart', 'SessionStart');
+    expect(map).toHaveProperty('PostToolUse', 'PostToolUse');
+    expect(map).toHaveProperty('UserPromptSubmit', 'PromptSubmit');
+    expect(map).toHaveProperty('Stop', 'ResponseComplete');
+    expect(Object.keys(map)).toHaveLength(14);
   });
 });
 
@@ -196,33 +196,22 @@ describe('ClaudeCodeInstallProvider', () => {
     expect(injectionCount).toBe(1);
   });
 
-  it('registers MCP server in .mcp.json', async () => {
+  it('install returns mcpRegistered false', async () => {
     const result = await install.install({
       projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
     });
 
     expect(result.success).toBe(true);
-    expect(result.mcpRegistered).toBe(true);
+    expect(result.mcpRegistered).toBe(false);
     expect(result.instructionFileUpdated).toBe(true);
-
-    const mcpConfig = JSON.parse(readFileSync(join(testDir, '.mcp.json'), 'utf-8'));
-    expect(mcpConfig.mcpServers.cleo).toEqual({
-      command: 'node',
-      args: ['/path/to/cleo-mcp.js'],
-    });
   });
 
-  it('uninstall removes MCP server from .mcp.json', async () => {
+  it('uninstall is a no-op', async () => {
     await install.install({
       projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
     });
 
-    await install.uninstall();
-
-    const mcpConfig = JSON.parse(readFileSync(join(testDir, '.mcp.json'), 'utf-8'));
-    expect(mcpConfig.mcpServers.cleo).toBeUndefined();
+    await expect(install.uninstall()).resolves.toBeUndefined();
   });
 });
 

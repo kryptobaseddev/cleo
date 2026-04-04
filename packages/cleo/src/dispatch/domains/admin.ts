@@ -1,7 +1,7 @@
 /**
  * Admin Domain Handler (Dispatch Layer)
  *
- * Consolidates MCP system domain operations into the canonical "admin"
+ * Consolidates system domain operations into the canonical "admin"
  * domain. Handles version, health, config, stats, context, job management,
  * dashboard, log, sequence, init, backup, restore, migrate, cleanup,
  * safestop, inject.generate, token, adr, export, import, install.global,
@@ -145,7 +145,7 @@ export class AdminHandler implements DomainHandler {
             'action',
             {
               status: async (): Promise<DispatchResponse> => {
-                const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+                const { getJobManager } = await import('../lib/job-manager-accessor.js');
                 const manager = getJobManager();
                 if (!manager) {
                   return errorResult(
@@ -188,7 +188,7 @@ export class AdminHandler implements DomainHandler {
                 );
               },
               list: async (): Promise<DispatchResponse> => {
-                const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+                const { getJobManager } = await import('../lib/job-manager-accessor.js');
                 const mgr = getJobManager();
                 if (!mgr) {
                   return errorResult(
@@ -351,13 +351,7 @@ export class AdminHandler implements DomainHandler {
                 const result = await summarizeTokenUsage(
                   {
                     provider: params?.provider as string | undefined,
-                    transport: params?.transport as
-                      | 'cli'
-                      | 'mcp'
-                      | 'api'
-                      | 'agent'
-                      | 'unknown'
-                      | undefined,
+                    transport: params?.transport as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
                     gateway: params?.gateway as string | undefined,
                     domain: params?.domain as string | undefined,
                     operation: params?.operationName as string | undefined,
@@ -392,13 +386,7 @@ export class AdminHandler implements DomainHandler {
                 const result = await listTokenUsage(
                   {
                     provider: params?.provider as string | undefined,
-                    transport: params?.transport as
-                      | 'cli'
-                      | 'mcp'
-                      | 'api'
-                      | 'agent'
-                      | 'unknown'
-                      | undefined,
+                    transport: params?.transport as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
                     gateway: params?.gateway as string | undefined,
                     domain: params?.domain as string | undefined,
                     operation: params?.operationName as string | undefined,
@@ -706,7 +694,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'job.cancel': {
-          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+          const { getJobManager } = await import('../lib/job-manager-accessor.js');
           const mgr = getJobManager();
           if (!mgr) {
             return errorResult(
@@ -903,15 +891,15 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'detect': {
-          const { ensureProjectContext, ensureContributorMcp } = await import(
+          const { ensureProjectContext, ensureContributorMcp: ensureContributorDev } = await import(
             '@cleocode/core/internal'
           );
           const contextResult = await ensureProjectContext(projectRoot, { force: true });
-          const mcpResult = await ensureContributorMcp(projectRoot);
+          const devResult = await ensureContributorDev(projectRoot);
           return wrapResult(
             {
               success: true,
-              data: { context: contextResult, mcp: mcpResult },
+              data: { context: contextResult, devChannel: devResult },
             },
             'mutate',
             'admin',
@@ -930,13 +918,7 @@ export class AdminHandler implements DomainHandler {
                 const result = await recordTokenExchange({
                   provider: params?.provider as string | undefined,
                   model: params?.model as string | undefined,
-                  transport: params?.transport as
-                    | 'cli'
-                    | 'mcp'
-                    | 'api'
-                    | 'agent'
-                    | 'unknown'
-                    | undefined,
+                  transport: params?.transport as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
                   gateway: params?.gateway as string | undefined,
                   domain: params?.domain as string | undefined,
                   operation: params?.operationName as string | undefined,
@@ -977,13 +959,7 @@ export class AdminHandler implements DomainHandler {
                 const result = await clearTokenUsage(
                   {
                     provider: params?.provider as string | undefined,
-                    transport: params?.transport as
-                      | 'cli'
-                      | 'mcp'
-                      | 'api'
-                      | 'agent'
-                      | 'unknown'
-                      | undefined,
+                    transport: params?.transport as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
                     gateway: params?.gateway as string | undefined,
                     domain: params?.domain as string | undefined,
                     operation: params?.operationName as string | undefined,

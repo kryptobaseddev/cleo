@@ -27,29 +27,28 @@ The skill must serve or extend at least one of CLEO's **10 canonical domains**:
 
 ---
 
-## Rule 2: MCP Operation Syntax (REQUIRED if CLEO ops referenced)
+## Rule 2: CLI Operation Syntax (REQUIRED if CLEO ops referenced)
 
-Any CLEO MCP operations referenced in the skill body must use canonical format:
+Any CLEO operations referenced in the skill body must use the CLI command format:
 
 ```
-query { domain: "...", operation: "..." }
-mutate { domain: "...", operation: "..." }
+cleo <command> [args]
+ct <command> [args]
 ```
 
-Or the abbreviated shorthand: `query tasks.show`, `mutate memory.observe`
+Or the domain.operation shorthand when describing operations abstractly: `tasks.show`, `memory.observe`
 
 **Invalid references**: Operations not listed in the CLEO-OPERATION-CONSTITUTION.md are errors.
 
 **Common valid operations to recognize:**
-- `query tasks.show`, `query tasks.find`, `query tasks.list`, `query tasks.next`
-- `mutate tasks.add`, `mutate tasks.update`, `mutate tasks.complete`
-- `query session.status`, `mutate session.start`, `mutate session.end`
-- `query memory.find`, `query memory.timeline`, `query memory.fetch`, `mutate memory.observe`
-- `query admin.dash`, `query admin.health`, `query admin.help`
-- `query check.schema`, `mutate check.test.run`
-- `query pipeline.stage.status`, `mutate pipeline.manifest.append`
-- `query tools.skill.list`, `query tools.skill.show`
-- `query orchestrate.status`, `mutate orchestrate.spawn`
+- `cleo show`, `cleo find`, `cleo list`, `cleo next`
+- `cleo add`, `cleo update`, `cleo complete`
+- `cleo session status`, `cleo session start`, `cleo session end`
+- `cleo memory find`, `cleo memory timeline`, `cleo memory fetch`, `cleo memory observe`
+- `cleo dash`, `cleo health`, `cleo help`
+- `cleo pipeline stage.status`, `cleo manifest append`
+- `cleo skill list`, `cleo skill show`
+- `cleo orchestrator status`, `cleo orchestrator spawn`
 
 **Fail condition**: Skill references a domain.operation that does not exist in the constitution.
 
@@ -76,14 +75,14 @@ convert, unlink
 
 ## Rule 4: Non-Duplication (REQUIRED)
 
-Skills must not re-implement functionality already provided by CLEO's MCP operations.
+Skills must not re-implement functionality already provided by CLEO's CLI operations.
 
 **Check**: If a skill's primary function is to do something CLEO can already do via a
-single `query` or `mutate` call, that is duplication. Skills add value by composing
+single CLI command, that is duplication. Skills add value by composing
 multiple operations, providing domain expertise, or automating multi-step workflows.
 
 **Valid**: "Run 5 CLEO operations in sequence with business logic between them"
-**Invalid**: "Calls `tasks.show` and returns the result" (already exists as `query tasks.show`)
+**Invalid**: "Calls `tasks.show` and returns the result" (already exists as `cleo show`)
 
 **Fail condition**: Skill is a thin wrapper over a single existing CLEO operation with no added logic.
 
@@ -92,8 +91,8 @@ multiple operations, providing domain expertise, or automating multi-step workfl
 ## Rule 5: Data Integrity (REQUIRED if touching .cleo/ data)
 
 If the skill reads or writes `.cleo/` data stores:
-- Reads must use `query` gateway
-- Writes must use `mutate` gateway
+- Reads must use `cleo` CLI commands
+- Writes must use `cleo` CLI commands
 - Direct file editing of `.cleo/*.json`, `tasks.db`, `brain.db` is NOT acceptable
 - Skills must not bypass CLEO's atomic write requirements
 
@@ -142,7 +141,7 @@ The `allowed-tools` frontmatter should match the skill's actual needs:
 
 | Skill type | Expected tools |
 |-----------|----------------|
-| Read-only CLEO data | `Bash` (for `cleo` CLI) or implicit MCP query |
+| Read-only CLEO data | `Bash` (for `cleo` CLI) |
 | CLEO data modification | Includes write-capable tools |
 | File system operations | `Read`, `Write`, `Edit`, `Glob`, `Grep` |
 | Python scripts | `Bash(python *)` |

@@ -1,7 +1,7 @@
 /**
  * Central Dispatcher -- Routes requests through middleware to domain handlers.
  *
- * The dispatcher is the single entry point for both CLI and MCP adapters.
+ * The dispatcher is the single entry point for the CLI adapter.
  * It resolves operations, validates parameters, runs the middleware pipeline,
  * and delegates to the appropriate domain handler.
  *

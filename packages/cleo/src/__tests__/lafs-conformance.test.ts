@@ -55,8 +55,8 @@ import {
 } from '../../../core/src/store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../core/src/store/data-accessor.js';
 import { validateHierarchyPlacement } from '../../../core/src/tasks/hierarchy-policy.js';
-import { enforceBudget, isWithinBudget } from '../mcp/lib/budget.js';
-import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
+import { enforceBudget, isWithinBudget } from '../dispatch/lib/budget.js';
+import { createGatewayMeta } from '../dispatch/lib/gateway-meta.js';
 
 // ============================
 // FULL LAFS ENVELOPE VALIDATION
@@ -264,10 +264,10 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
 });
 
 // ============================
-// MCP GATEWAY META CONFORMANCE
+// GATEWAY META CONFORMANCE
 // ============================
 
-describe('MCP Gateway Meta', () => {
+describe('Gateway Meta', () => {
   it('createGatewayMeta includes all LAFS fields', () => {
     const startTime = Date.now();
     const meta = createGatewayMeta('query', 'tasks', 'list', startTime);

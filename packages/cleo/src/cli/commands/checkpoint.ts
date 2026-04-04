@@ -4,7 +4,7 @@
  * @task T4551
  * @epic T4545
  */
-// CLI-only: git checkpoint has no dispatch route (git operations not suitable for MCP)
+// CLI-only: git checkpoint has no dispatch route
 
 import { ExitCode } from '@cleocode/contracts';
 import {

@@ -59,12 +59,22 @@ describe('CursorAdapter', () => {
   });
 
   describe('capabilities', () => {
-    it('does not support hooks', () => {
-      expect(adapter.capabilities.supportsHooks).toBe(false);
+    it('supports hooks', () => {
+      expect(adapter.capabilities.supportsHooks).toBe(true);
     });
 
-    it('has no supported hook events', () => {
-      expect(adapter.capabilities.supportedHookEvents).toHaveLength(0);
+    it('declares 10 supported hook events', () => {
+      expect(adapter.capabilities.supportedHookEvents).toHaveLength(10);
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionStart');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionEnd');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PromptSubmit');
+      expect(adapter.capabilities.supportedHookEvents).toContain('ResponseComplete');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUseFailure');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SubagentStart');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SubagentStop');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreCompact');
     });
 
     it('does not support spawn', () => {
@@ -75,8 +85,8 @@ describe('CursorAdapter', () => {
       expect(adapter.capabilities.supportsInstall).toBe(true);
     });
 
-    it('supports MCP', () => {
-      expect(adapter.capabilities.supportsMcp).toBe(true);
+    it('does not support MCP (removed)', () => {
+      expect(adapter.capabilities.supportsMcp).toBe(false);
     });
 
     it('supports instruction files with MDC pattern', () => {
@@ -154,9 +164,31 @@ describe('CursorHookProvider', () => {
   });
 
   describe('mapProviderEvent', () => {
-    it('returns null for any event (no hook support)', () => {
-      expect(hooks.mapProviderEvent('session.start')).toBeNull();
-      expect(hooks.mapProviderEvent('tool.complete')).toBeNull();
+    it('maps sessionStart to SessionStart', () => {
+      expect(hooks.mapProviderEvent('sessionStart')).toBe('SessionStart');
+    });
+
+    it('maps sessionEnd to SessionEnd', () => {
+      expect(hooks.mapProviderEvent('sessionEnd')).toBe('SessionEnd');
+    });
+
+    it('maps beforeSubmitPrompt to PromptSubmit', () => {
+      expect(hooks.mapProviderEvent('beforeSubmitPrompt')).toBe('PromptSubmit');
+    });
+
+    it('maps stop to ResponseComplete', () => {
+      expect(hooks.mapProviderEvent('stop')).toBe('ResponseComplete');
+    });
+
+    it('maps preToolUse to PreToolUse', () => {
+      expect(hooks.mapProviderEvent('preToolUse')).toBe('PreToolUse');
+    });
+
+    it('maps postToolUse to PostToolUse', () => {
+      expect(hooks.mapProviderEvent('postToolUse')).toBe('PostToolUse');
+    });
+
+    it('returns null for unknown events', () => {
       expect(hooks.mapProviderEvent('any-event')).toBeNull();
       expect(hooks.mapProviderEvent('')).toBeNull();
     });
@@ -243,12 +275,12 @@ describe('CursorInstallProvider', () => {
       expect(typeof result.mcpRegistered).toBe('boolean');
     });
 
-    it('registers MCP when mcpServerPath provided', async () => {
+    it('does not register MCP even when mcpServerPath provided', async () => {
       const result = await installProvider.install({
         projectDir: '/tmp/test-project',
         mcpServerPath: '/path/to/mcp-server.js',
       });
-      expect(result.mcpRegistered).toBe(true);
+      expect(result.mcpRegistered).toBe(false);
     });
 
     it('includes instruction files in details', async () => {

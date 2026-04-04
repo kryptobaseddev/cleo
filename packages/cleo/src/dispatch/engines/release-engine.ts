@@ -378,7 +378,7 @@ export async function releaseShip(
 
   const cwd = projectRoot ?? resolveProjectRoot();
 
-  /** Collected step log messages, included in every return value for MCP visibility. */
+  /** Collected step log messages, included in every return value for CLI visibility. */
   const steps: string[] = [];
 
   /** Emit a step line for each release stage. Pushes to steps[] and console.log for CLI. */

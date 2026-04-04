@@ -50,7 +50,7 @@
       "version": "2.0.0",
       "description": "CLEO task management protocol — core guidance for session, task, and workflow operations.",
       "path": "skills/ct-cleo",
-      "tags": ["cleo", "protocol", "mcp", "session", "task-management"],
+      "tags": ["cleo", "protocol", "cli", "session", "task-management"],
       "status": "active",
       "tier": 0,
       "token_budget": 6000,

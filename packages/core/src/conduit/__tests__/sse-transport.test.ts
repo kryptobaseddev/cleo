@@ -10,7 +10,7 @@
  * @task T216
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { SseTransport } from '../sse-transport.js';
 

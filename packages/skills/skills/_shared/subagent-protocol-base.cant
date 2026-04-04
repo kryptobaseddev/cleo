@@ -89,7 +89,7 @@ protocol subagent-base:
       solution: "Write to output file, return one-line summary"
     - pattern: "Writing pretty-printed JSON to manifest"
       problem: "Multiple lines break JSONL parsers"
-      solution: "Use pipeline.manifest.append MCP operation"
+      solution: "Use cleo manifest append CLI command"
     - pattern: "Skipping tasks.start"
       problem: "Protocol violation — LIFE-001"
       solution: "Always call tasks.start before beginning work"

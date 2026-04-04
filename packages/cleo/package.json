@@ -1,12 +1,11 @@
 {
   "name": "@cleocode/cleo",
   "version": "2026.4.0",
-  "description": "CLEO CLI + MCP server — the assembled product consuming @cleocode/core",
+  "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
   "exports": {
-    ".": "./dist/cli/index.js",
-    "./mcp": "./dist/mcp/index.js"
+    ".": "./dist/cli/index.js"
   },
   "bin": {
     "cleo": "dist/cli/index.js",
@@ -24,7 +23,6 @@
     "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/runtime": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "citty": "^0.2.1"
   },
   "engines": {

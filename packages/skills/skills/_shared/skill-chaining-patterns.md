@@ -40,14 +40,10 @@ The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill
 ### Implementation
 
 ```bash
-# CLI (Primary)
+# Generate fully-resolved spawn prompt
 cleo orchestrator spawn T1234 --json
 
-# MCP (Fallback)
-# 1. Generate fully-resolved spawn prompt
-mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }})
-
-# 2. Provider adapter executes the prompt using its native mechanism
+# Provider adapter executes the prompt using its native mechanism
 #    - Claude Code: Task tool with cleo-subagent type
 #    - OpenCode: config-driven agent spawn
 #    - Codex: SDK agent creation
@@ -217,7 +213,7 @@ TOPIC_SLUG    # URL-safe topic name
 Before spawning subagent:
 - [ ] Identify appropriate skill for task type
 - [ ] Prepare token context (TASK_ID, DATE, TOPIC_SLUG)
-- [ ] CLI: `cleo orchestrator spawn <taskId> --json` or MCP: `orchestrate.spawn`
+- [ ] `cleo orchestrator spawn <taskId> --json`
 - [ ] Verify token resolution is complete (`tokenResolution.fullyResolved`)
 
 Before chaining to another skill:

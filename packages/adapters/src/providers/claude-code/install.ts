@@ -2,7 +2,6 @@
  * Claude Code Install Provider
  *
  * Handles CLEO installation into Claude Code environments:
- * - Registers CLEO MCP server in .mcp.json
  * - Ensures CLAUDE.md has CLEO @-references
  * - Manages plugin registration in ~/.claude/settings.json
  *
@@ -19,60 +18,43 @@ import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cle
 /** Lines that should appear in CLAUDE.md to reference CLEO. */
 const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
-/** MCP server registration key used in .mcp.json. */
-const MCP_SERVER_KEY = 'cleo';
-
 /**
  * Install provider for Claude Code.
  *
  * Manages CLEO's integration with Claude Code by:
- * 1. Registering the CLEO MCP server in the project's .mcp.json
- * 2. Ensuring CLAUDE.md contains @-references to CLEO instruction files
- * 3. Registering the brain observation plugin in ~/.claude/settings.json
+ * 1. Ensuring CLAUDE.md contains @-references to CLEO instruction files
+ * 2. Registering the brain observation plugin in ~/.claude/settings.json
  */
 export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
-  private installedProjectDir: string | null = null;
-
   /**
    * Install CLEO into a Claude Code project.
    *
-   * @param options - Installation options including project directory and MCP server path
+   * @param options - Installation options including project directory
    * @returns Result describing what was installed
    */
   async install(options: InstallOptions): Promise<InstallResult> {
-    const { projectDir, mcpServerPath } = options;
+    const { projectDir } = options;
     const installedAt = new Date().toISOString();
     let instructionFileUpdated = false;
-    let mcpRegistered = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Register MCP server in .mcp.json
-    if (mcpServerPath) {
-      mcpRegistered = this.registerMcpServer(projectDir, mcpServerPath);
-      if (mcpRegistered) {
-        details.mcpConfigPath = join(projectDir, '.mcp.json');
-      }
-    }
-
-    // Step 2: Ensure CLAUDE.md has @-references
+    // Step 1: Ensure CLAUDE.md has @-references
     instructionFileUpdated = this.updateInstructionFile(projectDir);
     if (instructionFileUpdated) {
       details.instructionFile = join(projectDir, 'CLAUDE.md');
     }
 
-    // Step 3: Register plugin in ~/.claude/settings.json
+    // Step 2: Register plugin in ~/.claude/settings.json
     const pluginResult = this.registerPlugin();
     if (pluginResult) {
       details.plugin = pluginResult;
     }
 
-    this.installedProjectDir = projectDir;
-
     return {
       success: true,
       installedAt,
       instructionFileUpdated,
-      mcpRegistered,
+      mcpRegistered: false,
       details,
     };
   }
@@ -80,38 +62,14 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
   /**
    * Uninstall CLEO from the current Claude Code project.
    *
-   * Removes the MCP server registration from .mcp.json.
    * Does not remove CLAUDE.md references (they are harmless if CLEO is not present).
    */
-  async uninstall(): Promise<void> {
-    if (!this.installedProjectDir) return;
-
-    const mcpPath = join(this.installedProjectDir, '.mcp.json');
-    if (existsSync(mcpPath)) {
-      try {
-        const raw = readFileSync(mcpPath, 'utf-8');
-        const config = JSON.parse(raw) as Record<string, unknown>;
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
-          delete mcpServers[MCP_SERVER_KEY];
-          writeFileSync(mcpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-        }
-      } catch {
-        // Ignore errors during uninstall
-      }
-    }
-
-    this.installedProjectDir = null;
-  }
+  async uninstall(): Promise<void> {}
 
   /**
    * Check whether CLEO is installed in the current environment.
    *
-   * Checks for:
-   * 1. MCP server registered in .mcp.json
-   * 2. Plugin enabled in ~/.claude/settings.json
-   *
-   * Returns true if either condition is met (partial install counts).
+   * Checks for plugin enabled in ~/.claude/settings.json.
    */
   async isInstalled(): Promise<boolean> {
     // Check ~/.claude/settings.json for plugin registration
@@ -121,20 +79,6 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
         const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
         const plugins = settings.enabledPlugins as Record<string, boolean> | undefined;
         if (plugins && plugins['cleo@cleocode'] === true) {
-          return true;
-        }
-      } catch {
-        // Fall through
-      }
-    }
-
-    // Check current directory for .mcp.json with cleo server
-    const mcpPath = join(process.cwd(), '.mcp.json');
-    if (existsSync(mcpPath)) {
-      try {
-        const config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-        const mcpServers = config.mcpServers as Record<string, unknown> | undefined;
-        if (mcpServers && MCP_SERVER_KEY in mcpServers) {
           return true;
         }
       } catch {
@@ -154,37 +98,6 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
     this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Register the CLEO MCP server in .mcp.json.
-   *
-   * @returns true if registration was performed or updated
-   */
-  private registerMcpServer(projectDir: string, mcpServerPath: string): boolean {
-    const mcpPath = join(projectDir, '.mcp.json');
-    let config: Record<string, unknown> = {};
-
-    if (existsSync(mcpPath)) {
-      try {
-        config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-      } catch {
-        // Start fresh on parse error
-      }
-    }
-
-    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-      config.mcpServers = {};
-    }
-
-    const mcpServers = config.mcpServers as Record<string, unknown>;
-    mcpServers[MCP_SERVER_KEY] = {
-      command: 'node',
-      args: [mcpServerPath],
-    };
-
-    writeFileSync(mcpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    return true;
   }
 
   /**

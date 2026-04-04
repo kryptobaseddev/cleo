@@ -6,7 +6,7 @@
  *
  * Dependency direction:
  *   status-registry.ts → schema.ts, types/task.ts, validation/engine.ts,
- *                         mcp/lib/security.ts, dispatch/lib/security.ts, ...
+ *                         dispatch/lib/security.ts, ...
  */
 
 // === WORKFLOW NAMESPACE ===

@@ -155,7 +155,7 @@ export function createAudit(): Middleware {
       },
       metadata: {
         taskId: (req.params?.taskId as string) || (req.params?.parent as string),
-        source: req.source as 'mcp' | 'cli',
+        source: req.source,
         gateway: req.gateway as 'mutate' | 'query',
       },
       error: response.error?.message,

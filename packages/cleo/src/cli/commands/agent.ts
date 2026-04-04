@@ -1086,7 +1086,10 @@ agent ${agentId}:
         const messages = await conduit.poll({ limit });
 
         cliOutput(
-          { success: true, data: { agentId: conduit.agentId, messages, count: messages.length, limit } },
+          {
+            success: true,
+            data: { agentId: conduit.agentId, messages, count: messages.length, limit },
+          },
           { command: 'agent poll' },
         );
 

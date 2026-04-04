@@ -1,5 +1,5 @@
 /**
- * UI module - flags, changelog, command registry, aliases, injection, MCP config.
+ * UI module - flags, changelog, command registry, aliases, injection.
  *
  * @task T4454
  * @epic T4454
@@ -50,12 +50,12 @@ export {
   resolveFormat,
 } from './flags.js';
 
-// Injection & MCP config: DELETED (T4674, T4675, T4677)
-// All injection, provider detection, and MCP config management is now
+// Injection config: DELETED (T4674, T4675, T4677)
+// All injection and provider detection is now
 // delegated to @cleocode/caamp via src/core/caamp/adapter.ts.
 // See Wave 8 epic T4663 for migration context.
 //
 // Legacy exports removed:
 //   injection.ts    -> CAAMP inject()/checkInjection()
-//   mcp-config.ts   -> CAAMP detectAllProviders()/installMcpServer()
+//   (removed)       -> CAAMP detectAllProviders()
 //   injection-registry.ts -> CAAMP getInstructionFiles()

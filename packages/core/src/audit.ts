@@ -31,7 +31,7 @@ export interface AuditEntry {
   metadata: {
     taskId?: string;
     userId?: string;
-    source: 'mcp' | 'cli';
+    source: 'dispatch' | 'cli';
     gateway?: 'mutate' | 'query';
   };
   error?: string;
@@ -91,7 +91,7 @@ export async function queryAudit(options?: {
       },
       metadata: {
         taskId: row.taskId !== 'system' && row.taskId !== 'unknown' ? row.taskId : undefined,
-        source: (row.source as 'mcp' | 'cli') ?? 'mcp',
+        source: (row.source as 'dispatch' | 'cli') ?? 'cli',
         gateway: row.gateway as 'mutate' | 'query' | undefined,
       },
       error: row.errorMessage ?? undefined,

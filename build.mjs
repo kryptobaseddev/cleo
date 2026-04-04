@@ -93,7 +93,7 @@ const coreBuildOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// 2. @cleocode/cleo — CLI + MCP bundle
+// 2. @cleocode/cleo — CLI bundle (MCP removed per MODERN-CLI-STANDARD)
 //    Bundles @cleocode/contracts and @cleocode/adapters inline.
 //    @cleocode/core resolves to packages/core/src/index.ts (source).
 // ---------------------------------------------------------------------------
@@ -101,7 +101,6 @@ const coreBuildOptions = {
 const cleoBuildOptions = {
   entryPoints: [
     { in: 'packages/cleo/src/cli/index.ts', out: 'cli/index' },
-    { in: 'packages/cleo/src/mcp/index.ts', out: 'mcp/index' },
   ],
   bundle: true,
   platform: 'node',
@@ -110,7 +109,7 @@ const cleoBuildOptions = {
   outdir: 'packages/cleo/dist',
   sourcemap: true,
   banner: {
-    js: '#!/usr/bin/env -S node --disable-warning=ExperimentalWarning',
+    js: '#!/usr/bin/env node',
   },
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
@@ -200,9 +199,7 @@ async function build() {
   await esbuild.build(cleoBuildOptions);
   // Make CLI entry executable (shebang only works with +x)
   await chmod('packages/cleo/dist/cli/index.js', 0o755);
-  await chmod('packages/cleo/dist/mcp/index.js', 0o755);
   console.log('  -> packages/cleo/dist/cli/index.js');
-  console.log('  -> packages/cleo/dist/mcp/index.js');
 
   console.log('\nBuild complete.');
 }

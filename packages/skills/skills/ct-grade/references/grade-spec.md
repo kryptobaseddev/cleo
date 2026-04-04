@@ -152,19 +152,17 @@ helpCalls = entries where:
   OR (domain='tools' AND operation IN ['skill.show','skill.list'])
   OR (domain='skills' AND operation IN ['list','show'])
 
-mcpQueryCalls = entries where metadata.gateway = 'query'
+readOps = entries where operation type is a read (show, find, list, status, etc.)
 ```
 
 | Points | Condition |
 |--------|-----------|
 | +10 | `helpCalls.length > 0` |
-| +10 | `mcpQueryCalls.length > 0` |
+| +10 | `readOps.length > 0` (agent performed read operations before writes) |
 
 **Flags on violation:**
 - `No admin.help or skill lookup calls (load ct-cleo for guidance)`
-- `No MCP query calls (prefer query over CLI for programmatic access)`
-
-**Important**: The `metadata.gateway` field equals `'query'` for MCP query operations. CLI operations do not set this field. This is how MCP vs CLI usage is distinguished in the grade.
+- `No read operations before writes (prefer discovery before mutation)`
 
 ---
 
@@ -218,14 +216,13 @@ interface GradeResult {
 
 ---
 
-## MCP vs CLI Detection in S5
+## S5 Detection
 
-The grading system detects MCP usage via `metadata.gateway === 'query'`. This means:
-- **MCP interface**: All query operations set `metadata.gateway = 'query'` → S5 gets +10
-- **CLI interface**: CLI operations do NOT set metadata.gateway → S5 loses +10
-- **Mixed**: Any single MCP query call is enough for the +10
+The grading system awards S5 points based on:
+1. Presence of `admin.help` or skill lookup calls (+10)
+2. Evidence of read-before-write discipline — agent performed discovery operations before mutations (+10)
 
-This is why A/B tests between MCP and CLI interfaces will reliably show S5 differences.
+All operations use the CLI (`cleo` / `cleo-dev`). There is no MCP interface.
 
 
 ## API Surface Update

@@ -1,8 +1,8 @@
 /**
  * Unified CQRS Dispatch Layer -- Public API
  *
- * Single entry point for the dispatch layer. Both CLI and MCP adapters
- * import from here to create and use the dispatcher.
+ * Single entry point for the dispatch layer. The CLI adapter
+ * imports from here to create and use the dispatcher.
  *
  * @epic T4820
  */

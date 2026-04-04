@@ -79,7 +79,11 @@ export const codeCommand = defineCommand({
       meta: { name: 'unfold', description: 'Extract complete symbol source' },
       args: {
         file: { type: 'positional', description: 'Source file path', required: true },
-        symbol: { type: 'positional', description: 'Symbol name (e.g. parseFile or Class.method)', required: true },
+        symbol: {
+          type: 'positional',
+          description: 'Symbol name (e.g. parseFile or Class.method)',
+          required: true,
+        },
       },
       async run({ args }) {
         const { smartUnfold } = await import('@cleocode/core/internal');
@@ -94,7 +98,9 @@ export const codeCommand = defineCommand({
           process.exit(1);
         }
 
-        console.log(`// ${result.filePath}:${result.startLine}-${result.endLine} (~${result.estimatedTokens} tokens)\n`);
+        console.log(
+          `// ${result.filePath}:${result.startLine}-${result.endLine} (~${result.estimatedTokens} tokens)\n`,
+        );
         console.log(result.source);
       },
     }),

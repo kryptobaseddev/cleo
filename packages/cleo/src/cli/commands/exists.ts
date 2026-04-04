@@ -1,8 +1,8 @@
 /**
  * CLI exists command - check if a task ID exists.
  *
- * Fix #68: Calls getTask() from core directly instead of dispatching through
- * MCP (tasks.exists was never registered in the operation registry).
+ * Fix #68: Calls getTask() from core directly (tasks.exists was never
+ * registered in the operation registry).
  *
  * @task T4454
  */

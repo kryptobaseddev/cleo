@@ -43,7 +43,7 @@ For each rule (1 through 8), determine: OK, WARN, ERROR, or SKIP.
 - Classify the skill's primary domain(s)
 - ERROR if no domain connection; WARN if too scattered
 
-**Rule 2 — MCP Operation Syntax:**
+**Rule 2 — CLI Operation Syntax:**
 - Check each entry in `cleo_operations_referenced`
 - Validate against the known valid operations in cleo-ecosystem-rules.md §Rule 2
 - ERROR for any invalid domain.operation reference
@@ -105,7 +105,7 @@ Save to the path specified in your prompt (default: `ecosystem-check.json` in th
     },
     {
       "rule_id": 2,
-      "rule_name": "MCP Operation Syntax",
+      "rule_name": "CLI Operation Syntax",
       "status": "ERROR",
       "finding": "Skill references 'tools.skill.verify' which is not a valid CLEO operation. The correct operation is 'tools.skill.verify'.",
       "evidence": "Line: 'Run `query tools.skill.verify <skill-name>`'"

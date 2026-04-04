@@ -7,7 +7,7 @@
  *   3. Structural repairs (checksums, missing fields)
  *   4. Global ~/.cleo data migration
  *
- * Both CLI and MCP delegate here (shared-core pattern).
+ * CLI delegates here (shared-core pattern).
  *
  * @task T4699
  * @epic T4454
@@ -26,7 +26,6 @@ import { ensureGitHooks } from './hooks.js';
 import {
   initAgentDefinition,
   initCoreSkills,
-  initMcpServer,
   initNexusRegistration,
   installGitHubTemplates,
 } from './init.js';
@@ -901,17 +900,7 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Install MCP server to detected providers
-    try {
-      const mcpCreated: string[] = [];
-      const mcpWarnings: string[] = [];
-      await initMcpServer(projectRootForMaint, mcpCreated, mcpWarnings);
-      if (mcpCreated.length > 0) {
-        actions.push({ action: 'mcp_server', status: 'applied', details: mcpCreated.join(', ') });
-      }
-    } catch {
-      /* best-effort */
-    }
+    // (Step skipped — CLI dispatch only)
 
     // Install core skills
     try {
@@ -1025,7 +1014,7 @@ export async function runUpgrade(
       action: 'structural_maintenance',
       status: 'preview',
       details:
-        'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration',
+        'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, skills, and NEXUS registration',
     });
   }
 

@@ -2,7 +2,7 @@
  * GitHub Issue Template Parser (Core Logic)
  *
  * Native TypeScript implementation for parsing GitHub issue template YAML files
- * and producing structured JSON config. Both the MCP server and the Bash CLI
+ * and producing structured JSON config. The CLI
  * can consume the generated config at .cleo/issue-templates.json.
  *
  * Supports: parseIssueTemplates, getTemplateForSubcommand, generateTemplateConfig, validateLabels

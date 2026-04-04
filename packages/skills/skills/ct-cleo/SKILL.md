@@ -1,6 +1,6 @@
 ---
 name: ct-cleo
-description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO MCP protocol.
+description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 ---
 
 # CLEO Protocol Guide
@@ -11,9 +11,9 @@ CLEO is the task management protocol for AI coding agents. It provides structure
 
 ## CLI-First Workflow
 
-CLI (`cleo` / `ct`) is the **primary** entry point. MCP (`query` / `mutate`) is the fallback when CLI is unavailable.
+CLI (`cleo` / `ct`) is the **only** dispatch method. All operations use `cleo <command>` syntax.
 
-### Tier-0 Read Operations (`query`) — Always Available
+### Tier-0 Read Operations — Always Available
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
@@ -34,11 +34,11 @@ CLI (`cleo` / `ct`) is the **primary** entry point. MCP (`query` / `mutate`) is 
 | `tools` | `provider.list` | List all known LLM/agent providers |
 | `tools` | `provider.detect` | Detect currently active provider |
 
-### Tier-1 Read Operations (`query`) — After Session Init
+### Tier-1 Read Operations — After Session Init
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
-| `tasks` | `list` | List direct children (`params: { parentId }`) — **requires parentId filter; prefer tasks.find for discovery** |
+| `tasks` | `list` | List direct children (`--parent <id>`) — **requires parent filter; prefer `cleo find` for discovery** |
 | `tasks` | `tree` | Full subtask hierarchy (`params: { taskId }`) |
 | `tasks` | `analyze` | Leverage-sorted task discovery |
 | `tasks` | `blockers` | Tasks blocking a specific task (`params: { taskId }`) |
@@ -76,7 +76,7 @@ CLI (`cleo` / `ct`) is the **primary** entry point. MCP (`query` / `mutate`) is 
 | `sticky` | `list` | List sticky notes (`params: { status?, tag? }`) |
 | `sticky` | `show` | Show sticky details (`params: { stickyId }`) |
 
-### Tier-0 Write Operations (`mutate`) — Always Available
+### Tier-0 Write Operations — Always Available
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
@@ -89,7 +89,7 @@ CLI (`cleo` / `ct`) is the **primary** entry point. MCP (`query` / `mutate`) is 
 | `session` | `end` | End session (`params: { note? }`) |
 | `memory` | `observe` | Save observation to brain (`params: { text, title? }`) |
 
-### Tier-1 Write Operations (`mutate`) — After Session Init
+### Tier-1 Write Operations — After Session Init
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
@@ -142,20 +142,20 @@ Every agent MUST use this tree to select the minimum-cost operation path.
 ```
 Agent starts work
 │
-├── STEP 1: query session.status
+├── STEP 1: cleo session status
 │   ├── Active session exists
-│   │   └── query session.handoff.show  → resume prior context, then STEP 2
+│   │   └── cleo briefing  → resume prior context, then STEP 2
 │   └── No active session
-│       └── mutate session.start {scope: "task:TXXX" | "epic:TXXX"}
+│       └── cleo session start --scope task:TXXX  (or epic:TXXX)
 │
-├── STEP 2: query admin.dash  → project overview, active epic, blockers
+├── STEP 2: cleo dash  → project overview, active epic, blockers
 │
-├── STEP 3: query tasks.current  → is a task already in progress?
+├── STEP 3: cleo current  → is a task already in progress?
 │   ├── Yes → continue that task (skip STEP 4)
 │   └── No → STEP 4
 │
-└── STEP 4: query tasks.next  → what to work on next
-    └── query tasks.show {taskId}  → full task requirements
+└── STEP 4: cleo next  → what to work on next
+    └── cleo show {taskId}  → full task requirements
 ```
 
 **Anti-pattern blocked**: Never skip `session.status`. Resuming without `handoff.show` loses prior context and causes duplicate work.
@@ -168,28 +168,28 @@ Agent starts work
 I need to find what to work on
 │
 ├── What should I do next (auto-selected)?
-│   └── query tasks.next  [tier 0]
-│       └── query tasks.show {taskId}  [tier 0]  → full details
+│   └── cleo next  [tier 0]
+│       └── cleo show {taskId}  [tier 0]  → full details
 │
 ├── I know keywords — search for a specific task
-│   └── query tasks.find {query: "..."}  [tier 0]
-│       ├── Found one match → query tasks.show {taskId}
+│   └── cleo find "..."  [tier 0]
+│       ├── Found one match → cleo show {taskId}
 │       └── Need to browse children of a known parent
-│           └── query tasks.list {parentId: "TXXX"}  [tier 1]  ← ONLY with parentId filter
-│               ANTI-PATTERN: tasks.list with no parentId = full dump, never do this
+│           └── cleo list --parent TXXX  [tier 1]  ← ONLY with parent filter
+│               ANTI-PATTERN: cleo list with no parent = full dump, never do this
 │
 ├── I need a prioritized planning view (upcoming tasks, blockers, dependencies)
-│   └── query tasks.plan  [tier 0]
+│   └── cleo plan  [tier 0]
 │
 ├── I need the full task hierarchy under a parent
-│   └── (discover via tasks.find first, then)
-│   └── query tasks.tree {taskId}  [tier 1]  → subtask hierarchy
+│   └── (discover via cleo find first, then)
+│   └── cleo tree {taskId}  [tier 1]  → subtask hierarchy
 │
 ├── I need to see what's blocking a task
-│   └── query tasks.blockers {taskId}  [tier 1]
+│   └── cleo blockers {taskId}  [tier 1]
 │
 └── I need leverage-sorted discovery (highest-impact tasks first)
-    └── query tasks.analyze  [tier 1]
+    └── cleo analyze  [tier 1]
 ```
 
 ---
@@ -200,20 +200,20 @@ I need to find what to work on
 I need to save or recall information across sessions
 │
 ├── Save an observation right now (free-form)
-│   └── mutate memory.observe {text, title?}  [tier 0]
+│   └── cleo observe "text" --title "title"  [tier 0]
 │
 ├── Search for something I or a prior agent observed
-│   └── query memory.find {query: "..."}  [tier 0]  ← ALWAYS start here (cheap)
-│       └── Found interesting IDs → query memory.timeline {anchorId}  [tier 1]
-│           └── Need full content → query memory.fetch {ids: [...]}  [tier 1]
+│   └── cleo memory find "..."  [tier 0]  ← ALWAYS start here (cheap)
+│       └── Found interesting IDs → cleo memory timeline {anchorId}  [tier 1]
+│           └── Need full content → cleo memory fetch {ids}  [tier 1]
 │       3-LAYER PATTERN: find → timeline → fetch (never skip to fetch directly)
 │
 ├── Save a structured decision (with rationale, alternatives, taskId)
-│   └── mutate memory.decision.store {decision, rationale, taskId, alternatives?}  [tier 1]
-│       └── Recall: query memory.decision.find {query, taskId?}  [tier 1]
+│   └── cleo memory decision store "decision" --rationale "..." --task TXXX  [tier 1]
+│       └── Recall: cleo memory decision find "query"  [tier 1]
 │
 └── Associate a memory entry with a task (research linking protocol)
-    └── mutate memory.link {memoryId, taskId}  [tier 1]
+    └── cleo memory link {memoryId} {taskId}  [tier 1]
 ```
 
 **Anti-pattern blocked**: Never call `memory.fetch` without first calling `memory.find`. Fetching without filtering returns all entries (expensive).
@@ -226,16 +226,16 @@ I need to save or recall information across sessions
 I need to coordinate agent work (orchestrator role)
 │
 ├── I am the orchestrator — start coordinating an epic
-│   └── mutate orchestrate.start {epicId}  [tier 1]
-│       └── query orchestrate.status  [tier 1]  → current orchestration state
+│   └── cleo orchestrator start --epic {epicId}  [tier 1]
+│       └── cleo orchestrator status  [tier 1]  → current orchestration state
 │
 ├── Spawn a subagent for a task
-│   └── (1) mutate orchestrate.validate {taskId}  [tier 1]  → pre-spawn gate check
-│       (2) mutate orchestrate.spawn {taskId, skillIds?}  [tier 1]  → spawn prep
+│   └── (1) cleo orchestrator validate {taskId}  [tier 1]  → pre-spawn gate check
+│       (2) cleo orchestrator spawn {taskId}  [tier 1]  → spawn prep
 │
 └── I am a subagent — complete my work and report
-    └── mutate pipeline.manifest.append {entry}  [tier 1]  ← MANDATORY per BASE protocol
-        mutate tasks.complete {taskId}  [tier 0]
+    └── cleo manifest append {entry}  [tier 1]  ← MANDATORY per BASE protocol
+        cleo complete {taskId}  [tier 0]
 ```
 
 **Subagent BASE protocol**: Every subagent MUST append one entry to MANIFEST.jsonl via `pipeline.manifest.append` BEFORE calling `tasks.complete`. Omitting this is a protocol violation (exit code 62).
@@ -248,24 +248,24 @@ I need to coordinate agent work (orchestrator role)
 I need to manage session lifecycle or read session state
 │
 ├── Check whether a session is active
-│   └── query session.status  [tier 0]  ← FIRST, always
+│   └── cleo session status  [tier 0]  ← FIRST, always
 │
 ├── Resume prior context after a restart
-│   └── query session.handoff.show  [tier 0]
+│   └── cleo briefing  [tier 0]
 │
 ├── Get a composite cold-start briefing (combines status + handoff)
-│   └── query session.briefing.show  [tier 0]
+│   └── cleo briefing  [tier 0]
 │
 ├── Start a new session
-│   └── mutate session.start {scope: "task:TXXX" | "epic:TXXX"}  [tier 0]
+│   └── cleo session start --scope task:TXXX  (or epic:TXXX)  [tier 0]
 │       RULE: scope is required — no unscoped sessions
 │
 ├── End the current session (triggers debrief + handoff generation)
-│   └── mutate session.end  [tier 0]
+│   └── cleo session end  [tier 0]
 │
 └── Browse past sessions
-    └── query session.find {query: "..."}  [tier 1]  ← NOT session.list unfiltered
-        └── Full session record: query session.show {sessionId}  [tier 1]
+    └── cleo session find "..."  [tier 1]  ← NOT session list unfiltered
+        └── Full session record: cleo session show {sessionId}  [tier 1]
 ```
 
 ---
@@ -276,11 +276,11 @@ I need to manage session lifecycle or read session state
 I need to know what skills or providers are available
 │
 ├── List all installed skills (cold-start safe)
-│   └── query tools.skill.list  [tier 0]
-│       └── Detail on a specific skill: query tools.skill.show {skillId}  [tier 1]
+│   └── cleo skill list  [tier 0]
+│       └── Detail on a specific skill: cleo skill show {skillId}  [tier 1]
 │
 └── Detect active provider
-    └── query tools.provider.detect  [tier 0]
+    └── cleo provider detect  [tier 0]
 ```
 
 ---
@@ -291,21 +291,21 @@ I need to know what skills or providers are available
 I need system or configuration info
 │
 ├── What is the overall project state?
-│   └── query admin.dash  [tier 0]  ← mandatory efficiency sequence step 2
+│   └── cleo dash  [tier 0]  ← mandatory efficiency sequence step 2
 │
 ├── What operations are available at this tier?
-│   └── query admin.help  [tier 0]  → tier 0 + tier 1 ops
-│       └── query admin.help {tier:2}  → reveals tier-2 ops + escalation hints
+│   └── cleo help  [tier 0]  → tier 0 + tier 1 ops
+│       └── cleo help --tier 2  → reveals tier-2 ops + escalation hints
 │
 └── Inspect configuration
-    └── query admin.config.show  [tier 1]
+    └── cleo config show  [tier 1]
 ```
 
 ---
 
 ## CLI Reference (Primary)
 
-Use `ct` (alias for `cleo`) as the primary interface. MCP (`query` / `mutate`) is the fallback when CLI is unavailable.
+Use `ct` (alias for `cleo`) as the interface. CLI is the only dispatch method.
 
 ```bash
 ct find "query"            # Search (99% less context than list)
@@ -350,7 +350,7 @@ ct sticky show SN-001          # Show sticky details
 |-------------|----------------|-----|
 | `research.list` | `pipeline.manifest.list` | research domain is defunct |
 | `research.show` | `pipeline.manifest.show` | research domain is defunct |
-| `research.link` / `cleo research link` | `memory.link` (MCP) | research domain is defunct |
+| `research.link` | `cleo memory link` | research domain is defunct |
 | `system.dash` | `admin.dash` | system domain is defunct |
 | `system.context` | `admin.context` | system domain is defunct |
 | `skills.list` | `tools.skill.list` | skills domain is defunct |
@@ -412,15 +412,6 @@ ct current / ct next / ct complete T005 / ct start T006
 # 4. END (ALWAYS when stopping)
 ct complete <id>
 ct session end
-```
-
-### MCP Session Operations (Fallback)
-
-```javascript
-query({ domain: "session", operation: "status" })
-query({ domain: "session", operation: "handoff.show" })
-mutate({ domain: "session", operation: "start", params: { scope: "epic:T001" }})
-mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
 ```
 
 ---

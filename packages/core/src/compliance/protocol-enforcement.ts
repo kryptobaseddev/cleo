@@ -4,7 +4,7 @@
  * Validates RCASD-IVTR+C lifecycle compliance with exit codes 60-70.
  * Intercepts domain operations to enforce protocol requirements before execution.
  *
- * Moved from src/mcp/lib/protocol-enforcement.ts to core for proper layering.
+ * Moved to core for proper layering (formerly in dispatch).
  *
  * @task T2918
  * @task T5707

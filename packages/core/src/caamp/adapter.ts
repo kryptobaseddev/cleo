@@ -2,11 +2,11 @@
  * CAAMP Adapter - Canonical implementation
  *
  * Wraps @cleocode/caamp APIs for use across CLEO subsystems.
- * Provides provider registry, MCP config management, injection operations,
+ * Provides provider registry, injection operations,
  * and batch/orchestration functions as EngineResult-returning functions.
  *
  * This is the SINGLE SOURCE OF TRUTH for all CAAMP adapter logic.
- * MCP engine layer re-exports from here.
+ * CLI dispatch layer re-exports from here.
  *
  * @task T4678
  * @task T4705
@@ -16,13 +16,9 @@
 import {
   type BatchInstallOptions,
   type BatchInstallResult,
-  buildServerConfig,
   checkAllInjections,
   checkInjection,
-  configureProviderGlobalAndProject,
   type DetectionResult,
-  type DualScopeConfigureOptions,
-  type DualScopeConfigureResult,
   detectAllProviders,
   generateInjectionContent,
   // Provider Registry
@@ -33,22 +29,14 @@ import {
   getProviderCount,
   getRegistryVersion,
   type InjectionStatus,
-  type InstallResult,
   // Instructions
   inject,
   injectAll,
   // Batch / Orchestration
   installBatchWithRollback,
-  // MCP Config
-  installMcpServer,
-  listAllMcpServers,
-  listMcpServers,
-  type McpServerConfig,
   // Types
   type Provider,
-  removeMcpServer,
   resolveAlias,
-  resolveConfigPath,
 } from '@cleocode/caamp';
 
 // ============================================================
@@ -187,168 +175,6 @@ export function registryVersion(): EngineResult<{ version: string }> {
 }
 
 // ============================================================
-// MCP Config Operations
-// ============================================================
-
-/**
- * List MCP servers for a specific provider.
- * @task T4332
- */
-export async function mcpList(
-  providerId: string,
-  scope: 'project' | 'global',
-  projectDir?: string,
-): Promise<EngineResult<{ servers: unknown[] }>> {
-  try {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      return {
-        success: false,
-        error: {
-          code: 'E_CAAMP_PROVIDER_NOT_FOUND',
-          message: `Provider not found: ${providerId}`,
-        },
-      };
-    }
-    const servers = await listMcpServers(provider, scope, projectDir);
-    return { success: true, data: { servers } };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_MCP_LIST',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-/**
- * List MCP servers across all installed providers.
- * @task T4332
- */
-export async function mcpListAll(
-  scope: 'project' | 'global',
-  projectDir?: string,
-): Promise<EngineResult<{ servers: unknown[] }>> {
-  try {
-    const providers = getInstalledProviders();
-    const servers = await listAllMcpServers(providers, scope, projectDir);
-    return { success: true, data: { servers } };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_MCP_LIST_ALL',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-/**
- * Install an MCP server to a provider's config.
- * @task T4332
- */
-export async function mcpInstall(
-  providerId: string,
-  serverName: string,
-  config: McpServerConfig,
-  scope?: 'project' | 'global',
-  projectDir?: string,
-): Promise<EngineResult<InstallResult>> {
-  try {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      return {
-        success: false,
-        error: {
-          code: 'E_CAAMP_PROVIDER_NOT_FOUND',
-          message: `Provider not found: ${providerId}`,
-        },
-      };
-    }
-    const result = await installMcpServer(provider, serverName, config, scope, projectDir);
-    return { success: true, data: result };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_MCP_INSTALL',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-/**
- * Remove an MCP server from a provider's config.
- * @task T4332
- */
-export async function mcpRemove(
-  providerId: string,
-  serverName: string,
-  scope: 'project' | 'global',
-  projectDir?: string,
-): Promise<EngineResult<{ removed: boolean }>> {
-  try {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      return {
-        success: false,
-        error: {
-          code: 'E_CAAMP_PROVIDER_NOT_FOUND',
-          message: `Provider not found: ${providerId}`,
-        },
-      };
-    }
-    const removed = await removeMcpServer(provider, serverName, scope, projectDir);
-    return { success: true, data: { removed } };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_MCP_REMOVE',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-/**
- * Resolve the config file path for a provider.
- * @task T4332
- */
-export function mcpConfigPath(
-  providerId: string,
-  scope: 'project' | 'global',
-  projectDir?: string,
-): EngineResult<{ path: string | null }> {
-  try {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      return {
-        success: false,
-        error: {
-          code: 'E_CAAMP_PROVIDER_NOT_FOUND',
-          message: `Provider not found: ${providerId}`,
-        },
-      };
-    }
-    const path = resolveConfigPath(provider, scope, projectDir);
-    return { success: true, data: { path } };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_MCP_CONFIG_PATH',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-// ============================================================
 // Injection Operations
 // ============================================================
 
@@ -454,9 +280,7 @@ export async function injectionUpdateAll(
 // ============================================================
 
 /**
- * Install multiple MCP servers atomically with rollback on failure.
- * Supports Wave 4 init rewrite which needs to install multiple
- * skills/configs as a single atomic operation.
+ * Install multiple skills atomically with rollback on failure.
  *
  * @task T4705
  * @epic T4663
@@ -478,41 +302,6 @@ export async function batchInstallWithRollback(
   }
 }
 
-/**
- * Configure a provider at both global and project scope simultaneously.
- * Used during init to set up MCP configs in both scopes atomically.
- *
- * @task T4705
- * @epic T4663
- */
-export async function dualScopeConfigure(
-  providerId: string,
-  options: DualScopeConfigureOptions,
-): Promise<EngineResult<DualScopeConfigureResult>> {
-  try {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      return {
-        success: false,
-        error: {
-          code: 'E_CAAMP_PROVIDER_NOT_FOUND',
-          message: `Provider not found: ${providerId}`,
-        },
-      };
-    }
-    const result = await configureProviderGlobalAndProject(provider, options);
-    return { success: true, data: result };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'E_CAAMP_DUAL_SCOPE_CONFIGURE',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
 // ============================================================
 // Utility Re-exports (passthrough, no EngineResult wrapping)
 // ============================================================
@@ -522,15 +311,10 @@ export type {
   BatchInstallOptions as CaampBatchInstallOptions,
   BatchInstallResult as CaampBatchInstallResult,
   DetectionResult as CaampDetectionResult,
-  DualScopeConfigureOptions as CaampDualScopeConfigureOptions,
-  DualScopeConfigureResult as CaampDualScopeConfigureResult,
   InjectionStatus as CaampInjectionStatus,
-  InstallResult as CaampInstallResult,
-  McpServerConfig as CaampMcpServerConfig,
   Provider as CaampProvider,
 };
 export {
-  buildServerConfig as caampBuildServerConfig,
   generateInjectionContent as caampGenerateInjectionContent,
   getInstructionFiles as caampGetInstructionFiles,
   resolveAlias as caampResolveAlias,

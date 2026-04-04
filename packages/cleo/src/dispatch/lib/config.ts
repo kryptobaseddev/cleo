@@ -1,13 +1,8 @@
 /**
  * Configuration for the dispatch layer.
  *
- * Re-exports shared configuration utilities from src/mcp/lib/config.ts
- * so that dispatch-layer middleware can access config without depending
- * directly on mcp/lib imports.
- *
- * The MCP config is the canonical config loader for the entire server
- * (MCP + dispatch). Both layers share the same config file (.cleo/config.json)
- * and environment variables (CLEO_MCP_*).
+ * Re-exports shared configuration utilities from config-loader.ts
+ * and defaults.ts.
  *
  * @task T4830
  */
@@ -18,6 +13,6 @@ export {
   loadConfig,
   resetConfig,
   validateConfig,
-} from '../../mcp/lib/config.js';
+} from './config-loader.js';
 
-export type { MCPConfig } from '../../mcp/lib/defaults.js';
+export type { DispatchConfig, MCPConfig } from './defaults.js';

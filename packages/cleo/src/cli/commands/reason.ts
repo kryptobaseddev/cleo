@@ -2,7 +2,7 @@
  * CLI reason command group — reasoning and intelligence operations.
  *
  * Surfaces BRAIN memory reasoning and task dependency intelligence as
- * first-class CLI commands, providing parity with MCP-only operations.
+ * first-class CLI commands, providing parity with dispatch-only operations.
  *
  * Commands:
  *   cleo reason why <taskId>            — causal trace through dependency chains

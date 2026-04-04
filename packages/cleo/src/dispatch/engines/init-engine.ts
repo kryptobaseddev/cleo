@@ -4,7 +4,7 @@
  * Thin wrapper around core init operations.
  * Business logic lives in src/core/init.ts.
  *
- * CRITICAL: Init is explicit, not automatic. The MCP server MUST NOT
+ * CRITICAL: Init is explicit, not automatic. CLEO MUST NOT
  * silently create .cleo/ directories on first write.
  *
  * @task T4815

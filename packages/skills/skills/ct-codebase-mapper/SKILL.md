@@ -36,31 +36,31 @@ Structured codebase analysis for autonomous agent understanding.
 
 ### Tier 0: Quick Analysis
 
-```
-query admin map
+```bash
+cleo map
 ```
 
 Returns structured `CodebaseMapResult` with stack, architecture, structure, conventions, testing, integrations, and concerns.
 
 ### Tier 1: Store to Brain
 
-```
-mutate admin map
+```bash
+cleo map --store
 ```
 
 Same analysis, but stores patterns, learnings, and observations to brain.db. Tagged with `source: 'codebase-map'` for filtering.
 
 ### Tier 2: Focused Analysis
 
-```
-query admin map {focus: "concerns"}
+```bash
+cleo map --focus concerns
 ```
 
 Focus areas: `stack`, `architecture`, `structure`, `conventions`, `testing`, `integrations`, `concerns`.
 
 ## When to Use
 
-- **New project onboarding**: Run `mutate admin map` to build brain.db context
+- **New project onboarding**: Run `cleo map --store` to build brain.db context
 - **Brownfield init**: `cleo init --map-codebase` runs analysis during initialization
 - **Before epic planning**: Understand project structure before decomposing work
 - **Tech debt assessment**: `query admin map {focus: "concerns"}` for TODOs and large files

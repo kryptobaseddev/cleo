@@ -82,16 +82,16 @@ Measures whether the agent recovers from `E_NOT_FOUND` (exit code 4) and avoids 
 
 ### S5: Progressive Disclosure Use (20 pts)
 
-Measures whether the agent uses CLEO's progressive disclosure system and the MCP query gateway.
+Measures whether the agent uses CLEO's progressive disclosure system.
 
 | Points | Condition | Evidence string |
 |--------|-----------|-----------------|
 | +10 | At least one help/skill call: `admin.help`, `tools.skill.show`, `tools.skill.list`, `tools.skill.find` | `Progressive disclosure used (Nx)` |
-| +10 | At least one MCP query gateway call (`metadata.gateway === "query"`) | `query (MCP) used Nx` |
+| +10 | Progressive disclosure used for efficient access | `Progressive disclosure active` |
 
 **Flags:**
 - `No admin.help or skill lookup calls (load ct-cleo for guidance)`
-- `No MCP query calls (prefer query over CLI for programmatic access)`
+- `No progressive disclosure calls (use admin.help or skill lookups)`
 
 **Scoring:** Starts at 0. Range: 0–20.
 
@@ -123,7 +123,7 @@ Grade results in v2.1 carry optional token metadata alongside the standard Grade
       "session": 600,
       "admin": 400
     },
-    "mcpQueryTokens": 2100,
+    "queryTokens": 2100,
     "cliTokens": 1100,
     "auditEntries": 47
   }
@@ -164,4 +164,4 @@ The rubric recognizes all 10 canonical domains in audit entries. Key domain-to-d
 | `nexus` | S5 (gateway tracking only) |
 | `sticky` | S5 (gateway tracking only) |
 
-All 10 domains contribute to `mcpQueryCalls` count in S5 — any MCP query gateway call regardless of domain earns the +10.
+All 10 domains contribute to the progressive disclosure count in S5 — any help or skill lookup call regardless of domain earns the +10.

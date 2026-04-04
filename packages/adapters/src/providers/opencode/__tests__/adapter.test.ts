@@ -95,8 +95,8 @@ describe('OpenCodeAdapter', () => {
       expect(adapter.capabilities.supportsInstall).toBe(true);
     });
 
-    it('supports MCP', () => {
-      expect(adapter.capabilities.supportsMcp).toBe(true);
+    it('does not support MCP (removed)', () => {
+      expect(adapter.capabilities.supportsMcp).toBe(false);
     });
 
     it('supports instruction files with AGENTS.md pattern', () => {
@@ -104,17 +104,21 @@ describe('OpenCodeAdapter', () => {
       expect(adapter.capabilities.instructionFilePattern).toBe('AGENTS.md');
     });
 
-    it('declares expected hook events', () => {
-      expect(adapter.capabilities.supportedHookEvents).toContain('onSessionStart');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onSessionEnd');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onToolStart');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onToolComplete');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onError');
-      expect(adapter.capabilities.supportedHookEvents).toContain('onPromptSubmit');
+    it('declares expected hook events (10 CAAMP canonical events)', () => {
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionStart');
+      expect(adapter.capabilities.supportedHookEvents).toContain('SessionEnd');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PromptSubmit');
+      expect(adapter.capabilities.supportedHookEvents).toContain('ResponseComplete');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostToolUse');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PermissionRequest');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreModel');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PreCompact');
+      expect(adapter.capabilities.supportedHookEvents).toContain('PostCompact');
     });
 
-    it('supports 6 hook events', () => {
-      expect(adapter.capabilities.supportedHookEvents).toHaveLength(6);
+    it('supports 10 hook events', () => {
+      expect(adapter.capabilities.supportedHookEvents).toHaveLength(10);
     });
   });
 
@@ -179,28 +183,36 @@ describe('OpenCodeHookProvider', () => {
   });
 
   describe('mapProviderEvent', () => {
-    it('maps session.start to onSessionStart', () => {
-      expect(hooks.mapProviderEvent('session.start')).toBe('onSessionStart');
+    it('maps event:session.created to SessionStart', () => {
+      expect(hooks.mapProviderEvent('event:session.created')).toBe('SessionStart');
     });
 
-    it('maps session.end to onSessionEnd', () => {
-      expect(hooks.mapProviderEvent('session.end')).toBe('onSessionEnd');
+    it('maps event:session.deleted to SessionEnd', () => {
+      expect(hooks.mapProviderEvent('event:session.deleted')).toBe('SessionEnd');
     });
 
-    it('maps tool.start to onToolStart', () => {
-      expect(hooks.mapProviderEvent('tool.start')).toBe('onToolStart');
+    it('maps chat.message to PromptSubmit', () => {
+      expect(hooks.mapProviderEvent('chat.message')).toBe('PromptSubmit');
     });
 
-    it('maps tool.complete to onToolComplete', () => {
-      expect(hooks.mapProviderEvent('tool.complete')).toBe('onToolComplete');
+    it('maps event:session.idle to ResponseComplete', () => {
+      expect(hooks.mapProviderEvent('event:session.idle')).toBe('ResponseComplete');
     });
 
-    it('maps error to onError', () => {
-      expect(hooks.mapProviderEvent('error')).toBe('onError');
+    it('maps tool.execute.before to PreToolUse', () => {
+      expect(hooks.mapProviderEvent('tool.execute.before')).toBe('PreToolUse');
     });
 
-    it('maps prompt.submit to onPromptSubmit', () => {
-      expect(hooks.mapProviderEvent('prompt.submit')).toBe('onPromptSubmit');
+    it('maps tool.execute.after to PostToolUse', () => {
+      expect(hooks.mapProviderEvent('tool.execute.after')).toBe('PostToolUse');
+    });
+
+    it('maps permission.ask to PermissionRequest', () => {
+      expect(hooks.mapProviderEvent('permission.ask')).toBe('PermissionRequest');
+    });
+
+    it('maps chat.params to PreModel', () => {
+      expect(hooks.mapProviderEvent('chat.params')).toBe('PreModel');
     });
 
     it('returns null for unknown events', () => {
@@ -226,15 +238,19 @@ describe('OpenCodeHookProvider', () => {
   });
 
   describe('getEventMap', () => {
-    it('returns all mapped events', () => {
+    it('returns all 10 mapped events', () => {
       const map = hooks.getEventMap();
-      expect(Object.keys(map)).toHaveLength(6);
-      expect(map['session.start']).toBe('onSessionStart');
-      expect(map['session.end']).toBe('onSessionEnd');
-      expect(map['tool.start']).toBe('onToolStart');
-      expect(map['tool.complete']).toBe('onToolComplete');
-      expect(map['error']).toBe('onError');
-      expect(map['prompt.submit']).toBe('onPromptSubmit');
+      expect(Object.keys(map)).toHaveLength(10);
+      expect(map['event:session.created']).toBe('SessionStart');
+      expect(map['event:session.deleted']).toBe('SessionEnd');
+      expect(map['chat.message']).toBe('PromptSubmit');
+      expect(map['event:session.idle']).toBe('ResponseComplete');
+      expect(map['tool.execute.before']).toBe('PreToolUse');
+      expect(map['tool.execute.after']).toBe('PostToolUse');
+      expect(map['permission.ask']).toBe('PermissionRequest');
+      expect(map['chat.params']).toBe('PreModel');
+      expect(map['experimental.session.compacting']).toBe('PreCompact');
+      expect(map['event:session.compacted']).toBe('PostCompact');
     });
   });
 });
@@ -292,12 +308,12 @@ describe('OpenCodeInstallProvider', () => {
       expect(typeof result.mcpRegistered).toBe('boolean');
     });
 
-    it('registers MCP when mcpServerPath provided', async () => {
+    it('does not register MCP even when mcpServerPath provided', async () => {
       const result = await installProvider.install({
         projectDir: '/tmp/test-project',
         mcpServerPath: '/path/to/mcp-server.js',
       });
-      expect(result.mcpRegistered).toBe(true);
+      expect(result.mcpRegistered).toBe(false);
     });
   });
 

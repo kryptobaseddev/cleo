@@ -2,8 +2,7 @@
  * Protocol enforcement types used by the RCASD-IVTR+C protocol system.
  *
  * These types are used by protocol-enforcement.ts, protocol-rules.ts,
- * verification-gates.ts, and gate-validators.ts. Previously defined in
- * src/mcp/lib/exit-codes.ts (deprecated), now canonical in core.
+ * verification-gates.ts, and gate-validators.ts. Canonical location in core.
  *
  * @task T5707
  * @epic T5701
@@ -39,7 +38,7 @@ export enum ErrorCategory {
  * Protocol-specific exit codes used by the RCASD-IVTR+C enforcement system.
  *
  * These map to the protocol violation range (60-70) and lifecycle enforcement
- * range (80-84) defined in the MCP server specification. The values here
+ * range (80-84) defined in the protocol specification. The values here
  * align with the protocol enforcement layer's own exit code semantics,
  * which differ from the canonical CLI exit codes in src/types/exit-codes.ts.
  *

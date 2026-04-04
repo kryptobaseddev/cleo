@@ -33,7 +33,7 @@ const execAsync = promisify(exec);
  * Bridges CLEO's adapter system with Claude Code's native capabilities:
  * - Hooks: Maps Claude Code events (SessionStart, PostToolUse, etc.) to CAAMP events
  * - Spawn: Launches subagent processes via the `claude` CLI
- * - Install: Registers MCP server, instruction files, and brain observation plugin
+ * - Install: Manages instruction files and brain observation plugin registration
  */
 export class ClaudeCodeAdapter implements CLEOProviderAdapter {
   readonly id = 'claude-code';
@@ -62,7 +62,7 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: true,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: 'CLAUDE.md',
     supportsContextMonitor: true,

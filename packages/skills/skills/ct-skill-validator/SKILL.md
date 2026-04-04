@@ -83,7 +83,7 @@ Output: ecosystem-check.json
 The checker evaluates 8 rules from [references/cleo-ecosystem-rules.md](references/cleo-ecosystem-rules.md):
 
 1. **Domain Fit** — Does the skill serve at least one of the 10 canonical CLEO domains?
-2. **MCP Operation Syntax** — Are CLEO operations referenced with valid `domain.operation` format?
+2. **CLI Operation Syntax** — Are CLEO operations referenced with valid `cleo <command>` or `domain.operation` format?
 3. **Canonical Verb Compliance** — No deprecated verbs (create, get, search as verb)
 4. **Non-Duplication** — Skill isn't a thin wrapper over a single existing CLEO operation
 5. **Data Integrity** — No direct `.cleo/` file editing instructions

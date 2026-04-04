@@ -13,7 +13,7 @@ import './session-hooks.js';
 import './task-hooks.js';
 import './error-hooks.js';
 import './file-hooks.js';
-import './mcp-hooks.js';
+import './notification-hooks.js';
 import './work-capture-hooks.js';
 import './agent-hooks.js';
 import './context-hooks.js';
@@ -22,11 +22,7 @@ export { handleSubagentStart, handleSubagentStop } from './agent-hooks.js';
 export { handlePostCompact, handlePreCompact } from './context-hooks.js';
 export { handleError } from './error-hooks.js';
 export { handleFileChange } from './file-hooks.js';
-export {
-  handlePromptSubmit,
-  handleResponseComplete,
-  handleSystemNotification,
-} from './mcp-hooks.js';
+export { handleSystemNotification } from './notification-hooks.js';
 // Re-export handler functions for explicit use
 export { handleSessionEnd, handleSessionStart } from './session-hooks.js';
 export { handleToolComplete, handleToolStart } from './task-hooks.js';

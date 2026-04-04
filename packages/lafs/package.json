@@ -73,7 +73,6 @@
   "author": "CLEO Code <hello@cleo.co> (https://cleo.co)",
   "license": "MIT",
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.3.0",
     "@types/supertest": "^6.0.3",

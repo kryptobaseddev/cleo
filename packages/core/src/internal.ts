@@ -3,7 +3,7 @@
  *
  * This entry point is a SUPERSET of the public API. It re-exports everything
  * from `@cleocode/core` plus additional symbols needed by the dispatch layer,
- * CLI commands, MCP gateways, and engine adapters inside @cleocode/cleo.
+ * CLI commands, and engine adapters inside @cleocode/cleo.
  *
  * External consumers should import from `@cleocode/core` (the public API).
  * Only @cleocode/cleo should import from `@cleocode/core/internal`.
@@ -40,7 +40,6 @@ export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
 // Bootstrap (global setup)
 export {
   bootstrapGlobalCleo,
-  installMcpToProviders,
   installSkillsGlobally,
 } from './bootstrap.js';
 export { smartOutline } from './code/outline.js';
@@ -138,8 +137,6 @@ export {
 } from './lifecycle/index.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 
-// MCP helpers
-export { detectEnvMode, generateMcpServerEntry, getMcpServerName } from './mcp/index.js';
 // Memory — brain lifecycle (temporal decay + consolidation)
 export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';
 export { applyTemporalDecay, consolidateMemories } from './memory/brain-lifecycle.js';

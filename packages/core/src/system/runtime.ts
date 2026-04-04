@@ -1,5 +1,5 @@
 /**
- * Runtime/channel diagnostics for CLI and MCP surfaces.
+ * Runtime/channel diagnostics for CLI surfaces.
  * @task T4889
  * @epic T4881
  */
@@ -35,6 +35,7 @@ export interface RuntimeDiagnostics {
   };
   naming: {
     cli: string;
+    /** Legacy field. CLI dispatch only. */
     mcp: string;
     server: string;
   };
@@ -75,11 +76,11 @@ function detectFromDataRoot(dataRoot: string): RuntimeChannel | null {
 function getExpectedNaming(channel: RuntimeChannel): { cli: string; mcp: string; server: string } {
   switch (channel) {
     case 'dev':
-      return { cli: 'cleo-dev', mcp: 'cleo-dev mcp', server: 'cleo-dev' };
+      return { cli: 'cleo-dev', mcp: 'cli', server: 'cleo-dev' };
     case 'beta':
-      return { cli: 'cleo-beta', mcp: 'cleo-beta mcp', server: 'cleo-beta' };
+      return { cli: 'cleo-beta', mcp: 'cli', server: 'cleo-beta' };
     default:
-      return { cli: 'cleo', mcp: 'cleo mcp', server: 'cleo' };
+      return { cli: 'cleo', mcp: 'cli', server: 'cleo' };
   }
 }
 

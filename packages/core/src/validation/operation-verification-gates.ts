@@ -1,13 +1,13 @@
 /**
  * Operation Verification Gate System for CLEO
  *
- * Implements 4-layer validation gate system for MCP/dispatch operations:
+ * Implements 4-layer validation gate system for dispatch operations:
  * Layer 1: Schema Validation (JSON Schema compliance)
  * Layer 2: Semantic Validation (Business rules)
  * Layer 3: Referential Validation (Cross-entity integrity)
  * Layer 4: Protocol Validation (RCASD-IVTR+C lifecycle)
  *
- * Moved from src/mcp/lib/verification-gates.ts to core for proper layering.
+ * Moved to core for proper layering (formerly in dispatch).
  *
  * @task T2936
  * @task T5707
@@ -341,7 +341,7 @@ export const GATE_SEQUENCE = [
 // ============================================================================
 
 /**
- * Workflow gate names per MCP-SERVER-SPECIFICATION.md Section 7.1
+ * Workflow gate names per protocol specification Section 7.1
  *
  * @task T3141
  */

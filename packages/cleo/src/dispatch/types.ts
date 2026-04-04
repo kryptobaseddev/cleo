@@ -1,8 +1,8 @@
 /**
  * Unified CQRS Dispatch Layer — Shared Types
  *
- * Defines the canonical request/response shapes used by both CLI and MCP
- * adapters. Every operation flows through:
+ * Defines the canonical request/response shapes used by the CLI adapter.
+ * Every operation flows through:
  *   DispatchRequest → Middleware → DomainHandler → DispatchResponse
  *
  * @epic T4820
@@ -16,7 +16,7 @@
 export type Gateway = 'query' | 'mutate';
 
 /** Where the request originated. */
-export type Source = 'cli' | 'mcp';
+export type Source = 'cli';
 
 /**
  * Progressive disclosure tier.
@@ -38,7 +38,7 @@ export type ParamType = 'string' | 'number' | 'boolean' | 'array';
 
 /**
  * CLI-specific decoration for a parameter.
- * All fields are optional — omit the entire `cli` key for MCP-only params.
+ * All fields are optional — omit the entire `cli` key for params with no CLI surface.
  */
 export interface ParamCliDef {
   /**
@@ -75,29 +75,9 @@ export interface ParamCliDef {
 }
 
 /**
- * MCP-specific decoration for a parameter.
- * All fields are optional — omit the entire `mcp` key for CLI-only params.
- */
-export interface ParamMcpDef {
-  /**
-   * When true, the parameter is excluded from the generated MCP `input_schema`.
-   * Use for CLI-only params (e.g. `--dry-run`, `--offset`).
-   * @default false
-   */
-  hidden?: boolean;
-
-  /**
-   * JSON Schema `enum` constraint for this parameter.
-   */
-  enum?: readonly string[];
-}
-
-/**
  * A fully-described parameter definition.
  *
- * One `ParamDef` entry drives:
- *  - Commander: `.argument()` (positional) or `.option()` (flag)
- *  - MCP: a JSON Schema property with `type`, `description`, and optionally `enum`
+ * One `ParamDef` entry drives Commander: `.argument()` (positional) or `.option()` (flag).
  */
 export interface ParamDef {
   /** Canonical camelCase parameter name (matches the key in `params` dict). */
@@ -107,20 +87,25 @@ export interface ParamDef {
   type: ParamType;
 
   /**
-   * When true:
-   *  - Commander: positional argument (`<name>` or `[name]`)
-   *  - MCP: included in `required[]` array of the input_schema
+   * When true, Commander registers as a positional argument (`<name>` or `[name]`).
    */
   required: boolean;
 
-  /** Human-readable description used in Commander help text and MCP tool docs. */
+  /** Human-readable description used in Commander help text. */
   description: string;
 
   /** CLI-specific metadata. Omit entire key if this param has no CLI surface. */
   cli?: ParamCliDef;
 
-  /** MCP-specific metadata. Omit entire key if this param has no MCP surface. */
-  mcp?: ParamMcpDef;
+  /** JSON Schema `enum` constraint for this parameter. */
+  enum?: readonly string[];
+
+  /**
+   * When true, the parameter is excluded from schema generation.
+   * Use for CLI-only params (e.g. `--dry-run`, `--offset`).
+   * @default false
+   */
+  hidden?: boolean;
 }
 
 /**
@@ -147,7 +132,7 @@ export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
 // ---------------------------------------------------------------------------
 
 /**
- * Canonical request shape that both CLI and MCP adapters produce.
+ * Canonical request shape that the CLI adapter produces.
  *
  * The dispatcher validates this against the OperationRegistry before
  * passing it through the middleware pipeline and into a DomainHandler.
@@ -210,9 +195,7 @@ export interface DispatchError {
 /**
  * Canonical response shape returned by the dispatcher.
  *
- * Adapters translate this into their wire format:
- * - CLI adapter → cliOutput() / cliError() + process.exit()
- * - MCP adapter → MCP SDK JSON envelope
+ * The CLI adapter translates this into cliOutput() / cliError() + process.exit().
  */
 export interface DispatchResponse {
   _meta: {
@@ -226,7 +209,7 @@ export interface DispatchResponse {
     rateLimit?: RateLimitMeta;
     /** Session ID that processed this request (T4959). */
     sessionId?: string;
-    /** Preserves MCP-level version for backward compat. */
+    /** Preserves protocol-level version for backward compat. */
     version?: string;
     /** Extensible metadata (verification gate info, etc.). */
     [key: string]: unknown;

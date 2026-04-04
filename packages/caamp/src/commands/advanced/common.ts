@@ -3,7 +3,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import type { McpBatchOperation, SkillBatchOperation } from '../../core/advanced/orchestration.js';
+import type { SkillBatchOperation } from '../../core/advanced/orchestration.js';
 import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider, ProviderPriority } from '../../types.js';
@@ -126,82 +126,6 @@ export async function readJsonFile(path: string): Promise<unknown> {
       { reason: error instanceof Error ? error.message : String(error) },
     );
   }
-}
-
-/**
- * Reads and validates a JSON file containing MCP batch operations.
- *
- * @remarks
- * Parses the file and validates each entry has required fields (serverName, config) with proper types.
- * Throws LAFSCommandError on any validation failure with specific error codes.
- *
- * @param path - Path to the JSON file containing an array of MCP operations
- * @returns An array of validated McpBatchOperation objects
- *
- * @example
- * ```typescript
- * const ops = await readMcpOperations("./mcp-ops.json");
- * ```
- *
- * @public
- */
-export async function readMcpOperations(path: string): Promise<McpBatchOperation[]> {
-  const value = await readJsonFile(path);
-  if (!Array.isArray(value)) {
-    throw new LAFSCommandError(
-      'E_ADVANCED_VALIDATION_MCP_ARRAY',
-      `MCP operations file must be a JSON array: ${path}`,
-      'Provide an array of objects with serverName and config fields.',
-    );
-  }
-
-  const operations: McpBatchOperation[] = [];
-  for (const [index, item] of value.entries()) {
-    if (!item || typeof item !== 'object') {
-      throw new LAFSCommandError(
-        'E_ADVANCED_VALIDATION_MCP_ITEM',
-        `Invalid MCP operation at index ${index}`,
-        'Each operation must be an object with serverName and config.',
-      );
-    }
-
-    const obj = item as Record<string, unknown>;
-    const serverName = obj.serverName;
-    const config = obj.config;
-    const scope = obj.scope;
-
-    if (typeof serverName !== 'string' || serverName.length === 0) {
-      throw new LAFSCommandError(
-        'E_ADVANCED_VALIDATION_MCP_NAME',
-        `Invalid serverName at index ${index}`,
-        'Set serverName to a non-empty string.',
-      );
-    }
-
-    if (!config || typeof config !== 'object' || Array.isArray(config)) {
-      throw new LAFSCommandError(
-        'E_ADVANCED_VALIDATION_MCP_CONFIG',
-        `Invalid config at index ${index}`,
-        'Set config to an object matching McpServerConfig.',
-      );
-    }
-
-    if (scope !== undefined && scope !== 'project' && scope !== 'global') {
-      throw new LAFSCommandError(
-        'E_ADVANCED_VALIDATION_SCOPE',
-        `Invalid scope at index ${index}: ${String(scope)}`,
-        "Use scope value 'project' or 'global'.",
-      );
-    }
-
-    operations.push({
-      serverName,
-      config: config as McpBatchOperation['config'],
-      ...(scope ? { scope: scope as 'project' | 'global' } : {}),
-    });
-  }
-
-  return operations;
 }
 
 /**

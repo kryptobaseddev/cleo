@@ -16,6 +16,7 @@ import { getPreferredChannel } from './routing-table.js';
 export interface ProviderContext {
   providerId: string;
   providerName: string;
+  /** Always false. CLI dispatch only. */
   supportsMcp: boolean;
   supportsHooks: boolean;
   supportsSpawn: boolean;
@@ -28,29 +29,18 @@ export interface ProviderContext {
  * @param context - Provider capability context
  * @returns Markdown content for memory protocol guidance
  */
-export function generateMemoryProtocol(context: ProviderContext): string {
+export function generateMemoryProtocol(_context: ProviderContext): string {
   const lines: string[] = [];
 
   lines.push('## Memory Protocol');
   lines.push('');
 
-  if (context.supportsMcp) {
-    lines.push('Use the 3-layer retrieval pattern for token-efficient access:');
-    lines.push('');
-    lines.push('| Step | Operation | Gateway | ~Tokens |');
-    lines.push('|------|-----------|---------|---------|');
-    lines.push('| 1 | `memory find` | query | 50/hit |');
-    lines.push('| 2 | `memory timeline` | query | 200-500 |');
-    lines.push('| 3 | `memory fetch` | query | 500/entry |');
-    lines.push('| Save | `memory observe` | mutate | ~50 |');
-  } else {
-    lines.push('Use the CLEO CLI for memory operations:');
-    lines.push('');
-    lines.push('```bash');
-    lines.push('cleo memory find "search query" --limit 10');
-    lines.push('cleo memory observe "observation text" --title "Title"');
-    lines.push('```');
-  }
+  lines.push('Use the CLEO CLI for memory operations:');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('cleo memory find "search query" --limit 10');
+  lines.push('cleo memory observe "observation text" --title "Title"');
+  lines.push('```');
 
   return lines.join('\n');
 }
@@ -61,16 +51,15 @@ export function generateMemoryProtocol(context: ProviderContext): string {
  * @param context - Provider capability context
  * @returns Markdown content showing preferred channels per operation
  */
-export function generateRoutingGuide(context: ProviderContext): string {
+export function generateRoutingGuide(_context: ProviderContext): string {
   const lines: string[] = [];
 
   lines.push('## Preferred Channels');
   lines.push('');
 
-  if (!context.supportsMcp) {
-    lines.push('This provider does not support MCP. Use CLI commands for all operations.');
-    return lines.join('\n');
-  }
+  // All providers use CLI commands
+  lines.push('Use CLI commands for all operations.');
+  lines.push('');
 
   const operations = [
     { domain: 'tasks', operation: 'find', label: 'Task discovery' },
@@ -109,7 +98,7 @@ export function generateDynamicSkillContent(context: ProviderContext): string {
   // Capabilities summary
   sections.push('## Capabilities');
   sections.push('');
-  sections.push(`- MCP: ${context.supportsMcp ? 'Yes' : 'No'}`);
+  sections.push('- Channel: CLI (direct)');
   sections.push(`- Hooks: ${context.supportsHooks ? 'Yes' : 'No'}`);
   sections.push(`- Spawn: ${context.supportsSpawn ? 'Yes' : 'No'}`);
   if (context.instructionFilePattern) {

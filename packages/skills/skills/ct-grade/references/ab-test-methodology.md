@@ -14,10 +14,11 @@ An "arm" is a specific test configuration. In CLEO A/B tests, the two most commo
 
 | Arm | Typical Config | Example |
 |-----|---------------|---------|
-| A | MCP gateway | Uses `query`/`mutate` for all operations |
-| B | CLI fallback | Uses `cleo-dev` CLI for equivalent operations |
+| A | Configuration A | Different CLI binary, flags, or prompt setup |
+| B | Configuration B | Alternate setup for comparison |
 
-Arms can also differ by:
+Arms can differ by:
+- CLI binary version (`cleo-dev` vs `cleo`)
 - Session scope (`global` vs `epic:T500`)
 - Tier escalation (with/without `admin.help`)
 - Agent persona (orchestrator vs task-executor)
@@ -71,10 +72,9 @@ save_json(arm_dir + "/timing.json", timing)
 
 ### Why This Matters
 
-Token cost is the primary economic metric for comparing interfaces:
-- MCP operations may use more tokens (richer responses, metadata)
-- CLI operations may use fewer tokens but score lower on S5
-- Score-per-token tells you which interface is more efficient for protocol work
+Token cost is the primary economic metric for comparing configurations:
+- Different configurations may produce different token costs
+- Score-per-token tells you which configuration is more efficient for protocol work
 
 ### Missing Token Data
 
@@ -98,16 +98,16 @@ If you forgot to capture tokens, you cannot recover them. Mark `total_tokens: nu
 | 0-5 pts | Noise level — likely equivalent |
 | 5-15 pts | Meaningful difference — investigate flags |
 | 15-25 pts | Significant — one interface clearly better |
-| 25+ pts | Extreme — likely S5 differential (MCP vs CLI) |
+| 25+ pts | Extreme — likely S5 differential or protocol gap |
 
-### Expected MCP vs CLI Delta
+### Expected Delta
 
 Based on the rubric implementation:
-- S5 Progressive Disclosure: always +20 for MCP (if admin.help called), +10 MCP no help, 0 CLI
+- S5 Progressive Disclosure: +20 if agent uses `admin.help` and follows read-before-write discipline
 - S1-S4: approximately equal if agent follows same protocol steps
-- Total expected delta: **+10 to +20 points** in favor of MCP for equivalent protocols
+- Configuration differences should primarily show up in S5 and token efficiency
 
-If delta exceeds 20 points, investigate whether the CLI agent is also skipping other protocol steps (session.list, descriptions, etc.) due to lack of guidance.
+If delta exceeds 20 points, investigate whether one arm is skipping protocol steps (session.list, descriptions, etc.).
 
 ---
 
@@ -119,8 +119,8 @@ The "git tree" metaphor: each A/B run produces a branch in the results tree. Mul
 ab_results/
   run-001/           ← first full A/B run
     s4/
-      run-01/arm-A/  ← first run, MCP arm
-      run-01/arm-B/  ← first run, CLI arm
+      run-01/arm-A/  ← first run, arm A
+      run-01/arm-B/  ← first run, arm B
       run-01/comparison.json
       run-02/arm-A/
       ...

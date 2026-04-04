@@ -7,7 +7,7 @@
  * - Layer 3: Referential validation (cross-entity integrity)
  * - Layer 4: Protocol validation (RCASD-IVTR+C lifecycle)
  *
- * Moved from src/mcp/lib/gate-validators.ts to core for proper layering.
+ * Moved to core for proper layering (formerly in dispatch).
  *
  * @task T2936
  * @task T3138

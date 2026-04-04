@@ -1,130 +1,128 @@
 # CLEO Domain Operation Reference for A/B Testing
 
 **Source**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
-**Purpose**: Lists the key operations to test in MCP vs CLI A/B comparisons.
+**Purpose**: Lists the key operations to test in A/B comparisons.
+
+All operations use the CLI (`cleo` / `cleo-dev`). There is no MCP interface.
 
 ---
 
-## MCP vs CLI Equivalents
+## CLI Operations by Domain
 
 For each domain, these are the canonical operations to test in A/B mode.
-MCP gateway = audit metadata.gateway is `'query'` or `'mutate'` (set by MCP adapter).
-CLI = operations routed through CLI do NOT set metadata.gateway.
 
 ### tasks (32 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Discovery | `query tasks find { "status": "active" }` | `cleo-dev find --status active` |
-| Show detail | `query tasks show { "taskId": "T123" }` | `cleo-dev show T123` |
-| List children | `query tasks list { "parent": "T100" }` | `cleo-dev list --parent T100` |
-| Create | `mutate tasks add { "title": "...", "description": "..." }` | `cleo-dev add --title "..." --description "..."` |
-| Update | `mutate tasks update { "taskId": "T123", "status": "active" }` | `cleo-dev update T123 --status active` |
-| Complete | `mutate tasks complete { "taskId": "T123" }` | `cleo-dev complete T123` |
-| Exists check | `query tasks exists { "taskId": "T123" }` | `cleo-dev exists T123` |
+| Test Op | CLI |
+|---------|-----|
+| Discovery | `cleo-dev find --status active` |
+| Show detail | `cleo-dev show T123` |
+| List children | `cleo-dev list --parent T100` |
+| Create | `cleo-dev add "title" --description "..."` |
+| Update | `cleo-dev update T123 --status active` |
+| Complete | `cleo-dev complete T123` |
+| Exists check | `cleo-dev exists T123` |
 
-**Key S2 insight**: `tasks.find` (MCP) vs `cleo-dev find` (CLI). Both count toward find:list ratio in the audit log. MCP find at gateway='query', CLI find also logged but without gateway metadata.
+**Key S2 insight**: `cleo-dev find` counts toward find:list ratio in the audit log. Always prefer find over list for discovery.
 
 ### session (19 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Check existing | `query session list` | `cleo-dev session list` |
-| Start | `mutate session start { "grade": true, "scope": "global" }` | `cleo-dev session start --grade --scope global` |
-| End | `mutate session end` | `cleo-dev session end` |
-| Status | `query session status` | `cleo-dev session status` |
-| Record decision | `mutate session record.decision { "decision": "...", "rationale": "..." }` | `cleo-dev session record-decision ...` |
+| Test Op | CLI |
+|---------|-----|
+| Check existing | `cleo-dev session list` |
+| Start | `cleo-dev session start --grade --scope global` |
+| End | `cleo-dev session end` |
+| Status | `cleo-dev session status` |
+| Record decision | `cleo-dev session record-decision --decision "..." --rationale "..."` |
 
-**Critical**: `session.list` (MCP) is what the rubric checks for S1. If CLI does `cleo-dev session list`, it still appears as `domain='session', operation='list'` in the audit log. S1 counts it.
+**Critical**: `session.list` is what the rubric checks for S1. It must appear as `domain='session', operation='list'` in the audit log.
 
-### memory (18 operations) — Tier 1
+### memory (18 operations) -- Tier 1
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Search | `query memory find { "query": "authentication" }` | `cleo-dev memory find "authentication"` |
-| Store observation | `mutate memory observe { "text": "..." }` | `cleo-dev memory observe "..."` |
-| Timeline | `query memory timeline { "anchor": "<id>" }` | N/A (MCP-preferred) |
+| Test Op | CLI |
+|---------|-----|
+| Search | `cleo-dev memory find "authentication"` |
+| Store observation | `cleo-dev observe "..."` |
+| Timeline | `cleo-dev memory timeline <id>` |
 
 ### admin (44 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Dashboard | `query admin dash` | `cleo-dev dash` |
-| Help (S5 key) | `query admin help` | `cleo-dev help` |
-| Grade session | `query admin grade { "sessionId": "<id>" }` | `cleo-dev grade <id>` |
-| Health check | `query admin health` | `cleo-dev health` |
+| Test Op | CLI |
+|---------|-----|
+| Dashboard | `cleo-dev dash` |
+| Help (S5 key) | `cleo-dev help` |
+| Grade session | `cleo-dev check grade --session "<id>"` |
+| Health check | `cleo-dev health` |
 
-**Critical for S5**: Only `query admin help` (MCP) satisfies the `helpCalls` filter in S5. CLI `cleo-dev help` does NOT set `metadata.gateway='query'` or match `domain='admin', operation='help'` — it depends on how the CLI routes internally.
+**Critical for S5**: `cleo-dev help` satisfies the `helpCalls` filter in S5 Progressive Disclosure scoring.
 
-### pipeline (42 operations) — LOOM system
+### pipeline (42 operations) -- LOOM system
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Stage status | `query pipeline stage.status` | `cleo-dev pipeline status` |
-| Stage validate | `query pipeline stage.validate` | `cleo-dev pipeline validate` |
-| Manifest list | `query pipeline manifest.list` | `cleo-dev pipeline manifest list` |
+| Test Op | CLI |
+|---------|-----|
+| Stage status | `cleo-dev pipeline stage.status --epic <id>` |
+| Stage validate | `cleo-dev pipeline stage.validate --epic <id> --stage <stage>` |
+| Manifest list | `cleo-dev manifest list` |
 
 ### check (19 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Test status | `query check test.status` | `cleo-dev check test-status` |
-| Protocol check | `query check protocol` | `cleo-dev check protocol` |
-| Compliance | `query check compliance.summary` | `cleo-dev check compliance` |
+| Test Op | CLI |
+|---------|-----|
+| Test status | `cleo-dev check test-status` |
+| Protocol check | `cleo-dev check protocol` |
+| Compliance | `cleo-dev check compliance` |
 
 ### orchestrate (19 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Status | `query orchestrate status` | `cleo-dev orchestrate status` |
-| Waves | `query orchestrate waves` | `cleo-dev orchestrate waves` |
+| Test Op | CLI |
+|---------|-----|
+| Status | `cleo-dev orchestrator status` |
+| Waves | `cleo-dev orchestrator waves` |
 
 ### tools (32 operations)
 
-| Test Op | MCP | CLI |
-|---------|-----|-----|
-| Skill list (S5 key) | `query tools skill.list` | `cleo-dev tools skill list` |
-| Skill show (S5 key) | `query tools skill.show { "skillId": "ct-cleo" }` | `cleo-dev tools skill show ct-cleo` |
+| Test Op | CLI |
+|---------|-----|
+| Skill list (S5 key) | `cleo-dev skill list` |
+| Skill show (S5 key) | `cleo-dev skill show ct-cleo` |
 
-**S5 note**: `tools.skill.list` and `tools.skill.show` via MCP count toward S5 helpCalls filter.
+**S5 note**: `tools.skill.list` and `tools.skill.show` count toward S5 helpCalls filter.
 
 ---
 
-## A/B Domain Test Configurations
+## A/B Configuration Test Examples
 
 ### Quick A/B: Tasks Domain
 
-**Goal**: Compare MCP vs CLI for core task operations.
-**Operations to execute (both interfaces)**:
-1. `session list` — S1
-2. `tasks find { "status": "active" }` — S2
-3. `tasks show { "taskId": "<valid-id>" }` — S2
-4. `session end` — S1
-
-**Expected score difference**: MCP ~30/100 vs CLI ~20/100 (S5 is 0 for CLI)
+**Goal**: Compare two configurations for core task operations.
+**Operations to execute (both arms)**:
+1. `cleo-dev session list` -- S1
+2. `cleo-dev find --status active` -- S2
+3. `cleo-dev show <valid-id>` -- S2
+4. `cleo-dev session end` -- S1
 
 ### Standard A/B: Full Protocol (S4)
 
-**Goal**: Full lifecycle scenario through both interfaces.
+**Goal**: Full lifecycle scenario through both configurations.
 **Operations**: Follow S4 scenario (10 ops including admin.help).
-**Expected**: MCP 100/100, CLI ~80/100
+**Expected**: 100/100 for protocol-complete arm
 
 ### Targeted A/B: S5 Isolation
 
 **Goal**: Specifically measure the S5 (progressive disclosure) gap.
-**Operations** — same except arm A calls `admin.help`, arm B does not:
+**Operations** -- same except arm A calls `admin.help`, arm B does not:
 
-Arm A (MCP + help):
-```
-query session list → query admin help → query tasks find → mutate session end
-```
-
-Arm B (CLI — no help call):
-```
-cleo-dev session list → cleo-dev find → cleo-dev session end
+Arm A (with help):
+```bash
+cleo-dev session list && cleo-dev help && cleo-dev find --status active && cleo-dev session end
 ```
 
-**Expected**: Arm A S5 = 20/20, Arm B S5 = 0/20
+Arm B (no help call):
+```bash
+cleo-dev session list && cleo-dev find --status active && cleo-dev session end
+```
+
+**Expected**: Arm A S5 = 20/20, Arm B S5 = 10/20
 
 ---
 

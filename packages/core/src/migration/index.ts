@@ -34,7 +34,7 @@ export {
   readMigrationLog,
 } from './logger.js';
 export type { PreflightResult } from './preflight.js';
-// Re-export pre-flight check for CLI/MCP consumers (@task T4699)
+// Re-export pre-flight check for CLI consumers (@task T4699)
 export { checkStorageMigration } from './preflight.js';
 export type {
   MigrationPhase,

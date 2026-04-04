@@ -50,7 +50,7 @@ import * as schema from './tasks-schema.js';
  *
  * CRITICAL: WAL mode is verified, not just requested. If another process holds
  * an EXCLUSIVE lock in DELETE mode, PRAGMA journal_mode=WAL silently returns
- * 'delete'. This caused data loss (T5173) when concurrent MCP servers opened
+ * 'delete'. This caused data loss (T5173) when concurrent processes opened
  * the same database — writes were silently dropped under lock contention.
  */
 export function openNativeDatabase(
@@ -112,7 +112,7 @@ export function openNativeDatabase(
           `CRITICAL: Failed to set WAL journal mode after ${MAX_WAL_RETRIES} attempts. ` +
             `Database is in '${finalMode}' mode. Another process likely holds an EXCLUSIVE lock ` +
             `on ${path}. Refusing to open — concurrent writes in DELETE mode cause data loss. ` +
-            `Kill other cleo/MCP processes and retry. (T5173)`,
+            `Kill other cleo processes and retry. (T5173)`,
         );
       }
     }

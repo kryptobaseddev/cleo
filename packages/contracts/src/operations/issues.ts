@@ -11,7 +11,7 @@
  * Common issue types
  */
 export type IssueSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type IssueArea = 'cli' | 'mcp' | 'docs' | 'tests' | 'other';
+export type IssueArea = 'cli' | 'dispatch' | 'docs' | 'tests' | 'other';
 export type IssueType = 'bug' | 'feature' | 'help';
 
 export interface Diagnostics {

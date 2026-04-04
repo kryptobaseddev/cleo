@@ -35,7 +35,7 @@ function formatSuccess<T>(
 }
 
 import { createPage } from '../../../core/src/pagination.js';
-import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
+import { createGatewayMeta } from '../dispatch/lib/gateway-meta.js';
 
 /**
  * Canonical LAFS success envelope shape.

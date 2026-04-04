@@ -7,7 +7,7 @@
  * @task T5240
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -36,20 +36,24 @@ describe('OpenCodeAdapter', () => {
     expect(adapter.capabilities.supportsHooks).toBe(true);
     expect(adapter.capabilities.supportsSpawn).toBe(true);
     expect(adapter.capabilities.supportsInstall).toBe(true);
-    expect(adapter.capabilities.supportsMcp).toBe(true);
+    expect(adapter.capabilities.supportsMcp).toBe(false);
     expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
     expect(adapter.capabilities.instructionFilePattern).toBe('AGENTS.md');
   });
 
-  it('supports 6 hook events (6/8 CAAMP)', () => {
+  it('supports 10 hook events (10/16 CAAMP)', () => {
     const events = adapter.capabilities.supportedHookEvents;
-    expect(events).toHaveLength(6);
-    expect(events).toContain('onSessionStart');
-    expect(events).toContain('onSessionEnd');
-    expect(events).toContain('onToolStart');
-    expect(events).toContain('onToolComplete');
-    expect(events).toContain('onError');
-    expect(events).toContain('onPromptSubmit');
+    expect(events).toHaveLength(10);
+    expect(events).toContain('SessionStart');
+    expect(events).toContain('SessionEnd');
+    expect(events).toContain('PromptSubmit');
+    expect(events).toContain('ResponseComplete');
+    expect(events).toContain('PreToolUse');
+    expect(events).toContain('PostToolUse');
+    expect(events).toContain('PermissionRequest');
+    expect(events).toContain('PreModel');
+    expect(events).toContain('PreCompact');
+    expect(events).toContain('PostCompact');
   });
 
   it('exposes hooks, spawn, and install providers', () => {
@@ -94,28 +98,44 @@ describe('OpenCodeHookProvider', () => {
     hooks = new OpenCodeHookProvider();
   });
 
-  it('maps session.start to onSessionStart', () => {
-    expect(hooks.mapProviderEvent('session.start')).toBe('onSessionStart');
+  it('maps event:session.created to SessionStart', () => {
+    expect(hooks.mapProviderEvent('event:session.created')).toBe('SessionStart');
   });
 
-  it('maps session.end to onSessionEnd', () => {
-    expect(hooks.mapProviderEvent('session.end')).toBe('onSessionEnd');
+  it('maps event:session.deleted to SessionEnd', () => {
+    expect(hooks.mapProviderEvent('event:session.deleted')).toBe('SessionEnd');
   });
 
-  it('maps tool.start to onToolStart', () => {
-    expect(hooks.mapProviderEvent('tool.start')).toBe('onToolStart');
+  it('maps chat.message to PromptSubmit', () => {
+    expect(hooks.mapProviderEvent('chat.message')).toBe('PromptSubmit');
   });
 
-  it('maps tool.complete to onToolComplete', () => {
-    expect(hooks.mapProviderEvent('tool.complete')).toBe('onToolComplete');
+  it('maps event:session.idle to ResponseComplete', () => {
+    expect(hooks.mapProviderEvent('event:session.idle')).toBe('ResponseComplete');
   });
 
-  it('maps error to onError', () => {
-    expect(hooks.mapProviderEvent('error')).toBe('onError');
+  it('maps tool.execute.before to PreToolUse', () => {
+    expect(hooks.mapProviderEvent('tool.execute.before')).toBe('PreToolUse');
   });
 
-  it('maps prompt.submit to onPromptSubmit', () => {
-    expect(hooks.mapProviderEvent('prompt.submit')).toBe('onPromptSubmit');
+  it('maps tool.execute.after to PostToolUse', () => {
+    expect(hooks.mapProviderEvent('tool.execute.after')).toBe('PostToolUse');
+  });
+
+  it('maps permission.ask to PermissionRequest', () => {
+    expect(hooks.mapProviderEvent('permission.ask')).toBe('PermissionRequest');
+  });
+
+  it('maps chat.params to PreModel', () => {
+    expect(hooks.mapProviderEvent('chat.params')).toBe('PreModel');
+  });
+
+  it('maps experimental.session.compacting to PreCompact', () => {
+    expect(hooks.mapProviderEvent('experimental.session.compacting')).toBe('PreCompact');
+  });
+
+  it('maps event:session.compacted to PostCompact', () => {
+    expect(hooks.mapProviderEvent('event:session.compacted')).toBe('PostCompact');
   });
 
   it('returns null for unknown events', () => {
@@ -131,12 +151,12 @@ describe('OpenCodeHookProvider', () => {
     expect(hooks.isRegistered()).toBe(false);
   });
 
-  it('exposes event map with 6 entries', () => {
+  it('exposes event map with 10 entries', () => {
     const map = hooks.getEventMap();
-    expect(Object.keys(map)).toHaveLength(6);
-    expect(map['session.start']).toBe('onSessionStart');
-    expect(map['tool.complete']).toBe('onToolComplete');
-    expect(map['prompt.submit']).toBe('onPromptSubmit');
+    expect(Object.keys(map)).toHaveLength(10);
+    expect(map['event:session.created']).toBe('SessionStart');
+    expect(map['tool.execute.after']).toBe('PostToolUse');
+    expect(map['chat.message']).toBe('PromptSubmit');
   });
 });
 
@@ -208,36 +228,18 @@ describe('OpenCodeInstallProvider', () => {
     expect(injectionCount).toBe(1);
   });
 
-  it('registers MCP server in .opencode/config.json', async () => {
+  it('install returns mcpRegistered false', async () => {
     const result = await install.install({
       projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
     });
 
     expect(result.success).toBe(true);
-    expect(result.mcpRegistered).toBe(true);
+    expect(result.mcpRegistered).toBe(false);
     expect(result.instructionFileUpdated).toBe(true);
-
-    const configPath = join(testDir, '.opencode', 'config.json');
-    expect(existsSync(configPath)).toBe(true);
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.cleo).toEqual({
-      command: 'node',
-      args: ['/path/to/cleo-mcp.js'],
-    });
   });
 
-  it('uninstall removes MCP server from .opencode/config.json', async () => {
-    await install.install({
-      projectDir: testDir,
-      mcpServerPath: '/path/to/cleo-mcp.js',
-    });
-
-    await install.uninstall();
-
-    const configPath = join(testDir, '.opencode', 'config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.cleo).toBeUndefined();
+  it('uninstall is a no-op', async () => {
+    await expect(install.uninstall()).resolves.toBeUndefined();
   });
 });
 

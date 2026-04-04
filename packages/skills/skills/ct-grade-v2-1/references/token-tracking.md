@@ -53,9 +53,8 @@ estimated_tokens ≈ output_chars / 4     (mixed content)
 ### Method 4: Audit entry count (coarse proxy)
 
 Each audit entry represents one operation invocation. As a very rough proxy:
-- One MCP `query` call ≈ 300–800 tokens total (request + response)
-- One MCP `mutate` call ≈ 400–1200 tokens total
-- CLI call ≈ 200–600 tokens (less envelope overhead)
+- One CLI read call ≈ 200–600 tokens total (request + response)
+- One CLI write call ≈ 300–800 tokens total
 
 `entryCount × 150` gives a session-level estimate. Accuracy ±50%.
 
@@ -89,9 +88,8 @@ The v2.1 grade scripts append `_tokenMeta` to each grade result:
       "nexus": 0,
       "sticky": 0
     },
-    "perGateway": {
-      "query": 2100,
-      "cli": 1100,
+    "perInterface": {
+      "cli": 3200,
       "untracked": 1000
     },
     "auditEntries": 47,
@@ -109,12 +107,12 @@ In `ab-result.json`:
   "runs": [
     {
       "run": 1,
-      "mcp": {
+      "arm_a": {
         "output_chars": 1240,
         "estimated_tokens": 310,
         "duration_ms": 145
       },
-      "cli": {
+      "arm_b": {
         "output_chars": 980,
         "estimated_tokens": 245,
         "duration_ms": 88
@@ -184,9 +182,9 @@ tokenEfficiencyScore = (entriesCompleted / estimatedTokens) * 1000
 ```
 
 Higher = more work per token. Use to compare:
-- MCP-heavy sessions vs CLI-heavy sessions
 - Pre/post skill improvements
 - Different agent configurations
+- Different CLI binary versions
 
 ---
 

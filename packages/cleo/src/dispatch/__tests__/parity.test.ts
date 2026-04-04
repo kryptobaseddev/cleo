@@ -3,7 +3,7 @@
  *
  * Validates that the dispatch layer's structural contracts hold end-to-end:
  *  1. Registry completeness — every OPERATIONS entry is well-formed
- *  2. ParamDef → MCP Schema derivation — buildMcpInputSchema correctness
+ *  2. ParamDef → Schema derivation — buildMcpInputSchema correctness
  *  3. ParamDef → Commander derivation — buildCommanderArgs / buildCommanderOptionString
  *  4. Dispatch routing correctness — resolve() and validateRequiredParams()
  *  5. Schema utils — getOperationSchema() behaviour
@@ -144,10 +144,10 @@ describe('Group 1: Registry completeness', () => {
 });
 
 // ===========================================================================
-// Test Group 2: ParamDef → MCP Schema derivation
+// Test Group 2: ParamDef → Schema derivation
 // ===========================================================================
 
-describe('Group 2: ParamDef → MCP Schema derivation', () => {
+describe('Group 2: ParamDef → Schema derivation', () => {
   it('buildMcpInputSchema returns valid JSON Schema object shape', () => {
     const def = {
       gateway: 'query' as const,
@@ -405,7 +405,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
     expect(options).toHaveLength(1);
     expect(options[0].name).toBe('format');
 
-    // mcpOnlyParam has no cli key — must be excluded from both arrays
+    // param with no cli key — must be excluded from both arrays
     const allNames = [...positionals, ...options].map((p) => p.name);
     expect(allNames).not.toContain('mcpOnlyParam');
   });
@@ -664,7 +664,7 @@ describe('Group 4: Dispatch routing correctness', () => {
     expect(result!.def).toBe(directLookup);
   });
 
-  it('real dispatch routing is verified in cli-mcp-parity.integration.test.ts', () => {
+  it('real dispatch routing is verified in integration tests', () => {
     // Integration-level routing validated in dedicated test file
     expect(true).toBe(true);
   });

@@ -217,7 +217,7 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
       (e.domain === 'skills' && (e.operation === 'list' || e.operation === 'show')),
   );
   // gateway is stored as 'query'/'mutate' in the audit log
-  const mcpQueryCalls = sessionEntries.filter((e) => e.metadata?.gateway === 'query');
+  const queryCalls = sessionEntries.filter((e) => e.metadata?.gateway === 'query');
 
   let disclosureScore = 0;
 
@@ -230,11 +230,11 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
     result.flags.push('No admin.help or skill lookup calls (load ct-cleo for guidance)');
   }
 
-  if (mcpQueryCalls.length > 0) {
+  if (queryCalls.length > 0) {
     disclosureScore += 10;
-    result.dimensions.disclosureUse.evidence.push(`query (MCP) used ${mcpQueryCalls.length}x`);
+    result.dimensions.disclosureUse.evidence.push(`query gateway used ${queryCalls.length}x`);
   } else {
-    result.flags.push('No MCP query calls (prefer query over CLI for programmatic access)');
+    result.flags.push('No query gateway calls (use query operations for programmatic access)');
   }
 
   result.dimensions.disclosureUse.score = disclosureScore;

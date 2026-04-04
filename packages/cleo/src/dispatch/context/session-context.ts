@@ -1,7 +1,7 @@
 /**
- * Process-scoped session context for the MCP server.
+ * Process-scoped session context for the CLEO dispatch layer.
  *
- * Each Claude Code conversation spawns its own MCP process, so 5 concurrent
+ * Each Claude Code conversation spawns its own process, so 5 concurrent
  * agents = 5 isolated SessionContext instances with zero shared state.
  * This replaces the fragile process.env.CLEO_SESSION_ID mechanism.
  *

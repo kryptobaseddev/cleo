@@ -15,19 +15,6 @@
 
 ## Spawn Pipeline
 
-### MCP Spawn Operations
-
-```
-# Analyze dependency waves
-query({ domain: "orchestrate", operation: "analyze", params: { epicId: "T001" }})
-
-# Get ready tasks
-query({ domain: "orchestrate", operation: "ready", params: { epicId: "T001" }})
-
-# Get next task suggestion
-query({ domain: "orchestrate", operation: "next", params: { epicId: "T001" }})
-```
-
 ### CLI Spawn Operations
 
 ```bash

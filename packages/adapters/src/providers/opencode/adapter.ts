@@ -28,7 +28,7 @@ const execAsync = promisify(exec);
  * Bridges CLEO's adapter system with OpenCode's native capabilities:
  * - Hooks: Maps OpenCode events (session.start, tool.complete, etc.) to CAAMP events
  * - Spawn: Launches subagent processes via the `opencode` CLI
- * - Install: Registers MCP server in .opencode/config.json and ensures AGENTS.md references
+ * - Install: Ensures AGENTS.md references for CLEO instruction files
  */
 export class OpenCodeAdapter implements CLEOProviderAdapter {
   readonly id = 'opencode';
@@ -54,7 +54,7 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: true,
     supportsInstall: true,
-    supportsMcp: true,
+    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: 'AGENTS.md',
     supportsContextMonitor: false,

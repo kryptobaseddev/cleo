@@ -67,8 +67,7 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   // Step 2: CAAMP injection into ~/.agents/AGENTS.md
   await injectAgentsHub(ctx);
 
-  // Step 3: Install MCP server to detected providers
-  await installMcpToProviders(ctx);
+  // Step 3: (removed)
 
   // Step 4: Install core skills globally
   await installSkillsGlobally(ctx);
@@ -286,46 +285,13 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
   }
 }
 
-// ── Step 3: MCP server installation ──────────────────────────────────
+// ── Step 3: (removed) ───────────────────────────────────────────────
 
 /**
- * Install the CLEO MCP server config to all detected providers.
+ * No-op. Kept for API compatibility.
  */
-export async function installMcpToProviders(ctx: BootstrapContext): Promise<void> {
-  try {
-    const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import(
-      './mcp/index.js'
-    );
-    const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
-    type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
-
-    const env = detectEnvMode();
-    const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
-    const serverName = getMcpServerName(env);
-    const providers = getInstalledProviders();
-
-    if (providers.length > 0) {
-      if (!ctx.isDryRun) {
-        const results = await installMcpServerToAll(
-          providers,
-          serverName,
-          serverEntry,
-          'global',
-          homedir(),
-        );
-        const successes = results.filter((r: { success: boolean }) => r.success);
-        if (successes.length > 0) {
-          ctx.created.push(
-            `MCP configs: ${successes.map((r: { provider: { id: string } }) => r.provider.id).join(', ')}`,
-          );
-        }
-      } else {
-        ctx.created.push('MCP configs (would update)');
-      }
-    }
-  } catch {
-    ctx.warnings.push('MCP config update skipped (non-critical)');
-  }
+export async function installMcpToProviders(_ctx: BootstrapContext): Promise<void> {
+  // No-op: removed
 }
 
 // ── Step 4: Core skills installation ─────────────────────────────────

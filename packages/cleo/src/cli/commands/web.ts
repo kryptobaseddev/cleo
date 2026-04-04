@@ -108,9 +108,9 @@ export function registerWebCommand(program: Command): void {
           );
         }
 
-        // Resolve MCP server location — uses src/mcp/ from the main @cleocode/cleo package
+        // Resolve server location from the main @cleocode/cleo package
         const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
-        const distMcpDir = join(projectRoot, 'dist', 'mcp');
+        const distServerDir = join(projectRoot, 'dist', 'cli');
 
         // Ensure log directory exists
         await mkdir(join(getCleoHome(), 'logs'), { recursive: true });
@@ -125,8 +125,8 @@ export function registerWebCommand(program: Command): void {
           }),
         );
 
-        // Check if MCP server is built (dist/mcp/index.js from @cleocode/cleo)
-        const webIndexPath = join(distMcpDir, 'index.js');
+        // Check if server is built (dist/cli/index.js from @cleocode/cleo)
+        const webIndexPath = join(distServerDir, 'index.js');
         try {
           await stat(webIndexPath);
         } catch {
@@ -213,9 +213,13 @@ export function registerWebCommand(program: Command): void {
           return;
         }
 
-        // Graceful shutdown
+        // Graceful shutdown (cross-platform)
         try {
-          process.kill(status.pid, 'SIGTERM');
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
+          } else {
+            process.kill(status.pid, 'SIGTERM');
+          }
         } catch {
           /* ignore */
         }
@@ -229,7 +233,11 @@ export function registerWebCommand(program: Command): void {
         // Force kill if still running
         if (isProcessRunning(status.pid)) {
           try {
-            process.kill(status.pid, 'SIGKILL');
+            if (process.platform === 'win32') {
+              spawn('taskkill', ['/PID', String(status.pid), '/F', '/T'], { stdio: 'ignore' });
+            } else {
+              process.kill(status.pid, 'SIGKILL');
+            }
           } catch {
             /* ignore */
           }
@@ -285,9 +293,11 @@ export function registerWebCommand(program: Command): void {
             spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
           } else if (platform === 'darwin') {
             spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+          } else if (platform === 'win32') {
+            spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
           }
         } catch {
-          // Can't open browser
+          // Can't open browser — user can open manually
         }
 
         cliOutput({ url }, { command: 'web', message: `Open browser to: ${url}` });

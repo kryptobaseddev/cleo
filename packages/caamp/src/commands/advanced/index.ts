@@ -1,20 +1,17 @@
 /**
  * Advanced orchestration command group providing LAFS-compliant wrappers for batch operations,
- * conflict detection, policy-based apply, provider selection, and cross-scope configuration.
+ * provider selection, and instruction management.
  *
  * @packageDocumentation
  */
 
 import type { Command } from 'commander';
-import { registerAdvancedApply } from './apply.js';
 import { registerAdvancedBatch } from './batch.js';
-import { registerAdvancedConfigure } from './configure.js';
-import { registerAdvancedConflicts } from './conflicts.js';
 import { registerAdvancedInstructions } from './instructions.js';
 import { registerAdvancedProviders } from './providers.js';
 
 /**
- * Registers the `advanced` command group with providers, batch, conflicts, apply, instructions, and configure subcommands.
+ * Registers the `advanced` command group with providers, batch, and instructions subcommands.
  *
  * @remarks
  * Provides LAFS-compliant wrappers for advanced orchestration operations that operate across
@@ -24,8 +21,8 @@ import { registerAdvancedProviders } from './providers.js';
  *
  * @example
  * ```bash
- * caamp advanced batch --mcp-file ops.json --skills-file skills.json
- * caamp advanced apply --mcp-file ops.json --policy overwrite
+ * caamp advanced batch --skills-file skills.json
+ * caamp advanced instructions --content "## Setup" --all
  * ```
  *
  * @public
@@ -37,8 +34,5 @@ export function registerAdvancedCommands(program: Command): void {
 
   registerAdvancedProviders(advanced);
   registerAdvancedBatch(advanced);
-  registerAdvancedConflicts(advanced);
-  registerAdvancedApply(advanced);
   registerAdvancedInstructions(advanced);
-  registerAdvancedConfigure(advanced);
 }
