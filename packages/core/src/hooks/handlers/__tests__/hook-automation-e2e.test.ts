@@ -62,7 +62,7 @@ function makeConfig(
     captureMcp?: boolean;
     autoRefresh?: boolean;
   } = {},
-): Record<string, unknown> {
+): Awaited<ReturnType<typeof configModule.loadConfig>> {
   return {
     brain: {
       autoCapture: overrides.autoCapture ?? true,
@@ -73,7 +73,7 @@ function makeConfig(
       embedding: { enabled: false, provider: 'local' },
       summarization: { enabled: false },
     },
-  };
+  } as Awaited<ReturnType<typeof configModule.loadConfig>>;
 }
 
 const PROJECT_ROOT = '/tmp/e2e-test-project';

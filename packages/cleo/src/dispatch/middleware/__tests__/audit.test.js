@@ -46,12 +46,13 @@ vi.mock('../../../../../core/src/store/sqlite.js', () => ({
         insert: mockInsert,
     }),
 }));
-vi.mock('../../../../../core/src/store/tasks-schema.js', () => ({
-    auditLog: { _: 'mock_audit_log_table' },
-    TASK_PRIORITIES: ['critical', 'high', 'medium', 'low'],
-    TASK_STATUSES: ['pending', 'active', 'blocked', 'done'],
-    MANIFEST_STATUSES: ['pending', 'accepted', 'rejected'],
-}));
+vi.mock('../../../../../core/src/store/tasks-schema.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        // Override only what the test needs to mock
+    };
+});
 // Mock validation-schemas so Zod check passes without real validation
 vi.mock('../../../../../core/src/store/validation-schemas.js', () => ({
     AuditLogInsertSchema: {
@@ -75,7 +76,7 @@ describe('createAudit middleware', () => {
             domain: 'tasks',
             operation: 'add',
             params: { taskId: 'T100', title: 'Test task' },
-            source: 'mcp',
+            source: 'cli',
             requestId: 'req-001',
             ...overrides,
         };
@@ -88,7 +89,7 @@ describe('createAudit middleware', () => {
                 operation: 'add',
                 timestamp: new Date().toISOString(),
                 duration_ms: 10,
-                source: 'mcp',
+                source: 'cli',
                 requestId: 'req-001',
             },
             success: true,

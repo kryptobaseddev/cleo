@@ -3,7 +3,7 @@
  *
  * Validates that the dispatch layer's structural contracts hold end-to-end:
  *  1. Registry completeness — every OPERATIONS entry is well-formed
- *  2. ParamDef → MCP Schema derivation — buildMcpInputSchema correctness
+ *  2. ParamDef → Schema derivation — buildMcpInputSchema correctness
  *  3. ParamDef → Commander derivation — buildCommanderArgs / buildCommanderOptionString
  *  4. Dispatch routing correctness — resolve() and validateRequiredParams()
  *  5. Schema utils — getOperationSchema() behaviour
@@ -74,9 +74,9 @@ describe('Group 1: Registry completeness', () => {
     it('registry has the expected operation count', () => {
         const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;
         const mutateCount = OPERATIONS.filter((o) => o.gateway === 'mutate').length;
-        expect(queryCount).toBe(126);
-        expect(mutateCount).toBe(94);
-        expect(OPERATIONS.length).toBe(220);
+        expect(queryCount).toBe(128);
+        expect(mutateCount).toBe(97);
+        expect(OPERATIONS.length).toBe(225);
     });
     it('all operations have valid gateway values', () => {
         const validGateways = new Set(['query', 'mutate']);
@@ -86,9 +86,9 @@ describe('Group 1: Registry completeness', () => {
     });
 });
 // ===========================================================================
-// Test Group 2: ParamDef → MCP Schema derivation
+// Test Group 2: ParamDef → Schema derivation
 // ===========================================================================
-describe('Group 2: ParamDef → MCP Schema derivation', () => {
+describe('Group 2: ParamDef → Schema derivation', () => {
     it('buildMcpInputSchema returns valid JSON Schema object shape', () => {
         const def = {
             gateway: 'query',
@@ -315,7 +315,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
         expect(positionals[0].name).toBe('taskId');
         expect(options).toHaveLength(1);
         expect(options[0].name).toBe('format');
-        // mcpOnlyParam has no cli key — must be excluded from both arrays
+        // param with no cli key — must be excluded from both arrays
         const allNames = [...positionals, ...options].map((p) => p.name);
         expect(allNames).not.toContain('mcpOnlyParam');
     });
@@ -526,7 +526,7 @@ describe('Group 4: Dispatch routing correctness', () => {
         const directLookup = OPERATIONS.find((o) => o.gateway === 'mutate' && o.domain === 'tasks' && o.operation === 'complete');
         expect(result.def).toBe(directLookup);
     });
-    it('real dispatch routing is verified in cli-mcp-parity.integration.test.ts', () => {
+    it('real dispatch routing is verified in integration tests', () => {
         // Integration-level routing validated in dedicated test file
         expect(true).toBe(true);
     });

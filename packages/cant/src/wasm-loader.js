@@ -29,7 +29,7 @@ async function initWasm() {
     initPromise = (async () => {
         try {
             // Try to load the WASM module
-            const wasm = await import('../wasm/cant_core');
+            const wasm = (await import('../wasm/cant_core'));
             await wasm.default();
             exports.wasmModule = wasmModule = wasm;
         }

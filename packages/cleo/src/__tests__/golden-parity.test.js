@@ -23,7 +23,7 @@ function formatSuccess(data, message, operationOrOpts) {
     return _formatSuccess(data, message, opts);
 }
 import { createPage } from '../../../core/src/pagination.js';
-import { createGatewayMeta } from '../mcp/lib/gateway-meta.js';
+import { createGatewayMeta } from '../dispatch/lib/gateway-meta.js';
 /**
  * Canonical LAFS success envelope shape.
  * All TS CLI output must match this structure.

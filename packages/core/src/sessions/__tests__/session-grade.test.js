@@ -35,7 +35,7 @@ function entry(overrides) {
         operation: overrides.operation,
         params: overrides.params ?? {},
         result: overrides.result ?? { success: true, exitCode: 0, duration: 10 },
-        metadata: overrides.metadata ?? { source: 'mcp' },
+        metadata: overrides.metadata ?? { source: 'cli' },
         error: overrides.error,
     };
 }
@@ -82,19 +82,19 @@ describe('gradeSession', () => {
                     domain: 'admin',
                     operation: 'help',
                     timestamp: ts(100),
-                    metadata: { source: 'mcp', gateway: 'query' },
+                    metadata: { source: 'cli', gateway: 'query' },
                 }),
                 entry({
                     domain: 'tasks',
                     operation: 'find',
                     timestamp: ts(200),
-                    metadata: { source: 'mcp', gateway: 'query' },
+                    metadata: { source: 'cli', gateway: 'query' },
                 }),
                 entry({
                     domain: 'tasks',
                     operation: 'show',
                     timestamp: ts(300),
-                    metadata: { source: 'mcp', gateway: 'query' },
+                    metadata: { source: 'cli', gateway: 'query' },
                 }),
                 entry({ domain: 'tasks', operation: 'exists', timestamp: ts(400) }),
                 entry({
@@ -243,14 +243,14 @@ describe('gradeSession', () => {
                     operation: 'add',
                     params: { title: 'No desc task' },
                     result: { success: true, exitCode: 0, duration: 10 },
-                    metadata: { source: 'mcp', taskId: 'T1' },
+                    metadata: { source: 'cli', taskId: 'T1' },
                 }),
                 entry({
                     domain: 'tasks',
                     operation: 'add',
                     params: { title: 'Another no desc' },
                     result: { success: true, exitCode: 0, duration: 10 },
-                    metadata: { source: 'mcp', taskId: 'T2' },
+                    metadata: { source: 'cli', taskId: 'T2' },
                 }),
             ]);
             const result = await gradeSession('s3-nodesc', tempDir);
@@ -501,7 +501,7 @@ describe('gradeSession', () => {
                     domain: 'tasks',
                     operation: 'find',
                     timestamp: ts(0),
-                    metadata: { source: 'mcp', gateway: 'query' },
+                    metadata: { source: 'cli', gateway: 'query' },
                 }),
             ]);
             const result = await gradeSession('s5-mcp', tempDir);
@@ -515,7 +515,7 @@ describe('gradeSession', () => {
                     domain: 'tasks',
                     operation: 'find',
                     timestamp: ts(100),
-                    metadata: { source: 'mcp', gateway: 'query' },
+                    metadata: { source: 'cli', gateway: 'query' },
                 }),
             ]);
             const result = await gradeSession('s5-perfect', tempDir);
@@ -528,12 +528,12 @@ describe('gradeSession', () => {
             const result = await gradeSession('s5-nohelp', tempDir);
             expect(result.flags).toContain('No admin.help or skill lookup calls (load ct-cleo for guidance)');
         });
-        it('flags when no MCP query calls', async () => {
+        it('flags when no query gateway calls', async () => {
             mocks.queryAudit.mockResolvedValue([
                 entry({ domain: 'tasks', operation: 'find', timestamp: ts(0) }),
             ]);
             const result = await gradeSession('s5-nomcp', tempDir);
-            expect(result.flags).toContain('No MCP query calls (prefer query over CLI for programmatic access)');
+            expect(result.flags).toContain('No query gateway calls (use query operations for programmatic access)');
         });
     });
     // ------ Total score ------

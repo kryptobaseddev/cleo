@@ -106,7 +106,7 @@ export class AdminHandler implements DomainHandler {
             const result = await systemDoctor(projectRoot);
             return wrapResult(result, 'query', 'admin', operation, startTime);
           }
-          const result = systemHealth(projectRoot, params as { detailed?: boolean } | undefined);
+          const result = await systemHealth(projectRoot, params as { detailed?: boolean } | undefined);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 

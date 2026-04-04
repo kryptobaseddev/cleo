@@ -34,19 +34,12 @@ describe('CAAMP skill install + integrity (T4718)', () => {
                 'providerInstalled',
                 'providerCount',
                 'registryVersion',
-                'mcpList',
-                'mcpListAll',
-                'mcpInstall',
-                'mcpRemove',
-                'mcpConfigPath',
                 'injectionCheck',
                 'injectionCheckAll',
                 'injectionUpdate',
                 'injectionUpdateAll',
                 'batchInstallWithRollback',
-                'dualScopeConfigure',
                 'caampResolveAlias',
-                'caampBuildServerConfig',
                 'caampGenerateInjectionContent',
                 'caampGetInstructionFiles',
             ];
@@ -148,14 +141,6 @@ describe('CAAMP skill install + integrity (T4718)', () => {
             expect(files.length).toBeGreaterThan(0);
             // Should include CLAUDE.md
             expect(files.some((f) => f.includes('CLAUDE'))).toBe(true);
-        });
-    });
-    describe('CAAMP server config generation', () => {
-        it('caampBuildServerConfig creates valid config for package source', async () => {
-            const { caampBuildServerConfig } = await import('../caamp/index.js');
-            const config = caampBuildServerConfig({ type: 'package', value: '@cleocode/cleo' });
-            expect(config).toBeDefined();
-            expect(config.command).toBeDefined();
         });
     });
 });

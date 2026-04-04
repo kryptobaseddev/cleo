@@ -38,7 +38,7 @@ app.post("/api/v1/envelope", express.json(), (req: Request, res: Response) => {
   const operation = envelope._meta.operation;
   
   // Echo back with success
-  res.json({
+  return res.json({
     $schema: "https://lafs.dev/schemas/v1/envelope.schema.json",
     _meta: {
       specVersion: envelope._meta.specVersion || "1.0.0",

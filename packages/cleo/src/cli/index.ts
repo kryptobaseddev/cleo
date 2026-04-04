@@ -6,21 +6,6 @@
  * TODO: Migrate all 89 commands to native citty pattern (epic T5730)
  */
 
-// Suppress ExperimentalWarning from node:sqlite and other experimental APIs.
-// This replaces the non-portable `#!/usr/bin/env -S node --disable-warning=ExperimentalWarning` shebang.
-const originalEmit = process.emit.bind(process);
-// @ts-expect-error -- overriding process.emit to filter warnings
-process.emit = (event: string, ...args: unknown[]) => {
-  if (
-    event === 'warning' &&
-    args[0] &&
-    (args[0] as { name?: string }).name === 'ExperimentalWarning'
-  ) {
-    return false;
-  }
-  return originalEmit(event, ...args);
-};
-
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

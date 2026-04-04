@@ -32,11 +32,11 @@ vi.mock('../../../../../core/src/scaffold.js', () => ({
         .mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
     ensureContributorMcp: vi.fn().mockResolvedValue({
         action: 'skipped',
-        path: '/mock/project/.mcp.json',
-        details: 'Not a contributor project',
+        path: '/mock/project',
+        details: 'Removed (Phase 2 production readiness)',
     }),
 }));
-vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
+vi.mock('../../lib/job-manager-accessor.js', () => ({
     getJobManager: vi.fn(),
 }));
 vi.mock('../../../../../core/src/adrs/index.js', () => ({
@@ -125,8 +125,8 @@ vi.mock('../../registry.js', () => ({
         },
     ],
 }));
-import { getJobManager } from '../../../mcp/lib/job-manager-accessor.js';
 import { configSet, getVersion, initProject, systemBackup, systemCleanup, systemContext, systemDash, systemHealth, systemInjectGenerate, systemLog, systemMigrate, systemRuntime, systemSafestop, systemSequence, systemStats, } from '../../lib/engine.js';
+import { getJobManager } from '../../lib/job-manager-accessor.js';
 import { AdminHandler } from '../admin.js';
 describe('AdminHandler', () => {
     let handler;
@@ -499,12 +499,12 @@ describe('AdminHandler', () => {
             expect(res.success).toBe(false);
             expect(res.error?.code).toBe('E_INVALID_OPERATION');
         });
-        it('admin.detect refreshes project-context.json and contributor MCP', async () => {
+        it('admin.detect refreshes project-context.json and dev channel', async () => {
             const res = await handler.mutate('detect', {});
             expect(res.success).toBe(true);
             expect(res.data).toMatchObject({
                 context: { action: expect.stringMatching(/created|repaired|skipped/) },
-                mcp: { action: expect.stringMatching(/created|repaired|skipped/) },
+                devChannel: { action: expect.stringMatching(/created|repaired|skipped/) },
             });
         });
         it('should return E_INVALID_OPERATION for unknown mutate', async () => {

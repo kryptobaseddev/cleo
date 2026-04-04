@@ -1,7 +1,7 @@
 /**
- * CLI/MCP Core Parity Integration Tests
+ * CLI Core Parity Integration Tests
  *
- * Verifies that MCP engine functions delegate to src/core/ modules
+ * Verifies that dispatch engine functions delegate to src/core/ modules
  * and that both paths produce equivalent results for shared operations.
  *
  * Test categories:
@@ -39,7 +39,7 @@ describe('Import Graph Verification (T4796)', () => {
     // orchestrate-engine.ts deleted — moved to src/dispatch/engines/orchestrate-engine.ts (T5108)
     // validate-engine.ts deleted — moved to src/dispatch/engines/validate-engine.ts (T5109-T5111)
     ];
-    const ENGINE_DIR = join(process.cwd(), 'packages', 'cleo', 'src', 'mcp', 'engine');
+    const ENGINE_DIR = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
     for (const file of ENGINE_FILES) {
         describe(`${file}`, () => {
             it('imports from @cleocode/core or ../../store/', async () => {

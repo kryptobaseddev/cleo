@@ -131,6 +131,14 @@ describe('SafetyDataAccessor', () => {
       async transaction(fn: any) {
         return fn({});
       },
+      async listAgentInstances() {
+        return [];
+      },
+      async getAgentInstance() {
+        return null;
+      },
+      async claimTask() {},
+      async unclaimTask() {},
     };
   }
 

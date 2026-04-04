@@ -37,7 +37,7 @@ function entry(overrides) {
         operation: overrides.operation,
         params: overrides.params ?? {},
         result: overrides.result ?? { success: true, exitCode: 0, duration: 10 },
-        metadata: overrides.metadata ?? { source: 'mcp' },
+        metadata: overrides.metadata ?? { source: 'cli' },
         error: overrides.error,
     };
 }
@@ -50,35 +50,35 @@ function exemplarySession() {
             domain: 'session',
             operation: 'list',
             timestamp: ts(0),
-            metadata: { source: 'mcp', gateway: 'query' },
+            metadata: { source: 'cli', gateway: 'query' },
         }),
         // Use admin.help for progressive disclosure
         entry({
             domain: 'admin',
             operation: 'help',
             timestamp: ts(1000),
-            metadata: { source: 'mcp', gateway: 'query' },
+            metadata: { source: 'cli', gateway: 'query' },
         }),
         // Discover tasks with find (not list)
         entry({
             domain: 'tasks',
             operation: 'find',
             timestamp: ts(2000),
-            metadata: { source: 'mcp', gateway: 'query' },
+            metadata: { source: 'cli', gateway: 'query' },
         }),
         // Drill into specific task
         entry({
             domain: 'tasks',
             operation: 'show',
             timestamp: ts(3000),
-            metadata: { source: 'mcp', gateway: 'query' },
+            metadata: { source: 'cli', gateway: 'query' },
         }),
         // Check parent exists before creating subtask
         entry({
             domain: 'tasks',
             operation: 'exists',
             timestamp: ts(4000),
-            metadata: { source: 'mcp', gateway: 'query' },
+            metadata: { source: 'cli', gateway: 'query' },
         }),
         // Create subtask with proper description
         entry({
@@ -91,7 +91,7 @@ function exemplarySession() {
                 parent: 'T100',
             },
             result: { success: true, exitCode: 0, duration: 50 },
-            metadata: { source: 'mcp', gateway: 'mutate' },
+            metadata: { source: 'cli', gateway: 'mutate' },
         }),
         // Complete a task
         entry({
@@ -100,14 +100,14 @@ function exemplarySession() {
             timestamp: ts(6000),
             params: { taskId: 'T101' },
             result: { success: true, exitCode: 0, duration: 30 },
-            metadata: { source: 'mcp', gateway: 'mutate' },
+            metadata: { source: 'cli', gateway: 'mutate' },
         }),
         // End session properly
         entry({
             domain: 'session',
             operation: 'end',
             timestamp: ts(7000),
-            metadata: { source: 'mcp', gateway: 'mutate' },
+            metadata: { source: 'cli', gateway: 'mutate' },
         }),
     ];
 }

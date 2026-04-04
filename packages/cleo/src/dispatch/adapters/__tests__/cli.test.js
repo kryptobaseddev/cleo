@@ -176,9 +176,7 @@ vi.mock('../../../cli/renderers/index.js', () => ({
     cliError: vi.fn(),
 }));
 // Mock security module
-vi.mock('../../../mcp/lib/security.js', () => ({
-    sanitizeParams: vi.fn((p) => p),
-}));
+// Security module mock removed (was MCP-specific)
 import { cliError, cliOutput } from '../../../cli/renderers/index.js';
 import { createCliDispatcher, dispatchFromCli, dispatchRaw, resetCliDispatcher } from '../cli.js';
 describe('CLI Adapter', () => {

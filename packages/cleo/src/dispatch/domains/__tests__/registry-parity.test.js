@@ -442,7 +442,7 @@ vi.mock('../../engines/hooks-engine.js', () => ({
     queryHookProviders: vi.fn().mockResolvedValue({ success: true, data: { providers: [] } }),
 }));
 // Job manager
-vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
+vi.mock('../../lib/job-manager-accessor.js', () => ({
     getJobManager: vi.fn(() => ({
         getJob: vi.fn(() => ({ id: 'job1', status: 'running' })),
         listJobs: vi.fn(() => []),

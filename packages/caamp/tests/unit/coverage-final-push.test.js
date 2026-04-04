@@ -872,39 +872,7 @@ describe("coverage: providers.ts branch gaps", () => {
     });
 });
 // ══════════════════════════════════════════════════════════════════════════════
-// 12. src/core/mcp/installer.ts - branch gaps
-// ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: mcp installer.ts", () => {
-    it("buildServerConfig handles different source types", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        // Remote source with headers
-        const remote = buildServerConfig({ type: "remote", value: "https://example.com/sse" }, "sse", { Authorization: "Bearer token" });
-        expect(remote.type).toBe("sse");
-        expect(remote.url).toBe("https://example.com/sse");
-        expect(remote.headers).toBeDefined();
-        // Remote source without headers
-        const remoteNoHeaders = buildServerConfig({ type: "remote", value: "https://example.com" });
-        expect(remoteNoHeaders.type).toBe("http");
-        expect(remoteNoHeaders.headers).toBeUndefined();
-        // Remote with empty headers
-        const remoteEmptyHeaders = buildServerConfig({ type: "remote", value: "https://example.com" }, undefined, {});
-        expect(remoteEmptyHeaders.headers).toBeUndefined();
-        // Package source
-        const pkg = buildServerConfig({ type: "package", value: "@mcp/server-fs" });
-        expect(pkg.command).toBe("npx");
-        expect(pkg.args).toEqual(["-y", "@mcp/server-fs"]);
-        // Command source
-        const cmd = buildServerConfig({ type: "command", value: "node server.js --port 3000" });
-        expect(cmd.command).toBe("node");
-        expect(cmd.args).toEqual(["server.js", "--port", "3000"]);
-        // Command with single word
-        const singleCmd = buildServerConfig({ type: "command", value: "server" });
-        expect(singleCmd.command).toBe("server");
-        expect(singleCmd.args).toEqual([]);
-    });
-});
-// ══════════════════════════════════════════════════════════════════════════════
-// 13. src/core/advanced/orchestration.ts - branch gaps
+// 12. src/core/advanced/orchestration.ts - branch gaps
 // ══════════════════════════════════════════════════════════════════════════════
 describe("coverage: orchestration.ts branch gaps", () => {
     it("selectProvidersByMinimumPriority filters correctly", async () => {
@@ -951,71 +919,7 @@ describe("coverage: wellknown.ts", () => {
     });
 });
 // ══════════════════════════════════════════════════════════════════════════════
-// 16. Misc coverage: stableStringify in orchestration
-// ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: orchestration stableStringify (internal)", () => {
-    it("exercises detectMcpConfigConflicts which uses stableStringify", async () => {
-        const { detectMcpConfigConflicts } = await import("../../src/core/advanced/orchestration.js");
-        // Create a provider with no config support
-        const provider = {
-            id: "test",
-            supportedTransports: ["stdio"],
-            supportsHeaders: false,
-            configPathProject: null,
-            configPathGlobal: "/tmp/nonexistent.json",
-            configFormat: "json",
-            configKey: "mcpServers",
-        };
-        // Operation with unsupported transport
-        const conflicts = await detectMcpConfigConflicts([provider], [{ serverName: "test", config: { type: "http", url: "https://example.com" }, scope: "project" }], "/tmp");
-        expect(conflicts.some(c => c.code === "unsupported-transport")).toBe(true);
-        // Operation with unsupported headers
-        const headerConflicts = await detectMcpConfigConflicts([provider], [{ serverName: "test", config: { command: "npx", headers: { Authorization: "test" } }, scope: "project" }], "/tmp");
-        expect(headerConflicts.some(c => c.code === "unsupported-headers")).toBe(true);
-    });
-});
-// ══════════════════════════════════════════════════════════════════════════════
-// 17. src/core/mcp/reader.ts - branch gaps
-// ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: reader.ts branch gaps", () => {
-    it("listMcpServers returns empty for non-existent config", async () => {
-        const { listMcpServers, resolveConfigPath } = await import("../../src/core/mcp/reader.js");
-        const provider = {
-            id: "test",
-            configPathProject: null,
-            configPathGlobal: "/tmp/nonexistent-" + Date.now() + ".json",
-            configFormat: "json",
-            configKey: "mcpServers",
-        };
-        // Project scope with no project config path
-        const entries = await listMcpServers(provider, "project");
-        expect(entries).toEqual([]);
-        // Global scope with non-existent file
-        const globalEntries = await listMcpServers(provider, "global");
-        expect(globalEntries).toEqual([]);
-    });
-    it("resolveConfigPath returns null for project scope with no path", async () => {
-        const { resolveConfigPath } = await import("../../src/core/mcp/reader.js");
-        const provider = {
-            configPathProject: null,
-            configPathGlobal: "/tmp/test.json",
-        };
-        expect(resolveConfigPath(provider, "project")).toBeNull();
-    });
-    it("removeMcpServer returns false when no configPath", async () => {
-        const { removeMcpServer } = await import("../../src/core/mcp/reader.js");
-        const provider = {
-            configPathProject: null,
-            configPathGlobal: "/tmp/test.json",
-            configFormat: "json",
-            configKey: "mcpServers",
-        };
-        const result = await removeMcpServer(provider, "test", "project");
-        expect(result).toBe(false);
-    });
-});
-// ══════════════════════════════════════════════════════════════════════════════
-// 18. Additional branch exercises for files with 100% lines but missed branches
+// 16. Additional branch exercises for files with 100% lines but missed branches
 // ══════════════════════════════════════════════════════════════════════════════
 describe("coverage: additional branch exercises", () => {
     it("skillsmp parseScopedName returns null for non-scoped", async () => {

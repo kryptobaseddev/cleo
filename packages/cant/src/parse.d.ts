@@ -1,14 +1,16 @@
 import type { ParsedCANTMessage } from './types';
 export type { ParsedCANTMessage };
 /**
- * Initialize the CANT parser (loads WASM module)
- * Must be called before using parseCANTMessage
+ * Initialize the CANT parser
+ *
+ * With napi-rs native addons, this is a no-op (native modules load synchronously).
+ * Kept for backward compatibility with code that previously called this for WASM init.
  *
  * @example
  * ```typescript
  * import { initCantParser, parseCANTMessage } from '@cleocode/cant';
  *
- * await initCantParser();
+ * await initCantParser(); // no-op, kept for compat
  * const result = parseCANTMessage('/done @all T1234');
  * ```
  */
@@ -16,8 +18,8 @@ export declare function initCantParser(): Promise<void>;
 /**
  * Parse a CANT message
  *
- * If WASM is available, uses the Rust cant-core parser.
- * Falls back to a basic JavaScript implementation if WASM is not loaded.
+ * If the native addon is available, uses the Rust cant-core parser via napi-rs.
+ * Falls back to a basic JavaScript implementation if the native addon is not loaded.
  *
  * @param content - The CANT message content to parse
  * @returns ParsedCANTMessage with directive, addresses, task_refs, tags

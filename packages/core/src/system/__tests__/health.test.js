@@ -21,7 +21,7 @@ describe('system health audit_log checks', () => {
         const { getDb, closeDb } = await import('../../store/sqlite.js');
         await getDb(projectRoot);
         closeDb();
-        const result = getSystemHealth(projectRoot);
+        const result = await getSystemHealth(projectRoot);
         const auditLog = result.checks.find((c) => c.name === 'audit_log');
         expect(auditLog).toBeDefined();
         expect(auditLog?.status).toBe('pass');
@@ -35,7 +35,7 @@ describe('system health audit_log checks', () => {
         db.exec('CREATE TABLE tasks(id TEXT PRIMARY KEY)');
         db.close();
         expect(existsSync(dbPath)).toBe(true);
-        const result = getSystemHealth(projectRoot);
+        const result = await getSystemHealth(projectRoot);
         const auditLog = result.checks.find((c) => c.name === 'audit_log');
         expect(auditLog).toBeDefined();
         expect(auditLog?.status).toBe('fail');

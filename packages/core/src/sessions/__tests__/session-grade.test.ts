@@ -44,7 +44,7 @@ function entry(overrides: Partial<AuditEntry> & { domain: string; operation: str
     operation: overrides.operation,
     params: overrides.params ?? {},
     result: overrides.result ?? { success: true, exitCode: 0, duration: 10 },
-    metadata: overrides.metadata ?? { source: 'mcp' },
+    metadata: overrides.metadata ?? { source: 'cli' },
     error: overrides.error,
   };
 }
@@ -99,19 +99,19 @@ describe('gradeSession', () => {
           domain: 'admin',
           operation: 'help',
           timestamp: ts(100),
-          metadata: { source: 'mcp', gateway: 'query' },
+          metadata: { source: 'cli', gateway: 'query' },
         }),
         entry({
           domain: 'tasks',
           operation: 'find',
           timestamp: ts(200),
-          metadata: { source: 'mcp', gateway: 'query' },
+          metadata: { source: 'cli', gateway: 'query' },
         }),
         entry({
           domain: 'tasks',
           operation: 'show',
           timestamp: ts(300),
-          metadata: { source: 'mcp', gateway: 'query' },
+          metadata: { source: 'cli', gateway: 'query' },
         }),
         entry({ domain: 'tasks', operation: 'exists', timestamp: ts(400) }),
         entry({
@@ -317,14 +317,14 @@ describe('gradeSession', () => {
           operation: 'add',
           params: { title: 'No desc task' },
           result: { success: true, exitCode: 0, duration: 10 },
-          metadata: { source: 'mcp', taskId: 'T1' },
+          metadata: { source: 'cli', taskId: 'T1' },
         }),
         entry({
           domain: 'tasks',
           operation: 'add',
           params: { title: 'Another no desc' },
           result: { success: true, exitCode: 0, duration: 10 },
-          metadata: { source: 'mcp', taskId: 'T2' },
+          metadata: { source: 'cli', taskId: 'T2' },
         }),
       ]);
 
@@ -653,7 +653,7 @@ describe('gradeSession', () => {
           domain: 'tasks',
           operation: 'find',
           timestamp: ts(0),
-          metadata: { source: 'mcp', gateway: 'query' },
+          metadata: { source: 'cli', gateway: 'query' },
         }),
       ]);
 
@@ -672,7 +672,7 @@ describe('gradeSession', () => {
           domain: 'tasks',
           operation: 'find',
           timestamp: ts(100),
-          metadata: { source: 'mcp', gateway: 'query' },
+          metadata: { source: 'cli', gateway: 'query' },
         }),
       ]);
 

@@ -151,6 +151,14 @@ describe('Data Safety Central', () => {
             async transaction(fn) {
                 return fn({});
             },
+            async listAgentInstances() {
+                return [];
+            },
+            async getAgentInstance() {
+                return null;
+            },
+            async claimTask() { },
+            async unclaimTask() { },
         };
         return mock;
     }

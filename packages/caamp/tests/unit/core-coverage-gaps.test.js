@@ -132,68 +132,7 @@ describe("core/lock-utils additional coverage", () => {
     });
 });
 // ════════════════════════════════════════════════════════════════════
-// 3. src/core/mcp/reader.ts - lines 119-134, 167-169
-// ════════════════════════════════════════════════════════════════════
-describe("core/mcp/reader - listAgentsMcpServers coverage", () => {
-    let testDir;
-    beforeEach(async () => {
-        testDir = join(tmpdir(), `caamp-reader-agents-${Date.now()}`);
-        await mkdir(testDir, { recursive: true });
-    });
-    afterEach(async () => {
-        await rm(testDir, { recursive: true }).catch(() => { });
-    });
-    it("listAgentsMcpServers returns entries from .agents/mcp/servers.json", async () => {
-        const { listAgentsMcpServers } = await import("../../src/core/mcp/reader.js");
-        const mcpDir = join(testDir, ".agents", "mcp");
-        await mkdir(mcpDir, { recursive: true });
-        await writeFile(join(mcpDir, "servers.json"), JSON.stringify({ servers: { "test-server": { command: "node", args: ["s.js"] } } }));
-        const result = await listAgentsMcpServers("project", testDir);
-        expect(result).toHaveLength(1);
-        expect(result[0]?.name).toBe("test-server");
-        expect(result[0]?.providerId).toBe(".agents");
-    });
-    it("listAgentsMcpServers returns empty when servers key is missing", async () => {
-        const { listAgentsMcpServers } = await import("../../src/core/mcp/reader.js");
-        const mcpDir = join(testDir, ".agents", "mcp");
-        await mkdir(mcpDir, { recursive: true });
-        await writeFile(join(mcpDir, "servers.json"), JSON.stringify({ other: {} }));
-        const result = await listAgentsMcpServers("project", testDir);
-        expect(result).toEqual([]);
-    });
-    it("listAgentsMcpServers returns empty when servers is not an object", async () => {
-        const { listAgentsMcpServers } = await import("../../src/core/mcp/reader.js");
-        const mcpDir = join(testDir, ".agents", "mcp");
-        await mkdir(mcpDir, { recursive: true });
-        await writeFile(join(mcpDir, "servers.json"), JSON.stringify({ servers: "not-object" }));
-        const result = await listAgentsMcpServers("project", testDir);
-        expect(result).toEqual([]);
-    });
-    it("listAgentsMcpServers returns empty for invalid JSON", async () => {
-        const { listAgentsMcpServers } = await import("../../src/core/mcp/reader.js");
-        const mcpDir = join(testDir, ".agents", "mcp");
-        await mkdir(mcpDir, { recursive: true });
-        await writeFile(join(mcpDir, "servers.json"), "{bad json");
-        const result = await listAgentsMcpServers("project", testDir);
-        expect(result).toEqual([]);
-    });
-    it("listAgentsMcpServers returns empty when file does not exist", async () => {
-        const { listAgentsMcpServers } = await import("../../src/core/mcp/reader.js");
-        const result = await listAgentsMcpServers("project", testDir);
-        expect(result).toEqual([]);
-    });
-    it("listAllMcpServers includes .agents entries first and deduplicates", async () => {
-        const { listAllMcpServers } = await import("../../src/core/mcp/reader.js");
-        const mcpDir = join(testDir, ".agents", "mcp");
-        await mkdir(mcpDir, { recursive: true });
-        await writeFile(join(mcpDir, "servers.json"), JSON.stringify({ servers: { "agents-srv": { command: "node" } } }));
-        const result = await listAllMcpServers([], "project", testDir);
-        expect(result).toHaveLength(1);
-        expect(result[0]?.providerId).toBe(".agents");
-    });
-});
-// ════════════════════════════════════════════════════════════════════
-// 4. src/core/paths/standard.ts - lines 196-204, 235-245
+// 3. src/core/paths/standard.ts - lines 196-204, 235-245
 // ════════════════════════════════════════════════════════════════════
 describe("core/paths/standard - uncovered lines", () => {
     it("resolvePreferredConfigScope returns global when useGlobalFlag is true", async () => {
@@ -947,109 +886,7 @@ describe("core/skills/audit/scanner - scanDirectory coverage", () => {
     });
 });
 // ════════════════════════════════════════════════════════════════════
-// 18. src/core/mcp/transforms.ts - branch coverage for all transforms
-// ════════════════════════════════════════════════════════════════════
-describe("core/mcp/transforms - missing branch coverage", () => {
-    it("goose remote without headers", async () => {
-        const { transformGoose } = await import("../../src/core/mcp/transforms.js");
-        const result = transformGoose("srv", { url: "https://x" });
-        expect(result.type).toBe("streamable_http");
-        expect(result.headers).toBeUndefined();
-    });
-    it("goose local without env", async () => {
-        const { transformGoose } = await import("../../src/core/mcp/transforms.js");
-        const result = transformGoose("srv", { command: "npx" });
-        expect(result.envs).toBeUndefined();
-        expect(result.args).toEqual([]);
-    });
-    it("zed remote without headers", async () => {
-        const { transformZed } = await import("../../src/core/mcp/transforms.js");
-        const result = transformZed("srv", { url: "https://x" });
-        expect(result.headers).toBeUndefined();
-        expect(result.type).toBe("http");
-    });
-    it("zed remote with headers", async () => {
-        const { transformZed } = await import("../../src/core/mcp/transforms.js");
-        const result = transformZed("srv", { url: "https://x", headers: { X: "1" } });
-        expect(result.headers).toEqual({ X: "1" });
-    });
-    it("zed local without env", async () => {
-        const { transformZed } = await import("../../src/core/mcp/transforms.js");
-        const result = transformZed("srv", { command: "node" });
-        expect(result.env).toBeUndefined();
-        expect(result.args).toEqual([]);
-    });
-    it("opencode remote with headers", async () => {
-        const { transformOpenCode } = await import("../../src/core/mcp/transforms.js");
-        const result = transformOpenCode("srv", { url: "https://x", headers: { H: "v" } });
-        expect(result.headers).toEqual({ H: "v" });
-    });
-    it("opencode local without env", async () => {
-        const { transformOpenCode } = await import("../../src/core/mcp/transforms.js");
-        const result = transformOpenCode("srv", { command: "node" });
-        expect(result.environment).toBeUndefined();
-        expect(result.command).toEqual(["node"]);
-    });
-    it("codex remote without headers and type", async () => {
-        const { transformCodex } = await import("../../src/core/mcp/transforms.js");
-        const result = transformCodex("srv", { url: "https://x" });
-        expect(result.type).toBe("http");
-        expect(result.headers).toBeUndefined();
-    });
-    it("codex local without env", async () => {
-        const { transformCodex } = await import("../../src/core/mcp/transforms.js");
-        const result = transformCodex("srv", { command: "npx" });
-        expect(result.env).toBeUndefined();
-        expect(result.args).toEqual([]);
-    });
-    it("cursor remote without headers", async () => {
-        const { transformCursor } = await import("../../src/core/mcp/transforms.js");
-        const result = transformCursor("srv", { url: "https://x" });
-        expect(result.headers).toBeUndefined();
-    });
-    it("zed local with explicit type for remote", async () => {
-        const { transformZed } = await import("../../src/core/mcp/transforms.js");
-        const result = transformZed("srv", { url: "https://x", type: "sse" });
-        expect(result.type).toBe("sse");
-    });
-});
-// ════════════════════════════════════════════════════════════════════
-// 19. src/core/mcp/installer.ts - branch coverage
-// ════════════════════════════════════════════════════════════════════
-describe("core/mcp/installer - buildServerConfig branches", () => {
-    it("buildServerConfig for remote source with transport and headers", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        const result = buildServerConfig({ type: "remote", value: "https://x.com" }, "sse", { Auth: "token" });
-        expect(result.type).toBe("sse");
-        expect(result.url).toBe("https://x.com");
-        expect(result.headers).toEqual({ Auth: "token" });
-    });
-    it("buildServerConfig for remote source without headers", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        const result = buildServerConfig({ type: "remote", value: "https://x.com" });
-        expect(result.type).toBe("http");
-        expect(result.headers).toBeUndefined();
-    });
-    it("buildServerConfig for package source", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        const result = buildServerConfig({ type: "package", value: "@mcp/server-fs" });
-        expect(result.command).toBe("npx");
-        expect(result.args).toEqual(["-y", "@mcp/server-fs"]);
-    });
-    it("buildServerConfig for command source", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        const result = buildServerConfig({ type: "command", value: "node server.js --port 3000" });
-        expect(result.command).toBe("node");
-        expect(result.args).toEqual(["server.js", "--port", "3000"]);
-    });
-    it("buildServerConfig for remote with empty headers", async () => {
-        const { buildServerConfig } = await import("../../src/core/mcp/installer.js");
-        const result = buildServerConfig({ type: "remote", value: "https://x.com" }, undefined, {});
-        expect(result.headers).toBeUndefined();
-    });
-});
-// ════════════════════════════════════════════════════════════════════
-// 20. src/core/instructions/injector.ts - line 188 (removeInjection empty file)
+// 18. src/core/instructions/injector.ts - line 188 (removeInjection empty file)
 // ════════════════════════════════════════════════════════════════════
 describe("core/instructions/injector - removeInjection leaving empty file", () => {
     let testDir;
@@ -1719,27 +1556,6 @@ describe("core/marketplace/client - getSkill with partial failures", () => {
         const result = await client.getSkill("@t/test");
         expect(result).not.toBeNull();
         expect(result?.name).toBe("test");
-    });
-});
-// ════════════════════════════════════════════════════════════════════
-// Additional mcp/reader.ts - line 82, 127 branch coverage
-// ════════════════════════════════════════════════════════════════════
-describe("core/mcp/reader - configPathProject null branch", () => {
-    it("resolveConfigPath returns null when provider has no configPathProject for project scope", async () => {
-        const { resolveConfigPath } = await import("../../src/core/mcp/reader.js");
-        const provider = {
-            configPathProject: null,
-            configPathGlobal: "/home/user/.config/test.json",
-        };
-        expect(resolveConfigPath(provider, "project")).toBeNull();
-    });
-    it("resolveConfigPath returns global path", async () => {
-        const { resolveConfigPath } = await import("../../src/core/mcp/reader.js");
-        const provider = {
-            configPathProject: ".test/config.json",
-            configPathGlobal: "/home/user/.config/test.json",
-        };
-        expect(resolveConfigPath(provider, "global")).toBe("/home/user/.config/test.json");
     });
 });
 // ════════════════════════════════════════════════════════════════════

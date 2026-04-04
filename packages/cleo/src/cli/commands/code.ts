@@ -74,7 +74,7 @@ export const codeCommand = defineCommand({
         const results = smartSearch(args.query, {
           rootDir: root,
           maxResults: args.max ? Number.parseInt(args.max, 10) : 20,
-          language: args.lang as Parameters<typeof smartSearch>[1]['language'],
+          language: args.lang as string | undefined,
           filePattern: args.path,
         });
 

@@ -120,6 +120,14 @@ describe('SafetyDataAccessor', () => {
             async transaction(fn) {
                 return fn({});
             },
+            async listAgentInstances() {
+                return [];
+            },
+            async getAgentInstance() {
+                return null;
+            },
+            async claimTask() { },
+            async unclaimTask() { },
         };
     }
     // ---- Factory Wrapping ----
