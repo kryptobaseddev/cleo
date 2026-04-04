@@ -306,7 +306,7 @@ impl MessageRepository for DieselStore<SqliteConn> {
                    MIN(content) AS content, MIN(content_type) AS content_type, \
                    MIN(status) AS status, MIN(created_at) AS created_at, \
                    MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(attachments) AS attachments, MIN(COALESCE(group_id, id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = ? AND created_at > ? \
                  GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
@@ -325,7 +325,7 @@ impl MessageRepository for DieselStore<SqliteConn> {
                    MIN(content) AS content, MIN(content_type) AS content_type, \
                    MIN(status) AS status, MIN(created_at) AS created_at, \
                    MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(attachments) AS attachments, MIN(COALESCE(group_id, id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = ? \
                  GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT ? OFFSET ?"
@@ -637,7 +637,7 @@ impl MessageRepository for DieselStore<PgConn> {
                    MIN(content) AS content, MIN(content_type) AS content_type, \
                    MIN(status) AS status, MIN(created_at) AS created_at, \
                    MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(attachments) AS attachments, MIN(COALESCE(group_id, id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = $1 AND created_at > $2 \
                  GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $3 OFFSET $4"
@@ -654,7 +654,7 @@ impl MessageRepository for DieselStore<PgConn> {
                    MIN(content) AS content, MIN(content_type) AS content_type, \
                    MIN(status) AS status, MIN(created_at) AS created_at, \
                    MIN(delivered_at) AS delivered_at, MIN(read_at) AS read_at, \
-                   MIN(attachments) AS attachments, COALESCE(group_id, MIN(id)) AS group_id, \
+                   MIN(attachments) AS attachments, MIN(COALESCE(group_id, id)) AS group_id, \
                    MIN(metadata) AS metadata, MIN(reply_to) AS reply_to \
                  FROM messages WHERE conversation_id = $1 \
                  GROUP BY conversation_id, COALESCE(group_id, id) ORDER BY MIN(created_at) {order} LIMIT $2 OFFSET $3"
