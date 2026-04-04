@@ -5,11 +5,7 @@
  */
 
 /** Shape of the CANT WASM module exports. */
-interface CantWasmModule {
-  default(): Promise<void>;
-  cant_parse(content: string): unknown;
-  cant_classify_directive(verb: string): string;
-}
+type CantWasmModule = typeof import('../wasm/cant_core');
 
 // Dynamic import of the WASM module
 let wasmModule: CantWasmModule | null = null;
@@ -30,7 +26,7 @@ export async function initWasm(): Promise<void> {
   initPromise = (async () => {
     try {
       // Try to load the WASM module
-      const wasm = (await import('../wasm/cant_core')) as CantWasmModule;
+      const wasm = await import('../wasm/cant_core');
       await wasm.default();
       wasmModule = wasm;
     } catch (_error) {

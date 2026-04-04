@@ -49,15 +49,26 @@ export function isNativeAvailable(): boolean {
   return nativeModule !== null;
 }
 
+/** Shape returned by the native Rust WASM cantParse function. */
+export interface NativeParseResult {
+  directive?: string;
+  directiveType?: string;
+  addresses?: string[];
+  taskRefs?: string[];
+  tags?: string[];
+  headerRaw?: string;
+  body?: string;
+}
+
 /**
  * Parse a CANT message using the native addon
  */
-export function cantParseNative(content: string): unknown {
+export function cantParseNative(content: string): NativeParseResult {
   ensureLoaded();
   if (!nativeModule) {
     throw new Error('Native addon not available.');
   }
-  return nativeModule.cantParse(content);
+  return nativeModule.cantParse(content) as NativeParseResult;
 }
 
 /**
