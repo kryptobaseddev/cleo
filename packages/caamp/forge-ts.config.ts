@@ -1,11 +1,11 @@
-import type { ForgeConfig } from "@forge-ts/core";
+import { type ForgeConfig, Visibility } from "@forge-ts/core";
 
 export default {
   rootDir: ".",
   outDir: "./docs/generated",
   enforce: {
     enabled: true,
-    minVisibility: "public",
+    minVisibility: Visibility.Public,
     strict: false,
     rules: {
       "require-summary": "error",
