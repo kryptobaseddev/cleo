@@ -10,8 +10,12 @@
 // This replaces the non-portable `#!/usr/bin/env -S node --disable-warning=ExperimentalWarning` shebang.
 const originalEmit = process.emit.bind(process);
 // @ts-expect-error -- overriding process.emit to filter warnings
-process.emit = function (event: string, ...args: unknown[]) {
-  if (event === 'warning' && args[0] && (args[0] as { name?: string }).name === 'ExperimentalWarning') {
+process.emit = (event: string, ...args: unknown[]) => {
+  if (
+    event === 'warning' &&
+    args[0] &&
+    (args[0] as { name?: string }).name === 'ExperimentalWarning'
+  ) {
     return false;
   }
   return originalEmit(event, ...args);

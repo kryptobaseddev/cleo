@@ -109,7 +109,7 @@ const cleoBuildOptions = {
   outdir: 'packages/cleo/dist',
   sourcemap: true,
   banner: {
-    js: '#!/usr/bin/env node',
+    js: '#!/bin/sh\n":" //; exec node --disable-warning=ExperimentalWarning "$0" "$@"',
   },
   plugins: [
     workspacePlugin('bundle-cleo-deps', {

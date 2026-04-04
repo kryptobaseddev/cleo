@@ -15,8 +15,8 @@
  * @module crypto/credentials
  */
 
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -44,7 +44,8 @@ function getMachineKeyPath(): string {
     if (home) return join(home, 'Library', 'Application Support', 'cleo', 'machine-key');
   }
   // Linux / fallback: XDG_DATA_HOME or ~/.local/share
-  const dataHome = process.env['XDG_DATA_HOME'] ?? join(process.env['HOME'] ?? '', '.local', 'share');
+  const dataHome =
+    process.env['XDG_DATA_HOME'] ?? join(process.env['HOME'] ?? '', '.local', 'share');
   if (!dataHome) {
     throw new Error(
       'Cannot determine data directory. Set HOME or XDG_DATA_HOME environment variable. ' +
@@ -108,7 +109,16 @@ async function getMachineKey(): Promise<Buffer> {
       if (process.platform === 'win32') {
         // Lock down Windows ACLs: remove inherited permissions, grant only current user
         try {
-          execFileSync('icacls', [keyPath, '/inheritance:r', '/grant:r', `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`], { timeout: 5000 });
+          execFileSync(
+            'icacls',
+            [
+              keyPath,
+              '/inheritance:r',
+              '/grant:r',
+              `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`,
+            ],
+            { timeout: 5000 },
+          );
         } catch {
           // Best-effort — icacls may not be available in all environments
         }

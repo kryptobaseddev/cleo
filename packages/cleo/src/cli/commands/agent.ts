@@ -787,7 +787,9 @@ agent ${agentId}:
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
         if (process.platform === 'win32') {
-          process.on('message', (msg) => { if (msg === 'shutdown') shutdown(); });
+          process.on('message', (msg) => {
+            if (msg === 'shutdown') shutdown();
+          });
         }
         await new Promise(() => {});
       } catch (err) {
@@ -1067,7 +1069,9 @@ agent ${agentId}:
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
         if (process.platform === 'win32') {
-          process.on('message', (msg) => { if (msg === 'shutdown') shutdown(); });
+          process.on('message', (msg) => {
+            if (msg === 'shutdown') shutdown();
+          });
         }
       } catch (err) {
         cliOutput(

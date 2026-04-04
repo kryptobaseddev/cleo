@@ -27,11 +27,13 @@ import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-lang
 /** Whether tree-sitter is available on this system. */
 let _treeSitterAvailable: boolean | null = null;
 
-/** Check if tree-sitter CLI is available. Cached after first call. */
+/** Check if tree-sitter CLI is available and executable. Cached after first call. */
 export function isTreeSitterAvailable(): boolean {
   if (_treeSitterAvailable !== null) return _treeSitterAvailable;
   try {
-    resolveTreeSitterBin();
+    const bin = resolveTreeSitterBin();
+    // Verify the binary actually runs (broken symlinks pass existsSync)
+    execFileSync(bin, ['--version'], { timeout: 5000, stdio: 'pipe' });
     _treeSitterAvailable = true;
   } catch {
     _treeSitterAvailable = false;
