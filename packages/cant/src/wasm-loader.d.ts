@@ -5,9 +5,9 @@
  */
 /** Shape of the CANT WASM module exports. */
 interface CantWasmModule {
-    default(): Promise<void>;
-    cant_parse(content: string): unknown;
-    cant_classify_directive(verb: string): string;
+  default(): Promise<void>;
+  cant_parse(content: string): unknown;
+  cant_classify_directive(verb: string): string;
 }
 declare let wasmModule: CantWasmModule | null;
 /**

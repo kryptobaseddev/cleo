@@ -1,5 +1,10 @@
-export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel, } from '@cleocode/lafs';
-export type { ConvertedFile, MigrationOptions, MigrationResult, UnconvertedSection, } from './migrate/index';
+export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from '@cleocode/lafs';
+export type {
+  ConvertedFile,
+  MigrationOptions,
+  MigrationResult,
+  UnconvertedSection,
+} from './migrate/index';
 export { migrateMarkdown, serializeCantDocument, showDiff, showSummary } from './migrate/index';
 export { initWasm, isNativeAvailable, isWasmAvailable } from './native-loader';
 export type { ParsedCANTMessage } from './parse';

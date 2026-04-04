@@ -69,14 +69,18 @@ export const codeCommand = defineCommand({
       },
       async run({ args }) {
         await requireTreeSitter();
+        type SmartSearchOptions = import('@cleocode/core/internal').SmartSearchOptions;
         const { smartSearch } = await import('@cleocode/core/internal');
         const root = process.cwd();
-        const results = smartSearch(args.query, {
+        const opts: SmartSearchOptions = {
           rootDir: root,
           maxResults: args.max ? Number.parseInt(args.max, 10) : 20,
-          language: args.lang as string | undefined,
           filePattern: args.path,
-        });
+        };
+        if (args.lang) {
+          opts.language = args.lang as SmartSearchOptions['language'];
+        }
+        const results = smartSearch(args.query, opts);
 
         if (results.length === 0) {
           console.log(`No symbols found matching "${args.query}"`);

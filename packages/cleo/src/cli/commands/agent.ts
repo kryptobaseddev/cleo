@@ -43,7 +43,7 @@ export function registerAgentCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const agentId = opts['id'] as string;
@@ -59,6 +59,7 @@ export function registerAgentCommand(program: Command): void {
           privacyTier: (opts['privacy'] as 'public' | 'discoverable' | 'private') ?? 'public',
           capabilities: [],
           skills: [],
+          transportType: 'http',
           transportConfig: {},
           isActive: true,
         });
@@ -154,7 +155,7 @@ agent ${agentId}:
     .action(async (agentId: string, opts: Record<string, unknown>) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         // Look up the credential
@@ -231,7 +232,7 @@ agent ${agentId}:
         const { existsSync, readFileSync } = await import('node:fs');
         const { join } = await import('node:path');
 
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         // 1. Look up credential
@@ -258,12 +259,26 @@ agent ${agentId}:
         if (existsSync(cantPath)) {
           profile = readFileSync(cantPath, 'utf-8');
           try {
-            const { validate } = await import('@cleocode/cant');
-            const result = validate(profile);
-            cantValidation = {
-              valid: result.valid,
-              errors: result.diagnostics?.map((d: { message: string }) => d.message) ?? [],
-            };
+            const cantModule = await import('@cleocode/cant');
+            // validate() may not be available in all builds of @cleocode/cant
+            const validate =
+              'validate' in cantModule
+                ? (
+                    cantModule as {
+                      validate: (input: string) => {
+                        valid: boolean;
+                        diagnostics?: Array<{ message: string }>;
+                      };
+                    }
+                  ).validate
+                : null;
+            if (validate) {
+              const result = validate(profile);
+              cantValidation = {
+                valid: result.valid,
+                errors: result.diagnostics?.map((d) => d.message) ?? [],
+              };
+            }
           } catch {
             // cant-napi not available — profile loaded but unvalidated
             cantValidation = null;
@@ -296,7 +311,7 @@ agent ${agentId}:
           agentId,
           pollIntervalMs: pollInterval,
           heartbeatIntervalMs: opts['heartbeat'] === false ? 0 : 30000,
-          groupConversationIds: credential.transportConfig.groupConversationIds ?? [],
+          groupConversationIds: [],
         });
 
         runtime.poller.start();
@@ -359,7 +374,7 @@ agent ${agentId}:
     .action(async (agentId: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
@@ -414,7 +429,7 @@ agent ${agentId}:
     .action(async (agentId?: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         if (agentId) {
@@ -479,7 +494,7 @@ agent ${agentId}:
         const { AgentRegistryAccessor, getDb, createConduit } = await import(
           '@cleocode/core/internal'
         );
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const active = await registry.getActive();
@@ -530,7 +545,7 @@ agent ${agentId}:
         const { AgentRegistryAccessor, getDb, createConduit } = await import(
           '@cleocode/core/internal'
         );
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const active = await registry.getActive();
@@ -580,7 +595,7 @@ agent ${agentId}:
     .action(async (opts: Record<string, unknown>) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const role = opts['role'] as string;
@@ -600,6 +615,7 @@ agent ${agentId}:
           privacyTier: 'private',
           capabilities: ['chat', 'tools'],
           skills: [role],
+          transportType: 'http',
           transportConfig: {},
           isActive: true,
         });
@@ -637,7 +653,7 @@ agent ${agentId}:
         const { AgentRegistryAccessor, getDb, createConduit } = await import(
           '@cleocode/core/internal'
         );
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
         const active = await registry.getActive();
         if (!active) {
@@ -674,7 +690,7 @@ agent ${agentId}:
     .action(async () => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
         const agents = await registry.list({ active: true });
         let stopped = 0;
@@ -723,7 +739,7 @@ agent ${agentId}:
         const { execFile } = await import('node:child_process');
         const { promisify } = await import('node:util');
         const execFileAsync = promisify(execFile);
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
         const credential = await registry.get(agentId);
         if (!credential) {
@@ -809,7 +825,7 @@ agent ${agentId}:
     .action(async (opts: Record<string, unknown>) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const filter = opts['active'] ? { active: true } : undefined;
@@ -845,7 +861,7 @@ agent ${agentId}:
     .action(async (agentId: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
@@ -891,7 +907,7 @@ agent ${agentId}:
     .action(async (agentId: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         await registry.remove(agentId);
@@ -912,7 +928,7 @@ agent ${agentId}:
     .action(async (agentId: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const result = await registry.rotateKey(agentId);
@@ -943,7 +959,7 @@ agent ${agentId}:
     .action(async (agentId: string) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const credential = await registry.get(agentId);
@@ -1011,7 +1027,7 @@ agent ${agentId}:
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         const { createRuntime } = await import('@cleocode/runtime');
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const groupIds = opts['group']
@@ -1093,7 +1109,7 @@ agent ${agentId}:
         const { AgentRegistryAccessor, createConduit, getDb } = await import(
           '@cleocode/core/internal'
         );
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const agentId = opts['agent'] as string | undefined;
@@ -1131,7 +1147,7 @@ agent ${agentId}:
         const { AgentRegistryAccessor, createConduit, getDb } = await import(
           '@cleocode/core/internal'
         );
-        const _db = await getDb();
+        await getDb();
         const registry = new AgentRegistryAccessor(process.cwd());
 
         const agentId = opts['agent'] as string | undefined;

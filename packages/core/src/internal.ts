@@ -45,7 +45,7 @@ export {
 export { smartOutline } from './code/outline.js';
 // Code analysis (Smart Explore)
 export { batchParse, isTreeSitterAvailable, parseFile } from './code/parser.js';
-export { smartSearch } from './code/search.js';
+export { type SmartSearchOptions, smartSearch } from './code/search.js';
 export { smartUnfold } from './code/unfold.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
 // Compliance
