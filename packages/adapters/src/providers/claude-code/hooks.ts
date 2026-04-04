@@ -78,10 +78,17 @@ const CLAUDE_CODE_EVENT_MAP: Record<string, string> = {
  * provider), `registerNativeHooks` and `unregisterNativeHooks` track registration
  * state without performing filesystem operations.
  *
+ * @remarks
+ * Claude Code is the only provider that supports all 14 of its declared
+ * canonical events at runtime. The static event map is maintained as a
+ * synchronous fallback; async methods like {@link getSupportedCanonicalEvents}
+ * and {@link getProviderProfile} call CAAMP directly when available.
+ *
  * @task T164
  * @epic T134
  */
 export class ClaudeCodeHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered for the current session. */
   private registered = false;
 
   /**

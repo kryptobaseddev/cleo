@@ -52,10 +52,17 @@ const GEMINI_CLI_EVENT_MAP: Record<string, string> = {
  * the install provider), registerNativeHooks and unregisterNativeHooks
  * track registration state without performing filesystem operations.
  *
+ * @remarks
+ * Gemini CLI uses its own event naming convention (e.g. BeforeAgent,
+ * AfterTool, PreCompress) which differs from both the PascalCase CAAMP
+ * canonical names and other providers' conventions. The static event map
+ * covers all 10 supported canonical events.
+ *
  * @task T161
  * @epic T134
  */
 export class GeminiCliHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered for the current session. */
   private registered = false;
 
   /**

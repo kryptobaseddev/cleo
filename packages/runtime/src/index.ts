@@ -11,6 +11,7 @@ import type { AgentRegistryAPI, Transport } from '@cleocode/contracts';
 import { conduit } from '@cleocode/core';
 
 const { resolveTransport } = conduit;
+
 import type { AgentPollerConfig } from './services/agent-poller.js';
 import { AgentPoller } from './services/agent-poller.js';
 import { HeartbeatService } from './services/heartbeat.js';

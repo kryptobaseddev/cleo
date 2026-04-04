@@ -10,8 +10,8 @@
  */
 
 import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Agent Lifecycle E2E', () => {
@@ -40,9 +40,7 @@ describe('Agent Lifecycle E2E', () => {
   });
 
   it('should create signaldock.db with correct table count', async () => {
-    const { ensureSignaldockDb, checkSignaldockDbHealth } = await import(
-      '@cleocode/core/internal'
-    );
+    const { ensureSignaldockDb, checkSignaldockDbHealth } = await import('@cleocode/core/internal');
     await ensureSignaldockDb(tempDir);
 
     const health = await checkSignaldockDbHealth(tempDir);
@@ -63,9 +61,7 @@ describe('Agent Lifecycle E2E', () => {
   });
 
   it('should register agents in signaldock.db and query them', async () => {
-    const { ensureSignaldockDb, getSignaldockDbPath } = await import(
-      '@cleocode/core/internal'
-    );
+    const { ensureSignaldockDb, getSignaldockDbPath } = await import('@cleocode/core/internal');
     await ensureSignaldockDb(tempDir);
 
     // Insert agents directly into signaldock.db
@@ -99,9 +95,7 @@ describe('Agent Lifecycle E2E', () => {
   });
 
   it('should store and retrieve messages in signaldock.db', async () => {
-    const { ensureSignaldockDb, getSignaldockDbPath } = await import(
-      '@cleocode/core/internal'
-    );
+    const { ensureSignaldockDb, getSignaldockDbPath } = await import('@cleocode/core/internal');
     await ensureSignaldockDb(tempDir);
 
     const { createRequire } = await import('node:module');
@@ -133,9 +127,12 @@ describe('Agent Lifecycle E2E', () => {
       `);
 
       // Verify message stored
-      const msg = db
-        .prepare('SELECT * FROM messages WHERE id = ?')
-        .get('msg-1') as { from_agent_id: string; to_agent_id: string; content: string; status: string };
+      const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get('msg-1') as {
+        from_agent_id: string;
+        to_agent_id: string;
+        content: string;
+        status: string;
+      };
       expect(msg.from_agent_id).toBe('agent-alpha');
       expect(msg.to_agent_id).toBe('agent-beta');
       expect(msg.content).toContain('Hello from Alpha');
@@ -143,9 +140,9 @@ describe('Agent Lifecycle E2E', () => {
 
       // Agent Beta reads and acks
       db.exec(`UPDATE messages SET status = 'delivered', delivered_at = ${now} WHERE id = 'msg-1'`);
-      const delivered = db
-        .prepare('SELECT status FROM messages WHERE id = ?')
-        .get('msg-1') as { status: string };
+      const delivered = db.prepare('SELECT status FROM messages WHERE id = ?').get('msg-1') as {
+        status: string;
+      };
       expect(delivered.status).toBe('delivered');
 
       // Verify FTS works
@@ -159,9 +156,7 @@ describe('Agent Lifecycle E2E', () => {
   });
 
   it('should handle full lifecycle: create → message → cleanup', async () => {
-    const { ensureSignaldockDb, getSignaldockDbPath } = await import(
-      '@cleocode/core/internal'
-    );
+    const { ensureSignaldockDb, getSignaldockDbPath } = await import('@cleocode/core/internal');
 
     // 1. Create DB
     const { action, path } = await ensureSignaldockDb(tempDir);
@@ -180,12 +175,20 @@ describe('Agent Lifecycle E2E', () => {
     const now = Math.floor(Date.now() / 1000);
 
     try {
-      db.exec(`INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills, status, created_at, updated_at) VALUES ('a1', 'alice', 'Alice', 'code_dev', 'public', '[]', '[]', 'online', ${now}, ${now}), ('b1', 'bob', 'Bob', 'code_dev', 'public', '[]', '[]', 'online', ${now}, ${now})`);
-      db.exec(`INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at) VALUES ('c1', '["alice","bob"]', 'private', 0, ${now}, ${now})`);
-      db.exec(`INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at) VALUES ('m1', 'c1', 'alice', 'bob', 'Hello Bob!', 'text', 'pending', ${now})`);
+      db.exec(
+        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills, status, created_at, updated_at) VALUES ('a1', 'alice', 'Alice', 'code_dev', 'public', '[]', '[]', 'online', ${now}, ${now}), ('b1', 'bob', 'Bob', 'code_dev', 'public', '[]', '[]', 'online', ${now}, ${now})`,
+      );
+      db.exec(
+        `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at) VALUES ('c1', '["alice","bob"]', 'private', 0, ${now}, ${now})`,
+      );
+      db.exec(
+        `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at) VALUES ('m1', 'c1', 'alice', 'bob', 'Hello Bob!', 'text', 'pending', ${now})`,
+      );
 
       // 4. Verify roundtrip
-      const received = db.prepare("SELECT * FROM messages WHERE to_agent_id = 'bob'").all() as Array<{ content: string }>;
+      const received = db
+        .prepare("SELECT * FROM messages WHERE to_agent_id = 'bob'")
+        .all() as Array<{ content: string }>;
       expect(received).toHaveLength(1);
       expect(received[0]!.content).toBe('Hello Bob!');
 

@@ -28,8 +28,11 @@ const execFileAsync = promisify(execFile);
 
 /** Result of an ensure* scaffolding operation. */
 export interface ScaffoldResult {
+  /** What action was taken: created, repaired, or skipped. */
   action: 'created' | 'repaired' | 'skipped';
+  /** Filesystem path that was operated on. */
   path: string;
+  /** Human-readable explanation of the result. */
   details?: string;
 }
 
@@ -38,11 +41,17 @@ export type CheckStatus = 'passed' | 'failed' | 'warning' | 'info';
 
 /** Result of a check* diagnostic (compatible with doctor/checks.ts CheckResult). */
 export interface CheckResult {
+  /** Unique check identifier (e.g. "cleo_structure", "sqlite_db"). */
   id: string;
+  /** Category grouping (e.g. "scaffold", "global"). */
   category: string;
+  /** Diagnostic outcome: passed, failed, warning, or info. */
   status: CheckStatus;
+  /** Human-readable description of the check result. */
   message: string;
+  /** Structured metadata about the check (paths, sizes, missing items). */
   details: Record<string, unknown>;
+  /** Suggested CLI command to fix the issue, or null if passed. */
   fix: string | null;
 }
 
@@ -104,6 +113,20 @@ backups/
 
 /**
  * Check if a file exists and is readable.
+ *
+ * @param path - Absolute path to the file to check
+ * @returns True if the file exists and is readable, false otherwise
+ *
+ * @remarks
+ * Uses `fs.access` with `R_OK` to verify both existence and read permission.
+ * Swallows all errors and returns false on failure.
+ *
+ * @example
+ * ```typescript
+ * if (await fileExists('/project/.cleo/config.json')) {
+ *   // safe to read
+ * }
+ * ```
  */
 export async function fileExists(path: string): Promise<boolean> {
   try {
@@ -115,11 +138,20 @@ export async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
- * Strip legacy <!-- CLEO:START -->...<!-- CLEO:END --> blocks from a file.
+ * Strip legacy CLEO:START/CLEO:END blocks from a file.
  * Called before CAAMP injection to prevent competing blocks.
  *
- * Handles both bare markers (<!-- CLEO:START -->) and versioned markers
- * (<!-- CLEO:START v0.53.4 -->, <!-- CLEO:START v1.2.3 -->).
+ * @param filePath - Absolute path to the file to strip
+ *
+ * @remarks
+ * Handles both bare markers (`<!-- CLEO:START -->`) and versioned markers
+ * (`<!-- CLEO:START v0.53.4 -->`). No-op if the file does not exist or
+ * contains no CLEO blocks.
+ *
+ * @example
+ * ```typescript
+ * await stripCLEOBlocks('/project/CLAUDE.md');
+ * ```
  */
 export async function stripCLEOBlocks(filePath: string): Promise<void> {
   if (!existsSync(filePath)) return;
@@ -130,6 +162,20 @@ export async function stripCLEOBlocks(filePath: string): Promise<void> {
 
 /**
  * Remove .cleo/ or .cleo entries from the project root .gitignore.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Whether any lines were removed from the .gitignore
+ *
+ * @remarks
+ * Filters out lines matching `/.cleo/`, `.cleo/`, `.cleo`, etc. from the
+ * root-level `.gitignore`. Returns `{ removed: false }` if the file does not
+ * exist or contains no matching entries.
+ *
+ * @example
+ * ```typescript
+ * const { removed } = await removeCleoFromRootGitignore('/project');
+ * if (removed) console.log('.cleo entries cleaned from .gitignore');
+ * ```
  */
 export async function removeCleoFromRootGitignore(
   projectRoot: string,
@@ -157,6 +203,18 @@ export { generateProjectHash } from './nexus/hash.js';
 /**
  * Resolve the package root directory (where schemas/ and templates/ live).
  * scaffold.ts lives in packages/core/src/, so 1 level up reaches the package root.
+ *
+ * @returns Absolute path to the @cleocode/core package root
+ *
+ * @remarks
+ * Uses `import.meta.url` to determine the file location at runtime, which
+ * works correctly in both development and installed npm package contexts.
+ *
+ * @example
+ * ```typescript
+ * const root = getPackageRoot();
+ * const schemaPath = join(root, 'schemas', 'config.schema.json');
+ * ```
  */
 export function getPackageRoot(): string {
   const thisFile = fileURLToPath(import.meta.url);
@@ -166,6 +224,19 @@ export function getPackageRoot(): string {
 /**
  * Load the gitignore template from the package's templates/ directory.
  * Falls back to embedded content if file not found.
+ *
+ * @returns The .cleo/.gitignore template content string
+ *
+ * @remarks
+ * First attempts to read from the package's `templates/cleo-gitignore` file.
+ * Falls back to the embedded `CLEO_GITIGNORE_FALLBACK` constant if the
+ * template file is missing or unreadable.
+ *
+ * @example
+ * ```typescript
+ * const content = getGitignoreContent();
+ * await writeFile('.cleo/.gitignore', content);
+ * ```
  */
 export function getGitignoreContent(): string {
   try {
@@ -182,6 +253,17 @@ export function getGitignoreContent(): string {
 
 /**
  * Read CLEO version from package.json.
+ *
+ * @returns Semver version string, or "0.0.0" if unavailable
+ *
+ * @remarks
+ * Reads the `version` field from the @cleocode/core package.json at runtime.
+ * Returns "0.0.0" if the file cannot be read or parsed.
+ *
+ * @example
+ * ```typescript
+ * const version = getCleoVersion(); // "2026.4.0"
+ * ```
  */
 export function getCleoVersion(): string {
   try {
@@ -193,9 +275,6 @@ export function getCleoVersion(): string {
   }
 }
 
-/**
- * Create default config.json content.
- */
 /**
  * Detect whether projectRoot is the CLEO source repository itself.
  * Verified by fingerprinting the expected source layout and package identity.
@@ -216,6 +295,21 @@ function isCleoContributorProject(projectRoot: string): boolean {
   }
 }
 
+/**
+ * Create default config.json content.
+ *
+ * @returns A plain object with the default CLEO configuration structure
+ *
+ * @remarks
+ * Returns a version-stamped config with defaults for output formatting, backup
+ * limits, hierarchy depth, session behavior, and lifecycle mode.
+ *
+ * @example
+ * ```typescript
+ * const config = createDefaultConfig();
+ * await saveJson(configPath, config);
+ * ```
+ */
 export function createDefaultConfig(): Record<string, unknown> {
   return {
     version: '2.10.0',
@@ -248,6 +342,19 @@ export function createDefaultConfig(): Record<string, unknown> {
 /**
  * Create .cleo/ directory and all required subdirectories.
  * Idempotent: skips directories that already exist.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating whether the directory was created or already existed
+ *
+ * @remarks
+ * Refuses to scaffold inside the global CLEO home to prevent pollution.
+ * Creates all directories listed in `REQUIRED_CLEO_SUBDIRS`.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureCleoStructure('/my/project');
+ * console.log(result.action); // "created" or "skipped"
+ * ```
  */
 export async function ensureCleoStructure(projectRoot: string): Promise<ScaffoldResult> {
   // Guard: reject global home as project root to prevent project-level
@@ -282,6 +389,19 @@ export async function ensureCleoStructure(projectRoot: string): Promise<Scaffold
 /**
  * Create or repair .cleo/.gitignore from template.
  * Idempotent: skips if file already exists with correct content.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating whether the gitignore was created, repaired, or skipped
+ *
+ * @remarks
+ * Compares normalized content (trimmed, LF line endings) against the template.
+ * If the file exists but differs, it is overwritten with the canonical template.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureGitignore('/my/project');
+ * if (result.action === 'repaired') console.log('Gitignore updated');
+ * ```
  */
 export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -305,6 +425,21 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
 /**
  * Create default config.json if missing.
  * Idempotent: skips if file already exists.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @param opts - Optional configuration
+ * @param opts.force - When true, overwrite the existing config
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * On skip, still checks for and backfills the ADR-029 contributor block
+ * if the project is detected as the CLEO source repository.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureConfig('/my/project', { force: true });
+ * console.log(result.path);
+ * ```
  */
 export async function ensureConfig(
   projectRoot: string,
@@ -353,6 +488,22 @@ export async function ensureConfig(
 /**
  * Create or refresh project-info.json.
  * Idempotent: skips if file already exists (unless force).
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @param opts - Optional configuration
+ * @param opts.force - When true, regenerate even if the file exists
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Backfills a `projectId` (UUID) on existing files that lack one (T5333).
+ * The generated file includes project hash, CLEO version, schema versions,
+ * and initial health/feature flags.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureProjectInfo('/my/project');
+ * console.log(result.action); // "created", "repaired", or "skipped"
+ * ```
  */
 export async function ensureProjectInfo(
   projectRoot: string,
@@ -422,6 +573,19 @@ export async function ensureProjectInfo(
 
 /**
  * No-op. Kept for API compatibility.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result with action "skipped"
+ *
+ * @remarks
+ * This function was removed in Phase 2 production readiness but the export
+ * is preserved to avoid breaking downstream callers.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureContributorMcp('/my/project');
+ * // result.action === 'skipped'
+ * ```
  */
 export async function ensureContributorMcp(projectRoot: string): Promise<ScaffoldResult> {
   return {
@@ -434,6 +598,22 @@ export async function ensureContributorMcp(projectRoot: string): Promise<Scaffol
 /**
  * Detect and write project-context.json.
  * Idempotent: skips if file exists and is less than staleDays old (default: 30).
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @param opts - Optional configuration
+ * @param opts.force - When true, regenerate even if the file is fresh
+ * @param opts.staleDays - Age threshold in days before regeneration (default: 30)
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Runs project type detection (Node, Python, Rust, etc.) and writes the result.
+ * Validates against the project-context schema before writing (best-effort).
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureProjectContext('/my/project', { staleDays: 7 });
+ * if (result.action === 'repaired') console.log('Context refreshed');
+ * ```
  */
 export async function ensureProjectContext(
   projectRoot: string,
@@ -503,6 +683,20 @@ export async function ensureProjectContext(
 /**
  * Initialize isolated .cleo/.git checkpoint repository.
  * Idempotent: skips if .cleo/.git already exists.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Creates an isolated git repository inside .cleo/ for checkpoint tracking.
+ * The repo uses `GIT_DIR` and `GIT_WORK_TREE` environment variables to avoid
+ * interfering with the project's own git repository.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureCleoGitRepo('/my/project');
+ * console.log(result.action); // "created" or "skipped"
+ * ```
  */
 export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -528,6 +722,19 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
 /**
  * Create SQLite database if missing.
  * Idempotent: skips if tasks.db already exists.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Initializes the tasks.db SQLite database by calling `getDb()` which runs
+ * schema migrations. Returns a skipped result with error details if initialization fails.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureSqliteDb('/my/project');
+ * if (result.action === 'created') console.log('Database ready');
+ * ```
  */
 export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -554,6 +761,20 @@ export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResul
 
 /**
  * Verify all required .cleo/ subdirectories exist.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result with status and list of any missing subdirectories
+ *
+ * @remarks
+ * Read-only diagnostic. Checks for the .cleo/ directory and all entries
+ * in `REQUIRED_CLEO_SUBDIRS`. Reports "failed" if .cleo/ is missing,
+ * "warning" if subdirectories are missing, "passed" otherwise.
+ *
+ * @example
+ * ```typescript
+ * const check = checkCleoStructure('/my/project');
+ * if (check.status === 'failed') console.log(check.fix);
+ * ```
  */
 export function checkCleoStructure(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -599,6 +820,19 @@ export function checkCleoStructure(projectRoot: string): CheckResult {
 
 /**
  * Verify .cleo/.gitignore exists and matches template.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating whether the gitignore matches the template
+ *
+ * @remarks
+ * Read-only diagnostic. Normalizes whitespace before comparison.
+ * Reports "warning" if the file is missing or drifted from the template.
+ *
+ * @example
+ * ```typescript
+ * const check = checkGitignore('/my/project');
+ * if (check.status === 'warning') console.log('Gitignore drifted');
+ * ```
  */
 export function checkGitignore(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -634,6 +868,19 @@ export function checkGitignore(projectRoot: string): CheckResult {
 
 /**
  * Verify config.json exists and is valid JSON.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating whether config.json is present and valid
+ *
+ * @remarks
+ * Read-only diagnostic. Reports "failed" if the file is missing or contains
+ * invalid JSON. Does not validate config schema, only JSON syntax.
+ *
+ * @example
+ * ```typescript
+ * const check = checkConfig('/my/project');
+ * if (check.status === 'passed') console.log('Config OK');
+ * ```
  */
 export function checkConfig(projectRoot: string): CheckResult {
   const configPath = getConfigPath(projectRoot);
@@ -674,6 +921,20 @@ export function checkConfig(projectRoot: string): CheckResult {
 
 /**
  * Verify project-info.json exists with required fields.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating whether project-info.json is valid
+ *
+ * @remarks
+ * Read-only diagnostic. Checks for presence and required fields: projectHash,
+ * cleoVersion, and lastUpdated. Reports "warning" on missing fields, "failed" on
+ * missing file or invalid JSON.
+ *
+ * @example
+ * ```typescript
+ * const check = checkProjectInfo('/my/project');
+ * if (check.status !== 'passed') console.log(check.fix);
+ * ```
  */
 export function checkProjectInfo(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -728,6 +989,21 @@ export function checkProjectInfo(projectRoot: string): CheckResult {
 
 /**
  * Verify project-context.json exists and is not stale (default: 30 days).
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @param staleDays - Age threshold in days before reporting as stale (default: 30)
+ * @returns Check result with freshness assessment
+ *
+ * @remarks
+ * Read-only diagnostic. Checks for the `detectedAt` timestamp and compares
+ * its age against the staleness threshold. Reports "warning" if stale or
+ * missing, "failed" if the file contains invalid JSON.
+ *
+ * @example
+ * ```typescript
+ * const check = checkProjectContext('/my/project', 14);
+ * if (check.status === 'warning') console.log('Context is stale');
+ * ```
  */
 export function checkProjectContext(projectRoot: string, staleDays: number = 30): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -795,6 +1071,18 @@ export function checkProjectContext(projectRoot: string, staleDays: number = 30)
 
 /**
  * Verify .cleo/.git checkpoint repository exists.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating whether the checkpoint repo is present
+ *
+ * @remarks
+ * Read-only diagnostic. Reports "warning" if the .cleo/.git directory is missing.
+ *
+ * @example
+ * ```typescript
+ * const check = checkCleoGitRepo('/my/project');
+ * console.log(check.status); // "passed" or "warning"
+ * ```
  */
 export function checkCleoGitRepo(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -823,6 +1111,19 @@ export function checkCleoGitRepo(projectRoot: string): CheckResult {
 
 /**
  * Verify .cleo/tasks.db exists and is non-empty.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result with database existence and size information
+ *
+ * @remarks
+ * Read-only diagnostic. Reports "failed" if the file is missing, "warning" if
+ * the file exists but is 0 bytes, "passed" otherwise.
+ *
+ * @example
+ * ```typescript
+ * const check = checkSqliteDb('/my/project');
+ * if (check.status === 'failed') console.log('No database:', check.fix);
+ * ```
  */
 export function checkSqliteDb(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -864,6 +1165,20 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
 /**
  * Create brain.db if missing.
  * Idempotent: skips if brain.db already exists.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Initializes brain.db with Drizzle schema and eagerly creates FTS5 virtual
+ * tables for full-text search (T5698). Also ensures FTS5 tables on pre-existing
+ * databases that may lack them.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureBrainDb('/my/project');
+ * if (result.action === 'created') console.log('Brain database ready');
+ * ```
  */
 export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -911,6 +1226,19 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
 
 /**
  * Verify .cleo/brain.db exists and is non-empty.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result with database existence and size information
+ *
+ * @remarks
+ * Read-only diagnostic. Reports "failed" if the file is missing, "warning" if
+ * the file exists but is 0 bytes, "passed" otherwise.
+ *
+ * @example
+ * ```typescript
+ * const check = checkBrainDb('/my/project');
+ * console.log(check.status);
+ * ```
  */
 export function checkBrainDb(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -951,7 +1279,20 @@ export function checkBrainDb(projectRoot: string): CheckResult {
 
 /**
  * Verify .cleo/memory-bridge.md exists.
- * Warning level if missing (not failure) — it is auto-generated.
+ * Warning level if missing (not failure) -- it is auto-generated.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating presence of the memory bridge file
+ *
+ * @remarks
+ * Read-only diagnostic. The memory bridge is auto-generated from brain.db
+ * content, so its absence is only a warning (not a failure).
+ *
+ * @example
+ * ```typescript
+ * const check = checkMemoryBridge('/my/project');
+ * if (check.status === 'warning') console.log('Run: cleo refresh-memory');
+ * ```
  */
 export function checkMemoryBridge(projectRoot: string): CheckResult {
   const cleoDir = getCleoDirAbsolute(projectRoot);
@@ -1033,6 +1374,18 @@ export const STALE_GLOBAL_ENTRIES = [
  *
  * This is the SSoT for global home scaffolding, replacing raw mkdirSync
  * calls that were previously scattered across global-bootstrap.ts.
+ *
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Also creates a global config.json from template if absent. Cleans up
+ * stale entries from both the current and legacy (~/.cleo/) global home paths.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureGlobalHome();
+ * console.log(result.action); // "created" or "skipped"
+ * ```
  */
 export async function ensureGlobalHome(): Promise<ScaffoldResult> {
   const cleoHome = getCleoHome();
@@ -1098,6 +1451,19 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
  * filesystem write to maintain SSoT for scaffolding.
  *
  * Idempotent: skips if the template already exists with correct content.
+ *
+ * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Lazy-imports injection.ts to avoid circular dependencies. Compares file
+ * content byte-for-byte; repairs if the installed version differs from the
+ * bundled template.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureGlobalTemplates();
+ * if (result.action === 'repaired') console.log('Template updated');
+ * ```
  */
 export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
   // Lazy import to avoid circular dependency (injection imports scaffold)
@@ -1149,6 +1515,19 @@ export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
  *   - CLI startup (via startupHealthCheck in health.ts)
  *   - init (for first-time global setup)
  *   - upgrade (for global repair)
+ *
+ * @returns Combined scaffold results for home and templates
+ *
+ * @remarks
+ * Calls ensureGlobalHome and ensureGlobalTemplates in sequence.
+ * Schemas are NOT copied here -- they are read at runtime from the npm
+ * package path.
+ *
+ * @example
+ * ```typescript
+ * const { home, templates } = await ensureGlobalScaffold();
+ * console.log(home.action, templates.action);
+ * ```
  */
 export async function ensureGlobalScaffold(): Promise<{
   home: ScaffoldResult;
@@ -1165,6 +1544,18 @@ export async function ensureGlobalScaffold(): Promise<{
 /**
  * Check that the global ~/.cleo/ home and its required subdirectories exist.
  * Read-only: no side effects.
+ *
+ * @returns Check result with status and missing subdirectory details
+ *
+ * @remarks
+ * Reports "failed" if the home directory itself is absent, "warning" if
+ * subdirectories are missing, "passed" if all infrastructure is present.
+ *
+ * @example
+ * ```typescript
+ * const check = checkGlobalHome();
+ * if (check.status !== 'passed') console.log(check.fix);
+ * ```
  */
 export function checkGlobalHome(): CheckResult {
   const cleoHome = getCleoHome();
@@ -1206,6 +1597,18 @@ export function checkGlobalHome(): CheckResult {
 /**
  * Check that the global injection template is present and current.
  * Read-only: no side effects.
+ *
+ * @returns Check result with template version and sync status
+ *
+ * @remarks
+ * Also checks for version drift between the XDG-compliant path and the
+ * legacy ~/.cleo/templates/ path. Reports "warning" if versions differ.
+ *
+ * @example
+ * ```typescript
+ * const check = checkGlobalTemplates();
+ * console.log(check.details.version);
+ * ```
  */
 export function checkGlobalTemplates(): CheckResult {
   const templatesDir = getCleoTemplatesDir();
@@ -1256,6 +1659,18 @@ export function checkGlobalTemplates(): CheckResult {
 /**
  * Check that the project log directory exists.
  * Read-only: no side effects.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating whether .cleo/logs/ is present
+ *
+ * @remarks
+ * Reports "warning" if the log directory is absent, "passed" otherwise.
+ *
+ * @example
+ * ```typescript
+ * const check = checkLogDir('/my/project');
+ * console.log(check.status);
+ * ```
  */
 export function checkLogDir(projectRoot: string): CheckResult {
   const logDir = join(getCleoDirAbsolute(projectRoot), 'logs');

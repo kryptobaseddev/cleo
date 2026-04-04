@@ -56,6 +56,22 @@ export type { DecisionRecord, EngineResult, Session as SessionRecord };
 
 /**
  * Get current session status.
+ *
+ * @remarks
+ * Returns whether there is an active session, along with the session record
+ * and current task work state if available.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns EngineResult with active session flag, session record, and task work state
+ *
+ * @example
+ * ```typescript
+ * const result = await sessionStatus('/project');
+ * if (result.success && result.data.hasActiveSession) {
+ *   console.log(result.data.session?.id);
+ * }
+ * ```
+ *
  * @task T4782
  */
 export async function sessionStatus(projectRoot: string): Promise<
@@ -94,6 +110,19 @@ const SESSION_LIST_DEFAULT_LIMIT = 10;
  * When a limit is applied (explicit or default), the response includes
  * `_meta.truncated` and `_meta.total` so agents know the result set
  * was capped.
+ *
+ * @remarks
+ * Defaults to 10 results when no explicit limit is provided to protect
+ * agent context budgets. Use offset for pagination.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional filter and pagination parameters
+ * @returns EngineResult with sessions array, total, filtered count, and truncation metadata
+ *
+ * @example
+ * ```typescript
+ * const result = await sessionList('/project', { active: true, limit: 5 });
+ * ```
  *
  * @task T4782
  * @task T5120 - budget enforcement metadata
@@ -147,7 +176,20 @@ export async function sessionList(
 }
 
 /**
- * Lightweight session discovery — returns minimal session records.
+ * Lightweight session discovery -- returns minimal session records.
+ *
+ * @remarks
+ * Optimized for low context cost. Returns only essential fields (ID, status,
+ * scope, timestamps) without full session details.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional search parameters
+ * @returns EngineResult with array of minimal session records
+ *
+ * @example
+ * ```typescript
+ * const result = await sessionFind('/project', { status: 'active' });
+ * ```
  *
  * @task T5119
  */
@@ -165,7 +207,21 @@ export async function sessionFind(
 }
 
 /**
- * Show a specific session.
+ * Show a specific session by ID.
+ *
+ * @remarks
+ * Returns the full session record including scope, status, timestamps,
+ * and associated task data.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param sessionId - Session identifier to look up
+ * @returns EngineResult with the full Session record
+ *
+ * @example
+ * ```typescript
+ * const result = await sessionShow('/project', 'ses_20260401_abc123');
+ * ```
+ *
  * @task T4782
  */
 export async function sessionShow(

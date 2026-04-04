@@ -15,8 +15,21 @@ import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from
  * Execution flows through the array from first to last, and returns bubble
  * back up from last to first.
  *
- * @param middlewares Array of middleware functions to chain
+ * @remarks
+ * Uses an index-tracked dispatch function to prevent `next()` from being
+ * called multiple times within a single middleware. If the array is empty,
+ * a passthrough middleware that immediately calls `next()` is returned.
+ *
+ * @param middlewares - Array of middleware functions to chain
  * @returns A single composed Middleware function
+ *
+ * @example
+ * ```typescript
+ * import { compose } from './pipeline.js';
+ *
+ * const pipeline = compose([sanitizer, rateLimiter, protocolEnforcement]);
+ * const response = await pipeline(request, handler);
+ * ```
  */
 export function compose(middlewares: Middleware[]): Middleware {
   if (middlewares.length === 0) {

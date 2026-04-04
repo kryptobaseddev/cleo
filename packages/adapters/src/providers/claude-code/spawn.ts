@@ -33,6 +33,13 @@ interface TrackedProcess {
  * Each spawn writes its prompt to a temporary file, then runs
  * `claude --allow-insecure --no-upgrade-check <tmpFile>` as a
  * detached, unref'd child process.
+ *
+ * @remarks
+ * The provider uses `--allow-insecure --no-upgrade-check` flags to
+ * ensure the Claude CLI starts without interactive prompts. Prompts are
+ * written to temporary files under `/tmp/` and cleaned up after the
+ * child process exits. Processes are tracked by instance ID in an
+ * in-memory map and verified via `kill(pid, 0)` liveness checks.
  */
 export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
   /** Map of instance IDs to tracked process info. */

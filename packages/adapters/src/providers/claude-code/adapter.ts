@@ -34,12 +34,23 @@ const execAsync = promisify(exec);
  * - Hooks: Maps Claude Code events (SessionStart, PostToolUse, etc.) to CAAMP events
  * - Spawn: Launches subagent processes via the `claude` CLI
  * - Install: Manages instruction files and brain observation plugin registration
+ *
+ * @remarks
+ * This is the most feature-complete adapter in the CLEO system, supporting
+ * 14 of 16 CAAMP canonical events, subagent spawning via the `claude` CLI,
+ * context monitoring with statusline integration, task sync via TodoWrite,
+ * and inter-agent transport. It serves as the reference implementation for
+ * other provider adapters.
  */
 export class ClaudeCodeAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'claude-code';
+  /** Human-readable provider name. */
   readonly name = 'Claude Code';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     // 14/16 canonical events — derived from getProviderHookProfile('claude-code') in CAAMP 1.9.1.
@@ -72,15 +83,24 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     supportsTaskSync: true,
   };
 
+  /** Hook provider for CAAMP event mapping and registration. */
   hooks: ClaudeCodeHookProvider;
+  /** Spawn provider for launching subagent processes via `claude` CLI. */
   spawn: ClaudeCodeSpawnProvider;
+  /** Install provider for managing instruction files and plugin registration. */
   install: ClaudeCodeInstallProvider;
+  /** Path provider for resolving Claude Code directory locations. */
   paths: ClaudeCodePathProvider;
+  /** Context monitor for tracking context window usage and statusline output. */
   contextMonitor: ClaudeCodeContextMonitorProvider;
+  /** Transport provider for inter-agent communication. */
   transport: ClaudeCodeTransportProvider;
+  /** Task sync provider bridging Claude's TodoWrite format to CLEO tasks. */
   taskSync: ClaudeCodeTaskSyncProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

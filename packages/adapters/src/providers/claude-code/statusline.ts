@@ -27,6 +27,22 @@ function getClaudeSettingsPath(): string {
 /**
  * Check if statusline integration is configured.
  * Returns the current integration status.
+ *
+ * @remarks
+ * Reads Claude Code's settings.json and inspects the `statusLine` field
+ * to determine whether CLEO context monitoring is active.
+ *
+ * @returns One of: 'configured', 'not_configured', 'custom_no_cleo', 'no_settings'
+ *
+ * @example
+ * ```typescript
+ * import { checkStatuslineIntegration } from './statusline.js';
+ *
+ * const status = checkStatuslineIntegration();
+ * if (status === 'not_configured') {
+ *   console.log('Run cleo install to set up context monitoring');
+ * }
+ * ```
  */
 export function checkStatuslineIntegration(): StatuslineStatus {
   const settingsPath = getClaudeSettingsPath();
@@ -72,6 +88,20 @@ export function checkStatuslineIntegration(): StatuslineStatus {
 
 /**
  * Get the statusline setup command for Claude Code settings.
+ *
+ * @remarks
+ * Returns a JSON-serializable object that can be merged into
+ * Claude Code's settings.json to enable context monitoring.
+ *
+ * @param cleoHome - Absolute path to the CLEO home directory
+ * @returns Settings object containing the statusLine configuration
+ *
+ * @example
+ * ```typescript
+ * import { getStatuslineConfig } from './statusline.js';
+ *
+ * const config = getStatuslineConfig('/home/user/.cleo');
+ * ```
  */
 export function getStatuslineConfig(cleoHome: string): Record<string, unknown> {
   return {
@@ -84,6 +114,20 @@ export function getStatuslineConfig(cleoHome: string): Record<string, unknown> {
 
 /**
  * Get human-readable setup instructions.
+ *
+ * @remarks
+ * Returns a multi-line string with file path, JSON config, and explanation
+ * suitable for display to the user.
+ *
+ * @param cleoHome - Absolute path to the CLEO home directory
+ * @returns Formatted setup instructions string
+ *
+ * @example
+ * ```typescript
+ * import { getSetupInstructions } from './statusline.js';
+ *
+ * console.log(getSetupInstructions('/home/user/.cleo'));
+ * ```
  */
 export function getSetupInstructions(cleoHome: string): string {
   const settingsPath = getClaudeSettingsPath();

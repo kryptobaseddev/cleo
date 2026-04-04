@@ -1,8 +1,16 @@
 /**
- * @cleocode/adapters
+ * @packageDocumentation
  *
  * Unified provider adapter package for CLEO.
  * Exports all provider adapters and a registry for manifest discovery.
+ *
+ * @remarks
+ * This package is the single entry point for all CLEO provider adapters.
+ * Each provider (Claude Code, Cursor, OpenCode, Codex, Gemini CLI, Kimi)
+ * exposes an adapter class implementing {@link CLEOProviderAdapter} from
+ * `@cleocode/contracts`, plus supporting hook, install, and spawn providers.
+ * The {@link discoverProviders} function and {@link getProviderManifests}
+ * registry enable dynamic adapter loading by AdapterManager.
  */
 
 // Re-export adapter classes for direct use

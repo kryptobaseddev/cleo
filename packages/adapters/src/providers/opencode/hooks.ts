@@ -72,10 +72,19 @@ const OPENCODE_EVENT_MAP: Record<string, string> = {
  * provider), `registerNativeHooks` and `unregisterNativeHooks` track registration
  * state without performing filesystem operations.
  *
+ * @remarks
+ * OpenCode uses dot-delimited and `event:`-prefixed event names
+ * (e.g. `event:session.created`, `tool.execute.before`) which differ
+ * significantly from the PascalCase CAAMP canonical names. The static
+ * event map covers all 10 supported events. Async CAAMP accessors
+ * (`getSupportedCanonicalEvents`, `getProviderProfile`, `toNativeEvent`)
+ * call the normalizer directly when available and fall back to the static map.
+ *
  * @task T164
  * @epic T134
  */
 export class OpenCodeHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered for the current session. */
   private registered = false;
 
   /**

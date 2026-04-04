@@ -82,10 +82,25 @@ function parseTranscriptLines(raw: string): TranscriptTurn[] {
  * - No JSON/JSONL files are present
  * - The most recent file contains no parseable turns
  *
+ * @remarks
+ * This utility is shared by Gemini CLI and Codex CLI hook providers which
+ * both store session data in the same flat JSON/JSONL format. Only the
+ * most recent file is read to keep memory usage bounded.
+ *
  * @param providerDir - Absolute path to the provider's session directory
  *   (e.g. `~/.gemini` or `~/.codex`).
  * @returns A plain-text transcript with lines of the form `role: content`,
  *   or `null` if no transcript could be extracted.
+ *
+ * @example
+ * ```typescript
+ * import { readLatestTranscript } from '../shared/transcript-reader.js';
+ *
+ * const transcript = await readLatestTranscript('/home/user/.gemini');
+ * if (transcript) {
+ *   console.log(transcript);
+ * }
+ * ```
  *
  * @task T161
  * @epic T134

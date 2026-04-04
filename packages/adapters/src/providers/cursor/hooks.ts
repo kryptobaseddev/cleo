@@ -75,10 +75,17 @@ const CURSOR_EVENT_MAP: Record<string, string> = {
  * provider), `registerNativeHooks` and `unregisterNativeHooks` track registration
  * state without performing filesystem operations.
  *
+ * @remarks
+ * This provider was originally a no-op stub. It now provides full event
+ * mapping for all 10 canonical events supported by Cursor, plus CAAMP
+ * normalizer integration via async accessors. Registration state is
+ * tracked in-memory because Cursor manages hooks through its own config.
+ *
  * @task T165
  * @epic T134
  */
 export class CursorHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered for the current session. */
   private registered = false;
 
   /**

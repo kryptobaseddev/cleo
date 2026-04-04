@@ -20,6 +20,11 @@
  * @param fallbackMessage - Message to use if error provides none
  * @returns Normalized error with consistent shape
  *
+ * @remarks
+ * This function is safe to call on any value thrown by a `catch` clause.
+ * It guarantees the returned object is always an `Error` instance with a
+ * non-empty `message` property.
+ *
  * @example
  * ```typescript
  * try {
@@ -63,6 +68,10 @@ export function normalizeError(
  * @param fallback - Fallback message if extraction fails
  * @returns The error message string
  *
+ * @remarks
+ * Inspects the value for an `Error` instance, a plain string, or an object
+ * with a `message` property before falling back to the provided default.
+ *
  * @example
  * ```typescript
  * const message = getErrorMessage(err, 'Unknown error');
@@ -99,6 +108,11 @@ export function getErrorMessage(error: unknown, fallback = 'Unknown error'): str
  * @param includeStack - Whether to include stack traces (default: false)
  * @returns Formatted error string
  *
+ * @remarks
+ * When `context` is provided it is prefixed in square brackets (e.g.
+ * `[Database] Connection refused`). Stack traces are appended on a new line
+ * only when `includeStack` is `true` and the value is an `Error` with a stack.
+ *
  * @example
  * ```typescript
  * console.error(formatError(err, 'Database connection'));
@@ -125,6 +139,10 @@ export function formatError(error: unknown, context?: string, includeStack = fal
  * @param error - The error to check
  * @param codeOrName - The error code or name to match
  * @returns True if the error matches
+ *
+ * @remarks
+ * Checks both `Error.name` and a custom `code` property, supporting both
+ * standard and LAFS-style error codes (e.g. `"E_NOT_FOUND"`).
  *
  * @example
  * ```typescript
@@ -154,6 +172,10 @@ export function isErrorType(error: unknown, codeOrName: string): boolean {
  * @param error - The error value
  * @returns Error result object
  *
+ * @remarks
+ * Pairs with {@link createSuccessResult} and {@link isErrorResult} to provide
+ * a consistent result-or-error pattern without exceptions.
+ *
  * @example
  * ```typescript
  * return createErrorResult(err);
@@ -172,6 +194,10 @@ export function createErrorResult(error: unknown): { success: false; error: stri
  *
  * @returns Success result object
  *
+ * @remarks
+ * Pairs with {@link createErrorResult} and {@link isErrorResult} to provide
+ * a consistent result-or-error pattern without exceptions.
+ *
  * @example
  * ```typescript
  * return createSuccessResult();
@@ -187,6 +213,10 @@ export function createSuccessResult(): { success: true } {
  *
  * @param result - The result to check
  * @returns True if the result is an error result
+ *
+ * @remarks
+ * Narrows the result type so that `result.error` is guaranteed to be a string
+ * after the guard returns `true`.
  *
  * @example
  * ```typescript

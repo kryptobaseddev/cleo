@@ -73,7 +73,23 @@ function parseIdPrefix(id: string): 'decision' | 'pattern' | 'learning' | 'obser
 // Brain.db Entry Lookup
 // ============================================================================
 
-/** memory.show - Look up a brain.db entry by ID */
+/**
+ * Look up a brain.db entry by ID.
+ *
+ * @param entryId - Brain entry ID with type prefix (D-, P-, L-, O-, or CM-)
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult containing the typed entry data on success
+ *
+ * @remarks
+ * Parses the ID prefix to determine the entry type (decision, pattern, learning,
+ * or observation) and queries the corresponding brain.db table.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryShow('O-abc123', '/project');
+ * if (result.success) console.log(result.data.type, result.data.entry);
+ * ```
+ */
 export async function memoryShow(entryId: string, projectRoot?: string): Promise<EngineResult> {
   if (!entryId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entryId is required' } };
@@ -155,7 +171,22 @@ export async function memoryShow(entryId: string, projectRoot?: string): Promise
 // Brain.db Aggregate Stats
 // ============================================================================
 
-/** memory.stats - Aggregate stats from brain.db across all tables */
+/**
+ * Aggregate stats from brain.db across all tables.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with observation, decision, pattern, and learning counts
+ *
+ * @remarks
+ * Queries each brain.db table for row counts and returns a combined statistics object.
+ * Returns zero counts if brain.db is not initialized.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryBrainStats('/project');
+ * if (result.success) console.log(result.data.observations);
+ * ```
+ */
 export async function memoryBrainStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
@@ -215,7 +246,21 @@ export async function memoryBrainStats(projectRoot?: string): Promise<EngineResu
 // Brain.db Decision Operations
 // ============================================================================
 
-/** memory.decision.find - Search decisions in brain.db */
+/**
+ * Search decisions in brain.db.
+ *
+ * @param params - Search parameters (query, limit, etc.)
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with matching decision entries
+ *
+ * @remarks
+ * Queries the brain.db decisions table with optional text filtering and pagination.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryDecisionFind({ query: 'auth' }, '/project');
+ * ```
+ */
 export async function memoryDecisionFind(
   params: { query?: string; taskId?: string; limit?: number },
   projectRoot?: string,
@@ -264,7 +309,22 @@ export async function memoryDecisionFind(
   }
 }
 
-/** memory.decision.store - Store a decision to brain.db */
+/**
+ * Store a decision to brain.db.
+ *
+ * @param params - Decision data including title, rationale, and alternatives
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the stored decision ID
+ *
+ * @remarks
+ * Creates a new decision entry in brain.db with a D-prefixed ID.
+ * Optionally refreshes the memory bridge after storing.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryDecisionStore({ title: 'Use SQLite', rationale: 'Embedded, fast' }, '/project');
+ * ```
+ */
 export async function memoryDecisionStore(
   params: {
     decision: string;
@@ -329,7 +389,22 @@ export async function memoryDecisionStore(
 // BRAIN Retrieval Operations (T5131-T5135) — Renamed from brain.* to flat ops
 // ============================================================================
 
-/** memory.find - Token-efficient brain search */
+/**
+ * Token-efficient brain search returning compact results.
+ *
+ * @param params - Search parameters including query string and limit
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with compact search hits (IDs and titles)
+ *
+ * @remarks
+ * Designed for the cheapest-first retrieval pattern. Returns minimal fields
+ * per hit to conserve tokens. Use memoryFetch for full entry details.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryFind({ query: 'authentication', limit: 10 }, '/project');
+ * ```
+ */
 export async function memoryFind(
   params: {
     query: string;
@@ -363,7 +438,22 @@ export async function memoryFind(
   }
 }
 
-/** memory.timeline - Chronological context around anchor */
+/**
+ * Chronological context around a brain entry anchor.
+ *
+ * @param params - Timeline parameters including anchor ID and window size
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with chronologically ordered entries around the anchor
+ *
+ * @remarks
+ * Retrieves entries before and after a given anchor ID for temporal context.
+ * Useful for understanding the sequence of observations and decisions.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryTimeline({ anchorId: 'O-abc123', window: 5 }, '/project');
+ * ```
+ */
 export async function memoryTimeline(
   params: { anchor: string; depthBefore?: number; depthAfter?: number },
   projectRoot?: string,
@@ -387,7 +477,22 @@ export async function memoryTimeline(
   }
 }
 
-/** memory.fetch - Batch fetch brain entries by IDs */
+/**
+ * Batch fetch brain entries by IDs.
+ *
+ * @param params - Fetch parameters including an array of entry IDs
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with full entry details for each requested ID
+ *
+ * @remarks
+ * Use after memoryFind to retrieve full details for specific entries.
+ * Part of the 3-layer retrieval pattern: search -> filter -> fetch.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryFetch({ ids: ['O-abc123', 'D-def456'] }, '/project');
+ * ```
+ */
 export async function memoryFetch(
   params: { ids: string[] },
   projectRoot?: string,
@@ -407,7 +512,22 @@ export async function memoryFetch(
   }
 }
 
-/** memory.observe - Save observation to brain */
+/**
+ * Save an observation to brain.db.
+ *
+ * @param params - Observation data including text, title, and optional tags
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the stored observation ID
+ *
+ * @remarks
+ * Creates a new observation entry in brain.db with an O-prefixed ID.
+ * Optionally refreshes the memory bridge after storing.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryObserve({ text: 'Auth uses JWT', title: 'Auth discovery' }, '/project');
+ * ```
+ */
 export async function memoryObserve(
   params: {
     text: string;
@@ -445,7 +565,21 @@ export async function memoryObserve(
 // BRAIN Pattern Operations (T4770)
 // ============================================================================
 
-/** memory.pattern.store - Store a pattern to BRAIN memory */
+/**
+ * Store a pattern to BRAIN memory.
+ *
+ * @param params - Pattern data including pattern string, type, and confidence
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the stored pattern ID
+ *
+ * @remarks
+ * Persists a detected pattern (success or failure) to brain.db for future scoring.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryPatternStore({ pattern: 'migration', type: 'success' }, '/project');
+ * ```
+ */
 export async function memoryPatternStore(
   params: StorePatternParams,
   projectRoot?: string,
@@ -465,7 +599,21 @@ export async function memoryPatternStore(
   }
 }
 
-/** memory.pattern.find - Search patterns in BRAIN memory */
+/**
+ * Search patterns in BRAIN memory.
+ *
+ * @param params - Search parameters including query and type filter
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with matching pattern entries
+ *
+ * @remarks
+ * Queries the brain.db patterns table with optional type filtering.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryPatternFind({ type: 'success', limit: 10 }, '/project');
+ * ```
+ */
 export async function memoryPatternFind(
   params: SearchPatternParams,
   projectRoot?: string,
@@ -485,7 +633,20 @@ export async function memoryPatternFind(
   }
 }
 
-/** memory.pattern.stats - Get pattern memory statistics */
+/**
+ * Get pattern memory statistics.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with pattern counts by type and overall totals
+ *
+ * @remarks
+ * Aggregates pattern data from brain.db to provide type distribution and counts.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryPatternStats('/project');
+ * ```
+ */
 export async function memoryPatternStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
@@ -506,7 +667,21 @@ export async function memoryPatternStats(projectRoot?: string): Promise<EngineRe
 // BRAIN Learning Operations (T4770)
 // ============================================================================
 
-/** memory.learning.store - Store a learning to BRAIN memory */
+/**
+ * Store a learning to BRAIN memory.
+ *
+ * @param params - Learning data including text and confidence level
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the stored learning ID
+ *
+ * @remarks
+ * Creates a new learning entry in brain.db with an L-prefixed ID.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryLearningStore({ text: 'Drizzle v1 requires beta flag' }, '/project');
+ * ```
+ */
 export async function memoryLearningStore(
   params: StoreLearningParams,
   projectRoot?: string,
@@ -526,7 +701,21 @@ export async function memoryLearningStore(
   }
 }
 
-/** memory.learning.find - Search learnings in BRAIN memory */
+/**
+ * Search learnings in BRAIN memory.
+ *
+ * @param params - Search parameters including query and limit
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with matching learning entries
+ *
+ * @remarks
+ * Queries the brain.db learnings table with optional text filtering.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryLearningFind({ query: 'drizzle' }, '/project');
+ * ```
+ */
 export async function memoryLearningFind(
   params: SearchLearningParams,
   projectRoot?: string,
@@ -546,7 +735,20 @@ export async function memoryLearningFind(
   }
 }
 
-/** memory.learning.stats - Get learning memory statistics */
+/**
+ * Get learning memory statistics.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with learning counts and confidence distribution
+ *
+ * @remarks
+ * Aggregates learning data from brain.db to provide totals and breakdowns.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryLearningStats('/project');
+ * ```
+ */
 export async function memoryLearningStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
@@ -567,7 +769,22 @@ export async function memoryLearningStats(projectRoot?: string): Promise<EngineR
 // BRAIN Advanced Queries & Links (T5241)
 // ============================================================================
 
-/** memory.contradictions - Find contradictory entries in brain.db */
+/**
+ * Find contradictory entries in brain.db.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with pairs of contradicting observations
+ *
+ * @remarks
+ * Scans brain.db for observations that contradict each other based on
+ * semantic similarity and opposing sentiment or content.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryContradictions('/project');
+ * if (result.success) console.log(result.data.contradictions);
+ * ```
+ */
 export async function memoryContradictions(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
@@ -749,14 +966,29 @@ export async function memoryContradictions(projectRoot?: string): Promise<Engine
   }
 }
 
-/** memory.superseded - Find superseded entries in brain.db
+/**
+ * Find superseded entries in brain.db.
  *
  * Identifies entries that have been superseded by newer entries on the same topic.
+ *
+ * @param params - Superseded search parameters
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with superseded entry pairs and their replacements
+ *
+ * @remarks
+ * Scans brain.db for entries where a newer observation or decision covers
+ * the same topic, rendering the older entry obsolete.
+ *
  * For brain.db, we group by:
  * - Decisions: type + contextTaskId/contextEpicId
  * - Patterns: type + context (first 100 chars for similarity)
  * - Learnings: source + applicableTypes
  * - Observations: type + project
+ *
+ * @example
+ * ```typescript
+ * const result = await memorySuperseded({ type: 'decision' }, '/project');
+ * ```
  */
 export async function memorySuperseded(
   params?: { type?: string; project?: string },
@@ -932,7 +1164,22 @@ export async function memorySuperseded(
   }
 }
 
-/** memory.link - Link a brain entry to a task */
+/**
+ * Link a brain entry to a task.
+ *
+ * @param params - Link parameters including entryId and taskId
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult confirming the link was created
+ *
+ * @remarks
+ * Creates an association between a brain.db entry and a task in tasks.db.
+ * Used for traceability between memory entries and the work they relate to.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryLink({ entryId: 'O-abc123', taskId: 'T042' }, '/project');
+ * ```
+ */
 export async function memoryLink(
   params: { taskId: string; entryId: string },
   projectRoot?: string,
@@ -970,7 +1217,22 @@ export async function memoryLink(
   }
 }
 
-/** memory.unlink - Remove a link between a brain entry and a task */
+/**
+ * Remove a link between a brain entry and a task.
+ *
+ * @param params - Unlink parameters including entryId and taskId
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult confirming the link was removed
+ *
+ * @remarks
+ * Removes the association created by memoryLink. Idempotent if the link
+ * does not exist.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryUnlink({ entryId: 'O-abc123', taskId: 'T042' }, '/project');
+ * ```
+ */
 export async function memoryUnlink(
   params: { taskId: string; entryId: string },
   projectRoot?: string,
@@ -1012,7 +1274,22 @@ export async function memoryUnlink(
 // PageIndex Graph Operations (T5385)
 // ============================================================================
 
-/** memory.graph.add - Add a node or edge to the PageIndex graph */
+/**
+ * Add a node or edge to the PageIndex graph.
+ *
+ * @param params - Graph add parameters (node data or edge endpoints)
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult confirming the node or edge was added
+ *
+ * @remarks
+ * Supports adding both nodes (concepts) and edges (relationships) to the
+ * brain.db knowledge graph (PageIndex).
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphAdd({ type: 'node', label: 'auth', nodeType: 'concept' }, '/project');
+ * ```
+ */
 export async function memoryGraphAdd(
   params: {
     nodeId?: string;
@@ -1073,7 +1350,22 @@ export async function memoryGraphAdd(
   }
 }
 
-/** memory.graph.show - Get a node and its edges from the PageIndex graph */
+/**
+ * Get a node and its edges from the PageIndex graph.
+ *
+ * @param params - Parameters including the node ID to look up
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the node data and its connected edges
+ *
+ * @remarks
+ * Returns the full node record plus all edges where the node appears as
+ * either source or target.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphShow({ nodeId: 'auth' }, '/project');
+ * ```
+ */
 export async function memoryGraphShow(
   params: { nodeId: string },
   projectRoot?: string,
@@ -1107,7 +1399,22 @@ export async function memoryGraphShow(
   }
 }
 
-/** memory.graph.neighbors - Get neighbor nodes from the PageIndex graph */
+/**
+ * Get neighbor nodes from the PageIndex graph.
+ *
+ * @param params - Parameters including the node ID and optional depth
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with neighboring nodes and connecting edges
+ *
+ * @remarks
+ * Traverses the knowledge graph outward from a given node to find related
+ * concepts within the specified depth.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphNeighbors({ nodeId: 'auth', depth: 2 }, '/project');
+ * ```
+ */
 export async function memoryGraphNeighbors(
   params: { nodeId: string; edgeType?: string },
   projectRoot?: string,
@@ -1142,7 +1449,22 @@ export async function memoryGraphNeighbors(
 // BRAIN Reasoning & Hybrid Search Operations (T5388-T5393)
 // ============================================================================
 
-/** memory.reason.why - Causal trace through task dependency chains */
+/**
+ * Causal trace through task dependency chains.
+ *
+ * @param params - Parameters including the entry or task ID to trace
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the causal chain explaining why something happened
+ *
+ * @remarks
+ * Traces backward through task dependencies and brain entries to build
+ * an explanation chain for a given decision or observation.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryReasonWhy({ id: 'D-abc123' }, '/project');
+ * ```
+ */
 export async function memoryReasonWhy(
   params: { taskId: string },
   projectRoot?: string,
@@ -1168,7 +1490,22 @@ export async function memoryReasonWhy(
   }
 }
 
-/** memory.reason.similar - Find semantically similar entries */
+/**
+ * Find semantically similar entries.
+ *
+ * @param params - Parameters including the source entry ID or query text
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with entries ranked by semantic similarity
+ *
+ * @remarks
+ * Uses embedding vectors or text similarity to find brain entries that are
+ * semantically close to the given reference.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryReasonSimilar({ id: 'O-abc123', limit: 5 }, '/project');
+ * ```
+ */
 export async function memoryReasonSimilar(
   params: { entryId: string; limit?: number },
   projectRoot?: string,
@@ -1193,7 +1530,22 @@ export async function memoryReasonSimilar(
   }
 }
 
-/** memory.search.hybrid - Hybrid search across FTS5, vector, and graph */
+/**
+ * Hybrid search across FTS5, vector, and graph.
+ *
+ * @param params - Search parameters including query and optional mode/limit
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with merged and ranked results from all search backends
+ *
+ * @remarks
+ * Combines full-text search (FTS5), vector similarity, and graph traversal
+ * to produce comprehensive search results with merged relevance scoring.
+ *
+ * @example
+ * ```typescript
+ * const result = await memorySearchHybrid({ query: 'authentication flow' }, '/project');
+ * ```
+ */
 export async function memorySearchHybrid(
   params: {
     query: string;
@@ -1229,7 +1581,22 @@ export async function memorySearchHybrid(
   }
 }
 
-/** memory.graph.remove - Remove a node or edge from the PageIndex graph */
+/**
+ * Remove a node or edge from the PageIndex graph.
+ *
+ * @param params - Parameters specifying the node or edge to remove
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult confirming the removal
+ *
+ * @remarks
+ * Removes a node (and its connected edges) or a specific edge from the
+ * brain.db knowledge graph.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphRemove({ type: 'node', nodeId: 'stale-concept' }, '/project');
+ * ```
+ */
 export async function memoryGraphRemove(
   params: {
     nodeId?: string;

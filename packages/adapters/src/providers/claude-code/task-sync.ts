@@ -82,14 +82,22 @@ function getTodoWriteFilePath(projectDir: string): string {
  * and status, and returns normalized ExternalTask[].
  *
  * Optional: accepts a custom file path for testing.
+ *
+ * @remarks
+ * TodoWrite items with `[T001]`-style prefixes are mapped to their CLEO
+ * task IDs. Items without a prefix receive a synthetic `tw-new-N` ID
+ * for reconciliation. The provider reads from
+ * `.cleo/sync/todowrite-state.json` by default.
  */
 export class ClaudeCodeTaskSyncProvider implements ExternalTaskProvider {
+  /** Optional override path for the TodoWrite state file (used in tests). */
   private readonly customFilePath?: string;
 
   constructor(options?: { filePath?: string }) {
     this.customFilePath = options?.filePath;
   }
 
+  /** Retrieve external tasks from Claude's TodoWrite state file. */
   async getExternalTasks(projectDir: string): Promise<ExternalTask[]> {
     const filePath = this.customFilePath ?? getTodoWriteFilePath(projectDir);
 

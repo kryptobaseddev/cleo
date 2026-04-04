@@ -18,10 +18,16 @@ import type { AdapterHookProvider } from '@cleocode/contracts';
  * All hook-related methods are no-ops; mapProviderEvent always
  * returns null since there are no events to map.
  *
+ * @remarks
+ * Since Kimi has no hookable events, the event map is empty and
+ * `mapProviderEvent` always returns null. Registration state is tracked
+ * purely for interface compliance with {@link AdapterHookProvider}.
+ *
  * @task T163
  * @epic T134
  */
 export class KimiHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered (always a no-op for Kimi). */
   private registered = false;
 
   /**

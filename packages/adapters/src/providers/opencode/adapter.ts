@@ -29,12 +29,23 @@ const execAsync = promisify(exec);
  * - Hooks: Maps OpenCode events (session.start, tool.complete, etc.) to CAAMP events
  * - Spawn: Launches subagent processes via the `opencode` CLI
  * - Install: Ensures AGENTS.md references for CLEO instruction files
+ *
+ * @remarks
+ * OpenCode is the second-most feature-complete adapter after Claude Code,
+ * supporting 10 canonical events through its JavaScript plugin system,
+ * subagent spawning via the `opencode run` CLI command, and instruction
+ * file management via AGENTS.md. It uniquely supports PreModel via the
+ * `chat.params` event, which allows pre-inference parameter injection.
  */
 export class OpenCodeAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'opencode';
+  /** Human-readable provider name. */
   readonly name = 'OpenCode';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     // 10/16 canonical events — derived from getProviderHookProfile('opencode') in CAAMP 1.9.1.
@@ -64,11 +75,16 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
     supportsTaskSync: false,
   };
 
+  /** Hook provider for CAAMP event mapping via OpenCode's plugin system. */
   hooks: OpenCodeHookProvider;
+  /** Spawn provider for launching subagent processes via `opencode run`. */
   spawn: OpenCodeSpawnProvider;
+  /** Install provider for managing AGENTS.md instruction files. */
   install: OpenCodeInstallProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

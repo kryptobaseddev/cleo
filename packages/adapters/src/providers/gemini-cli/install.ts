@@ -21,6 +21,11 @@ const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/
  * Manages CLEO's integration with Gemini CLI by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
  *
+ * @remarks
+ * Installation is idempotent -- running install multiple times on the same
+ * project produces the same result. Only AGENTS.md is managed; Gemini CLI
+ * does not have an MCP or plugin registration mechanism.
+ *
  * @task T161
  * @epic T134
  */

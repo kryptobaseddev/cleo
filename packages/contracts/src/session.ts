@@ -13,58 +13,129 @@ export type { SessionStatus };
 
 /** Session scope JSON blob shape. */
 export interface SessionScope {
+  /** Scope type (e.g. `"global"`, `"epic"`, `"task"`, `"custom"`). */
   type: string;
+  /**
+   * Epic ID when scope type is `"epic"`.
+   * @defaultValue undefined
+   */
   epicId?: string;
+  /**
+   * Root task ID when scope is narrowed to a subtree.
+   * @defaultValue undefined
+   */
   rootTaskId?: string;
+  /**
+   * Whether to include descendant tasks of the root task.
+   * @defaultValue undefined
+   */
   includeDescendants?: boolean;
+  /**
+   * Phase slug to filter tasks by.
+   * @defaultValue undefined
+   */
   phaseFilter?: string | null;
+  /**
+   * Label filter to narrow the scope to specific labels.
+   * @defaultValue undefined
+   */
   labelFilter?: string[] | null;
+  /**
+   * Maximum hierarchy depth to include.
+   * @defaultValue undefined
+   */
   maxDepth?: number | null;
+  /**
+   * Explicit task IDs to include regardless of other filters.
+   * @defaultValue undefined
+   */
   explicitTaskIds?: string[] | null;
+  /**
+   * Task IDs to exclude from the scope.
+   * @defaultValue undefined
+   */
   excludeTaskIds?: string[] | null;
+  /**
+   * Task IDs computed from the scope definition at resolution time.
+   * @defaultValue undefined
+   */
   computedTaskIds?: string[];
+  /**
+   * ISO 8601 timestamp of when computed task IDs were last resolved.
+   * @defaultValue undefined
+   */
   computedAt?: string;
 }
 
 /** Session statistics. */
 export interface SessionStats {
+  /** Number of tasks completed during this session. */
   tasksCompleted: number;
+  /** Number of new tasks created during this session. */
   tasksCreated: number;
+  /** Number of task updates performed during this session. */
   tasksUpdated: number;
+  /** Number of times the focus task was changed. */
   focusChanges: number;
+  /** Total minutes the session was in active status. */
   totalActiveMinutes: number;
+  /** Number of times the session was suspended and resumed. */
   suspendCount: number;
 }
 
 /** Active task work state within a session. */
 export interface SessionTaskWork {
+  /** ID of the task currently being worked on, or `null` if none. */
   taskId: string | null;
+  /** ISO 8601 timestamp of when the current task was set, or `null`. */
   setAt: string | null;
 }
 
 /** Session domain type — plain interface aligned with Drizzle sessions table. */
 export interface Session {
+  /** Unique session identifier (e.g. `"ses_20260401..."`) . */
   id: string;
+  /** Human-readable session name. */
   name: string;
+  /** Current session lifecycle status. */
   status: SessionStatus;
+  /** Scope definition controlling which tasks are visible. */
   scope: SessionScope;
+  /** Active task work state within the session. */
   taskWork: SessionTaskWork;
+  /** ISO 8601 timestamp of when the session started. */
   startedAt: string;
+  /** ISO 8601 timestamp of when the session ended. @defaultValue undefined */
   endedAt?: string;
+  /** Agent identifier that owns this session. @defaultValue undefined */
   agent?: string;
+  /** Timestamped notes appended during the session. @defaultValue undefined */
   notes?: string[];
+  /** IDs of tasks completed during this session. @defaultValue undefined */
   tasksCompleted?: string[];
+  /** IDs of tasks created during this session. @defaultValue undefined */
   tasksCreated?: string[];
+  /** Serialized handoff JSON for session continuity. @defaultValue undefined */
   handoffJson?: string | null;
+  /** ID of the session that preceded this one. @defaultValue undefined */
   previousSessionId?: string | null;
+  /** ID of the session that follows this one. @defaultValue undefined */
   nextSessionId?: string | null;
+  /** Provider-specific agent identifier string. @defaultValue undefined */
   agentIdentifier?: string | null;
+  /** ISO 8601 timestamp of when the handoff was consumed. @defaultValue undefined */
   handoffConsumedAt?: string | null;
+  /** Agent that consumed the handoff. @defaultValue undefined */
   handoffConsumedBy?: string | null;
+  /** Serialized debrief JSON from session end. @defaultValue undefined */
   debriefJson?: string | null;
+  /** Aggregate session statistics. @defaultValue undefined */
   stats?: SessionStats;
+  /** Number of times this session has been resumed. @defaultValue undefined */
   resumeCount?: number;
+  /** Whether this session is in grade/evaluation mode. @defaultValue undefined */
   gradeMode?: boolean;
+  /** ID of the provider adapter used for this session. @defaultValue undefined */
   providerId?: string | null;
 }
 
@@ -75,7 +146,9 @@ export interface Session {
  * provided for consumers that expect it at the top level of the result.
  */
 export interface SessionStartResult {
+  /** The newly created or resumed session. */
   session: Session;
+  /** Convenience alias for `session.id`. */
   sessionId: string;
 }
 
@@ -84,6 +157,11 @@ export interface SessionStartResult {
  *
  * Provides discoverable query methods for common session lookups.
  * Does NOT change the DataAccessor interface — consumers create views from Session[].
+ *
+ * @remarks
+ * SessionView is a read-only collection wrapper that provides convenience
+ * methods for filtering, searching, and sorting sessions. It does not own
+ * the data and performs no mutations on the underlying array.
  */
 export class SessionView {
   private readonly _sessions: Session[];

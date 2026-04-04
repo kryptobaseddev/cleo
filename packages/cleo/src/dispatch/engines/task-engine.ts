@@ -130,41 +130,76 @@ function tasksToRecords(tasks: Task[]): TaskRecord[] {
  * Task object as stored in task data.
  */
 export interface TaskRecord {
+  /** Unique task identifier (e.g. "T001"). */
   id: string;
+  /** Short summary of the task. */
   title: string;
+  /** Full task description. */
   description: string;
+  /** Current status (pending, active, blocked, done, cancelled). */
   status: string;
+  /** Priority level (critical, high, medium, low). */
   priority: string;
+  /** Task type (task, epic, milestone, bug). */
   type?: string;
+  /** Project phase this task belongs to. */
   phase?: string;
+  /** ISO timestamp when the task was created. */
   createdAt: string;
+  /** ISO timestamp of the last update, or null. */
   updatedAt: string | null;
+  /** ISO timestamp when the task was completed, or null. */
   completedAt?: string | null;
+  /** ISO timestamp when the task was cancelled, or null. */
   cancelledAt?: string | null;
+  /** Parent task ID for hierarchical nesting, or null for root tasks. */
   parentId?: string | null;
+  /** Ordering position among siblings. */
   position?: number | null;
+  /** Optimistic concurrency version for position updates. */
   positionVersion?: number;
+  /** Task IDs this task depends on (must complete first). */
   depends?: string[];
+  /** Related tasks with relationship type and optional reason. */
   relates?: Array<{
+    /** Related task ID. */
     taskId: string;
+    /** Relationship type (e.g. "related-to", "blocks"). */
     type: string;
+    /** Optional explanation for the relationship. */
     reason?: string;
   }>;
+  /** File paths associated with this task. */
   files?: string[];
+  /** Acceptance criteria lines. */
   acceptance?: string[];
+  /** Free-form notes. */
   notes?: string[];
+  /** Classification labels. */
   labels?: string[];
+  /** Complexity sizing (small, medium, large). */
   size?: string | null;
+  /** Epic lifecycle state for epic-type tasks. */
   epicLifecycle?: string | null;
+  /** When true, prevents auto-completion on child task completion. */
   noAutoComplete?: boolean | null;
+  /** Verification gate state and round tracking. */
   verification?: import('@cleocode/contracts').TaskVerification | null;
+  /** How the task was created (manual, decomposition, import). */
   origin?: string | null;
+  /** Agent or user who created the task. */
   createdBy?: string | null;
+  /** Agent or user who validated the task. */
   validatedBy?: string | null;
+  /** Agent or user who tested the task. */
   testedBy?: string | null;
+  /** Current lifecycle governance state. */
   lifecycleState?: string | null;
+  /** History of lifecycle validation transitions. */
   validationHistory?: Array<Record<string, unknown>>;
+  /** Task IDs that are blocking this task. */
   blockedBy?: string[];
+  /** Reason provided when the task was cancelled. */
   cancellationReason?: string;
   /** RCASD-IVTR+C pipeline stage (T060). */
   pipelineStage?: string | null;
@@ -173,13 +208,22 @@ export interface TaskRecord {
 // Local TaskFile interface removed — DataAccessor uses the canonical TaskFile from types/task.ts.
 
 /**
- * Minimal task representation for find results
+ * Minimal task representation for find results.
+ *
+ * @remarks
+ * Used by `taskFind` to return lightweight task records that minimize
+ * context consumption for agent discovery operations.
  */
 export interface MinimalTaskRecord {
+  /** Unique task identifier. */
   id: string;
+  /** Short summary of the task. */
   title: string;
+  /** Current status. */
   status: string;
+  /** Priority level. */
   priority: string;
+  /** Parent task ID, or null for root tasks. */
   parentId?: string | null;
 }
 
@@ -198,7 +242,22 @@ export type { EngineResult } from './_error.js';
 // ===== Query Operations =====
 
 /**
- * Get a single task by ID
+ * Get a single task by ID.
+ *
+ * @remarks
+ * Fetches the full task record from the data accessor and converts it
+ * to the backward-compatible TaskRecord format.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier (e.g. "T001")
+ * @returns EngineResult containing the task record
+ *
+ * @example
+ * ```typescript
+ * const result = await taskShow('/project', 'T42');
+ * if (result.success) console.log(result.data.task.title);
+ * ```
+ *
  * @task T4657
  * @epic T4654
  */
@@ -226,7 +285,22 @@ export async function taskShow(
 }
 
 /**
- * List tasks with optional filters
+ * List tasks with optional filters.
+ *
+ * @remarks
+ * Supports filtering by parent, status, priority, type, phase, and label.
+ * When `compact` is true, returns lightweight CompactTask records.
+ * Results are paginated via `limit` and `offset` parameters.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional filter, pagination, and format parameters
+ * @returns EngineResult with task array, total count, and filtered count
+ *
+ * @example
+ * ```typescript
+ * const result = await taskList('/project', { status: 'active', limit: 10 });
+ * ```
+ *
  * @task T4657
  * @epic T4654
  */
@@ -290,7 +364,23 @@ export async function taskList(
 }
 
 /**
- * Fuzzy search tasks by title/description/ID
+ * Fuzzy search tasks by title/description/ID.
+ *
+ * @remarks
+ * Returns minimal task records to keep context consumption low.
+ * Supports exact matching, status filtering, and archive inclusion.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param query - Search string to match against title, description, or ID
+ * @param limit - Maximum number of results (defaults to 20)
+ * @param options - Additional search options
+ * @returns EngineResult with matching tasks and total count
+ *
+ * @example
+ * ```typescript
+ * const result = await taskFind('/project', 'authentication', 10);
+ * ```
+ *
  * @task T4657
  * @epic T4654
  */
@@ -344,8 +434,25 @@ export async function taskFind(
 }
 
 /**
- * Check if a task exists
- * @task T4657
+ * Check if a task exists.
+ *
+ * @remarks
+ * Returns `{ exists: true }` if the task is found, `{ exists: false }` otherwise.
+ * Never fails -- catches all errors and returns false.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to check
+ * @returns EngineResult with exists flag and the queried taskId
+ *
+ * @example
+ * ```typescript
+ * const result = await taskExists('/project', 'T42');
+ * if (result.success && result.data.exists) { console.log('exists'); }
+ * ```
+ *
+ *
+@task
+T4657
  * @epic T4654
  */
 export async function taskExists(
@@ -364,7 +471,24 @@ export async function taskExists(
 // ===== Mutate Operations =====
 
 /**
- * Create a new task
+ * Create a new task.
+ *
+ * @remarks
+ * Validates hierarchy depth, sibling limits, parent type, and circular
+ * references before creating the task. Supports dry-run mode for preview.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Task creation parameters
+ * @returns EngineResult with the created task record and duplicate flag
+ *
+ * @example
+ * ```typescript
+ * const result = await taskCreate('/project', {
+ *   title: 'Implement auth',
+ *   description: 'Add JWT-based authentication',
+ *   priority: 'high',
+ * });
+ * ```
  */
 export async function taskCreate(
   projectRoot: string,
@@ -443,7 +567,22 @@ export async function taskCreate(
 }
 
 /**
- * Update a task
+ * Update a task's fields.
+ *
+ * @remarks
+ * Supports atomic label and dependency operations via addLabels/removeLabels
+ * and addDepends/removeDepends. Returns the updated task and a list of
+ * changed fields.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to update
+ * @param updates - Fields to update (only provided fields are changed)
+ * @returns EngineResult with the updated task record and list of changes
+ *
+ * @example
+ * ```typescript
+ * const result = await taskUpdate('/project', 'T42', { status: 'active' });
+ * ```
  */
 export async function taskUpdate(
   projectRoot: string,
@@ -508,7 +647,21 @@ export async function taskUpdate(
 }
 
 /**
- * Complete a task (set status to done)
+ * Complete a task (set status to done).
+ *
+ * @remarks
+ * May trigger auto-completion of parent tasks and unblocking of dependent
+ * tasks. Maps core exit codes to engine error codes for structured error reporting.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to complete
+ * @param notes - Optional completion notes
+ * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
+ *
+ * @example
+ * ```typescript
+ * const result = await taskComplete('/project', 'T42', 'All tests passing');
+ * ```
  */
 export async function taskComplete(
   projectRoot: string,
@@ -546,7 +699,21 @@ export async function taskComplete(
 }
 
 /**
- * Delete a task
+ * Delete a task.
+ *
+ * @remarks
+ * When `force` is true, cascade-deletes child tasks. Otherwise, returns
+ * E_HAS_CHILDREN if the task has children.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to delete
+ * @param force - When true, enables cascade deletion of children
+ * @returns EngineResult with the deleted task and optional cascade info
+ *
+ * @example
+ * ```typescript
+ * const result = await taskDelete('/project', 'T42', true);
+ * ```
  */
 export async function taskDelete(
   projectRoot: string,
@@ -588,6 +755,20 @@ export async function taskDelete(
 /**
  * Archive completed tasks.
  * Moves done/cancelled tasks from active task data to archive.
+ *
+ * @remarks
+ * Archives a specific task by ID, or all tasks completed before a given date.
+ * Archived tasks are no longer returned by default queries.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Optional specific task ID to archive
+ * @param before - Optional ISO date string; archives tasks completed before this date
+ * @returns EngineResult with count and list of archived task IDs
+ *
+ * @example
+ * ```typescript
+ * const result = await taskArchive('/project', undefined, '2026-01-01');
+ * ```
  */
 export async function taskArchive(
   projectRoot: string,
@@ -625,6 +806,20 @@ export async function taskArchive(
 
 /**
  * Suggest next task to work on based on priority, phase alignment, age, and dependency readiness.
+ *
+ * @remarks
+ * Scores all pending tasks and returns ranked suggestions. When `explain`
+ * is true, includes per-task scoring reasons in the response.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional count limit and explain flag
+ * @returns EngineResult with scored suggestions and total candidate count
+ *
+ * @example
+ * ```typescript
+ * const result = await taskNext('/project', { count: 3, explain: true });
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -658,6 +853,20 @@ export async function taskNext(
 
 /**
  * Show blocked tasks and analyze blocking chains.
+ *
+ * @remarks
+ * Identifies all blocked tasks, traces their blocking chains, and highlights
+ * critical blockers (tasks that block the most other tasks).
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional analysis and limit parameters
+ * @returns EngineResult with blocked tasks, critical blockers, and summary
+ *
+ * @example
+ * ```typescript
+ * const result = await taskBlockers('/project', { analyze: true });
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -694,6 +903,20 @@ export async function taskBlockers(
 
 /**
  * Build hierarchy tree.
+ *
+ * @remarks
+ * Returns a tree structure of tasks rooted at the given task ID, or
+ * the full project tree when no task ID is specified.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Optional root task ID for subtree
+ * @returns EngineResult with the hierarchical tree data
+ *
+ * @example
+ * ```typescript
+ * const result = await taskTree('/project', 'T1');
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -713,6 +936,20 @@ export async function taskTree(projectRoot: string, taskId?: string): Promise<En
 
 /**
  * Show dependencies for a task - both what it depends on and what depends on it.
+ *
+ * @remarks
+ * Returns bidirectional dependency information including unresolved deps
+ * and a ready flag indicating whether all dependencies are satisfied.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to inspect
+ * @returns EngineResult with dependency information in both directions
+ *
+ * @example
+ * ```typescript
+ * const result = await taskDeps('/project', 'T42');
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -743,6 +980,20 @@ export async function taskDeps(
 
 /**
  * Show task relations (existing relates entries).
+ *
+ * @remarks
+ * Lists all `relates` entries for a given task, including the relationship
+ * type and optional reason.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to inspect
+ * @returns EngineResult with relations array and count
+ *
+ * @example
+ * ```typescript
+ * const result = await taskRelates('/project', 'T42');
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -775,6 +1026,22 @@ export async function taskRelates(
 
 /**
  * Add a relation between two tasks.
+ *
+ * @remarks
+ * Valid relation types: related, blocks, duplicates, absorbs, fixes, extends, supersedes.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Source task identifier
+ * @param relatedId - Target task identifier
+ * @param type - Relation type (e.g. "blocks", "related")
+ * @param reason - Optional explanation for the relation
+ * @returns EngineResult confirming the relation was added
+ *
+ * @example
+ * ```typescript
+ * const result = await taskRelatesAdd('/project', 'T42', 'T43', 'blocks', 'Needs auth first');
+ * ```
+ *
  * @task T4790
  */
 export async function taskRelatesAdd(
@@ -803,6 +1070,21 @@ export async function taskRelatesAdd(
 
 /**
  * Analyze a task for description quality, missing fields, and dependency health.
+ *
+ * @remarks
+ * When no task ID is provided, analyzes all tasks to identify bottlenecks,
+ * leverage opportunities, and overall project health metrics.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Optional specific task to analyze
+ * @param params - Optional analysis parameters
+ * @returns EngineResult with recommended task, bottlenecks, tiers, and metrics
+ *
+ * @example
+ * ```typescript
+ * const result = await taskAnalyze('/project');
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654
@@ -848,10 +1130,20 @@ export async function taskAnalyze(
  * Uses keyword matching against task titles/descriptions, then traces
  * the reverse dependency graph for transitive effects.
  *
+ * @remarks
+ * The impact report includes directly affected tasks, transitively
+ * affected tasks (through the dependency graph), and a severity assessment.
+ *
  * @param projectRoot - Project root directory
  * @param change - Free-text description of the proposed change
  * @param matchLimit - Maximum seed tasks to match (default: 5)
  * @returns Impact prediction report
+ *
+ * @example
+ * ```typescript
+ * const result = await taskImpact('/project', 'Refactor authentication module');
+ * ```
+ *
  * @task T043
  */
 export async function taskImpact(
@@ -870,6 +1162,20 @@ export async function taskImpact(
 
 /**
  * Restore a cancelled task back to pending.
+ *
+ * @remarks
+ * When cascade is true, also restores cancelled children.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to restore
+ * @param params - Optional cascade and notes options
+ * @returns EngineResult with restored task IDs and count
+ *
+ * @example
+ * ```typescript
+ * const result = await taskRestore('/project', 'T42', { cascade: true });
+ * ```
+ *
  * @task T4790
  */
 export async function taskRestore(
@@ -894,6 +1200,21 @@ export async function taskRestore(
 
 /**
  * Move an archived task back to active task data with status 'done' (or specified status).
+ *
+ * @remarks
+ * By default restores with status 'done'. Use `preserveStatus` to keep
+ * the original status, or `status` to set a specific status.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Archived task identifier to restore
+ * @param params - Optional status override parameters
+ * @returns EngineResult with the unarchived task info
+ *
+ * @example
+ * ```typescript
+ * const result = await taskUnarchive('/project', 'T42', { status: 'pending' });
+ * ```
+ *
  * @task T4790
  */
 export async function taskUnarchive(
@@ -918,6 +1239,20 @@ export async function taskUnarchive(
 
 /**
  * Change task position within its sibling group.
+ *
+ * @remarks
+ * Reorders a task to the specified zero-based position among its siblings.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to reorder
+ * @param position - Target zero-based position
+ * @returns EngineResult with new position and total siblings
+ *
+ * @example
+ * ```typescript
+ * const result = await taskReorder('/project', 'T42', 0); // move to first
+ * ```
+ *
  * @task T4790
  */
 export async function taskReorder(
@@ -941,6 +1276,21 @@ export async function taskReorder(
 
 /**
  * Move task under a different parent.
+ *
+ * @remarks
+ * Pass null as `newParentId` to promote the task to a root-level task.
+ * Validates hierarchy depth and circular reference constraints.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to move
+ * @param newParentId - New parent task ID, or null for root
+ * @returns EngineResult with old and new parent information
+ *
+ * @example
+ * ```typescript
+ * const result = await taskReparent('/project', 'T42', 'T1');
+ * ```
+ *
  * @task T4790
  */
 export async function taskReparent(
@@ -983,6 +1333,19 @@ export async function taskReparent(
 
 /**
  * Promote a subtask to task or task to root (remove parent).
+ *
+ * @remarks
+ * Removes the parent reference and may change the task type from subtask to task.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to promote
+ * @returns EngineResult with promotion details
+ *
+ * @example
+ * ```typescript
+ * const result = await taskPromote('/project', 'T42');
+ * ```
+ *
  * @task T4790
  */
 export async function taskPromote(
@@ -1010,6 +1373,21 @@ export async function taskPromote(
 
 /**
  * Reopen a completed task (set status back to pending).
+ *
+ * @remarks
+ * Only works on tasks with status 'done'. Optionally sets a different
+ * target status and records a reason for reopening.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to reopen
+ * @param params - Optional target status and reason
+ * @returns EngineResult with reopen details including previous and new status
+ *
+ * @example
+ * ```typescript
+ * const result = await taskReopen('/project', 'T42', { reason: 'Tests regressed' });
+ * ```
+ *
  * @task T4790
  */
 export async function taskReopen(
@@ -1038,7 +1416,22 @@ export async function taskReopen(
 }
 
 /**
- * Cancel a task (soft terminal state — reversible via restore).
+ * Cancel a task (soft terminal state -- reversible via restore).
+ *
+ * @remarks
+ * Sets the task status to cancelled with an optional reason. The task can
+ * be restored later via {@link taskRestore}.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to cancel
+ * @param reason - Optional cancellation reason
+ * @returns EngineResult with cancellation details
+ *
+ * @example
+ * ```typescript
+ * const result = await taskCancel('/project', 'T42', 'No longer needed');
+ * ```
+ *
  * @task T4529
  */
 export async function taskCancel(
@@ -1062,6 +1455,20 @@ export async function taskCancel(
 
 /**
  * Deterministic complexity scoring from task metadata.
+ *
+ * @remarks
+ * Produces a size estimate (small/medium/large) based on dependency depth,
+ * subtask count, file count, and other structural factors.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Parameters including the task ID to estimate
+ * @returns EngineResult with size, score, factors, and structural metrics
+ *
+ * @example
+ * ```typescript
+ * const result = await taskComplexityEstimate('/project', { taskId: 'T42' });
+ * ```
+ *
  * @task T4657
  * @task T4790
  * @epic T4654

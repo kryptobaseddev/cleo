@@ -38,9 +38,24 @@ interface TrackedProcess {
  * OpenCode agents are defined as markdown files with YAML frontmatter
  * in the .opencode/agent/ directory.
  *
+ * @remarks
+ * The generated markdown uses YAML frontmatter with `mode: subagent`
+ * and `hidden: true` so the agent does not appear in OpenCode's
+ * interactive agent selection menu.
+ *
  * @param description - Agent description for frontmatter
  * @param instructions - Markdown instructions body
- * @returns Complete agent definition markdown
+ * @returns Complete agent definition markdown with YAML frontmatter
+ *
+ * @example
+ * ```typescript
+ * import { buildOpenCodeAgentMarkdown } from '@cleocode/adapters/providers/opencode/spawn';
+ *
+ * const md = buildOpenCodeAgentMarkdown(
+ *   'CLEO task executor',
+ *   '# Subagent\n\nExecute the delegated task.',
+ * );
+ * ```
  */
 export function buildOpenCodeAgentMarkdown(description: string, instructions: string): string {
   const normalizedDesc = description.replace(/\s+/g, ' ').trim();
@@ -103,6 +118,13 @@ async function ensureSubagentDefinition(workingDirectory: string): Promise<strin
  * Each spawn ensures a CLEO subagent definition exists, then runs
  * `opencode run --format json --agent <name> --title <title> <prompt>`
  * as a detached, unref'd child process.
+ *
+ * @remarks
+ * Before spawning, the provider ensures a `cleo-subagent` agent definition
+ * exists in `.opencode/agent/`. If the definition cannot be created, it
+ * falls back to the built-in `general` agent. Processes are tracked by
+ * instance ID in an in-memory map and verified via `kill(pid, 0)` liveness
+ * checks.
  */
 export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
   /** Map of instance IDs to tracked process info. */

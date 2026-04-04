@@ -30,14 +30,23 @@ const execAsync = promisify(exec);
  * - Hooks: Maps Codex events (SessionStart, PromptSubmit, ResponseComplete) to CAAMP events
  * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
+ * @remarks
+ * Codex CLI supports only 3 canonical events (SessionStart, PromptSubmit,
+ * ResponseComplete) and has no spawn or transport capabilities. Integration
+ * is primarily through instruction files (AGENTS.md).
+ *
  * @task T162
  * @epic T134
  */
 export class CodexAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'codex';
+  /** Human-readable provider name. */
   readonly name = 'Codex';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     supportedHookEvents: ['SessionStart', 'UserPromptSubmit', 'Stop'],
@@ -52,10 +61,14 @@ export class CodexAdapter implements CLEOProviderAdapter {
     supportsTaskSync: false,
   };
 
+  /** Hook provider for CAAMP event mapping. */
   hooks: CodexHookProvider;
+  /** Install provider for managing instruction files. */
   install: CodexInstallProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

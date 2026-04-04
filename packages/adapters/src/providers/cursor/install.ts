@@ -27,6 +27,12 @@ const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/
  * Manages CLEO's integration with Cursor by:
  * 1. Creating/updating .cursorrules with @-references (legacy)
  * 2. Creating .cursor/rules/cleo.mdc with @-references (modern)
+ *
+ * @remarks
+ * Installation is idempotent and writes to both instruction file formats
+ * for maximum compatibility. The legacy `.cursorrules` file is only modified
+ * if it already exists (never created from scratch). The modern MDC file
+ * is always created or updated to ensure Cursor's rule engine picks it up.
  */
 export class CursorInstallProvider implements AdapterInstallProvider {
   /**

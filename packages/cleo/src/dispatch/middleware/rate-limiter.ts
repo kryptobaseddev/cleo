@@ -7,17 +7,33 @@ import type {
 } from '../types.js';
 
 /**
- * Rate Limit Configuration
+ * Per-category rate limit thresholds.
+ *
+ * @remarks
+ * Each category (query, mutate, spawn) uses a sliding window algorithm.
+ * Requests older than `windowMs` are pruned before checking the count.
  */
 export interface RateLimitConfig {
+  /** Maximum number of requests allowed within the window. */
   maxRequests: number;
+  /** Sliding window duration in milliseconds. */
   windowMs: number;
 }
 
+/**
+ * Full rate limiting configuration across all categories.
+ *
+ * @remarks
+ * When `enabled` is false, all requests pass through without limit checks.
+ */
 export interface RateLimitingConfig {
+  /** Whether rate limiting is active. */
   enabled: boolean;
+  /** Limits for read-only query operations. */
   query: RateLimitConfig;
+  /** Limits for mutate (write) operations. */
   mutate: RateLimitConfig;
+  /** Limits for spawn (subagent launch) operations. */
   spawn: RateLimitConfig;
 }
 
@@ -35,8 +51,19 @@ interface SlidingWindowBucket {
   timestamps: number[];
 }
 
+/**
+ * Sliding-window rate limiter for the dispatch pipeline.
+ *
+ * @remarks
+ * Tracks request timestamps per category (query, mutate, spawn) using
+ * in-memory sliding window buckets. The `check` method prunes stale
+ * timestamps, evaluates the current count, and returns whether the
+ * request is allowed along with limit metadata.
+ */
 export class RateLimiter {
+  /** Per-category sliding window buckets. */
   private buckets: Map<string, SlidingWindowBucket> = new Map();
+  /** Merged configuration with defaults. */
   private config: RateLimitingConfig;
 
   constructor(config?: Partial<RateLimitingConfig>) {
@@ -109,7 +136,22 @@ export class RateLimiter {
 }
 
 /**
- * Creates a rate limiting middleware.
+ * Creates a rate limiting middleware for the dispatch pipeline.
+ *
+ * @remarks
+ * Attaches rate limit metadata to every response `_meta.rateLimit` field.
+ * When the limit is exceeded, returns an error response with code
+ * `E_RATE_LIMIT_EXCEEDED` and HTTP-style exit code 429.
+ *
+ * @param config - Optional partial config to override defaults
+ * @returns Middleware function that enforces rate limits
+ *
+ * @example
+ * ```typescript
+ * import { createRateLimiter } from './rate-limiter.js';
+ *
+ * const limiter = createRateLimiter({ query: { maxRequests: 50, windowMs: 30_000 } });
+ * ```
  */
 export function createRateLimiter(config?: Partial<RateLimitingConfig>): Middleware {
   const limiter = new RateLimiter(config);

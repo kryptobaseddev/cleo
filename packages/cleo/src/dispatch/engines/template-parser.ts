@@ -52,6 +52,21 @@ function adaptResult<T>(result: {
 
 /**
  * Parse all templates from the repo's .github/ISSUE_TEMPLATE/ directory.
+ *
+ * @remarks
+ * Delegates to the core template parser and adapts the result to the
+ * dispatch EngineResult type.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns EngineResult containing the parsed template configuration
+ *
+ * @example
+ * ```typescript
+ * const result = parseIssueTemplates('/path/to/project');
+ * if (result.success) {
+ *   console.log(result.data.templates);
+ * }
+ * ```
  */
 export function parseIssueTemplates(
   projectRoot: string,
@@ -61,6 +76,19 @@ export function parseIssueTemplates(
 
 /**
  * Get template config for a specific subcommand (bug/feature/help).
+ *
+ * @remarks
+ * Looks up a specific template by subcommand name from the project's
+ * issue template directory.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param subcommand - Template subcommand identifier (e.g. "bug", "feature")
+ * @returns EngineResult containing the matched issue template
+ *
+ * @example
+ * ```typescript
+ * const result = getTemplateForSubcommand('/path/to/project', 'bug');
+ * ```
  */
 export function getTemplateForSubcommand(
   projectRoot: string,
@@ -71,6 +99,17 @@ export function getTemplateForSubcommand(
 
 /**
  * Generate and cache the config as .cleo/issue-templates.json.
+ *
+ * @remarks
+ * Parses all templates and writes the resulting config to disk for caching.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns EngineResult containing the generated template configuration
+ *
+ * @example
+ * ```typescript
+ * const result = await generateTemplateConfig('/path/to/project');
+ * ```
  */
 export async function generateTemplateConfig(
   projectRoot: string,
@@ -80,6 +119,18 @@ export async function generateTemplateConfig(
 
 /**
  * Validate that labels exist on a GitHub repo.
+ *
+ * @remarks
+ * Compares a set of required labels against the labels found on the repo.
+ *
+ * @param labels - Labels required by the template
+ * @param repoLabels - Labels that exist on the GitHub repo
+ * @returns EngineResult with existing and missing label lists
+ *
+ * @example
+ * ```typescript
+ * const result = validateLabels(['bug', 'enhancement'], repoLabels);
+ * ```
  */
 export function validateLabels(
   labels: string[],

@@ -60,154 +60,212 @@ export type {
 } from '@cleocode/core/internal';
 export type RuntimeData = RuntimeDiagnostics;
 
-// ===== Dashboard Data type (re-exported for consumers) =====
+/**
+ * Dashboard data shape returned by {@link systemDash}.
+ *
+ * @remarks
+ * Contains project overview metrics, active session/task info,
+ * high-priority and blocked task lists, and recent completions.
+ */
 export interface DashboardData {
+  /** Project name or directory basename. */
   project: string;
+  /** Currently active project phase, or null. */
   currentPhase: string | null;
+  /** Task count breakdown by status. */
   summary: {
+    /** Pending tasks count. */
     pending: number;
+    /** Active tasks count. */
     active: number;
+    /** Blocked tasks count. */
     blocked: number;
+    /** Completed tasks count. */
     done: number;
+    /** Cancelled tasks count. */
     cancelled: number;
+    /** Total active (non-archived) tasks. */
     total: number;
+    /** Archived tasks count. */
     archived: number;
+    /** Active + archived total. */
     grandTotal: number;
   };
+  /** Currently focused task work state. */
   taskWork: {
+    /** Current task ID, or null. */
     currentTask: string | null;
+    /** Full task record for the current task, or null. */
     task: TaskRecord | null;
   };
+  /** Active session ID, or null. */
   activeSession: string | null;
+  /** High-priority tasks summary. */
   highPriority: {
+    /** Number of high-priority tasks. */
     count: number;
+    /** High-priority task records. */
     tasks: TaskRecord[];
   };
+  /** Blocked tasks summary. */
   blockedTasks: {
+    /** Number of blocked tasks. */
     count: number;
+    /** Display limit applied. */
     limit: number;
+    /** Blocked task records (up to limit). */
     tasks: TaskRecord[];
   };
+  /** Recently completed task records. */
   recentCompletions: TaskRecord[];
-  topLabels: Array<{ label: string; count: number }>;
+  /** Most frequently used labels with counts. */
+  topLabels: Array<{ /** Label name. */ label: string /** Usage count. */; count: number }>;
 }
 
-// ===== Stats Data type =====
+/**
+ * Project statistics data shape returned by {@link systemStats}.
+ *
+ * @remarks
+ * Comprehensive breakdown of task counts by status, priority, type,
+ * phase, with completion/activity metrics over a configurable period.
+ */
 export interface StatsData {
+  /** Current task counts by status. */
   currentState: {
-    pending: number;
-    active: number;
-    done: number;
-    blocked: number;
-    cancelled: number;
-    totalActive: number;
-    archived: number;
-    grandTotal: number;
+    /** Pending tasks. */ pending: number;
+    /** Active tasks. */ active: number;
+    /** Done tasks. */ done: number;
+    /** Blocked tasks. */ blocked: number;
+    /** Cancelled tasks. */ cancelled: number;
+    /** Total non-archived. */ totalActive: number;
+    /** Archived tasks. */ archived: number;
+    /** Active + archived. */ grandTotal: number;
   };
+  /** Task counts grouped by priority level. */
   byPriority: Record<string, number>;
+  /** Task counts grouped by task type. */
   byType: Record<string, number>;
+  /** Task counts grouped by project phase. */
   byPhase: Record<string, number>;
+  /** Completion rate metrics over the configured period. */
   completionMetrics: {
-    periodDays: number;
-    completedInPeriod: number;
-    createdInPeriod: number;
-    completionRate: number;
+    /** Number of days in the measurement period. */ periodDays: number;
+    /** Tasks completed in the period. */ completedInPeriod: number;
+    /** Tasks created in the period. */ createdInPeriod: number;
+    /** Completion rate (completed/created). */ completionRate: number;
   };
+  /** Activity metrics over the configured period. */
   activityMetrics: {
-    createdInPeriod: number;
-    completedInPeriod: number;
-    archivedInPeriod: number;
+    /** Tasks created in the period. */ createdInPeriod: number;
+    /** Tasks completed in the period. */ completedInPeriod: number;
+    /** Tasks archived in the period. */ archivedInPeriod: number;
   };
+  /** Lifetime metrics across all time. */
   allTime: {
-    totalCreated: number;
-    totalCompleted: number;
-    totalCancelled: number;
-    totalArchived: number;
-    archivedCompleted: number;
+    /** Total tasks ever created. */ totalCreated: number;
+    /** Total tasks ever completed. */ totalCompleted: number;
+    /** Total tasks ever cancelled. */ totalCancelled: number;
+    /** Total tasks ever archived. */ totalArchived: number;
+    /** Completed tasks in archive. */ archivedCompleted: number;
   };
+  /** Average time from creation to completion. */
   cycleTimes: {
-    averageDays: number | null;
-    samples: number;
+    /** Average days to complete, or null if insufficient data. */ averageDays: number | null;
+    /** Number of completed tasks used for the average. */ samples: number;
   };
 }
 
-// ===== Log Query Data type =====
+/** Paginated operation log query result. */
 export interface LogQueryData {
-  entries: Array<{ operation: string; taskId?: string; timestamp: string; [key: string]: unknown }>;
-  pagination: {
-    total: number;
-    offset: number;
-    limit: number;
-    hasMore: boolean;
-  };
-}
-
-// ===== Context Data type =====
-export interface ContextData {
-  available: boolean;
-  status: string;
-  percentage: number;
-  currentTokens: number;
-  maxTokens: number;
-  timestamp: string | null;
-  stale: boolean;
-  sessions: Array<{
-    file: string;
-    sessionId: string | null;
-    percentage: number;
-    status: string;
+  /** Log entries matching the query. */
+  entries: Array<{
+    /** Operation name. */ operation: string /** Task ID if applicable. */;
+    taskId?: string /** ISO timestamp. */;
     timestamp: string;
+    [key: string]: unknown;
   }>;
-}
-
-// ===== Sequence Data type =====
-export interface SequenceData {
-  counter: number;
-  lastId: string;
-  checksum: string;
-  nextId: string;
-}
-
-// ===== Roadmap Data type =====
-export interface RoadmapData {
-  currentVersion: string;
-  upcoming: Array<{
-    id: string;
-    title: string;
-    status: string;
-    priority: string;
-    phase?: string;
-    childCount: number;
-    completedChildren: number;
-  }>;
-  releaseHistory?: Array<{ version: string; date: string }>;
-  completedEpics?: number;
-  summary: {
-    totalUpcoming: number;
-    totalTasks: number;
+  /** Pagination metadata. */
+  pagination: {
+    /** Total matching entries. */ total: number;
+    /** Current offset. */ offset: number;
+    /** Page size limit. */ limit: number;
+    /** Whether more entries exist beyond this page. */ hasMore: boolean;
   };
 }
 
-// ===== Compliance Data type =====
-export interface ComplianceData {
-  totalEntries: number;
-  averagePassRate: number;
-  averageAdherence: number;
-  totalViolations: number;
-  trend?: string;
-  dataPoints?: Array<{
-    date: string;
-    entries: number;
-    avgPassRate: number;
-    violations: number;
+/** Context window monitoring data. */
+export interface ContextData {
+  /** Whether context data is available. */ available: boolean;
+  /** Status level (ok, warning, caution, critical, emergency). */ status: string;
+  /** Usage percentage (0-100). */ percentage: number;
+  /** Current token usage. */ currentTokens: number;
+  /** Maximum context window size. */ maxTokens: number;
+  /** ISO timestamp of last update, or null. */ timestamp: string | null;
+  /** Whether the data is stale (older than configured threshold). */ stale: boolean;
+  /** Per-session context state entries. */
+  sessions: Array<{
+    /** State file path. */ file: string;
+    /** Session ID, or null. */ sessionId: string | null;
+    /** Usage percentage. */ percentage: number;
+    /** Status level. */ status: string;
+    /** ISO timestamp. */ timestamp: string;
   }>;
 }
 
-// ===== Help Data type =====
+/** Task ID sequence state. */
+export interface SequenceData {
+  /** Current counter value. */ counter: number;
+  /** Last assigned task ID. */ lastId: string;
+  /** Integrity checksum. */ checksum: string;
+  /** Next task ID that would be assigned. */ nextId: string;
+}
+
+/** Project roadmap data with upcoming epics and release history. */
+export interface RoadmapData {
+  /** Current project version. */ currentVersion: string;
+  /** Upcoming epics and milestones. */
+  upcoming: Array<{
+    /** Task ID. */ id: string;
+    /** Title. */ title: string;
+    /** Status. */ status: string;
+    /** Priority. */ priority: string;
+    /** Phase. */ phase?: string;
+    /** Total child tasks. */ childCount: number;
+    /** Completed child tasks. */ completedChildren: number;
+  }>;
+  /** Past releases. */ releaseHistory?: Array<{
+    /** Version tag. */ version: string /** Release date. */;
+    date: string;
+  }>;
+  /** Total completed epics. */ completedEpics?: number;
+  /** Summary counts. */
+  summary: {
+    /** Upcoming epics count. */ totalUpcoming: number;
+    /** Total tasks across epics. */ totalTasks: number;
+  };
+}
+
+/** Compliance monitoring data. */
+export interface ComplianceData {
+  /** Total compliance audit entries. */ totalEntries: number;
+  /** Average pass rate (0-100). */ averagePassRate: number;
+  /** Average adherence score (0-100). */ averageAdherence: number;
+  /** Total violation count. */ totalViolations: number;
+  /** Trend direction (improving, declining, stable). */ trend?: string;
+  /** Historical data points for charting. */
+  dataPoints?: Array<{
+    /** Date string. */ date: string;
+    /** Entries on this date. */ entries: number;
+    /** Average pass rate on this date. */ avgPassRate: number;
+    /** Violations on this date. */ violations: number;
+  }>;
+}
+
+/** Help topic content and related commands. */
 export interface HelpData {
-  topic?: string;
-  content: string;
-  relatedCommands?: string[];
+  /** Topic identifier. */ topic?: string;
+  /** Human-readable help content. */ content: string;
+  /** Related CLI commands for cross-reference. */ relatedCommands?: string[];
 }
 
 // ===== Help topics (static data, stays in engine) =====
@@ -276,6 +334,20 @@ const HELP_TOPICS: Record<string, HelpData> = {
 /**
  * Project dashboard: task counts by status, active session info,
  * current focus, recent completions.
+ *
+ * @remarks
+ * This is the primary overview endpoint for the CLEO CLI `dash` command.
+ * It aggregates task counts, current session/focus state, high-priority tasks,
+ * blocked tasks, and recent completions into a single response.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional parameters to control blocked tasks display limit
+ * @returns EngineResult with comprehensive dashboard data
+ *
+ * @example
+ * ```typescript
+ * const result = await systemDash('/project', { blockedTasksLimit: 5 });
+ * ```
  */
 export async function systemDash(
   projectRoot: string,

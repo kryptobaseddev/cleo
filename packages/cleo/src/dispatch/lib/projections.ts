@@ -6,8 +6,24 @@
  * @task T5096
  */
 
+/**
+ * Disclosure tier level for MVI (Minimum Viable Information) filtering.
+ *
+ * @remarks
+ * Controls how much data is exposed in dispatch responses:
+ * - `minimal`: Only tasks, session, and admin domains; shallow depth
+ * - `standard`: Adds memory, check, pipeline, tools, sticky; medium depth
+ * - `orchestrator`: Full access including orchestrate and nexus; deep nesting
+ */
 export type MviTier = 'minimal' | 'standard' | 'orchestrator';
 
+/**
+ * Configuration for a single MVI projection tier.
+ *
+ * @remarks
+ * Defines which domains are accessible, which fields to strip, and how
+ * deep nested objects may be traversed in responses at a given tier.
+ */
 export interface ProjectionConfig {
   /** Operations allowed at this tier */
   allowedDomains: string[];
@@ -48,7 +64,24 @@ export const PROJECTIONS: Record<MviTier, ProjectionConfig> = {
 /** Valid MVI tier values for runtime checking. */
 const VALID_TIERS = new Set<string>(['minimal', 'standard', 'orchestrator']);
 
-/** Resolve tier from request params, defaulting to 'standard'. */
+/**
+ * Resolve tier from request params, defaulting to 'standard'.
+ *
+ * @remarks
+ * Priority: explicit `_mviTier` param wins, then epic scope auto-maps
+ * to orchestrator, otherwise standard is returned.
+ *
+ * @param params - Request params that may contain a `_mviTier` field
+ * @param sessionScope - Current session scope for auto-tier detection
+ * @returns The resolved MVI tier
+ *
+ * @example
+ * ```typescript
+ * import { resolveTier } from './projections.js';
+ *
+ * const tier = resolveTier(req.params, currentSession?.scope);
+ * ```
+ */
 export function resolveTier(
   params?: Record<string, unknown>,
   sessionScope?: { type: string; epicId?: string } | null,

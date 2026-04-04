@@ -45,17 +45,28 @@ type TaskRecord = Task;
 
 /** Tree node representation for task hierarchy. */
 export interface FlatTreeNode {
+  /** Unique task identifier (e.g. "T001"). */
   id: string;
+  /** Human-readable task title. */
   title: string;
+  /** Current task status (e.g. "pending", "done"). */
   status: string;
+  /**
+   * Task type classification.
+   * @defaultValue "task"
+   */
   type?: string;
+  /** Child nodes in the hierarchy tree. */
   children: FlatTreeNode[];
 }
 
-/** Complexity factor. */
+/** Complexity factor contributing to a task's size estimate. */
 export interface ComplexityFactor {
+  /** Factor name (e.g. "descriptionLength", "dependencyDepth"). */
   name: string;
+  /** Numeric score contribution from this factor. */
   value: number;
+  /** Human-readable explanation of the score (e.g. "short (42 chars)"). */
   detail: string;
 }
 
@@ -167,6 +178,23 @@ function getHierarchyLimits(projectRoot: string): { maxDepth: number; maxSibling
 
 /**
  * Suggest next task to work on based on priority, phase, age, and deps.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param params - Optional scoring configuration
+ * @param params.count - Number of suggestions to return (default: 1)
+ * @param params.explain - When true, include scoring reasons in each suggestion
+ * @returns Ranked suggestions with scores and the total number of eligible candidates
+ *
+ * @remarks
+ * Scoring considers priority weight, current phase alignment, dependency readiness,
+ * task age, and brain success/failure pattern matches. Results are sorted descending by score.
+ *
+ * @example
+ * ```typescript
+ * const { suggestions } = await coreTaskNext('/project', { count: 3, explain: true });
+ * console.log(suggestions[0].id, suggestions[0].score);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskNext(
@@ -286,6 +314,23 @@ export async function coreTaskNext(
 
 /**
  * Show blocked tasks and analyze blocking chains.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param params - Optional analysis configuration
+ * @param params.analyze - When true, compute transitive blocking chains
+ * @param params.limit - Maximum number of blocked tasks to return (default: 20)
+ * @returns Blocked tasks with optional blocking chains, critical bottleneck tasks, and a summary
+ *
+ * @remarks
+ * Collects both explicitly blocked tasks and dependency-blocked pending tasks.
+ * Critical blockers are the top 5 tasks that appear most frequently in blocking chains.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskBlockers('/project', { analyze: true, limit: 10 });
+ * console.log(result.summary, result.criticalBlockers);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskBlockers(
@@ -374,7 +419,22 @@ export async function coreTaskBlockers(
 // ============================================================================
 
 /**
- * Build hierarchy tree.
+ * Build hierarchy tree for tasks.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - Optional root task ID; when provided, builds the subtree rooted at this task
+ * @returns The tree nodes and total node count
+ *
+ * @remarks
+ * When no taskId is given, returns all root-level tasks with their full subtrees.
+ * When a taskId is given, returns that single task as the root with its descendants.
+ *
+ * @example
+ * ```typescript
+ * const { tree, totalNodes } = await coreTaskTree('/project', 'T042');
+ * console.log(`${totalNodes} nodes in subtree`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskTree(
@@ -417,6 +477,21 @@ export async function coreTaskTree(
 
 /**
  * Show dependencies for a task.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to inspect dependencies for
+ * @returns Upstream and downstream dependencies, unresolved deps, and readiness flag
+ *
+ * @remarks
+ * Returns both the tasks this task depends on (upstream) and the tasks that depend
+ * on it (downstream). Unresolved deps are those not yet done or cancelled.
+ *
+ * @example
+ * ```typescript
+ * const deps = await coreTaskDeps('/project', 'T100');
+ * if (!deps.allDepsReady) console.log('Blocked by:', deps.unresolvedDeps);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskDeps(projectRoot: string, taskId: string): Promise<TaskDepsResult> {
@@ -459,6 +534,21 @@ export async function coreTaskDeps(projectRoot: string, taskId: string): Promise
 
 /**
  * Show task relations.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to retrieve relations for
+ * @returns The task's relations array and count
+ *
+ * @remarks
+ * Relations are non-dependency links between tasks (e.g. "related-to", "duplicates").
+ * Unlike dependencies, relations do not affect blocking or scheduling.
+ *
+ * @example
+ * ```typescript
+ * const { relations, count } = await coreTaskRelates('/project', 'T050');
+ * console.log(`${count} relations found`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskRelates(
@@ -485,6 +575,24 @@ export async function coreTaskRelates(
 
 /**
  * Add a relation between two tasks.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The source task ID
+ * @param relatedId - The target task ID to relate to
+ * @param type - Relation type (e.g. "related-to", "duplicates", "blocks")
+ * @param reason - Optional human-readable reason for the relation
+ * @returns Confirmation of the added relation with source, target, and type
+ *
+ * @remarks
+ * Persists the relation both on the task's `relates` array and in the
+ * `task_relations` table for bidirectional querying.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskRelatesAdd('/project', 'T010', 'T020', 'related-to', 'Shared scope');
+ * console.log(result.added); // true
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskRelatesAdd(
@@ -531,6 +639,24 @@ export async function coreTaskRelatesAdd(
 
 /**
  * Analyze tasks for priority and leverage.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - Optional task or epic ID to scope the analysis; omit for project-wide
+ * @param params - Optional analysis configuration
+ * @param params.tierLimit - Maximum tasks per priority tier in the response (default: 10)
+ * @returns Analysis with recommended next task, bottlenecks, priority tiers, and aggregate metrics
+ *
+ * @remarks
+ * Computes a leverage score per task (how many other tasks it unblocks) and combines
+ * it with priority to produce a ranked recommendation. Bottlenecks are the top 5
+ * incomplete tasks that block the most others.
+ *
+ * @example
+ * ```typescript
+ * const analysis = await coreTaskAnalyze('/project', undefined, { tierLimit: 5 });
+ * if (analysis.recommended) console.log('Work on:', analysis.recommended.id);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskAnalyze(
@@ -630,6 +756,24 @@ export async function coreTaskAnalyze(
 
 /**
  * Restore a cancelled task back to pending.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The cancelled task ID to restore
+ * @param params - Optional restore options
+ * @param params.cascade - When true, also restores cancelled child tasks recursively
+ * @param params.notes - Optional note appended to each restored task's notes array
+ * @returns The task ID, list of restored task IDs, and total count
+ *
+ * @remarks
+ * Only tasks with status "cancelled" can be restored. Restored tasks are set to
+ * "pending" with cancellation metadata cleared. A timestamped note is appended.
+ *
+ * @example
+ * ```typescript
+ * const { restored, count } = await coreTaskRestore('/project', 'T099', { cascade: true });
+ * console.log(`Restored ${count} tasks:`, restored);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskRestore(
@@ -691,6 +835,24 @@ export async function coreTaskRestore(
 /**
  * Cancel a task (sets status to 'cancelled', a soft terminal state).
  * Use restore to reverse. Use delete for permanent removal.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to cancel
+ * @param params - Optional cancel options
+ * @param params.reason - Human-readable cancellation reason stored on the task
+ * @returns Confirmation with cancelled flag and timestamp
+ *
+ * @remarks
+ * Cancellation is a soft terminal state -- the task remains in the database and
+ * can be restored via {@link coreTaskRestore}. Not all statuses are cancellable;
+ * the `canCancel` guard determines eligibility.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskCancel('/project', 'T077', { reason: 'Superseded by T080' });
+ * console.log(result.cancelledAt);
+ * ```
+ *
  * @task T4529
  */
 export async function coreTaskCancel(
@@ -725,6 +887,24 @@ export async function coreTaskCancel(
 
 /**
  * Move an archived task back to active tasks.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The archived task ID to unarchive
+ * @param params - Optional unarchive options
+ * @param params.status - Target status for the restored task (default: "pending")
+ * @param params.preserveStatus - When true, keeps the task's original archived status
+ * @returns Confirmation with task ID, title, and resulting status
+ *
+ * @remarks
+ * Removes the task from the archive file and upserts it into the active task store.
+ * Throws if the task already exists in active tasks or is not found in the archive.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskUnarchive('/project', 'T055', { status: 'active' });
+ * console.log(`${result.title} is now ${result.status}`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskUnarchive(
@@ -783,6 +963,22 @@ export async function coreTaskUnarchive(
 
 /**
  * Change task position within its sibling group.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to reorder
+ * @param position - Target 1-based position within the sibling group
+ * @returns Confirmation with the new position and total sibling count
+ *
+ * @remarks
+ * Reorders by adjusting `position` and `positionVersion` fields on all siblings.
+ * Position is clamped to valid bounds. Uses bulk field updates for efficiency.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskReorder('/project', 'T012', 1);
+ * console.log(`Moved to position ${result.newPosition} of ${result.totalSiblings}`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskReorder(
@@ -846,6 +1042,23 @@ export async function coreTaskReorder(
 
 /**
  * Move task under a different parent.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to reparent
+ * @param newParentId - The new parent task ID, or null to promote to root level
+ * @returns Confirmation with old and new parent IDs and optional type change
+ *
+ * @remarks
+ * Validates against circular references, depth limits, and sibling limits from
+ * the project hierarchy config. Automatically adjusts task type based on new depth
+ * (depth 1 = "task", depth >= 2 = "subtask").
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskReparent('/project', 'T015', 'T010');
+ * console.log(`Moved from ${result.oldParent} to ${result.newParent}`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskReparent(
@@ -939,6 +1152,21 @@ export async function coreTaskReparent(
 
 /**
  * Promote a subtask to task or task to root.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to promote
+ * @returns Confirmation with previous parent and whether the type changed
+ *
+ * @remarks
+ * Removes the task's parentId, making it a root-level task. If the task was
+ * a "subtask", its type is changed to "task". No-op if the task is already root-level.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskPromote('/project', 'T025');
+ * if (result.promoted) console.log('Detached from', result.previousParent);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskPromote(
@@ -982,6 +1210,24 @@ export async function coreTaskPromote(
 
 /**
  * Reopen a completed task.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The completed task ID to reopen
+ * @param params - Optional reopen options
+ * @param params.status - Target status after reopening ("pending" or "active", default: "pending")
+ * @param params.reason - Optional reason appended to the task's notes
+ * @returns Confirmation with previous and new status
+ *
+ * @remarks
+ * Only tasks with status "done" can be reopened. Clears the `completedAt` timestamp
+ * and appends a timestamped note recording the reopen event.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskReopen('/project', 'T033', { status: 'active', reason: 'Tests failed' });
+ * console.log(`${result.previousStatus} -> ${result.newStatus}`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskReopen(
@@ -1029,6 +1275,23 @@ export async function coreTaskReopen(
 
 /**
  * Deterministic complexity scoring from task metadata.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param params - Parameters containing the task ID to estimate
+ * @param params.taskId - The task ID to compute complexity for
+ * @returns Complexity size ("small"/"medium"/"large"), numeric score, contributing factors, and metadata counts
+ *
+ * @remarks
+ * Scores are computed from description length, acceptance criteria count, dependency depth,
+ * subtask count, and file reference count. Each factor contributes 0-3 points.
+ * Total score 0-3 = small, 4-7 = medium, 8+ = large.
+ *
+ * @example
+ * ```typescript
+ * const est = await coreTaskComplexityEstimate('/project', { taskId: 'T042' });
+ * console.log(`${est.size} (score: ${est.score})`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskComplexityEstimate(
@@ -1111,6 +1374,20 @@ export async function coreTaskComplexityEstimate(
 
 /**
  * Overview of all dependencies across the project.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @returns Project-wide dependency summary including blocked tasks, ready tasks, and validation results
+ *
+ * @remarks
+ * Aggregates dependency data across all tasks to provide a high-level view of
+ * the dependency graph health, including which tasks are blocked and what would unblock them.
+ *
+ * @example
+ * ```typescript
+ * const overview = await coreTaskDepsOverview('/project');
+ * console.log(`${overview.blockedTasks.length} blocked, ${overview.readyTasks.length} ready`);
+ * ```
+ *
  * @task T5157
  */
 export async function coreTaskDepsOverview(projectRoot: string): Promise<{
@@ -1161,6 +1438,21 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
 
 /**
  * Detect circular dependencies across the project.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @returns Whether cycles exist and the list of detected cycles with their task paths
+ *
+ * @remarks
+ * Iterates through all tasks with dependencies and uses cycle detection to find
+ * circular chains. Each cycle includes the full path (e.g. [A, B, C, A]) and
+ * the tasks involved with their titles.
+ *
+ * @example
+ * ```typescript
+ * const { hasCycles, cycles } = await coreTaskDepsCycles('/project');
+ * if (hasCycles) console.log('Circular deps:', cycles.map(c => c.path.join(' -> ')));
+ * ```
+ *
  * @task T5157
  */
 export async function coreTaskDepsCycles(projectRoot: string): Promise<{
@@ -1204,6 +1496,25 @@ export async function coreTaskDepsCycles(projectRoot: string): Promise<{
 
 /**
  * List dependencies for a task in a given direction.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to inspect
+ * @param direction - Direction to traverse: "upstream" (what this task depends on), "downstream" (what depends on it), or "both"
+ * @param options - Optional display configuration
+ * @param options.tree - When true, includes a recursive upstream dependency tree
+ * @returns Upstream and downstream deps, transitive chain length, leaf blockers, and readiness status
+ *
+ * @remarks
+ * Combines direct dependency lookups with transitive analysis. Leaf blockers are
+ * the deepest unresolved tasks in the dependency chain -- resolving them first
+ * has the most impact on unblocking.
+ *
+ * @example
+ * ```typescript
+ * const deps = await coreTaskDepends('/project', 'T100', 'both', { tree: true });
+ * console.log('Leaf blockers:', deps.leafBlockers.map(b => b.id));
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskDepends(
@@ -1292,6 +1603,21 @@ export async function coreTaskDepends(
 
 /**
  * Compute task statistics.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param epicId - Optional epic ID to scope stats to that subtree
+ * @returns Status counts, priority distribution, and type distribution
+ *
+ * @remarks
+ * When an epicId is provided, statistics are scoped to that epic and all its
+ * transitive children. Without an epicId, stats cover the entire project.
+ *
+ * @example
+ * ```typescript
+ * const stats = await coreTaskStats('/project', 'T001');
+ * console.log(`${stats.done}/${stats.total} complete`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskStats(
@@ -1355,6 +1681,24 @@ export async function coreTaskStats(
 
 /**
  * Export tasks as JSON or CSV.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param params - Optional export configuration
+ * @param params.format - Output format: "json" (default) or "csv"
+ * @param params.status - Filter to only tasks with this status
+ * @param params.parent - Filter to tasks under this parent ID (recursive)
+ * @returns Export payload with format, content/tasks, and task count
+ *
+ * @remarks
+ * CSV output includes columns: id, title, status, priority, type, parentId, createdAt.
+ * JSON output returns the full task objects. Both formats support status and parent filtering.
+ *
+ * @example
+ * ```typescript
+ * const result = await coreTaskExport('/project', { format: 'csv', status: 'done' });
+ * console.log(result.content); // CSV string
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskExport(
@@ -1409,7 +1753,23 @@ export async function coreTaskExport(
 // ============================================================================
 
 /**
- * Get task history from the log file.
+ * Get task history from the audit log.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The task ID to retrieve history for
+ * @param limit - Maximum number of history entries to return (default: 100)
+ * @returns Array of audit log entries ordered by timestamp descending
+ *
+ * @remarks
+ * Queries the SQLite audit_log table for all operations on the given task.
+ * Returns an empty array if the database is unavailable or no entries exist.
+ *
+ * @example
+ * ```typescript
+ * const history = await coreTaskHistory('/project', 'T042', 10);
+ * for (const entry of history) console.log(entry.timestamp, entry.operation);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskHistory(
@@ -1480,6 +1840,23 @@ export async function coreTaskHistory(
 
 /**
  * Lint tasks for common issues.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - Optional task ID to lint; omit to lint all tasks
+ * @returns Array of lint issues with severity, rule name, and descriptive message
+ *
+ * @remarks
+ * Checks for: duplicate IDs, missing titles, missing descriptions, identical
+ * title/description, duplicate descriptions, invalid statuses, future timestamps,
+ * invalid parent references, and invalid dependency references.
+ *
+ * @example
+ * ```typescript
+ * const issues = await coreTaskLint('/project');
+ * const errors = issues.filter(i => i.severity === 'error');
+ * console.log(`${errors.length} errors found`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskLint(
@@ -1616,6 +1993,23 @@ export async function coreTaskLint(
 
 /**
  * Validate multiple tasks at once.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskIds - Array of task IDs to validate
+ * @param checkMode - Validation depth: "full" runs all checks, "quick" checks only title/description/status
+ * @returns Per-task validation results and an aggregate summary with error/warning counts
+ *
+ * @remarks
+ * In "full" mode, additional checks include title-description equality, parent existence,
+ * dependency existence, and future timestamp detection. Tasks that are not found are
+ * reported as errors.
+ *
+ * @example
+ * ```typescript
+ * const { summary } = await coreTaskBatchValidate('/project', ['T001', 'T002'], 'full');
+ * console.log(`${summary.validTasks}/${summary.totalTasks} valid`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskBatchValidate(
@@ -1737,6 +2131,24 @@ export async function coreTaskBatchValidate(
 
 /**
  * Import tasks from a JSON source string.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param source - JSON string containing an array of tasks or an object with a `tasks` array
+ * @param overwrite - When true, overwrites existing tasks with matching IDs; otherwise skips them
+ * @returns Import summary with counts of imported, skipped, errors, and optional ID remap table
+ *
+ * @remarks
+ * When a task ID collides with an existing one and overwrite is false, a new sequential
+ * ID is assigned and recorded in the remapTable. Tasks missing required id or title
+ * fields are skipped with an error message.
+ *
+ * @example
+ * ```typescript
+ * const json = JSON.stringify([{ id: 'T500', title: 'New task', status: 'pending', priority: 'medium' }]);
+ * const result = await coreTaskImport('/project', json, false);
+ * console.log(`Imported ${result.imported}, skipped ${result.skipped}`);
+ * ```
+ *
  * @task T4790
  */
 export async function coreTaskImport(

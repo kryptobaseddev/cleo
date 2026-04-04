@@ -30,14 +30,24 @@ const execAsync = promisify(exec);
  * - Hooks: Maps Gemini CLI events (SessionStart, PreToolUse, etc.) to CAAMP events
  * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
+ * @remarks
+ * Gemini CLI supports 10 canonical CAAMP events through its hook system,
+ * including PreModel and PostModel which most other providers lack. It has
+ * no spawn or transport capabilities. Integration is through AGENTS.md
+ * instruction files and the Gemini CLI's configuration at `~/.gemini/`.
+ *
  * @task T161
  * @epic T134
  */
 export class GeminiCliAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'gemini-cli';
+  /** Human-readable provider name. */
   readonly name = 'Gemini CLI';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     supportedHookEvents: [
@@ -63,10 +73,14 @@ export class GeminiCliAdapter implements CLEOProviderAdapter {
     supportsTaskSync: false,
   };
 
+  /** Hook provider for CAAMP event mapping. */
   hooks: GeminiCliHookProvider;
+  /** Install provider for managing instruction files. */
   install: GeminiCliInstallProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

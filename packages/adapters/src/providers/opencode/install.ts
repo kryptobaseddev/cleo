@@ -19,6 +19,11 @@ const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/
  *
  * Manages CLEO's integration with OpenCode by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ *
+ * @remarks
+ * Installation is idempotent -- running install multiple times on the same
+ * project produces the same result. Only AGENTS.md is managed; OpenCode's
+ * plugin system is handled separately by the hook provider.
  */
 export class OpenCodeInstallProvider implements AdapterInstallProvider {
   /**

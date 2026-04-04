@@ -6,6 +6,20 @@
  *
  * The STRING_TO_EXIT map is the canonical mapping from string error codes
  * to numeric exit codes. It mirrors ERROR_CODE_TO_EXIT in cli.ts.
+ *
+ * @remarks
+ * Error codes are organized into numeric ranges:
+ * - 1-9: General errors (invalid input, file, dependency, validation)
+ * - 10-19: Hierarchy errors (parent, depth, siblings, circular deps)
+ * - 20-29: Concurrency errors (checksum, modification, collision)
+ * - 30-39: Session errors (scope, claims, active task)
+ * - 40-47: Verification errors (gates, agents, rounds)
+ * - 50-54: Context safeguard (warning through emergency)
+ * - 60-67: Orchestrator / protocol errors
+ * - 70-79: Nexus errors
+ * - 80-94: Lifecycle, artifact, provenance errors
+ * - 95-99: Adapter errors
+ * - 100+: Special informational codes (not errors)
  */
 
 import { type EngineResult, getLogger } from '@cleocode/core';
@@ -178,10 +192,28 @@ function logLevel(exitCode: number): 'error' | 'warn' | 'debug' {
 /**
  * Create a typed engine error result with pino logging and correct exit code.
  *
+ * @remarks
+ * The exit code is derived from the {@link STRING_TO_EXIT} mapping. If the
+ * code is not found in the map, exit code 1 (general error) is used.
+ * Pino logging is automatically triggered at the appropriate level
+ * (error for internal issues, warn for user/domain errors, debug for
+ * informational codes). Logging is suppressed under Vitest to keep
+ * test output clean.
+ *
  * @param code - String error code (e.g., 'E_NOT_FOUND')
  * @param message - Human-readable error message
  * @param options - Optional details, fix command, and alternatives
  * @returns EngineResult with success=false and properly structured error
+ *
+ * @example
+ * ```typescript
+ * import { engineError } from './_error.js';
+ *
+ * return engineError('E_NOT_FOUND', `Task ${id} not found`, {
+ *   fix: `cleo show ${id}`,
+ *   details: { taskId: id },
+ * });
+ * ```
  */
 export function engineError<T>(
   code: string,
@@ -224,8 +256,19 @@ export function engineError<T>(
 /**
  * Create an engine success result.
  *
+ * @remarks
+ * Wraps arbitrary data in the standard EngineResult envelope with
+ * `success: true`. This is the complement to {@link engineError}.
+ *
  * @param data - The result data
  * @returns EngineResult with success=true
+ *
+ * @example
+ * ```typescript
+ * import { engineSuccess } from './_error.js';
+ *
+ * return engineSuccess({ tasks: filteredTasks, total: count });
+ * ```
  */
 export function engineSuccess<T>(data: T): EngineResult<T> {
   return { success: true, data };

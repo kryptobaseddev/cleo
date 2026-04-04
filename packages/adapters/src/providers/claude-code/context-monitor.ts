@@ -51,10 +51,18 @@ function getContextStatusFromPercentage(percentage: number): ContextStatus {
  * Processes context window JSON from Claude Code and writes state files
  * for statusline display. Also provides statusline configuration
  * and setup instructions specific to Claude Code's settings.json.
+ *
+ * @remarks
+ * The provider writes a JSON state file to `.cleo/context-states/.context-state.json`
+ * which can be read by external statusline scripts (e.g. tmux, starship).
+ * Context thresholds at 50%, 70%, 85%, and 95% map to warning, caution,
+ * critical, and emergency status levels respectively.
  */
 export class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorProvider {
+  /** Path provider for resolving Claude Code directory locations. */
   private pathProvider = new ClaudeCodePathProvider();
 
+  /** Process raw context window JSON and return a formatted summary string. */
   async processContextInput(input: unknown, cwd?: string): Promise<string> {
     const typed = input as ContextWindowInput;
     const contextSize = typed.context_window?.context_window_size ?? 200000;
@@ -113,6 +121,7 @@ export class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorPr
     return `${percentage}% | ${totalTokens}/${contextSize}`;
   }
 
+  /** Check the current statusline integration status in Claude Code settings. */
   checkStatuslineIntegration(): 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings' {
     const settingsPath = this.pathProvider.getSettingsPath();
     if (!settingsPath || !existsSync(settingsPath)) return 'no_settings';
@@ -151,6 +160,7 @@ export class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorPr
     }
   }
 
+  /** Get the recommended statusline configuration object for Claude Code settings. */
   getStatuslineConfig(): Record<string, unknown> {
     return {
       statusLine: {
@@ -160,6 +170,7 @@ export class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorPr
     };
   }
 
+  /** Get human-readable setup instructions for enabling context monitoring. */
   getSetupInstructions(): string {
     const settingsPath = this.pathProvider.getSettingsPath() ?? '~/.claude/settings.json';
 

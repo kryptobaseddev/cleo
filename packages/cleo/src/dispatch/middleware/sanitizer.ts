@@ -6,7 +6,21 @@ import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from
  * Uses the canonical sanitization logic from security.ts to handle
  * Task IDs, paths, string lengths, and enum validation.
  *
+ * @remarks
+ * If sanitization fails (e.g. path traversal detected, invalid task ID format),
+ * the middleware short-circuits the pipeline and returns an error response with
+ * code `E_VALIDATION_FAILED` (exit code 6). Otherwise, the sanitized params
+ * replace the originals on the request object before calling `next()`.
+ *
  * @param getProjectRoot - Optional function to resolve the current project root for path sanitization
+ * @returns Middleware function that sanitizes request params
+ *
+ * @example
+ * ```typescript
+ * import { createSanitizer } from './sanitizer.js';
+ *
+ * const sanitizer = createSanitizer(() => process.cwd());
+ * ```
  */
 export function createSanitizer(getProjectRoot?: () => string): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {

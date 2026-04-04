@@ -24,6 +24,12 @@ const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/
  * Manages CLEO's integration with Claude Code by:
  * 1. Ensuring CLAUDE.md contains @-references to CLEO instruction files
  * 2. Registering the brain observation plugin in ~/.claude/settings.json
+ *
+ * @remarks
+ * Installation is idempotent -- running install multiple times on the same
+ * project produces the same result. The provider disables the legacy
+ * `claude-mem\@thedotmack` plugin if present and enables the unified
+ * `cleo\@cleocode` plugin instead.
  */
 export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
   /**

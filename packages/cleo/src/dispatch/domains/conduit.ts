@@ -107,7 +107,7 @@ export class ConduitHandler implements DomainHandler {
   /** Resolve agent credential from the registry. */
   private async resolveCredential(agentId?: string) {
     const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-    const db = await getDb();
+    const _db = await getDb();
     const registry = new AgentRegistryAccessor(process.cwd());
     const credential = agentId ? await registry.get(agentId) : await registry.getActive();
     if (!credential) {

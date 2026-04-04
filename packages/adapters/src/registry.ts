@@ -11,18 +11,37 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Minimal manifest shape for provider discovery. */
+/**
+ * Minimal manifest shape for provider discovery.
+ *
+ * @remarks
+ * Each provider adapter ships a `manifest.json` in its directory under
+ * `providers/`. The registry reads these at startup to populate the
+ * adapter discovery surface. The shape is intentionally minimal -- only
+ * the fields needed for dynamic loading and detection are required.
+ */
 export interface AdapterManifest {
+  /** Unique provider identifier (e.g. "claude-code", "cursor"). */
   id: string;
+  /** Human-readable display name for the provider. */
   name: string;
+  /** Semantic version of the adapter. */
   version: string;
+  /** Short description of what the provider integrates with. */
   description: string;
+  /** Provider slug used for directory lookups. */
   provider: string;
+  /** Relative path to the adapter's entry point module. */
   entryPoint: string;
+  /** Capability flags declared by the adapter. */
   capabilities: Record<string, unknown>;
+  /** Patterns used to auto-detect the provider in a project. */
   detectionPatterns: Array<{
+    /** Detection strategy type (e.g. "file", "env"). */
     type: string;
+    /** Glob or regex pattern to match. */
     pattern: string;
+    /** Human-readable explanation of this detection rule. */
     description: string;
   }>;
 }
@@ -33,7 +52,22 @@ const PROVIDER_IDS = ['claude-code', 'opencode', 'cursor'] as const;
 /**
  * Get the manifests for all bundled provider adapters.
  *
- * @returns Array of adapter manifests
+ * @remarks
+ * Scans the known provider directories for `manifest.json` files.
+ * Providers whose manifests cannot be loaded (missing or malformed)
+ * are silently skipped.
+ *
+ * @returns Array of adapter manifests for successfully loaded providers
+ *
+ * @example
+ * ```typescript
+ * import { getProviderManifests } from '@cleocode/adapters';
+ *
+ * const manifests = getProviderManifests();
+ * for (const m of manifests) {
+ *   console.log(`${m.id}: ${m.name} v${m.version}`);
+ * }
+ * ```
  */
 export function getProviderManifests(): AdapterManifest[] {
   const manifests: AdapterManifest[] = [];
@@ -56,6 +90,24 @@ export function getProviderManifests(): AdapterManifest[] {
  * Discover all available provider adapters.
  *
  * Returns a map of provider ID to adapter factory function.
+ *
+ * @remarks
+ * Each factory lazily imports the provider module and constructs a new
+ * adapter instance. This avoids loading all provider code upfront and
+ * keeps startup fast.
+ *
+ * @returns Map of provider ID to async factory function that creates an adapter instance
+ *
+ * @example
+ * ```typescript
+ * import { discoverProviders } from '@cleocode/adapters';
+ *
+ * const providers = await discoverProviders();
+ * const factory = providers.get('claude-code');
+ * if (factory) {
+ *   const adapter = await factory();
+ * }
+ * ```
  */
 export async function discoverProviders(): Promise<Map<string, () => Promise<unknown>>> {
   const providers = new Map<string, () => Promise<unknown>>();

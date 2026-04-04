@@ -1,5 +1,7 @@
 /**
  * Research commands and manifest operations.
+ *
+ * @packageDocumentation
  * @task T4465
  * @epic T4454
  */
@@ -22,51 +24,81 @@ import { logOperation } from '../tasks/add.js';
 
 /** Research entry attached to a task. */
 export interface ResearchEntry {
+  /** Unique research entry identifier. */
   id: string;
+  /** Task ID this research is linked to. */
   taskId: string;
+  /** Research topic or question. */
   topic: string;
+  /** Accumulated research findings. */
   findings: string[];
+  /** Source URLs or references. */
   sources: string[];
+  /** Current research status. */
   status: 'pending' | 'complete' | 'partial';
+  /** ISO timestamp of creation. */
   createdAt: string;
+  /** ISO timestamp of last update. */
   updatedAt: string;
 }
 
 /** Manifest entry (JSONL line). */
 export interface ManifestEntry {
+  /** Unique manifest entry identifier. */
   id: string;
+  /** Output file path for this entry. */
   file: string;
+  /** Human-readable title of the research output. */
   title: string;
+  /** ISO date string when the entry was created. */
   date: string;
+  /** Completion status of the research. */
   status: 'completed' | 'partial' | 'blocked';
+  /** Type of agent that produced this entry. */
   agent_type: string;
+  /** Topic tags associated with the entry. */
   topics: string[];
+  /** Key findings from the research. */
   key_findings: string[];
+  /** Whether the findings are actionable. */
   actionable: boolean;
+  /** Items that need follow-up investigation. */
   needs_followup: string[];
+  /** Task IDs linked to this manifest entry. */
   linked_tasks: string[];
 }
 
 /** Options for adding research. */
 export interface AddResearchOptions {
+  /** Task ID to attach the research to. */
   taskId: string;
+  /** Research topic or question. */
   topic: string;
+  /** Initial findings (if any). */
   findings?: string[];
+  /** Source URLs or references. */
   sources?: string[];
 }
 
 /** Options for listing research. */
 export interface ListResearchOptions {
+  /** Filter by linked task ID. */
   taskId?: string;
+  /** Filter by research status. */
   status?: 'pending' | 'complete' | 'partial';
 }
 
 /** Manifest query options. */
 export interface ManifestQueryOptions {
+  /** Filter by completion status. */
   status?: string;
+  /** Filter by agent type. */
   agentType?: string;
+  /** Filter by topic tag. */
   topic?: string;
+  /** Filter by linked task ID. */
   taskId?: string;
+  /** Maximum entries to return. */
   limit?: number;
 }
 
@@ -98,6 +130,21 @@ async function readResearch(cwd?: string): Promise<{ entries: ResearchEntry[] }>
 
 /**
  * Add a research entry.
+ *
+ * @param options - Research entry data including taskId and topic
+ * @param cwd - Optional working directory for path resolution
+ * @param accessor - Data accessor for task validation
+ * @returns The created ResearchEntry
+ *
+ * @remarks
+ * Validates the linked task exists, generates a unique ID, and persists
+ * the entry to research.json. Logs the operation to the audit log.
+ *
+ * @example
+ * ```typescript
+ * const entry = await addResearch({ taskId: 'T042', topic: 'Auth patterns' }, '/project', accessor);
+ * ```
+ *
  * @task T4465
  */
 export async function addResearch(
@@ -147,6 +194,19 @@ export async function addResearch(
 
 /**
  * Show a specific research entry.
+ *
+ * @param researchId - The research entry ID to look up
+ * @param cwd - Optional working directory for path resolution
+ * @returns The matching ResearchEntry
+ *
+ * @remarks
+ * Throws a CleoError with NOT_FOUND if the entry does not exist.
+ *
+ * @example
+ * ```typescript
+ * const entry = await showResearch('Rlk1abc2', '/project');
+ * ```
+ *
  * @task T4465
  */
 export async function showResearch(researchId: string, cwd?: string): Promise<ResearchEntry> {
@@ -162,6 +222,19 @@ export async function showResearch(researchId: string, cwd?: string): Promise<Re
 
 /**
  * List research entries with optional filtering.
+ *
+ * @param options - Optional filters for taskId and status
+ * @param cwd - Optional working directory for path resolution
+ * @returns Filtered array of ResearchEntry records
+ *
+ * @remarks
+ * Returns all entries when no filters are provided.
+ *
+ * @example
+ * ```typescript
+ * const entries = await listResearch({ status: 'pending' }, '/project');
+ * ```
+ *
  * @task T4465
  */
 export async function listResearch(
@@ -183,6 +256,18 @@ export async function listResearch(
 
 /**
  * List pending research entries.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Array of research entries with status "pending"
+ *
+ * @remarks
+ * Convenience wrapper around listResearch with status filter pre-set.
+ *
+ * @example
+ * ```typescript
+ * const pending = await pendingResearch('/project');
+ * ```
+ *
  * @task T4465
  */
 export async function pendingResearch(cwd?: string): Promise<ResearchEntry[]> {
@@ -191,6 +276,22 @@ export async function pendingResearch(cwd?: string): Promise<ResearchEntry[]> {
 
 /**
  * Link a research entry to a task.
+ *
+ * @param researchId - The research entry ID to link
+ * @param taskId - The target task ID
+ * @param cwd - Optional working directory for path resolution
+ * @param accessor - Data accessor for task validation
+ * @returns Confirmation with researchId and taskId
+ *
+ * @remarks
+ * Updates the research entry's taskId field and persists the change.
+ * Validates both the research entry and target task exist.
+ *
+ * @example
+ * ```typescript
+ * await linkResearch('Rlk1abc2', 'T050', '/project', accessor);
+ * ```
+ *
  * @task T4465
  */
 export async function linkResearch(
@@ -222,6 +323,21 @@ export async function linkResearch(
 
 /**
  * Update research findings.
+ *
+ * @param researchId - The research entry ID to update
+ * @param updates - Fields to update (findings, sources, and/or status)
+ * @param cwd - Optional working directory for path resolution
+ * @returns The updated ResearchEntry
+ *
+ * @remarks
+ * Only provided fields are updated; others are left unchanged.
+ * Updates the `updatedAt` timestamp automatically.
+ *
+ * @example
+ * ```typescript
+ * const entry = await updateResearch('Rlk1abc2', { status: 'complete', findings: ['JWT is used'] });
+ * ```
+ *
  * @task T4465
  */
 export async function updateResearch(
@@ -248,6 +364,19 @@ export async function updateResearch(
 
 /**
  * Get research statistics.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Total count and breakdowns by status and topic
+ *
+ * @remarks
+ * Aggregates all research entries into status and topic distributions.
+ *
+ * @example
+ * ```typescript
+ * const stats = await statsResearch('/project');
+ * console.log(`${stats.total} entries, ${stats.byStatus.pending ?? 0} pending`);
+ * ```
+ *
  * @task T4474
  */
 export async function statsResearch(cwd?: string): Promise<{
@@ -273,6 +402,19 @@ export async function statsResearch(cwd?: string): Promise<{
 
 /**
  * Get research entries linked to a specific task.
+ *
+ * @param taskId - The task ID to find linked research for
+ * @param cwd - Optional working directory for path resolution
+ * @returns Array of research entries linked to the given task
+ *
+ * @remarks
+ * Filters research entries by taskId. Throws if taskId is empty.
+ *
+ * @example
+ * ```typescript
+ * const linked = await linksResearch('T042', '/project');
+ * ```
+ *
  * @task T4474
  */
 export async function linksResearch(taskId: string, cwd?: string): Promise<ResearchEntry[]> {
@@ -285,8 +427,21 @@ export async function linksResearch(taskId: string, cwd?: string): Promise<Resea
 
 /**
  * Archive old research entries by status.
- * Moves 'complete' entries older than a threshold to an archive,
- * or returns summary of archivable entries.
+ * Moves 'complete' entries to an archive and keeps non-complete ones.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Summary with count of archived and remaining entries
+ *
+ * @remarks
+ * Removes all "complete" entries from the active research file and reports
+ * how many were archived vs. retained.
+ *
+ * @example
+ * ```typescript
+ * const result = await archiveResearch('/project');
+ * console.log(`Archived ${result.entriesArchived} entries`);
+ * ```
+ *
  * @task T4474
  */
 export async function archiveResearch(cwd?: string): Promise<{
@@ -312,6 +467,19 @@ export async function archiveResearch(cwd?: string): Promise<{
 
 /**
  * Read manifest entries from MANIFEST.jsonl.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Array of parsed ManifestEntry records from the JSONL file
+ *
+ * @remarks
+ * Reads the file line by line, skipping blank and malformed lines.
+ * Returns an empty array if the file does not exist.
+ *
+ * @example
+ * ```typescript
+ * const entries = await readManifest('/project');
+ * ```
+ *
  * @task T4465
  */
 export async function readManifest(cwd?: string): Promise<ManifestEntry[]> {
@@ -334,6 +502,18 @@ export async function readManifest(cwd?: string): Promise<ManifestEntry[]> {
 
 /**
  * Append a manifest entry.
+ *
+ * @param entry - The ManifestEntry to append
+ * @param cwd - Optional working directory for path resolution
+ *
+ * @remarks
+ * Appends a single JSON line to the MANIFEST.jsonl file.
+ *
+ * @example
+ * ```typescript
+ * await appendManifest({ id: 'M001', file: 'report.md', ... }, '/project');
+ * ```
+ *
  * @task T4465
  */
 export async function appendManifest(entry: ManifestEntry, cwd?: string): Promise<void> {
@@ -342,7 +522,21 @@ export async function appendManifest(entry: ManifestEntry, cwd?: string): Promis
 }
 
 /**
- * Query manifest entries.
+ * Query manifest entries with filtering.
+ *
+ * @param options - Filter criteria (status, agentType, topic, taskId, limit)
+ * @param cwd - Optional working directory for path resolution
+ * @returns Filtered array of ManifestEntry records
+ *
+ * @remarks
+ * Applies filters sequentially: status, agentType, topic, taskId, then limit.
+ * Returns all entries when no filters are provided.
+ *
+ * @example
+ * ```typescript
+ * const entries = await queryManifest({ status: 'completed', limit: 5 }, '/project');
+ * ```
+ *
  * @task T4465
  */
 export async function queryManifest(
@@ -377,26 +571,51 @@ export async function queryManifest(
 
 /** Extended manifest entry with optional fields used by the engine. */
 export interface ExtendedManifestEntry extends ManifestEntry {
+  /** Confidence score for the research findings. */
   confidence?: number;
+  /** SHA checksum of the output file. */
   file_checksum?: string;
+  /** Duration of the research in seconds. */
   duration_seconds?: number;
 }
 
 /** Research filter criteria used by the engine. */
 export interface ResearchFilter {
+  /** Filter by linked task ID. */
   taskId?: string;
+  /** Filter by completion status. */
   status?: string;
+  /** Filter by agent type. */
   agent_type?: string;
+  /** Filter by topic tag. */
   topic?: string;
+  /** Maximum entries to return. */
   limit?: number;
+  /** Number of entries to skip before applying limit. */
   offset?: number;
+  /** Filter by actionable flag. */
   actionable?: boolean;
+  /** Filter entries created after this ISO date. */
   dateAfter?: string;
+  /** Filter entries created before this ISO date. */
   dateBefore?: string;
 }
 
 /**
  * Read all manifest entries as extended entries.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Array of parsed ExtendedManifestEntry records
+ *
+ * @remarks
+ * Same as readManifest but typed as ExtendedManifestEntry to include
+ * optional engine fields (confidence, file_checksum, duration_seconds).
+ *
+ * @example
+ * ```typescript
+ * const entries = await readExtendedManifest('/project');
+ * ```
+ *
  * @task T4787
  */
 export async function readExtendedManifest(cwd?: string): Promise<ExtendedManifestEntry[]> {
@@ -419,6 +638,20 @@ export async function readExtendedManifest(cwd?: string): Promise<ExtendedManife
 
 /**
  * Filter manifest entries by criteria.
+ *
+ * @param entries - Array of manifest entries to filter
+ * @param filter - Filter criteria to apply
+ * @returns Filtered subset of entries
+ *
+ * @remarks
+ * Applies filters in order: taskId, status, agent_type, topic, actionable,
+ * dateAfter, dateBefore, offset, then limit.
+ *
+ * @example
+ * ```typescript
+ * const filtered = filterManifestEntries(entries, { status: 'completed', limit: 10 });
+ * ```
+ *
  * @task T4787
  */
 export function filterManifestEntries(
@@ -469,6 +702,21 @@ export function filterManifestEntries(
 
 /**
  * Show a manifest entry by ID with optional file content.
+ *
+ * @param researchId - The manifest entry ID to look up
+ * @param cwd - Optional working directory for path resolution
+ * @returns The manifest entry with file content and existence flag
+ *
+ * @remarks
+ * Reads the output file referenced by the entry if it exists on disk.
+ * Throws CleoError NOT_FOUND if the entry ID is not found.
+ *
+ * @example
+ * ```typescript
+ * const entry = await showManifestEntry('T042-auth-research', '/project');
+ * if (entry.fileExists) console.log(entry.fileContent);
+ * ```
+ *
  * @task T4787
  */
 export async function showManifestEntry(
@@ -502,6 +750,21 @@ export async function showManifestEntry(
 
 /**
  * Search manifest entries by text with relevance scoring.
+ *
+ * @param query - Text query to match against titles, topics, and findings
+ * @param options - Optional confidence threshold and limit
+ * @param cwd - Optional working directory for path resolution
+ * @returns Manifest entries with relevance scores, sorted by relevance descending
+ *
+ * @remarks
+ * Scores entries by matching against title (0.5), topics (0.3), key findings (0.2),
+ * and ID (0.1). Filters by minimum confidence threshold (default 0.1).
+ *
+ * @example
+ * ```typescript
+ * const results = await searchManifest('authentication', { limit: 5 }, '/project');
+ * ```
+ *
  * @task T4787
  */
 export async function searchManifest(
@@ -549,6 +812,20 @@ export async function searchManifest(
 
 /**
  * Get pending manifest entries (partial, blocked, or needing followup).
+ *
+ * @param epicId - Optional epic ID to scope results
+ * @param cwd - Optional working directory for path resolution
+ * @returns Pending entries with total count and status breakdown
+ *
+ * @remarks
+ * Includes entries with status "partial", "blocked", or any non-empty
+ * needs_followup array. Optionally scopes to entries linked to an epic.
+ *
+ * @example
+ * ```typescript
+ * const { entries, total } = await pendingManifestEntries('T001', '/project');
+ * ```
+ *
  * @task T4787
  */
 export async function pendingManifestEntries(
@@ -585,6 +862,21 @@ export async function pendingManifestEntries(
 
 /**
  * Get manifest-based research statistics.
+ *
+ * @param epicId - Optional epic ID to scope statistics
+ * @param cwd - Optional working directory for path resolution
+ * @returns Totals, status/type distributions, actionable count, and average findings
+ *
+ * @remarks
+ * Aggregates manifest entries by status, agent type, and actionability.
+ * Calculates average key findings per entry.
+ *
+ * @example
+ * ```typescript
+ * const stats = await manifestStats(undefined, '/project');
+ * console.log(`${stats.total} entries, ${stats.actionable} actionable`);
+ * ```
+ *
  * @task T4787
  */
 export async function manifestStats(
@@ -632,6 +924,21 @@ export async function manifestStats(
 
 /**
  * Link a manifest entry to a task (adds taskId to linked_tasks array).
+ *
+ * @param taskId - The task ID to link
+ * @param researchId - The manifest entry ID to link to
+ * @param cwd - Optional working directory for path resolution
+ * @returns Confirmation with link details and whether it was already linked
+ *
+ * @remarks
+ * Appends the taskId to the entry's linked_tasks array if not already present.
+ * Rewrites the entire MANIFEST.jsonl file after modification.
+ *
+ * @example
+ * ```typescript
+ * const result = await linkManifestEntry('T042', 'M001', '/project');
+ * ```
+ *
  * @task T4787
  */
 export async function linkManifestEntry(
@@ -667,6 +974,20 @@ export async function linkManifestEntry(
 /**
  * Append an extended manifest entry.
  * Validates required fields before appending.
+ *
+ * @param entry - The ExtendedManifestEntry to append
+ * @param cwd - Optional working directory for path resolution
+ * @returns Confirmation with the entry ID and manifest file path
+ *
+ * @remarks
+ * Validates that all required fields (id, file, title, date, status, agent_type,
+ * topics, actionable) are present before writing.
+ *
+ * @example
+ * ```typescript
+ * const result = await appendExtendedManifest({ id: 'M002', ... }, '/project');
+ * ```
+ *
  * @task T4787
  */
 export async function appendExtendedManifest(
@@ -695,6 +1016,21 @@ export async function appendExtendedManifest(
 
 /**
  * Archive manifest entries older than a date.
+ *
+ * @param beforeDate - ISO date string; entries older than this are archived
+ * @param cwd - Optional working directory for path resolution
+ * @returns Counts of archived and remaining entries, and the archive file path
+ *
+ * @remarks
+ * Moves entries with a date before the threshold to MANIFEST.archive.jsonl
+ * and rewrites the main MANIFEST.jsonl with the remaining entries.
+ *
+ * @example
+ * ```typescript
+ * const result = await archiveManifestEntries('2026-01-01', '/project');
+ * console.log(`Archived ${result.archived} entries`);
+ * ```
+ *
  * @task T4787
  */
 export async function archiveManifestEntries(
@@ -738,14 +1074,32 @@ export async function archiveManifestEntries(
 
 /** Contradiction detail between two manifest entries. */
 export interface ContradictionDetail {
+  /** First conflicting entry. */
   entryA: ExtendedManifestEntry;
+  /** Second conflicting entry. */
   entryB: ExtendedManifestEntry;
+  /** Shared topic where the conflict was detected. */
   topic: string;
+  /** Description of the conflicting findings. */
   conflictDetails: string;
 }
 
 /**
  * Find manifest entries with overlapping topics but conflicting key_findings.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @param params - Optional filter by topic
+ * @returns Array of contradiction details between conflicting entries
+ *
+ * @remarks
+ * Groups entries by shared topics and compares key_findings for disagreements.
+ * Only returns pairs where findings actually differ.
+ *
+ * @example
+ * ```typescript
+ * const contradictions = await findContradictions('/project', { topic: 'auth' });
+ * ```
+ *
  * @task T4787
  */
 export async function findContradictions(
@@ -829,6 +1183,20 @@ export interface SupersededDetail {
 
 /**
  * Identify research entries replaced by newer work on same topic.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @param params - Optional filter by topic
+ * @returns Array of superseded entry pairs with the replacement and obsoleted entries
+ *
+ * @remarks
+ * Groups entries by shared topics and identifies older entries that have been
+ * superseded by newer ones on the same subject.
+ *
+ * @example
+ * ```typescript
+ * const superseded = await findSuperseded('/project');
+ * ```
+ *
  * @task T4787
  */
 export async function findSuperseded(
@@ -876,6 +1244,22 @@ export async function findSuperseded(
 
 /**
  * Read protocol injection content for a given protocol type.
+ *
+ * @param protocolType - Protocol name (e.g. "consensus", "contribution")
+ * @param params - Optional parameters for template resolution
+ * @param cwd - Optional working directory for path resolution
+ * @returns Protocol content, file path, and metadata
+ *
+ * @remarks
+ * Reads protocol template files from the agent-outputs directory and
+ * resolves variables like taskId within the content.
+ *
+ * @example
+ * ```typescript
+ * const result = await readProtocolInjection('consensus', { taskId: 'T042' }, '/project');
+ * console.log(result.content);
+ * ```
+ *
  * @task T4787
  */
 export async function readProtocolInjection(
@@ -932,6 +1316,20 @@ export async function readProtocolInjection(
 
 /**
  * Compact MANIFEST.jsonl by removing duplicate/stale entries.
+ *
+ * @param cwd - Optional working directory for path resolution
+ * @returns Compaction summary with counts of removed entries
+ *
+ * @remarks
+ * Removes malformed lines and deduplicates entries by ID (keeping the last
+ * occurrence). Rewrites the file atomically.
+ *
+ * @example
+ * ```typescript
+ * const result = await compactManifest('/project');
+ * console.log(`Removed ${result.duplicatesRemoved} duplicates`);
+ * ```
+ *
  * @task T4787
  */
 export async function compactManifest(cwd?: string): Promise<{
@@ -993,6 +1391,21 @@ export async function compactManifest(cwd?: string): Promise<{
 
 /**
  * Validate research entries for a task.
+ *
+ * @param taskId - The task ID to validate manifest entries for
+ * @param cwd - Optional working directory for path resolution
+ * @returns Validation result with issue details and severity counts
+ *
+ * @remarks
+ * Checks linked manifest entries for missing output files, empty key findings,
+ * and incomplete status. Reports issues at error or warning severity.
+ *
+ * @example
+ * ```typescript
+ * const result = await validateManifestEntries('T042', '/project');
+ * if (!result.valid) console.log(result.issues);
+ * ```
+ *
  * @task T4787
  */
 export async function validateManifestEntries(

@@ -31,14 +31,23 @@ const execAsync = promisify(exec);
  * - Hooks: No-op (Kimi has no native hook system)
  * - Install: Ensures AGENTS.md references for CLEO instruction files
  *
+ * @remarks
+ * Kimi has no native hook or event system, so all hook-related capabilities
+ * are disabled. The adapter is install-only, managing AGENTS.md references
+ * for CLEO instruction injection.
+ *
  * @task T163
  * @epic T134
  */
 export class KimiAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'kimi';
+  /** Human-readable provider name. */
   readonly name = 'Kimi';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: false,
     supportedHookEvents: [],
@@ -53,10 +62,14 @@ export class KimiAdapter implements CLEOProviderAdapter {
     supportsTaskSync: false,
   };
 
+  /** Hook provider (no-op since Kimi has no event system). */
   hooks: KimiHookProvider;
+  /** Install provider for managing instruction files. */
   install: KimiInstallProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

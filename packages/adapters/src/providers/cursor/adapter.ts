@@ -26,12 +26,22 @@ import { CursorInstallProvider } from './install.js';
  * - Install: Manages .cursorrules and .cursor/rules/cleo.mdc rule files
  * - Hooks: Stub provider (Cursor has no lifecycle event system)
  * - Spawn: Not supported (Cursor has no CLI for subagent spawning)
+ *
+ * @remarks
+ * Cursor is a GUI-based editor, so many CLI-oriented capabilities
+ * (spawn, transport, task sync, context monitor) are unsupported.
+ * Integration is primarily through instruction rule files placed in
+ * `.cursor/rules/` (modern MDC format) and `.cursorrules` (legacy).
  */
 export class CursorAdapter implements CLEOProviderAdapter {
+  /** Unique provider identifier. */
   readonly id = 'cursor';
+  /** Human-readable provider name. */
   readonly name = 'Cursor';
+  /** Adapter version string. */
   readonly version = '1.0.0';
 
+  /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
     supportsHooks: true,
     // 10/16 canonical events — derived from getProviderHookProfile('cursor') in CAAMP 1.9.1.
@@ -61,10 +71,14 @@ export class CursorAdapter implements CLEOProviderAdapter {
     supportsTaskSync: false,
   };
 
+  /** Hook provider for CAAMP event mapping. */
   hooks: CursorHookProvider;
+  /** Install provider for managing rule files. */
   install: CursorInstallProvider;
 
+  /** Project directory this adapter was initialized with, or null. */
   private projectDir: string | null = null;
+  /** Whether {@link initialize} has been called. */
   private initialized = false;
 
   constructor() {

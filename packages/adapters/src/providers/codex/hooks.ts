@@ -38,10 +38,16 @@ const CODEX_EVENT_MAP: Record<string, string> = {
  * the install provider), registerNativeHooks and unregisterNativeHooks
  * track registration state without performing filesystem operations.
  *
+ * @remarks
+ * Codex CLI has a minimal hook surface with only 3 canonical events.
+ * Registration state is tracked in-memory because Codex CLI manages
+ * hooks through its own configuration system at `~/.codex/`.
+ *
  * @task T162
  * @epic T134
  */
 export class CodexHookProvider implements AdapterHookProvider {
+  /** Whether hooks have been registered for the current session. */
   private registered = false;
 
   /**

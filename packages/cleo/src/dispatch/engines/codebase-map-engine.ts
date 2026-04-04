@@ -11,6 +11,20 @@ import { type EngineResult, engineError } from './_error.js';
 /**
  * Analyze a codebase and return structured mapping.
  * When storeToBrain is true, findings are persisted to brain.db.
+ *
+ * @remarks
+ * Delegates to the core `mapCodebase` module which performs static analysis
+ * of the project structure, conventions, testing setup, and integrations.
+ * The optional `focus` parameter narrows analysis to a specific aspect.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param options - Optional analysis options
+ * @returns EngineResult containing the structured codebase map
+ *
+ * @example
+ * ```typescript
+ * const result = await mapCodebase('/path/to/project', { focus: 'architecture' });
+ * ```
  */
 export async function mapCodebase(
   projectRoot: string,

@@ -17,17 +17,25 @@ export type DateFormat = 'relative' | 'iso' | 'short' | 'long';
 
 /** Output configuration. */
 export interface OutputConfig {
+  /** Default output format for CLI responses. */
   defaultFormat: OutputFormat;
+  /** Whether to use ANSI color codes in terminal output. */
   showColor: boolean;
+  /** Whether to use Unicode symbols (checkmarks, arrows) in output. */
   showUnicode: boolean;
+  /** Whether to display progress bars for long-running operations. */
   showProgressBars: boolean;
+  /** Date display format for timestamps in output. */
   dateFormat: DateFormat;
 }
 
 /** Backup configuration. */
 export interface BackupConfig {
+  /** Maximum number of operational backups to retain during normal operations. */
   maxOperationalBackups: number;
+  /** Maximum number of safety backups to retain for disaster recovery. */
   maxSafetyBackups: number;
+  /** Whether to compress backup files to reduce disk usage. */
   compressionEnabled: boolean;
 }
 
@@ -36,8 +44,11 @@ export type EnforcementProfile = 'llm-agent-first' | 'human-cognitive' | 'custom
 
 /** Hierarchy configuration. */
 export interface HierarchyConfig {
+  /** Maximum nesting depth for task hierarchy (epic > task > subtask). */
   maxDepth: number;
+  /** Maximum number of sibling tasks under a single parent. */
   maxSiblings: number;
+  /** Whether deleting a parent cascades to all descendant tasks. */
   cascadeDelete: boolean;
   /** Maximum number of active (non-done) siblings. 0 = disabled. */
   maxActiveSiblings: number;
@@ -49,8 +60,11 @@ export interface HierarchyConfig {
 
 /** Session configuration. */
 export interface SessionConfig {
+  /** Whether to auto-start a session on first mutate operation. */
   autoStart: boolean;
+  /** Whether session end requires at least one note. */
   requireNotes: boolean;
+  /** Whether multiple concurrent sessions are allowed. */
   multiSession: boolean;
 }
 
@@ -115,6 +129,7 @@ export type LifecycleEnforcementMode = 'strict' | 'advisory' | 'off';
 
 /** Lifecycle enforcement configuration. */
 export interface LifecycleConfig {
+  /** Enforcement mode controlling how lifecycle rules are applied. */
   mode: LifecycleEnforcementMode;
 }
 
@@ -232,19 +247,37 @@ export interface SignalDockConfig {
 
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
+  /** Configuration schema version string. */
   version: string;
+  /** Output formatting preferences. */
   output: OutputConfig;
+  /** Database backup retention and compression settings. */
   backup: BackupConfig;
+  /** Task hierarchy depth and sibling constraints. */
   hierarchy: HierarchyConfig;
+  /** Session auto-start and multi-session policies. */
   session: SessionConfig;
+  /** Acceptance criteria and session enforcement rules. */
   enforcement: EnforcementConfig;
+  /** Verification gate pipeline settings. */
   verification: VerificationConfig;
+  /** Task lifecycle enforcement mode. */
   lifecycle: LifecycleConfig;
+  /** Log level, rotation, and audit retention settings. */
   logging: LoggingConfig;
+  /** Multi-contributor `.cleo/` state sharing settings. */
   sharing: SharingConfig;
-  /** SignalDock inter-agent transport (optional, disabled by default). */
+  /**
+   * SignalDock inter-agent transport (optional, disabled by default).
+   *
+   * @defaultValue undefined
+   */
   signaldock?: SignalDockConfig;
-  /** Brain memory system configuration (optional, uses defaults when absent). */
+  /**
+   * Brain memory system configuration (optional, uses defaults when absent).
+   *
+   * @defaultValue undefined
+   */
   brain?: BrainConfig;
 }
 
@@ -253,6 +286,8 @@ export type ConfigSource = 'cli' | 'env' | 'project' | 'global' | 'default';
 
 /** A resolved config value with its source. */
 export interface ResolvedValue<T> {
+  /** The resolved configuration value. */
   value: T;
+  /** Where this value was resolved from in the cascade. */
   source: ConfigSource;
 }
