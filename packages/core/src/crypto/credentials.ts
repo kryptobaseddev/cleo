@@ -16,6 +16,7 @@
  */
 
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -63,9 +64,24 @@ async function getMachineKey(): Promise<Buffer> {
   const keyPath = getMachineKeyPath();
 
   try {
-    // Check existing key — skip permission check on Windows (NTFS doesn't support Unix modes)
+    // Verify key file permissions
     const stats = await stat(keyPath);
-    if (process.platform !== 'win32') {
+    if (process.platform === 'win32') {
+      // Windows: use icacls to verify the key is not world-readable.
+      try {
+        const output = execFileSync('icacls', [keyPath], { encoding: 'utf-8', timeout: 5000 });
+        const unsafePatterns = /\\(Users|Everyone|Authenticated Users):/i;
+        if (unsafePatterns.test(output)) {
+          throw new Error(
+            `Machine key has unsafe Windows ACLs (accessible to other users). ` +
+              `Fix with: icacls "${keyPath}" /inheritance:r /grant:r "%USERNAME%":F`,
+          );
+        }
+      } catch (aclErr) {
+        if (aclErr instanceof Error && aclErr.message.includes('unsafe')) throw aclErr;
+      }
+    } else {
+      // Unix: verify 0600 permissions
       const mode = stats.mode & 0o777;
       if (mode !== 0o600) {
         throw new Error(
@@ -89,7 +105,16 @@ async function getMachineKey(): Promise<Buffer> {
       const key = randomBytes(KEY_LENGTH);
       await mkdir(dirname(keyPath), { recursive: true });
       await writeFile(keyPath, key, { mode: 0o600 });
-      await chmod(keyPath, 0o600); // Ensure perms even on existing dirs
+      if (process.platform === 'win32') {
+        // Lock down Windows ACLs: remove inherited permissions, grant only current user
+        try {
+          execFileSync('icacls', [keyPath, '/inheritance:r', '/grant:r', `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`], { timeout: 5000 });
+        } catch {
+          // Best-effort — icacls may not be available in all environments
+        }
+      } else {
+        await chmod(keyPath, 0o600);
+      }
       return key;
     }
     throw err;

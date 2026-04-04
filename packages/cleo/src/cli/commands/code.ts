@@ -10,6 +10,21 @@
 
 import { defineCommand } from 'citty';
 
+/** Check tree-sitter availability before running code analysis. Exits with clear message if missing. */
+async function requireTreeSitter(): Promise<void> {
+  const { isTreeSitterAvailable } = await import('@cleocode/core/internal');
+  if (!isTreeSitterAvailable()) {
+    console.error(
+      'Error: tree-sitter is not installed. Code analysis features require tree-sitter grammar packages.\n\n' +
+        'Install with:\n' +
+        '  npm install -g tree-sitter-cli\n' +
+        '  # Or in the project: pnpm add tree-sitter-cli tree-sitter-typescript tree-sitter-javascript\n\n' +
+        'All other CLEO features work without tree-sitter. Only `cleo code` commands require it.',
+    );
+    process.exit(7); // exit code 7 = service unavailable
+  }
+}
+
 export const codeCommand = defineCommand({
   meta: { name: 'code', description: 'Code analysis via tree-sitter AST' },
   subCommands: {
@@ -19,6 +34,7 @@ export const codeCommand = defineCommand({
         file: { type: 'positional', description: 'Source file path', required: true },
       },
       async run({ args }) {
+        await requireTreeSitter();
         const { smartOutline } = await import('@cleocode/core/internal');
         const { join } = await import('node:path');
         const root = process.cwd();
@@ -52,6 +68,7 @@ export const codeCommand = defineCommand({
         path: { type: 'string', description: 'File pattern filter (e.g. src/**)' },
       },
       async run({ args }) {
+        await requireTreeSitter();
         const { smartSearch } = await import('@cleocode/core/internal');
         const root = process.cwd();
         const results = smartSearch(args.query, {
@@ -86,6 +103,7 @@ export const codeCommand = defineCommand({
         },
       },
       async run({ args }) {
+        await requireTreeSitter();
         const { smartUnfold } = await import('@cleocode/core/internal');
         const { join } = await import('node:path');
         const root = process.cwd();

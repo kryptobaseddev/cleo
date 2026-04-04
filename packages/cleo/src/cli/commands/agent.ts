@@ -326,7 +326,7 @@ agent ${agentId}:
           { command: 'agent start' },
         );
 
-        // 6. Keep process alive until SIGINT/SIGTERM
+        // 6. Keep process alive until shutdown signal (cross-platform)
         const shutdown = () => {
           runtime.stop();
           void registry.update(agentId, { isActive: false }).catch(() => {});
@@ -334,6 +334,12 @@ agent ${agentId}:
         };
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
+        // Windows: listen for 'message' from parent process managers (PM2, etc.)
+        if (process.platform === 'win32') {
+          process.on('message', (msg) => {
+            if (msg === 'shutdown') shutdown();
+          });
+        }
 
         // Keep alive
         await new Promise(() => {});
@@ -780,6 +786,9 @@ agent ${agentId}:
         };
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
+        if (process.platform === 'win32') {
+          process.on('message', (msg) => { if (msg === 'shutdown') shutdown(); });
+        }
         await new Promise(() => {});
       } catch (err) {
         cliOutput(
@@ -1057,6 +1066,9 @@ agent ${agentId}:
         };
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
+        if (process.platform === 'win32') {
+          process.on('message', (msg) => { if (msg === 'shutdown') shutdown(); });
+        }
       } catch (err) {
         cliOutput(
           { success: false, error: { code: 'E_WATCH', message: String(err) } },

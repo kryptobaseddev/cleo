@@ -24,16 +24,46 @@ import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-lang
 // Tree-sitter CLI resolution
 // ---------------------------------------------------------------------------
 
+/** Whether tree-sitter is available on this system. */
+let _treeSitterAvailable: boolean | null = null;
+
+/** Check if tree-sitter CLI is available. Cached after first call. */
+export function isTreeSitterAvailable(): boolean {
+  if (_treeSitterAvailable !== null) return _treeSitterAvailable;
+  try {
+    resolveTreeSitterBin();
+    _treeSitterAvailable = true;
+  } catch {
+    _treeSitterAvailable = false;
+  }
+  return _treeSitterAvailable;
+}
+
 /** Resolve the tree-sitter CLI binary from node_modules. */
 function resolveTreeSitterBin(): string {
+  // Also check platform-specific binary extension for Windows
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const binName = `tree-sitter${ext}`;
   const candidates = [
-    join(process.cwd(), 'packages', 'core', 'node_modules', '.bin', 'tree-sitter'),
-    join(process.cwd(), 'node_modules', '.bin', 'tree-sitter'),
+    join(process.cwd(), 'packages', 'core', 'node_modules', '.bin', binName),
+    join(process.cwd(), 'node_modules', '.bin', binName),
+    // npm global install paths
+    join(process.cwd(), 'node_modules', 'tree-sitter-cli', binName),
   ];
+  // Also try without extension (npm .cmd shim on Windows)
+  if (ext) {
+    candidates.push(
+      join(process.cwd(), 'packages', 'core', 'node_modules', '.bin', 'tree-sitter'),
+      join(process.cwd(), 'node_modules', '.bin', 'tree-sitter'),
+    );
+  }
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
-  throw new Error('tree-sitter CLI not found. Run: pnpm add -F @cleocode/core tree-sitter-cli');
+  throw new Error(
+    'tree-sitter CLI not found. Code analysis features (cleo code outline/search/unfold) ' +
+      'require tree-sitter. Install with: npm install tree-sitter-cli',
+  );
 }
 
 // ---------------------------------------------------------------------------
