@@ -4,6 +4,9 @@ export default {
   rootDir: ".",
   outDir: "./docs/generated",
   enforce: {
+    enabled: true,
+    minVisibility: "public",
+    strict: false,
     rules: {
       "require-summary": "error",
       "require-param": "error",
