@@ -25,5 +25,5 @@
     { "path": "./packages/adapters" },
     { "path": "./packages/cleo" }
   ],
-  "exclude": ["node_modules", "dist", "drizzle", "packages/skills/scripts"]
+  "exclude": ["node_modules", "dist", "drizzle", "packages/skills/scripts", "editors"]
 }

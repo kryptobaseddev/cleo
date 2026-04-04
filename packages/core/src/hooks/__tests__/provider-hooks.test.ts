@@ -27,18 +27,18 @@ describe('provider hook capability helpers', () => {
   it('delegates provider-backed hook events to CAAMP', () => {
     getProvidersByHookEventMock.mockReturnValue([{ id: 'claude-code' }, { id: 'opencode' }]);
 
-    const providers = getHookCapableProviders('onToolStart');
+    const providers = getHookCapableProviders('PreToolUse');
 
-    expect(getProvidersByHookEventMock).toHaveBeenCalledWith('onToolStart');
+    expect(getProvidersByHookEventMock).toHaveBeenCalledWith('PreToolUse');
     expect(providers).toEqual(['claude-code', 'opencode']);
   });
 
   it('returns common provider hook events from CAAMP', () => {
-    getCommonHookEventsMock.mockReturnValue(['onSessionStart', 'onToolComplete']);
+    getCommonHookEventsMock.mockReturnValue(['SessionStart', 'PostToolUse']);
 
     const events = getSharedHookEvents(['claude-code', 'opencode']);
 
     expect(getCommonHookEventsMock).toHaveBeenCalledWith(['claude-code', 'opencode']);
-    expect(events).toEqual(['onSessionStart', 'onToolComplete']);
+    expect(events).toEqual(['SessionStart', 'PostToolUse']);
   });
 });

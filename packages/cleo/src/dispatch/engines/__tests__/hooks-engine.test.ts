@@ -33,35 +33,35 @@ describe('hooks engine', () => {
       {
         id: 'claude-code',
         name: 'Claude Code',
-        capabilities: { hooks: { supported: ['onToolStart', 'onToolComplete'] } },
+        capabilities: { hooks: { supported: ['PreToolUse', 'PostToolUse'] } },
       },
     ]);
 
-    const result = await queryHookProviders('onToolStart');
+    const result = await queryHookProviders('PreToolUse');
 
     expect(result.success).toBe(true);
-    expect(getProvidersByHookEventMock).toHaveBeenCalledWith('onToolStart');
+    expect(getProvidersByHookEventMock).toHaveBeenCalledWith('PreToolUse');
     expect(result.data).toEqual({
-      event: 'onToolStart',
+      event: 'PreToolUse',
       providers: [
         {
           id: 'claude-code',
           name: 'Claude Code',
-          supportedHooks: ['onToolStart', 'onToolComplete'],
+          supportedHooks: ['PreToolUse', 'PostToolUse'],
         },
       ],
     });
   });
 
   it('returns common CAAMP hook events', async () => {
-    getCommonHookEventsMock.mockReturnValue(['onSessionStart', 'onSessionEnd']);
+    getCommonHookEventsMock.mockReturnValue(['SessionStart', 'SessionEnd']);
 
     const result = await queryCommonHooks(['claude-code']);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({
       providerIds: ['claude-code'],
-      commonEvents: ['onSessionStart', 'onSessionEnd'],
+      commonEvents: ['SessionStart', 'SessionEnd'],
     });
   });
 });

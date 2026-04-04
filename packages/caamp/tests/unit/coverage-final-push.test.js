@@ -279,7 +279,7 @@ describe("coverage: catalog.ts discovery", () => {
         expect(catalog.getSkillPath("test")).toBe("/tmp/test");
         expect(catalog.getSkillDir("test")).toBe("/tmp/test");
         expect(catalog.getCoreSkills()).toEqual([]);
-        expect(catalog.getSkillsByCategory("implementation")).toEqual([]);
+        expect(catalog.getSkillsByCategory("specialist")).toEqual([]);
         expect(catalog.getSkillDependencies("test")).toEqual([]);
         expect(catalog.resolveDependencyTree(["test"])).toEqual(["test"]);
         expect(catalog.listProfiles()).toEqual([]);
@@ -1039,7 +1039,7 @@ describe("coverage: library-loader.ts buildLibraryFromFiles branches", () => {
                         name: "test-skill",
                         description: "A test skill",
                         version: "1.0.0",
-                        category: "implementation",
+                        category: "specialist",
                         core: true,
                         dependencies: [],
                         path: "skills/test-skill/SKILL.md",
@@ -1048,7 +1048,7 @@ describe("coverage: library-loader.ts buildLibraryFromFiles branches", () => {
                         name: "dep-skill",
                         description: "",
                         version: "",
-                        category: "implementation",
+                        category: "specialist",
                         core: false,
                         dependencies: ["test-skill"],
                         path: "skills/dep-skill/SKILL.md",
@@ -1108,7 +1108,7 @@ describe("coverage: library-loader.ts buildLibraryFromFiles branches", () => {
             // getCoreSkills
             expect(lib.getCoreSkills().length).toBe(1);
             // getSkillsByCategory
-            expect(lib.getSkillsByCategory("implementation").length).toBe(2);
+            expect(lib.getSkillsByCategory("specialist").length).toBe(2);
             // getSkillDependencies
             expect(lib.getSkillDependencies("dep-skill")).toEqual(["test-skill"]);
             expect(lib.getSkillDependencies("nonexistent")).toEqual([]);

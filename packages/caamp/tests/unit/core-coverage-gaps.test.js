@@ -70,7 +70,7 @@ describe("core/lafs", () => {
     });
     it("buildEnvelope includes sessionId and warnings when provided", async () => {
         const { buildEnvelope } = await import("../../src/core/lafs.js");
-        const envelope = buildEnvelope("test.op", "full", { data: 1 }, null, null, "session-123", [{ code: "W_TEST", message: "test warning", severity: "low" }]);
+        const envelope = buildEnvelope("test.op", "full", { data: 1 }, null, null, "session-123", [{ code: "W_TEST", message: "test warning" }]);
         expect(envelope._meta.sessionId).toBe("session-123");
         expect(envelope._meta.warnings).toHaveLength(1);
     });
@@ -1270,7 +1270,7 @@ describe("core/lock-utils - sleep and error paths", () => {
     it("writeLockFile followed by readLockFile round-trips data", async () => {
         const { readLockFile, writeLockFile } = await import("../../src/core/lock-utils.js");
         // This tests the sleep function indirectly through sequential lock acquires
-        const lock1 = { version: 1, skills: {}, mcpServers: { "test-server": { name: "test-server", source: "test", sourceType: "package", agents: ["claude-code"], installedAt: "2026-01-01T00:00:00Z" } } };
+        const lock1 = { version: 1, skills: {}, mcpServers: { "test-server": { name: "test-server", scopedName: "test-server", source: "test", sourceType: "package", agents: ["claude-code"], installedAt: "2026-01-01T00:00:00Z", canonicalPath: "/tmp/test-server", isGlobal: false } } };
         await writeLockFile(lock1);
         const result = await readLockFile();
         expect(result.mcpServers?.["test-server"]).toBeDefined();

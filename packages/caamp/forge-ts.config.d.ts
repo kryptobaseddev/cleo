@@ -10,14 +10,6 @@ declare const _default: {
             "require-package-doc": "warn";
             "require-class-member-doc": "error";
             "require-interface-member-doc": "error";
-            "require-remarks": string;
-            "require-default-value": string;
-            "require-type-param": string;
-            "require-see": string;
-            "require-tsdoc-syntax": string;
-            "require-release-tag": string;
-            "require-fresh-guides": string;
-            "require-guide-coverage": string;
         };
     };
 };

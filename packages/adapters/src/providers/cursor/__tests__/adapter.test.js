@@ -230,10 +230,9 @@ describe('CursorInstallProvider', () => {
             expect(typeof result.instructionFileUpdated).toBe('boolean');
             expect(typeof result.mcpRegistered).toBe('boolean');
         });
-        it('does not register MCP even when mcpServerPath provided', async () => {
+        it('does not register MCP when only projectDir is provided', async () => {
             const result = await installProvider.install({
                 projectDir: '/tmp/test-project',
-                mcpServerPath: '/path/to/mcp-server.js',
             });
             expect(result.mcpRegistered).toBe(false);
         });

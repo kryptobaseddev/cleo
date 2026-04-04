@@ -201,7 +201,7 @@ describe('AdminHandler', () => {
             expect(getVersion).toHaveBeenCalledWith('/mock/project');
         });
         it('should call systemHealth for health', async () => {
-            vi.mocked(systemHealth).mockReturnValue({
+            vi.mocked(systemHealth).mockResolvedValue({
                 success: true,
                 data: { overall: 'healthy', checks: [], version: '1.0.0', installation: 'ok' },
             });

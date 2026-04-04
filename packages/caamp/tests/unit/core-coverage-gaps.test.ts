@@ -98,7 +98,7 @@ describe("core/lafs", () => {
       null,
       null,
       "session-123",
-      [{ code: "W_TEST", message: "test warning", severity: "low" }],
+      [{ code: "W_TEST", message: "test warning" }],
     );
     expect(envelope._meta.sessionId).toBe("session-123");
     expect(envelope._meta.warnings).toHaveLength(1);
@@ -1650,7 +1650,7 @@ describe("core/lock-utils - sleep and error paths", () => {
     const { readLockFile, writeLockFile } = await import("../../src/core/lock-utils.js");
 
     // This tests the sleep function indirectly through sequential lock acquires
-    const lock1 = { version: 1, skills: {}, mcpServers: { "test-server": { name: "test-server", source: "test", sourceType: "package" as const, agents: ["claude-code"], installedAt: "2026-01-01T00:00:00Z" } } };
+    const lock1 = { version: 1 as const, skills: {}, mcpServers: { "test-server": { name: "test-server", scopedName: "test-server", source: "test", sourceType: "package" as const, agents: ["claude-code"], installedAt: "2026-01-01T00:00:00Z", canonicalPath: "/tmp/test-server", isGlobal: false } } };
     await writeLockFile(lock1);
     const result = await readLockFile();
     expect(result.mcpServers?.["test-server"]).toBeDefined();
