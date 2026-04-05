@@ -136,6 +136,10 @@ export {
   skipStageWithReason,
 } from './lifecycle/index.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
+export {
+  isPipelineTransitionForward,
+  getPipelineStageOrder,
+} from './tasks/pipeline-stage.js';
 
 // Memory — brain lifecycle (temporal decay + consolidation)
 export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';

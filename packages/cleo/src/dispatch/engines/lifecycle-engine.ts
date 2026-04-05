@@ -150,8 +150,25 @@ export async function lifecycleProgress(
     return engineError('E_INVALID_INPUT', 'taskId, stage, and status are required');
   }
   try {
-    // Enforce lifecycle gates for stage transitions (T5698)
+    // Enforce forward-only stage progression
     if (status === 'in_progress' || status === 'completed') {
+      const { getLifecycleStatus } = await import('@cleocode/core/internal');
+      const current = await getLifecycleStatus(taskId, projectRoot);
+      if (current.currentStage) {
+        const { isPipelineTransitionForward, getPipelineStageOrder } = await import(
+          '@cleocode/core/internal'
+        );
+        if (!isPipelineTransitionForward(current.currentStage, stage)) {
+          const currentOrder = getPipelineStageOrder(current.currentStage);
+          const newOrder = getPipelineStageOrder(stage);
+          return engineError(
+            'E_LIFECYCLE_BACKWARD',
+            `Cannot move backward from "${current.currentStage}" (stage ${currentOrder}) to "${stage}" (stage ${newOrder}). Pipeline stages are forward-only.`,
+          );
+        }
+      }
+
+      // Enforce lifecycle gates for stage transitions (T5698)
       const gateResult = await checkGate(taskId, stage, projectRoot);
       if (!gateResult.allowed) {
         return engineError('E_LIFECYCLE_GATE_FAILED', gateResult.message);
