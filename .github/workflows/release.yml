@@ -122,7 +122,6 @@ jobs:
             "packages/lafs/dist/src/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
-            "packages/cleo/dist/mcp/index.js"
           )
           for path in "${required_artifacts[@]}"; do
             [[ -e "$path" ]] || { echo "ERROR: Missing required artifact: $path"; exit 1; }
