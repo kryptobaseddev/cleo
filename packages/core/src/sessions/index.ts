@@ -237,9 +237,9 @@ export async function endSession(
 
   const duration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
 
-  // Dispatch SessionEnd hook (best-effort, don't await)
+  // Dispatch SessionEnd hook — await to ensure memory bridge refreshes before CLI exits
   const { hooks } = await import('../hooks/registry.js');
-  hooks
+  await hooks
     .dispatch('SessionEnd', cwd ?? process.cwd(), {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
@@ -251,9 +251,9 @@ export async function endSession(
       /* Hooks are best-effort */
     });
 
-  // Bridge session data to brain.db as an observation (best-effort)
+  // Bridge session data to brain.db as an observation — await for CLI mode
   const { bridgeSessionToMemory } = await import('./session-memory-bridge.js');
-  bridgeSessionToMemory(cwd ?? process.cwd(), {
+  await bridgeSessionToMemory(cwd ?? process.cwd(), {
     sessionId: session.id,
     scope: options.sessionId
       ? session.scope.type
@@ -266,9 +266,6 @@ export async function endSession(
     /* Memory bridge is best-effort */
   });
 
-  // NOTE: Memory bridge refresh is now handled by the onSessionEnd hook
-  // via memory-bridge-refresh.ts (T138). No direct call needed here.
-
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler
   // or sessionEnd engine) is responsible for cleanup after evaluation completes.
@@ -280,6 +277,14 @@ export async function endSession(
 
   const acc = accessor ?? (await getAccessor(cwd));
   await acc.upsertSingleSession(session);
+
+  // Direct memory bridge refresh AFTER session is saved to DB
+  try {
+    const { refreshMemoryBridge } = await import('../memory/memory-bridge.js');
+    await refreshMemoryBridge(cwd ?? process.cwd());
+  } catch {
+    // best-effort
+  }
 
   return session;
 }

@@ -487,15 +487,38 @@ function initVerification(): TaskVerification {
   };
 }
 
-function computePassed(verification: TaskVerification): boolean {
-  for (const gate of DEFAULT_REQUIRED_GATES) {
+function computePassed(
+  verification: TaskVerification,
+  requiredGates: VerificationGate[] = DEFAULT_REQUIRED_GATES,
+): boolean {
+  for (const gate of requiredGates) {
     if (verification.gates[gate] !== true) return false;
   }
   return true;
 }
 
-function getMissingGates(verification: TaskVerification): VerificationGate[] {
-  return DEFAULT_REQUIRED_GATES.filter((g) => verification.gates[g] !== true);
+function getMissingGates(
+  verification: TaskVerification,
+  requiredGates: VerificationGate[] = DEFAULT_REQUIRED_GATES,
+): VerificationGate[] {
+  return requiredGates.filter((g) => verification.gates[g] !== true);
+}
+
+/** Load required gates from project config, falling back to hardcoded defaults. */
+async function loadRequiredGates(projectRoot: string): Promise<VerificationGate[]> {
+  try {
+    const { loadConfig } = await import('@cleocode/core/internal');
+    const config = await loadConfig(projectRoot);
+    const cfgGates = config.verification?.requiredGates;
+    if (Array.isArray(cfgGates) && cfgGates.length > 0) {
+      return cfgGates.filter((g): g is VerificationGate =>
+        DEFAULT_REQUIRED_GATES.includes(g as VerificationGate),
+      );
+    }
+  } catch {
+    // fallback
+  }
+  return [...DEFAULT_REQUIRED_GATES];
 }
 
 interface GateVerifyParams {
@@ -547,10 +570,12 @@ export async function validateGateVerify(
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
     }
 
+    const configGates = await loadRequiredGates(root);
+
     // View mode (no modifications)
     if (!gate && !all && !reset) {
       const verification = task.verification ?? initVerification();
-      const missing = getMissingGates(verification);
+      const missing = getMissingGates(verification, configGates);
       return {
         success: true,
         data: {
@@ -562,7 +587,7 @@ export async function validateGateVerify(
           verificationStatus: verification.passed ? 'passed' : 'pending',
           passed: verification.passed,
           round: verification.round,
-          requiredGates: DEFAULT_REQUIRED_GATES,
+          requiredGates: configGates,
           missingGates: missing,
           action: 'view',
         },
@@ -578,7 +603,7 @@ export async function validateGateVerify(
       verification = initVerification();
       action = 'reset';
     } else if (all) {
-      for (const g of DEFAULT_REQUIRED_GATES) {
+      for (const g of configGates) {
         verification.gates[g] = true;
       }
       if (agent) {
@@ -613,13 +638,13 @@ export async function validateGateVerify(
       action = 'set_gate';
     }
 
-    verification.passed = computePassed(verification);
+    verification.passed = computePassed(verification, configGates);
     task.verification = verification;
     task.updatedAt = now;
 
     await accessor.upsertSingleTask(task);
 
-    const missing = getMissingGates(verification);
+    const missing = getMissingGates(verification, configGates);
     const result: GateVerifyResult = {
       taskId,
       title: task.title,
@@ -629,7 +654,7 @@ export async function validateGateVerify(
       verificationStatus: verification.passed ? 'passed' : 'pending',
       passed: verification.passed,
       round: verification.round,
-      requiredGates: DEFAULT_REQUIRED_GATES,
+      requiredGates: configGates,
       missingGates: missing,
       action,
     };
@@ -637,7 +662,7 @@ export async function validateGateVerify(
     if (action === 'set_gate') {
       result.gateSet = gate;
     } else if (action === 'set_all') {
-      result.gatesSet = DEFAULT_REQUIRED_GATES;
+      result.gatesSet = configGates;
     }
 
     return { success: true, data: result };

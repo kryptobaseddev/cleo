@@ -148,6 +148,14 @@ export async function updateTask(
 
   if (options.status !== undefined) {
     validateStatus(options.status);
+
+    // Enforce valid status transitions (e.g. done can only go to pending/active)
+    const { validateStatusTransition } = await import('../validation/validation-rules.js');
+    const transitionViolations = validateStatusTransition(task.status, options.status);
+    if (transitionViolations.length > 0) {
+      throw new CleoError(ExitCode.VALIDATION_ERROR, transitionViolations[0].message);
+    }
+
     const oldStatus = task.status;
     task.status = options.status;
     changes.push('status');
