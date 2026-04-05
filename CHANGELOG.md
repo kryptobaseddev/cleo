@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2026.4.1] - 2026-04-05
+## [2026.4.2] - 2026-04-05
 
 ### Fixed
 - **`cleo inject` MCP purge**: replaced all `ct` prefix commands with `cleo`, removed `orchestrate.bootstrap` and `query({...})` MCP syntax from injection template

@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cant",
-  "version": "2026.4.1",
+  "version": "2026.4.2",
   "description": "CANT protocol parser and interpreter for CLEO - wraps cant-core WASM",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
