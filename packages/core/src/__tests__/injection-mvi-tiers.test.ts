@@ -1,12 +1,12 @@
 /**
- * Test CLEO-INJECTION.md v2.3.0 minimal-only template.
+ * Test CLEO-INJECTION.md v2.4.0 optimized CLI-only template.
  *
  * Validates the trimmed template:
- * 1. Has version 2.3.0
- * 2. Contains all minimal sections
- * 3. Does NOT contain standard/orchestrator content
+ * 1. Has version 2.4.0 with CLI-only dispatch
+ * 2. Contains all essential sections (session start, work loop, discovery, memory, errors)
+ * 3. Uses `cleo` prefix exclusively (no `ct` prefix, no MCP syntax)
  * 4. Contains escalation section with skill pointers
- * 5. Does NOT contain TIER markers
+ * 5. Is under 100 lines (optimized for token efficiency)
  *
  * @task T5096
  */
@@ -17,39 +17,32 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const thisFile = fileURLToPath(import.meta.url);
-// Template moved to packages/core/templates/ (was at monorepo root templates/)
-// thisFile is at packages/core/src/__tests__/, go up two levels to reach packages/core/
 const corePackageRoot = resolve(dirname(thisFile), '..', '..');
 const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 
 const templateExists = existsSync(injectionPath);
 
-describe('CLEO-INJECTION v2.3.0 minimal-only template', () => {
+describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
     expect(templateExists).toBe(true);
   });
 
-  describe('Version and metadata', () => {
-    it('has version 2.3.0', () => {
-      expect(content).toContain('Version: 2.3.0');
+  describe('Version and identity', () => {
+    it('has version 2.4.0', () => {
+      expect(content).toContain('Version: 2.4.0');
     });
 
-    it('has status ACTIVE', () => {
-      expect(content).toContain('Status: ACTIVE');
+    it('declares CLI-only dispatch', () => {
+      expect(content).toContain('CLI-only dispatch');
+      expect(content).toContain('cleo <command>');
     });
   });
 
-  describe('Contains all minimal sections', () => {
-    it('includes CLEO Identity section', () => {
-      expect(content).toContain('## CLEO Identity');
-      expect(content).toContain('CLEO protocol agent');
-      expect(content).toContain('cleo <command>');
-    });
-
-    it('includes Mandatory Efficiency Sequence', () => {
-      expect(content).toContain('## Mandatory Efficiency Sequence');
+  describe('Contains essential sections', () => {
+    it('includes Session Start sequence', () => {
+      expect(content).toContain('## Session Start');
       expect(content).toContain('cleo session status');
       expect(content).toContain('cleo dash');
       expect(content).toContain('cleo current');
@@ -57,91 +50,68 @@ describe('CLEO-INJECTION v2.3.0 minimal-only template', () => {
       expect(content).toContain('cleo show');
     });
 
-    it('includes Agent Work Loop', () => {
-      expect(content).toContain('## Agent Work Loop');
-      expect(content).toContain('cleo current');
+    it('includes Work Loop', () => {
+      expect(content).toContain('## Work Loop');
       expect(content).toContain('cleo complete');
-      expect(content).toContain('cleo next');
     });
 
-    it('includes Context Ethics', () => {
-      expect(content).toContain('## Context Ethics');
-      expect(content).toContain('Anti-patterns');
+    it('includes Task Discovery', () => {
+      expect(content).toContain('## Task Discovery');
+      expect(content).toContain('cleo find');
+      expect(content).toContain('cleo list');
+    });
+
+    it('includes Session Commands', () => {
+      expect(content).toContain('## Session Commands');
+      expect(content).toContain('cleo briefing');
+    });
+
+    it('includes Memory (BRAIN)', () => {
+      expect(content).toContain('## Memory (BRAIN)');
+      expect(content).toContain('cleo memory find');
+      expect(content).toContain('cleo memory timeline');
+      expect(content).toContain('cleo memory fetch');
+      expect(content).toContain('cleo observe');
     });
 
     it('includes Error Handling', () => {
       expect(content).toContain('## Error Handling');
       expect(content).toContain('exit code');
+      expect(content).toContain('E_NOT_FOUND');
     });
 
-    it('includes Task Discovery', () => {
-      expect(content).toContain('## Task Discovery');
-      expect(content).toContain('tasks find');
-    });
-
-    it('includes Time Estimates Prohibited', () => {
-      expect(content).toContain('## Time Estimates Prohibited');
-      expect(content).toContain('MUST NOT');
+    it('includes Rules', () => {
+      expect(content).toContain('## Rules');
+      expect(content).toContain('small');
+      expect(content).toContain('medium');
+      expect(content).toContain('large');
     });
   });
 
-  describe('Does NOT contain standard/orchestrator content', () => {
-    it('does not contain Session Protocol section', () => {
-      expect(content).not.toContain('## Session Protocol');
+  describe('CLI-only — no legacy MCP or ct syntax', () => {
+    it('does not use ct prefix for commands', () => {
+      expect(content).not.toMatch(/`ct /);
     });
 
-    it('does not contain CLI Fallback section', () => {
-      expect(content).not.toContain('## CLI Fallback');
+    it('does not contain MCP query/mutate syntax', () => {
+      expect(content).not.toContain('query({');
+      expect(content).not.toContain('mutate({');
+      expect(content).not.toContain('orchestrate.bootstrap');
     });
 
-    it('does not contain RCASD lifecycle', () => {
-      expect(content).not.toContain('## RCASD-IVTR+C');
-      expect(content).not.toContain('RCASD-IVTR+C Lifecycle');
-    });
-
-    it('does not contain ORC constraints', () => {
-      expect(content).not.toContain('ORC-001');
-      expect(content).not.toContain('## ORC Constraints');
-    });
-
-    it('does not contain BASE constraints', () => {
-      expect(content).not.toContain('BASE-001');
-      expect(content).not.toContain('## BASE Constraints');
-    });
-
-    it('does not contain Spawn Pipeline section', () => {
-      expect(content).not.toContain('## Spawn Pipeline');
-    });
-
-    it('does not contain Architecture Overview section', () => {
-      expect(content).not.toContain('## Architecture Overview');
-    });
-
-    it('does not contain Token Pre-Resolution section', () => {
-      expect(content).not.toContain('## Token Pre-Resolution');
-    });
-
-    it('does not contain Subagent Lifecycle section', () => {
-      expect(content).not.toContain('## Subagent Lifecycle');
-    });
-  });
-
-  describe('Does NOT contain TIER markers', () => {
-    it('has no TIER opening markers', () => {
+    it('does not contain TIER markers', () => {
       expect(content).not.toMatch(/<!-- TIER:\w+ -->/);
     });
 
-    it('has no TIER closing markers', () => {
-      expect(content).not.toMatch(/<!-- \/TIER:\w+ -->/);
-    });
-
-    it('does not contain MVI Progressive Disclosure comment', () => {
-      expect(content).not.toContain('MVI Progressive Disclosure');
+    it('does not contain removed standard/orchestrator content', () => {
+      expect(content).not.toContain('## RCASD-IVTR+C');
+      expect(content).not.toContain('ORC-001');
+      expect(content).not.toContain('## Spawn Pipeline');
     });
   });
 
   describe('Contains escalation section', () => {
-    it('has Escalation section header', () => {
+    it('has Escalation section', () => {
       expect(content).toContain('## Escalation');
     });
 
@@ -152,35 +122,17 @@ describe('CLEO-INJECTION v2.3.0 minimal-only template', () => {
     it('points to ct-orchestrator skill', () => {
       expect(content).toContain('ct-orchestrator');
     });
-
-    it('points to admin help', () => {
-      expect(content).toContain('admin help');
-    });
-
-    it('points to operations reference', () => {
-      expect(content).toContain('CLEO-OPERATIONS-REFERENCE.md');
-    });
-  });
-
-  describe('References section', () => {
-    it('has References section', () => {
-      expect(content).toContain('## References');
-    });
-
-    it('references VERB-STANDARDS.md', () => {
-      expect(content).toContain('VERB-STANDARDS.md');
-    });
   });
 
   describe('Template size', () => {
-    it('is under 160 lines', () => {
+    it('is under 100 lines (token-optimized)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThan(160);
+      expect(lines).toBeLessThanOrEqual(100);
     });
 
-    it('is at least 60 lines (not accidentally empty)', () => {
+    it('is at least 50 lines (not accidentally empty)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeGreaterThan(60);
+      expect(lines).toBeGreaterThan(50);
     });
   });
 });

@@ -196,11 +196,17 @@ export function registerMemoryBrainCommand(program: Command): void {
     });
 
   // -- fetch (retrieve full details for specific observation IDs) --
+  // Note: citty doesn't support variadic positional args, so we accept a single
+  // positional and split on commas/spaces to support: `cleo memory fetch ID1,ID2`
   memory
-    .command('fetch <ids...>')
+    .command('fetch <ids>')
     .description('Fetch full details for specific observation IDs')
     .option('--json', 'Output as JSON')
-    .action(async (ids: string[], _opts: Record<string, unknown>) => {
+    .action(async (idsRaw: string, _opts: Record<string, unknown>) => {
+      const ids = idsRaw
+        .split(/[,\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       await dispatchFromCli(
         'query',
         'memory',

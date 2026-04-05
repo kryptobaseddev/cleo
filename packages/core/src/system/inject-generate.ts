@@ -96,7 +96,7 @@ function buildMviMarkdown(state: {
 
   return `## CLEO Task Management (MVI)
 
-> **Bootstrap**: Call \`orchestrate.bootstrap\` with \`speed=fast\` at session start.
+> **Bootstrap**: Run \`cleo session status\` then \`cleo dash\` at session start.
 
 | Key | Value |
 |-----|-------|
@@ -109,39 +109,39 @@ ${focusLine}
 
 | Command | Description |
 |---------|-------------|
-| \`ct find "query"\` | Fuzzy search tasks (minimal context) |
-| \`ct show T1234\` | Full task details |
-| \`ct add "Title" --desc "..."\` | Create task |
-| \`ct done <id>\` | Complete task |
-| \`ct start <id>\` | Start working on task |
-| \`ct current\` | Show current task |
-| \`ct next\` | Suggest next task |
-| \`ct session list\` | List sessions |
-| \`ct session start --scope epic:T### --auto-start --name "..."\` | Start session |
-| \`ct session end --note "..."\` | End session |
-| \`ct dash\` | Project overview |
-| \`ct context\` | Context window usage |
+| \`cleo find "query"\` | Fuzzy search tasks (minimal context) |
+| \`cleo show T1234\` | Full task details |
+| \`cleo add "Title" -d "..."\` | Create task |
+| \`cleo done <id>\` | Complete task |
+| \`cleo start <id>\` | Start working on task |
+| \`cleo current\` | Show current task |
+| \`cleo next\` | Suggest next task |
+| \`cleo session list\` | List sessions |
+| \`cleo session start --scope epic:T### --auto-start --name "..."\` | Start session |
+| \`cleo session end --note "..."\` | End session |
+| \`cleo dash\` | Project overview |
+| \`cleo context\` | Context window usage |
 
 ### Session Protocol
 
-1. **START**: \`ct session list\` then \`ct session resume <id>\` or \`ct session start --scope epic:T### --auto-start --name "Work"\`
-2. **WORK**: \`ct current\` / \`ct next\` / \`ct complete <id>\` / \`ct start <id>\`
-3. **END**: \`ct complete <id>\` then \`ct session end --note "Progress"\`
+1. **START**: \`cleo session list\` then \`cleo session resume <id>\` or \`cleo session start --scope epic:T### --auto-start --name "Work"\`
+2. **WORK**: \`cleo current\` / \`cleo next\` / \`cleo complete <id>\` / \`cleo start <id>\`
+3. **END**: \`cleo complete <id>\` then \`cleo session end --note "Progress"\`
 
 ### Error Handling
 
 | Exit | Code | Fix |
 |:----:|------|-----|
-| 4 | \`E_NOT_FOUND\` | Use \`ct find\` or \`ct list\` to verify |
+| 4 | \`E_NOT_FOUND\` | Use \`cleo find\` or \`cleo list\` to verify |
 | 6 | \`E_VALIDATION\` | Check field lengths, escape \`$\` as \`\\$\` |
-| 10 | \`E_PARENT_NOT_FOUND\` | Verify with \`ct exists <parent-id>\` |
+| 10 | \`E_PARENT_NOT_FOUND\` | Verify with \`cleo exists <parent-id>\` |
 | 11 | \`E_DEPTH_EXCEEDED\` | Exceeds configured hierarchy.maxDepth (default: 3) |
 | 12 | \`E_SIBLING_LIMIT\` | Exceeds configured maxSiblings (default: unlimited) |
 
-**After EVERY command**: Check exit code (\`0\` = success), check \`"success"\` in JSON output, execute \`error.fix\` if provided.
+**After EVERY command**: Check exit code (\`0\` = success), check \`"success"\` in JSON output.
 
 ### Detailed Guidance
 
-For full protocol details, load the **ct-cleo** skill: \`query({ domain: "skills", operation: "show", params: { name: "ct-cleo" }})\`
+For full protocol details, load the **ct-cleo** skill.
 `;
 }

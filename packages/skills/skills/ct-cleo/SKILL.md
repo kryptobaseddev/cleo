@@ -427,9 +427,9 @@ After EVERY command:
 
 | Exit | Code | Fix |
 |:----:|------|-----|
-| 4 | `E_NOT_FOUND` | Use `ct find` to verify |
+| 4 | `E_NOT_FOUND` | Use `cleo find` to verify |
 | 6 | `E_VALIDATION_*` | Check field lengths, escape `$` as `\$` |
-| 10 | `E_PARENT_NOT_FOUND` | Verify with `ct find <parent-id>` |
+| 10 | `E_PARENT_NOT_FOUND` | Verify with `cleo find <parent-id>` |
 | 11 | `E_DEPTH_EXCEEDED` | Max depth 3 (epic->task->subtask) |
 | 12 | `E_SIBLING_LIMIT` | Max 7 siblings per parent |
 | 62 | `MANIFEST_ENTRY_MISSING` | Subagent must call `pipeline.manifest.append` before `tasks.complete` |

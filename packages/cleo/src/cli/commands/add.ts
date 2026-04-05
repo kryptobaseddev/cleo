@@ -23,7 +23,8 @@ export function registerAddCommand(program: Command): void {
     .option('--size <size>', 'Scope size: small, medium, large')
     .option('-P, --phase <phase>', 'Phase slug')
     .option('--add-phase', 'Create new phase if it does not exist')
-    .option('-d, --description <desc>', 'Task description')
+    .option('-d, --description <desc>', 'Task description (alias: --desc)')
+    .option('--desc <desc>', 'Task description (alias for --description)')
     .option('-l, --labels <labels>', 'Comma-separated labels')
     .option('--files <files>', 'Comma-separated file paths')
     .option('--acceptance <criteria>', 'Pipe-separated acceptance criteria (e.g. "AC1|AC2|AC3")')
@@ -43,6 +44,8 @@ export function registerAddCommand(program: Command): void {
       if (opts['addPhase'] !== undefined) params['addPhase'] = opts['addPhase'];
       if (opts['description'] !== undefined) {
         params['description'] = opts['description'];
+      } else if (opts['desc'] !== undefined) {
+        params['description'] = opts['desc'];
       } else {
         params['description'] = title;
       }

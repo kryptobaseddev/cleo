@@ -31,3 +31,12 @@ clawmsgr-*.json
 clawmsgr-*.json
 clawmsgr-*.json
 types.js
+
+# Rust coverage
+tarpaulin-report.json
+
+# VS Code extension build artifacts
+editors/vscode-cant/src/*.js
+editors/vscode-cant/src/*.js.map
+editors/vscode-cant/src/*.d.ts
+editors/vscode-cant/src/*.d.ts.map

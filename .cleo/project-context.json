@@ -1,8 +1,9 @@
 {
   "schemaVersion": "1.0.0",
-  "detectedAt": "2026-03-18T21:13:39.174Z",
+  "detectedAt": "2026-04-05T14:10:05.109Z",
   "projectTypes": [
-    "node"
+    "node",
+    "rust"
   ],
   "primaryType": "node",
   "monorepo": true,
@@ -19,9 +20,11 @@
     "command": "pnpm run build"
   },
   "directories": {
+    "source": "src",
     "docs": "docs"
   },
   "conventions": {
+    "fileNaming": "kebab-case",
     "importStyle": "esm",
     "typeSystem": "TypeScript strict"
   },
@@ -34,6 +37,7 @@
       "Include .js extension in import paths (ESM convention)",
       "Use explicit return types on exported functions",
       "Use describe/it blocks with expect assertions",
+      "Use kebab-case for file names",
       "This is a monorepo — respect package boundaries"
     ],
     "avoidPatterns": [
