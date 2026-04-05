@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.1] - 2026-04-05
+
+### Fixed
+- **`cleo inject` MCP purge**: replaced all `ct` prefix commands with `cleo`, removed `orchestrate.bootstrap` and `query({...})` MCP syntax from injection template
+- **`cleo memory fetch` broken**: variadic `<ids...>` args not parsed by citty shim — switched to comma-split single positional arg
+- **`cleo add --desc` silent failure**: `--desc` flag not recognized, causing description to default to title and trigger anti-hallucination rule — added `--desc` as explicit alias
+- **Root version mismatch**: root `package.json` was 2026.3.76, all packages were 2026.4.1
+- **Help text `ct` prefix**: system-engine.ts help topics used deprecated `ct` prefix instead of `cleo`
+- **ct-cleo skill stale references**: 2 `ct find` references updated to `cleo find`
+
+### Changed
+- **CLEO-INJECTION.md optimized**: 133 → 72 lines (v2.4.0), CLI-only dispatch, all `cleo` prefix, no MCP syntax
+- **Injection template tests**: updated for v2.4.0 structure (19 tests passing)
+- **All 15 ct-* skills synced**: deployed from repo sources with MCP references removed
+- **signaldock-runtime**: enhanced provider detection, generic provider support, cleaner adapter init
+
 ## [2026.4.0] - 2026-04-01
 
 ### Added
