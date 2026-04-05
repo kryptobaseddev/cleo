@@ -136,11 +136,6 @@ export {
   skipStageWithReason,
 } from './lifecycle/index.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
-export {
-  isPipelineTransitionForward,
-  getPipelineStageOrder,
-} from './tasks/pipeline-stage.js';
-
 // Memory — brain lifecycle (temporal decay + consolidation)
 export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';
 export { applyTemporalDecay, consolidateMemories } from './memory/brain-lifecycle.js';
@@ -188,7 +183,6 @@ export {
   memoryTimeline,
   memoryUnlink,
 } from './memory/engine-compat.js';
-
 // Memory — pipeline manifests
 export {
   pipelineManifestAppend,
@@ -200,7 +194,6 @@ export {
   pipelineManifestStats,
   readManifestEntries,
 } from './memory/pipeline-manifest-sqlite.js';
-
 // Metrics
 export {
   autoRecordDispatchTokenUsage,
@@ -481,6 +474,10 @@ export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
 export type { CompactTask } from './tasks/list.js';
 export { toCompact } from './tasks/list.js';
+export {
+  getPipelineStageOrder,
+  isPipelineTransitionForward,
+} from './tasks/pipeline-stage.js';
 export { discoverRelated } from './tasks/relates.js';
 export type { ComplexityFactor, FlatTreeNode } from './tasks/task-ops.js';
 export {
