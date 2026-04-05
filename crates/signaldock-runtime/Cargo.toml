@@ -24,3 +24,8 @@ anyhow = "1"
 thiserror = "2"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"
+private_intra_doc_links = "warn"
+bare_urls = "warn"
