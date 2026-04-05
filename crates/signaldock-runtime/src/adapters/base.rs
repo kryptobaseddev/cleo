@@ -9,7 +9,10 @@ use anyhow::Result;
 #[derive(Debug, Clone)]
 pub enum AdapterConfig {
     /// HTTP POST to a URL with optional auth header.
-    Http { url: String, auth_header: Option<String> },
+    Http {
+        url: String,
+        auth_header: Option<String>,
+    },
     /// Write JSON files to a directory.
     File { dir: String },
     /// Print JSON to stdout.

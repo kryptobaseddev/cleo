@@ -5,8 +5,8 @@
 //! - macOS: launchd plist (~/Library/LaunchAgents/)
 //! - Windows: NSSM wrapper or Windows Service (future)
 
-use anyhow::{Context, Result};
 use crate::config::Config;
+use anyhow::{Context, Result};
 
 /// Detected operating system for service installation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,10 +19,15 @@ pub enum ServicePlatform {
 
 impl ServicePlatform {
     pub fn detect() -> Self {
-        if cfg!(target_os = "linux") { Self::Linux }
-        else if cfg!(target_os = "macos") { Self::MacOS }
-        else if cfg!(target_os = "windows") { Self::Windows }
-        else { Self::Unknown }
+        if cfg!(target_os = "linux") {
+            Self::Linux
+        } else if cfg!(target_os = "macos") {
+            Self::MacOS
+        } else if cfg!(target_os = "windows") {
+            Self::Windows
+        } else {
+            Self::Unknown
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -40,14 +45,21 @@ pub fn install_service(config: &Config) -> Result<()> {
     let platform = ServicePlatform::detect();
     let bin = std::env::current_exe()?.display().to_string();
 
-    eprintln!("[signaldock] Detected OS: {} ({})", std::env::consts::OS, platform.name());
+    eprintln!(
+        "[signaldock] Detected OS: {} ({})",
+        std::env::consts::OS,
+        platform.name()
+    );
 
     match platform {
         ServicePlatform::Linux => install_systemd(config, &bin),
         ServicePlatform::MacOS => install_launchd(config, &bin),
         ServicePlatform::Windows => install_windows(config, &bin),
         ServicePlatform::Unknown => {
-            eprintln!("[signaldock] Unknown OS: {}. Generating systemd config as default.", std::env::consts::OS);
+            eprintln!(
+                "[signaldock] Unknown OS: {}. Generating systemd config as default.",
+                std::env::consts::OS
+            );
             install_systemd(config, &bin)
         }
     }
@@ -63,7 +75,7 @@ fn install_systemd(config: &Config, bin: &str) -> Result<()> {
     std::fs::create_dir_all(&service_dir)?;
 
     let unit = format!(
-r#"[Unit]
+        r#"[Unit]
 Description=SignalDock Runtime for @{agent}
 After=network-online.target
 Wants=network-online.target
@@ -77,7 +89,13 @@ Environment=HOME={home}
 
 [Install]
 WantedBy=default.target
-"#, agent=config.agent_id, key=config.api_key, api=config.api_base, bin=bin, home=home);
+"#,
+        agent = config.agent_id,
+        key = config.api_key,
+        api = config.api_base,
+        bin = bin,
+        home = home
+    );
 
     let path = format!("{}/signaldock-runtime.service", service_dir);
     std::fs::write(&path, &unit)?;
@@ -106,7 +124,7 @@ fn install_launchd(config: &Config, bin: &str) -> Result<()> {
     std::fs::create_dir_all(&log_dir)?;
 
     let plist = format!(
-r#"<?xml version="1.0" encoding="UTF-8"?>
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -140,8 +158,15 @@ r#"<?xml version="1.0" encoding="UTF-8"?>
     </dict>
 </dict>
 </plist>
-"#, label=label, bin=bin, agent=config.agent_id, key=config.api_key,
-    api=config.api_base, home=home, log_dir=log_dir);
+"#,
+        label = label,
+        bin = bin,
+        agent = config.agent_id,
+        key = config.api_key,
+        api = config.api_base,
+        home = home,
+        log_dir = log_dir
+    );
 
     let path = format!("{}/{}.plist", agents_dir, label);
     std::fs::write(&path, &plist)?;
@@ -175,16 +200,21 @@ fn install_windows(config: &Config, bin: &str) -> Result<()> {
     // Generate a batch script + Task Scheduler XML as a practical solution
     let bat_path = format!("{}\\signaldock-runtime.bat", home);
     let bat = format!(
-r#"@echo off
+        r#"@echo off
 "{bin}" connect --id {agent} --key {key} --api {api} --interval 15
-"#, bin=bin, agent=config.agent_id, key=config.api_key, api=config.api_base);
+"#,
+        bin = bin,
+        agent = config.agent_id,
+        key = config.api_key,
+        api = config.api_base
+    );
 
     std::fs::write(&bat_path, &bat)?;
 
     // Task Scheduler XML
     let xml_path = format!("{}\\signaldock-runtime-task.xml", home);
     let xml = format!(
-r#"<?xml version="1.0" encoding="UTF-16"?>
+        r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
@@ -210,7 +240,12 @@ r#"<?xml version="1.0" encoding="UTF-16"?>
     </Exec>
   </Actions>
 </Task>
-"#, bin=bin, agent=config.agent_id, key=config.api_key, api=config.api_base);
+"#,
+        bin = bin,
+        agent = config.agent_id,
+        key = config.api_key,
+        api = config.api_base
+    );
 
     std::fs::write(&xml_path, &xml)?;
 
@@ -219,7 +254,10 @@ r#"<?xml version="1.0" encoding="UTF-16"?>
     println!("   Task XML: {}", xml_path);
     println!();
     println!("Option A — Task Scheduler (recommended):");
-    println!("  schtasks /create /tn \"SignalDock Runtime\" /xml \"{}\"", xml_path);
+    println!(
+        "  schtasks /create /tn \"SignalDock Runtime\" /xml \"{}\"",
+        xml_path
+    );
     println!();
     println!("Option B — NSSM (if installed):");
     println!("  nssm install SignalDockRuntime \"{}\"", bat_path);

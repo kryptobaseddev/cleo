@@ -3,10 +3,10 @@
 //! Detection: ~/.openclaw/openclaw.json with hooks.enabled = true
 //! Delivery: Uses HttpAdapter to POST to http://127.0.0.1:{port}/hooks/agent
 
-use anyhow::{Context, Result};
+use super::provider::*;
 use crate::adapters::HttpAdapter;
 use crate::adapters::base::{Adapter, TransportResult};
-use super::provider::*;
+use anyhow::{Context, Result};
 
 pub struct OpenClawProvider {
     http: HttpAdapter,
@@ -45,12 +45,21 @@ impl Provider for OpenClawProvider {
         let content = std::fs::read_to_string(home.join(".openclaw/openclaw.json")).ok()?;
         let json: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-        if json.get("hooks")?.get("enabled")?.as_bool()? != true { return None; }
+        if json.get("hooks")?.get("enabled")?.as_bool()? != true {
+            return None;
+        }
 
-        let port = json.get("gateway").and_then(|g| g.get("port")).and_then(|p| p.as_u64()).unwrap_or(18789) as u16;
+        let port = json
+            .get("gateway")
+            .and_then(|g| g.get("port"))
+            .and_then(|p| p.as_u64())
+            .unwrap_or(18789) as u16;
         let token = json.get("hooks")?.get("token")?.as_str()?.to_string();
 
-        eprintln!("[signaldock] Detected OpenClaw on port {} with hooks enabled", port);
+        eprintln!(
+            "[signaldock] Detected OpenClaw on port {} with hooks enabled",
+            port
+        );
         Some(Box::new(Self::new(port, token)))
     }
 
@@ -78,6 +87,9 @@ impl Provider for OpenClawProvider {
             format!("http://127.0.0.1:{}/health", self.port),
             None,
         );
-        matches!(health.send(&serde_json::json!({})), Ok(TransportResult::Ok) | Err(_))
+        matches!(
+            health.send(&serde_json::json!({})),
+            Ok(TransportResult::Ok) | Err(_)
+        )
     }
 }

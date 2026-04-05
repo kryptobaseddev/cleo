@@ -1,9 +1,9 @@
+mod adapters;
+mod cli;
 mod config;
 mod receiver;
-mod adapters;
 mod sender;
 mod service;
-mod cli;
 
 use clap::Parser;
 

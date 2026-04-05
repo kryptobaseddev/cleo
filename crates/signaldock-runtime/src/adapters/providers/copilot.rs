@@ -3,8 +3,8 @@
 //! Detection: `gh copilot` available, or ~/.config/github-copilot/
 //! Delivery: TBD
 
-use anyhow::Result;
 use super::provider::*;
+use anyhow::Result;
 
 pub struct CopilotProvider {
     config_dir: String,
@@ -26,7 +26,9 @@ impl Provider for CopilotProvider {
         let dir = home.join(".config/github-copilot");
         if dir.exists() {
             eprintln!("[signaldock] Detected GitHub Copilot at {}", dir.display());
-            return Some(Box::new(Self { config_dir: dir.to_string_lossy().to_string() }));
+            return Some(Box::new(Self {
+                config_dir: dir.to_string_lossy().to_string(),
+            }));
         }
         None
     }
@@ -35,10 +37,13 @@ impl Provider for CopilotProvider {
         let messages_dir = std::path::Path::new(&self.config_dir).join("messages");
         std::fs::create_dir_all(&messages_dir)?;
         let path = messages_dir.join(format!("{}.json", msg.id));
-        std::fs::write(&path, serde_json::to_string_pretty(&serde_json::json!({
-            "from": msg.from, "content": msg.content,
-            "messageId": msg.id, "createdAt": msg.created_at,
-        }))?)?;
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "from": msg.from, "content": msg.content,
+                "messageId": msg.id, "createdAt": msg.created_at,
+            }))?,
+        )?;
         eprintln!("[signaldock] Copilot: written to {}", path.display());
         Ok(DeliveryResult::Delivered)
     }

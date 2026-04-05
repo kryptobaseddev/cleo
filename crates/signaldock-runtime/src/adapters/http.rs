@@ -5,8 +5,8 @@
 //! - WebhookProvider (POST to user-specified URL)
 //! - Any future provider that communicates via HTTP
 
-use anyhow::Result;
 use super::base::{Adapter, TransportResult};
+use anyhow::Result;
 
 pub struct HttpAdapter {
     url: String,
@@ -20,11 +20,14 @@ impl HttpAdapter {
 }
 
 impl Adapter for HttpAdapter {
-    fn name(&self) -> &str { "http" }
+    fn name(&self) -> &str {
+        "http"
+    }
 
     fn send(&self, payload: &serde_json::Value) -> Result<TransportResult> {
         let client = reqwest::blocking::Client::new();
-        let mut req = client.post(&self.url)
+        let mut req = client
+            .post(&self.url)
             .json(payload)
             .timeout(std::time::Duration::from_secs(10));
 
@@ -34,10 +37,14 @@ impl Adapter for HttpAdapter {
 
         match req.send() {
             Ok(r) if r.status().is_success() => Ok(TransportResult::Ok),
-            Ok(r) if r.status().is_server_error() => {
-                Ok(TransportResult::RetryableError(format!("HTTP {}", r.status())))
-            }
-            Ok(r) => Ok(TransportResult::PermanentError(format!("HTTP {}", r.status()))),
+            Ok(r) if r.status().is_server_error() => Ok(TransportResult::RetryableError(format!(
+                "HTTP {}",
+                r.status()
+            ))),
+            Ok(r) => Ok(TransportResult::PermanentError(format!(
+                "HTTP {}",
+                r.status()
+            ))),
             Err(e) if e.is_timeout() || e.is_connect() => {
                 Ok(TransportResult::RetryableError(format!("{}", e)))
             }

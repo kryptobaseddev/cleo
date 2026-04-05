@@ -39,25 +39,25 @@ pub mod detect;
 pub mod factory;
 
 // --- Provider implementations ---
-pub mod openclaw;
 pub mod claude_code;
 pub mod codex;
-pub mod gemini;
 pub mod copilot;
-pub mod opencode;
+pub mod gemini;
 pub mod generic;
+pub mod openclaw;
+pub mod opencode;
 
 // Re-export the trait and core types
-pub use provider::{Provider, ProviderInfo, DeliveryResult, Message};
+pub use provider::{DeliveryResult, Message, Provider, ProviderInfo};
 
 // Re-export concrete providers
-pub use openclaw::OpenClawProvider;
 pub use claude_code::ClaudeCodeProvider;
 pub use codex::CodexProvider;
-pub use gemini::GeminiProvider;
 pub use copilot::CopilotProvider;
+pub use gemini::GeminiProvider;
+pub use generic::{FileProvider, StdoutProvider, WebhookProvider};
+pub use openclaw::OpenClawProvider;
 pub use opencode::OpenCodeProvider;
-pub use generic::{WebhookProvider, StdoutProvider, FileProvider};
 
 // Re-export detection
 pub use detect::detect_provider;

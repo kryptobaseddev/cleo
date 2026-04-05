@@ -25,19 +25,19 @@
 
 // Transport layer
 pub mod base;
+pub mod file;
 pub mod http;
 pub mod stdout;
-pub mod file;
 
 // Platform providers (nested)
 pub mod providers;
 
 // Re-export transport types
 pub use base::{Adapter, AdapterConfig, TransportResult};
+pub use file::FileAdapter;
 pub use http::HttpAdapter;
 pub use stdout::StdoutAdapter;
-pub use file::FileAdapter;
 
 // Re-export provider types (bubble up for convenience)
-pub use providers::provider::{Provider, ProviderInfo, Message, DeliveryResult};
-pub use providers::{detect_provider, create_provider};
+pub use providers::provider::{DeliveryResult, Message, Provider, ProviderInfo};
+pub use providers::{create_provider, detect_provider};

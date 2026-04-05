@@ -89,7 +89,9 @@ pub trait Provider: Send + Sync {
     /// Returns Some(configured_instance) if found, None if not installed.
     ///
     /// Detection should be fast (filesystem checks only, no network).
-    fn detect() -> Option<Box<dyn Provider>> where Self: Sized;
+    fn detect() -> Option<Box<dyn Provider>>
+    where
+        Self: Sized;
 
     /// Deliver a message to the agent platform.
     ///
@@ -101,11 +103,21 @@ pub trait Provider: Send + Sync {
 
     /// Check if the provider is healthy and can accept deliveries.
     /// Default: always true.
-    fn is_healthy(&self) -> bool { true }
+    fn is_healthy(&self) -> bool {
+        true
+    }
 
     /// Human-readable status string for `signaldock status`.
     fn status_line(&self) -> String {
         let info = self.info();
-        format!("{} ({})", info.display_name, if self.is_healthy() { "healthy" } else { "unhealthy" })
+        format!(
+            "{} ({})",
+            info.display_name,
+            if self.is_healthy() {
+                "healthy"
+            } else {
+                "unhealthy"
+            }
+        )
     }
 }

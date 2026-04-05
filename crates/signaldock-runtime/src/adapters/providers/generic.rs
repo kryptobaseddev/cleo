@@ -5,9 +5,12 @@
 //! - StdoutProvider → StdoutAdapter  
 //! - FileProvider → FileAdapter
 
-use anyhow::Result;
-use crate::adapters::{self, base::{Adapter, TransportResult}};
 use super::provider::*;
+use crate::adapters::{
+    self,
+    base::{Adapter, TransportResult},
+};
+use anyhow::Result;
 
 // ============================================================
 // Webhook — wraps HttpAdapter
@@ -19,15 +22,25 @@ pub struct WebhookProvider {
 
 impl WebhookProvider {
     pub fn new(url: String) -> Self {
-        Self { http: adapters::HttpAdapter::new(url, None) }
+        Self {
+            http: adapters::HttpAdapter::new(url, None),
+        }
     }
 }
 
 impl Provider for WebhookProvider {
     fn info(&self) -> ProviderInfo {
-        ProviderInfo { name: "webhook", display_name: "Webhook", version: "-", config_paths: &[], docs_url: "" }
+        ProviderInfo {
+            name: "webhook",
+            display_name: "Webhook",
+            version: "-",
+            config_paths: &[],
+            docs_url: "",
+        }
     }
-    fn detect() -> Option<Box<dyn Provider>> { None }
+    fn detect() -> Option<Box<dyn Provider>> {
+        None
+    }
     fn deliver(&self, msg: &Message) -> Result<DeliveryResult> {
         let payload = serde_json::json!({
             "from": msg.from, "content": msg.content,
@@ -50,9 +63,17 @@ pub struct StdoutProvider;
 
 impl Provider for StdoutProvider {
     fn info(&self) -> ProviderInfo {
-        ProviderInfo { name: "stdout", display_name: "Stdout", version: "-", config_paths: &[], docs_url: "" }
+        ProviderInfo {
+            name: "stdout",
+            display_name: "Stdout",
+            version: "-",
+            config_paths: &[],
+            docs_url: "",
+        }
     }
-    fn detect() -> Option<Box<dyn Provider>> { None }
+    fn detect() -> Option<Box<dyn Provider>> {
+        None
+    }
     fn deliver(&self, msg: &Message) -> Result<DeliveryResult> {
         let payload = serde_json::json!({
             "from": msg.from, "content": msg.content,
@@ -77,15 +98,25 @@ pub struct FileProvider {
 
 impl FileProvider {
     pub fn new(dir: String) -> Self {
-        Self { file: adapters::FileAdapter::new(dir) }
+        Self {
+            file: adapters::FileAdapter::new(dir),
+        }
     }
 }
 
 impl Provider for FileProvider {
     fn info(&self) -> ProviderInfo {
-        ProviderInfo { name: "file", display_name: "File Output", version: "-", config_paths: &[], docs_url: "" }
+        ProviderInfo {
+            name: "file",
+            display_name: "File Output",
+            version: "-",
+            config_paths: &[],
+            docs_url: "",
+        }
     }
-    fn detect() -> Option<Box<dyn Provider>> { None }
+    fn detect() -> Option<Box<dyn Provider>> {
+        None
+    }
     fn deliver(&self, msg: &Message) -> Result<DeliveryResult> {
         let payload = serde_json::json!({
             "from": msg.from, "content": msg.content,

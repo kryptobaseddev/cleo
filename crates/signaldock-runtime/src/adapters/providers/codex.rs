@@ -3,8 +3,8 @@
 //! Detection: `codex` or `openai` CLI in PATH, or ~/.codex/ config
 //! Delivery: TBD — file-based or stdin injection
 
-use anyhow::Result;
 use super::provider::*;
+use anyhow::Result;
 
 pub struct CodexProvider {
     config_dir: String,
