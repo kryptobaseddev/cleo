@@ -1,5 +1,4 @@
 import { createRequire } from 'node:module';
-import envelopeSchema from '../schemas/v1/envelope.schema.json' with { type: 'json' };
 import { getNativeModule } from './native-loader.js';
 import type { LAFSEnvelope } from './types.js';
 
@@ -19,6 +18,7 @@ function getAjvValidate(): typeof ajvValidate {
   if (ajvValidate) return ajvValidate;
 
   const require = createRequire(import.meta.url);
+  const envelopeSchema = require('../schemas/v1/envelope.schema.json') as Record<string, unknown>;
   const AjvModule = require('ajv') as
     | { default?: new (opts: object) => unknown }
     | (new (
@@ -45,20 +45,21 @@ function getAjvValidate(): typeof ajvValidate {
 }
 
 /**
- * Structured representation of a single validation error from AJV.
+ * Structured representation of a single schema validation error.
  *
  * @remarks
- * Normalizes the raw AJV error shape into a predictable structure
- * with guaranteed non-optional fields.
+ * Normalizes the validation error shape from either the native Rust
+ * validator or the AJV fallback into a predictable structure with
+ * guaranteed non-optional fields.
  */
 export interface StructuredValidationError {
   /** JSON Pointer path to the property that failed validation (e.g., `"/_meta/mvi"`). */
   path: string;
-  /** The AJV validation keyword that triggered the error (e.g., `"required"`, `"type"`). */
+  /** The JSON Schema keyword that triggered the error (e.g., `"required"`, `"type"`). */
   keyword: string;
   /** Human-readable description of the validation failure. */
   message: string;
-  /** Keyword-specific parameters from AJV (e.g., `{ missingProperty: "success" }`). */
+  /** Keyword-specific parameters (e.g., `{ missingProperty: "success" }`). */
   params: Record<string, unknown>;
 }
 
@@ -82,9 +83,9 @@ export interface EnvelopeValidationResult {
  * Validates an unknown input against the LAFS envelope JSON Schema (Draft-07).
  *
  * @remarks
- * Uses a pre-compiled AJV validator with `allErrors: true` so every
- * violation is reported, not just the first. The compiled schema is
- * shared across calls for performance.
+ * Uses the native Rust validator (when available) or falls back to
+ * AJV. Both backends report all violations, not just the first.
+ * The compiled schema/validator is shared across calls for performance.
  *
  * @param input - The raw value to validate.
  * @returns An {@link EnvelopeValidationResult} with validity status and any errors.
