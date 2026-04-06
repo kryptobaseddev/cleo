@@ -6,6 +6,7 @@ members = [
     "crates/cant-runtime",
     "crates/conduit-core",
     "crates/lafs-core",
+    "crates/lafs-napi",
     "crates/signaldock-core",
     "crates/signaldock-protocol",
     "crates/signaldock-storage",

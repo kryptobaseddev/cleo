@@ -54,6 +54,7 @@
   "scripts": {
     "version": "node scripts/sync-version.mjs",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build:native": "cargo build --release --manifest-path ../../crates/lafs-napi/Cargo.toml",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -70,7 +71,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "author": "CLEO Code <hello@cleo.co> (https://cleo.co)",
+  "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
   "license": "MIT",
   "devDependencies": {
     "@types/express": "^5.0.6",

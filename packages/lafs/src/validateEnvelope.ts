@@ -1,39 +1,48 @@
 import { createRequire } from 'node:module';
 import envelopeSchema from '../schemas/v1/envelope.schema.json' with { type: 'json' };
+import { getNativeModule } from './native-loader.js';
 import type { LAFSEnvelope } from './types.js';
 
-const require = createRequire(import.meta.url);
-const AjvModule = require('ajv') as
-  | { default?: new (opts: object) => unknown }
-  | (new (
-      opts: object,
-    ) => unknown);
-const AddFormatsModule = require('ajv-formats') as
-  | { default?: (ajv: unknown) => void }
-  | ((ajv: unknown) => void);
+// ── AJV Fallback (loaded lazily, only when native binding unavailable) ──
 
-const AjvCtor = (typeof AjvModule === 'function' ? AjvModule : AjvModule.default) as new (
-  opts: object,
-) => {
-  compile: (schema: unknown) => {
-    (input: unknown): boolean;
-    errors?: Array<{
-      instancePath?: string;
-      keyword?: string;
-      message?: string;
-      params?: Record<string, unknown>;
-    }>;
+let ajvValidate: {
+  (input: unknown): boolean;
+  errors?: Array<{
+    instancePath?: string;
+    keyword?: string;
+    message?: string;
+    params?: Record<string, unknown>;
+  }>;
+} | null = null;
+
+function getAjvValidate(): typeof ajvValidate {
+  if (ajvValidate) return ajvValidate;
+
+  const require = createRequire(import.meta.url);
+  const AjvModule = require('ajv') as
+    | { default?: new (opts: object) => unknown }
+    | (new (
+        opts: object,
+      ) => unknown);
+  const AddFormatsModule = require('ajv-formats') as
+    | { default?: (ajv: unknown) => void }
+    | ((ajv: unknown) => void);
+
+  const AjvCtor = (typeof AjvModule === 'function' ? AjvModule : AjvModule.default) as new (
+    opts: object,
+  ) => {
+    compile: (schema: unknown) => typeof ajvValidate;
   };
-};
 
-const addFormats = (
-  typeof AddFormatsModule === 'function' ? AddFormatsModule : AddFormatsModule.default
-) as (ajv: unknown) => void;
+  const addFormats = (
+    typeof AddFormatsModule === 'function' ? AddFormatsModule : AddFormatsModule.default
+  ) as (ajv: unknown) => void;
 
-const ajv = new AjvCtor({ allErrors: true, strict: true, allowUnionTypes: true });
-addFormats(ajv);
-
-const validate = ajv.compile(envelopeSchema);
+  const ajv = new AjvCtor({ allErrors: true, strict: true, allowUnionTypes: true });
+  addFormats(ajv);
+  ajvValidate = ajv.compile(envelopeSchema);
+  return ajvValidate;
+}
 
 /**
  * Structured representation of a single validation error from AJV.
@@ -89,6 +98,29 @@ export interface EnvelopeValidationResult {
  * ```
  */
 export function validateEnvelope(input: unknown): EnvelopeValidationResult {
+  // Try native Rust binding first (faster, schema embedded at compile time)
+  const native = getNativeModule();
+  if (native) {
+    const payload = JSON.stringify(input);
+    const result = native.lafsValidateEnvelope(payload);
+    return {
+      valid: result.valid,
+      errors: result.errors,
+      structuredErrors: result.structuredErrors.map((se) => ({
+        path: se.path,
+        keyword: se.keyword,
+        message: se.message,
+        params: se.params,
+      })),
+    };
+  }
+
+  // AJV fallback when native binding is unavailable
+  const validate = getAjvValidate();
+  if (!validate) {
+    return { valid: false, errors: ['Validation unavailable'], structuredErrors: [] };
+  }
+
   const valid = validate(input);
   if (valid) {
     return { valid: true, errors: [], structuredErrors: [] };

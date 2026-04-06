@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       'packages/*/src/**/*.test.ts',
       'packages/*/src/**/__tests__/*.test.ts',
+      'packages/*/tests/**/*.test.ts',
     ],
     exclude: [
       'node_modules',
@@ -29,6 +30,7 @@ export default defineConfig({
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
+      '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,
     },
   },
 });

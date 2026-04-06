@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   isMVILevel,
@@ -12,8 +14,10 @@ import {
 } from "../src/index.js";
 import type { LAFSEnvelope, MVILevel } from "../src/index.js";
 
+const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
 function loadEnvelope(path: string): LAFSEnvelope {
-  return JSON.parse(readFileSync(path, "utf8")) as LAFSEnvelope;
+  return JSON.parse(readFileSync(resolve(PKG_ROOT, path), "utf8")) as LAFSEnvelope;
 }
 
 describe("isMVILevel", () => {
@@ -41,19 +45,19 @@ describe("isMVILevel", () => {
 });
 
 describe("resolveFieldExtraction", () => {
-  it("defaults to mvi:'standard', mviSource:'default', expectsCustomMvi:false", () => {
+  it("defaults to mvi:'minimal', mviSource:'default', expectsCustomMvi:false", () => {
     const result = resolveFieldExtraction({});
-    expect(result.mvi).toBe("standard");
+    expect(result.mvi).toBe("minimal");
     expect(result.mviSource).toBe("default");
     expect(result.expectsCustomMvi).toBe(false);
     expect(result.field).toBeUndefined();
     expect(result.fields).toBeUndefined();
   });
 
-  it("fieldFlag sets field, mvi defaults to standard", () => {
+  it("fieldFlag sets field, mvi defaults to minimal", () => {
     const result = resolveFieldExtraction({ fieldFlag: "title" });
     expect(result.field).toBe("title");
-    expect(result.mvi).toBe("standard");
+    expect(result.mvi).toBe("minimal");
     expect(result.expectsCustomMvi).toBe(false);
   });
 
@@ -104,15 +108,15 @@ describe("resolveFieldExtraction", () => {
     expect(result.mviSource).toBe("flag");
   });
 
-  it("invalid mviFlag → falls back to standard, mviSource:'default'", () => {
+  it("invalid mviFlag → falls back to minimal, mviSource:'default'", () => {
     const result = resolveFieldExtraction({ mviFlag: "verbose" });
-    expect(result.mvi).toBe("standard");
+    expect(result.mvi).toBe("minimal");
     expect(result.mviSource).toBe("default");
   });
 
-  it("mviFlag:'custom' → falls back to standard (not client-requestable)", () => {
+  it("mviFlag:'custom' → falls back to minimal (not client-requestable)", () => {
     const result = resolveFieldExtraction({ mviFlag: "custom" });
-    expect(result.mvi).toBe("standard");
+    expect(result.mvi).toBe("minimal");
     expect(result.mviSource).toBe("default");
   });
 

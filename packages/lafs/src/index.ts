@@ -100,6 +100,7 @@ export * from './flagSemantics.js';
 // Operations & Reliability
 export * from './health/index.js';
 export * from './mviProjection.js';
+export { isNativeAvailable } from './native-loader.js';
 export type { LafsProblemDetails } from './problemDetails.js';
 export { lafsErrorToProblemDetails, PROBLEM_DETAILS_CONTENT_TYPE } from './problemDetails.js';
 export * from './shutdown/index.js';

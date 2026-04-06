@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.3] - 2026-04-06
+
+### Added
+
+- **Native Rust validation via napi-rs**: Schema validation now uses a Rust-native validator (`lafs-napi` crate) with compile-time embedded schema and `OnceLock`-cached compilation. Falls back to AJV when the native binary is unavailable.
+- **`crates/lafs-napi/`**: New napi-rs binding crate following the `cant-napi` pattern. Exposes `lafsValidateEnvelope()` returning structured errors matching `StructuredValidationError`.
+- **`ValidationErrorDetail` in `lafs-core`**: Pure Rust structured validation error type with AJV-compatible keyword names and params. Exhaustive `ValidationErrorKind` mapping for 25+ JSON Schema keywords.
+- **`native-loader.ts`**: Lazy native addon loader with `@cleocode/lafs-native` and development fallback paths.
+- **`isNativeAvailable()` export**: Runtime check for native binding availability.
+- **Migration fixture**: `migrations/1.0.0-to-1.1.0.json` for deprecation migration tests.
+
+### Changed
+
+- **`lafs-core` is now a pure Rust library**: Removed napi dependencies, changed crate-type to `rlib` only. napi exports moved to dedicated `lafs-napi` crate.
+- **AJV initialization is now lazy**: AJV is only loaded when the native binding is unavailable, reducing startup cost.
+- **`validate_envelope_json()` returns structured errors**: Replaced the old string-only error with `ValidateEnvelopeError::SchemaErrors(Vec<ValidationErrorDetail>)`.
+- **Upgraded napi-rs from alpha to stable**: `napi = "3"` (was `3.0.0-alpha.26`), `napi-derive = "3"` (was `3.0.0-alpha.22`).
+
+### Fixed
+
+- **Vitest config**: Added `packages/*/tests/**/*.test.ts` to workspace include pattern so `packages/lafs/tests/` are discoverable.
+- **Test fixture paths**: Resolved relative paths in 5 test files using `import.meta.url` for correct resolution from workspace root.
+- **`fieldExtraction` test assertions**: Fixed 4 tests that expected `'standard'` default MVI but source correctly returns `'minimal'`.
+
 ## [2026.4.0] - 2026-04-03
 
 ### Changed

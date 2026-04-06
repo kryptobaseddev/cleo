@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createEnvelope,
@@ -6,6 +8,8 @@ import {
   getDeprecationRegistry,
   type LAFSEnvelope,
 } from "../src/index.js";
+
+const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("deprecation registry", () => {
   it("contains sunset-date metadata", () => {
@@ -69,7 +73,7 @@ describe("deprecation registry", () => {
 describe("migration manifest parsing", () => {
   it("parses 1.0.0-to-1.1.0 migration manifest with warnings change", () => {
     const manifest = JSON.parse(
-      readFileSync("migrations/1.0.0-to-1.1.0.json", "utf8"),
+      readFileSync(resolve(PKG_ROOT, "migrations/1.0.0-to-1.1.0.json"), "utf8"),
     ) as {
       from: string;
       to: string;

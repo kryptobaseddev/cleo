@@ -1,0 +1,21 @@
+[package]
+name = "lafs-napi"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "napi-rs bindings for lafs-core schema validation"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lafs-core = { path = "../lafs-core" }
+napi = { version = "3", features = ["napi4", "serde-json"] }
+napi-derive = "3"
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "1"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"

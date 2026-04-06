@@ -384,5 +384,202 @@ impl LafsEnvelope {
     }
 }
 
+// ── Validation Engine ───────────────────────────────────────────────────
+
+use std::sync::OnceLock;
+
+/// The embedded LAFS envelope JSON Schema, compiled into the binary.
+static LAFS_ENVELOPE_SCHEMA: &str =
+    include_str!("../../../packages/lafs/schemas/v1/envelope.schema.json");
+
+/// Lazily compiled schema validator (compiled once, shared across calls).
+static COMPILED_VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
+
+/// Returns a reference to the lazily compiled schema validator.
+fn get_validator() -> &'static jsonschema::Validator {
+    COMPILED_VALIDATOR.get_or_init(|| {
+        let schema: serde_json::Value =
+            serde_json::from_str(LAFS_ENVELOPE_SCHEMA).expect("embedded schema is valid JSON");
+        jsonschema::validator_for(&schema).expect("embedded schema compiles")
+    })
+}
+
+/// A single structured validation error with AJV-compatible fields.
+///
+/// Maps `jsonschema::ValidationError` to a shape matching the TypeScript
+/// `StructuredValidationError` interface in `packages/lafs`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ValidationErrorDetail {
+    /// JSON Pointer path to the failing property (e.g., `"/_meta/mvi"`).
+    pub path: String,
+    /// JSON Schema keyword that triggered the error (e.g., `"required"`, `"pattern"`).
+    pub keyword: String,
+    /// Human-readable error message.
+    pub message: String,
+    /// Keyword-specific parameters as a JSON value.
+    pub params: serde_json::Value,
+}
+
+/// Maps a `jsonschema::ValidationErrorKind` to an AJV-compatible keyword string and params.
+fn map_error_kind(
+    kind: &jsonschema::error::ValidationErrorKind,
+) -> (&'static str, serde_json::Value) {
+    use jsonschema::error::ValidationErrorKind;
+
+    match kind {
+        ValidationErrorKind::Required { property } => (
+            "required",
+            serde_json::json!({ "missingProperty": property }),
+        ),
+        ValidationErrorKind::Pattern { pattern } => {
+            ("pattern", serde_json::json!({ "pattern": pattern }))
+        }
+        ValidationErrorKind::Enum { options } => {
+            ("enum", serde_json::json!({ "allowedValues": options }))
+        }
+        ValidationErrorKind::Type { kind: type_kind } => (
+            "type",
+            serde_json::json!({ "type": format!("{type_kind:?}") }),
+        ),
+        ValidationErrorKind::Minimum { limit } => (
+            "minimum",
+            serde_json::json!({ "limit": limit, "comparison": ">=" }),
+        ),
+        ValidationErrorKind::Maximum { limit } => (
+            "maximum",
+            serde_json::json!({ "limit": limit, "comparison": "<=" }),
+        ),
+        ValidationErrorKind::ExclusiveMinimum { limit } => (
+            "exclusiveMinimum",
+            serde_json::json!({ "limit": limit, "comparison": ">" }),
+        ),
+        ValidationErrorKind::ExclusiveMaximum { limit } => (
+            "exclusiveMaximum",
+            serde_json::json!({ "limit": limit, "comparison": "<" }),
+        ),
+        ValidationErrorKind::MinLength { limit } => {
+            ("minLength", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MaxLength { limit } => {
+            ("maxLength", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MinItems { limit } => {
+            ("minItems", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MaxItems { limit } => {
+            ("maxItems", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MinProperties { limit } => {
+            ("minProperties", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MaxProperties { limit } => {
+            ("maxProperties", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::MultipleOf { multiple_of } => (
+            "multipleOf",
+            serde_json::json!({ "multipleOf": multiple_of }),
+        ),
+        ValidationErrorKind::Constant { expected_value } => (
+            "const",
+            serde_json::json!({ "allowedValue": expected_value }),
+        ),
+        ValidationErrorKind::Format { format } => {
+            ("format", serde_json::json!({ "format": format }))
+        }
+        ValidationErrorKind::AdditionalProperties { unexpected } => (
+            "additionalProperties",
+            serde_json::json!({ "additionalProperty": unexpected.first().unwrap_or(&String::new()) }),
+        ),
+        ValidationErrorKind::AdditionalItems { limit } => {
+            ("additionalItems", serde_json::json!({ "limit": limit }))
+        }
+        ValidationErrorKind::UniqueItems => ("uniqueItems", serde_json::json!({})),
+        ValidationErrorKind::Not { .. } => ("not", serde_json::json!({})),
+        ValidationErrorKind::AnyOf => ("anyOf", serde_json::json!({})),
+        ValidationErrorKind::OneOfNotValid => ("oneOf", serde_json::json!({})),
+        ValidationErrorKind::OneOfMultipleValid => ("oneOf", serde_json::json!({})),
+        ValidationErrorKind::Contains => ("contains", serde_json::json!({})),
+        ValidationErrorKind::FalseSchema => ("false", serde_json::json!({})),
+        ValidationErrorKind::Custom { message } => {
+            ("custom", serde_json::json!({ "message": message }))
+        }
+        _ => ("unknown", serde_json::json!({})),
+    }
+}
+
+/// Error from [`validate_envelope_json`].
+#[derive(Debug, Clone)]
+pub enum ValidateEnvelopeError {
+    /// The input string is not valid JSON.
+    InvalidJson(String),
+    /// The JSON is valid but does not conform to the LAFS envelope schema.
+    SchemaErrors(Vec<ValidationErrorDetail>),
+}
+
+impl std::fmt::Display for ValidateEnvelopeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidJson(msg) => write!(f, "Invalid JSON: {msg}"),
+            Self::SchemaErrors(errors) => {
+                let msgs: Vec<String> = errors
+                    .iter()
+                    .map(|e| format!("{} {}", e.path, e.message).trim().to_string())
+                    .collect();
+                write!(f, "Schema validation failed: {}", msgs.join("; "))
+            }
+        }
+    }
+}
+
+impl std::error::Error for ValidateEnvelopeError {}
+
+/// Validate a JSON string against the embedded LAFS envelope schema.
+///
+/// Returns `Ok(())` on success, or an error with structured details.
+/// Uses a lazily compiled validator for performance.
+///
+/// # Example
+///
+/// ```
+/// use lafs_core::ValidateEnvelopeError;
+///
+/// let json = r#"{"$schema":"https://lafs.dev/schemas/v1/envelope.schema.json"}"#;
+/// let result = lafs_core::validate_envelope_json(json);
+/// assert!(matches!(result, Err(ValidateEnvelopeError::SchemaErrors(_))));
+/// ```
+pub fn validate_envelope_json(payload: &str) -> Result<(), ValidateEnvelopeError> {
+    let json_payload: serde_json::Value = serde_json::from_str(payload)
+        .map_err(|e| ValidateEnvelopeError::InvalidJson(e.to_string()))?;
+
+    let validator = get_validator();
+    let errors: Vec<ValidationErrorDetail> = validator
+        .iter_errors(&json_payload)
+        .map(|e| {
+            let path_str = e.instance_path.as_str();
+            let path = if path_str.is_empty() {
+                "/".to_string()
+            } else {
+                path_str.to_string()
+            };
+            let (keyword, params) = map_error_kind(&e.kind);
+            ValidationErrorDetail {
+                path,
+                keyword: keyword.to_string(),
+                message: e.to_string(),
+                params,
+            }
+        })
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ValidateEnvelopeError::SchemaErrors(errors))
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod validation_tests;

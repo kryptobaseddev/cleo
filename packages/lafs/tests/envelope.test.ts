@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   getTransportMapping,
@@ -7,8 +9,10 @@ import {
   validateEnvelope,
 } from "../src/index.js";
 
+const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
 function load(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  return JSON.parse(readFileSync(resolve(PKG_ROOT, path), "utf8")) as unknown;
 }
 
 describe("LAFS envelope", () => {
